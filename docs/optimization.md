@@ -62,6 +62,8 @@ after each pass under `--lint`.
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassUnroll` | Copy the body of a small local loop at each call whose literal arguments decide its recursion, until no call is left. At most 8 copies of at most 200 nodes each. `Aihc.Fc.Unroll`. |
+| `PassStateTokens` | Use the value of an earlier read of a `MutVar#` for a read that takes its token, and remove a `touch#` that a later `touch#` of the same object makes redundant. `Aihc.Fc.StateToken`. |
+| `PassCse` | Use a let in scope for an equal pure expression, and bind a safe primitive call that one path calculates more than one time. `Aihc.Fc.Cse`. |
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 | `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function without a pragma, or, in the late run, the local recursive functions and the top-level `INLINE` functions that another value calls. `Aihc.Fc.WorkerWrapper`. |
 | `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
@@ -84,9 +86,9 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
+| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
@@ -248,6 +250,38 @@ argument then holds a value instead of a thunk. The case gets the type of
 the call, so the head of the call must be a constructor or a top-level value
 with a known type. A case in a lazy let is not speculated yet, because the
 simplifier does not know the type of the body of the let.
+
+## State tokens and common subexpressions
+
+`PassStateTokens` and `PassCse` run after the last simplifying walk and
+before constant lifting.
+
+`PassStateTokens` does two rewrites:
+
+- A read `readMutVar# r s1` that takes the token `s1` of an earlier read
+  of `r` gets the value of the earlier read. No operation runs between the
+  two reads in that state thread.
+- A `touch#` keeps an object alive until the point where it runs. A
+  `let _ : State# s = touch# o s1` whose token no code uses is correct: a
+  let of an unlifted type is strict, so the `touch#` runs after the
+  operation that gave `s1`. When a later `touch#` of the same object
+  follows on the same straight path, the pass moves the earlier `touch#`
+  down to it and removes it. Each operation on the way that starts a state
+  thread from `realWorld#` takes the token before it. Thus the token
+  orders the operations and the remaining `touch#` by data. The byte reads
+  of a `ByteString` through `accursedUnutterablePerformIO` start such
+  threads, so the reads of a word share one `touch#`.
+
+`PassCse` does two rewrites:
+
+- An expression that is equal to the pure right-hand side of a let in
+  scope becomes the binder of that let. A pure right-hand side has
+  applications of variables and constructors, casts, and safe primitive
+  calls, and no state token.
+- A safe primitive call that one path calculates two or more times gets
+  one strict let, at the lowest body position that has these
+  occurrences. A case counts the largest number of one alternative, so a
+  call that two alternatives calculate one time each stays.
 
 ## Constant lifting
 

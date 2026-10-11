@@ -41,7 +41,9 @@ data OptimizationPlan = OptimizationPlan
 -- inliner to take, and again after it, because a call of a class method
 -- hides the arity of the method until the selection is inlined. One
 -- simplifying walk then reduces the applications and casts the second
--- expansion leaves behind. Constant lifting then shares closed constructors.
+-- expansion leaves behind. The state token pass and the common
+-- subexpression pass then remove redundant reads, @touch#@ calls and
+-- calculations, and constant lifting shares closed constructors.
 --
 -- @-O2@ and @-Os@ compile the whole program; @--lto@ asks for the same
 -- scope at the other levels without changing their passes. @-O2@ and @-Os@
@@ -82,6 +84,6 @@ optimizationPlan lto level =
     -- evaluate it. Its simplifying walks copy a local function at a call
     -- that the copy of a loop gives a constructor, within the site limit
     -- of the growing policy.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassLiftConstants]
-    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
+    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
     rounds = 4

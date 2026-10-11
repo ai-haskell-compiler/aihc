@@ -21,8 +21,9 @@ import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
-import GHC.Base (Maybe (..), id, seq, (++), (.))
+import GHC.Base (Maybe (..), String, id, seq, (++), (.))
 import GHC.Base qualified
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -65,11 +66,11 @@ class Foldable (t :: Type -> Type) where
     where
       strictLeftStep value continuation rest =
         rest `seq` continuation (f rest value)
-  foldr1 f structure = fromMaybeFoldable emptyStructure (foldr rightStep Nothing structure)
+  foldr1 f structure = fromMaybeFoldable (emptyStructure "foldr1") (foldr rightStep Nothing structure)
     where
       rightStep value Nothing = Just value
       rightStep value (Just rest) = Just (f value rest)
-  foldl1 f structure = fromMaybeFoldable emptyStructure (foldl leftStep Nothing structure)
+  foldl1 f structure = fromMaybeFoldable (emptyStructure "foldl1") (foldl leftStep Nothing structure)
     where
       leftStep Nothing value = Just value
       leftStep (Just rest) value = Just (f rest value)
@@ -108,8 +109,9 @@ instance Semigroup (Endo a) where
 instance Monoid (Endo a) where
   mempty = Endo id
 
-emptyStructure :: a
-emptyStructure = emptyStructure
+-- | The error of a fold that needs an element, on an empty structure.
+emptyStructure :: String -> a
+emptyStructure function = errorWithoutStackTrace (function ++ ": empty structure")
 
 -- | The strict left fold of a list. It evaluates the initial accumulator
 -- once, and then each new accumulator before the next step. The step

@@ -45,8 +45,8 @@ expected: |-
   }
 
   pub val 1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). FUN @sLiftedRep @r tMessage a
-    = Λ(r : tRuntimeRep) (a : tTYPE r). λ($d0 : tMessage).
-      prim raise# @r @tMessage @a $d0
+    = Λ(r : tRuntimeRep) (a : tTYPE r). λ($d : tMessage).
+      prim raise# @r @tMessage @a $d
   scope 1 = "" Failure
   scope 2 = "" Test
   scope 3 = "aihc-prim" GHC.Types

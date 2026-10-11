@@ -170,6 +170,7 @@ library
     Aihc.Fc.CallPattern
     Aihc.Fc.ConstantLift
     Aihc.Fc.Convert
+    Aihc.Fc.Cse
     Aihc.Fc.Demand
     Aihc.Fc.Desugar
     Aihc.Fc.Fold
@@ -188,6 +189,7 @@ library
     Aihc.Fc.Simplify
     Aihc.Fc.Size
     Aihc.Fc.Specialise
+    Aihc.Fc.StateToken
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf

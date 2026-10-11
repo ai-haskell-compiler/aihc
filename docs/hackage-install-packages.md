@@ -82,6 +82,7 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | indexed-traversable | 0.1.4 |
 | comonad | 5.0.10 |
 | bifunctors | 5.6.3 |
+| profunctors | 5.6.3 |
 | integer-conversion | 0.1.1 |
 | prettyprinter-ansi-terminal | 1.1.3 |
 | random | 1.2.1.3 |

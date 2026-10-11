@@ -95,9 +95,11 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
   tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   forM_ subst (uncurry writeMetaTv)
+  -- Resolve the kind metas before each use substitutes the kind variables.
+  generalized <- mapM zonkBinding zonked'
   pure
     [ Scheme ([kindVariable | kindVariable <- kindVariables, any (typeMentionsTyVar kindVariable . tvKind) bound] <> bound) [] (map (substMetasPred subst) preds) (substMetas subst ty)
-    | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars,
+    | ((ty, preds), metaVars) <- zip generalized bindingMetaVars,
       let bound = [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars]
     ]
   where
@@ -130,8 +132,8 @@ generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
-  let quantifiedTy = substMetas subst ty''
-  let quantifiedPreds = map (substMetasPred subst) preds''
+  quantifiedTy <- zonkType (substMetas subst ty'')
+  quantifiedPreds <- mapM (zonkPred . substMetasPred subst) preds''
   pure (Scheme (kindVariables <> tvs) [] quantifiedPreds quantifiedTy, subst)
 
 -- | The kind variables of a binding that quantifies the given metas: each

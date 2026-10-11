@@ -80,6 +80,7 @@ import Aihc.Fc.TypeOf
     substType,
     typeEnvFromProgram,
     typeHead,
+    typesEqual,
     viewForAll,
     viewFun,
   )
@@ -553,7 +554,60 @@ expandLocals env expr =
           )
           alternatives
       pure (ExCase scrutinee' binder alternatives')
-    ExForeignCall call types arguments -> ExForeignCall call types <$> traverse (expandLocals env) arguments
+    ExForeignCall call types arguments -> do
+      arguments' <- traverse (expandLocals env) arguments
+      pure (fromMaybe (ExForeignCall call types arguments') (newtypeCoercion env call types arguments'))
+
+-- | An @unsafeCoerce#@ between two types that differ only by newtypes is
+-- a cast. @coerce@ is such a call, and the arity of a function under it
+-- is hidden from the arity analysis and the inliner:
+--
+-- > unalignedWriteU32 = coerce (λx p s. (# write p x s, () #))
+--
+-- is the function @λx p. (λs. ...) ▷ sym (axiom-co $ax$IO @())@. The
+-- cast goes under each lambda whose argument it does not change, so the
+-- lambdas are manifest.
+newtypeCoercion :: Env -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+newtypeCoercion env call types arguments
+  | foreignCallConvention call == Prim,
+    nameText (foreignCallName call) == "unsafeCoerce#",
+    [sourceRep, targetRep, source, target] <- types,
+    sourceRep == targetRep,
+    [argument] <- arguments =
+      castInto argument <$> coercionBetween env Set.empty source target
+  | otherwise = Nothing
+  where
+    castInto expr coercion =
+      case (expr, coercion) of
+        (_, CoRefl _) -> expr
+        (ExLam binder body, CoFun (CoRefl _) result) -> ExLam binder (castInto body result)
+        _ -> mkCast expr coercion
+
+-- | A coercion from one type to another through the newtypes that the two
+-- types unfold to, or 'Nothing' when the two types differ in any other
+-- way. A function type gives a coercion of its argument and of its
+-- result. Each newtype unfolds once on a path, so that a recursive
+-- newtype stops.
+coercionBetween :: Env -> Set Name -> Type -> Type -> Maybe Coercion
+coercionBetween env unfolded source target
+  | typesEqual types source target = Just (CoRefl source)
+  | Just (sourceArgumentRep, sourceResultRep, sourceArgument, sourceResult) <- viewFun types source,
+    Just (targetArgumentRep, targetResultRep, targetArgument, targetResult) <- viewFun types target,
+    typesEqual types sourceArgumentRep targetArgumentRep,
+    typesEqual types sourceResultRep targetResultRep =
+      CoFun <$> coercionBetween env unfolded sourceArgument targetArgument <*> coercionBetween env unfolded sourceResult targetResult
+  | Just (coercion@(CoAxiom axiom _), right) <- unfoldNewtype env unfolded target =
+      (`transitive` CoSym coercion) <$> coercionBetween env (Set.insert axiom unfolded) source right
+  | Just (coercion@(CoAxiom axiom _), right) <- unfoldNewtype env unfolded source =
+      transitive coercion <$> coercionBetween env (Set.insert axiom unfolded) right target
+  | otherwise = Nothing
+  where
+    types = envTypes env
+    transitive first second =
+      case (first, second) of
+        (CoRefl _, _) -> second
+        (_, CoRefl _) -> first
+        _ -> CoTrans first second
 
 -- | The arity type of each member of a local recursive group, as GHC's
 -- @findRhsArity@ finds it. A call of a member inside the group is cheap

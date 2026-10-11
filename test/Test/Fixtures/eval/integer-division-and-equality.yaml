@@ -1,0 +1,43 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException (..), evaluate, try)
+    import Prelude
+
+    -- Small values divide with the primops. The minimum Int and -1 use the
+    -- magnitude division, because the quotient is not a small value.
+    smallInt :: Integer
+    smallInt = toInteger (minBound :: Int)
+
+    main :: IO ()
+    main = do
+      print [quotRem (17 :: Integer) 5, quotRem (-17) 5, quotRem 17 (-5), quotRem (-17) (-5)]
+      print [divMod (17 :: Integer) 5, divMod (-17) 5, divMod 17 (-5), divMod (-17) (-5)]
+      print [quot smallInt (-1), rem smallInt (-1), div smallInt (-1), mod smallInt (-1)]
+      print [negate smallInt, negate (negate smallInt), abs smallInt]
+      print [mod (-7 :: Integer) 2, mod 7 (-2), div 0 3, mod 0 (-3)]
+      zero <- try (evaluate (quot (1 :: Integer) 0)) :: IO (Either ArithException Integer)
+      print zero
+      large <- try (evaluate (mod (18446744073709551616 :: Integer) 0)) :: IO (Either ArithException Integer)
+      print large
+      print [(0 :: Integer) == 0, 18446744073709551616 == 18446744073709551616, 18446744073709551616 == 18446744073709551617]
+      print [(-18446744073709551616 :: Integer) == -18446744073709551616, 18446744073709551616 == -18446744073709551616, 1 == 18446744073709551616]
+      print [smallInt == negate 9223372036854775808, (340282366920938463463374607431768211456 :: Integer) == 18446744073709551616]
+stdout: |
+  [(3,2),(-3,-2),(-3,2),(3,-2)]
+  [(3,2),(-4,3),(-4,-3),(3,-2)]
+  [9223372036854775808,0,9223372036854775808,0]
+  [9223372036854775808,-9223372036854775808,9223372036854775808]
+  [1,-1,0,0]
+  Left divide by zero
+  Left divide by zero
+  [True,True,False]
+  [True,False,False]
+  [True,False]
+output: |
+  ()
+expression: main
+status: pass
+reason: Integer division has a small-value fast path and a zero check, and Integer equality compares constructors and magnitudes without an ordering

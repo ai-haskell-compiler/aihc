@@ -52,8 +52,9 @@ import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Magic.Dict (withDict)
 import GHC.Num qualified
-import GHC.Prim (ord#, seq, (==#))
+import GHC.Prim (seq)
 import GHC.Prim.Show (Show (..), ShowS)
+import GHC.Prim.String (eqString)
 import GHC.Types (Char (..), KindRep (..), Levity (..), Module (..), RuntimeRep (..), TYPE, TrName (..), TyCon (..), Type, VecCount (..), VecElem (..), type (~~))
 import GHC.Types qualified
 import Unsafe.Coerce (unsafeCoerce)
@@ -121,10 +122,16 @@ eqSomeTypeRep (SomeTypeRep (TypeRep leftTyCon leftKinds leftArgs)) (SomeTypeRep 
 -- fingerprints, which aihc does not build; the name, the module and the
 -- package identify a constructor just as well.
 eqTyCon :: TyCon -> TyCon -> Bool
-eqTyCon left right =
-  sameString (tyConPackage left) (tyConPackage right)
-    && sameString (tyConModule left) (tyConModule right)
-    && sameString (tyConName left) (tyConName right)
+eqTyCon (TyCon (Module leftPackage leftModule) leftName _ _) (TyCon (Module rightPackage rightModule) rightName _ _) =
+  eqTrName leftName rightName
+    && eqTrName leftModule rightModule
+    && eqTrName leftPackage rightPackage
+
+-- | Whether two names have the same text. The function stays a call, thus
+-- each comparison in 'eqTyCon' is one line.
+eqTrName :: TrName -> TrName -> Bool
+eqTrName left right = eqString (trNameString left) (trNameString right)
+{-# NOINLINE eqTrName #-}
 
 sameTypeReps :: [SomeTypeRep] -> [SomeTypeRep] -> Bool
 sameTypeReps [] [] = True
@@ -132,18 +139,6 @@ sameTypeReps [] (_ : _) = False
 sameTypeReps (_ : _) [] = False
 sameTypeReps (left : lefts) (right : rights) =
   eqSomeTypeRep left right && sameTypeReps lefts rights
-
-sameString :: String -> String -> Bool
-sameString [] [] = True
-sameString [] (_ : _) = False
-sameString (_ : _) [] = False
-sameString (left : lefts) (right : rights) = sameChar left right && sameString lefts rights
-
-sameChar :: Char -> Char -> Bool
-sameChar (C# left) (C# right) =
-  case (==#) (ord# left) (ord# right) of
-    0# -> False
-    _ -> True
 
 rnfTyCon :: TyCon -> ()
 rnfTyCon (TyCon modul name _ _) = rnfModule modul `seq` rnfTrName name
@@ -206,7 +201,7 @@ data FunView (a :: k) where
 
 splitFun :: forall k (a :: k). TypeRep a -> FunView a
 splitFun (TypeRep con _ [SomeTypeRep a, SomeTypeRep b]) =
-  if sameString (tyConModule con) "GHC.Types" && sameString (tyConName con) "(->)"
+  if eqString (tyConModule con) "GHC.Types" && eqString (tyConName con) "(->)"
     then unsafeCoerce (IsFun (unsafeCoerce a :: TypeRep ()) (unsafeCoerce b :: TypeRep ()))
     else NotFun
 splitFun _ = NotFun
