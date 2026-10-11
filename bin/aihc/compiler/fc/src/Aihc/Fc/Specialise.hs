@@ -46,7 +46,7 @@ module Aihc.Fc.Specialise
 where
 
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isTrivial, maxLocalUnique, substExpr, substTypeExpr)
+import Aihc.Fc.Simplify (collectSpine, exprValueNames, freshenExprFrom, isTrivial, maxLocalUnique, substExpr, substTypeExpr)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (substType, substTypes)
@@ -57,6 +57,7 @@ import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, isJust)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -87,11 +88,14 @@ type Arg = Either Type Expr
 -- | A fresh unique for each new binder, and the report so far.
 type SpecM = State (Int, SpecialiseReport)
 
--- | Specialise every local recursive function of the program.
+-- | Specialise every local recursive function of the program, and every
+-- top-level function on the constant dictionaries of its calls (see
+-- 'specialiseTopLevel').
 specialiseProgram :: Program -> (Program, SpecialiseReport)
-specialiseProgram program =
-  let (decls, (_, report)) = runState (mapM onDecl (programDecls program)) (maxLocalUnique program + 1, mempty)
-   in (tidyProgram program {programDecls = decls}, report)
+specialiseProgram program0 =
+  let (program, topReport) = specialiseTopLevel program0
+      (decls, (_, report)) = runState (mapM onDecl (programDecls program)) (maxLocalUnique program + 1, mempty)
+   in (tidyProgram program {programDecls = decls}, report <> topReport)
   where
     onDecl decl =
       case decl of
@@ -369,3 +373,200 @@ fresh name = state (\(supply, report) -> (name {nameOrigin = OriginLocal (Unique
 
 freshen :: Expr -> SpecM Expr
 freshen expr = state (\(supply, report) -> let (copy, supply') = freshenExprFrom supply expr in (copy, (supply', report)))
+
+-- * Top-level functions
+
+-- | The largest body, in nodes, that gets a copy for each static key.
+topLevelSizeLimit :: Int
+topLevelSizeLimit = 600
+
+-- | How many times the top-level specialisation runs. A copy can call
+-- another function with a dictionary that is static only in the copy.
+topLevelRounds :: Int
+topLevelRounds = 3
+
+-- | Specialise the top-level functions that take dictionaries on the
+-- constant dictionaries that their calls give:
+--
+-- > vinsert @tByteString v$fOrdByteString k v m
+--
+-- gets a copy @$sinsert@ of @insert@ with the type and the dictionary in
+-- place, and the call becomes @$sinsert k v m@. A method selection from
+-- the dictionary in the copy is then a selection from a known value,
+-- which the inliner resolves to the instance method. A recursive call in
+-- the copy gives the same key, so it calls the copy too.
+--
+-- A key is static when its types have no free type variable and each
+-- dictionary is a top-level value under type applications of such
+-- types. A function gets copies when its body starts with the prefix of
+-- 'staticPrefix', it has no @NOINLINE@ pragma, no rule names it, its body
+-- is within 'topLevelSizeLimit', and its calls give at most
+-- 'specialisationLimit' distinct keys. A copy is private and keeps the
+-- pragma of the function.
+specialiseTopLevel :: Program -> (Program, SpecialiseReport)
+specialiseTopLevel program0 = go topLevelRounds Map.empty program0 mempty
+  where
+    ruleNames = Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- programDecls program0]
+    go :: Int -> Map.Map (Name, [Arg]) Name -> Program -> SpecialiseReport -> (Program, SpecialiseReport)
+    go rounds done program report
+      | rounds <= 0 || null wanted = (program, report)
+      | otherwise =
+          go
+            (rounds - 1)
+            done'
+            program {programDecls = map (rewriteDecl rewrite) (decls <> copies)}
+            (report <> SpecialiseReport (length (List.nub (map fst wanted))) (length copies) 0)
+      where
+        decls = programDecls program
+        candidates =
+          Map.fromList
+            [ (valName declaration, (declaration, prefix, inner))
+            | DeclVal declaration <- decls,
+              not (neverInlined (valInline declaration)),
+              valName declaration `Set.notMember` ruleNames,
+              Just (prefix, inner) <- [staticPrefix (valBody declaration)],
+              nodeCount (valBody declaration) <= topLevelSizeLimit
+            ]
+        lengths = Map.map (\(_, prefix, _) -> prefixLength prefix) candidates
+        calls = Map.fromListWith (flip (<>)) [(name, [key]) | DeclVal declaration <- decls, (name, key) <- staticCalls lengths (valBody declaration)]
+        wanted =
+          [ (name, key)
+          | (name, keys) <- Map.toList calls,
+            Just (declaration, prefix, _) <- [Map.lookup name candidates],
+            let distinct = List.nub keys
+                earlier = [key | (name', key) <- Map.keys done, name' == name],
+            length (List.nub (distinct <> earlier)) <= specialisationLimit,
+            key <- distinct,
+            Map.notMember (name, key) done,
+            isJust (instantiate (valType declaration) (lefts key) (length (prefixDictionaries prefix)))
+          ]
+        named = snd (List.mapAccumL nameCopy (Set.fromList [valName declaration | DeclVal declaration <- decls]) wanted)
+        done' = Map.union done (Map.fromList [((name, key), copy) | (name, key, copy) <- named])
+        copies =
+          [ DeclVal (makeTopCopy declaration prefix inner key copy)
+          | (name, key, copy) <- named,
+            Just (declaration, prefix, inner) <- [Map.lookup name candidates]
+          ]
+        allLengths = Map.union lengths (Map.fromList [(name, length key) | (name, key) <- Map.keys done'])
+        rewrite = rewriteStaticCalls allLengths done'
+    nameCopy taken (name, key) =
+      let base = "$s" <> nameText name
+          pick index =
+            let candidate = name {nameText = if index == 0 then base else base <> T.pack (show index)}
+             in if candidate `Set.member` taken then pick (index + 1) else candidate
+          chosen = pick (0 :: Int)
+       in (Set.insert chosen taken, (name, key, chosen))
+    neverInlined spec =
+      case spec of
+        InlineNever _ -> True
+        _ -> False
+    rewriteDecl rewrite decl =
+      case decl of
+        DeclVal declaration -> DeclVal declaration {valBody = rewrite (valBody declaration)}
+        _ -> decl
+
+-- | The copy of a function at a static key.
+makeTopCopy :: ValDecl -> Prefix -> Expr -> [Arg] -> Name -> ValDecl
+makeTopCopy declaration prefix inner key copy =
+  declaration
+    { valVis = Private,
+      valName = copy,
+      valType = fromMaybe (valType declaration) (instantiate (valType declaration) (lefts key) (length (prefixDictionaries prefix))),
+      valBody = substExpr valueSubst (substTypeExpr typeSubst inner)
+    }
+  where
+    typeSubst = Map.fromList (zip (map binderName (prefixTypes prefix)) (lefts key))
+    valueSubst = Map.fromList (zip (map binderName (prefixDictionaries prefix)) (rights key))
+
+-- | The static keys of the calls of the candidates in an expression, by
+-- the prefix length of each candidate.
+staticCalls :: Map.Map Name Int -> Expr -> [(Name, [Arg])]
+staticCalls lengths = go
+  where
+    go expr =
+      case expr of
+        ExApp {} -> spine expr
+        ExTyApp {} -> spine expr
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet (Bind _ rhs) body -> go rhs <> go body
+        ExRec binds body -> concatMap (go . bindRhs) binds <> go body
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> concatMap (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> concatMap go arguments
+        _ -> []
+    spine expr =
+      let (function, arguments) = collectSpine expr
+          inArguments = concat [go argument | Right argument <- arguments]
+       in case function of
+            ExVar name
+              | Just count <- Map.lookup name lengths,
+                length arguments >= count,
+                key <- take count arguments,
+                staticGlobalKey key ->
+                  (name, key) : inArguments
+            _ -> go function <> inArguments
+
+-- | Whether every type of a key is closed and every dictionary is a
+-- top-level value under type applications of closed types.
+staticGlobalKey :: [Arg] -> Bool
+staticGlobalKey = all static
+  where
+    static argument =
+      case argument of
+        Left ty -> Set.null (typeVariables ty)
+        Right expr -> dictionary expr
+    dictionary expr =
+      case expr of
+        ExVar name
+          | OriginTop {} <- nameOrigin name -> True
+        ExTyApp function ty -> dictionary function && Set.null (typeVariables ty)
+        _ -> False
+
+-- | Replace each call whose key has a copy by a call of the copy.
+rewriteStaticCalls :: Map.Map Name Int -> Map.Map (Name, [Arg]) Name -> Expr -> Expr
+rewriteStaticCalls lengths copies = go
+  where
+    go expr =
+      case expr of
+        ExApp {} -> spine expr
+        ExTyApp {} -> spine expr
+        ExLam binder body -> ExLam binder (go body)
+        ExTyLam binder body -> ExTyLam binder (go body)
+        ExLet (Bind binder rhs) body -> ExLet (Bind binder (go rhs)) (go body)
+        ExRec binds body -> ExRec [Bind binder (go rhs) | Bind binder rhs <- binds] (go body)
+        ExCase scrutinee binder alternatives ->
+          ExCase (go scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
+        ExCast body coercion -> ExCast (go body) coercion
+        ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
+        _ -> expr
+    spine expr =
+      let (function, arguments) = collectSpine expr
+          arguments' = map (fmap go) arguments
+       in case function of
+            ExVar name
+              | Just count <- Map.lookup name lengths,
+                length arguments >= count,
+                Just copy <- Map.lookup (name, take count arguments) copies ->
+                  rebuild (ExVar copy) (drop count arguments')
+            _ -> rebuild (go function) arguments'
+    rebuild = List.foldl' (\function argument -> either (ExTyApp function) (ExApp function) argument)
+
+-- | The number of nodes of an expression.
+nodeCount :: Expr -> Int
+nodeCount expr =
+  1
+    + case expr of
+      ExApp function argument -> nodeCount function + nodeCount argument
+      ExTyApp function _ -> nodeCount function
+      ExLam _ body -> nodeCount body
+      ExTyLam _ body -> nodeCount body
+      ExLet (Bind _ rhs) body -> nodeCount rhs + nodeCount body
+      ExRec binds body -> sum (map (nodeCount . bindRhs) binds) + nodeCount body
+      ExCase scrutinee _ alternatives -> nodeCount scrutinee + sum (fmap (nodeCount . altRhs) alternatives)
+      ExAbsurd scrutinee _ -> nodeCount scrutinee
+      ExCast body _ -> nodeCount body
+      ExForeignCall _ _ arguments -> sum (map nodeCount arguments)
+      _ -> 0
