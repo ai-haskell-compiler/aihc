@@ -70,8 +70,8 @@ expected: |-
       x
 
   pub val 1.vsame :: ∀(a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tChar) (t[] a 2.→ t[] tChar)
-    = Λ(a : sType). λ($d0 : a ~ tChar) (x : t[] a).
-      x ▷ tycon-co t[] ($d0)
+    = Λ(a : sType). λ($co : a ~ tChar) (x : t[] a).
+      x ▷ tycon-co t[] ($co)
 
   pub val 1.vchars :: t[] tChar 2.→ t[] tChar
     = λ(x : t[] tChar).
