@@ -59,10 +59,11 @@ design.
 | Write barrier | Unchanged. The arena is one address range. | A generation test through the block descriptor. |
 | Safepoints for GC | The block refill, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
 | Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
-| Garbage collection | STW parallel copy. Every worker collects. A sequential instance without atomics serves one capability. | STW parallel copy by default. |
+| Garbage collection | STW parallel copy. Every worker collects. A sequential instance without atomics serves one capability. The work has a hard bound, the time has a stated assumption. | STW parallel copy by default. |
 | Old generation | Incremental marking in STW slices, as today. | Optional concurrent non-moving collector. |
-| Blackholing | Eager, with a plain store. No owner in the thunk. Waiters go to a global table. | Lazy by default. The owner is in the thunk. |
-| Thunk layout | Unchanged. No padding word. | One padding word in each thunk. |
+| Blackholing | Eager, with a plain store. The owner is in the thunk. A waiter sends a message to the capability of the owner. | Lazy by default. The owner is in the thunk. |
+| Thunk layout | One owner word after the header. | One padding word in each thunk. |
+| Memory model | Every shared location is an atomic access with an explicit order, relaxed where a plain instruction is enough. | Release and acquire barriers. |
 | `MVar` | One lock byte in the record. | A lock on the info pointer. |
 | `STM` | Optimistic transactions with buffered writes. One global commit lock. | Optimistic transactions with a lock for each `TVar` at commit. |
 | IO manager | Each capability polls its own requests, as today. | Haskell IO manager threads with `epoll` or `kqueue`. |
@@ -103,7 +104,8 @@ The machine struct `AihcMachine` keeps the process-global state. A new struct
 - The context copies `stack_next` and `current_thread`.
 - The run queue and the inbox. Refer to the scheduler section.
 - The remembered set, the mark buffer, and the spare stack chunks.
-- The selected resumption, the foreign frames, and the callback frames.
+- The selected resumption, the foreign frames, the suspended foreign
+  frames of `safe` calls, and the callback frames.
 - The interrupt flags: `stop_requested` and `context_switch`.
 - The allocation and collection counters of the capability.
 - The wake-up descriptor for the idle wait. Refer to the IO section.
@@ -272,8 +274,8 @@ capability is idle. A program with one Haskell thread starts no ticker.
 
 Each capability has a run queue that only its worker touches. No lock and
 no atomic operation guards it. Each capability also has an inbox: a queue
-with a lock that other capabilities push threads into. The worker moves the
-inbox into its run queue at each schedule.
+with a lock that other capabilities push threads and messages into. The
+worker moves the inbox into its run queue at each schedule.
 
 ### Thread movement
 
@@ -284,21 +286,32 @@ owner publication-safe, which costs atomics on the single-threaded path.
 Decision: the busy capability pushes. This is the GHC model. At each
 schedule, a capability with two or more runnable threads reads the global
 count of idle capabilities. When the count is above zero, it takes idle
-capabilities from the idle list under the machine lock. It moves half of its
-surplus threads into their inboxes and wakes them. A capability with one
-runnable thread pays one load and one compare.
+capabilities from the idle list under the idle list lock. It moves half of
+its surplus threads into their inboxes and wakes them. A capability with
+one runnable thread pays one load and one compare.
 
-A thread that `forkOn#` pinned stays on its capability. A woken thread goes
-to the run queue of the capability that wakes it, unless it is pinned. Then
-it goes to the inbox of its capability.
+Each thread record names its capability: the capability whose run queue or
+inbox holds it, or that runs it. Only the worker of that capability changes
+the field, when it pushes the thread to another capability. A thread that
+`forkOn#` pinned stays on its capability.
+
+A woken thread goes back to its own capability. The waker pushes it into
+the inbox of that capability, or into its own run queue when that is the
+same capability. Thus the capability field of a blocked thread stays valid
+while it is blocked. The blackhole protocol below depends on this rule.
 
 ### Idle capabilities
 
 A capability without runnable threads polls its pending IO requests. When
 it has none, it waits on its condition variable. A push into its inbox, a
-stop request, or a shutdown wakes it. The last capability to become idle
-checks for pending IO requests and active timers. When there are none, it
-reports a deadlock, as the current RTS does.
+stop request, or a shutdown wakes it.
+
+The last capability to become idle tests for a deadlock. The machine has a
+deadlock when four conditions hold. Every capability is idle. No IO request
+is pending. No timer is active. No thread is in a `safe` foreign call. The count of threads
+in `safe` foreign calls is an atomic counter of the machine. A thread in a
+foreign call can return and run, so it is not blocked. When the test finds
+a deadlock, the runtime reports it, as the current RTS does.
 
 ### Workers
 
@@ -308,29 +321,85 @@ number of workers can therefore be above `n`.
 
 ## Stop-the-world synchronisation
 
-A capability that needs a collection or a change of the capability count
-requests a stop:
+### Requests
 
-1. It takes the machine sync lock. A second requester waits on this lock,
-   and it checks afterwards whether its request still holds.
-2. It sets `stop_requested` on every capability and writes to the wake-up
-   descriptor of each idle capability.
-3. It takes the lock of each idle or released capability. Such a capability
-   is already at a safepoint.
-4. It waits until each running capability parks at its next safepoint.
-5. It runs the collection.
-6. It releases every capability and the sync lock. The parked workers
-   return from their safepoint call and load their context again.
+A capability requests a stop for a collection, a mark slice, or a change
+of the capability count. Every request comes from a safepoint of the
+requester: `aihc_heap_collect` with its spilled roots, a scheduler call
+with its continuation, or the idle wait. The requester holds no lock at
+that point.
 
-The latency of step 4 is the time until each running capability reaches a
-safepoint. The block size of the nursery bounds this time for code that
-allocates.
+The protocol is:
+
+1. The requester reads `stop_requested` of its own capability. When the
+   flag is set, another capability leads a stop already. The requester
+   parks as in step 6 below, and after the stop it tests whether its own
+   request still holds. A collection by the leader can have made it void.
+2. The requester takes the machine sync lock with a try-lock. When the
+   try-lock fails, another capability became the leader between step 1
+   and step 2. The requester goes to step 1.
+3. The leader sets `stop_requested` on every capability and writes to the
+   wake-up descriptor of each idle capability.
+4. The leader takes the lock of each idle or released capability. Such a
+   capability is already at a safepoint. Its roots are in its run queue,
+   its inbox, and its suspended foreign frames.
+5. The leader waits until each running capability parks.
+6. A running capability parks at its next safepoint. It publishes its
+   roots, increments the parked count, and waits on the sync condition
+   variable. The leader is a parked capability too, for the count.
+7. The leader runs the collection with the workers. Refer to the garbage
+   collection section.
+8. The leader clears `stop_requested` on every capability, releases every
+   capability lock and the sync lock, and signals the condition variable.
+   The parked workers return from their safepoint call and load their
+   context again.
+
+Two requesters cannot wait for each other. A requester waits for the sync
+lock only in a try-lock, so it never blocks while it runs. A requester that
+loses the try-lock parks and gives the leader what the leader waits for.
+
+### Lock order
+
+A worker takes locks in this order. It never takes a lock that is earlier
+in the list while it holds a later one.
+
+| Order | Lock | Holders |
+| --- | --- | --- |
+| 1 | The machine sync lock | The stop leader |
+| 2 | The capability locks, in capability index order | The stop leader, a released capability, a worker that takes a capability |
+| 3 | The object locks: the `MVar` byte, the blackhole table, the STM commit lock, the timer list | One at a time for each worker |
+| 4 | The idle list lock | The push, the idle wait |
+| 5 | The inbox locks | The push, a wake, a message |
+| 6 | The allocator locks: the region table, the gen1 blocks, the gen2 segments, the large objects, the pinned list, the stack regions, the stable names, the callback slots | A large or pinned allocation, a stack growth, a collection worker |
+
+Three rules complete the order:
+
+- A worker holds at most one object lock at a time.
+- No runtime operation requests a stop while it holds a lock. The
+  primitives consume their reservations and cannot collect, as today, so
+  the only stop requests come from the safepoints above.
+- A worker that holds an object lock does not run Haskell code. It waits
+  for another worker only on an inbox lock or an allocator lock below it.
+
+### Stop latency
+
+The latency of step 5 is the time until each running capability reaches a
+safepoint. A capability that allocates reaches one after at most one
+nursery block, 32 KiB by default. This bounds allocation, not time. A
+capability that allocates slowly takes longer. A capability in a loop
+without allocation or evaluation never reaches one. An `unsafe` foreign
+call blocks the stop for its duration. GHC has the same limits, except that
+its `HpLim` store stops an allocating loop at its next heap check.
+
+The protocol itself visits every capability: one flag store and one lock
+or wake-up for each. Its cost grows with `-N`, not with the live data.
 
 ## Garbage collection
 
 The pause bound of [gc-design.md](gc-design.md) is a hard requirement. No
-term of a pause may depend on the live data. With many capabilities, no term
-may grow with the number of capabilities either.
+term of a pause may depend on the live data in gen2. No term may depend on
+the depth of a stack or on the size of a large object. This section gives
+what the parallel collector adds to that bound and what it cannot promise.
 
 ### Options
 
@@ -338,12 +407,12 @@ may grow with the number of capabilities either.
    capabilities park. The collector keeps its property that it uses no
    atomic operations. A collection copies the live young objects of every
    capability, so the pause grows with the number of busy capabilities.
-   This breaks the pause bound. We rejected it.
+   We rejected it.
 2. **STW, parallel copy.** Every worker takes part in the collection. Each
    worker copies the roots of its capability and the objects it reaches.
    The workers steal scan work from each other. The work of a collection
    grows with the number of busy capabilities, and the number of workers
-   grows with it, so the pause does not. This is the GHC default.
+   grows with it. This is the GHC default.
 3. **Thread-local collection.** Each capability collects its own nursery
    without a stop. This needs a promotion of each object at the point where
    another thread can see it. It changes the GRIN safepoint model and the
@@ -369,15 +438,14 @@ Each worker owns its allocation and its scan work:
 - **Stealing.** A full block that its owner has not scanned yet is a unit
   of work. Each worker keeps its full unscanned blocks on a list with a
   lock. A worker without local work takes a block from another worker.
-  Thus the work balances to within one block.
 - **Roots.** A worker scans the roots of its own capability: the current
   thread, the run queue, the inbox, the selected resumption, the foreign
-  frames, the callback frames, the spilled roots of its parked safepoint,
-  the remembered set, and the mark buffer. The global roots are divided
-  among the workers in fixed shares.
+  frames, the suspended foreign frames, the spilled roots of its parked
+  safepoint, the remembered set, and the mark buffer. The global roots are
+  divided among the workers in fixed shares.
 - **Stacks.** A stack is reached through its thread record. The worker that
   claims the thread record scans the stack and sets the ages of its chunks.
-  Thus one worker scans each stack.
+  Thus one worker scans each stack, and a thread record is a unit of work.
 - **Termination.** A worker without local work and without a block to
   steal increments the idle count and waits. The collection ends when every
   worker is idle. A worker that frees work wakes the idle workers.
@@ -394,11 +462,11 @@ forwarding header is a compare-and-swap:
   takes the address from the winner and leaves its copy as slop. The slop
   reads as zero words, which no header is, as the slop of an update does
   today.
-- A mutable object, a thread record, a stack frame reference, and every
-  runtime record is claimed first. The worker swaps the header with a
-  claim pattern, copies the object, and installs the forwarding header with
-  a release store. A worker that reads the claim pattern waits for the
-  forwarding header. Two copies of a mutable object cannot exist.
+- A mutable object, a thread record, and every runtime record is claimed
+  first. The worker swaps the header with a claim pattern, copies the
+  object, and installs the forwarding header with a release store. A worker
+  that reads the claim pattern waits for the forwarding header. Two copies
+  of a mutable object cannot exist.
 - A large object and a pinned block keep their mark in their block header.
   The mark is set with an atomic or. The worker whose atomic or set the
   mark sets the generation and moves the charge.
@@ -409,6 +477,30 @@ forwarding header is a compare-and-swap:
   word. The worker whose atomic or set the bit queues the object for a
   scan.
 
+### Indirections and update frames
+
+The collector follows a heap indirection of a copied generation and stores
+its target, so the copied objects hold no indirection. With duplicate
+evaluation, this rule has one exception.
+
+Two threads can evaluate one thunk. The first update turns the thunk into
+an indirection. The update frame of the second thread still names the
+thunk. A collection between the two updates would then replace the thunk
+in the frame with the result of the first update. The second update would
+then write into the result.
+
+Rule: the thunk field of an update frame is not shortened. The collector
+copies the indirection object that the field names, two words, and the
+field keeps naming it. The same rule applies to the key of a blackhole
+table entry and to the thunk field of a blackhole message. Every other
+reference follows the indirection as today. GHC has the same rule in its
+`evacuate_BLACKHOLE`.
+
+An update of an object that is already an indirection keeps the
+indirection and drops the new result. Both results are the same value,
+because the thunk is pure. The continuation of the second thread receives
+its own result. Refer to the blackholing section for the thunk states.
+
 ### Remembered set and mark buffer
 
 The write barrier appends to the remembered set of the capability. The
@@ -418,9 +510,9 @@ capability. An object that goes back to the remembered set goes to the list
 of the worker that scanned it.
 
 A card of a large boxed array is one byte. Two capabilities can set the same
-card at the same time. Both write the same value, so the race is benign.
-A dirty card is a unit of scan work. The worker that clears a card with an
-atomic exchange scans its run.
+card at the same time. Both store the same value with a relaxed atomic byte
+store, so the race has a defined result. A dirty card is a unit of scan
+work. The worker that clears a card with an atomic exchange scans its run.
 
 ### Incremental marking of gen2
 
@@ -438,21 +530,54 @@ then reads frames that another worker pops. We keep this as a later option.
 
 ### Pause bound
 
-A collection costs the sum of these terms for the busiest worker:
+The bound has two parts: the work of a collection, and the time that the
+workers need for it. The work has a hard bound. The time has the bound of
+the work divided by the workers only under an assumption about the live
+graph. This section gives both, and the measured limits that decide the
+defaults.
+
+**Work.** A collection costs the sum of these terms over all workers:
 
 | Term | Bound |
 | --- | --- |
-| Copy of live young objects | The `-A` budget of its capability plus the blocks it steals |
-| Copy of gen1 | Its share of the gen1 maximum, balanced by stealing |
-| Root scan | The roots of its capability plus its share of the global roots |
-| Stack scan | One chunk for each thread it claims plus the young chunks, which the `-A` budget bounds |
-| Mark slice | The slice cap |
-| Stop latency | One nursery block of allocation on each running capability |
-| Imbalance | One block or one segment of work |
+| Copy of live young objects | `-N` times the `-A` budget |
+| Copy of gen1 | The gen1 maximum, `-B` |
+| Root scan | The runnable threads and messages of every capability, plus the global roots |
+| Stack scan | One chunk for each live thread plus the young chunks, which the `-A` budgets bound |
+| Mark slice | `-N` times the slice cap |
 
-No term depends on the live data in gen2, on the depth of a stack, on the
-size of a large object, or on the number of capabilities. The degradation
-mode of [gc-design.md](gc-design.md) stays the one exception.
+No term depends on the live data in gen2, on the depth of a stack, or on
+the size of a large object. The sum grows with `-N`. A user who needs a
+work bound that does not grow with `-N` lowers `-A` as `-N` grows. The RTS
+option `-A` is a budget for each capability, as in GHC.
+
+**Time.** The time bound has an assumption: the live young graph has at
+least `k` independent parts of similar size, for `k` workers. Under it, the
+pause is the work divided by `k` plus the imbalance. Stealing moves full
+blocks. A worker that runs out of work waits for the block that another
+worker still fills. Thus the imbalance is at most one block of copy work
+for each such worker.
+
+This assumption can fail. A linked chain through the young data is a serial
+dependency: a worker reaches object `i + 1` only when it scans object `i`.
+One worker then copies the chain while the others idle. The worst case is
+a chain through the young data of every capability, and its time is the
+whole work bound on one worker. This is the same as option 1. GHC has the
+same limit. No parallel copying collector removes it.
+
+The root scan has unequal shares too. A capability with many threads has
+more thread records to claim. A thread record is a unit of work, so the
+imbalance is at most one stack scan.
+
+**Measured limits.** Step 2 of the build order measures the pause against
+`-N` on four shapes of young data: independent trees, one chain, many
+short lists from one producer, and many threads with small stacks. The
+measurements decide the default of `-qn` and whether `-A` gets a default
+that shrinks with `-N`.
+
+**Stop latency.** The time before a collection is the stop latency of the
+previous section. It is a separate bound, in allocation and not in time,
+and the statistics file reports it separately from the collection time.
 
 ### Shared allocators
 
@@ -468,10 +593,11 @@ statistics stay in the capability.
 
 ## Blackholing
 
-A thunk entry sets bit zero of the header. The runtime keeps the original
-info table and payload. An update writes the result into field zero and the
-indirection info table into the header. A thread that enters a thunk under
-evaluation becomes a waiter. The waiters of a thunk are in a hash table.
+A thunk entry sets bit zero of the header today. The runtime keeps the
+original info table and payload. An update writes the result into field
+zero and the indirection info table into the header. A thread that enters a
+thunk under evaluation becomes a waiter. The waiters of a thunk are in a
+hash table.
 
 With more than one capability, three races appear:
 
@@ -486,135 +612,198 @@ With more than one capability, three races appear:
 
 ### Options
 
-1. **A padding word in each thunk.** This is the GHC model. The update
-   writes the result into the padding word, and the blackholing writes the
-   owner thread there. No free variable is ever overwritten. A waiter sends
-   a message to the capability of the owner, which attaches the waiter and
-   updates on one worker. No atomic operation is necessary. The cost is one
-   word in each thunk with one or more free variables.
+1. **An owner word in each thunk.** This is the GHC model. Each thunk gets
+   one word after the header. The entry writes the owner thread into it,
+   and the update writes the result into it. No free variable is ever
+   overwritten. A waiter sends a message to the capability of the owner,
+   which attaches the waiter and updates on one worker. No atomic
+   operation is on the hot path. The cost is one word in each thunk with
+   one or more free variables.
 2. **Compare-and-swap at thunk entry.** The bit store becomes a
    compare-and-swap. The entry then sees an update that landed before it.
-   This costs about twenty cycles on every thunk entry. We rejected it.
+   This costs about twenty cycles on every thunk entry. Thunk entries are
+   frequent in lazy code, so we estimate a cost far above the budget.
 3. **A lazy blackhole.** The collector and the context switch write the
    blackholes by a walk of the update frames. This saves the store at entry.
    It does not solve the update race, and it loses the early detection of a
    loop. We rejected it.
 4. **Ownerless blackholes.** Keep the layout. The thunk entry loads its free
    variables, loads the header again, compares it with its own info table,
-   and only then sets the bit. A waiter registers in the global table and
+   and only then sets the bit. A waiter registers in a global table and
    runs a process-wide barrier. The update stores the result, stores the
-   header with release semantics, and loads one byte of a filter array.
+   header with release semantics, and loads one byte of a filter array. An
+   abandoned evaluation cannot put the thunk back, so it must freeze its
+   frames into a resumption object.
 
 ### Decision
 
-We use option 4. The reasons are the memory cost of option 1 and the
-compatibility of option 4 with the current layout. Option 1 is the fallback
-if the measurements of option 4 show a cost above one percent.
+We use option 1. The reasons are:
 
-#### Thunk entry
+- Its correctness argument is known. GHC runs it.
+- Its hot path has no atomic operation and no process-wide barrier.
+- An abandoned evaluation puts the thunk back, as today, because the free
+  variables stay intact.
+- The collector interaction is one rule, the update frame rule above.
 
-`aihc_lir_eval` pushes the update frame and transfers to the thunk entry. It
-no longer sets the bit. The generated entry does these steps:
+Option 4 saves the word. We estimate its cost at one percent and the cost
+of option 1 at two to four percent on lazy code, from the allocation
+volume. The difference is below the resolution of the estimates. Option 4
+needs a platform barrier, a filter array, a table state machine, and a
+resumption object. We keep option 4 as a documented alternative. It is
+adopted only when step 1 measures option 1 above three percent and the
+race tests below pass for option 4.
 
-1. Load the free variables into registers.
-2. Load the header again.
-3. Compare it with the info table of the thunk. The address is a constant.
-4. If the header differs, pop the update frame and transfer to
-   `aihc_lir_eval` with the parent continuation. The thunk is then under
-   evaluation or updated.
-5. Store the header with bit zero set.
-6. Run the body.
+Step 1 measures three entries on the thunk-heavy workloads: the plain store
+of today, a compare-and-swap entry, and the owner word layout.
 
-The free variables are loaded before the bit store. An update that lands
-between step 3 and step 5 overwrites field zero after the load. The entry
-then evaluates with correct free variables, and its own update later writes
-its result into field zero. Between the two, the thunk reads as under
-evaluation by this thread, and readers wait for it. Both results are the
-same value, because the thunk is pure.
+### Thunk layout
 
-The cost is one load, one compare, and one predictable branch for each
-thunk entry.
+A thunk has the header, the owner word, and its free variables. A thunk
+without free variables has the header and the owner word, as today. The
+owner word is field zero. The indirection target stays at field zero, so
+the inline check that follows an indirection does not change. The pointer
+bitmap of a thunk marks field zero as a pointer. The collector traces it
+only when bit zero of the header is set or the object is an indirection.
+Thus a new thunk does not initialize the word.
 
-A thunk that `aihc_lir_eval_single_entry` enters runs the same steps. Its
-bit store is harmless, because no other evaluation reaches the thunk.
+### States
 
-#### Update
+| State | Header | Field zero | Who writes it |
+| --- | --- | --- | --- |
+| Thunk | Thunk info, no bits | Unused | The allocation |
+| Blackhole | Thunk info, bit zero | The owner thread | The entry, on the capability of the owner |
+| Blackhole with waiters | Thunk info, bits zero and one | The owner thread | The capability of the owner, when it attaches the first waiter |
+| Indirection | Indirection info | The value | The update, on the capability of the owner |
 
-The update stores the result into field zero, then stores the indirection
-header. The header store has release semantics. On AMD64 it is a plain
-store. On ARM64 it is `stlr`. Then the update loads one byte of the global
-filter array at the hash of the thunk address. When the byte is zero, the
-update is complete. When it is not zero, the update takes the C path, which
-locks the table, looks the thunk up, and wakes its waiters.
+The transitions are:
 
-The filter array has 64 Ki bytes. A byte is the number of waiter entries
-whose thunk hashes to it, saturated. A waiter on one thunk slows only the
-updates of thunks with the same hash, which is one in 65536.
+- **Entry.** `aihc_lir_eval` pushes the update frame, stores the current
+  thread into field zero, stores the header with bit zero with release
+  semantics, and transfers to the thunk entry. Both stores are plain on
+  AMD64. The release order lets a reader that sees the bit read the owner.
+- **Duplicate entry.** Two threads enter one thunk before either stores the
+  header. Both evaluate. The second entry can also land after the first
+  update. Then field zero holds the second owner and the header reads as a
+  blackhole again. Readers wait for the second owner. Neither case damages
+  a free variable.
+- **Update.** The owner stores the value into field zero and the
+  indirection header with release semantics. When bit one is set, the owner
+  takes the C path, which removes the table entry and wakes the waiters.
+  Bit one is set only by the capability of the owner, so the update cannot
+  miss it. The handover of a thread between capabilities is a lock, which
+  orders the bit store before the update.
+- **Second update.** The object is already an indirection. The update
+  keeps it and drops the result. The update frame of the second thread
+  still names the thunk, by the collector rule above.
+- **Blocking.** A thread that enters a blackhole reads the owner. When the
+  owner is the thread itself, the runtime reports a loop. This replaces the
+  walk of the continuation chain. Otherwise the thread sends a blackhole
+  message to the capability of the owner. The message holds the thunk and
+  the continuation. The thread then parks as blocked on the thunk.
+- **Message.** The capability of the owner reads the message at its next
+  schedule. When the thunk is an indirection, it wakes the sender with the
+  value. When the thunk is a blackhole with an owner on this capability,
+  it attaches the sender to the table entry of the thunk. Then it sets bit
+  one.
+  When the owner moved to another capability, it forwards the message
+  there. The owner cannot move while its capability reads the message,
+  because only that capability moves it.
+- **Abandon.** An asynchronous exception stops the evaluation. The owner
+  clears the header bits. Field zero keeps a stale owner, which the next
+  entry overwrites. The waiters resume with `Eval thunk continuation`, as
+  today.
+- **Loop.** A self-re-entry reports a loop at once, from the owner word.
 
-#### Waiting
+The blackhole table is global under one lock. Only the capability of the
+owner touches the entry of a thunk, so the lock protects the structure, not
+the entry. The message queue is the inbox of the capability.
 
-`aihc_block_on_blackhole` does these steps:
+### Race tests
 
-1. Lock the table. Insert a waiter entry in the state `registered`.
-   Increment the filter byte. Unlock.
-2. Run the process barrier. Refer to the next section.
-3. Load the header again.
-4. If the header is an indirection: lock the table. If the entry is still
-   `registered`, remove it, decrement the byte, unlock, and continue with
-   the value. If the entry is `woken`, unlock and continue with the value.
-5. Otherwise: lock the table. If the entry is `woken`, unlock and continue.
-   Else set it to `parked`, unlock, and enter the scheduler.
+The collector fuzz driver and the scheduler stress suite cover these
+interleavings, with real OS workers and with a model of the states above:
 
-The update on the C path sets a `registered` entry to `woken` and enqueues
-the thread of a `parked` entry. Thus no thread is enqueued while it runs.
+- Two entries, two updates, with a collection between the updates.
+- An entry that lands after an update of a duplicate.
+- A message that arrives after the update, and one that arrives after the
+  owner moved to another capability.
+- A waiter whose owner abandons the evaluation.
+- A loop through two threads, which the owner word does not detect and
+  which stays a deadlock, as in GHC.
 
-Self-re-entry detection walks the chain of the current thread, as today.
-The waiter bit, bit one of the header, is no longer used. The forwarding
-pattern of the collector, low bits `10`, stays unique.
+### `noDuplicate#`
 
-#### The process barrier
+Two threads can evaluate one thunk, and both update it with the same
+value. `noDuplicate#` makes this impossible for a thunk with a side effect.
+It must run at most one of the evaluations to its end.
 
-The update stores the header and then loads the filter byte. The waiter
-stores the filter byte and then loads the header. Without a fence on both
-sides, both loads can miss the store of the other side. The update is hot,
-so it gets no fence. The waiter is rare, so it runs a process-wide barrier.
-This is the asymmetric form of the Dekker protocol.
+The owner word alone does not give this. Two entries can both store their
+owner, and both can read their own thread back before the other store
+lands. The rule has two parts:
 
-| Host | Barrier |
-| --- | --- |
-| Linux | `membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED)` |
-| Other POSIX | A signal to each worker. The handler runs a full fence and increments an acknowledgement count. The waiter spins on the count. |
-| Windows | `FlushProcessWriteBuffers` |
-| wasm32 | Nothing. One capability. |
+- **Claiming entry.** The GRIN pipeline marks the info table of a thunk
+  whose body starts with `noDuplicate#`. The entry of such a thunk claims
+  it with a compare-and-swap from the thunk header to the blackhole header.
+  A failed swap means another thread entered first. The thread then blocks
+  on the thunk as a waiter. The swap costs about twenty cycles on these
+  thunks only. `unsafePerformIO` and `unsafeInterleaveIO` produce such
+  thunks.
+- **Walk.** `noDuplicate#` walks the update frames of the current stack.
+  For each frame whose thunk names another owner, the thread stops its
+  evaluation of that thunk, becomes a waiter on it, and parks. For each
+  frame whose thunk names the thread itself, the thread claims the thunk.
+  The claim is a compare-and-swap of bit one into the header. A later
+  entry of a duplicate then sees a claimed blackhole and blocks. The walk
+  stops at the
+  first frame that it claimed in an earlier walk.
 
-Each worker has a barrier point during the call. After the call, every
-store that preceded the barrier point of its worker is visible. Every load
-that follows the barrier point of its worker sees the filter byte. The case
-analysis in the design review showed no lost wake-up.
+A `noDuplicate#` that is not the first action of its thunk keeps a small
+window. A duplicate entry can store its owner after the walk read the word
+and before the claim. The claim then fails, and the thread that lost the
+claim becomes a waiter. The thread that won it runs the action once.
 
-#### Duplicate evaluation and `noDuplicate#`
+### Base library
 
-Two threads can evaluate one thunk at the same time. Both update it with the
-same value. `noDuplicate#` makes this impossible for a thunk with a side
-effect. For each update frame on its stack, the thread locks the table and
-claims the thunk with an entry that names it as the owner. When another
-thread owns the thunk, the thread becomes a waiter on that thunk. It pops
-its frames down to the update frame of the thunk and parks. The owner wakes
-it with the value. This is the GHC model.
+The base library does not use the primitive today. `GHC.IO.noDuplicate` is
+`return ()`, and `unsafePerformIO` runs its action without it. The change
+lands with step 3:
 
-#### Abandoned evaluation
+- `GHC.IO.noDuplicate` calls `noDuplicate#`.
+- `unsafePerformIO m` is `unsafeDupablePerformIO (noDuplicate >> m)`.
+- `unsafeInterleaveIO m` is `unsafeDupableInterleaveIO (noDuplicate >> m)`.
+- `GHC.ST` keeps its `noDuplicateST`.
 
-An asynchronous exception can stop an evaluation. The current RTS puts the
-original header back and lets the waiters evaluate again. With option 4,
-field zero can hold the result of a racing update instead of the first free
-variable. The thunk can then not be evaluated again from its payload.
+Without this change the primitive protects nothing.
 
-Decision: an abandoned evaluation freezes the frames between the update
-frame and the raise point into a heap object, as `control0#` copies frames
-today. The thunk becomes an indirection to a resumption thunk that pushes
-these frames again when it is entered. This is the `AP_STACK` model of GHC.
-It keeps the work that the evaluation did. Asynchronous exceptions are not
-in the current RTS, so this change lands with them.
+### Alternative: ownerless blackholes
+
+This section keeps option 4 for the comparison of step 1. Its states are:
+
+| State | Header | Field zero | Table entry |
+| --- | --- | --- | --- |
+| Thunk | Thunk info, no bits | First free variable | None |
+| Blackhole | Thunk info, bit zero | First free variable | None, or `registered`, `parked`, or `woken` waiters |
+| Indirection | Indirection info | The value | None |
+
+The entry loads its free variables, loads the header again, compares it
+with its own info table, and stores the header with bit zero. The update
+stores the result and stores the header with release semantics. Then it
+loads one byte of a filter array at the hash of the thunk address. A set byte sends
+the update to the C path, which locks the table and wakes the waiters. A
+waiter inserts a `registered` entry, increments the byte, runs a
+process-wide barrier, and loads the header again. An indirection lets it
+continue with the value. A blackhole lets it park, unless the update set
+its entry to `woken` first. The process-wide barrier is `membarrier` on
+Linux, a signal to each worker elsewhere, and nothing on wasm32.
+
+An abandoned evaluation cannot put the thunk back, because field zero can
+hold the result of a racing update. It freezes the frames above the update
+frame into a resumption object and updates the thunk with an indirection
+to it. This is the `AP_STACK` model of GHC.
+
+The race tests above apply to this alternative too, with two more: a
+waiter that registers between the header store and the filter load of an
+update, and an abandon after a racing update.
 
 ## `MVar`
 
@@ -640,8 +829,9 @@ can change directly after the load, as in GHC. `tryReadMVar#` and
 `tryTakeMVar#` become runtime calls that take the lock, because they read
 two fields.
 
-A wake moves the woken thread to the run queue of the capability that
-wakes it. A pinned thread goes to the inbox of its own capability instead.
+A wake sends the woken thread back to its own capability, as the scheduler
+section gives. The waker holds the `MVar` lock while it pushes into the
+inbox, which the lock order permits.
 
 Sequential mode can skip the lock, because one worker holds the one
 capability at a time, and the capability handover is a lock. We keep the
@@ -676,56 +866,137 @@ refinement with the same transaction records.
 A `TVar` becomes a record with a value and a watcher list. The value store
 at commit has release semantics. `readTVarIO#` is one acquire load.
 
-A transaction record holds a read log and a write log. `readTVar#` first
-looks in the write log, then in the read log, then loads the `TVar` and
-records the value. `writeTVar#` appends to the write log. Nested
-transactions for `catchRetry#` keep a log of their own and merge it into the
-parent at their commit, as today.
+### Logs
 
-The commit validates by value. For each read entry, the current value of the
-`TVar` must be the recorded value. The log keeps the recorded value alive,
-so an address cannot be reused while it is recorded.
+A transaction record holds a read log and a write log. Nested transactions
+for `catchRetry#` and `catchSTM#` keep a record of their own with a link to
+the parent. The lookup order of `readTVar#` is:
 
-`retry#` validates under the commit lock. An invalid transaction runs again
-at once. A valid one registers its thread as a watcher on each `TVar` of its
-read log, releases the lock, and parks. A commit that writes a `TVar` wakes
-every watcher of it and removes their entries.
+1. The write log of the transaction, then the write logs of its parents up
+   to the root. A nested transaction sees the writes of its parents.
+2. The read log of the transaction, then the read logs of its parents.
+3. The `TVar` itself, with an acquire load. The value goes into the read
+   log of the transaction.
+
+`writeTVar#` appends to the write log of the innermost transaction. When a
+nested transaction commits, its read log and its write log merge into the
+parent. The read log merges too, because the parent validates every read
+of the whole transaction at its commit. When a nested transaction aborts,
+for `retry#` under `catchRetry#` or an exception under `catchSTM#`, its
+logs are dropped.
+
+### Validation
+
+A transaction is valid when the current value of each `TVar` in its read
+logs is the recorded value. The commit validates under the commit lock.
+The log keeps each recorded value alive, so an address cannot be reused
+while it is recorded.
+
+A running transaction can read an inconsistent state. It can read one
+`TVar` before a commit of another transaction and a second `TVar` after
+it. Such a transaction can loop or raise an exception that a consistent
+state would not produce. The rules are:
+
+- **Exception.** Before an exception leaves `atomically#` or a `catchSTM#`
+  frame, the runtime validates the transaction. An invalid transaction
+  drops the exception and runs again from `atomically#`.
+- **Safepoint.** A thread inside a transaction reaches a context switch or
+  a collection safepoint. The runtime then validates the transaction with
+  a try-lock on the commit lock. An invalid transaction is condemned.
+  The thread unwinds to the `atomically#` frame and runs the transaction
+  again. A thread that validates often pays one try-lock for each safepoint
+  inside a transaction, which the context switch interval bounds.
+- **Retry.** `retry#` validates under the commit lock. An invalid
+  transaction runs again at once. A valid one registers its thread as a
+  watcher on each `TVar` of its read logs, releases the lock, and parks. A
+  commit that writes a `TVar` wakes every watcher of it, sends each to its
+  own capability, and removes their entries.
+- **Blackhole.** A transaction that blocks on a blackhole holds no lock, so
+  the owner of the thunk can commit. The blocked transaction validates at
+  its resume, as at a safepoint.
 
 Delay variables keep their timer list. The list is global under the commit
 lock. The capability that polls a timer applies its expiry as a transaction
 that writes the variable.
 
 In sequential mode, validation always succeeds, and the lock is
-uncontended. One mutex acquisition is the cost of a transaction.
+uncontended. One mutex acquisition is the cost of a transaction, plus one
+try-lock for each safepoint inside it.
+
+### Tests
+
+- A shared counter with `n` writers.
+- Two `TVar` values with an invariant, a writer that changes both, and a
+  reader that loops while the invariant does not hold. The reader must
+  finish, through the safepoint validation.
+- A reader that raises an exception from an inconsistent read. The
+  exception must not escape.
+- `orElse` with a parent write that the nested branch reads.
+- `retry#` with `n` watchers and one writer.
 
 ## Memory model
 
 Haskell code with a data race stays type safe. A pointer that a thread loads
-from a shared field names an object whose fields are complete. The rules
-are:
+from a shared field names an object whose fields are complete. The C
+runtime and the LLVM backend must give the same under their language rules.
+In C11 and in LLVM, a plain access that races with a write is undefined.
+The hardware guarantee of a word-sized access does not apply there. Every
+access to a location that another worker can access at the same time is
+therefore an atomic access with an explicit order. A relaxed atomic access
+compiles to a plain load or store on every target, so this rule costs
+nothing on the hot paths.
 
-- A pointer store into a shared mutable object has release semantics. The
-  sites are `writeMutVar#`, `writeArray#`, `writeSmallArray#`, the
-  compare-and-swap primitives, the thunk update, and every runtime store
-  into an `MVar`, a `TVar`, or a thread record.
-- A reader loads a pointer and then loads the fields of the object that it
-  names. This is an address dependency, which AMD64 and ARM64 order.
-- The inline evaluation check loads the header of an object and then field
-  zero of the same object. This has no address dependency. The lowering
-  adds one: the field address is computed from the header value with an
-  `and` against zero. The native ARM64 backend keeps this dependency. The
-  LLVM backend emits an acquire load for the header instead, because LLVM
-  gives no guarantee for a dependency.
-- `atomicReadIntArray#`, `atomicWriteIntArray#`, `fetchAddIntArray#`,
-  `casIntArray#`, and `casMutVar#` are sequentially consistent atomic
-  operations. The lowering emits them as plain operations today.
-- A word-sized aligned load or store is single-copy atomic on every target.
-  The header of a thunk is written by its evaluator and read by every
-  reader with plain operations under this rule.
+### Lir instructions
 
-Lir gets the instructions `load.acquire`, `store.release`, `cas`, `xchg`,
-`atomic.add`, and `fence`. The wasm32 target lowers them to plain
-operations, because a module without shared memory runs one thread.
+Lir gets `load.atomic` and `store.atomic` with an order, `load.dependent`,
+`cas`, `xchg`, `atomic.add`, `atomic.or`, and `fence`. The orders are
+`relaxed`, `acquire`, `release`, and `seq_cst`. A plain `load` or `store`
+names a location that no other worker can access at the same time: a new
+object before its publication, a frame of the own stack, a local block, or
+the own capability fields. The Lir lint checks the sites below. The wasm32
+target lowers every atomic instruction to a plain operation, because a
+module without shared memory runs one thread.
+
+`load.dependent` loads a pointer and gives every later load through it an
+address dependency. The native AMD64 and ARM64 backends emit a plain load
+and keep the dependency, which both architectures order. The LLVM backend
+emits an acquire load, because LLVM gives no guarantee for a dependency.
+
+### Access rules
+
+| Location | Writer | Reader | Order |
+| --- | --- | --- | --- |
+| Object header, entry bit | The entry | Every reader | `store.atomic release`, `load.atomic relaxed` |
+| Object header, update | The owner | Every reader | `store.atomic release`, `load.atomic relaxed`, then `load.dependent` of field zero |
+| Object header, forwarding | A collection worker | A collection worker | `cas acq_rel`, `load.atomic acquire` |
+| Owner word of a thunk | The entry, the update | A blocking reader | Plain store before the release store of the header, `load.dependent` after the header load |
+| Fields of a new object | The allocating thread | Nobody until publication | Plain |
+| Fields of an immutable object after publication | Nobody | Every reader | Plain, after a `load.dependent` or an acquire load of the pointer |
+| Pointer field of a mutable object | `writeMutVar#`, `writeArray#`, the CAS primitives, the runtime | `readMutVar#`, `readArray#`, the collector | `store.atomic release`, `load.dependent` |
+| Unboxed field of a mutable array | `writeByteArray#` and the like | `readByteArray#` | Plain. A race is a program error, as in GHC. |
+| `atomicReadIntArray#` and the atomic primitives | The primitive | The primitive | `seq_cst` |
+| Card byte | The write barrier | A collection worker | `store.atomic relaxed`, `xchg` |
+| Capability flags | The ticker, the stop leader | The owner worker | `store.atomic relaxed`, `load.atomic relaxed`. The park is a mutex, which orders the roots. |
+| Arena cursor | Every capability | Every capability | `atomic.add relaxed` |
+| Mark bitmap word, large object mark | A collection worker | A collection worker | `atomic.or relaxed` with the scan queued by the setter |
+| `MVar` lock byte | Every worker | Every worker | `cas acquire`, `store.atomic release` |
+| `MVar` full byte | The holder of the lock | `isEmptyMVar#` | `store.atomic release`, `load.atomic acquire` |
+| `TVar` value | The commit under the lock | `readTVar#`, `readTVarIO#` | `store.atomic release`, `load.atomic acquire` |
+| Thread record fields | The capability of the thread | The capability of the thread, the collector | Plain under the capability handover, which is a lock |
+| Inbox, idle list, tables | The lock holder | The lock holder | Plain under the lock |
+| Counters of the machine | Every worker | The statistics report | `atomic.add relaxed` |
+
+A reader of an immutable object relies on the publication order: the
+allocating thread wrote the fields before the release store that published
+the pointer, and the reader loaded the pointer with a dependency or an
+acquire. The inline evaluation check loads the header of an object and then
+field zero of the same object. This has no address dependency of its own.
+The lowering uses `load.dependent` for the header, so the field load
+depends on it.
+
+The C runtime uses the C11 atomic operations with the same orders. The
+collector workers use the sequential instance without them when one worker
+collects.
 
 ## IO manager
 
@@ -749,9 +1020,9 @@ descriptor. The wake-up descriptor is an `eventfd` on Linux and a pipe on
 other POSIX hosts. A push into the inbox or a stop request writes to it.
 
 A thread that migrates after it submitted a request still completes on the
-capability that polls the request. That capability enqueues it. The
-`threadDelay` timers stay with the capability that set them, with the same
-rule.
+capability that polls the request. That capability sends the thread to its
+own capability. The `threadDelay` timers stay with the capability that set
+them, with the same rule.
 
 On wasm32 the host driver pumps the one capability, as today.
 
@@ -760,20 +1031,36 @@ On wasm32 the host driver pumps the one capability, as today.
 ### `unsafe` and `safe` calls
 
 An `unsafe` call keeps the capability. A long `unsafe` call blocks the
-capability and every stop request, as in GHC.
+capability and every stop request, as in GHC. Its foreign frame stays on
+the foreign frame list of the capability, as today, and the worker of the
+capability scans it.
 
 A `safe` call releases the capability before the call and takes a
 capability back after it:
 
-1. The runtime records the Haskell thread as in a foreign call. Its roots
-   are the roots of its foreign frame, as today.
-2. The worker releases the capability. When the capability has runnable
+1. The runtime moves the foreign frame of the thread from the foreign
+   frame list of the capability to its suspended list, under the
+   capability lock. The frame holds the roots and the static reference
+   table of the call site. The capability owns these roots until the call
+   returns, and its worker scans the suspended list in each collection.
+   The thread record names the capability, so the collector keeps the
+   record and the stack.
+2. The runtime increments the count of threads in `safe` foreign calls.
+3. The worker releases the capability. When the capability has runnable
    threads, an idle worker takes it, or the runtime starts a worker.
-3. The worker makes the C call.
-4. After the call, the worker takes a free capability. It prefers the
+4. The worker makes the C call.
+5. After the call, the worker takes a free capability. It prefers the
    capability that it released. It waits when none is free.
-5. The thread continues on that capability. The chunk header of its stack
-   pointer names the new capability.
+6. The worker removes the foreign frame from the suspended list of the
+   capability that owns it, under that capability lock, and decrements
+   the count. The thread continues on the new capability, and its record
+   names the new capability. The chunk header of its stack pointer names
+   the new capability.
+
+A capability can own several suspended frames at once, one for each thread
+of it that is in a `safe` call. The suspended list has no order
+requirement. A stop takes the capability lock, so the list cannot change
+during a collection.
 
 `rtsSupportsBoundThreads` stays zero until bound threads exist.
 
@@ -806,7 +1093,8 @@ the scheduler hands the capability to it.
 - Stack chunks come from the spare list of the capability. A capability
   with more than 64 spare chunks returns regions to the machine.
 - The statistics file sums the counters of every capability. It gains the
-  capability count and the number of workers.
+  capability count, the number of workers, the stop latency, and the
+  collection time as separate fields.
 
 ## RTS options
 
@@ -819,8 +1107,8 @@ the scheduler hands the capability to it.
 | `-qg` | The sequential collector instance also with many capabilities. | Off |
 
 `getNumCapabilities` returns `n`. `threadCapability#` returns the capability
-that last ran the thread and whether it is pinned. `forkOn#` pins the thread
-to capability `k` modulo `n`.
+of the thread and whether it is pinned. `forkOn#` pins the thread to
+capability `k` modulo `n`.
 
 ## Cost budget for single-threaded work
 
@@ -831,23 +1119,44 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | --- | --- | --- |
 | Block refill | One slow path for each 32 KiB of allocation | Below 1 percent |
 | Capability load | One load next to each C call that took the machine | Near zero |
-| Thunk entry check | One load, one compare, one branch for each thunk entry | Below 1 percent |
-| Update filter | One load for each thunk update, plus `stlr` on ARM64 | Below 1 percent |
+| Owner word | One word in each thunk with free variables, one store at entry | 2 to 4 percent on lazy code |
+| Release stores | `stlr` on ARM64 at entry and update, nothing on AMD64 | Below 1 percent |
 | Context switch flag | Two loads and one branch for each thunk evaluation | Below 1 percent |
+| Claiming entry | One compare-and-swap for each `unsafePerformIO` thunk | Program dependent, rare |
 | `MVar` lock | One compare-and-swap pair for each `MVar` operation | Below 1 percent of such programs |
-| STM commit lock | One mutex for each transaction | Small |
+| STM commit lock | One mutex for each transaction, one try-lock for each safepoint inside it | Small |
 | Atomic primitives | Real atomic operations for `casMutVar#` and the array atomics | Program dependent, as in GHC |
 | Collection with `-N1` | The sequential instance, no change | Zero |
-| Collection with idle capabilities | One lock and one worker wake-up for each idle capability for each collection | Near zero |
+| Collection with idle capabilities | One lock and one worker wake-up for each idle capability for each collection | Measured, see below |
 | Idle workers | `n - 1` parked OS threads | Zero CPU |
 
-The sum of the estimates is below 5 percent. The gate is 10 percent against
+The sum of the estimates is below 7 percent. The gate is 10 percent against
 the RTS before step 1. The workloads are the `gc-*` examples and the compile
 workloads of the benchmark suite. Each runs at `-N1` and at `-N<cores>`.
 
 Sequential mode gives a switch for C paths that measure above budget: a
 C path tests `machine->capability_count == 1` and skips its lock. Compiled
 code has no such switch. Its hot paths need no atomic operation by design.
+
+### Performance tests
+
+The workloads above do not exercise every estimate. These tests measure
+the estimates one at a time, each at `-N1` and `-N<cores>` with one
+Haskell thread, against the RTS before step 1:
+
+| Test | Estimate under test |
+| --- | --- |
+| `MVar` ping-pong between two threads on one capability, and `takeMVar` and `putMVar` in a loop from one thread | The `MVar` lock |
+| An STM counter from one thread, and a transaction with ten reads | The commit lock and the safepoint validation |
+| A file copy with small reads and writes | The IO polling model |
+| A thunk-heavy workload with `-A256k`, at `-N8` with one busy thread | Frequent collections with idle capabilities, including the worker wake-ups |
+| A program that forks one thread that waits on an `MVar` for the whole run | The ticker and the context switch flag |
+| `unsafePerformIO` in a loop | The claiming entry |
+
+The frequent collection test is the one that decides whether idle workers
+join a collection. A wake-up of a parked worker costs several microseconds.
+With `-A256k` and one busy thread, a collection runs every few hundred
+microseconds, so `-qn` may need a default below `-N` for this case.
 
 ## Comparison with GHC
 
@@ -863,21 +1172,22 @@ code has no such switch. Its hot paths need no atomic operation by design.
 | Write barrier | Generation test through the block descriptor, `mut_list` for each capability. | One range test, remembered set for each capability. |
 | Minor collection | STW, parallel copy, work stealing. | STW, parallel copy, work stealing, sequential instance for one worker. |
 | Old generation | Copying by default, concurrent non-moving optional. | Incremental mark and sweep in STW slices. |
-| Thunk header | Two words. | One word. |
-| Blackholing | Lazy by default, eager optional, owner in the thunk. | Eager, no owner, filter byte and global table. |
-| Blackhole waiting | A message to the capability of the owner. | A table entry, a process barrier, and a header reload. |
-| `noDuplicate#` | Claims each update frame at `threadPaused`. | Claims each update frame in the table. |
-| Abandoned evaluation | `AP_STACK` object. | `AP_STACK` object, with asynchronous exceptions. |
+| Thunk header | Two words. | Two words. |
+| Blackholing | Lazy by default, eager optional, owner in the thunk. | Eager, owner in the thunk. |
+| Blackhole waiting | A message to the capability of the owner. | A message to the capability of the owner. |
+| Update frame and indirection | `evacuate_BLACKHOLE` keeps the thunk. | The thunk field of an update frame is not shortened. |
+| `noDuplicate#` | Claims each update frame at `threadPaused`. | Claims each update frame in the walk, and a claiming entry for thunks that start with it. |
+| Abandoned evaluation | `AP_STACK` object. | The thunk is put back, as today. |
 | `MVar` | Lock on the info pointer with `WHITEHOLE`. | Lock byte in the record. |
-| `STM` | Optimistic, per-`TVar` locks at commit, watch queues. | Optimistic, one commit lock, watch queues. |
+| `STM` | Optimistic, per-`TVar` locks at commit, watch queues, validation at exceptions and context switches. | Optimistic, one commit lock, watch queues, validation at exceptions and safepoints. |
 | IO manager | Haskell event manager threads, `epoll`, `kqueue`, timer manager. | Poll in each capability, timers in each capability. |
-| `safe` FFI | Releases the capability, worker pool. | Same. |
+| `safe` FFI | Releases the capability, `suspended_ccalls` list for each capability. | Same, the suspended list of the capability. |
 | Callbacks | New bound thread, nested scheduler, can block. | On the caller stack, cannot block. |
 | Bound threads | `forkOS`, bound main thread. | Later. |
 | Sparks | Spark pool deque for each capability. | Later. |
-| Thread movement | Push to idle capabilities. | Push to idle capabilities. |
-| Deadlock | `BlockedIndefinitelyOnMVar` after a collection. | Failure when every capability is idle, as today. |
-| Memory model | Release and acquire barriers since GHC 9.2. | Release stores at publication, dependency loads. |
+| Thread movement | Push to idle capabilities. | Push to idle capabilities. A woken thread goes back to its own capability. |
+| Deadlock | `BlockedIndefinitelyOnMVar` after a collection. | Failure when every capability is idle and no foreign call is in flight, as today. |
+| Memory model | Release and acquire barriers since GHC 9.2. | Atomic accesses with explicit orders at every shared location, dependency loads. |
 | Non-allocating loops | Not preemptible without `-fno-omit-yields`. | Not preemptible. Loops that allocate but do not evaluate are not preemptible either. |
 
 The GHC threaded RTS costs a few percent on single-threaded programs. The
@@ -890,36 +1200,49 @@ for `-N1`, parks idle workers without a spin, and keeps the per-capability
 
 1. **Capability split.** Add `AihcCapability` and the chunk header field.
    Move the per-worker fields. Add the arena and the block refill. Add the
-   Lir atomic instructions and the release stores. Change the thunk entry
-   and the update. Still one OS thread and `-N1` only. Measure the cost
-   budget. This step carries most fixed costs.
+   Lir atomic instructions and the access rules. Add the owner word and the
+   new entry and update. Add the update frame rule to the collector. Still
+   one OS thread and `-N1` only. Measure the cost budget and the three
+   entries. This step carries most fixed costs.
 2. **Workers and stop-the-world.** Add the workers, the capability locks,
-   the sync protocol, `-N`, and `setNumCapabilities`. Add the inboxes, the
-   push of threads, the idle wait, the wake-up descriptors, and the ticker.
-   Add the locks of the shared allocators. Add the parallel copy with the
-   sequential instance, the work stealing, and the parallel mark slice.
+   the sync protocol, the lock order, and `setNumCapabilities`. Add the
+   inboxes, the push of threads, the idle wait, the wake-up descriptors,
+   and the ticker. Add the locks of the shared allocators. Add the parallel
+   copy with the sequential instance, the work stealing, and the parallel
+   mark slice. The RTS refuses `-N` above one, and only the collector fuzz
+   driver and the pause measurements use more than one capability. This
+   step measures the pause against `-N`.
 3. **Synchronisation primitives.** Add the `MVar` lock. Add the blackhole
-   table protocol with the process barrier and `noDuplicate#`. Add the
-   optimistic STM with the commit lock. Add the real atomic primitives.
-4. **FFI.** Add `safe` calls that release the capability, the worker pool,
-   and callbacks from foreign OS threads.
-5. **Later.** Bound threads, blocking callbacks, sparks, and concurrent
+   message protocol, the claiming entry, `noDuplicate#`, and the base
+   library change. Add the optimistic STM with the commit lock and the
+   validation rules. Add the real atomic primitives. Add the race tests and
+   the STM tests.
+4. **Parallel execution.** Accept `-N` above one. Run the scheduler stress
+   suite and the performance tests. This is the first version that runs
+   Haskell threads in parallel.
+5. **FFI.** Add `safe` calls that release the capability, the suspended
+   frame lists, the worker pool, the deadlock rule, and callbacks from
+   foreign OS threads.
+6. **Later.** Bound threads, blocking callbacks, sparks, and concurrent
    marking slices.
 
-Each step leaves the compiler shippable and is its own PR series.
+Each step leaves the compiler shippable and is its own PR series. Steps 2
+and 3 do not expose parallel execution, so no intermediate version runs
+Haskell threads in parallel without the protocols that they need.
 
 ## Tests
 
 - The collector fuzz driver plays compiled code for several threads today.
-  It gains several capabilities and OS workers, and it runs under the
-  thread sanitizer when the C compiler supports it.
+  It gains several capabilities and OS workers, the thunk states of the
+  blackholing section, and the race tests of that section. It runs under
+  the thread sanitizer when the C compiler supports it.
 - A scheduler stress suite under `examples/concurrency-*`. The programs
   are: `MVar` ping-pong between capabilities, a shared lazy list that `n`
-  threads consume, and an STM counter with `n` writers. The suite also has
+  threads consume, and the STM tests of the STM section. The suite also has
   `noDuplicate#` with `n` evaluators of one `unsafePerformIO` thunk, and
   `safe` calls that block while other threads run.
-- The cost budget gate: the `gc-*` examples and the compile workloads at
-  `-N1` and `-N<cores>` with one Haskell thread.
+- The cost budget gate and the performance tests of the cost budget
+  section.
 - The GRIN `gc-stress` fixtures and the verifier under `AIHC_GC_VERIFY`
   run with `-N2` as well.
 
@@ -930,8 +1253,9 @@ Each step leaves the compiler shippable and is its own PR series.
 - The context switch at the thunk branch. If the measurements show that
   programs need a finer switch, the outlined reservation continuation is
   the fallback.
-- The number of collection workers when few capabilities are busy. An idle
-  worker that joins a collection costs a wake-up and finds little work. A
-  measurement decides whether `-qn` gets a default below `-N`.
-- The process barrier on hosts without `membarrier`. The signal fallback
-  needs a measurement of its latency with many workers.
+- The blackhole protocol. Step 1 measures the owner word against the
+  budget. The ownerless alternative replaces it only above three percent
+  and only with its race tests.
+- The number of collection workers when few capabilities are busy. The
+  frequent collection test decides whether `-qn` gets a default below
+  `-N`, and the pause measurements decide whether `-A` shrinks with `-N`.
