@@ -61,7 +61,7 @@ design.
 | Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
 | Garbage collection | STW parallel copy. Every worker collects. A sequential instance without atomics serves one capability. The work has a hard bound, the time has a stated assumption. | STW parallel copy by default. |
 | Old generation | Incremental marking in STW slices, as today. | Optional concurrent non-moving collector. |
-| Blackholing | Eager, with a plain store. The owner is in the thunk. A waiter sends a message to the capability of the owner. | Lazy by default. The owner is in the thunk. |
+| Blackholing | Eager, with a plain store. The state after entry is one word: field zero names the owner, a queue, or the value. A waiter sends a message to the capability of the owner. | Lazy by default. The owner is in the thunk, and the indirectee gives the state. |
 | Thunk layout | One owner word after the header. | One padding word in each thunk. |
 | Memory model | Every shared location is an atomic access with an explicit order, relaxed where a plain instruction is enough. | Release and acquire barriers. |
 | `MVar` | One lock byte in the record. | A lock on the info pointer. |
@@ -367,7 +367,7 @@ in the list while it holds a later one.
 | --- | --- | --- |
 | 1 | The machine sync lock | The stop leader |
 | 2 | The capability locks, in capability index order | The stop leader, a released capability, a worker that takes a capability |
-| 3 | The object locks: the `MVar` byte, the blackhole table, the STM commit lock, the timer list | One at a time for each worker |
+| 3 | The object locks: the `MVar` byte, the STM commit lock, the timer list | One at a time for each worker |
 | 4 | The idle list lock | The push, the idle wait |
 | 5 | The inbox locks | The push, a wake, a message |
 | 6 | The allocator locks: the region table, the gen1 blocks, the gen2 segments, the large objects, the pinned list, the stack regions, the stable names, the callback slots | A large or pinned allocation, a stack growth, a collection worker |
@@ -479,27 +479,33 @@ forwarding header is a compare-and-swap:
 
 ### Indirections and update frames
 
-The collector follows a heap indirection of a copied generation and stores
-its target, so the copied objects hold no indirection. With duplicate
-evaluation, this rule has one exception.
+An evaluated thunk is an indirection: its header has bit zero set, and its
+field zero names the value. Refer to the blackholing section. The collector
+follows such a thunk of a copied generation and stores its target, so the
+copied objects hold no indirection, as today. When the collector must keep
+the object, it copies it as a two-word indirection with the indirection
+info table. With duplicate evaluation, the follow rule has one exception.
 
-Two threads can evaluate one thunk. The first update turns the thunk into
-an indirection. The update frame of the second thread still names the
-thunk. A collection between the two updates would then replace the thunk
-in the frame with the result of the first update. The second update would
-then write into the result.
+Two threads can evaluate one thunk. The first update makes the thunk
+evaluated. The update frame of the second thread still names the thunk. A
+collection between the two updates would then replace the thunk in the
+frame with the value of the first update. The second update would then
+write into the value.
 
 Rule: the thunk field of an update frame is not shortened. The collector
-copies the indirection object that the field names, two words, and the
-field keeps naming it. The same rule applies to the key of a blackhole
-table entry and to the thunk field of a blackhole message. Every other
-reference follows the indirection as today. GHC has the same rule in its
-`evacuate_BLACKHOLE`.
+copies the thunk as a two-word indirection, and the field keeps naming the
+copy. The same rule applies to the thunk field of a blackhole message.
+Every other reference follows the thunk to its value. GHC has the same rule
+in its `evacuate_BLACKHOLE`.
 
-An update of an object that is already an indirection keeps the
-indirection and drops the new result. Both results are the same value,
+The second update then stores its value into field zero of the copy, which
+is the field that the follow path reads. Both results are the same value,
 because the thunk is pure. The continuation of the second thread receives
 its own result. Refer to the blackholing section for the thunk states.
+
+A thunk under evaluation has a thread record or a blackhole queue in field
+zero. The collector copies such a thunk whole, with its free variables, and
+traces field zero as a pointer.
 
 ### Remembered set and mark buffer
 
@@ -660,63 +666,119 @@ of today, a compare-and-swap entry, and the owner word layout.
 
 A thunk has the header, the owner word, and its free variables. A thunk
 without free variables has the header and the owner word, as today. The
-owner word is field zero. The indirection target stays at field zero, so
-the inline check that follows an indirection does not change. The pointer
-bitmap of a thunk marks field zero as a pointer. The collector traces it
-only when bit zero of the header is set or the object is an indirection.
-Thus a new thunk does not initialize the word.
+owner word is field zero. The pointer bitmap of a thunk marks field zero as
+a pointer. The collector traces it only when bit zero of the header is set.
+A new thunk does not initialize the word, except a claiming thunk, which
+the `noDuplicate#` section gives.
+
+### One word of state
+
+The state of a thunk after its entry is in field zero alone. The header
+keeps the thunk info table with bit zero set from the entry to the next
+collection. The update does not write the header. It writes the value into
+field zero. This is the GHC model: an updated thunk keeps the `BLACKHOLE`
+info table, and the identity of its indirectee gives the state.
+
+We first wrote the design with a header store at the update, as the
+current RTS does. That design has a two-word state, and no order of two
+stores makes it atomic. A reader can load a blackhole header and then
+field zero. It then finds the value of an update in progress and takes it
+for an owner. A duplicate entry can store its owner under the indirection
+header of a completed update. A reader that follows the indirection then
+takes a thread record for a value. One word of state removes both cases.
+
+Every reader classifies field zero by the object kind of the record that it
+names:
+
+| Kind of field zero | State | Reader action |
+| --- | --- | --- |
+| Thread record | Under evaluation by that thread | Block |
+| Blackhole queue | Under evaluation by the owner of the queue, with waiters | Block |
+| Any other object | Evaluated. Field zero is the value. | Use the value |
+
+A thread record and a blackhole queue have object kinds that no Haskell
+value has. A thunk has a lifted type, so its value is never a bare thread
+record.
+
+The inline evaluation check changes in one place. Today a thunk info table
+sends an object to the slow path, and an indirection info table sends it to
+the follow path. Now a thunk info table with bit zero clear goes to the
+slow path. A thunk info table with bit zero set loads field zero with a
+dependent load and loads the header of that object. A thread record or a
+blackhole queue goes to the slow path. Any other object is the value, and
+the check continues with it. The cost is one test of the header bit and
+one compare of the kind byte on the follow path. The collector still makes
+two-word indirections with the indirection info table, which keep their
+follow path.
 
 ### States
 
-| State | Header | Field zero | Who writes it |
-| --- | --- | --- | --- |
-| Thunk | Thunk info, no bits | Unused | The allocation |
-| Blackhole | Thunk info, bit zero | The owner thread | The entry, on the capability of the owner |
-| Blackhole with waiters | Thunk info, bits zero and one | The owner thread | The capability of the owner, when it attaches the first waiter |
-| Indirection | Indirection info | The value | The update, on the capability of the owner |
+| State | Header | Field zero |
+| --- | --- | --- |
+| Thunk | Thunk info, bit zero clear | Unused, or null for a claiming thunk |
+| Blackhole | Thunk info, bit zero | The owner thread |
+| Blackhole with waiters | Thunk info, bit zero | A blackhole queue: the owner thread and the waiters |
+| Evaluated | Thunk info, bit zero | The value |
+| Copied | Indirection info | The value |
+
+Every write to field zero is an atomic store. The entry, the queue attach,
+and the update happen on the capability of the owner. The handover of a
+thread between capabilities is a lock. Thus the writes to field zero of
+one thunk are ordered, except for the store of a duplicate entry, which the
+transitions below cover.
 
 The transitions are:
 
 - **Entry.** `aihc_lir_eval` pushes the update frame, stores the current
-  thread into field zero, stores the header with bit zero with release
-  semantics, and transfers to the thunk entry. Both stores are plain on
-  AMD64. The release order lets a reader that sees the bit read the owner.
+  thread into field zero with a relaxed atomic store, stores the header
+  with bit zero with a release store, and transfers to the thunk entry. A
+  reader that sees bit zero sees the owner, because the owner store comes
+  before the release store. No reader sees bit zero with an uninitialized
+  field zero.
 - **Duplicate entry.** Two threads enter one thunk before either stores the
-  header. Both evaluate. The second entry can also land after the first
-  update. Then field zero holds the second owner and the header reads as a
-  blackhole again. Readers wait for the second owner. Neither case damages
-  a free variable.
-- **Update.** The owner stores the value into field zero and the
-  indirection header with release semantics. When bit one is set, the owner
-  takes the C path, which removes the table entry and wakes the waiters.
-  Bit one is set only by the capability of the owner, so the update cannot
-  miss it. The handover of a thread between capabilities is a lock, which
-  orders the bit store before the update.
-- **Second update.** The object is already an indirection. The update
-  keeps it and drops the result. The update frame of the second thread
-  still names the thunk, by the collector rule above.
-- **Blocking.** A thread that enters a blackhole reads the owner. When the
-  owner is the thread itself, the runtime reports a loop. This replaces the
-  walk of the continuation chain. Otherwise the thread sends a blackhole
-  message to the capability of the owner. The message holds the thunk and
-  the continuation. The thread then parks as blocked on the thunk.
+  header. Both store an owner, and both evaluate. The later owner store
+  wins. A duplicate entry can also land after the update of the first
+  thread. Its owner store then replaces the value, and readers wait for the
+  second owner. Its header store sets a bit that is already set. Neither
+  case damages a free variable, and field zero holds a thread record or a
+  value at every instant.
+- **Attach.** The capability of the owner attaches the first waiter. It
+  allocates a blackhole queue with the owner thread and the waiter, and
+  stores the queue into field zero with a release store. A later waiter is
+  appended to the queue. The queue is a runtime record in the managed heap.
+- **Update.** The owner loads field zero, then stores the value into field
+  zero with a release store. When the loaded word was a queue, the owner
+  wakes each waiter of the queue with the value. Each waiter goes through
+  the inbox of its own capability. The owner cannot miss a queue, because only
+  its own capability attaches one, and a thread handover is a lock.
+- **Second update.** The thunk is evaluated, or copied by the collector as
+  an indirection, or under evaluation by a duplicate. The second update
+  stores its value into field zero in each case. Both results are the same
+  value, because the thunk is pure. A copied indirection takes the store
+  in its field zero. The update frame of the second thread still names the
+  thunk or its copy, by the collector rule above.
+- **Blocking.** A thread that finds a thread record or a queue in field
+  zero reads the owner. When the owner is the thread itself, the runtime
+  reports a loop. This replaces the walk of the continuation chain.
+  Otherwise the thread sends a blackhole message to the capability of the
+  owner. The message holds the thunk and the continuation. The thread then
+  parks as blocked on the thunk.
 - **Message.** The capability of the owner reads the message at its next
-  schedule. When the thunk is an indirection, it wakes the sender with the
-  value. When the thunk is a blackhole with an owner on this capability,
-  it attaches the sender to the table entry of the thunk. Then it sets bit
-  one.
-  When the owner moved to another capability, it forwards the message
-  there. The owner cannot move while its capability reads the message,
-  because only that capability moves it.
+  schedule. It loads field zero. A value wakes the sender with the value.
+  A thread record or a queue with an owner on this capability attaches the
+  sender. An owner on another capability forwards the message there. The
+  owner cannot move while its capability reads the message, because only
+  that capability moves it.
 - **Abandon.** An asynchronous exception stops the evaluation. The owner
-  clears the header bits. Field zero keeps a stale owner, which the next
-  entry overwrites. The waiters resume with `Eval thunk continuation`, as
-  today.
+  loads field zero, clears bit zero of the header with a release store,
+  and wakes the waiters of a queue with `Eval thunk continuation`. A
+  claiming thunk gets null in field zero first. Another thunk keeps a stale
+  owner, which no reader loads while bit zero is clear and the next entry
+  overwrites.
 - **Loop.** A self-re-entry reports a loop at once, from the owner word.
 
-The blackhole table is global under one lock. Only the capability of the
-owner touches the entry of a thunk, so the lock protects the structure, not
-the entry. The message queue is the inbox of the capability.
+The blackhole table of the current RTS disappears. The queue is in the
+thunk, and the message queue is the inbox of the capability.
 
 ### Race tests
 
@@ -725,11 +787,16 @@ interleavings, with real OS workers and with a model of the states above:
 
 - Two entries, two updates, with a collection between the updates.
 - An entry that lands after an update of a duplicate.
+- A reader that loads the header before an update and field zero after it.
+  The reader must take the value.
+- A reader that loads field zero between the owner store of a duplicate
+  entry and its header store. The reader must block on the duplicate.
 - A message that arrives after the update, and one that arrives after the
   owner moved to another capability.
 - A waiter whose owner abandons the evaluation.
 - A loop through two threads, which the owner word does not detect and
   which stays a deadlock, as in GHC.
+- The `noDuplicate#` sequences of the next section.
 
 ### `noDuplicate#`
 
@@ -739,28 +806,50 @@ It must run at most one of the evaluations to its end.
 
 The owner word alone does not give this. Two entries can both store their
 owner, and both can read their own thread back before the other store
-lands. The rule has two parts:
+lands. A plain store cannot take part in a claim protocol: a claim that
+another word carries is overwritten by the store, and a claim on the same
+word is overwritten too. Thus a thunk that needs the guarantee must claim
+at its entry, with a compare-and-swap. We considered a compare-and-swap at
+every entry and rejected it for its cost. The design claims only where the
+guarantee is needed:
 
-- **Claiming entry.** The GRIN pipeline marks the info table of a thunk
-  whose body starts with `noDuplicate#`. The entry of such a thunk claims
-  it with a compare-and-swap from the thunk header to the blackhole header.
-  A failed swap means another thread entered first. The thread then blocks
-  on the thunk as a waiter. The swap costs about twenty cycles on these
-  thunks only. `unsafePerformIO` and `unsafeInterleaveIO` produce such
-  thunks.
+- **Claiming thunks.** The GRIN pipeline marks the info table of a thunk
+  whose body runs `noDuplicate#` before any other effect on every path.
+  Allocations and lets before it do not count. `unsafePerformIO`,
+  `unsafeInterleaveIO`, and `unsafeInterleaveST` produce such thunks after
+  inlining. The `needs_eval` byte of a marked table has a third value. The
+  inline check sends such a thunk to `aihc_lir_eval` as today. Only
+  `aihc_lir_eval` tests the mark.
+- **Initialization.** The allocation of a claiming thunk stores null into
+  field zero. The abandon of a claiming thunk stores null again.
+- **Claiming entry.** The entry does a compare-and-swap on field zero from
+  null to the current thread, with acquire and release order. On success
+  it stores the header with bit zero with a release store and evaluates.
+  On failure the swap gives the current word: a thread record or a queue
+  names the owner, and the thread blocks on it. Any other object is the
+  value, and the thread continues with it. The swap costs about twenty
+  cycles on these thunks only. Readers that see bit zero see the owner,
+  because the swap comes before the header store.
 - **Walk.** `noDuplicate#` walks the update frames of the current stack.
-  For each frame whose thunk names another owner, the thread stops its
-  evaluation of that thunk, becomes a waiter on it, and parks. For each
-  frame whose thunk names the thread itself, the thread claims the thunk.
-  The claim is a compare-and-swap of bit one into the header. A later
-  entry of a duplicate then sees a claimed blackhole and blocks. The walk
-  stops at the
-  first frame that it claimed in an earlier walk.
+  For each frame whose thunk names another owner in field zero, the thread
+  stops its evaluation of that thunk. It becomes a waiter on it and parks.
+  The walk claims nothing, because a plain entry can overwrite a claim.
 
-A `noDuplicate#` that is not the first action of its thunk keeps a small
-window. A duplicate entry can store its owner after the walk read the word
-and before the claim. The claim then fails, and the thread that lost the
-claim becomes a waiter. The thread that won it runs the action once.
+The guarantee is: a `noDuplicate#` that is the first effect of its thunk
+runs the thunk at most once. The base library uses the primitive only in
+that position. A `noDuplicate#` in another position blocks when it
+observes another owner, which stops duplicate work early, but it does not
+guarantee one run. The documentation of the primitive says so.
+
+The race tests for this section are:
+
+- Two claiming entries at the same time. One must block on the other.
+- A claiming entry that loses the swap to a finished evaluation. It must
+  take the value.
+- Thread A reads owner A in the walk, thread B stores owner B, thread A
+  continues. The outer thunk is not claiming, so both continue, and the
+  inner claiming thunk must run once.
+- An abandon of a claiming thunk followed by two claiming entries.
 
 ### Base library
 
@@ -881,9 +970,22 @@ the parent. The lookup order of `readTVar#` is:
 `writeTVar#` appends to the write log of the innermost transaction. When a
 nested transaction commits, its read log and its write log merge into the
 parent. The read log merges too, because the parent validates every read
-of the whole transaction at its commit. When a nested transaction aborts,
-for `retry#` under `catchRetry#` or an exception under `catchSTM#`, its
-logs are dropped.
+of the whole transaction at its commit.
+
+A nested transaction aborts for `retry#` under `catchRetry#` or for an
+exception under `catchSTM#`. Its write log is dropped. Its read log merges
+into the parent with the recorded values. The reads of an aborted
+branch are dependencies of the whole transaction. The left branch of
+`orElse` reads `a` and retries, and the right branch reads `b` and
+retries. The transaction must then watch `a` and `b`, because a change to
+`a` can let the left branch succeed. The exception of a `catchSTM#` branch
+was a consequence of its reads, so the commit of the parent must validate
+them too. GHC merges the read set of every aborted nested transaction in
+the same way.
+
+A merged read whose recorded value differs from an entry of the parent for
+the same `TVar` makes the transaction invalid. The transaction then runs
+again from `atomically#` at its next validation.
 
 ### Validation
 
@@ -966,10 +1068,11 @@ emits an acquire load, because LLVM gives no guarantee for a dependency.
 
 | Location | Writer | Reader | Order |
 | --- | --- | --- | --- |
-| Object header, entry bit | The entry | Every reader | `store.atomic release`, `load.atomic relaxed` |
-| Object header, update | The owner | Every reader | `store.atomic release`, `load.atomic relaxed`, then `load.dependent` of field zero |
+| Object header, entry bit | The entry, the abandon | Every reader | `store.atomic release`, `load.dependent` |
 | Object header, forwarding | A collection worker | A collection worker | `cas acq_rel`, `load.atomic acquire` |
-| Owner word of a thunk | The entry, the update | A blocking reader | Plain store before the release store of the header, `load.dependent` after the header load |
+| Field zero of a thunk, owner | The entry | Every reader that saw bit zero | `store.atomic relaxed` before the release store of the header, `load.dependent` after the header load, then `load.dependent` of the kind of the record |
+| Field zero of a thunk, queue and value | The capability of the owner | Every reader that saw bit zero | `store.atomic release`, `load.dependent` |
+| Field zero of a claiming thunk | The allocation, the claiming entry, the abandon | The claiming entry | `store.atomic relaxed` null, `cas acq_rel`, `load.dependent` |
 | Fields of a new object | The allocating thread | Nobody until publication | Plain |
 | Fields of an immutable object after publication | Nobody | Every reader | Plain, after a `load.dependent` or an acquire load of the pointer |
 | Pointer field of a mutable object | `writeMutVar#`, `writeArray#`, the CAS primitives, the runtime | `readMutVar#`, `readArray#`, the collector | `store.atomic release`, `load.dependent` |
@@ -990,9 +1093,10 @@ A reader of an immutable object relies on the publication order: the
 allocating thread wrote the fields before the release store that published
 the pointer, and the reader loaded the pointer with a dependency or an
 acquire. The inline evaluation check loads the header of an object and then
-field zero of the same object. This has no address dependency of its own.
+field zero of the same object. Then it loads the header of the record that
+field zero names. The first two loads have no address dependency of their own.
 The lowering uses `load.dependent` for the header, so the field load
-depends on it.
+depends on it, and the third load depends on the second.
 
 The C runtime uses the C11 atomic operations with the same orders. The
 collector workers use the sequential instance without them when one worker
@@ -1086,7 +1190,8 @@ the scheduler hands the capability to it.
 ## Threads, thread identifiers, and other global state
 
 - `next_thread_id` becomes an atomic counter.
-- The blackhole table is global under one lock. Only contention reaches it.
+- The blackhole table of the current RTS disappears. A blackhole queue
+  lives in field zero of its thunk.
 - The stable name list is global under one lock. The hash counter is
   atomic.
 - The callback slots are global under one lock.
@@ -1121,6 +1226,7 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | Capability load | One load next to each C call that took the machine | Near zero |
 | Owner word | One word in each thunk with free variables, one store at entry | 2 to 4 percent on lazy code |
 | Release stores | `stlr` on ARM64 at entry and update, nothing on AMD64 | Below 1 percent |
+| Inline check of an evaluated thunk | One header bit test and one kind compare on the follow path | Below 1 percent |
 | Context switch flag | Two loads and one branch for each thunk evaluation | Below 1 percent |
 | Claiming entry | One compare-and-swap for each `unsafePerformIO` thunk | Program dependent, rare |
 | `MVar` lock | One compare-and-swap pair for each `MVar` operation | Below 1 percent of such programs |
@@ -1174,9 +1280,10 @@ microseconds, so `-qn` may need a default below `-N` for this case.
 | Old generation | Copying by default, concurrent non-moving optional. | Incremental mark and sweep in STW slices. |
 | Thunk header | Two words. | Two words. |
 | Blackholing | Lazy by default, eager optional, owner in the thunk. | Eager, owner in the thunk. |
-| Blackhole waiting | A message to the capability of the owner. | A message to the capability of the owner. |
+| Evaluated thunk | `BLACKHOLE` info with the value as indirectee. | Thunk info with bit zero and the value in field zero. |
+| Blackhole waiting | A message to the capability of the owner, `BLOCKING_QUEUE` as indirectee. | A message to the capability of the owner, a blackhole queue in field zero. |
 | Update frame and indirection | `evacuate_BLACKHOLE` keeps the thunk. | The thunk field of an update frame is not shortened. |
-| `noDuplicate#` | Claims each update frame at `threadPaused`. | Claims each update frame in the walk, and a claiming entry for thunks that start with it. |
+| `noDuplicate#` | Claims each update frame at `threadPaused`. | A claiming entry with a compare-and-swap for thunks that start with it. The walk blocks on another owner and claims nothing. |
 | Abandoned evaluation | `AP_STACK` object. | The thunk is put back, as today. |
 | `MVar` | Lock on the info pointer with `WHITEHOLE`. | Lock byte in the record. |
 | `STM` | Optimistic, per-`TVar` locks at commit, watch queues, validation at exceptions and context switches. | Optimistic, one commit lock, watch queues, validation at exceptions and safepoints. |
