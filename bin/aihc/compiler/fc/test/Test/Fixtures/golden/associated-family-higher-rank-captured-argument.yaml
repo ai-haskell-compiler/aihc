@@ -1,0 +1,17 @@
+extensions:
+- RankNTypes
+- StarIsType
+- TypeFamilies
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Proxy a = Proxy
+  class MuRef a where
+    type DeRef a :: * -> *
+    mapDeRef :: (forall b. (MuRef b, DeRef a ~ DeRef b) => b -> f u) -> a -> f (DeRef a u)
+  findNodes :: MuRef s => Proxy [((), DeRef s ())] -> s -> Proxy ()
+  findNodes proxy value = case mapDeRef (findNodes proxy) value of
+    Proxy -> Proxy
+status: pass
+reason: A higher-rank argument uses family equality evidence for a captured value.
