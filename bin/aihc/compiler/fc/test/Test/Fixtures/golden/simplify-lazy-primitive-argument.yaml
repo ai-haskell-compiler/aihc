@@ -55,9 +55,7 @@ expected: |-
   pub val 1.vbump :: tInt → tBox
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
-      let argument : tInt# =
-        prim +# x{1} lit (1#cIntRep) :: tInt#;
-      cBox (cI# argument)
+      cBox (cI# (prim +# x{1} lit (1#cIntRep) :: tInt#))
 
   pub val 1.vshare :: tInt → tTwice
     = λ(x : tInt).
@@ -68,4 +66,4 @@ expected: |-
         cI# argument;
       cTwice y y
 status: pass
-reason: A lazy constructor application runs a safe primitive call first, so that lowering stores the value and makes no thunk.
+reason: A safe primitive call stays in the lazy constructor application. The GRIN lowering runs it when it builds the constructor, so it stores the value and makes no thunk.

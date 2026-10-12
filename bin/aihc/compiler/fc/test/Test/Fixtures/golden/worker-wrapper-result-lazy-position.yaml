@@ -68,9 +68,7 @@ expected: |-
       let! cPair (x{1} : tInt) (y : tInt) = x;
       let! cI# (i : tInt#) = x{1};
       let! cI# (j : tInt#) = y;
-      let argument : tInt# =
-        prim +# i j;
-      cBox (cI# argument)
+      cBox (cI# (prim +# i j))
 
   pub val 1.vtotal :: tPair → tInt
     = λ(x : tPair).
@@ -79,4 +77,4 @@ expected: |-
       let! cI# (y{1} : tInt#) = x{1};
       cI# (prim +# y{1} (prim +# x{2} y{1}))
 status: pass
-reason: A copy of the wrapper of a function with a constructed result gives a case on a safe primitive call. In the lazy argument of Box, that case must become a strict let of the primitive, which the constructor takes as a value, and not a thunk.
+reason: A copy of the wrapper of a function with a constructed result gives a case on a safe primitive call. In the lazy argument of Box, that case becomes the constructor of the primitive call, which the GRIN lowering runs when it builds the constructor. Thus the field is a value and not a thunk.

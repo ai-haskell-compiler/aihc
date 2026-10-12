@@ -79,9 +79,7 @@ expected: |-
   pub val 1.voffset inline :: tInt → FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt))
     = λ(x : tInt) (y : tInt#) (z : tState# tRealWorld).
       let! cI# (x{1} : tInt#) = x;
-      let field : tInt# =
-        prim +# x{1} y;
-      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) @(tState# tRealWorld) @tInt z (cI# field)
+      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) @(tState# tRealWorld) @tInt z (cI# (prim +# x{1} y))
 
   pub val 1.vtotal :: FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#))
     = λ(x : tInt#) (y : tState# tRealWorld).

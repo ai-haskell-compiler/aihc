@@ -64,11 +64,7 @@ expected: |-
 
   val 1.v$waround :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt# (tTuple2# sLiftedRep sLiftedRep tInt tInt)
     = λ(x : tInt#).
-      let argument : tInt# =
-        prim -# x lit (1#cIntRep) :: tInt#;
-      let argument{1} : tInt# =
-        prim +# x lit (1#cIntRep) :: tInt#;
-      cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt (cI# argument) (cI# argument{1})
+      cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt (cI# (prim -# x lit (1#cIntRep) :: tInt#)) (cI# (prim +# x lit (1#cIntRep) :: tInt#))
 
   pub val 1.vboth :: FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
     = λ(x : tInt).

@@ -83,9 +83,7 @@ expected: |-
                 0#cIntRep →
                   ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s';
                 _ →
-                  let argument : tInt# =
-                    prim +# _pat{1} lit (-1#cIntRep) :: tInt#;
-                  ((go (cI# argument)) ▷ axiom-co $ax$IO @tInt) s'
+                  ((go (cI# (prim +# _pat{1} lit (-1#cIntRep) :: tInt#))) ▷ axiom-co $ax$IO @tInt) s'
               }) ▷ sym (axiom-co $ax$IO @tInt)
       } in
       (λ(s : tState# tRealWorld).

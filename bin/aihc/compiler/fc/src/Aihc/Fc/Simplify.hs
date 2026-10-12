@@ -2234,12 +2234,13 @@ copiable env argument =
     -- nothing.
     || isStateToken argument
 
--- | An application whose head is not copied, with the safe primitive calls
--- in its lazy constructor arguments bound by strict lets first.
+-- | An application whose head is not copied. A safe primitive call in a
+-- lazy constructor argument stays where it is: the GRIN lowering runs it
+-- when it builds the constructor, so the constructor is a value and not a
+-- thunk, and the call needs no strict let in front of the application.
 bindApplication :: Simpl -> Expr -> [Arg] -> SimplM Expr
-bindApplication env headExpr args = do
-  bound <- mapM (either (pure . (,) [] . Left) (fmap (fmap Right) . bindLazyPrimitives env . primitiveConstructor env)) args
-  pure (foldr ExLet (rebuildSpine headExpr (map snd bound)) (concatMap fst bound))
+bindApplication env headExpr args =
+  pure (rebuildSpine headExpr (map (fmap (primitiveConstructor env)) args))
 
 -- | Move out of the arguments of an application each case that cannot
 -- fail and does not evaluate anything: a case on an evaluated variable

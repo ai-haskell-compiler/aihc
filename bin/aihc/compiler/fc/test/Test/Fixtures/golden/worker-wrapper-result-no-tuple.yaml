@@ -53,10 +53,6 @@ expected: |-
 
   val 1.v$waround :: FUN @cIntRep @sLiftedRep tInt# tPair
     = λ(x : tInt#).
-      let argument : tInt# =
-        prim -# x lit (1#cIntRep) :: tInt#;
-      let argument{1} : tInt# =
-        prim +# x lit (1#cIntRep) :: tInt#;
-      cPair (cI# argument) (cI# argument{1})
+      cPair (cI# (prim -# x lit (1#cIntRep) :: tInt#)) (cI# (prim +# x lit (1#cIntRep) :: tInt#))
 status: pass
 reason: The program does not have the unboxed pair type, so the worker returns the Pair as it is. It still takes the Int# field of its parameter.
