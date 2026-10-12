@@ -8,6 +8,7 @@ module GHC.Num.Integer
     integerFromBigNatNeg#,
     integerToBigNatClamp#,
     integerFromWordNeg#,
+    integerFromWord#,
     integerFromNatural,
     integerToNatural,
     integerSqr,
@@ -29,7 +30,7 @@ module GHC.Num.Integer
   )
 where
 
-import GHC.Internal.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, integerLog2#, integerLogBase#)
+import GHC.Internal.Integer (Integer (..), integerFromMagnitude#, integerLog2#, integerLogBase#)
 import GHC.Internal.Integer qualified as Internal
 import GHC.Num.BigNat (BigNat (..), BigNat#, bigNatCheck#, bigNatFromAddr#, bigNatFromByteArray#, bigNatFromWord#, bigNatSizeInBase#, bigNatToAddr#, bigNatToMutableByteArray#, bigNatZero)
 import GHC.Num.Primitives (Bool#)
@@ -79,7 +80,7 @@ integerMagnitude# value = integerToBigNatClamp# (abs value)
 
 -- | The non-positive 'Integer' with the magnitude of a word.
 integerFromWordNeg# :: Word# -> Integer
-integerFromWordNeg# word = negate (integerFromWord# 1# word)
+integerFromWordNeg# word = negate (integerFromWord# word)
 
 -- | Shift an 'Integer' to the left by a number of bits.
 integerShiftL# :: Integer -> Word# -> Integer
@@ -94,7 +95,7 @@ integerShiftR# value count = Internal.integerShiftR# value (word2Int# count)
 integerFromNatural :: Natural -> Integer
 integerFromNatural value =
   case value of
-    NS word -> integerFromWord# 1# word
+    NS word -> integerFromWord# word
     NB magnitude -> integerFromBigNat# magnitude
 
 -- | The absolute value of an 'Integer' as a 'Natural'.
@@ -202,3 +203,7 @@ integerFromByteArray# count bytes offset endian state =
 -- significant byte is first.
 integerToMutableByteArray# :: Integer -> MutableByteArray# s -> Word# -> Bool# -> State# s -> (# State# s, Word# #)
 integerToMutableByteArray# value = bigNatToMutableByteArray# (integerMagnitude# value)
+
+-- | The non-negative integer with the value of a machine word.
+integerFromWord# :: Word# -> Integer
+integerFromWord# = Internal.integerFromWord# 1#

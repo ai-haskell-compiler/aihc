@@ -19,15 +19,15 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
-    2.venumFrom :: ∀(a : sType). t$Dict$Enum a 3.→ a 3.→ t[] a
+    2.venumFrom :: ∀(a : sType). t$Dict$Enum a → a → t[] a
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vresult :: ∀(a : sType). t$Dict$Enum a 3.→ a 3.→ t[] a
+  pub val 1.vresult :: ∀(a : sType). t$Dict$Enum a → a → t[] a
     = Λ(a : sType). λ($dEnum : t$Dict$Enum a) (x : a).
       venumFrom @a $dEnum x
 status: pass

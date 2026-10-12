@@ -1,0 +1,28 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - ScopedTypeVariables
+  - TypeApplications
+modules:
+  - |
+    {-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, TypeApplications #-}
+    module Test where
+    import Data.Proxy
+    import Data.Typeable
+    import GHC.TypeLits
+    data Index (n :: Nat) = Index
+    describe :: forall n. KnownNat n => Proxy n -> String
+    describe _ = show (typeRep (Proxy :: Proxy (Index n)))
+    result =
+      ( describe (Proxy :: Proxy 3)
+      , show (typeRep (Proxy :: Proxy "hello"))
+      , show (typeRep (Proxy :: Proxy 'x'))
+      , typeRep (Proxy :: Proxy 3) == typeRep (Proxy :: Proxy 4)
+      )
+    main = print result
+expression: main
+stdout: |
+  ("Index 3","\"hello\"","'x'",False)
+output: ()
+status: pass
+reason: Typeable uses singleton dictionaries for natural numbers, symbols, and characters.

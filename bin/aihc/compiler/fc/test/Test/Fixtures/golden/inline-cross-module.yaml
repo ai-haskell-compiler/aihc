@@ -30,7 +30,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cLifted :: tLevity;
     3.cTrue :: tBool
@@ -39,7 +39,7 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vpick :: tBool 3.→ tBool 3.→ tBool
+  pub val 1.vpick :: tBool → tBool → tBool
     = λ(x : tBool) (y : tBool).
       case x of {
         cTrue →
@@ -48,7 +48,7 @@ expected: |-
           x
       }
 
-  pub val 2.vuse :: tBool 3.→ tBool
+  pub val 2.vuse :: tBool → tBool
     = λ(x : tBool).
       case x of {
         cTrue →

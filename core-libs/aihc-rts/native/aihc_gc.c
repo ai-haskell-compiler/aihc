@@ -1840,6 +1840,41 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
   }
 }
 
+/* Scan the suspended frames of every stack that the collection keeps. A
+   thread record of an older generation survives without a trace, and a
+   traced record does not name its stack. The frames of a suspended thread
+   are reached only through its resumption or its waiter. When that waiter
+   dies, for example with the MVar the thread blocked on, the stack stays
+   while its frames hold pointers into the space that the collection frees.
+   Thus the walk starts again at the top of each kept stack until no more
+   threads become live. The running stack is a root. */
+static void aihc_trace_kept_stacks(AihcGcContext *context) {
+  AihcMachine *machine = context->machine;
+  AihcStack *running =
+      machine->stack_next == NULL
+          ? NULL
+          : aihc_stack_chunk_of(machine->stack_next - 1)->stack;
+  int scanned;
+  do {
+    scanned = 0;
+    for (AihcStack *stack = machine->stacks; stack != NULL;
+         stack = stack->next) {
+      if (stack == running || stack->top == NULL ||
+          aihc_chunk_generation(aihc_stack_chunk_of(stack->top)) >
+              context->collected ||
+          aihc_address_set_contains(&aihc_marked_statics, stack->top) ||
+          aihc_live_value(context, (AihcValue *)stack->thread) == NULL) {
+        continue;
+      }
+      aihc_mark_static(stack->top);
+      scanned = 1;
+    }
+    if (scanned) {
+      aihc_trace(context);
+    }
+  } while (scanned);
+}
+
 /* Release the stacks of the threads this collection did not retain, and the
    chunks above the one after the running chunk. Frames above the stack
    pointer are dead, and one spare chunk stops a loop at a chunk boundary
@@ -2538,6 +2573,7 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   aihc_visit_roots(machine, root_count, roots, aihc_evacuate_root, &context);
   aihc_scan_remembered(&context);
   aihc_trace(&context);
+  aihc_trace_kept_stacks(&context);
   aihc_update_stable_names(&context);
   aihc_sweep_stacks(&context);
   aihc_sweep_pinned(&context);

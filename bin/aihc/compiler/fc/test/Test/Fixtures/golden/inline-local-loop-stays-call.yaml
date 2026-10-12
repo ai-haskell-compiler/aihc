@@ -42,7 +42,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -51,13 +51,13 @@ expected: |-
 
   type 1.tList (a : sType) :: sType {
     1.cNil :: ∀(a : sType). tList a;
-    1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
+    1.cCons :: ∀(a : sType). a → tList a → tList a
   }
 
-  val 1.vappend :: ∀(a : sType). tList a 2.→ tList a 2.→ tList a
+  val 1.vappend :: ∀(a : sType). tList a → tList a → tList a
     = Λ(a : sType). λ(x : tList a) (y : tList a).
       rec {
-        go : tList a 2.→ tList a =
+        go : tList a → tList a =
           λ(x{1} : tList a).
             case x{1} of {
               cNil →
@@ -68,14 +68,14 @@ expected: |-
       } in
       go x
 
-  pub val 1.vboth :: tList tInt 2.→ tList tInt 2.→ tList tInt 2.→ tList tInt
+  pub val 1.vboth :: tList tInt → tList tInt → tList tInt → tList tInt
     = λ(x : tList tInt) (y : tList tInt) (z : tList tInt).
       vappend @tInt x (vappend @tInt y z)
 
-  pub val 1.vmapped :: tList tInt 2.→ tList (tList tInt)
+  pub val 1.vmapped :: tList tInt → tList (tList tInt)
     = λ(x : tList tInt).
       rec {
-        go : tList tInt 2.→ tList (tList tInt) =
+        go : tList tInt → tList (tList tInt) =
           λ(x{1} : tList tInt).
             case x{1} of {
               cNil →
@@ -86,10 +86,10 @@ expected: |-
       } in
       go x
 
-  pub val 1.vtwice :: tList tInt 2.→ tList (tList tInt)
+  pub val 1.vtwice :: tList tInt → tList (tList tInt)
     = λ(x : tList tInt).
       rec {
-        go : tList tInt 2.→ tList (tList tInt) =
+        go : tList tInt → tList (tList tInt) =
           λ(x{1} : tList tInt).
             case x{1} of {
               cNil →

@@ -27,14 +27,14 @@ expected: |-
     5.tTYPE :: ∀(rep : tRuntimeRep). sType;
     5.sType :: sType;
     constructors [5.c[], 5.c:] 5.t[] :: ∀(a : sType). sType;
-    4.c$Dict$Show :: ∀(a : sType). (tInt 5.→ a 5.→ t[] tChar 5.→ t[] tChar) 5.→ (a 5.→ t[] tChar) 5.→ (t[] a 5.→ t[] tChar 5.→ t[] tChar) 5.→ t$Dict$Show a;
-    4.v$dmshow :: ∀(a : sType). t$Dict$Show a 5.→ a 5.→ t[] tChar;
-    4.v$dmshowList :: ∀(a : sType). t$Dict$Show a 5.→ t[] a 5.→ t[] tChar 5.→ t[] tChar;
+    4.c$Dict$Show :: ∀(a : sType). (tInt → a → t[] tChar → t[] tChar) → (a → t[] tChar) → (t[] a → t[] tChar → t[] tChar) → t$Dict$Show a;
+    4.v$dmshow :: ∀(a : sType). t$Dict$Show a → a → t[] tChar;
+    4.v$dmshowList :: ∀(a : sType). t$Dict$Show a → t[] a → t[] tChar → t[] tChar;
     5.cAddrRep :: tRuntimeRep;
-    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cBoxedRep :: tLevity → tRuntimeRep;
     5.cLifted :: tLevity;
-    2.vunpackAppendCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar 5.→ t[] tChar);
-    2.vunpackAppendCStringUtf8# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar 5.→ t[] tChar)
+    2.vunpackAppendCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar → t[] tChar);
+    2.vunpackAppendCStringUtf8# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar → t[] tChar)
 
   import synonyms
     5.sLiftedRep = cBoxedRep cLifted;
@@ -49,8 +49,8 @@ expected: |-
   pub val 1.v$fShowCode :: t$Dict$Show tCode
     = c$Dict$Show @tCode v$fShowCode$cshowsPrec v$fShowCode$cshow v$fShowCode$cshowList
 
-  val 1.v$fShowCode$cshowsPrec :: tInt 5.→ tCode 5.→ t[] tChar 5.→ t[] tChar
-    = λ(x : tInt) (y : tCode).
+  val 1.v$fShowCode$cshowsPrec :: tInt → tCode → t[] tChar → t[] tChar
+    = λ(unused x : tInt) (y : tCode).
       case y of {
         cExitSuccess →
           λ(s : t[] tChar).
@@ -63,10 +63,10 @@ expected: |-
             vunpackAppendCStringUtf8# lit ("C\xce\xbb"#cAddrRep) :: tAddr# s
       }
 
-  val 1.v$fShowCode$cshow :: tCode 5.→ t[] tChar
+  val 1.v$fShowCode$cshow :: tCode → t[] tChar
     = v$dmshow @tCode v$fShowCode
 
-  val 1.v$fShowCode$cshowList :: t[] tCode 5.→ t[] tChar 5.→ t[] tChar
+  val 1.v$fShowCode$cshowList :: t[] tCode → t[] tChar → t[] tChar
     = v$dmshowList @tCode v$fShowCode
 status: pass
 reason: Derived Show uses compact constructor names with a variable suffix.
