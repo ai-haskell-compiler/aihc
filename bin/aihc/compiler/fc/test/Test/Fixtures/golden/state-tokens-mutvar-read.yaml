@@ -38,8 +38,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    readMutVar# = 2.vreadMutVar# :: ∀(d : sType) (a{1} : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# d a{1}) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# d) a{1}));
-    writeMutVar# = 2.vwriteMutVar# :: ∀(d : sType) (a{1} : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# d a{1}) (a{1} 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# d) (tState# d))
+    readMutVar# = 2.vreadMutVar# :: ∀(a : sType) (b : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# a b) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# a) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# a) b));
+    writeMutVar# = 2.vwriteMutVar# :: ∀(a : sType) (b : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# a b) (b 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# a) (tState# a))
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;

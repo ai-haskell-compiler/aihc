@@ -3100,8 +3100,12 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths pending 
 --
 -- The passes come from the plan of the level; nothing here reads the
 -- level. See @docs/optimization.md@.
+--
+-- The passes copy foreign calls, so the result gets the canonical foreign
+-- call types: equal calls are equal values.
 optimizeFcProgram :: PackageId -> ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
-optimizeFcProgram primPackage config verbose roots name = foldM step `flip` compilePasses config
+optimizeFcProgram primPackage config verbose roots name input =
+  Fc.canonicalForeignCalls <$> foldM step input (compilePasses config)
   where
     step program pass = do
       let (program', report) = Fc.runPass primPackage roots pass program

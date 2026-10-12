@@ -12,6 +12,7 @@ module Aihc.Fc.Desugar
   )
 where
 
+import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Convert
 import Aihc.Fc.Desugar.Value (desugarValues, prepareValueInterface)
 import Aihc.Fc.Imports (emptyImports, importsForProgramLookup, pruneImports)
@@ -265,7 +266,7 @@ desugarFromInterface config moduleBindings interface checked = do
   -- an import, so the imports are pruned after it and the scopes follow.
   let normalized = pruneImports (normalizeProgram (primPackageId config) (Program emptyScopeTable imports decls))
       scopes = buildScopes (primPackageId config) moduleOrigin (programImports normalized) (programDecls normalized)
-  pure (tidyProgramWithTidiedImports normalized {programScopes = scopes})
+  pure (canonicalForeignCalls (tidyProgramWithTidiedImports normalized {programScopes = scopes}))
 
 headerIndex :: ConvertEnv -> TcInterface -> Map.Map Name HeaderSource
 headerIndex convertEnv interface =

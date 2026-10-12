@@ -27,19 +27,44 @@ fcPropertyTests =
       testProperty "tidyProgram output round trips" prop_tidyRoundTrip,
       testProperty "t prefix stores Bool" prop_prefixStrip,
       testProperty "uses have no type suffix" prop_noUseTypes,
-      testProperty "alpha-equivalent primitive types share one alias" prop_primitiveAliasUpToBinders
+      testProperty "alpha-equivalent primitive types share one alias" prop_primitiveAliasUpToBinders,
+      testProperty "pruneScopes keeps the used scopes" prop_pruneScopes
     ]
 
+-- | 'pruneScopes' drops a scope that no name uses, keeps the others, and
+-- the parser gives back the pruned program.
+prop_pruneScopes :: Property
+prop_pruneScopes = property $ do
+  let unused = PackageId "unused"
+      program = identityProgram {programScopes = insertScope 7 unused "Unused" (programScopes identityProgram)}
+      pruned = pruneScopes program
+      printed = renderProgram pruned
+  annotate (T.unpack printed)
+  [(package, moduleName) | (_, package, moduleName) <- scopeEntries (programScopes pruned)]
+    === [(package, moduleName) | (_, package, moduleName) <- scopeEntries (programScopes identityProgram)]
+  case parseProgram printed of
+    Left parseError -> do
+      annotate (renderParseError parseError)
+      failure
+    Right parsed -> parsed === pruned
+
 -- | Two calls of one primitive whose types differ only in the names of
--- their binders print as one import and use the same alias.
+-- their binders become equal in the canonical form. They print as one
+-- import, use the same alias, and the parser gives back the same program.
 prop_primitiveAliasUpToBinders :: Property
 prop_primitiveAliasUpToBinders = property $ do
-  let printed = renderProgram primitiveProgram
+  let program = canonicalForeignCalls primitiveProgram
+      printed = renderProgram program
       importLines = filter (T.isInfixOf "= 1.vraise# ::") (T.lines printed)
   annotate (T.unpack printed)
   length importLines === 1
   T.count "prim raise#" printed === 2
   T.isInfixOf "raise#{1}" printed === False
+  case parseProgram printed of
+    Left parseError -> do
+      annotate (renderParseError parseError)
+      failure
+    Right parsed -> parsed === program
   where
     call variable =
       ForeignCall
@@ -196,8 +221,52 @@ identityProgram =
         ]
     }
 
+-- | A program. Its foreign calls come from a small pool of primitives, and
+-- a call can copy the type of a pool primitive with its bound variables
+-- renamed, as the passes do. Thus the program can have calls of one
+-- primitive whose types differ only in the names of their binders.
 genProgram :: Gen Program
-genProgram = Program scopes <$> genImports <*> Gen.list (Range.linear 0 10) genDecl
+genProgram = do
+  pool <- Gen.list (Range.linear 1 3) genPoolCall
+  Program scopes <$> genImports <*> Gen.list (Range.linear 0 10) (genDecl pool)
+
+-- | A primitive of the pool: a name from a small set and a type with a
+-- bound variable.
+genPoolCall :: Gen ForeignCall
+genPoolCall = do
+  name <- Gen.element ["primA", "primB"]
+  variable <- genLocalTypeName
+  result <- genType
+  pure
+    ForeignCall
+      { foreignCallName = valueNameTop name,
+        foreignCallConvention = Prim,
+        foreignCallDependencies = [],
+        foreignCallType = TyForAll (Binder variable (TyCon (typeWired "Type"))) (TyFun lifted lifted (TyVar variable) result)
+      }
+  where
+    lifted = TyCon (typeWired "LiftedRep")
+
+-- | A call of a pool primitive. Its type is the type of the primitive with
+-- the bound variable renamed.
+genPoolCallExpr :: [ForeignCall] -> Gen Expr
+genPoolCallExpr pool = do
+  call <- Gen.element pool
+  renamed <- genLocalTypeName
+  let ty = case foreignCallType call of
+        TyForAll (Binder variable kind) body -> TyForAll (Binder renamed kind) (renameVariable variable renamed body)
+        other -> other
+  pure (ExForeignCall call {foreignCallType = ty} [] [])
+  where
+    renameVariable old new ty = case ty of
+      TyVar name | name == old -> TyVar new
+      TyApp function argument -> TyApp (renameVariable old new function) (renameVariable old new argument)
+      TyFun r1 r2 argument result -> TyFun (renameVariable old new r1) (renameVariable old new r2) (renameVariable old new argument) (renameVariable old new result)
+      TyForAll binder body
+        | binderName binder == old -> TyForAll binder {binderType = renameVariable old new (binderType binder)} body
+        | otherwise -> TyForAll binder {binderType = renameVariable old new (binderType binder)} (renameVariable old new body)
+      TyEq left right -> TyEq (renameVariable old new left) (renameVariable old new right)
+      _ -> ty
 
 genImports :: Gen Imports
 genImports = do
@@ -224,13 +293,13 @@ genImports = do
       declaration <- AxiomDecl Private name <$> Gen.list (Range.linear 0 3) genTypeBinder <*> genRole <*> genType <*> genType
       pure (name, declaration)
 
-genDecl :: Gen Decl
-genDecl =
+genDecl :: [ForeignCall] -> Gen Decl
+genDecl pool =
   Gen.choice
     [ DeclType <$> genTypeDecl,
       DeclSynonym <$> genSynonymDecl,
       DeclAxiom <$> genAxiomDecl,
-      DeclVal <$> genValDecl,
+      DeclVal <$> genValDecl pool,
       DeclRule <$> genRuleDecl
     ]
 
@@ -278,13 +347,18 @@ genAxiomDecl =
     <*> genType
     <*> genType
 
-genValDecl :: Gen ValDecl
-genValDecl =
+genValDecl :: [ForeignCall] -> Gen ValDecl
+genValDecl pool =
   ValDecl
     <$> genVis
     <*> (valueNameTop . ("f" <>) <$> genSuffix)
     <*> genType
-    <*> Gen.choice [ExVar <$> genLocalValueName, genForeignCallExpr]
+    <*> Gen.choice
+      [ ExVar <$> genLocalValueName,
+        genForeignCallExpr,
+        genPoolCallExpr pool,
+        ExApp <$> genPoolCallExpr pool <*> genPoolCallExpr pool
+      ]
     <*> genInlineSpec
 
 genInlineSpec :: Gen InlineSpec

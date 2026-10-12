@@ -48,7 +48,7 @@ expected: |-
     +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
     -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
     minusAddr# = 2.vminusAddr# :: FUN @cAddrRep @sLiftedRep tAddr# (FUN @cAddrRep @cIntRep tAddr# tInt#);
-    readIntOffAddr# = 2.vreadIntOffAddr# :: ∀(d : sType). FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# d) tInt#)));
+    readIntOffAddr# = 2.vreadIntOffAddr# :: ∀(a : sType). FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# a) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# a) tInt#)));
     realWorld# = 2.vrealWorld# :: tState# tRealWorld;
     word32ToWord# = 2.vword32ToWord# :: FUN @cWord32Rep @cWordRep tWord32# tWord#;
     word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#;

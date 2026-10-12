@@ -371,6 +371,9 @@ renderFcCase tc =
             Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> T.unpack rendered)
             Right parsed
               | canonical /= rendered -> Left ("System FC round trip changed canonical syntax:\n" <> T.unpack canonical <> "\noriginal:\n" <> T.unpack rendered)
+              -- The text keeps each part of the program, so the parser
+              -- gives back the same program, not only the same text.
+              | parsed /= program -> Left ("System FC round trip changed the program:\n" <> T.unpack rendered)
               | decodeProgram (BL.toStrict (encodeProgram program)) /= Right program -> Left ("System FC binary round trip changed the program:\n" <> T.unpack rendered)
               | otherwise -> Right (T.unpack rendered)
               where

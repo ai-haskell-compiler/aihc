@@ -122,6 +122,8 @@ GRIN lowering is temporarily disabled.
     Do not add extra axioms for them.
 
 20. Scope syntax stays: `scope 1 = "pkg-id" ModuleName`.
+    A whole program keeps only the scopes that its names use (`pruneScopes`).
+    The type of each foreign call has canonical binder names (`canonicalForeignCalls`), so equal calls are equal values and share one primitive alias.
 
 ## Syntax
 
