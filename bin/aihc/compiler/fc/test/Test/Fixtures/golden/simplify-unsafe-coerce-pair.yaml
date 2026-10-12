@@ -36,7 +36,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -44,13 +44,13 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tBox :: sType {
-    pub 1.cBox :: tInt 3.→ tBox
+    pub 1.cBox :: tInt → tBox
   }
 
-  pub val 1.vroundTrip :: tInt 3.→ tInt
+  pub val 1.vroundTrip :: tInt → tInt
     = λ(x : tInt).
       x
 
-  pub val 1.vthrough :: tInt 3.→ tBox
+  pub val 1.vthrough :: tInt → tBox
     = λ(x : tInt).
-      prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @tInt @tBox x
+      prim unsafeCoerce# @sLiftedRep @sLiftedRep @tInt @tBox x

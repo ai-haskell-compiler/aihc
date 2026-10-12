@@ -35,9 +35,9 @@ expected: |-
     4.sUnliftedRep :: tRuntimeRep;
     4.sUnliftedType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cLifted :: tLevity;
-    4.cTupleRep :: t[] tRuntimeRep 4.→ tRuntimeRep;
+    4.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     4.cUnlifted :: tLevity;
     4.c[] :: ∀(a : sType). t[] a
 

@@ -36,8 +36,8 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
@@ -47,7 +47,7 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.vshowInt :: FUN @cIntRep @sLiftedRep tInt# (t[] tBool 3.→ t[] tBool)
+  val 1.vshowInt :: FUN @cIntRep @sLiftedRep tInt# (t[] tBool → t[] tBool)
     = λ(x : tInt#) (y : t[] tBool).
       let _case : tInt# =
         prim ==# x lit (0#cIntRep) :: tInt#;
@@ -58,7 +58,7 @@ expected: |-
           y
       }
 
-  pub val 1.vrender :: tInt 3.→ t[] tBool 3.→ t[] tBool
+  pub val 1.vrender :: tInt → t[] tBool → t[] tBool
     = λ(x : tInt).
       let! cI# (value : tInt#) = x;
       vshowInt (prim quotInt# lit (10#cIntRep) :: tInt# value)

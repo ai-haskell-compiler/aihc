@@ -10,6 +10,7 @@ module Aihc.Grin.Lower
 where
 
 import Aihc.Fc qualified as Fc
+import Aihc.Fc.Simplify (safePrimitiveCall)
 import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
@@ -1285,6 +1286,7 @@ lazyNode env0 hint expression0 =
       case operand of
         SettledOperand values -> Just values
         LazyOperand {} -> Nothing
+        EagerOperand {} -> Nothing
 
 -- | Drop the type applications, type lambdas and casts that carry no runtime
 -- value, keeping the type environment they establish.
@@ -1332,9 +1334,16 @@ data LazyOperand
     SettledOperand [GrinValue]
   | -- | A lifted expression that 'lowerLazy' names in its own lazy form.
     LazyOperand Fc.Expr
+  | -- | An unlifted primitive call that cannot fail, reads no memory and
+    -- has no effect. It runs where the node is built, so the node is a
+    -- value and not a thunk: @I# (x +# y)@ in a lazy position computes the
+    -- sum and stores the box. The call is cheap, so to run it early costs
+    -- no more than the thunk would.
+    EagerOperand Fc.Expr
 
--- | Classify an operand, or fail when it is unlifted and not yet a value:
--- computing it would run code the surrounding node must not run.
+-- | Classify an operand, or fail when it is unlifted and not yet a value
+-- and computing it would run code the surrounding node must not run. A
+-- safe primitive call is such a computation that can run early.
 classifyOperand :: LowerEnv -> Fc.Expr -> LowerM (Maybe LazyOperand)
 classifyOperand env expression = do
   representation <- expressionRuntimeRep env expression
@@ -1352,6 +1361,7 @@ classifyOperand env expression = do
       | not (isLiftedRuntimeRep representation) -> Just . SettledOperand . pure . GrinLitValue <$> lowerLiteral env literal
     _
       | isLiftedRuntimeRep representation -> pure (Just (LazyOperand expression))
+      | isJust (safePrimitiveCall (lowerTypes env) expression) -> pure (Just (EagerOperand expression))
       | otherwise -> pure Nothing
 
 lowerLazyOperands :: LowerEnv -> [LazyOperand] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
@@ -1361,6 +1371,8 @@ lowerLazyOperands env = go []
     go values (SettledOperand newValues : operands) continuation = go (values <> newValues) operands continuation
     go values (LazyOperand expression : operands) continuation =
       lowerLazy env "argument" expression (\value -> go (values <> [value]) operands continuation)
+    go values (EagerOperand expression : operands) continuation =
+      bindExpression env "argument" expression (\newValues -> go (values <> newValues) operands continuation)
 
 bindExpression :: LowerEnv -> Text -> Fc.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 bindExpression env hint expression continuation = do

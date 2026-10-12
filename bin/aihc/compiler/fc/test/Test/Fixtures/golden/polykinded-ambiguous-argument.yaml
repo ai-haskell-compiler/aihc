@@ -21,7 +21,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -42,6 +42,6 @@ expected: |-
       cTrue
 
   pub val 1.vresult :: tBool
-    = vignore @(tTYPE (cBoxedRep cLifted)) @tUnit
+    = vignore @sType @tUnit
 status: pass
 reason: Annotation defaulting resolves an argument kind before its type.

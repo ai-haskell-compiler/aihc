@@ -55,6 +55,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
@@ -520,6 +521,7 @@ checkExpr expected expression = case expression of
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EPragma pragma inner', ty, constraints)
   ELambdaPats patterns body -> checkLambda expected (exprSpan expression) patterns body
+  EList elements -> inferListWithExpected (Just expected) (exprSpan expression) elements
   ECase scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
     prepareScrutinee constraints
@@ -569,10 +571,11 @@ checkLambda expected sp patterns body = do
       patternCheck <- checkFunctionPatterns sp (zip patterns argumentTypes)
       (body', bodyType, bodyConstraints) <-
         withPatternScope patternCheck (checkExpr resultType body)
-      constraints <- solvePatternBranch sp patternCheck bodyType bodyConstraints
-      let functionType = foldr TcFunTy bodyType argumentTypes
+      equality <- wantedDoEq sp resultType bodyType
+      constraints <- solvePatternBranch sp patternCheck resultType (bodyConstraints <> [equality])
+      let functionType = foldr TcFunTy resultType argumentTypes
           patterns' = zipWith (annotateLambdaPattern (pcBindings patternCheck)) argumentTypes (pcPatterns patternCheck)
-          lambda = annotatePendingExprAt sp (pendingAnnotation functionType [] [] []) (ELambdaPats patterns' body')
+          lambda = annotatePendingExprAt sp (pendingAnnotation functionType [] [] []) (ELambdaPats patterns' (annotateExprCast resultType (ctEvVar equality) body'))
       pure (lambda, functionType, constraints)
   where
     splitExpected ty [] = pure (Just ([], ty))
@@ -605,6 +608,10 @@ checkRhs expected rhs = case rhs of
 -- Keep this list of constructors the same as the list in 'checkExpr'.
 checksExpectedResult :: Expr -> Bool
 checksExpectedResult expression = case expression of
+  EAnn annotation _
+    | Just resolution <- fromAnnotation @ResolutionAnnotation annotation,
+      isSyntaxTermResolution "fromListN" resolution ->
+        False
   EAnn _ inner -> checksExpectedResult inner
   EParen inner -> checksExpectedResult inner
   EPragma _ inner -> checksExpectedResult inner
@@ -612,6 +619,7 @@ checksExpectedResult expression = case expression of
   ELetDecls {} -> True
   EDo _ flavor -> isMonadicDoFlavor flavor
   ELambdaPats {} -> True
+  EList {} -> True
   _ -> False
 
 -- | Connect application results before constructor patterns refine their indices.
@@ -867,11 +875,20 @@ applicationSpine expected ambient expr = do
         (op', opTy, opCts) <- inferOperator sp op
         pure (EVar op', opTy, opCts, nameTypeArgs op')
   let instantiationVariables = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables headTypeArgs))
+  -- Fix the result before a guarded argument can fix it outside the
+  -- givens of a later lambda or do block.
+  case (expected, spineResultType headTy frames) of
+    (Just expectedTy, Just resultType)
+      | not (isPolyType expectedTy),
+        any frameNeedsExpectedType frames ->
+          quickLookUnify instantiationVariables expectedTy resultType
+    _ -> pure ()
   (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
   case expected of
     Just expectedTy -> do
       qualified <- anyM qualifiedArgument steps
-      when qualified (quickLookUnify spineVariables expectedTy resultTy)
+      let guided = any guidedArgument steps
+      when (qualified || (guided && not (isPolyType expectedTy))) (quickLookUnify spineVariables expectedTy resultTy)
     Nothing -> pure ()
   (expr', stepCts) <- checkSpineSteps headExpr steps
   -- An application with a polymorphic result, for example a record field
@@ -887,6 +904,29 @@ applicationSpine expected ambient expr = do
       let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
       pure (annotatePendingExprAt sp pending expr', instantiated, headCts <> stepCts <> cts)
     else pure (expr', resultTy, headCts <> stepCts)
+
+guidedArgument :: SpineStep -> Bool
+guidedArgument (StepArg plan) = case argPlanArgument plan of
+  ArgDeferred argument -> checksExpectedResult argument
+  ArgInferred {} -> False
+guidedArgument _ = False
+
+frameNeedsExpectedType :: SpineFrame -> Bool
+frameNeedsExpectedType (SpineValueArg _ argument) = checksExpectedResult argument
+frameNeedsExpectedType (SpineInfixRhs _ argument) = checksExpectedResult argument
+frameNeedsExpectedType _ = False
+
+spineResultType :: TcType -> [SpineFrame] -> Maybe TcType
+spineResultType ty [] = Just ty
+spineResultType ty (frame : rest) = case frame of
+  SpineTypeArg {} -> Nothing
+  SpineValueArg {} -> resultAfterArgument
+  SpineInfixRhs {} -> resultAfterArgument
+  _ -> spineResultType ty rest
+  where
+    resultAfterArgument = case ty of
+      TcFunTy _ result -> spineResultType result rest
+      _ -> Nothing
 
 -- | Whether a step is an argument whose expected type has givens.
 qualifiedArgument :: SpineStep -> TcM Bool
@@ -1394,7 +1434,10 @@ inferOverloadedList sp resolutionAnn resolution inner = do
   pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
 
 inferList :: Maybe SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
-inferList sp elems = do
+inferList = inferListWithExpected Nothing
+
+inferListWithExpected :: Maybe TcType -> Maybe SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
+inferListWithExpected expected sp elems = do
   (nilCon, nilInstantiation) <- instantiateListConstructor sp tcWiringNilDataCon
   nilCts <- mapM (predToCt sp (tyConName nilCon)) (instPreds nilInstantiation)
   case elems of
@@ -1403,11 +1446,17 @@ inferList sp elems = do
           pending = pendingAnnotation listTy (instTypeArgs nilInstantiation) (map ctEvVar nilCts) []
       pure (annotatePendingExprAt sp pending (EList []), listTy, nilCts)
     _ -> do
-      results <- mapM inferElem elems
       (consCon, consInstantiation) <- instantiateListConstructor sp tcWiringConsDataCon
       consPredicateCts <- mapM (predToCt sp (tyConName consCon)) (instPreds consInstantiation)
       case instType consInstantiation of
         TcFunTy sourceElemTy (TcFunTy sourceTailTy sourceResultTy) -> do
+          case expected of
+            Just expectedTy -> do
+              let variables = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables (instTypeArgs consInstantiation)))
+              reducedExpected <- zonkType expectedTy >>= reduceTypeFamilies
+              quickLookUnify variables reducedExpected sourceResultTy
+            Nothing -> pure ()
+          results <- mapM (inferElem sourceElemTy) elems
           let elems' = map (\(element, _, _, _) -> element) results
               elemCts = concatMap (\(_, _, cts, _) -> cts) results
               (firstElemTy, firstElemSp) = case results of
@@ -1422,8 +1471,10 @@ inferList sp elems = do
           pure (annotatePendingExprAt sp pending (EList elems'), sourceResultTy, elemCts <> elementEqualityCts <> constructorCts)
         _ -> abortTc "the wired list cons constructor has an invalid type"
   where
-    inferElem elemExpr = do
-      (elemExpr', elemTy, elemCts) <- inferExpr elemExpr
+    inferElem expectedElemTy elemExpr = do
+      (elemExpr', elemTy, elemCts) <- case expected of
+        Just _ -> checkExpr expectedElemTy elemExpr
+        Nothing -> inferExpr elemExpr
       pure (elemExpr', elemTy, elemCts, exprSpan elemExpr <|> sp)
     constructorEqualityCt loc left right = do
       ev <- freshEvVar

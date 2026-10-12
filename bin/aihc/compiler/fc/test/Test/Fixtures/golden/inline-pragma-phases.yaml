@@ -50,7 +50,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -59,25 +59,25 @@ expected: |-
 
   type 1.tNat :: sType {
     1.cZ :: tNat;
-    1.cS :: tNat 2.→ tNat
+    1.cS :: tNat → tNat
   }
 
   type 1.t$Dict$C (a : sType) :: sType {
-    1.c$Dict$C :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$C a
+    1.c$Dict$C :: ∀(a : sType). (a → a) → t$Dict$C a
   }
 
   pub val 1.v$fCNat :: t$Dict$C tNat
     = c$Dict$C @tNat v$fCNat$cop
 
-  val 1.v$fCNat$cop noinline :: tNat 2.→ tNat
+  val 1.v$fCNat$cop noinline :: tNat → tNat
     = λ(x : tNat).
       cS x
 
-  val 1.vkeep noinline :: tNat 2.→ tNat
+  val 1.vkeep noinline :: tNat → tNat
     = λ(x : tNat).
       cS x
 
-  val 1.vbig :: tNat 2.→ tNat
+  val 1.vbig :: tNat → tNat
     = λ(x : tNat).
       case x of {
         cZ →
@@ -86,7 +86,7 @@ expected: |-
           cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))))))))))))))))))))))))))
       }
 
-  val 1.vforce inline :: tNat 2.→ tNat
+  val 1.vforce inline :: tNat → tNat
     = λ(x : tNat).
       case x of {
         cZ →
@@ -95,35 +95,35 @@ expected: |-
           cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))))))))))))))))))))))))))
       }
 
-  val 1.vlater noinline [1] :: tNat 2.→ tNat
+  val 1.vlater noinline [1] :: tNat → tNat
     = λ(x : tNat).
       cS x
 
-  pub val 1.vuseKeep :: tNat 2.→ tNat
+  pub val 1.vuseKeep :: tNat → tNat
     = λ(x : tNat).
       vkeep x
 
-  pub val 1.vuseBig :: tNat 2.→ tNat
+  pub val 1.vuseBig :: tNat → tNat
     = λ(x : tNat).
       vbig (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
-  pub val 1.vuseBig2 :: tNat 2.→ tNat
+  pub val 1.vuseBig2 :: tNat → tNat
     = λ(x : tNat).
       vbig (vbig x)
 
-  pub val 1.vuseForce :: tNat 2.→ tNat
+  pub val 1.vuseForce :: tNat → tNat
     = λ(x : tNat).
       vforce (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
-  pub val 1.vuseForce2 :: tNat 2.→ tNat
+  pub val 1.vuseForce2 :: tNat → tNat
     = λ(x : tNat).
       vforce (vforce x)
 
-  pub val 1.vuseLater :: tNat 2.→ tNat
+  pub val 1.vuseLater :: tNat → tNat
     = λ(x : tNat).
       vlater x
 
-  pub val 1.vuseMethod :: tNat 2.→ tNat
+  pub val 1.vuseMethod :: tNat → tNat
     = λ(x : tNat).
       v$fCNat$cop x
 status: pass

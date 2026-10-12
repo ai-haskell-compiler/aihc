@@ -1,0 +1,52 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - MagicHash
+  - ScopedTypeVariables
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import Data.Type.Equality ((:~:) (..))
+    import GHC.Base (Word (..), Type)
+    import GHC.Num.BigNat (BigNat (..), bigNatFromWord#)
+    import GHC.Num.Integer (integerFromWord#)
+    import GHC.Num.Natural (naturalFromBigNat#)
+    import qualified GHC.TypeNats as N
+    import Numeric.Natural (Natural)
+    import Prelude
+
+    data Box (a :: Type) = Box a
+
+    value :: Natural -> Natural
+    value number = case N.someNatVal number of
+      N.SomeNat proxy -> N.natVal proxy
+
+    equal :: Natural -> Natural -> Bool
+    equal left right = case N.someNatVal left of
+      N.SomeNat a -> case N.someNatVal right of
+        N.SomeNat b -> case N.sameNat a b of
+          Just Refl -> N.natVal a == N.natVal b
+          Nothing -> False
+
+    wordValue :: Word -> Integer
+    wordValue (W# number) = integerFromWord# number
+
+    naturalValue :: Word -> Natural
+    naturalValue (W# number) = naturalFromBigNat# (bigNatFromWord# number)
+
+    answer :: Bool
+    answer =
+      map value [0, 1, 42, 18446744073709551617] == [0, 1, 42, 18446744073709551617]
+        && equal 42 42
+        && not (equal 42 43)
+        && equal 18446744073709551617 18446744073709551617
+        && not (equal 18446744073709551617 1)
+        && map wordValue [0, 1, 18446744073709551615] == [0, 1, 18446744073709551615]
+        && map naturalValue [0, 1, 18446744073709551615] == [0, 1, 18446744073709551615]
+expression: answer
+output: |
+  True
+status: pass
+reason: The base library supplies the natural dictionaries and conversions that arithmoi needs.

@@ -30,7 +30,7 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -44,7 +44,7 @@ expected: |-
   pub type 1.tPayload (a : sType) :: sType @N {}
 
   type 1.t$R$Payload$PayloadUnit :: sType {
-    pub 1.cPayloadUnit :: tUnit 2.→ t$R$Payload$PayloadUnit
+    pub 1.cPayloadUnit :: tUnit → t$R$Payload$PayloadUnit
   }
 
   axiom 1.$ax$Payload$PayloadUnit : tPayload tUnit ~R t$R$Payload$PayloadUnit
@@ -63,15 +63,15 @@ expected: |-
     constructors [1.cPayloadUnit] 1.t$R$Payload$PayloadUnit :: sType;
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
     3.sLiftedRep :: tRuntimeRep;
-    1.tPayload :: sType 3.→ sType;
+    1.tPayload :: sType → sType;
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [1.cUnit] 1.tUnit :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
-    1.cPayloadUnit :: tUnit 3.→ t$R$Payload$PayloadUnit
+    1.cPayloadUnit :: tUnit → t$R$Payload$PayloadUnit
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
@@ -82,21 +82,21 @@ expected: |-
     1.$ax$Payload$PayloadUnit : tPayload tUnit ~R t$R$Payload$PayloadUnit;
     1.$ax$R$Payload$PayloadList (a : sType) : t$R$Payload$PayloadList a ~R t[] a
 
-  pub val 2.vbuild :: tUnit 3.→ tPayload tUnit
+  pub val 2.vbuild :: tUnit → tPayload tUnit
     = λ(x : tUnit).
       (λ(_field : tUnit).
         (cPayloadUnit _field) ▷ sym (axiom-co $ax$Payload$PayloadUnit)) x
 
-  pub val 2.vunwrap :: tPayload tUnit 3.→ tUnit
+  pub val 2.vunwrap :: tPayload tUnit → tUnit
     = λ(x : tPayload tUnit).
       let! cPayloadUnit (value : tUnit) = x ▷ axiom-co $ax$Payload$PayloadUnit;
       value
 
-  pub val 2.vwrap :: ∀(a : sType). t[] a 3.→ tPayload (t[] a)
+  pub val 2.vwrap :: ∀(a : sType). t[] a → tPayload (t[] a)
     = Λ(a : sType). λ(x : t[] a).
       x ▷ trans (sym (axiom-co $ax$R$Payload$PayloadList @a)) (sym (axiom-co $ax$Payload$PayloadList @a))
 
-  pub val 2.vitems :: ∀(a : sType). tPayload (t[] a) 3.→ t[] a
+  pub val 2.vitems :: ∀(a : sType). tPayload (t[] a) → t[] a
     = Λ(a : sType). λ(x : tPayload (t[] a)).
       x ▷ trans (axiom-co $ax$Payload$PayloadList @a) (axiom-co $ax$R$Payload$PayloadList @a)
 status: pass

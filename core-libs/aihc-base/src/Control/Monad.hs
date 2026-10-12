@@ -225,12 +225,10 @@ zipWithM_ combine lefts rights = void (zipWithM combine lefts rights)
 mapAndUnzipM :: (Applicative m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 mapAndUnzipM function values = unzip <$> traverse function values
 
-filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
-filterM _ [] = return []
-filterM keep (value : values) = do
-  selected <- keep value
-  rest <- filterM keep values
-  return (if selected then value : rest else rest)
+filterM :: (Applicative m) => (a -> m Bool) -> [a] -> m [a]
+filterM _ [] = pure []
+filterM keep (value : values) =
+  (\selected rest -> if selected then value : rest else rest) <$> keep value <*> filterM keep values
 
 guard :: (Alternative f) => Bool -> f ()
 guard True = pure ()
