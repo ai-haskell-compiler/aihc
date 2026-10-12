@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -14,13 +15,15 @@
 -- @aihc-internal@ depends on @aihc-base@ rather than the other way round,
 -- so the declarations live here and the internal module re-exports them.
 --
--- @someNatVal@ and @SomeNat@ are not available yet.
 -- @withKnownNat@ uses @WithDict@ to construct the dictionary.
 -- An aihc dictionary contains a constructor around its fields.
 module GHC.TypeNats
   ( Natural,
     Nat,
     KnownNat,
+    SomeNat (..),
+    someNatVal,
+    sameNat,
     natSing,
     natVal,
     natVal',
@@ -41,11 +44,15 @@ module GHC.TypeNats
   )
 where
 
+import Data.Proxy (Proxy (..))
+import Data.Type.Equality ((:~:) (..))
 import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
 import GHC.Types (Any, Constraint, Ordering, Type)
+import Unsafe.Coerce (unsafeCoerce)
+import Prelude (Bool (..), Eq (..), Maybe (..))
 
 -- | The kind of type-level natural literals. GHC makes this a synonym for
 -- the value type, so that @natVal@ can return one.
@@ -120,3 +127,23 @@ withSomeSNat value continuation = continuation (UnsafeSNat value :: SNat Any)
 -- | Supply the dictionary for a singleton natural number.
 withKnownNat :: forall n r. SNat n -> ((KnownNat n) => r) -> r
 withKnownNat (UnsafeSNat value) = withDict @(KnownNat n) value
+
+-- | A natural number with its type index and dictionary.
+data SomeNat where
+  SomeNat :: (KnownNat n) => Proxy n -> SomeNat
+
+-- | Give a runtime natural number its type index and dictionary.
+someNatVal :: Natural -> SomeNat
+someNatVal value =
+  withSomeSNat
+    value
+    ( \(singleton :: SNat n) ->
+        withKnownNat singleton (SomeNat (Proxy :: Proxy n))
+    )
+
+-- | Prove type equality when the natural numbers are equal.
+sameNat :: forall a b proxy1 proxy2. (KnownNat a, KnownNat b) => proxy1 a -> proxy2 b -> Maybe (a :~: b)
+sameNat left right =
+  case natVal left == natVal right of
+    True -> Just (unsafeCoerce (Refl :: a :~: a))
+    False -> Nothing

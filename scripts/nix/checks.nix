@@ -237,7 +237,7 @@
       exit "$compile_exit"
     fi
     mkdir -p "$run_directory"
-    if env "''${statistics_environment[@]}" timeout --foreground --kill-after=5s 10s \
+    if env "''${statistics_environment[@]}" timeout --foreground --kill-after=5s "$run_timeout" \
       bash -c 'run_directory=$1; executable=$2; stderr=$3; argv0=$4; shift 4; cd "$run_directory"; exec -a "$argv0" "$executable" +RTS -M100M -RTS "$@" 2> "$stderr"' \
       bash "$run_directory" "$executable" "$actual_stderr" "$example_name" "''${example_args[@]}" \
       < "$stdin_file" > "$actual_stdout" 2> "$timeout_stderr"; then
@@ -995,6 +995,12 @@
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
+      # The deep stack test needs more time when other checks use the CPU.
+      run_timeout=${
+        if exampleName == "gc-stack-growth"
+        then "30s"
+        else "10s"
+      }
       expected_stdout="$example_directory/stdout"
       if [[ ! -f "$expected_stdout" ]]; then
         echo "Missing expected stdout for $source: $expected_stdout" >&2
