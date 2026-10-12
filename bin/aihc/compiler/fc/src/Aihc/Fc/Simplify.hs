@@ -72,6 +72,7 @@ module Aihc.Fc.Simplify
 where
 
 import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, topLevelSignatures)
+import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, floatBottoms)
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
@@ -152,8 +153,10 @@ simplifyProgram primPackage phase siteLimit program =
             spLocalCandidates = Map.empty,
             spInTemplate = False,
             spFacts = emptyFacts,
-            spEscapes = True
+            spEscapes = True,
+            spDiverging = diverging
           }
+      diverging = divergingValues env (Map.toList bodies)
       escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
       callArities = topCallArities escaping (Map.elems bodies)
       simplifyDecl decl =
@@ -163,7 +166,7 @@ simplifyProgram primPackage phase siteLimit program =
              in (\body -> DeclVal declaration {valBody = body}) <$> (simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration) >>= shareAlternatives env)
           _ -> pure decl
       (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
-      result = tidyProgram (pruneImports program {programDecls = decls})
+      result = tidyProgram (pruneImports (floatBottoms env diverging program {programDecls = decls}))
    in (result, SimplifyReport size0 (programSize primPackage result) (ssRulesFired final))
   where
     size0 = programSize primPackage program
@@ -466,7 +469,11 @@ data Simpl = Simpl
     -- lambda does not read the fields of a known constructor inside it.
     -- See 'readFieldsInside'. 'simplifyExpr' sets it again for every
     -- expression that is not a lambda, a type lambda or a cast.
-    spEscapes :: !Bool
+    spEscapes :: !Bool,
+    -- | The top-level values that diverge, with the value arguments that
+    -- a call gives before it diverges. A case or a strict let of such a
+    -- call is the call. See "Aihc.Fc.Diverge".
+    spDiverging :: !Diverging
   }
 
 data SimplState = SimplState
@@ -840,6 +847,10 @@ tailType env expr =
 -- inner case when the scrutinee is a case, or in place otherwise.
 simplifyCase :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
 simplifyCase env scrutinee binder originalAlternatives
+  -- The alternatives never run after a scrutinee that diverges.
+  | diverges (spEnv env) (spDiverging env) scrutinee,
+    Just resultType <- caseResultType (spEnv env) binder originalAlternatives =
+      pure (bottomAt (spEnv env) (spDiverging env) scrutinee resultType)
   -- A variable whose value the comparisons around the case fix is that
   -- literal: the case selects its alternative.
   | ExVar name <- scrutinee,
@@ -2823,6 +2834,11 @@ foldSubstitutedPrimitives env expression = case expression of
 -- A body that returns only its binder reduces to the right-hand side.
 mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
+  -- The body never runs after a strict right-hand side that diverges.
+  | not lifted,
+    diverges (spEnv env) (spDiverging env) rhs,
+    Just bodyType <- exprType (extendBinder (spEnv env) binder) body =
+      pure (bottomAt (spEnv env) (spDiverging env) rhs bodyType)
   | isTrivial rhs = simplifyExpr env (substExpr (Map.singleton name rhs) body)
   -- A let whose body is its own binder is its right-hand side. This is
   -- also correct for a strict binding, because the right-hand side is

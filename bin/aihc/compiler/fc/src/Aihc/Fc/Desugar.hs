@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- | Convert a checked module into System FC types, axioms, and values.
 module Aihc.Fc.Desugar
@@ -20,7 +19,7 @@ import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
-import Aihc.Fc.Wired (equalityRep, ghcTypesModule, typeConstructor, wiredGhcTypes)
+import Aihc.Fc.Wired (equalityRep, typeConstructor, wiredGhcTypes)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -87,8 +86,6 @@ import Aihc.Tc.Types
     pattern KTYPE,
   )
 import Control.Monad (zipWithM)
-import Data.List (nub, sort)
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -253,20 +250,19 @@ desugarFromInterface config moduleBindings interface checked = do
       <$> mapM
         (dsDecl convertEnv packageId currentModule dataTypes tyCons classes typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  let typeEnv = TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyScopeTable emptyImports typeDecls)
+  let typeEnv = TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyImports typeDecls)
   valueDecls <- desugarValues convertEnv typeEnv moduleBindings (prepareValueInterface interface) moduleOrigin checked
   let decls = typeDecls <> valueDecls
-      baseProgram = Program emptyScopeTable emptyImports decls
+      baseProgram = Program emptyImports decls
   imports <-
     importsForProgramLookup
       (primPackageId config)
       (lookupHeader convertEnv bindings headers)
       baseProgram
   -- Normalization drops a binding nothing uses, and with it the last use of
-  -- an import, so the imports are pruned after it and the scopes follow.
-  let normalized = pruneImports (normalizeProgram (primPackageId config) (Program emptyScopeTable imports decls))
-      scopes = buildScopes (primPackageId config) moduleOrigin (programImports normalized) (programDecls normalized)
-  pure (tidyProgramWithTidiedImports normalized {programScopes = scopes})
+  -- an import, so the imports are pruned after it.
+  let normalized = pruneImports (normalizeProgram (primPackageId config) (Program imports decls))
+  pure (tidyProgramWithTidiedImports normalized)
 
 headerIndex :: ConvertEnv -> TcInterface -> Map.Map Name HeaderSource
 headerIndex convertEnv interface =
@@ -428,7 +424,7 @@ headerOnly primPackage headerName headerType' =
 
 declsEnv :: ConvertEnv -> [Decl] -> Either String TypeOf.TypeEnv
 declsEnv convertEnv declarations =
-  Right (TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyScopeTable emptyImports declarations))
+  Right (TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyImports declarations))
 
 bindingsFromInterface :: TcInterface -> Map.Map Entity TcBindingResult
 bindingsFromInterface interface =
@@ -464,7 +460,7 @@ interfaceSchemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualT
 failedDesugar :: [String] -> FcDesugarResult
 failedDesugar messages =
   FcDesugarResult
-    { dsProgram = Program emptyScopeTable emptyImports [],
+    { dsProgram = Program emptyImports [],
       dsSuccess = False,
       dsErrors = messages
     }
@@ -1057,159 +1053,6 @@ synonymResultKind scheme params =
       | remaining <= 0 = kind
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
-
-buildScopes :: PackageId -> (PackageId, Text) -> Imports -> [Decl] -> ScopeTable
-buildScopes primPackage moduleOrigin imports decls =
-  foldl
-    ( \table (index, (package, moduleName')) ->
-        insertScope index package moduleName' table
-    )
-    emptyScopeTable
-    (zip [1 ..] origins)
-  where
-    origins =
-      sort
-        ( nub
-            ( [moduleOrigin]
-                <> [(primPackage, ghcTypesModule)]
-                <> importsOrigins imports
-                <> concatMap declOrigins decls
-            )
-        )
-
-importsOrigins :: Imports -> [(PackageId, Text)]
-importsOrigins imports =
-  concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importHeaders imports))
-    <> concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importSynonyms imports))
-    <> concatMap (\(name, declaration) -> nameOriginPair name <> axiomOrigins declaration) (Map.toList (importAxioms imports))
-    <> concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importBinders imports))
-    <> concatMap (concatMap nameOriginPair) (Map.elems (importDataCons imports))
-
-axiomOrigins :: AxiomDecl -> [(PackageId, Text)]
-axiomOrigins declaration =
-  concatMap binderOrigins (axiomBinders declaration)
-    <> typeOrigins (axiomLeft declaration)
-    <> typeOrigins (axiomRight declaration)
-
-declOrigins :: Decl -> [(PackageId, Text)]
-declOrigins decl =
-  case decl of
-    DeclType typeDecl ->
-      nameOriginPair (typeName typeDecl)
-        <> concatMap binderOrigins (typeBinders typeDecl)
-        <> typeOrigins (typeResult typeDecl)
-        <> concatMap conOrigins (typeCons typeDecl)
-    DeclSynonym synonymDecl ->
-      nameOriginPair (synName synonymDecl)
-        <> concatMap binderOrigins (synBinders synonymDecl)
-        <> typeOrigins (synResult synonymDecl)
-        <> typeOrigins (synBody synonymDecl)
-    DeclAxiom axiomDecl ->
-      nameOriginPair (axiomName axiomDecl)
-        <> concatMap binderOrigins (axiomBinders axiomDecl)
-        <> typeOrigins (axiomLeft axiomDecl)
-        <> typeOrigins (axiomRight axiomDecl)
-    DeclVal valDecl ->
-      nameOriginPair (valName valDecl)
-        <> typeOrigins (valType valDecl)
-        <> exprOrigins (valBody valDecl)
-    DeclRule ruleDecl ->
-      concatMap binderOrigins (ruleTypeBinders ruleDecl <> ruleBinders ruleDecl)
-        <> typeOrigins (ruleType ruleDecl)
-        <> exprOrigins (ruleLhs ruleDecl)
-        <> exprOrigins (ruleRhs ruleDecl)
-
-foreignImportDependencyOrigins :: ForeignImportDependency -> [(PackageId, Text)]
-foreignImportDependencyOrigins dependency =
-  case dependency of
-    ForeignAxiom name -> nameOriginPair name
-    ForeignConstructor name -> nameOriginPair name
-
-conOrigins :: ConDecl -> [(PackageId, Text)]
-conOrigins constructor =
-  nameOriginPair (conName constructor) <> typeOrigins (conType constructor)
-
-binderOrigins :: Binder -> [(PackageId, Text)]
-binderOrigins binder = typeOrigins (binderType binder)
-
-exprOrigins :: Expr -> [(PackageId, Text)]
-exprOrigins expr =
-  case expr of
-    ExVar name -> nameOriginPair name
-    ExLit literal ty -> literalOrigins literal <> typeOrigins ty
-    ExApp function argument -> exprOrigins function <> exprOrigins argument
-    ExTyApp function ty -> exprOrigins function <> typeOrigins ty
-    ExLam binder body -> binderOrigins binder <> exprOrigins body
-    ExTyLam binder body -> binderOrigins binder <> exprOrigins body
-    ExLet bind body -> bindOrigins bind <> exprOrigins body
-    ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
-    ExCase scrutinee binder (NE.toList -> alts) ->
-      exprOrigins scrutinee <> foldMap binderOrigins binder <> concatMap altOrigins alts
-    ExCoercion proof -> coercionOrigins proof
-    ExAbsurd scrutinee resultType -> exprOrigins scrutinee <> typeOrigins resultType
-    ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
-    ExForeignCall call types arguments ->
-      nameOriginPair (foreignCallName call)
-        <> concatMap foreignImportDependencyOrigins (foreignCallDependencies call)
-        <> typeOrigins (foreignCallType call)
-        <> concatMap typeOrigins types
-        <> concatMap exprOrigins arguments
-
-bindOrigins :: Bind -> [(PackageId, Text)]
-bindOrigins bind = binderOrigins (bindBinder bind) <> exprOrigins (bindRhs bind)
-
-altOrigins :: Alt -> [(PackageId, Text)]
-altOrigins alternative =
-  altConOrigins (altCon alternative)
-    <> concatMap binderOrigins (altTypeBinders alternative)
-    <> concatMap binderOrigins (altBinders alternative)
-    <> exprOrigins (altRhs alternative)
-
-altConOrigins :: AltCon -> [(PackageId, Text)]
-altConOrigins alternative =
-  case alternative of
-    AltData name -> nameOriginPair name
-    AltLit literal -> literalOrigins literal
-    AltDefault -> []
-
-literalOrigins :: Literal -> [(PackageId, Text)]
-literalOrigins literal =
-  case literal of
-    LitInt representation _ -> typeOrigins representation
-    LitChar representation _ -> typeOrigins representation
-    LitAddr representation _ -> typeOrigins representation
-
-coercionOrigins :: Coercion -> [(PackageId, Text)]
-coercionOrigins coercion =
-  case coercion of
-    CoVar name -> nameOriginPair name
-    CoRefl ty -> typeOrigins ty
-    CoSym inner -> coercionOrigins inner
-    CoTrans left right -> coercionOrigins left <> coercionOrigins right
-    CoApp function argument -> coercionOrigins function <> coercionOrigins argument
-    CoNth _ proof -> coercionOrigins proof
-    CoFun domain range -> coercionOrigins domain <> coercionOrigins range
-    CoForAll binder body -> binderOrigins binder <> coercionOrigins body
-    CoTyConApp name arguments -> nameOriginPair name <> concatMap coercionOrigins arguments
-    CoAxiom name arguments -> nameOriginPair name <> concatMap typeOrigins arguments
-
-typeOrigins :: Type -> [(PackageId, Text)]
-typeOrigins ty =
-  case ty of
-    TyVar name -> nameOriginPair name
-    TyCon name -> nameOriginPair name
-    TyLit kindName _ -> nameOriginPair kindName
-    TyApp function argument -> typeOrigins function <> typeOrigins argument
-    TyFun r1 r2 argument result ->
-      typeOrigins r1 <> typeOrigins r2 <> typeOrigins argument <> typeOrigins result
-    TyForAll binder body -> binderOrigins binder <> typeOrigins body
-    TyEq left right -> typeOrigins left <> typeOrigins right
-
-nameOriginPair :: Name -> [(PackageId, Text)]
-nameOriginPair name =
-  case nameOrigin name of
-    OriginTop package moduleName' -> [(package, moduleName')]
-    OriginLocal {} -> []
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin checked =

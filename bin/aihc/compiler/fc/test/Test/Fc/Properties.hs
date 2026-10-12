@@ -119,10 +119,6 @@ primPackage = PackageId "aihc-prim"
 testPackage :: PackageId
 testPackage = PackageId ""
 
-scopes :: ScopeTable
-scopes =
-  insertScope 2 primPackage "GHC.Types" (insertScope 1 testPackage "Test" emptyScopeTable)
-
 typeNameTop :: Text -> Name
 typeNameTop text = Name text SortTypeConstructor (OriginTop testPackage "Test")
 
@@ -156,8 +152,7 @@ localValueWith unique text = Name text SortValue (OriginLocal (Unique unique))
 identityProgram :: Program
 identityProgram =
   Program
-    { programScopes = scopes,
-      programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
+    { programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
       programDecls =
         [ DeclType
             TypeDecl
@@ -197,7 +192,7 @@ identityProgram =
     }
 
 genProgram :: Gen Program
-genProgram = Program scopes <$> genImports <*> Gen.list (Range.linear 0 10) genDecl
+genProgram = Program <$> genImports <*> Gen.list (Range.linear 0 10) genDecl
 
 genImports :: Gen Imports
 genImports = do
@@ -446,8 +441,7 @@ genTidyProgram = do
       functionType = TyFun lifted lifted valueType valueType
   pure
     Program
-      { programScopes = scopes,
-        programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
+      { programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
         programDecls =
           [ DeclVal
               ValDecl
