@@ -111,6 +111,8 @@ solveRewrittenByGivens givens ct = case ctPred ct of
           | not (typeMentionsTyVar tyVar b) -> if bIsFamily then [(b, a)] else [(a, b)]
         (_, TcTyVar tyVar)
           | not (typeMentionsTyVar tyVar a) -> if aIsFamily then [(a, b)] else [(b, a)]
+        _ | aIsFamily && not bIsFamily -> [(a, b)]
+        _ | bIsFamily && not aIsFamily -> [(b, a)]
         _ -> []
 
 solveWithoutGivens :: Ct -> TcM EqResult

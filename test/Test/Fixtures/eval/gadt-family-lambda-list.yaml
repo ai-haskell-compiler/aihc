@@ -1,0 +1,54 @@
+extensions:
+  - GADTs
+  - TypeFamilies
+  - ScopedTypeVariables
+  - TypeOperators
+  - FlexibleContexts
+modules:
+  - |
+    {-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables, TypeOperators, FlexibleContexts #-}
+    module Test where
+    import Data.Typeable
+    import Data.Proxy
+    import Control.Monad (join, msum)
+    data family Array a
+    data instance Array Bool = BoolArray Bool
+    data instance Array Int = IntArray
+    class Make a where
+      make :: Bool -> Array a
+    instance Make Bool where
+      make = BoolArray
+    convert :: forall a. Typeable a => Array a -> Array Bool
+    convert arr = maybe (make False) (\Refl -> arr) (eqT :: Maybe (a :~: Bool))
+    convertFunctor :: forall f. Typeable f => f Bool -> Maybe (Maybe Bool)
+    convertFunctor values = do
+      Refl <- eqT :: Maybe (f :~: Maybe)
+      join (gcast1 (Just values))
+    type family Repr a where
+      Repr Bool = Maybe
+      Repr Int = []
+    reflectFunctor :: forall a. Typeable (Repr a) => (a :~: Bool) -> String
+    reflectFunctor Refl = show (typeRep (Proxy :: Proxy (Repr a)))
+    castArray :: forall a b. (Typeable a, Typeable b) => Array a -> Maybe (Array b)
+    castArray arr = fmap (\Refl -> arr) (eqT :: Maybe (a :~: b))
+    choose :: forall a. Typeable a => Maybe (Array a)
+    choose = msum
+      [ do
+          Refl <- eqT :: Maybe (a :~: Bool)
+          pure (BoolArray True)
+      , do
+          Refl <- eqT :: Maybe (a :~: Int)
+          pure IntArray
+      ]
+    result :: (Bool, Bool, Bool, Bool)
+    result =
+      case (castArray (convert (BoolArray True)) :: Maybe (Array Bool), choose :: Maybe (Array Int)) of
+        (Just (BoolArray b), Just IntArray) -> (b, True, convertFunctor (Just True) == Just (Just True), reflectFunctor (Refl :: Bool :~: Bool) == "Maybe")
+        _ -> (False, False, False, False)
+    main = print result
+expression: main
+stdout: |
+  (True,True,True,True)
+output: ()
+status: pass
+reason: Lambda and list checks keep GADT equality evidence in its pattern scope.

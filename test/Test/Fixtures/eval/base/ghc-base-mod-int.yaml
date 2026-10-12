@@ -1,0 +1,25 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import GHC.Base (modInt)
+    import Prelude
+
+    result =
+      [ modInt 7 3
+      , modInt (-7) 3
+      , modInt 7 (-3)
+      , modInt (-7) (-3)
+      , modInt 6 (-3)
+      , modInt 0 3
+      , modInt minBound (-1)
+      , modInt minBound 3
+      , modInt maxBound minBound
+      ]
+    main = print result
+expression: main
+stdout: |
+  [1,2,-2,-1,0,0,0,1,-1]
+output: ()
+status: pass
+reason: modInt returns the remainder with the sign of the denominator.
