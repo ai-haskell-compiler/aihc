@@ -1595,7 +1595,7 @@ forkOn# ::
   (State# RealWorld -> (# State# RealWorld, a #)) ->
   State# RealWorld ->
   (# State# RealWorld, ThreadId# #)
-forkOn# _ action state = fork# action state
+forkOn# _ = fork#
 
 foreign import prim yield# :: State# RealWorld -> State# RealWorld
 
