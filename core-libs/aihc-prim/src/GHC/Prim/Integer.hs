@@ -612,10 +612,10 @@ positiveRemainder dividend divisor =
 
 integerRemWord# :: Integer -> Word# -> Word#
 integerRemWord# (IS small) divisor =
-  case quotRemWord2# (int2Word# 0#) (absoluteIntWord# small) divisor of
+  case quotRemWord2# 0## (absoluteIntWord# small) divisor of
     (# _, remainder #) -> remainder
-integerRemWord# (IP magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) (int2Word# 0#)
-integerRemWord# (IN magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) (int2Word# 0#)
+integerRemWord# (IP magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
+integerRemWord# (IN magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
 
 remainderWords# :: ByteArray# -> Word# -> Int# -> Word# -> Word#
 remainderWords# magnitude divisor index remainder =
@@ -656,8 +656,8 @@ normalizeDivisionWords# source target count shift state =
   case shift of
     0# ->
       case copyByteArray# source 0# target 0# (count *# 8#) state of
-        state1 -> (# state1, int2Word# 0# #)
-    _ -> shiftDivisionWords# source target count shift 0# (int2Word# 0#) state
+        state1 -> (# state1, 0## #)
+    _ -> shiftDivisionWords# source target count shift 0# 0## state
 
 shiftDivisionWords# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Word# #)
 shiftDivisionWords# source target count shift index carry state =
@@ -705,12 +705,12 @@ divideLimbLoop# divisor dividend quotient count offset wantQuotient state =
                       second = indexWordArray# divisor (count -# 2#)
                    in case estimateQuotientLimb# high low next top second of
                         estimate ->
-                          case subtractDivisorProduct# divisor dividend count offset estimate 0# (int2Word# 0#) state3 of
+                          case subtractDivisorProduct# divisor dividend count offset estimate 0# 0## state3 of
                             (# state4, borrow #) ->
                               case borrow of
                                 0# -> storeQuotientLimb# divisor dividend quotient count offset wantQuotient estimate state4
                                 _ ->
-                                  case addDivisorBack# divisor dividend count offset 0# (int2Word# 0#) state4 of
+                                  case addDivisorBack# divisor dividend count offset 0# 0## state4 of
                                     state5 -> storeQuotientLimb# divisor dividend quotient count offset wantQuotient (minusWord# estimate (int2Word# 1#)) state5
 
 storeQuotientLimb# :: ByteArray# -> MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> State# RealWorld
@@ -728,8 +728,8 @@ estimateQuotientLimb# high low next top second =
       case addWordC# low top of
         (# remainder, overflow #) ->
           case overflow of
-            0# -> correctQuotientLimb# (not# (int2Word# 0#)) remainder next top second
-            _ -> not# (int2Word# 0#)
+            0# -> correctQuotientLimb# (not# 0##) remainder next top second
+            _ -> not# 0##
     _ ->
       case quotRemWord2# high low top of
         (# quotient, remainder #) -> correctQuotientLimb# quotient remainder next top second
