@@ -22,6 +22,10 @@ modules:
       print zero
       large <- try (evaluate (mod (18446744073709551616 :: Integer) 0)) :: IO (Either ArithException Integer)
       print large
+      smallRem <- try (evaluate (rem (1 :: Integer) 0)) :: IO (Either ArithException Integer)
+      print smallRem
+      largeRem <- try (evaluate (rem (18446744073709551616 :: Integer) 0)) :: IO (Either ArithException Integer)
+      print largeRem
       print [(0 :: Integer) == 0, 18446744073709551616 == 18446744073709551616, 18446744073709551616 == 18446744073709551617]
       print [(-18446744073709551616 :: Integer) == -18446744073709551616, 18446744073709551616 == -18446744073709551616, 1 == 18446744073709551616]
       print [smallInt == negate 9223372036854775808, (340282366920938463463374607431768211456 :: Integer) == 18446744073709551616]
@@ -31,6 +35,8 @@ stdout: |
   [9223372036854775808,0,9223372036854775808,0]
   [9223372036854775808,-9223372036854775808,9223372036854775808]
   [1,-1,0,0]
+  Left divide by zero
+  Left divide by zero
   Left divide by zero
   Left divide by zero
   [True,True,False]
