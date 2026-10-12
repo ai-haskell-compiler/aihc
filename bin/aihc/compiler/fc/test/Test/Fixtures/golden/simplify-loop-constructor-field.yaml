@@ -102,7 +102,7 @@ expected: |-
       go y
 
   pub val 1.vunusedField :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
-    = λ(_ : tInt#) (y : tInt#).
+    = λ(unused x : tInt#) (y : tInt#).
       rec {
         go : FUN @cIntRep @sLiftedRep tInt# tInt =
           λ(x{1} : tInt#).

@@ -45,7 +45,7 @@ expected: |-
   }
 
   pub val 1.vother :: ∀(a : sType). a → tFlag
-    = Λ(a : sType). λ(_ : a).
+    = Λ(a : sType). λ(unused x : a).
       cOff
 
   pub val 1.vpick :: ∀(a : sType) (b : sType). t$Dict$Eq b → t$Dict$Num b → t$Dict$Eq a → t$Dict$Num a → a → b → tFlag

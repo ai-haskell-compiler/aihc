@@ -94,7 +94,7 @@ expected: |-
       c$Dict$Len @tVec @a (v$fLenVeca$clen @a)
 
   val 1.v$fLenVeca$clen :: ∀(a : sType) (s : sType). tVec s a → tInt
-    = Λ(a : sType) (s : sType). λ(_ : tVec s a).
+    = Λ(a : sType) (s : sType). λ(unused x : tVec s a).
       cI# lit (0#cIntRep) :: tInt#
 
   pub val 1.v$fLenMVWrapa :: ∀(a : sType). t$Dict$Len tMV (tWrap a)
@@ -106,7 +106,7 @@ expected: |-
       vcoerce @(tVec s a → tInt) @(tMV s (tWrap a) → tInt) (c$Dict$Coercible @sType @(tVec s a → tInt) @(tMV s (tWrap a) → tInt)) (vlen @tVec @a @s (v$fLenVeca @a))
 
   pub val 1.vcoerce :: ∀(a : sType) (b : sType). t$Dict$Coercible sType a b → a → b
-    = Λ(a : sType) (b : sType). λ(_ : t$Dict$Coercible sType a b) (_foreign_argument : a).
+    = Λ(a : sType) (b : sType). λ(unused $dCoercible : t$Dict$Coercible sType a b) (_foreign_argument : a).
       prim unsafeCoerce# @sLiftedRep @sLiftedRep @a @b _foreign_argument
 
   pub val 1.vtoF :: tInt → tF tBool

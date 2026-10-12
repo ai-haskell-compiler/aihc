@@ -40,7 +40,7 @@ expected: |-
 
   pub val 1.vsecond :: tT → tInt
     = λ(x : tT).
-      let! cMkT (_ : tInt#) (n : tInt#) = x;
+      let! cMkT (unused _unpack_leaf0 : tInt#) (n : tInt#) = x;
       cI# n
 status: pass
 reason: A lazy pattern binding matches the representation fields of an unpacked constructor and rebuilds the source fields.

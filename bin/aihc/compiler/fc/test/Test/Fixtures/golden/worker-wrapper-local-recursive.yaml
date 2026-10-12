@@ -56,7 +56,7 @@ expected: |-
     = λ(x : tInt → tInt) (y : t[] tInt).
       rec {
         $wgo : FUN @cIntRep @sLiftedRep tInt# (tInt → FUN @sLiftedRep @cIntRep (t[] tInt) tInt#) =
-          λ(x{1} : tInt#) (_ : tInt) (y{1} : t[] tInt).
+          λ(x{1} : tInt#) (unused x{2} : tInt) (y{1} : t[] tInt).
             case y{1} of {
               c[] →
                 x{1};

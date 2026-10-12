@@ -65,7 +65,7 @@ expected: |-
       x
 
   pub val 1.v$fNFData1Proxy :: t$Dict$NFData1 tProxy
-    = c$Dict$NFData1 @tProxy (Λ(a : sType). λ(_ : t$Dict$NFData a).
+    = c$Dict$NFData1 @tProxy (Λ(a : sType). λ(unused $dNFData : t$Dict$NFData a).
       v$fNFDataProxya @a)
 
   pub val 1.vuse :: ∀(f : sType → sType) (a : sType). t$Dict$NFData1 f → t$Dict$NFData a → f a → f a

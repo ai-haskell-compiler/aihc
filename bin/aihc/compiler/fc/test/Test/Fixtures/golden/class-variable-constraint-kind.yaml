@@ -83,11 +83,11 @@ expected: |-
     = c$Dict$KnownCtxt @t$Dict$Truthy v$fKnownCtxtTruthy$cinj
 
   val 1.v$fKnownCtxtTruthy$cinj :: ∀(a : sType). t$Dict$Truthy a → tProxy (sType → sType) t$Dict$Truthy → a → tBool
-    = Λ(a : sType). λ($dTruthy : t$Dict$Truthy a) (_ : tProxy (sType → sType) t$Dict$Truthy).
+    = Λ(a : sType). λ($dTruthy : t$Dict$Truthy a) (unused x : tProxy (sType → sType) t$Dict$Truthy).
       vtruthy @a $dTruthy
 
   pub val 1.vinjCtxt :: ∀(b : tBool) (a : sType). tCtxt b a → t$Dict$KnownCtxt (tCtxt b) → tProxy tBool b → a → tBool
-    = Λ(b : tBool) (a : sType). λ($d : tCtxt b a) ($dKnownCtxt : t$Dict$KnownCtxt (tCtxt b)) (_ : tProxy tBool b).
+    = Λ(b : tBool) (a : sType). λ($d : tCtxt b a) ($dKnownCtxt : t$Dict$KnownCtxt (tCtxt b)) (unused x : tProxy tBool b).
       vinj @t$Dict$Truthy @a $dKnownCtxt $d (cProxy @(sType → sType) @t$Dict$Truthy)
 status: pass
 reason: a kind argument with a constraint in it, as Proxy takes for a class variable or a constraint family, erases the constraint to Type, and the lint accepts it

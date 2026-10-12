@@ -52,17 +52,17 @@ expected: |-
 
   pub val 1.vsize :: ∀(a : sType). t$Dict$Size a → a → tInt
     = Λ(a : sType). λ($dSize : t$Dict$Size a).
-      let! c$Dict$Size ($csize : a → tInt) (_ : a → tInt → tInt) = $dSize;
+      let! c$Dict$Size ($csize : a → tInt) (unused $ccombine : a → tInt → tInt) = $dSize;
       $csize
 
   pub val 1.vcombine :: ∀(a : sType). t$Dict$Size a → a → tInt → tInt
     = Λ(a : sType). λ($dSize : t$Dict$Size a).
-      let! c$Dict$Size (_ : a → tInt) ($ccombine : a → tInt → tInt) = $dSize;
+      let! c$Dict$Size (unused $csize : a → tInt) ($ccombine : a → tInt → tInt) = $dSize;
       $ccombine
 
   pub val 1.vtotal :: ∀(a : sType). t$Dict$Size a → tInt → tList a → tInt
     = Λ(a : sType). λ($dSize : t$Dict$Size a) (x : tInt) (y : tList a).
-      let! c$Dict$Size (_ : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a tInt) ($ccombine : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt tInt)) =
+      let! c$Dict$Size (unused $csize : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a tInt) ($ccombine : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt tInt)) =
         $dSize;
       rec {
         $sgo : tInt → tList a → tInt =

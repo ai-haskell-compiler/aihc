@@ -63,7 +63,7 @@ expected: |-
       c$Dict$Inspect @(tRep k a) (v$fInspectRepa$cinspect @k @a)
 
   val 1.v$fInspectRepa$cinspect :: ∀(k : sType) (a : k). tRep k a → tBool
-    = Λ(k : sType) (a : k). λ(_ : tRep k a).
+    = Λ(k : sType) (a : k). λ(unused x : tRep k a).
       cTrue
 
   pub val 1.vinspectSome :: tSomeRep → tBool

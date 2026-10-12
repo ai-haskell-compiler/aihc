@@ -113,7 +113,8 @@ expected: |-
     = λ(x : tAddr#).
       let s : tState# tRealWorld =
         prim realWorld#;
-      let! cTuple2# (_ : tState# tRealWorld) (x{1} : tInt#) =
+      let! cTuple2# (unused _pat : tState# tRealWorld) (x{1} : tInt#) =
         prim readIntOffAddr# @tRealWorld x lit (0#cIntRep) :: tInt# s;
-      let! cTuple2# (_ : tState# tRealWorld) (y : tInt#) = prim readIntOffAddr# @tRealWorld x lit (1#cIntRep) :: tInt# s;
+      let! cTuple2# (unused _pat{1} : tState# tRealWorld) (y : tInt#) =
+        prim readIntOffAddr# @tRealWorld x lit (1#cIntRep) :: tInt# s;
       cI# (prim +# x{1} y)

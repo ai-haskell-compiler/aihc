@@ -98,7 +98,7 @@ expected: |-
 
   val 1.v$fGuardEff$cguard inline [1] :: tInt → tInt → tInt → tEff tInt
     = λ(x : tInt) (y : tInt) (z : tInt).
-      (λ(_ : tState# tRealWorld).
+      (λ(unused s : tState# tRealWorld).
         let! cI# (_pat : tInt#) = z;
         case _pat of {
           0#cIntRep →
@@ -124,7 +124,7 @@ expected: |-
         vmessage x;
       let x{1} : tInt =
         cI# lit (5#cIntRep) :: tInt#;
-      vkeep ((λ(_ : tState# tRealWorld).
+      vkeep ((λ(unused eta : tState# tRealWorld).
         let! cI# (_pat : tInt#) = argument;
         case _pat of {
           0#cIntRep →
@@ -137,7 +137,7 @@ expected: |-
 
   pub val 1.vother :: tInt → tEff tInt
     = λ(x : tInt).
-      (λ(_ : tState# tRealWorld).
+      (λ(unused s : tState# tRealWorld).
         let! cI# (_pat : tInt#) = x;
         case _pat of {
           1#cIntRep →

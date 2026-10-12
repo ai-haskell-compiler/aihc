@@ -36,7 +36,7 @@ expected: |-
   }
 
   pub val 1.vquoted :: tBox → tBox
-    = λ(_ : tBox).
+    = λ(unused x : tBox).
       vraise# @sLiftedRep @(t[] tChar) @tBox (vunpackCString# lit ("quasi-quoting is unsupported"#cAddrRep) :: tAddr#)
 status: pass
 reason: A quasi-quote expression desugars to a raise# call with a message.

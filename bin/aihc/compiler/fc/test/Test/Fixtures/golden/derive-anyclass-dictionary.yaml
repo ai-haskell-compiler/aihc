@@ -96,7 +96,7 @@ expected: |-
       $canyValue
 
   pub val 1.v$dmanyValue :: ∀(a : sType). t$Dict$Any a → t$Dict$Required a → a → a
-    = Λ(a : sType). λ(_ : t$Dict$Any a) ($dRequired : t$Dict$Required a) (x : a).
+    = Λ(a : sType). λ(unused $dAny : t$Dict$Any a) ($dRequired : t$Dict$Required a) (x : a).
       vrequired @a $dRequired x
 
   pub val 1.v$fRequiredBoxa :: ∀(a : sType). t$Dict$Required a → t$Dict$Required (tBox a)
@@ -104,7 +104,7 @@ expected: |-
       c$Dict$Required @(tBox a) (v$fRequiredBoxa$crequired @a $dRequired)
 
   val 1.v$fRequiredBoxa$crequired :: ∀(a : sType). t$Dict$Required a → tBox a → tBox a
-    = Λ(a : sType). λ(_ : t$Dict$Required a) (x : tBox a).
+    = Λ(a : sType). λ(unused $dRequired : t$Dict$Required a) (x : tBox a).
       x
 
   pub val 1.v$fRequiredWrappeda :: ∀(a : sType). t$Dict$Required a → t$Dict$Required (tWrapped a)
@@ -112,7 +112,7 @@ expected: |-
       c$Dict$Required @(tWrapped a) (v$fRequiredWrappeda$crequired @a $dRequired)
 
   val 1.v$fRequiredWrappeda$crequired :: ∀(a : sType). t$Dict$Required a → tWrapped a → tWrapped a
-    = Λ(a : sType). λ(_ : t$Dict$Required a) (x : tWrapped a).
+    = Λ(a : sType). λ(unused $dRequired : t$Dict$Required a) (x : tWrapped a).
       x
 
   pub val 1.v$fAnyWrappeda :: ∀(a : sType). t$Dict$Required a → t$Dict$Any (tWrapped a)

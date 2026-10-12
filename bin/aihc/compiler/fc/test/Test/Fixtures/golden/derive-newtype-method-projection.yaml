@@ -25,12 +25,14 @@ expected: |-
 
   pub val 1.vpublic :: ∀(a : sType). t$Dict$Methods a → a → a
     = Λ(a : sType). λ($dMethods : t$Dict$Methods a).
-      let! c$Dict$Methods (_ : t$Dict$Parent a) ($cpublic : a → a) (_ : ∀(b : sType). a → b → b) = $dMethods;
+      let! c$Dict$Methods (unused $dParent : t$Dict$Parent a) ($cpublic : a → a) (unused $cprivate : ∀(b : sType). a → b → b) =
+        $dMethods;
       $cpublic
 
   val 1.vprivate :: ∀(a : sType) (b : sType). t$Dict$Methods a → a → b → b
     = Λ(a : sType) (b : sType). λ($dMethods : t$Dict$Methods a).
-      let! c$Dict$Methods (_ : t$Dict$Parent a) (_ : a → a) ($cprivate : ∀(b{1} : sType). a → b{1} → b{1}) = $dMethods;
+      let! c$Dict$Methods (unused $dParent : t$Dict$Parent a) (unused $cpublic : a → a) ($cprivate : ∀(b{1} : sType). a → b{1} → b{1}) =
+        $dMethods;
       $cprivate @b
   scope 1 = "" Hidden
   scope 2 = "" Test
@@ -67,12 +69,14 @@ expected: |-
 
   val 2.v$fMethodsNa$cpublic :: ∀(a : sType). t$Dict$Methods a → tN a → tN a
     = Λ(a : sType). λ($dMethods : t$Dict$Methods a).
-      (let! c$Dict$Methods (_ : t$Dict$Parent a) ($cpublic : a → a) (_ : ∀(b : sType). a → b → b) = $dMethods;
+      (let! c$Dict$Methods (unused $dParent : t$Dict$Parent a) ($cpublic : a → a) (unused $cprivate : ∀(b : sType). a → b → b) =
+        $dMethods;
       $cpublic) ▷ fun-co (sym (axiom-co $ax$N @a)) (sym (axiom-co $ax$N @a))
 
   val 2.v$fMethodsNa$cprivate :: ∀(a : sType). t$Dict$Methods a → (∀(b : sType). tN a → b → b)
     = Λ(a : sType). λ($dMethods : t$Dict$Methods a). Λ(b : sType).
-      ((let! c$Dict$Methods (_ : t$Dict$Parent a) (_ : a → a) ($cprivate : ∀(b{1} : sType). a → b{1} → b{1}) = $dMethods;
+      ((let! c$Dict$Methods (unused $dParent : t$Dict$Parent a) (unused $cpublic : a → a) ($cprivate : ∀(b{1} : sType). a → b{1} → b{1}) =
+        $dMethods;
       $cprivate) @b) ▷ fun-co (sym (axiom-co $ax$N @a)) (refl (b → b))
 extensions:
 - GeneralizedNewtypeDeriving

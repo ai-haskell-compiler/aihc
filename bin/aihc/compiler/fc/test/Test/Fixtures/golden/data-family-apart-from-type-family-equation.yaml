@@ -86,7 +86,7 @@ expected: |-
         (cMVUnit @s _field) ▷ sym (axiom-co $ax$MVector$MVUnit @s)) x
 
   pub val 1.vitem :: ∀(e : sType). tVector e → tItem (tVector e) → e
-    = Λ(e : sType). λ(_ : tVector e) (y : tItem (tVector e)).
+    = Λ(e : sType). λ(unused x : tVector e) (y : tItem (tVector e)).
       y
 status: pass
 reason: A data family is generative. Its instance axioms are representational, thus a type family equation for another type constructor does not block the equation for the data family.

@@ -124,9 +124,14 @@ GRIN lowering is temporarily disabled.
     Do not add extra axioms for them.
 
 20. Scope syntax stays: `scope 1 = "pkg-id" ModuleName`.
-    The printer writes only the scopes that the text uses.
-    A lambda or pattern binder that its scope does not use prints as `_`, with its type.
-    A case binder that the alternatives do not use is not printed.
+    The printer writes each scope of the program, so the parser gives back the same scope table.
+
+21. A lambda, pattern or case binder that its scope does not use has the mark `unused` before its name.
+    Example: `(unused _pat{9} : tInt)`.
+    The binder keeps its name, its unique and its type, so the parser gives back the same binder.
+    `unused` is a reserved word.
+    Thus a binder with the name `unused` prints with its unique, `unused{0}`, and it is not the mark.
+    The parser reads the mark and does not change the binder.
 
 ## Syntax
 

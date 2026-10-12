@@ -54,11 +54,11 @@ expected: |-
   }
 
   val 1.vsmall noinline :: tBool → tBool → tNumber
-    = λ(x : tBool) (_ : tBool).
+    = λ(x : tBool) (unused y : tBool).
       cIS x
 
   val 1.vbyInt noinline :: tNumber → tBool → tNumber
-    = λ(x : tNumber) (_ : tBool).
+    = λ(x : tNumber) (unused y : tBool).
       x
 
   pub val 1.vintegerMul :: tNumber → tNumber → tNumber

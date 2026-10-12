@@ -70,10 +70,10 @@ expected: |-
             let document : ∀(a : sType). tDoc a =
               Λ(a : sType).
                 (Λ(a{1} : sType). λ(_pat_rhs{1} : tTuple2 tBool (tDoc a{1})).
-                  let! c(,) (_ : tBool) (document{1} : tDoc a{1}) = _pat_rhs{1};
+                  let! c(,) (unused again : tBool) (document{1} : tDoc a{1}) = _pat_rhs{1};
                   document{1}) @a (_pat_rhs @a);
             case (Λ(a : sType). λ(_pat_rhs{1} : tTuple2 tBool (tDoc a)).
-              let! c(,) (again : tBool) (_ : tDoc a) = _pat_rhs{1};
+              let! c(,) (again : tBool) (unused document{1} : tDoc a) = _pat_rhs{1};
               again) @tUnit (_pat_rhs @tUnit) of {
               cTrue →
                 vwrap @ann{1} (document @ann{1});

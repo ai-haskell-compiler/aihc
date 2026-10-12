@@ -569,7 +569,7 @@ prettyTypeWith scopes prec ty =
 -- @LiftedRep@ synonym. The arrow names the synonym, so it follows the rule
 -- of the other names: it has no prefix when the short name of the synonym
 -- is unambiguous.
-liftedArrowPrefix :: ScopeIndex -> Type -> Type -> Maybe Doc ann
+liftedArrowPrefix :: ScopeIndex -> Type -> Type -> Maybe (Doc ann)
 liftedArrowPrefix scopes left right =
   case (left, right) of
     (TyCon leftName, TyCon rightName)

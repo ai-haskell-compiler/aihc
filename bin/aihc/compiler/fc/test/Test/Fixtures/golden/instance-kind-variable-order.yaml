@@ -85,7 +85,7 @@ expected: |-
       c$Dict$Binary @(tTypeRep k a) (v$fBinaryTypeRepa$cput @k @a $dTypeable)
 
   val 1.v$fBinaryTypeRepa$cput :: ∀(k : sType) (a : k). t$Dict$Typeable k a → tTypeRep k a → tUnit
-    = Λ(k : sType) (a : k). λ(_ : t$Dict$Typeable k a) (_ : tTypeRep k a).
+    = Λ(k : sType) (a : k). λ(unused $dTypeable : t$Dict$Typeable k a) (unused x : tTypeRep k a).
       cUnit
 status: pass
 reason: an instance head that gives a parameter an implicit kind variable quantifies the kind variable before the parameter, so the dictionary type is well scoped.

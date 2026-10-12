@@ -48,7 +48,7 @@ expected: |-
 
   pub val 1.vchild :: ∀(a : sType). t$Dict$Child a → a → tFlag
     = Λ(a : sType). λ($dChild : t$Dict$Child a).
-      let! c$Dict$Child (_ : t$Dict$Parent a) ($cchild : a → tFlag) = $dChild;
+      let! c$Dict$Child (unused $dParent : t$Dict$Parent a) ($cchild : a → tFlag) = $dChild;
       $cchild
 
   pub val 1.v$fParentFlag :: t$Dict$Parent tFlag

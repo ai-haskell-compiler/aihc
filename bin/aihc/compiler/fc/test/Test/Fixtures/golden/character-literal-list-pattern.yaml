@@ -44,7 +44,7 @@ expected: |-
       let _fail : tChar =
         cC# lit ('n'#cWordRep) :: tChar#;
       case x of {
-        c: (_pat : tChar) (_ : t[] tChar) →
+        c: (_pat : tChar) (unused _pat{1} : t[] tChar) →
           let! cC# (_pat{2} : tChar#) = _pat;
           case _pat{2} of {
             ' '#cWordRep →
@@ -61,7 +61,7 @@ expected: |-
       let _fail : tChar =
         cC# lit ('n'#cWordRep) :: tChar#;
       case x of {
-        c: (_ : tChar) (_pat{1} : t[] tChar) →
+        c: (unused _pat : tChar) (_pat{1} : t[] tChar) →
           case _pat{1} of {
             c[] →
               cC# lit ('y'#cWordRep) :: tChar#;

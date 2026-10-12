@@ -33,7 +33,7 @@ expected: |-
 
   pub val 1.vfirst :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).
-      let! c:*: (value : a) (_ : a) = x;
+      let! c:*: (value : a) (unused _pat : a) = x;
       value
 status: pass
 reason: An infix constructor pattern keeps its field binders and types during FC desugaring.

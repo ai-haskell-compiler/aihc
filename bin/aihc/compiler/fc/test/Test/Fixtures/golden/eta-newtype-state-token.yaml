@@ -50,7 +50,7 @@ expected: |-
 
   val 1.vstep :: tInt → tEff tInt
     = λ(x : tInt).
-      (λ(_ : tState# tRealWorld).
+      (λ(unused s : tState# tRealWorld).
         x) ▷ sym (axiom-co $ax$Eff @tInt)
 
   pub val 1.vaction :: tEff tInt

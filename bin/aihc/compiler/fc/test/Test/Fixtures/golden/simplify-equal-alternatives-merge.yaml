@@ -60,7 +60,7 @@ expected: |-
       }
 
   pub val 1.vsame :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
-    = λ(_ : tInt#) (y : tInt#).
+    = λ(unused x : tInt#) (y : tInt#).
       y
 status: pass
 reason: Alternatives with the same right-hand side merge into one default alternative, and a case of only a default alternative on an unlifted variable is its right-hand side.

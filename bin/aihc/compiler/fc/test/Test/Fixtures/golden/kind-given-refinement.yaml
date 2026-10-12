@@ -55,11 +55,11 @@ expected: |-
       x y
 
   pub val 1.vmkApp :: ∀(k1 : sType) (k2 : sType) (f : k1 → k2) (x : k1). tProxy (k1 → k2) f → tProxy k1 x → tProxy k2 (f x)
-    = Λ(k1 : sType) (k2 : sType) (f : k1 → k2) (x : k1). λ(_ : tProxy (k1 → k2) f) (_ : tProxy k1 x).
+    = Λ(k1 : sType) (k2 : sType) (f : k1 → k2) (x : k1). λ(unused x{1} : tProxy (k1 → k2) f) (unused y : tProxy k1 x).
       cProxy @k2 @(f x)
 
   pub val 1.vrebuild :: ∀(k : sType) (f : k) (x : sType). tIsFun k → tProxy k f → tProxy sType x → tSome
     = Λ(k : sType) (f : k) (x : sType). λ(x{1} : tIsFun k) (y : tProxy k f) (z : tProxy sType x).
-      let! cIsFun (_ : k ~ (sType → sType)) = x{1};
+      let! cIsFun (unused $co : k ~ (sType → sType)) = x{1};
       vapply @(tProxy sType (f x)) @tSome (cSome @sType @(f x)) (vmkApp @sType @sType @f @x y z)
 status: pass

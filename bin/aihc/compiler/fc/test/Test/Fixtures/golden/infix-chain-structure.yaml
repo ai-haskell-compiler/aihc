@@ -48,14 +48,14 @@ expected: |-
 
   pub val 1.vpick :: tTree → tTree
     = λ(x : tTree).
-      let! c:<: (_ : tTree) (_pat : tTree) = x;
-      let! c:>: (_ : tTree) (_pat{1} : tTree) = _pat;
-      let! c:>: (_ : tTree) (d : tTree) = _pat{1};
+      let! c:<: (unused a : tTree) (_pat : tTree) = x;
+      let! c:>: (unused b : tTree) (_pat{1} : tTree) = _pat;
+      let! c:>: (unused c : tTree) (d : tTree) = _pat{1};
       d
 
   pub val 1.vsingle :: tTree → tTree
     = λ(x : tTree).
-      let! c:>: (_ : tTree) (b : tTree) = x;
+      let! c:>: (unused a : tTree) (b : tTree) = x;
       b
 status: pass
 reason: Preserve left, right, mixed, qualified, and parenthesized infix trees in expressions and patterns.

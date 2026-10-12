@@ -78,7 +78,7 @@ expected: |-
     = λ(x : tInt).
       let y : tInt =
         vdouble x;
-      λ(_ : tInt).
+      λ(unused _pat : tInt).
         let! cI# (a : tInt#) = y;
         let! cI# (b : tInt#) = y;
         cI# (prim +# a b)

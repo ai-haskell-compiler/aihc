@@ -60,7 +60,7 @@ expected: |-
 
   val 1.v$patsel$tag :: ∀(a : sType → sType). tTuple2 (tTag a) tFlag → tTag a
     = Λ(a : sType → sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
-      let! c(,) (tag : tTag a) (_ : tFlag) = _pat_rhs;
+      let! c(,) (tag : tTag a) (unused flag : tFlag) = _pat_rhs;
       tag
 
   pub val 1.vtag :: ∀(a : sType → sType). tTag a
@@ -69,7 +69,7 @@ expected: |-
 
   val 1.v$patsel$flag :: ∀(a : sType → sType). tTuple2 (tTag a) tFlag → tFlag
     = Λ(a : sType → sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
-      let! c(,) (_ : tTag a) (flag : tFlag) = _pat_rhs;
+      let! c(,) (unused tag : tTag a) (flag : tFlag) = _pat_rhs;
       flag
 
   pub val 1.vflag :: tFlag

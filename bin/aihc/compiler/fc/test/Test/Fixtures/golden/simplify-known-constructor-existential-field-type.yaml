@@ -41,7 +41,7 @@ expected: |-
   }
 
   val 1.vplus noinline :: tInt → tInt → tInt
-    = λ(x : tInt) (_ : tInt).
+    = λ(x : tInt) (unused y : tInt).
       x
 
   pub val 1.vrun :: (tInt → tInt) → tInt → tInt

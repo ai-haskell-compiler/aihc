@@ -82,7 +82,7 @@ expected: |-
   pub val 1.vagain :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt))
     = λ(x : tMutVar# tRealWorld tInt) (y : tState# tRealWorld).
       let! cTuple2# (s1 : tState# tRealWorld) (a : tInt) = prim readMutVar# @tRealWorld @tInt x y;
-      let! cI# (_ : tInt#) = a;
+      let! cI# (unused _pat : tInt#) = a;
       cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @(tState# tRealWorld) @tInt s1 a
 
   pub val 1.vwritten :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) (tInt → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tPair))

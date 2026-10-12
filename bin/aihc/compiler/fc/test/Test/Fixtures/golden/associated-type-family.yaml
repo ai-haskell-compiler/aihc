@@ -69,7 +69,7 @@ expected: |-
       c$Dict$Container @(t[] a) (v$fContainerList$csize @a)
 
   val 1.v$fContainerList$csize :: ∀(a : sType). t[] a → tNat
-    = Λ(a : sType). λ(_ : t[] a).
+    = Λ(a : sType). λ(unused x : t[] a).
       cZ
 status: pass
 reason: An associated type family becomes an empty family type next to the class dictionary,

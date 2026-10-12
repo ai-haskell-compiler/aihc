@@ -73,7 +73,7 @@ expected: |-
               c[] →
                 x{1};
               c: (y{3} : tInt) (ys : t[] tInt) →
-                let! cI# (_ : tInt#) = x y{3};
+                let! cI# (unused _pat : tInt#) = x y{3};
                 $wgo (prim +# x{1} lit (1#cIntRep) :: tInt#) x{2} ys
             }
       } in

@@ -62,7 +62,7 @@ expected: |-
   pub val 1.vswap :: tExpr → tExpr
     = λ(x : tExpr).
       v$mSub @sLiftedRep @tExpr x (λ(a : tExpr) (b : tExpr).
-        v$bSub b a) (λ(_ : tUnit).
+        v$bSub b a) (λ(unused _pattern_failure : tUnit).
         x)
 status: pass
 reason: A bidirectional pattern synonym gives a matcher and a builder. A pattern use calls the matcher with a continuation and the failure, and an expression use calls the builder.

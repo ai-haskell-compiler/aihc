@@ -53,12 +53,12 @@ expected: |-
 
   pub val 1.vinner :: tBox → tPair
     = λ($record : tBox).
-      let! cBox (inner0 : tInt#) (inner1 : tInt#) (_ : tInt) = $record;
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (unused size : tInt) = $record;
       cPair inner0 inner1
 
   pub val 1.vsize :: tBox → tInt
     = λ($record : tBox).
-      let! cBox (_ : tInt#) (_ : tInt#) (size : tInt) = $record;
+      let! cBox (unused inner0 : tInt#) (unused inner1 : tInt#) (size : tInt) = $record;
       size
 
   pub val 1.vbuild :: tPair → tInt → tBox
@@ -70,12 +70,12 @@ expected: |-
 
   pub val 1.vsizeOf :: tBox → tInt
     = λ(x : tBox).
-      let! cBox (_ : tInt#) (_ : tInt#) (n : tInt) = x;
+      let! cBox (unused whole0 : tInt#) (unused whole1 : tInt#) (n : tInt) = x;
       n
 
   pub val 1.vresize :: tBox → tInt → tBox
     = λ(x : tBox) (y : tInt).
-      let! cBox (inner0 : tInt#) (inner1 : tInt#) (_ : tInt) = x;
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (unused size : tInt) = x;
       (λ(inner : tPair) (size{1} : tInt).
         let! cPair (inner0{1} : tInt#) (inner1{1} : tInt#) = inner;
         let! _ = size{1};

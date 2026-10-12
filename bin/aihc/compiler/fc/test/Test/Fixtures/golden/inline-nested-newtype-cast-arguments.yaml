@@ -59,7 +59,7 @@ expected: |-
     = c$Dict$Pick @tBase v$fPickBase$cpick
 
   val 1.v$fPickBase$cpick :: tBase → tBase → tBool
-    = λ(x : tBase) (_ : tBase).
+    = λ(x : tBase) (unused y : tBase).
       let! cBase (b : tBool) = x;
       b
 
@@ -70,7 +70,7 @@ expected: |-
     = v$fPickBase ▷ trans (tycon-co t$Dict$Pick (sym (axiom-co $ax$Inner))) (tycon-co t$Dict$Pick (sym (axiom-co $ax$Outer)))
 
   pub val 1.vrun :: tOuter → tOuter → tBool
-    = λ(x : tOuter) (_ : tOuter).
+    = λ(x : tOuter) (unused y : tOuter).
       let! cBase (b : tBool) = x ▷ trans (axiom-co $ax$Outer) (axiom-co $ax$Inner);
       b
 status: pass

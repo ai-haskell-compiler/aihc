@@ -70,7 +70,7 @@ expected: |-
   pub val 1.vcount :: tNat → tNat
     = λ(x : tNat).
       let c : tNat → tNat → tNat =
-        λ(_ : tNat) (r : tNat).
+        λ(unused _pat : tNat) (r : tNat).
           cS r;
       c (cS x) (c x cZ)
 

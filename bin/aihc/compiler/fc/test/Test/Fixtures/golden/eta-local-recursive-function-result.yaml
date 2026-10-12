@@ -50,11 +50,11 @@ expected: |-
     = λ(x : tNat).
       let step : tNat → (tInt → tNat) → tInt → tNat =
         λ(x{1} : tNat) (y : tInt → tNat) (z : tInt).
-          let! cI# (_ : tInt#) = z;
+          let! cI# (unused _pat : tInt#) = z;
           case x{1} of {
             cZ →
               y z;
-            cS (_ : tNat) →
+            cS (unused _pat{1} : tNat) →
               x{1}
           };
       rec {

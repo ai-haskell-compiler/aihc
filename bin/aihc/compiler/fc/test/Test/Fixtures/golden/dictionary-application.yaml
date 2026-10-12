@@ -40,11 +40,11 @@ expected: |-
     = c$Dict$Eq @tBool v$fEqBool$c== v$fEqBool$c/=
 
   val 1.v$fEqBool$c== :: tBool → tBool → tBool
-    = λ(_ : tBool) (_ : tBool).
+    = λ(unused x : tBool) (unused y : tBool).
       cTrue
 
   val 1.v$fEqBool$c/= :: tBool → tBool → tBool
-    = λ(_ : tBool) (_ : tBool).
+    = λ(unused x : tBool) (unused y : tBool).
       cFalse
 
   pub val 1.veqBool :: tBool → tBool → tBool

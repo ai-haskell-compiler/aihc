@@ -75,7 +75,7 @@ expected: |-
 
   val 1.vstep :: tInt → tEff tInt
     = λ(x : tInt).
-      (λ(_ : tState# tRealWorld).
+      (λ(unused s : tState# tRealWorld).
         x) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vandThen :: tEff tInt → tEff tInt → tEff tInt
@@ -85,7 +85,7 @@ expected: |-
           x ▷ axiom-co $ax$Eff @tInt;
         let g : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
           y ▷ axiom-co $ax$Eff @tInt;
-        let! cI# (_ : tInt#) = f eta{2};
+        let! cI# (unused _pat : tInt#) = f eta{2};
         g eta{2}) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vchoose :: tBool → tBool
@@ -105,7 +105,7 @@ expected: |-
             λ(x{1} : tInt).
               x{1};
           cFalse →
-            λ(_ : tInt).
+            λ(unused x{1} : tInt).
               cI# lit (0#cIntRep) :: tInt#
         };
       let next : tEff tInt =

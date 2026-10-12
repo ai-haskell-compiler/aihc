@@ -65,9 +65,9 @@ expected: |-
     = Λ(r : sType). λ(x : tInt → r) (y : tInt → r) (z : tInt → r) (x1 : r) (x2 : tInt).
       let! cI# (a : tInt#) = x2;
       let _join : tBool → r =
-        λ(_ : tBool).
+        λ(unused _scrut : tBool).
           let _join{1} : tBool → r =
-            λ(_ : tBool).
+            λ(unused _scrut{1} : tBool).
               case prim >=# a lit (240#cIntRep) :: tInt# of {
                 1#cIntRep →
                   case prim <=# a lit (244#cIntRep) :: tInt# of {

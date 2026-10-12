@@ -62,7 +62,7 @@ expected: |-
       cPushCallStack name location y
 
   pub val 1.vrenamed :: tCallStack → tInt → tCallStack
-    = λ(_ : tCallStack) (_ : tInt).
+    = λ(unused $d : tCallStack) (unused x : tInt).
       vemptyCallStack
 
   pub val 1.vbound :: tInt → tInt

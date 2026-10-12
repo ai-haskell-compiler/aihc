@@ -68,7 +68,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub val 2.vuse :: ∀(b : sType). b → b
-    = Λ(b : sType). λ(_ : b).
+    = Λ(b : sType). λ(unused x : b).
       vfailure @sLiftedRep @b cMessage
 status: pass
 reason: an imported representation-polymorphic function with an implicit parameter keeps the body representation on its evidence arrow

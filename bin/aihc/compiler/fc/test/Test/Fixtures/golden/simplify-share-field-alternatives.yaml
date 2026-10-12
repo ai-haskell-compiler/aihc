@@ -100,15 +100,15 @@ expected: |-
       let! _ = x;
       let! _ as (state : tRef) =
         case x of {
-          cFile (_ : tRef) (state{1} : tRef) →
+          cFile (unused _pat : tRef) (state{1} : tRef) →
             state{1};
-          cDuplex (_ : tRef) (_ : tRef) (state{1} : tRef) →
+          cDuplex (unused _pat : tRef) (unused _pat{1} : tRef) (state{1} : tRef) →
             state{1}
         };
       cFour state state y (vseqFour (cFour y state y state) y)
 
   val 1.vseqFour :: tFour → tRef → tRef
-    = λ(_ : tFour) (y : tRef).
+    = λ(unused x : tFour) (y : tRef).
       y
 status: pass
 reason: Constructor alternatives that differ only in the fields they use share one default alternative. A case on the case binder reads each used field, which is unlifted or strict, so the read evaluates nothing.

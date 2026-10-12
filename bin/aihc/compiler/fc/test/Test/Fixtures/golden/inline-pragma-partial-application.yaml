@@ -52,7 +52,7 @@ expected: |-
           λ(x{1} : tBool).
             x{1};
         cFalse →
-          λ(_ : tBool).
+          λ(unused x{1} : tBool).
             cFalse
       }
 

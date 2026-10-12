@@ -46,7 +46,7 @@ expected: |-
 
   pub val 1.vsame :: ∀(a : sType) (b : sType). t:~: a b → tFlag
     = Λ(a : sType) (b : sType). λ(x : t:~: a b).
-      let! cRefl (_ : b ~ a) = x;
+      let! cRefl (unused $co : b ~ a) = x;
       cOn
 
   pub val 1.vcast :: ∀(a : sType) (b : sType). t:~: a b → a → b

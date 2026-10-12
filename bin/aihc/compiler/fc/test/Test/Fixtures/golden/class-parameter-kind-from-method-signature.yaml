@@ -73,14 +73,14 @@ expected: |-
   pub val 2.vdecompose :: ∀(o : (sType → sType) → (sType → sType) → sType → sType) (f : sType → sType) (g : sType → sType) (x : sType). t$Dict$Composition o → o f g x → f (g x)
     = Λ(o : (sType → sType) → (sType → sType) → sType → sType) (f : sType → sType) (g : sType → sType) (x : sType).
     λ($dComposition : t$Dict$Composition o).
-      let! c$Dict$Composition ($cdecompose : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). o f{1} g{1} x{1} → f{1} (g{1} x{1})) (_ : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). f{1} (g{1} x{1}) → o f{1} g{1} x{1}) =
+      let! c$Dict$Composition ($cdecompose : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). o f{1} g{1} x{1} → f{1} (g{1} x{1})) (unused $ccompose : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). f{1} (g{1} x{1}) → o f{1} g{1} x{1}) =
         $dComposition;
       $cdecompose @f @g @x
 
   pub val 2.vcompose :: ∀(o : (sType → sType) → (sType → sType) → sType → sType) (f : sType → sType) (g : sType → sType) (x : sType). t$Dict$Composition o → f (g x) → o f g x
     = Λ(o : (sType → sType) → (sType → sType) → sType → sType) (f : sType → sType) (g : sType → sType) (x : sType).
     λ($dComposition : t$Dict$Composition o).
-      let! c$Dict$Composition (_ : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). o f{1} g{1} x{1} → f{1} (g{1} x{1})) ($ccompose : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). f{1} (g{1} x{1}) → o f{1} g{1} x{1}) =
+      let! c$Dict$Composition (unused $cdecompose : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). o f{1} g{1} x{1} → f{1} (g{1} x{1})) ($ccompose : ∀(f{1} : sType → sType) (g{1} : sType → sType) (x{1} : sType). f{1} (g{1} x{1}) → o f{1} g{1} x{1}) =
         $dComposition;
       $ccompose @f @g @x
 

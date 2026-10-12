@@ -36,6 +36,7 @@ passes:
 - inline: grow
 expected: |-
   scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
@@ -66,13 +67,13 @@ expected: |-
     = cNil
 
   val 1.vkeep noinline :: tT → tList → tList
-    = λ(_ : tT) (y : tList).
+    = λ(unused x : tT) (y : tList).
       y
 
   pub val 1.vwalk :: tT → tT → tList
     = λ(x : tT) (y : tT).
       case x of {
-        cA (_ : tInt) →
+        cA (unused _pat : tInt) →
           rec {
             go : tT → tList =
               λ(x{1} : tT).
