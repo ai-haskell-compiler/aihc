@@ -1,0 +1,33 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+import headers
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity
+
+import synonyms
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
+
+pub type 1.tZero :: 2.sType {}
+pub type 1.tOne :: 2.sType {}
+pub type 1.tProxy (a : 2.sType) :: 2.sType {}
+pub type 1.tSucc (a : 2.sType) :: 2.sType {}
+pub type 1.tPred (a : 2.sType) :: 2.sType {}
+pub type 1.tPlus (a : 2.sType) (b : 2.sType) :: 2.sType {}
+
+axiom 1.$ax$Succ$0 : 1.tSucc 1.tZero ~N 1.tOne
+axiom 1.$ax$Pred$0 : 1.tPred 1.tOne ~N 1.tZero
+axiom 1.$ax$Plus$0 (b : 2.sType) : 1.tPlus 1.tZero b ~N b
+axiom 1.$ax$Plus$1 (a : 2.sType) (b : 2.sType) : 1.tPlus a b ~N 1.tPlus (1.tSucc a) (1.tPred b)
+
+val 1.vstuck :: ∀(a : 2.sType). ∀(b : 2.sType). 1.tProxy (1.tPlus a b) 2.→ 1.tProxy (1.tPlus a b)
+ = Λ(a : 2.sType).
+  Λ(b : 2.sType).
+  λ(x : 1.tProxy (1.tPlus a b)).
+    x
