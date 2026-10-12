@@ -1,0 +1,110 @@
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (isSpace, name, sameWord) where
+
+  import GHC.Prim (Int#, Word#)
+  import GHC.Types (Bool (..), Int (..))
+
+  data Handle = File Int Int | Duplex Int Int Int | Closed
+
+  isSpace :: Int# -> Bool
+  isSpace c = case c of
+    32# -> True
+    9# -> True
+    10# -> True
+    11# -> True
+    12# -> True
+    13# -> True
+    _ -> False
+
+  name :: Handle -> Int -> Int
+  name handle z = case handle of
+    File path _ -> add path (add z (add path (add z path)))
+    Duplex path _ _ -> add path (add z (add path (add z path)))
+    Closed -> z
+
+  sameWord :: Word# -> Word#
+  sameWord w = w
+
+  add :: Int -> Int -> Int
+  add _ y = y
+  {-# NOINLINE add #-}
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    int2Word# = 2.vint2Word# :: FUN @cIntRep @cWordRep tInt# tWord#;
+    leWord# = 2.vleWord# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cWordRep @cIntRep tWord# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool;
+    3.cWordRep :: tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.tHandle :: sType {
+    1.cFile :: tInt → tInt → tHandle;
+    1.cDuplex :: tInt → tInt → tInt → tHandle;
+    1.cClosed :: tHandle
+  }
+
+  pub val 1.visSpace :: FUN @cIntRep @sLiftedRep tInt# tBool
+    = λ(x : tInt#).
+      case prim leWord# (prim int2Word# (prim -# x lit (9#cIntRep) :: tInt#)) lit (4#cWordRep) :: tWord# of {
+        1#cIntRep →
+          cTrue;
+        _ →
+          case x of {
+            32#cIntRep →
+              cTrue;
+            _ →
+              cFalse
+          }
+      }
+
+  pub val 1.vname :: tHandle → tInt → tInt
+    = λ(x : tHandle) (y : tInt).
+      let _join : tInt → tInt =
+        λ(path : tInt).
+          vadd path (vadd y (vadd path (vadd y path)));
+      case x of {
+        cFile (path : tInt) (unused _pat : tInt) →
+          _join path;
+        cDuplex (path : tInt) (unused _pat : tInt) (unused _pat{1} : tInt) →
+          _join path;
+        cClosed →
+          y
+      }
+
+  pub val 1.vsameWord :: FUN @cWordRep @cWordRep tWord# tWord#
+    = λ(x : tWord#).
+      x
+
+  val 1.vadd noinline :: tInt → tInt → tInt
+    = λ(unused x : tInt) (y : tInt).
+      y
+status: pass
+lint: pass
+reason: A run of consecutive literals with the same code becomes one range test. Alternatives that are the same up to a lazy field, next to another alternative, call one join point with the field.
