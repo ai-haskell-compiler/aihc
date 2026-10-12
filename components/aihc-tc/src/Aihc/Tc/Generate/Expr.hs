@@ -1471,11 +1471,18 @@ inferListWithExpected expected sp elems = do
           pure (annotatePendingExprAt sp pending (EList elems'), sourceResultTy, elemCts <> elementEqualityCts <> constructorCts)
         _ -> abortTc "the wired list cons constructor has an invalid type"
   where
-    inferElem expectedElemTy elemExpr = do
-      (elemExpr', elemTy, elemCts) <- case expected of
-        Just _ -> checkExpr expectedElemTy elemExpr
-        Nothing -> inferExpr elemExpr
-      pure (elemExpr', elemTy, elemCts, exprSpan elemExpr <|> sp)
+    inferElem expectedElemTy elemExpr = case expected of
+      Just _ -> do
+        (elemExpr', elemTy, elemCts) <- checkExpr expectedElemTy elemExpr
+        -- A given equality can be the only proof that the element has the
+        -- expected element type, so the element takes the cast of that proof.
+        equality <- wantedDoEq elemSp expectedElemTy elemTy
+        pure (annotateExprCast expectedElemTy (ctEvVar equality) elemExpr', expectedElemTy, elemCts <> [equality], elemSp)
+      Nothing -> do
+        (elemExpr', elemTy, elemCts) <- inferExpr elemExpr
+        pure (elemExpr', elemTy, elemCts, elemSp)
+      where
+        elemSp = exprSpan elemExpr <|> sp
     constructorEqualityCt loc left right = do
       ev <- freshEvVar
       pure (mkWantedCt (EqPred left right) ev (AppOrigin loc) loc)
