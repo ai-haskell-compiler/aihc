@@ -61,7 +61,7 @@ after each pass under `--lint`.
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
-| `PassUnroll` | Copy the body of a small local loop at each call whose literal arguments decide its recursion, until no call is left. At most 8 copies of at most 200 nodes each. `Aihc.Fc.Unroll`. |
+| `PassUnroll` | Copy the body of a small local loop, or of a top-level function that calls itself, at each call whose literal arguments decide its recursion, until no call is left. At most 8 copies of at most 200 nodes each. `Aihc.Fc.Unroll`. |
 | `PassStateTokens` | Use the value of an earlier read of a `MutVar#` for a read that takes its token, and remove a `touch#` that a later `touch#` of the same object makes redundant. `Aihc.Fc.StateToken`. |
 | `PassCse` | Use a let in scope for an equal pure expression, and bind a safe primitive call that one path calculates more than one time. `Aihc.Fc.Cse`. |
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |

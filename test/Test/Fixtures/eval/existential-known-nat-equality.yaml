@@ -1,0 +1,51 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - RankNTypes
+  - ScopedTypeVariables
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import Data.Type.Equality ((:~:) (..))
+    import GHC.TypeNats (KnownNat, SomeNat (..), Nat, natVal, sameNat, someNatVal)
+    import Numeric.Natural (Natural)
+    import Prelude
+
+    newtype Mod (n :: Nat) = Mod Natural
+
+    data Some where
+      Some :: KnownNat n => Mod n -> Some
+      Other :: Natural -> Some
+
+    apply
+      :: (forall k. KnownNat k => Mod k -> Mod k -> Bool)
+      -> Some -> Some -> Bool
+    apply _ (Other left) (Other right) = left == right
+    apply function (Other _) (Some right) = function right right
+    apply function (Some left) (Other _) = function left left
+    apply function (Some left) (Some right) =
+      case sameNat left right of
+        Nothing -> False
+        Just Refl -> function left right
+
+    equal :: Some -> Some -> Bool
+    equal = apply (\left right -> natVal left == natVal right)
+
+    make :: Natural -> Some
+    make value = case someNatVal value of
+      SomeNat proxy -> Some (makeMod proxy value)
+
+    makeMod :: Proxy n -> Natural -> Mod n
+    makeMod _ = Mod
+
+    answer :: Bool
+    answer = equal (make 42) (make 42) && not (equal (make 42) (make 43))
+      && equal (Other 1) (make 42) && equal (make 42) (Other 1)
+      && equal (Other 1) (Other 1) && not (equal (Other 1) (Other 2))
+expression: answer
+output: |
+  True
+status: pass
+reason: Existential pattern dictionaries remain available after a type equality proof.

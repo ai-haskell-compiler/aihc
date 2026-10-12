@@ -48,9 +48,9 @@ expected: |-
     constructors [2.c()] 2.tUnit :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
     2.c() :: 2.tUnit;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -63,7 +63,7 @@ expected: |-
 
   pub type 1.tMaybe (a : sType) :: sType {
     pub 1.cNothing :: ∀(a : sType). tMaybe a;
-    pub 1.cJust :: ∀(a : sType). a 3.→ tMaybe a
+    pub 1.cJust :: ∀(a : sType). a → tMaybe a
   }
 
   pub type 1.tUnit :: sType {
@@ -75,11 +75,11 @@ expected: |-
   }
 
   pub type 1.tAppView (k : sType) (a : k) :: sType {
-    pub 1.cIsCon :: ∀(k : sType) (a : k). 1.tUnit 3.→ tAppView k a;
-    pub 1.cIsApp :: ∀(k2 : sType) (t : k2) (k1 : sType) (f : k1 3.→ k2) (x : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x) (tTypeRep (k1 3.→ k2) f 3.→ tTypeRep k1 x 3.→ tAppView k2 t)
+    pub 1.cIsCon :: ∀(k : sType) (a : k). 1.tUnit → tAppView k a;
+    pub 1.cIsApp :: ∀(k2 : sType) (t : k2) (k1 : sType) (f : k1 → k2) (x : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x) (tTypeRep (k1 → k2) f → tTypeRep k1 x → tAppView k2 t)
   }
 
-  pub val 1.v$mCon' :: ∀(k : sType) (a : k) (rep : tRuntimeRep) (r : tTYPE rep). tTypeRep k a 3.→ (FUN @sLiftedRep @rep 1.tUnit r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep 2.tUnit r) r
+  pub val 1.v$mCon' :: ∀(k : sType) (a : k) (rep : tRuntimeRep) (r : tTYPE rep). tTypeRep k a → (FUN @sLiftedRep @rep 1.tUnit r) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep 2.tUnit r) r
     = Λ(k : sType) (a : k) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tTypeRep k a) (y : FUN @sLiftedRep @rep 1.tUnit r)
     (z : FUN @sLiftedRep @rep 2.tUnit r).
       case vsplitApp @k @a x of {
@@ -89,12 +89,12 @@ expected: |-
           z c()
       }
 
-  pub val 1.v$mApp :: ∀(k2 : sType) (t : k2) (rep : tRuntimeRep) (r : tTYPE rep). tTypeRep k2 t 3.→ (∀(k1 : sType) (f : k1 3.→ k2) (x : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x) (tTypeRep (k1 3.→ k2) f 3.→ FUN @sLiftedRep @rep (tTypeRep k1 x) r)) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep 2.tUnit r) r
+  pub val 1.v$mApp :: ∀(k2 : sType) (t : k2) (rep : tRuntimeRep) (r : tTYPE rep). tTypeRep k2 t → (∀(k1 : sType) (f : k1 → k2) (x : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x) (tTypeRep (k1 → k2) f → FUN @sLiftedRep @rep (tTypeRep k1 x) r)) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep 2.tUnit r) r
     = Λ(k2 : sType) (t : k2) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tTypeRep k2 t)
-    (y : ∀(k1 : sType) (f : k1 3.→ k2) (x{1} : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x{1}) (tTypeRep (k1 3.→ k2) f 3.→ FUN @sLiftedRep @rep (tTypeRep k1 x{1}) r))
+    (y : ∀(k1 : sType) (f : k1 → k2) (x{1} : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x{1}) (tTypeRep (k1 → k2) f → FUN @sLiftedRep @rep (tTypeRep k1 x{1}) r))
     (z : FUN @sLiftedRep @rep 2.tUnit r).
       case vsplitApp @k2 @t x of {
-        cIsApp @(k1 : sType) @(f : k1 3.→ k2) @(x{1} : k1) ($co : t ~ f x{1}) (f{1} : tTypeRep (k1 3.→ k2) f) (x{2} : tTypeRep k1 x{1}) →
+        cIsApp @(k1 : sType) @(f : k1 → k2) @(x{1} : k1) ($co : t ~ f x{1}) (f{1} : tTypeRep (k1 → k2) f) (x{2} : tTypeRep k1 x{1}) →
           y @k1 @f @x{1} (coercion ($co)) f{1} x{2};
         _ →
           z c()
@@ -104,26 +104,26 @@ expected: |-
     = Λ(k : sType) (a : k).
       cTypeRep @k @a
 
-  pub val 1.veqTypeRep :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). tTypeRep k1 a 3.→ tTypeRep k2 b 3.→ tMaybe (t:~~: k1 k2 a b)
-    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(x : tTypeRep k1 a) (y : tTypeRep k2 b).
+  pub val 1.veqTypeRep :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). tTypeRep k1 a → tTypeRep k2 b → tMaybe (t:~~: k1 k2 a b)
+    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(unused x : tTypeRep k1 a) (unused y : tTypeRep k2 b).
       cNothing @(t:~~: k1 k2 a b)
 
-  pub val 1.vsplitApp :: ∀(k : sType) (a : k). tTypeRep k a 3.→ tAppView k a
-    = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
+  pub val 1.vsplitApp :: ∀(k : sType) (a : k). tTypeRep k a → tAppView k a
+    = Λ(k : sType) (a : k). λ(unused x : tTypeRep k a).
       cIsCon @k @a cUnit
 
-  pub val 1.vputTypeRep :: ∀(k : sType) (a : k). tTypeRep k a 3.→ 1.tUnit
+  pub val 1.vputTypeRep :: ∀(k : sType) (a : k). tTypeRep k a → 1.tUnit
     = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
-      case veqTypeRep @k @(tTYPE (cBoxedRep cLifted)) @a @(tTYPE (cBoxedRep cLifted)) x (vtypeRep @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted))) of {
-        cJust (_pat : t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted))) →
-          let! cHRefl ($co : tTYPE (cBoxedRep cLifted) ~ k) ($co{1} : tTYPE (cBoxedRep cLifted) ~ a) = _pat;
+      case veqTypeRep @k @sType @a @sType x (vtypeRep @sType @sType) of {
+        cJust (_pat : t:~~: k sType a sType) →
+          let! cHRefl (unused $co : sType ~ k) (unused $co{1} : sType ~ a) = _pat;
           cUnit;
         _ →
           v$mCon' @k @a @sLiftedRep @1.tUnit x (λ(con : 1.tUnit).
-            con) (λ(_pattern_failure : 2.tUnit).
-            v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 3.→ k) (x{1} : k1). λ($co : a ~ f x{1})
-            (f{1} : tTypeRep (k1 3.→ k) f) (x{2} : tTypeRep k1 x{1}).
-              vputTypeRep @(k1 3.→ k) @f f{1}) (λ(_pattern_failure{1} : 2.tUnit).
+            con) (λ(unused _pattern_failure : 2.tUnit).
+            v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 → k) (x{1} : k1). λ(unused $co : a ~ f x{1})
+            (f{1} : tTypeRep (k1 → k) f) (unused x{2} : tTypeRep k1 x{1}).
+              vputTypeRep @(k1 → k) @f f{1}) (λ(unused _pattern_failure{1} : 2.tUnit).
               absurd x return (1.tUnit)))
       }
 status: pass

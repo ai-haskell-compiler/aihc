@@ -31,7 +31,7 @@ import GHC.Err (errorWithoutStackTrace)
 import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
-import GHC.Internal.Integer (Integer (..), integerQuotRem, wordToInteger)
+import GHC.Internal.Integer (Integer (..), integerQuotRem, integerRem, wordToInteger)
 import GHC.Num (Num (..))
 import GHC.Prim
   ( int16ToInt#,
@@ -101,7 +101,7 @@ instance Integral Int where
 
 instance Integral Integer where
   quot numerator denominator = firstOfPair (integerQuotRemChecked numerator denominator)
-  rem numerator denominator = secondOfPair (integerQuotRemChecked numerator denominator)
+  rem = integerRemChecked
   div numerator denominator = firstOfPair (integerDivModChecked numerator denominator)
   mod numerator denominator = secondOfPair (integerDivModChecked numerator denominator)
   quotRem = integerQuotRemChecked
@@ -282,6 +282,18 @@ integerQuotRemChecked (IS numerator) (IS denominator) =
 integerQuotRemChecked _ (IS 0#) = divZeroError
 integerQuotRemChecked numerator denominator = integerQuotRem numerator denominator
 {-# NOINLINE integerQuotRemChecked #-}
+
+-- | A remainder without a quotient. A zero divisor raises 'DivideByZero'.
+integerRemChecked :: Integer -> Integer -> Integer
+integerRemChecked (IS numerator) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      case denominator ==# negateInt# 1# of
+        1# -> IS 0#
+        _ -> IS (remInt# numerator denominator)
+integerRemChecked _ (IS 0#) = divZeroError
+integerRemChecked numerator denominator = integerRem numerator denominator
 
 -- | 'divMod' on 'Integer'. The remainder has the sign of the divisor. The
 -- body is large, thus each use stays a call.

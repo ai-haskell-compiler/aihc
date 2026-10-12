@@ -47,7 +47,7 @@ expected: |-
     constructors [3.cW#] 3.tWord :: sType;
     2.tWord# :: tTYPE cWordRep;
     2.tWord8# :: tTYPE cWord8Rep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
@@ -58,22 +58,22 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vnarrowMasked :: tWord 3.→ tWord
+  pub val 1.vnarrowMasked :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim word8ToWord# (prim wordToWord8# w))
 
-  pub val 1.vwidenFits :: tWord 3.→ tWord
+  pub val 1.vwidenFits :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim and# w lit (127#cWordRep) :: tWord#)
 
-  pub val 1.vshiftFits :: tWord 3.→ tWord
+  pub val 1.vshiftFits :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim uncheckedShiftRL# w lit (48#cIntRep) :: tInt#)
 
-  pub val 1.vmaskedFits :: tWord 3.→ tWord
+  pub val 1.vmaskedFits :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim and# w lit (15#cWordRep) :: tWord#)

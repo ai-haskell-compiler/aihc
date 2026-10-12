@@ -69,7 +69,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     2.tWord# :: tTYPE cWordRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
@@ -101,25 +101,25 @@ expected: |-
           i
       }
 
-  pub val 1.vignore noinline :: tBig 3.→ FUN @cIntRep @cIntRep tInt# tInt#
-    = λ(x : tBig) (y : tInt#).
+  pub val 1.vignore noinline :: tBig → FUN @cIntRep @cIntRep tInt# tInt#
+    = λ(unused x : tBig) (y : tInt#).
       y
 
   pub val 1.vconsume noinline :: FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tInt#).
       cI# x
 
-  pub val 1.vstrictArgument :: tW 3.→ tInt
+  pub val 1.vstrictArgument :: tW → tInt
     = λ(x : tW).
       let! cW (w : tWord#) = x;
       cI# (prim word2Int# w)
 
-  pub val 1.vunliftedArgument :: tW 3.→ tInt
+  pub val 1.vunliftedArgument :: tW → tInt
     = λ(x : tW).
       let! cW (w : tWord#) = x;
       vconsume (prim word2Int# w)
 
-  pub val 1.vlazyArgument :: tW 3.→ tInt
+  pub val 1.vlazyArgument :: tW → tInt
     = λ(x : tW).
       cI# (vignore (let! cW (w : tWord#) = x;
       vtoBig w) lit (0#cIntRep) :: tInt#)

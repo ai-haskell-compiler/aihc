@@ -1,0 +1,40 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ErrorCall, catch, evaluate)
+    import GHC.Conc (par, pseq)
+    import qualified GHC.Conc.Sync as Sync
+    import GHC.Exts (spark#)
+    import GHC.IO (IO(..))
+    import Prelude
+
+    errorHandler :: ErrorCall -> IO Int
+    errorHandler _ = pure 3
+
+    main :: IO ()
+    main = do
+      print (par (undefined :: Int) (1 :: Int))
+      print (Sync.par (undefined :: Int) (2 :: Int))
+      result <- catch (evaluate (pseq (undefined :: Int) (0 :: Int))) errorHandler
+      print result
+      print (Sync.pseq (Just (undefined :: Int)) (4 :: Int))
+      value <- IO (spark# (5 :: Int))
+      print value
+      _ <- IO (spark# (undefined :: Int))
+      print (6 :: Int)
+stdout: |
+  1
+  2
+  3
+  4
+  5
+  6
+output: |
+  ()
+expression: main
+status: pass
+reason: The sequential stubs keep par and spark# lazy and force only the outer constructor with pseq.

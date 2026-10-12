@@ -53,7 +53,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     2.tWord# :: tTYPE cWordRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
@@ -65,8 +65,8 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tHandle :: sType {
-    1.cFile :: tInt 3.→ tInt 3.→ tHandle;
-    1.cDuplex :: tInt 3.→ tInt 3.→ tInt 3.→ tHandle;
+    1.cFile :: tInt → tInt → tHandle;
+    1.cDuplex :: tInt → tInt → tInt → tHandle;
     1.cClosed :: tHandle
   }
 
@@ -84,15 +84,15 @@ expected: |-
           }
       }
 
-  pub val 1.vname :: tHandle 3.→ tInt 3.→ tInt
+  pub val 1.vname :: tHandle → tInt → tInt
     = λ(x : tHandle) (y : tInt).
-      let _join : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt tInt =
+      let _join : tInt → tInt =
         λ(path : tInt).
           vadd path (vadd y (vadd path (vadd y path)));
       case x of {
-        cFile (path : tInt) (_pat : tInt) →
+        cFile (path : tInt) (unused _pat : tInt) →
           _join path;
-        cDuplex (path : tInt) (_pat : tInt) (_pat{1} : tInt) →
+        cDuplex (path : tInt) (unused _pat : tInt) (unused _pat{1} : tInt) →
           _join path;
         cClosed →
           y
@@ -102,8 +102,8 @@ expected: |-
     = λ(x : tWord#).
       x
 
-  val 1.vadd noinline :: tInt 3.→ tInt 3.→ tInt
-    = λ(x : tInt) (y : tInt).
+  val 1.vadd noinline :: tInt → tInt → tInt
+    = λ(unused x : tInt) (y : tInt).
       y
 status: pass
 lint: pass

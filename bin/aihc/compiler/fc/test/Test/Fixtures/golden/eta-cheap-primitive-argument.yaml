@@ -38,8 +38,8 @@ expected: |-
     3.sType :: sType;
     2.tWord# :: tTYPE cWordRep;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
@@ -50,7 +50,7 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.vshowWord :: FUN @cWordRep @sLiftedRep tWord# (t[] tBool 3.→ t[] tBool)
+  val 1.vshowWord :: FUN @cWordRep @sLiftedRep tWord# (t[] tBool → t[] tBool)
     = λ(x : tWord#) (y : t[] tBool).
       let _case : tInt# =
         prim eqWord# x lit (0#cWordRep) :: tWord#;
@@ -61,7 +61,7 @@ expected: |-
           y
       }
 
-  pub val 1.vrender :: tInt 3.→ t[] tBool 3.→ t[] tBool
+  pub val 1.vrender :: tInt → t[] tBool → t[] tBool
     = λ(x : tInt) (eta{1} : t[] tBool).
       let! cI# (value : tInt#) = x;
       vshowWord (prim minusWord# lit (0#cWordRep) :: tWord# (prim int2Word# value)) eta{1}
