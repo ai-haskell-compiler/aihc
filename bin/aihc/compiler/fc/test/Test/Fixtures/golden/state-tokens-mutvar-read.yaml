@@ -39,7 +39,7 @@ expected: |-
 
   import prims
     readMutVar# = 2.vreadMutVar# :: ∀(a : sType) (b : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# a b) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# a) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# a) b));
-    writeMutVar# = 2.vwriteMutVar# :: ∀(a : sType) (b : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# a b) (b 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# a) (tState# a))
+    writeMutVar# = 2.vwriteMutVar# :: ∀(a : sType) (b : sType). FUN @sUnliftedRep @sLiftedRep (tMutVar# a b) (b → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# a) (tState# a))
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -55,13 +55,13 @@ expected: |-
     3.sType :: sType;
     3.sUnliftedRep :: tRuntimeRep;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.cUnlifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
 
@@ -71,7 +71,7 @@ expected: |-
     3.sUnliftedRep = cBoxedRep cUnlifted
 
   pub type 1.tPair :: sType {
-    pub 1.cPair :: tInt 3.→ tInt 3.→ tPair
+    pub 1.cPair :: tInt → tInt → tPair
   }
 
   pub val 1.vtwice :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tPair))
@@ -82,10 +82,10 @@ expected: |-
   pub val 1.vagain :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt))
     = λ(x : tMutVar# tRealWorld tInt) (y : tState# tRealWorld).
       let! cTuple2# (s1 : tState# tRealWorld) (a : tInt) = prim readMutVar# @tRealWorld @tInt x y;
-      let! cI# (_pat : tInt#) = a;
+      let! cI# (unused _pat : tInt#) = a;
       cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @(tState# tRealWorld) @tInt s1 a
 
-  pub val 1.vwritten :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) (tInt 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tPair))
+  pub val 1.vwritten :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) (tInt → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tPair))
     = λ(x : tMutVar# tRealWorld tInt) (y : tInt) (z : tState# tRealWorld).
       let! cTuple2# (s1 : tState# tRealWorld) (a : tInt) = prim readMutVar# @tRealWorld @tInt x z;
       let! cTuple2# (s3 : tState# tRealWorld) (b : tInt) =

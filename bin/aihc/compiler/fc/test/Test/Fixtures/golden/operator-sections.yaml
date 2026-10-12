@@ -33,8 +33,8 @@ expected: |-
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
     2.c() :: tUnit;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cLifted :: tLevity;
     3.cTrue :: tBool
@@ -43,19 +43,19 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vpair :: ∀(a : sType) (b : sType). a 3.→ b 3.→ tTuple2 a b
+  pub val 1.vpair :: ∀(a : sType) (b : sType). a → b → tTuple2 a b
     = Λ(a : sType) (b : sType). λ(x : a) (y : b).
       c(,) @a @b x y
 
-  pub val 1.vleftSection :: tBool 3.→ tTuple2 tBool tBool
+  pub val 1.vleftSection :: tBool → tTuple2 tBool tBool
     = λ(_section : tBool).
       vpair @tBool @tBool cTrue _section
 
-  pub val 1.vrightSection :: tBool 3.→ tTuple2 tBool tBool
+  pub val 1.vrightSection :: tBool → tTuple2 tBool tBool
     = λ(_section : tBool).
       vpair @tBool @tBool _section cFalse
 
-  pub val 1.vrwhnf :: ∀(a : sType). a 3.→ tUnit
+  pub val 1.vrwhnf :: ∀(a : sType). a → tUnit
     = Λ(a : sType). λ(_section : a).
       (λ(seq_first : a) (seq_second : tUnit).
         let! _ = seq_first;

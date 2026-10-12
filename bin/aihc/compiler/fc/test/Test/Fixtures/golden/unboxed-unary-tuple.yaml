@@ -22,11 +22,11 @@ expected: |-
     constructors [3.cTuple1#] 3.tTuple1# :: ∀(r1 : tRuntimeRep) (a1 : tTYPE r1). tTYPE (cTupleRep (c: tRuntimeRep r1 (c[] tRuntimeRep)));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms

@@ -79,6 +79,8 @@ GRIN lowering is temporarily disabled.
 
 11. Print `a → b` when both stored representations are lifted.
     Parse `→` and `->` as `FUN` on `LiftedRep`.
+    The arrow names the `LiftedRep` synonym, so it follows the rule of the other names.
+    It is `N.→` with the scope of the synonym, or `→` when the short name `sLiftedRep` is unambiguous.
     Print `FUN @r1 @r2 a b` when a side is not lifted.
 
 12. Coercions stay a separate AST.
@@ -122,8 +124,16 @@ GRIN lowering is temporarily disabled.
     Do not add extra axioms for them.
 
 20. Scope syntax stays: `scope 1 = "pkg-id" ModuleName`.
+    The printer writes each scope of the program, so the parser gives back the same scope table.
     A whole program keeps only the scopes that its names use (`pruneScopes`).
     The type of each foreign call has canonical binder names (`canonicalForeignCalls`), so equal calls are equal values and share one primitive alias.
+
+21. A lambda, pattern or case binder that its scope does not use has the mark `unused` before its name.
+    Example: `(unused _pat{9} : tInt)`.
+    The binder keeps its name, its unique and its type, so the parser gives back the same binder.
+    `unused` is a reserved word.
+    Thus a binder with the name `unused` prints with its unique, `unused{0}`, and it is not the mark.
+    The parser reads the mark and does not change the binder.
 
 ## Syntax
 

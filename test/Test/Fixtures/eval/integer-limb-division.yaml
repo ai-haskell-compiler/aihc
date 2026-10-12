@@ -28,8 +28,43 @@ modules:
               (6277101735386680763835789423207666416102355444464034512895, -340282366920938463463374607431768211455, -18446744073709551616, 18446744073709551615, -18446744073709551617, -340282366920938463444927863358058659840),
               (9223372036854775808, -1, -9223372036854775808, 0, -9223372036854775808, 0)]
 
+    -- The second divisor limb requires one or two estimate corrections.
+    -- The third divisor limb requires a divisor restore after subtraction.
+    limb :: Integer
+    limb = 18446744073709551616
+
+    limbCases :: [(Integer, Integer, Integer, Integer)]
+    limbCases =
+      [(divisor * quotient + remainder, divisor, quotient, remainder)
+      | (divisor, quotient, remainder) <-
+          [(limb * (limb `quot` 2) + limb - 1, limb - 3, 0),
+           (limb * (limb `quot` 2) + limb - 1, limb - 3, limb * (limb `quot` 2) + limb - 2),
+           (limb * (limb `quot` 2) + limb - 1, limb - 1, limb * (limb `quot` 2) + limb - 2),
+           (limb ^ 2 * (limb `quot` 2) + 1, limb, limb ^ 2 * (limb `quot` 2)),
+           (limb + 1, limb ^ 3 - 1, limb),
+           (limb ^ 3 + 1, limb ^ 3, 1),
+           (limb ^ 2 - 1, 1, 0),
+           (limb ^ 2 + 1, 0, limb - 1),
+           (limb - 1, limb ^ 3, limb - 2),
+           (3, limb ^ 3, 2)]]
+
+    generatedCases :: [(Integer, Integer, Integer, Integer)]
+    generatedCases =
+      [(divisor * quotient + remainder, divisor, quotient, remainder)
+      | seed <- [1 .. 64],
+        let divisor = limb ^ (2 + seed `rem` 5) + 2 ^ (seed `rem` 64) * limb + seed,
+        let quotient = limb ^ (seed `rem` 4) + seed * (limb - 1),
+        let remainder = seed * limb + seed]
+
+    check :: (Integer, Integer, Integer, Integer) -> Bool
+    check (a, b, q, r) =
+      and [quotRem (s * a) (t * b) == (s * t * q, s * r)
+           && rem (s * a) (t * b) == s * r
+          | s <- [1, -1], t <- [1, -1]]
+
     main :: IO ()
-    main = print (and [quotRem a b == (q, r) && divMod a b == (d, m) | (a, b, q, r, d, m) <- cases])
+    main = print (and [quotRem a b == (q, r) && divMod a b == (d, m) && rem a b == r | (a, b, q, r, d, m) <- cases]
+                  && all check (limbCases ++ generatedCases))
 stdout: |
   True
 output: |

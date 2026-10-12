@@ -33,7 +33,7 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     constructors [3.c()] 3.tUnit :: sType;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
     4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     4.cIntRep :: tRuntimeRep;
@@ -44,24 +44,24 @@ expected: |-
     4.sLiftedRep = cBoxedRep cLifted;
     4.sType = tTYPE sLiftedRep
 
-  pub val 1.vthree :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+  pub val 1.vthree :: tUnit → tInt
+    = λ(unused x : tUnit).
       v$int_3
 
-  pub val 1.valsoThree :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+  pub val 1.valsoThree :: tUnit → tInt
+    = λ(unused x : tUnit).
       v$int_3
 
-  pub val 1.vnegative :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+  pub val 1.vnegative :: tUnit → tInt
+    = λ(unused x : tUnit).
       v$int_minus1
 
-  pub val 1.vminus :: tUnit 4.→ tChar
-    = λ(x : tUnit).
+  pub val 1.vminus :: tUnit → tChar
+    = λ(unused x : tUnit).
       v$char_minus
 
-  pub val 1.vletter :: tUnit 4.→ tChar
-    = λ(x : tUnit).
+  pub val 1.vletter :: tUnit → tChar
+    = λ(unused x : tUnit).
       v$char_a
 
   val 1.v$int_3 noinline :: tInt

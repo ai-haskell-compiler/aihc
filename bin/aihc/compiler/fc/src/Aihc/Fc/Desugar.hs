@@ -21,7 +21,7 @@ import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
-import Aihc.Fc.Wired (equalityRep, ghcTypesModule, typeConstructor)
+import Aihc.Fc.Wired (equalityRep, ghcTypesModule, typeConstructor, wiredGhcTypes)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -82,6 +82,7 @@ import Aihc.Tc.Types
     tyConPackageId,
     typeKind,
     typeSchemeBody,
+    pattern BoxedRep,
     pattern KConstraint,
     pattern KFun,
     pattern KTYPE,
@@ -1016,6 +1017,9 @@ convertSynonym env info =
           result <- withConversionContext "result" (synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym))
           convertedBody <- withConversionContext "body" $ case body of
             KTYPE representation -> TyApp (TyCon (typeConstructor (cePrimPackage env))) <$> convertRep bindersEnv representation
+            -- The body of @LiftedRep@ and @UnliftedRep@. A type argument
+            -- of this form becomes the synonym, so the body must not.
+            BoxedRep levity -> TyApp (TyCon (wiredGhcTypes (cePrimPackage env) "BoxedRep" SortDataConstructor)) <$> convertType bindersEnv levity
             _ -> convertTypeWithExpectedKind bindersEnv (Just bodyKind) body
           pure
             [ DeclSynonym

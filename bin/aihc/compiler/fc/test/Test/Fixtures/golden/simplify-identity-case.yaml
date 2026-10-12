@@ -44,7 +44,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -52,27 +52,27 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tPair (a : sType) :: sType {
-    pub 1.cPair :: ∀(a : sType). a 2.→ a 2.→ tPair a
+    pub 1.cPair :: ∀(a : sType). a → a → tPair a
   }
 
   pub type 1.tTag (a : sType) :: sType {
     pub 1.cTag :: ∀(a : sType). tTag a
   }
 
-  pub val 1.vsameBool :: tBool 2.→ tBool
+  pub val 1.vsameBool :: tBool → tBool
     = λ(x : tBool).
       x
 
-  pub val 1.vsamePair :: ∀(a : sType). tPair a 2.→ tPair a
+  pub val 1.vsamePair :: ∀(a : sType). tPair a → tPair a
     = Λ(a : sType). λ(x : tPair a).
       x
 
-  pub val 1.vswapPair :: ∀(a : sType). tPair a 2.→ tPair a
+  pub val 1.vswapPair :: ∀(a : sType). tPair a → tPair a
     = Λ(a : sType). λ(x : tPair a).
       let! cPair (x{1} : a) (y : a) = x;
       cPair @a y x{1}
 
-  pub val 1.vretag :: ∀(a : sType) (b : sType). tTag a 2.→ tTag b
+  pub val 1.vretag :: ∀(a : sType) (b : sType). tTag a → tTag b
     = Λ(a : sType) (b : sType). λ(x : tTag a).
       let! cTag = x;
       cTag @b
