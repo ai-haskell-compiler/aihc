@@ -16,9 +16,9 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
-    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms

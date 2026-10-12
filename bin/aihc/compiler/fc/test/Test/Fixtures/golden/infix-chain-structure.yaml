@@ -21,7 +21,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -30,8 +30,8 @@ expected: |-
 
   pub type 1.tTree :: sType {
     pub 1.cLeaf :: tTree;
-    pub 1.c:<: :: tTree 2.→ tTree 2.→ tTree;
-    pub 1.c:>: :: tTree 2.→ tTree 2.→ tTree
+    pub 1.c:<: :: tTree → tTree → tTree;
+    pub 1.c:>: :: tTree → tTree → tTree
   }
 
   pub val 1.vleft :: tTree
@@ -46,16 +46,16 @@ expected: |-
   pub val 1.vparen :: tTree
     = c:>: (c:<: cLeaf cLeaf) cLeaf
 
-  pub val 1.vpick :: tTree 2.→ tTree
+  pub val 1.vpick :: tTree → tTree
     = λ(x : tTree).
-      let! c:<: (a : tTree) (_pat : tTree) = x;
-      let! c:>: (b : tTree) (_pat{1} : tTree) = _pat;
-      let! c:>: (c : tTree) (d : tTree) = _pat{1};
+      let! c:<: (unused a : tTree) (_pat : tTree) = x;
+      let! c:>: (unused b : tTree) (_pat{1} : tTree) = _pat;
+      let! c:>: (unused c : tTree) (d : tTree) = _pat{1};
       d
 
-  pub val 1.vsingle :: tTree 2.→ tTree
+  pub val 1.vsingle :: tTree → tTree
     = λ(x : tTree).
-      let! c:>: (a : tTree) (b : tTree) = x;
+      let! c:>: (unused a : tTree) (b : tTree) = x;
       b
 status: pass
 reason: Preserve left, right, mixed, qualified, and parenthesized infix trees in expressions and patterns.

@@ -40,7 +40,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
@@ -50,14 +50,14 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tPair :: sType {
-    pub 1.cPair :: tInt 3.→ tInt 3.→ tPair
+    pub 1.cPair :: tInt → tInt → tPair
   }
 
-  val 1.vslow noinline :: tInt 3.→ tInt
+  val 1.vslow noinline :: tInt → tInt
     = λ(x : tInt).
       x
 
-  pub val 1.vpick :: tInt 3.→ tInt 3.→ tPair
+  pub val 1.vpick :: tInt → tInt → tPair
     = λ(x : tInt) (y : tInt).
       let! cI# (a : tInt#) = x;
       let lazy : tInt =

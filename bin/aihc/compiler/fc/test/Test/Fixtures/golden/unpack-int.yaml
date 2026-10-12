@@ -30,7 +30,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
@@ -43,18 +43,18 @@ expected: |-
     pub 1.cMkT :: FUN @cIntRep @sLiftedRep tInt# tT
   }
 
-  pub val 1.vbuild :: tInt 3.→ tT
+  pub val 1.vbuild :: tInt → tT
     = λ(x : tInt).
       (λ(_strict_field : tInt).
         let! cI# (_unpack_leaf0 : tInt#) = _strict_field;
         cMkT _unpack_leaf0) x
 
-  pub val 1.vnested :: tT 3.→ tInt
+  pub val 1.vnested :: tT → tInt
     = λ(x : tT).
       let! cMkT (n : tInt#) = x;
       cI# n
 
-  pub val 1.vrebuilt :: tT 3.→ tInt
+  pub val 1.vrebuilt :: tT → tInt
     = λ(x : tT).
       let! cMkT (n : tInt#) = x;
       cI# n

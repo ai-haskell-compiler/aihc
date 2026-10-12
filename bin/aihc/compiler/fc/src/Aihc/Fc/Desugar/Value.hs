@@ -151,9 +151,8 @@ data ValueState = ValueState
     vsPatSyns :: !(Map Entity PatSynInfo),
     -- | The checked calling convention of each foreign import in scope.
     vsForeignImports :: !(Map Entity TcForeignImportInfo),
-    -- | The enumeration data types in scope, by the package, module and
-    -- name of their type constructor. @tagToEnum#@ reads this.
-    vsEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo),
+    -- | Data types for constructor tag operations, by type constructor identity.
+    vsTagDataTypes :: !(Map (PackageId, Text, Text) DataTypeInfo),
     -- | The method names of each class in scope, in the order of the
     -- fields of its dictionary. A dictionary match names its binders
     -- after them.
@@ -167,8 +166,8 @@ data PreparedValueInterface = PreparedValueInterface
     preparedFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
     preparedPatSyns :: !(Map Entity PatSynInfo),
     preparedForeignImports :: !(Map Entity TcForeignImportInfo),
-    -- | Enumeration data types by type-constructor identity.
-    preparedEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo),
+    -- | Data types for constructor tag operations, by type constructor identity.
+    preparedTagDataTypes :: !(Map (PackageId, Text, Text) DataTypeInfo),
     -- | Class method names by class type-constructor identity.
     preparedClassMethods :: !(Map GlobalName [Text])
   }
@@ -255,7 +254,7 @@ prepareValueInterface interface =
       preparedFamilyConstructors = familyConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
       preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface),
-      preparedEnumerations = enumerations,
+      preparedTagDataTypes = tagDataTypes,
       preparedClassMethods =
         Map.fromList
           [ (Tc.tyConKey (ciTyCon info), map fst (ciMethods info))
@@ -305,16 +304,14 @@ prepareValueInterface interface =
           let tyCon = dfiiRepresentationTyCon info,
           constructorName <- dfiiConstructorNames info
         ]
-    -- An enumeration type has constructors and none of them takes a field,
-    -- which is what @tagToEnum#@ requires of its result type.
-    enumerations =
+    -- Constructor tag operations use the declaration order of data constructors.
+    tagDataTypes =
       Map.fromList
         [ ((tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon), dataType)
         | dataType <- tcInterfaceDataTypes interface,
           dtiFlavor dataType == DataTyCon,
           let constructors = dtiConstructors dataType,
           not (null constructors),
-          all (null . dciFields) constructors,
           let tyCon = dtiTyCon dataType
         ]
 
@@ -343,7 +340,7 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsFamilyConstructors = preparedFamilyConstructors interface,
             vsPatSyns = preparedPatSyns interface,
             vsForeignImports = preparedForeignImports interface,
-            vsEnumerations = preparedEnumerations interface,
+            vsTagDataTypes = preparedTagDataTypes interface,
             vsClassMethods = preparedClassMethods interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
@@ -1859,6 +1856,14 @@ desugarMatchColumns resultType fallback binders@(argument : arguments) argumentT
       let applied = foldl ExApp (ExVar (binderName argument)) evidence
       result <- desugarMatchArguments resultType fallback (field : arguments) (body : restTypes) works
       pure (ExLet (Bind field applied) result)
+  -- Each existential pattern has its own type variables and dictionaries.
+  -- Keep repeated constructors separate when they bind existential type variables.
+  | first : rest@(_ : _) <- works,
+    let existentialKeys = [patternKey pattern' | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], not (null (patternTypeVariables pattern'))],
+    length existentialKeys /= length (orderedUnique existentialKeys) = do
+      failure <- desugarMatchArguments resultType fallback binders argumentTypes rest
+      shareFailure resultType (Just failure) $ \shared ->
+        desugarMatchArguments resultType shared binders argumentTypes [first]
   | any (firstPatternIsOverloadedLiteral . fst) works =
       desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
@@ -3330,9 +3335,22 @@ patSynBuilderName variable =
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
 desugarTermReference variable types evidence termArgumentTypes = do
   magic <- isPrimitiveTerm variable "tagToEnum#"
+  dataTag <- isDataToTagTerm variable
   if magic
     then desugarTagToEnum types
-    else desugarOrdinaryTermReference variable types evidence termArgumentTypes
+    else
+      if dataTag
+        then desugarDataToTag types termArgumentTypes
+        else desugarOrdinaryTermReference variable types evidence termArgumentTypes
+
+-- | Identify the primitive declaration of the constructor tag operation.
+isDataToTagTerm :: Name -> ValueM Bool
+isDataToTagTerm variable
+  | nameText variable == "dataToTag#",
+    OriginTop package moduleName' <- nameOrigin variable = do
+      imports <- gets vsForeignImports
+      pure (Map.lookup (GlobalTerm package moduleName' (nameText variable)) imports == Just TcForeignPrimImport)
+  | otherwise = pure False
 
 -- | Whether the occurrence is of the named term of the wired-in @GHC.Prim@.
 isPrimitiveTerm :: Name -> Text -> ValueM Bool
@@ -3376,16 +3394,52 @@ desugarTagToEnum types =
         )
     _ -> failValue ("GHC.Prim.tagToEnum# has " <> show (length types) <> " type arguments")
 
+-- | Return the zero-based constructor tag after the argument is evaluated.
+desugarDataToTag :: [Type] -> [TcType] -> ValueM Expr
+desugarDataToTag types termArgumentTypes =
+  case (types, termArgumentTypes) of
+    ([inputType], inputTcType : _) -> do
+      dataTypes <- gets vsTagDataTypes
+      constructors <-
+        case typeApplicationHead inputType of
+          TyCon name
+            | OriginTop package moduleName' <- nameOrigin name,
+              Just dataType <- Map.lookup (package, moduleName', nameText name) dataTypes ->
+                pure (dtiConstructors dataType)
+          _ -> failValue "GHC.Exts.dataToTag# needs a data type argument"
+      package <- gets (cePrimPackage . vsConvertEnv)
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (intRep kinds)
+      resultType <- convertCheckedType (TcTyCon (mkTyConWithOrigin package "GHC.Prim" "Int#" 0) [])
+      argument <- freshBinderFromType "_dataToTag_argument" inputType
+      scrutinee <- freshBinderFromType "_dataToTag_scrut" inputType
+      alternatives <- mapM (alternative inputTcType representation resultType) (zip [0 :: Int ..] constructors)
+      pure (ExLam argument (caseFromList (ExVar (binderName argument)) (Just scrutinee) resultType alternatives))
+    _ -> failValue "GHC.Exts.dataToTag# needs one type argument and one term argument"
+  where
+    alternative inputTcType representation resultType (index, constructor) = do
+      let (package, moduleName') = dciOrigin constructor
+          existentials = dciExTyVars constructor
+          substitution = fromMaybe Map.empty (matchTypes [dciResTy constructor] [inputTcType])
+          reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields constructor]
+      typeBinders <- convertTypeBinders existentials
+      withTypeVariables existentials $ do
+        dictionaries <- mapM (freshDictionaryBinder . applySubstPred substitution) (dciTheta constructor)
+        fields <- concat <$> freshLeafBinders "_dataToTag_field" (zip (map dcfiLabel (dciFields constructor)) reps)
+        let constructorName = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
+        pure (Alt (AltData constructorName) typeBinders (dictionaries <> fields) (ExLit (LitInt representation (toInteger index)) resultType))
+
 -- | The constructors of the enumeration type that @tagToEnum#@ builds.
 enumerationConstructors :: Type -> ValueM [DataConInfo]
 enumerationConstructors resultType =
   case typeApplicationHead resultType of
     TyCon name
       | OriginTop package moduleName' <- nameOrigin name -> do
-          enumerations <- gets vsEnumerations
-          case Map.lookup (package, moduleName', nameText name) enumerations of
-            Just dataType -> pure (dtiConstructors dataType)
-            Nothing -> unsupported
+          tagDataTypes <- gets vsTagDataTypes
+          case Map.lookup (package, moduleName', nameText name) tagDataTypes of
+            Just dataType
+              | all (null . dciFields) (dtiConstructors dataType) -> pure (dtiConstructors dataType)
+            _ -> unsupported
     _ -> unsupported
   where
     unsupported = failValue "GHC.Prim.tagToEnum# needs an enumeration result type"
