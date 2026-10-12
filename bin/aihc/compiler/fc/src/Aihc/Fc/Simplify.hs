@@ -71,7 +71,7 @@ module Aihc.Fc.Simplify
   )
 where
 
-import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, topLevelSignatures)
+import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, recursiveSignatures, topLevelSignatures)
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
@@ -94,6 +94,7 @@ import Data.Bifunctor (first)
 import Data.Either (isLeft, isRight, lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
@@ -556,7 +557,8 @@ simplifyExpr env expr =
           floatChain env chain continue
         else continue env rhs
     ExRec binds body -> do
-      let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
+      let shadowed = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
+          inner = shadowed {spSignatures = localSignatures shadowed binds}
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv inner (binderName (bindBinder bind))) (bindRhs bind)) binds
       simplifyExpr inner body >>= sinkGroup binds' ExRec
     ExCase scrutinee binder alternatives
@@ -1764,6 +1766,7 @@ shadowNames names env
       env
         { spEvaluated = List.foldl' (flip Set.delete) (spEvaluated env) names,
           spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
+          spSignatures = List.foldl' (flip Map.delete) (spSignatures env) names,
           spDone = List.foldl' (flip Map.delete) (spDone env) names,
           spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
           spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
@@ -2209,17 +2212,32 @@ floatStrictArgument env headExpr args =
     ExVar name
       | any (either (const False) isChain) args,
         Just headType <- exprType (spEnv env) headExpr,
-        Just evaluated <- evaluatedArguments name headType,
-        (before, (_, Right argument) : after) <- break (\(strict, arg) -> strict && either (const False) isChain arg) (zip evaluated args),
-        all (\(strict, arg) -> not strict || either (const True) isTrivial arg) before -> do
+        Just types <- argumentTypes headType args,
+        Just evaluated <- evaluatedArguments name types,
+        (before, (_, _, Right argument) : after) <- break (\(strict, _, arg) -> strict && either (const False) isChain arg) (zip3 evaluated types args),
+        all (\(strict, ty, arg) -> not strict || either (const True) isTrivial arg || isJust ty) before -> do
+          -- A strict argument before the chain that is not trivial is
+          -- evaluated first, by a case that binds it. The call evaluates
+          -- it either way, so the case only fixes the order, and the chain
+          -- then moves past a trivial argument.
+          bound <- mapM bindStrict before
           chain <- freshenExpr argument
-          Just <$> floatChain env chain (\env' tailExpr -> rebuildApp env' headExpr (map snd before <> (Right tailExpr : map snd after)))
+          result <- floatChain env chain (\env' tailExpr -> rebuildApp env' headExpr (map snd bound <> (Right tailExpr : map (\(_, _, arg) -> arg) after)))
+          pure (Just (foldr (\(evaluation, _) inner -> maybe inner ($ inner) evaluation) result bound))
     _ -> pure Nothing
   where
+    bindStrict (strict, ty, arg) =
+      case (arg, ty) of
+        (Right value, Just valueType)
+          | strict,
+            not (isTrivial value) -> do
+              named <- freshLocal (Name "argument" SortValue (OriginLocal (Unique 0)))
+              let binder = Binder named valueType
+              pure (Just (\inner -> mkCase (spEnv env) value (Just binder) (Alt AltDefault [] [] inner NE.:| [])), Right (ExVar named))
+        _ -> pure (Nothing, arg)
     -- Whether the call evaluates each argument. A type argument
     -- evaluates nothing.
-    evaluatedArguments name headType = do
-      types <- argumentTypes headType args
+    evaluatedArguments name types = do
       let values = length (rights args)
           demands = case Map.lookup name (spSignatures env) of
             Just (Signature signature)
@@ -2243,6 +2261,22 @@ floatStrictArgument env headExpr args =
         Right _ : rest -> do
           (_, _, argument, result) <- viewFun (spEnv env) ty
           (Just argument :) <$> argumentTypes result rest
+
+-- | The signatures in scope inside a local recursive group: those around
+-- it, and the demand signatures of the members, as "Aihc.Fc.Demand"
+-- gives them. A member's signature is computed only when a call of the
+-- member asks for it. With them, a call of a local loop moves the chain of
+-- a strict argument out of the call, as a call of a top-level value does.
+-- See 'floatStrictArgument'.
+localSignatures :: Simpl -> [Bind] -> Signatures
+localSignatures env binds =
+  List.foldl'
+    (\current name -> LazyMap.insert name (LazyMap.findWithDefault (Signature []) name fixed) current)
+    (spSignatures env)
+    names
+  where
+    names = map (binderName . bindBinder) binds
+    fixed = recursiveSignatures (spEnv env) (spSignatures env) [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]
 
 -- | Whether an argument type has a known representation that is not
 -- lifted. A representation variable can stand for a lifted one.
