@@ -1,18 +1,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 
--- | Names, sorts, and scopes for System FC.
+-- | Names and sorts for System FC.
 module Aihc.Fc.Name
   ( Sort (..),
     NameClass (..),
     nameClass,
     Origin (..),
     Name (..),
-    ScopeTable (..),
-    emptyScopeTable,
-    lookupScope,
-    insertScope,
-    scopeEntries,
     Vis (..),
     derivedLocalText,
   )
@@ -21,8 +16,6 @@ where
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.DeepSeq (NFData (..))
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -81,26 +74,6 @@ data Name = Name
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
-
-newtype ScopeTable = ScopeTable (Map Int (PackageId, Text))
-  deriving stock (Eq, Ord, Show, Read, Generic)
-
-instance NFData ScopeTable where
-  rnf (ScopeTable table) = rnf [package `seq` rnf name | (package, name) <- Map.elems table]
-
-emptyScopeTable :: ScopeTable
-emptyScopeTable = ScopeTable Map.empty
-
-lookupScope :: Int -> ScopeTable -> Maybe (PackageId, Text)
-lookupScope scopeId (ScopeTable table) = Map.lookup scopeId table
-
-insertScope :: Int -> PackageId -> Text -> ScopeTable -> ScopeTable
-insertScope scopeId package moduleName (ScopeTable table) =
-  ScopeTable (Map.insert scopeId (package, moduleName) table)
-
-scopeEntries :: ScopeTable -> [(Int, PackageId, Text)]
-scopeEntries (ScopeTable table) =
-  [(scopeId, package, moduleName) | (scopeId, (package, moduleName)) <- Map.toAscList table]
 
 -- | Export visibility.
 data Vis

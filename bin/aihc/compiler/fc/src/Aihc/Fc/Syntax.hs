@@ -179,8 +179,7 @@ data Coercion
   deriving anyclass (NFData)
 
 data Program = Program
-  { programScopes :: ScopeTable,
-    programImports :: Imports,
+  { programImports :: Imports,
     programDecls :: [Decl]
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
