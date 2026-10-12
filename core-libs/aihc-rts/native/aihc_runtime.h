@@ -490,7 +490,6 @@ void aihc_reset_allocation_count(AihcMachine *machine);
 uint64_t aihc_heap_allocated_bytes(AihcMachine *machine);
 void aihc_reset_heap_allocated_bytes(AihcMachine *machine);
 void aihc_no_match(void);
-void aihc_unsupported_primitive(void);
 /* The runtime removes RTS options before the Haskell machine starts. argv[0]
    stays because getProgName and withProgName use the same mutable vector.
    aihc_program_arguments_initialize flattens argv into one buffer of
