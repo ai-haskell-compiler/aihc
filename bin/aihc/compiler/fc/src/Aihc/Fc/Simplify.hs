@@ -2747,6 +2747,15 @@ mkLet env bind body
   -- from them made every such move look like two copies, and each kept
   -- binding then doubled the walks of the bindings inside it: a @do@
   -- block of twenty statements took 2^20 walks.
+  -- A strict binding whose one use is the scrutinee of the case that
+  -- follows it is that case on the right-hand side. Apply the literal
+  -- comparison rewrite before the general unlifted substitution.
+  | not lifted,
+    Occurrences 1 False <- uses,
+    ExCase (ExVar scrutinee) caseBinder alternatives <- body,
+    scrutinee == name,
+    Just rewritten <- literalEqualityCase (spEnv env) rhs caseBinder alternatives =
+      pure rewritten
   -- Substitute an unlifted value without another function inliner walk.
   -- Fold primitive calls exposed at its use and retain constructor form.
   | not lifted,
@@ -2839,16 +2848,6 @@ mkLet env bind body
   -- Any other lifted binding moves into the one alternative that uses
   -- it. A path that does not use it then allocates nothing for it.
   | lifted = sinkGroup [bind] (flip (foldr ExLet)) body
-  -- A strict binding whose one use is the scrutinee of the case that
-  -- follows it is that case on the right-hand side: the case evaluates it
-  -- first either way. Only a comparison with a literal gains from the
-  -- move, because a case on the comparison is a case on the compared
-  -- value.
-  | Occurrences 1 False <- uses,
-    ExCase (ExVar scrutinee) caseBinder alternatives <- body,
-    scrutinee == name,
-    Just rewritten <- literalEqualityCase (spEnv env) rhs caseBinder alternatives =
-      pure rewritten
   | otherwise = letOfCase env bind body
   where
     rhs = bindRhs bind
