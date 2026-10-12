@@ -151,9 +151,8 @@ data ValueState = ValueState
     vsPatSyns :: !(Map Entity PatSynInfo),
     -- | The checked calling convention of each foreign import in scope.
     vsForeignImports :: !(Map Entity TcForeignImportInfo),
-    -- | The enumeration data types in scope, by the package, module and
-    -- name of their type constructor. @tagToEnum#@ reads this.
-    vsEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo),
+    -- | Data types for constructor tag operations, by type constructor identity.
+    vsTagDataTypes :: !(Map (PackageId, Text, Text) DataTypeInfo),
     -- | The method names of each class in scope, in the order of the
     -- fields of its dictionary. A dictionary match names its binders
     -- after them.
@@ -167,8 +166,8 @@ data PreparedValueInterface = PreparedValueInterface
     preparedFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
     preparedPatSyns :: !(Map Entity PatSynInfo),
     preparedForeignImports :: !(Map Entity TcForeignImportInfo),
-    -- | Enumeration data types by type-constructor identity.
-    preparedEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo),
+    -- | Data types for constructor tag operations, by type constructor identity.
+    preparedTagDataTypes :: !(Map (PackageId, Text, Text) DataTypeInfo),
     -- | Class method names by class type-constructor identity.
     preparedClassMethods :: !(Map GlobalName [Text])
   }
@@ -255,7 +254,7 @@ prepareValueInterface interface =
       preparedFamilyConstructors = familyConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
       preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface),
-      preparedEnumerations = enumerations,
+      preparedTagDataTypes = tagDataTypes,
       preparedClassMethods =
         Map.fromList
           [ (Tc.tyConKey (ciTyCon info), map fst (ciMethods info))
@@ -305,16 +304,14 @@ prepareValueInterface interface =
           let tyCon = dfiiRepresentationTyCon info,
           constructorName <- dfiiConstructorNames info
         ]
-    -- An enumeration type has constructors and none of them takes a field,
-    -- which is what @tagToEnum#@ requires of its result type.
-    enumerations =
+    -- Constructor tag operations use the declaration order of data constructors.
+    tagDataTypes =
       Map.fromList
         [ ((tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon), dataType)
         | dataType <- tcInterfaceDataTypes interface,
           dtiFlavor dataType == DataTyCon,
           let constructors = dtiConstructors dataType,
           not (null constructors),
-          all (null . dciFields) constructors,
           let tyCon = dtiTyCon dataType
         ]
 
@@ -343,7 +340,7 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsFamilyConstructors = preparedFamilyConstructors interface,
             vsPatSyns = preparedPatSyns interface,
             vsForeignImports = preparedForeignImports interface,
-            vsEnumerations = preparedEnumerations interface,
+            vsTagDataTypes = preparedTagDataTypes interface,
             vsClassMethods = preparedClassMethods interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
@@ -1859,6 +1856,14 @@ desugarMatchColumns resultType fallback binders@(argument : arguments) argumentT
       let applied = foldl ExApp (ExVar (binderName argument)) evidence
       result <- desugarMatchArguments resultType fallback (field : arguments) (body : restTypes) works
       pure (ExLet (Bind field applied) result)
+  -- Each existential pattern has its own type variables and dictionaries.
+  -- Keep repeated constructors separate when they bind existential type variables.
+  | first : rest@(_ : _) <- works,
+    let existentialKeys = [patternKey pattern' | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], not (null (patternTypeVariables pattern'))],
+    length existentialKeys /= length (orderedUnique existentialKeys) = do
+      failure <- desugarMatchArguments resultType fallback binders argumentTypes rest
+      shareFailure resultType (Just failure) $ \shared ->
+        desugarMatchArguments resultType shared binders argumentTypes [first]
   | any (firstPatternIsOverloadedLiteral . fst) works =
       desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
@@ -2307,14 +2312,37 @@ overloadedLiteralValue overloadedString literal =
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
 desugarDataPatterns resultType fallback argument arguments argumentTypes works = do
   (scrutineeType, _) <- requiredArgumentTypes argumentTypes
-  refinement <- scrutineeRefinement scrutineeType
-  case refinement of
+  case listToMaybe [cast | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], Just cast <- [patternScrutineeCast pattern']] of
+    Just (target, proof) -> withCoercion proof (matchRefined target)
     Nothing -> do
-      caseBinder <- freshBinderFromType "_scrut" (binderType argument)
-      desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
-    Just (refinedType, coercion) -> do
+      refinement <- scrutineeRefinement scrutineeType
+      case refinement of
+        Nothing -> do
+          caseBinder <- freshBinderFromType "_scrut" (binderType argument)
+          desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+        Just (refinedType, coercion) -> matchRefined refinedType coercion
+  where
+    matchRefined refinedType coercion = do
       caseBinder <- freshBinder "_scrut" refinedType
       desugarScrutineePatterns resultType fallback (ExCast (ExVar (binderName argument)) coercion) caseBinder argument arguments argumentTypes works
+
+-- | The type checker supplies the cast before a constructor pattern match.
+patternScrutineeCast :: Syn.Pattern -> Maybe (TcType, Ev.Coercion)
+patternScrutineeCast pattern' = case pattern' of
+  Syn.PAnn annotation inner -> case Syn.fromAnnotation annotation of
+    Just (TcCastAnnotation (Just proof) target) -> Just (target, proof)
+    _ -> patternScrutineeCast inner
+  Syn.PParen inner -> patternScrutineeCast inner
+  Syn.PStrict inner -> patternScrutineeCast inner
+  Syn.PAs _ inner -> patternScrutineeCast inner
+  Syn.PTypeSig inner _ -> patternScrutineeCast inner
+  _ -> Nothing
+
+castPatternScrutinee :: Syn.Pattern -> Expr -> ValueM Expr
+castPatternScrutinee pattern' expression =
+  case patternScrutineeCast pattern' of
+    Just (_, proof) -> withCoercion proof (pure . ExCast expression)
+    Nothing -> pure expression
 
 -- | The type that a given equality refines the scrutinee to, with the proof.
 --
@@ -2412,8 +2440,8 @@ desugarFamilyPatterns resultType fallback argument remaining argumentTypes works
   instanceType <- requiredPatternType representative
   instanceArguments <- familyInstanceArguments info instanceType
   axiomArguments <- familyAxiomArguments info instanceArguments
+  scrutinee <- castPatternScrutinee representative (ExVar (binderName argument))
   let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
-      scrutinee = ExVar (binderName argument)
   if dfiiIsNewtype info
     then do
       child <-
@@ -2468,9 +2496,10 @@ desugarNewtypePatterns resultType fallback argument remaining argumentTypes work
   convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
   rooted <- mapM (extendMatchWork argument scrutineeType) works
   expanded <- mapMaybeM (specializeMatchWork (patternKey representative) 1 [field] [childType]) rooted
+  scrutinee <- castPatternScrutinee representative (ExVar (binderName argument))
   let tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      unwrapped = ExCast (ExVar (binderName argument)) (CoAxiom axiom convertedArguments)
+      unwrapped = ExCast scrutinee (CoAxiom axiom convertedArguments)
   body <- desugarMatchArguments resultType fallback (field : remaining) (childType : restTypes) expanded
   pure (ExLet (Bind field unwrapped) body)
 
@@ -2818,11 +2847,15 @@ stringLiteralListPattern patternTy literal =
 
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
-  case patternType pattern' of
+  case checkedType of
     Just ty
       | not (patternIsDefault pattern') -> pure (constructorResultType (length (patternChildren pattern')) ty)
       | otherwise -> pure ty
     Nothing -> failValue ("missing checked pattern type: " <> take 80 (show pattern'))
+  where
+    checkedType
+      | patternIsDefault pattern' = patternType pattern'
+      | otherwise = (tcAnnType <$> patternAnnotation pattern') <|> patternType pattern'
 
 patternType :: Syn.Pattern -> Maybe TcType
 patternType pattern' =
@@ -3302,9 +3335,22 @@ patSynBuilderName variable =
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
 desugarTermReference variable types evidence termArgumentTypes = do
   magic <- isPrimitiveTerm variable "tagToEnum#"
+  dataTag <- isDataToTagTerm variable
   if magic
     then desugarTagToEnum types
-    else desugarOrdinaryTermReference variable types evidence termArgumentTypes
+    else
+      if dataTag
+        then desugarDataToTag types termArgumentTypes
+        else desugarOrdinaryTermReference variable types evidence termArgumentTypes
+
+-- | Identify the primitive declaration of the constructor tag operation.
+isDataToTagTerm :: Name -> ValueM Bool
+isDataToTagTerm variable
+  | nameText variable == "dataToTag#",
+    OriginTop package moduleName' <- nameOrigin variable = do
+      imports <- gets vsForeignImports
+      pure (Map.lookup (GlobalTerm package moduleName' (nameText variable)) imports == Just TcForeignPrimImport)
+  | otherwise = pure False
 
 -- | Whether the occurrence is of the named term of the wired-in @GHC.Prim@.
 isPrimitiveTerm :: Name -> Text -> ValueM Bool
@@ -3348,16 +3394,52 @@ desugarTagToEnum types =
         )
     _ -> failValue ("GHC.Prim.tagToEnum# has " <> show (length types) <> " type arguments")
 
+-- | Return the zero-based constructor tag after the argument is evaluated.
+desugarDataToTag :: [Type] -> [TcType] -> ValueM Expr
+desugarDataToTag types termArgumentTypes =
+  case (types, termArgumentTypes) of
+    ([inputType], inputTcType : _) -> do
+      dataTypes <- gets vsTagDataTypes
+      constructors <-
+        case typeApplicationHead inputType of
+          TyCon name
+            | OriginTop package moduleName' <- nameOrigin name,
+              Just dataType <- Map.lookup (package, moduleName', nameText name) dataTypes ->
+                pure (dtiConstructors dataType)
+          _ -> failValue "GHC.Exts.dataToTag# needs a data type argument"
+      package <- gets (cePrimPackage . vsConvertEnv)
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (intRep kinds)
+      resultType <- convertCheckedType (TcTyCon (mkTyConWithOrigin package "GHC.Prim" "Int#" 0) [])
+      argument <- freshBinderFromType "_dataToTag_argument" inputType
+      scrutinee <- freshBinderFromType "_dataToTag_scrut" inputType
+      alternatives <- mapM (alternative inputTcType representation resultType) (zip [0 :: Int ..] constructors)
+      pure (ExLam argument (caseFromList (ExVar (binderName argument)) (Just scrutinee) resultType alternatives))
+    _ -> failValue "GHC.Exts.dataToTag# needs one type argument and one term argument"
+  where
+    alternative inputTcType representation resultType (index, constructor) = do
+      let (package, moduleName') = dciOrigin constructor
+          existentials = dciExTyVars constructor
+          substitution = fromMaybe Map.empty (matchTypes [dciResTy constructor] [inputTcType])
+          reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields constructor]
+      typeBinders <- convertTypeBinders existentials
+      withTypeVariables existentials $ do
+        dictionaries <- mapM (freshDictionaryBinder . applySubstPred substitution) (dciTheta constructor)
+        fields <- concat <$> freshLeafBinders "_dataToTag_field" (zip (map dcfiLabel (dciFields constructor)) reps)
+        let constructorName = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
+        pure (Alt (AltData constructorName) typeBinders (dictionaries <> fields) (ExLit (LitInt representation (toInteger index)) resultType))
+
 -- | The constructors of the enumeration type that @tagToEnum#@ builds.
 enumerationConstructors :: Type -> ValueM [DataConInfo]
 enumerationConstructors resultType =
   case typeApplicationHead resultType of
     TyCon name
       | OriginTop package moduleName' <- nameOrigin name -> do
-          enumerations <- gets vsEnumerations
-          case Map.lookup (package, moduleName', nameText name) enumerations of
-            Just dataType -> pure (dtiConstructors dataType)
-            Nothing -> unsupported
+          tagDataTypes <- gets vsTagDataTypes
+          case Map.lookup (package, moduleName', nameText name) tagDataTypes of
+            Just dataType
+              | all (null . dciFields) (dtiConstructors dataType) -> pure (dtiConstructors dataType)
+            _ -> unsupported
     _ -> unsupported
   where
     unsupported = failValue "GHC.Prim.tagToEnum# needs an enumeration result type"
@@ -5116,6 +5198,7 @@ desugarEvidence evidence =
       expression <- desugarEvidence inner
       withCoercion coercion (pure . ExCast expression)
     Ev.EvTypeable origin ty constructor kindArguments arguments -> desugarTypeableEvidence origin ty constructor kindArguments arguments
+    Ev.EvTypeableLiteral origin ty helper singleton -> desugarTypeableLiteral origin ty helper singleton
     Ev.EvTypeLit origin ty literal -> desugarTypeLitEvidence origin ty literal
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
@@ -5336,6 +5419,17 @@ desugarTypeLitEvidence origin ty literal = do
   typeArguments <-
     convertTyConApplicationArguments (mkTyConWithOrigin package moduleName' className 1) [ty]
   pure (ExApp (foldl ExTyApp (ExVar (named ("$Dict$" <> className) SortDataConstructor)) typeArguments) value)
+
+desugarTypeableLiteral :: Maybe (Text, Text) -> TcType -> Text -> Ev.EvTerm -> ValueM Expr
+desugarTypeableLiteral origin ty helper evidence = do
+  singleton <- desugarEvidence evidence
+  function <- typeableName origin "Type.Reflection.Literal" helper SortValue
+  argument <- convertCheckedType ty
+  dictionaryConstructor <- typeableName origin "Type.Reflection" "$Dict$Typeable" SortDataConstructor
+  className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
+  typeArguments <- typeableTypeArguments className ty
+  let representation = ExApp (ExTyApp (ExVar function) argument) singleton
+  pure (ExApp (foldl ExTyApp (ExVar dictionaryConstructor) typeArguments) representation)
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [(TcType, Ev.EvTerm)] -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = do
@@ -5600,7 +5694,19 @@ convertCoercionWithExpectedKind expectedKind coercion =
             if length kindProofs == length kinds
               then mapM convertCoercion kindProofs
               else failValue ("kind argument proofs do not match the kind arguments of " <> T.unpack (tyConName tyCon))
-      pure (CoTyConApp (tyConNameFc env tyCon) (map fst kindConverted <> map fst converted), concatMap snd kindConverted <> concatMap snd converted)
+      typeEnv <- gets vsTypeEnv
+      let name = tyConNameFc env tyCon
+          proofs = map fst kindConverted <> map fst converted
+          headerArity header = case TypeOf.viewForAll typeEnv header of
+            Just (_, body) -> 1 + headerArity body
+            Nothing -> case TypeOf.viewFun typeEnv header of
+              Just (_, _, _, result) -> 1 + headerArity result
+              Nothing -> 0
+          arity = maybe (length proofs) headerArity (TypeOf.lookupHeaderType typeEnv name)
+          proof
+            | length types < Tc.tyConArity tyCon || length proofs < arity = foldl CoApp (CoRefl (TyCon name)) proofs
+            | otherwise = CoTyConApp name proofs
+      pure (proof, concatMap snd kindConverted <> concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
       let name = lookupAxiomName key
       newtypes <- gets vsNewtypeConstructors

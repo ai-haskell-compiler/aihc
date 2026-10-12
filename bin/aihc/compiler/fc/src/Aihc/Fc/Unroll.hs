@@ -14,6 +14,11 @@
 -- arguments, or if a limit stops the copies, the group stays as it is.
 -- A simplifying walk after the pass removes the casts and applies the
 -- lambdas of the copies.
+--
+-- A call of a top-level function that calls itself gets the same copies,
+-- at the call: @showsUnsignedInt 1## []@ becomes the string. A function
+-- with a @NOINLINE@ pragma keeps its calls, and the body of a function
+-- keeps its own calls.
 module Aihc.Fc.Unroll
   ( UnrollReport (..),
     unrollProgram,
@@ -25,12 +30,14 @@ import Aihc.Fc.Name (Name (..), Origin (..))
 import Aihc.Fc.Simplify (freshenExprFrom, isTrivial, maxLocalUnique, substExpr)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, typeEnvFromProgram)
-import Aihc.Fc.Views (exprValueNames)
+import Aihc.Fc.Views (collectSpine, exprValueNames, isConstructorName)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad (guard, unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT)
+import Data.Either (rights)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -60,19 +67,69 @@ unrollProgram :: PackageId -> Program -> (Program, UnrollReport)
 unrollProgram primPackage program =
   let env = typeEnvFromProgram primPackage program
       initial = UnrollState (maxLocalUnique program + 1) (UnrollReport 0 0)
-      (decls, final) = runState (mapM (unrollDecl env) (programDecls program)) initial
+      loops = topLevelLoops (programDecls program)
+      (decls, final) = runState (mapM (unrollDecl env loops) (programDecls program)) initial
    in (program {programDecls = decls}, unrollReport final)
 
-unrollDecl :: TypeEnv -> Decl -> State UnrollState Decl
-unrollDecl env decl =
+unrollDecl :: TypeEnv -> Map.Map Name Loop -> Decl -> State UnrollState Decl
+unrollDecl env loops decl =
   case decl of
-    DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> walk env (valBody value)
+    DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> walk env (Map.delete (valName value) loops) (valBody value)
     _ -> pure decl
 
+-- | The top-level functions that call themselves and that have no
+-- @NOINLINE@ pragma, by name.
+topLevelLoops :: [Decl] -> Map.Map Name Loop
+topLevelLoops decls =
+  Map.fromList
+    [ (valName value, Loop (valName value) parameters inner)
+    | DeclVal value <- decls,
+      not (isNoInline (valInline value)),
+      let (parameters, inner) = valueLambdas (valBody value),
+      not (null parameters),
+      Set.member (valName value) (exprValueNames inner)
+    ]
+  where
+    isNoInline spec =
+      case spec of
+        InlineNever _ -> True
+        _ -> False
+
+-- | Copy a call of a top-level loop, when its literal arguments decide
+-- every recursion.
+unrollTopLevelCall :: TypeEnv -> Map.Map Name Loop -> Expr -> State UnrollState (Maybe Expr)
+unrollTopLevelCall env loops expr
+  | (ExVar function, arguments) <- valueSpine expr,
+    Just loop@(Loop _ parameters _) <- Map.lookup function loops,
+    length arguments == length parameters,
+    any isLiteral arguments = do
+      st <- get
+      case runStateT (unrollCalls env loop 0 expr) (CopyState (unrollSupply st) 0) of
+        Just (unrolled, CopyState supply copies)
+          | copies > 0,
+            not (Set.member function (exprValueNames unrolled)) -> do
+              put st {unrollSupply = supply, unrollReport = counted (unrollReport st) copies}
+              pure (Just unrolled)
+        _ -> pure Nothing
+  | otherwise = pure Nothing
+
+counted :: UnrollReport -> Int -> UnrollReport
+counted report copies =
+  report
+    { reportUnrolledLoops = reportUnrolledLoops report + 1,
+      reportUnrollCopies = reportUnrollCopies report + copies
+    }
+
 -- | Unroll the groups of an expression, the inner groups first.
-walk :: TypeEnv -> Expr -> State UnrollState Expr
-walk env expr =
+walk :: TypeEnv -> Map.Map Name Loop -> Expr -> State UnrollState Expr
+walk env loops expr =
   case expr of
+    ExApp function argument
+      | not (Map.null loops) -> do
+          unrolled <- unrollTopLevelCall env loops expr
+          case unrolled of
+            Just result -> pure result
+            Nothing -> ExApp <$> go function <*> go argument
     ExVar {} -> pure expr
     ExLit {} -> pure expr
     ExCoercion {} -> pure expr
@@ -99,24 +156,16 @@ walk env expr =
               | not (null parameters),
                 copies > 0,
                 not (Set.member (binderName binder) (exprValueNames unrolled)) -> do
-                  put
-                    st
-                      { unrollSupply = supply,
-                        unrollReport =
-                          (unrollReport st)
-                            { reportUnrolledLoops = reportUnrolledLoops (unrollReport st) + 1,
-                              reportUnrollCopies = reportUnrollCopies (unrollReport st) + copies
-                            }
-                      }
+                  put st {unrollSupply = supply, unrollReport = counted (unrollReport st) copies}
                   pure unrolled
             _ -> pure (ExRec binds' body')
         _ -> pure (ExRec binds' body')
   where
-    go = walk env
+    go = walk env loops
     goBind bind = (\rhs -> bind {bindRhs = rhs}) <$> go (bindRhs bind)
 
--- | A local recursive function: its name, its value parameters, and the
--- body under them.
+-- | A recursive function: its name, its value parameters, and the body
+-- under them.
 data Loop = Loop !Name ![Binder] !Expr
 
 data CopyState = CopyState !Int !Int
@@ -244,6 +293,18 @@ reduce env = go
            in case (scrutinee', binder) of
                 (ExLit literal _, Nothing)
                   | Just rhs <- selectLiteral literal (NE.toList alternatives) -> go rhs
+                -- A constructor of trivial fields, such as the unboxed
+                -- tuple of a folded @quotRemWord#@, gives its fields to
+                -- the binders of its alternative.
+                (_, Nothing)
+                  | (ExVar constructor, arguments) <- collectSpine scrutinee',
+                    isConstructorName constructor,
+                    Alt (AltData constructor') [] binders rhs :| [] <- alternatives,
+                    constructor == constructor',
+                    fields <- rights arguments,
+                    length fields == length binders,
+                    all isTrivial fields ->
+                      go (substExpr (Map.fromList (zip (map binderName binders) fields)) rhs)
                 _ -> ExCase scrutinee' binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
         ExVar {} -> expr
         ExLit {} -> expr

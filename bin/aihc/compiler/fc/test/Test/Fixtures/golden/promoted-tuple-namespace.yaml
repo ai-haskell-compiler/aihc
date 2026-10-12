@@ -17,8 +17,8 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
     3.sType :: sType;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -27,7 +27,7 @@ expected: |-
 
   pub type 1.tAtom :: sType {}
 
-  pub type 1.sAtomPair :: tTuple2 (tTYPE (cBoxedRep cLifted)) (tTYPE (cBoxedRep cLifted)) =
-    c(,) (tTYPE (cBoxedRep cLifted)) (tTYPE (cBoxedRep cLifted)) tAtom tAtom
+  pub type 1.sAtomPair :: tTuple2 sType sType =
+    c(,) sType sType tAtom tAtom
 status: pass
 reason: promoted tuple syntax uses the resolved term namespace

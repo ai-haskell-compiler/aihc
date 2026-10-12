@@ -26,6 +26,8 @@ module GHC.Conc.Sync
     unsafeIOToSTM,
     getNumCapabilities,
     numCapabilities,
+    par,
+    pseq,
   )
 where
 
@@ -38,6 +40,16 @@ import GHC.IO.Exception (AsyncException (ThreadKilled), BlockedIndefinitelyOnSTM
 import GHC.Prim
 import GHC.Word (Word64 (..))
 import Prelude
+
+infixr 0 `par`, `pseq`
+
+-- | Return the second argument without a parallel spark.
+par :: a -> b -> b
+par _ result = result
+
+-- | Evaluate the first argument before the result.
+pseq :: a -> b -> b
+pseq = seq
 
 -- | An opaque green-thread identifier.
 data ThreadId = ThreadId ThreadId#

@@ -75,7 +75,7 @@ expected: |-
     3.sType :: sType;
     constructors [3.cW#] 3.tWord :: sType;
     2.tWord# :: tTYPE cWordRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
@@ -86,49 +86,49 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vnegateBySubtraction :: tInt 3.→ tInt
+  pub val 1.vnegateBySubtraction :: tInt → tInt
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cI# (prim negateInt# x{1})
 
-  pub val 1.vnegateWord :: tInt 3.→ tWord
+  pub val 1.vnegateWord :: tInt → tWord
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cW# (prim int2Word# (prim negateInt# x{1}))
 
-  pub val 1.vnegateTwice :: tInt 3.→ tInt
+  pub val 1.vnegateTwice :: tInt → tInt
     = λ(x : tInt).
       x
 
-  pub val 1.vordChr :: tInt 3.→ tInt
+  pub val 1.vordChr :: tInt → tInt
     = λ(x : tInt).
       x
 
-  pub val 1.vchrOrd :: tChar 3.→ tChar
+  pub val 1.vchrOrd :: tChar → tChar
     = λ(x : tChar).
       x
 
-  pub val 1.vmaskAll :: tWord 3.→ tWord
+  pub val 1.vmaskAll :: tWord → tWord
     = λ(x : tWord).
       x
 
-  pub val 1.vtimesOne :: tInt 3.→ tInt
+  pub val 1.vtimesOne :: tInt → tInt
     = λ(x : tInt).
       x
 
   pub val 1.vstringLength :: tInt
     = cI# lit (7#cIntRep) :: tInt#
 
-  pub val 1.voffsetTwice :: tInt 3.→ tInt
+  pub val 1.voffsetTwice :: tInt → tInt
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cI# (prim +# x{1} lit (2#cIntRep) :: tInt#)
 
-  pub val 1.voffsetBack :: tInt 3.→ tInt
+  pub val 1.voffsetBack :: tInt → tInt
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cI# (prim -# x{1} lit (2#cIntRep) :: tInt#)
 
-  pub val 1.voffsetCancel :: tWord 3.→ tWord
+  pub val 1.voffsetCancel :: tWord → tWord
     = λ(x : tWord).
       x

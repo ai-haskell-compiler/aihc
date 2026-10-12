@@ -392,7 +392,11 @@ static Frame *frame_at(const AihcValue *address) {
   if (address == NULL || aihc_region_kind(address) != AIHC_REGION_STACK) {
     return NULL;
   }
-  uintptr_t identity = aihc_value_info_table(address)->identity;
+  const AihcInfo *info = aihc_value_info_table(address);
+  if (info == NULL) {
+    return NULL;
+  }
+  uintptr_t identity = info->identity;
   if (identity == 0 || identity >= frame_capacity) {
     return NULL;
   }

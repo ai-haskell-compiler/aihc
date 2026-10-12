@@ -1,0 +1,36 @@
+extensions:
+  - GADTs
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (Int (..), dataToTag#)
+    import Prelude
+
+    data Colour = Red | Green | Blue
+    data Choice a = Empty | First a | Second Int a
+    data Hidden where
+      Hidden :: Show a => a -> Hidden
+
+    colourTag :: Colour -> Int
+    colourTag value = I# (dataToTag# value)
+
+    choiceTag :: Choice a -> Int
+    choiceTag value = I# (dataToTag# value)
+
+    hiddenTag :: Hidden -> Int
+    hiddenTag value = I# (dataToTag# value)
+
+    answer :: Bool
+    answer =
+      map colourTag [Red, Green, Blue] == [0, 1, 2]
+        && map choiceTag [Empty, First undefined, Second undefined undefined] == [0, 1, 2]
+        && hiddenTag (Hidden (undefined :: Int)) == 0
+        && I# (dataToTag# False) == 0
+        && I# (dataToTag# True) == 1
+expression: answer
+output: |
+  True
+status: pass
+reason: dataToTag# returns the constructor index without an evaluation of constructor fields.

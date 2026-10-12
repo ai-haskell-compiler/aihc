@@ -43,8 +43,8 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     constructors [3.c(,,,,,,)] 3.tTuple7 :: ∀(a1 : sType) (a2 : sType) (a3 : sType) (a4 : sType) (a5 : sType) (a6 : sType) (a7 : sType). sType;
     4.sType :: sType;
-    3.c(,,,,,,) :: ∀(a1 : sType) (a2 : sType) (a3 : sType) (a4 : sType) (a5 : sType) (a6 : sType) (a7 : sType). a1 4.→ a2 4.→ a3 4.→ a4 4.→ a5 4.→ a6 4.→ a7 4.→ tTuple7 a1 a2 a3 a4 a5 a6 a7;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    3.c(,,,,,,) :: ∀(a1 : sType) (a2 : sType) (a3 : sType) (a4 : sType) (a5 : sType) (a6 : sType) (a7 : sType). a1 → a2 → a3 → a4 → a5 → a6 → a7 → tTuple7 a1 a2 a3 a4 a5 a6 a7;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     4.cIntRep :: tRuntimeRep;
     4.cLifted :: tLevity
@@ -54,7 +54,7 @@ expected: |-
     4.sType = tTYPE sLiftedRep
 
   pub type 1.tPair :: sType {
-    pub 1.cPair :: tInt 4.→ tInt 4.→ tPair
+    pub 1.cPair :: tInt → tInt → tPair
   }
 
   pub type 1.tPacked :: sType {
@@ -66,15 +66,15 @@ expected: |-
   }
 
   pub type 1.tLazyPair :: sType {
-    pub 1.cLazyPair :: tInt 4.→ tInt 4.→ tLazyPair
+    pub 1.cLazyPair :: tInt → tInt → tLazyPair
   }
 
   pub type 1.tKept :: sType {
-    pub strict [0] 1.cKept :: tInt 4.→ tKept
+    pub strict [0] 1.cKept :: tInt → tKept
   }
 
   pub type 1.tFun :: sType {
-    pub strict [0] 1.cFun :: (tInt 4.→ tInt) 4.→ tFun
+    pub strict [0] 1.cFun :: (tInt → tInt) → tFun
   }
 
   pub type 1.tSum :: sType {
@@ -83,11 +83,11 @@ expected: |-
   }
 
   pub type 1.tSumBox :: sType {
-    pub strict [0] 1.cSumBox :: tSum 4.→ tSumBox
+    pub strict [0] 1.cSumBox :: tSum → tSumBox
   }
 
   pub type 1.tLazyBox :: sType {
-    pub 1.cLazyBox :: tInt 4.→ tLazyBox
+    pub 1.cLazyBox :: tInt → tLazyBox
   }
 
   pub type 1.tN :: sType {}
@@ -98,15 +98,15 @@ expected: |-
     pub 1.cThrough :: FUN @cIntRep @sLiftedRep tInt# tThrough
   }
 
-  pub val 1.vbuild :: tPacked 4.→ tPair 4.→ tInt 4.→ (tInt 4.→ tInt) 4.→ tSum 4.→ tInt 4.→ tN 4.→ tTuple7 tOuter tLazyPair tKept tFun tSumBox tLazyBox tThrough
-    = λ(x : tPacked) (y : tPair) (z : tInt) (x1 : tInt 4.→ tInt) (x2 : tSum) (x3 : tInt) (x4 : tN).
+  pub val 1.vbuild :: tPacked → tPair → tInt → (tInt → tInt) → tSum → tInt → tN → tTuple7 tOuter tLazyPair tKept tFun tSumBox tLazyBox tThrough
+    = λ(x : tPacked) (y : tPair) (z : tInt) (x1 : tInt → tInt) (x2 : tSum) (x3 : tInt) (x4 : tN).
       c(,,,,,,) @tOuter @tLazyPair @tKept @tFun @tSumBox @tLazyBox @tThrough ((λ(_strict_field : tPacked).
         let! cPacked (_unpack_leaf0 : tInt#) (_unpack_leaf1 : tInt#) = _strict_field;
         cOuter _unpack_leaf0 _unpack_leaf1) x) ((λ(_strict_field : tPair).
         let! cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) = _strict_field;
         cLazyPair _unpack_leaf0 _unpack_leaf1) y) ((λ(_strict_field : tInt).
         let! _ = _strict_field;
-        cKept _strict_field) z) ((λ(_strict_field : tInt 4.→ tInt).
+        cKept _strict_field) z) ((λ(_strict_field : tInt → tInt).
         let! _ = _strict_field;
         cFun _strict_field) x1) ((λ(_strict_field : tSum).
         let! _ = _strict_field;

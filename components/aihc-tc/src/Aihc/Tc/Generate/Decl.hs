@@ -2038,9 +2038,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
                     fromMaybe Map.empty (matchTypes [applySubst openSubstitution signatureBody] [methodBody])
                   instantiateSignature = applySubst signatureSubstitution . applySubst openSubstitution
                   predicates =
-                    filter
-                      (not . isPredicateOfClass (ciTyCon info))
-                      (map (applySubstPred signatureSubstitution . applySubstPred openSubstitution) signaturePredicates)
+                    map (applySubstPred signatureSubstitution . applySubstPred openSubstitution) signaturePredicates
               evidence <- solveInstanceDefaultSignature classNameText (context <> methodPredicates) predicates
               -- The worker quantifies the class binders and then the
               -- signature's own, so the instance head fills the first group
@@ -2144,12 +2142,6 @@ classMethodFromInfo info index (methodName, scheme) =
           tcClassMethodDictType = dictionaryType,
           tcClassMethodIndex = index
         }
-
-isPredicateOfClass :: TyCon -> Pred -> Bool
-isPredicateOfClass classTyCon predicate =
-  case predicate of
-    ClassPred predicateClass _ -> tyConKey predicateClass == tyConKey classTyCon
-    _ -> False
 
 -- | Discharge the context of the default signature that an instance takes
 -- for a method it leaves out.

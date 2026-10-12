@@ -30,7 +30,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -38,29 +38,29 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tPair :: sType {
-    pub 1.cPair :: tInt 2.→ tInt 2.→ tPair
+    pub 1.cPair :: tInt → tInt → tPair
   }
 
   pub type 1.tBoxed :: sType {
-    pub 1.cBoxed :: tInt 2.→ tInt 2.→ tInt 2.→ tBoxed
+    pub 1.cBoxed :: tInt → tInt → tInt → tBoxed
   }
 
-  pub val 1.vtoFirst :: tPair 2.→ tInt
+  pub val 1.vtoFirst :: tPair → tInt
     = λ(x : tPair).
-      let! cPair (a : tInt) (_pat : tInt) = x;
+      let! cPair (a : tInt) (unused _pat : tInt) = x;
       a
 
-  pub val 1.vviewed :: tBoxed 2.→ tInt
+  pub val 1.vviewed :: tBoxed → tInt
     = λ(x : tBoxed).
-      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) = x;
+      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (unused _pat : tInt) = x;
       vtoFirst (cPair _unpack_leaf0 _unpack_leaf1)
 
-  pub val 1.valiased :: tBoxed 2.→ tPair
+  pub val 1.valiased :: tBoxed → tPair
     = λ(x : tBoxed).
-      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) = x;
+      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (unused _pat : tInt) = x;
       let _pat{1} : tPair =
         cPair _unpack_leaf0 _unpack_leaf1;
-      let! cPair (_pat{2} : tInt) (_pat{3} : tInt) = _pat{1};
+      let! cPair (unused _pat{2} : tInt) (unused _pat{3} : tInt) = _pat{1};
       _pat{1}
 status: pass
 reason: A view pattern or an as-pattern on an unpacked field rebuilds the field instead of flattening it.

@@ -24,8 +24,8 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
     3.cLifted :: tLevity;
     3.cWordRep :: tRuntimeRep
@@ -34,8 +34,8 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vrun :: (t[] tChar 3.→ t[] tChar) 3.→ t[] tChar 3.→ t[] tChar
-    = λ(x : t[] tChar 3.→ t[] tChar).
+  pub val 1.vrun :: (t[] tChar → t[] tChar) → t[] tChar → t[] tChar
+    = λ(x : t[] tChar → t[] tChar).
       let c : tChar =
         cC# lit ('a'#cWordRep) :: tChar#;
       λ(z : t[] tChar).
