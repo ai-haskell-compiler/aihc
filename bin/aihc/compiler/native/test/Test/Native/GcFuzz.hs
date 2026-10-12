@@ -73,7 +73,8 @@ tests =
         [ testProperty "collects random heaps and stacks" (prop_collect getDriver),
           testCase "forwards the target of an evaluated static thunk" (checkScript getDriver evaluatedStaticScript),
           testCase "scans the frames below a pop across chunks" (checkScript getDriver deepPopScript),
-          testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript)
+          testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
+          testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -132,6 +133,42 @@ waiterScript =
     CYield,
     CCollect
   ]
+
+-- | The initial thread blocks on an MVar, and a frame of its stack names a
+-- gen1 object. A gen1 collection copies the thread record into gen2. Then
+-- the MVar and its waiter die, but the record in gen2 keeps the stack. The
+-- next gen1 collection must scan the frames of the kept stack. If it does
+-- not, the frame keeps the address of the freed gen1 block, and the
+-- snapshot of the next gen2 cycle reads that address.
+deadMVarScript :: [Command]
+deadMVarScript =
+  [CMachine 3 8 128 0]
+    <> [CSSrt slot Nothing | slot <- [0 .. 11]]
+    <> [CCurrentSrt Nothing, CPush 1 FSStop, CFill 7, CReserve 16]
+    <> [CNew identity KNode [] Nothing | identity <- [2 .. 6]]
+    <> [CNew 7 KThunk [] Nothing]
+    <> [CGlobal index (VHeap 2) | index <- [0 .. 2]]
+    <> [CRoot index (VHeap (if index == 1 then 7 else 2)) | index <- [0 .. 7]]
+    <> [CSUpdate 0 (VHeap 2), CPush 2 (FSNormal [] Nothing []), CFork 8 3 (VHeap 2), CCollect]
+    <> [CFill 21, CReserve 35, CMVar 9, CNew 10 KThunk [] Nothing, CNew 11 KNode [] Nothing, CMVar 12]
+    <> [CGlobal 0 (VHeap 9), CGlobal 1 (VHeap 9)]
+    <> [CRoot 1 (VHeap 9), CRoot 2 (VHeap 9), CRoot 3 (VHeap 9), CRoot 5 (VHeap 10), CRoot 6 (VHeap 12), CRoot 7 (VHeap 9)]
+    <> [ CFork 13 4 (VHeap 2),
+         CPush 5 (FSForward [True, True] Nothing [VNull, VHeap 9]),
+         CSUpdate 1 (VHeap 2),
+         CTake 12,
+         CPush 6 (FSUpdate 10),
+         CSUpdate 2 (VHeap 2),
+         CSUpdate 3 (VHeap 2),
+         CPush 7 (FSNormal [] Nothing []),
+         CCollectGeneration 1
+       ]
+    <> [CFill 1, CReserve 5, CNew 14 KNode [] Nothing]
+    <> [CGlobal index (VHeap 14) | index <- [0 .. 2]]
+    <> [CRoot index (VHeap 14) | index <- [0, 1, 2, 4, 5, 6, 7]]
+    <> [CStable (VHeap 2)]
+    <> [CSUpdate slot (VHeap 2) | slot <- [4 .. 7]]
+    <> [CCollectGeneration 1, CSSet 8 0 VNull, CCycle, CCollect]
 
 -- | Run one fixed script and compare the driver's reports with the model.
 checkScript :: IO Driver -> [Command] -> IO ()
