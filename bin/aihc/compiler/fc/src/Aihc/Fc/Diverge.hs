@@ -30,8 +30,8 @@ module Aihc.Fc.Diverge
   )
 where
 
-import Aihc.Fc.Name
 import Aihc.Fc.Equivalence (alphaCorrespondence)
+import Aihc.Fc.Name
 import Aihc.Fc.Size (exprSize, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, reduceType, repOf, substTypes, viewForAll, viewFun)

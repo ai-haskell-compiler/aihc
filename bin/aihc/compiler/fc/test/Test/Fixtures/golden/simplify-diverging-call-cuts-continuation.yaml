@@ -2,7 +2,7 @@ extensions:
 - MagicHash
 modules:
 - |
-  module Test (pick, check) where
+  module Test (pick, check, other) where
 
   import GHC.Prim (Int#, raise#, (+#))
   import GHC.Types (Int (..))
@@ -32,6 +32,11 @@ modules:
   check a b = case a of
     I# 0# -> failWith (Message a b (plus a b) (plus b (plus a b)))
     _ -> b
+
+  other :: Int -> Int -> Int
+  other u v = case v of
+    I# 1# -> failWith (Message u v (plus u v) (plus v (plus u v)))
+    _ -> u
 passes:
 - simplify
 expected: |-
@@ -51,7 +56,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
@@ -61,22 +66,22 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tPair :: sType {
-    pub 1.cPair :: tInt 3.→ tInt 3.→ tPair
+    pub 1.cPair :: tInt → tInt → tPair
   }
 
   type 1.tMessage :: sType {
-    pub 1.cMessage :: tInt 3.→ tInt 3.→ tInt 3.→ tInt 3.→ tMessage
+    pub 1.cMessage :: tInt → tInt → tInt → tInt → tMessage
   }
 
   val 1.vboom noinline :: ∀(a : sType). a
     = Λ(a : sType).
-      prim raise# @(cBoxedRep cLifted) @tInt @a (cI# lit (0#cIntRep) :: tInt#)
+      prim raise# @sLiftedRep @tInt @a (cI# lit (0#cIntRep) :: tInt#)
 
-  val 1.vfailWith :: ∀(a : sType). tMessage 3.→ a
+  val 1.vfailWith :: ∀(a : sType). tMessage → a
     = Λ(a : sType). λ(x : tMessage).
-      prim raise# @(cBoxedRep cLifted) @tMessage @a x
+      prim raise# @sLiftedRep @tMessage @a x
 
-  val 1.vplus noinline :: tInt 3.→ tInt 3.→ tInt
+  val 1.vplus noinline :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (x{1} : tInt#) = x;
       let! cI# (y{1} : tInt#) = y;
@@ -91,7 +96,7 @@ expected: |-
           cI# x
       }
 
-  pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
+  pub val 1.vcheck :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (_pat : tInt#) = x;
       case _pat of {
@@ -101,8 +106,18 @@ expected: |-
           y
       }
 
-  val 1.vcheck$error$0 noinline :: ∀(error_result : tTYPE (cBoxedRep cLifted)). FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt error_result)
-    = Λ(error_result : tTYPE (cBoxedRep cLifted)). λ(x : tInt) (y : tInt).
+  pub val 1.vother :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (_pat : tInt#) = y;
+      case _pat of {
+        1#cIntRep →
+          vcheck$error$0 @tInt x y;
+        _ →
+          x
+      }
+
+  val 1.vcheck$error$0 noinline :: ∀(error_result : tTYPE sLiftedRep). tInt → tInt → error_result
+    = Λ(error_result : tTYPE sLiftedRep). λ(x : tInt) (y : tInt).
       vfailWith @error_result (cMessage x y (vplus x y) (vplus y (vplus x y)))
 status: pass
-reason: A case of a call that always raises is the call at the type of the case. A large call that always raises moves into a private top-level function.
+reason: A case of a call that always raises is the call at the type of the case. A call that always raises and that occurs two times moves into one private top-level function, and the two sites call it.
