@@ -225,6 +225,7 @@ module GHC.Prim
     runRW#,
     keepAlive#,
     seq#,
+    spark#,
     readWordArray#,
     realWorld#,
     readMVar#,
@@ -660,6 +661,10 @@ foreign import prim keepAlive# :: forall (q :: RuntimeRep) (a :: TYPE q) (r :: R
 
 -- | Force the first argument, sequenced against the state token.
 foreign import prim seq# :: forall a d. a -> State# d -> (# State# d, a #)
+
+-- | Return the state and value without a parallel spark.
+spark# :: a -> State# d -> (# State# d, a #)
+spark# value state = (# state, value #)
 
 foreign import prim noDuplicate# :: State# d -> State# d
 

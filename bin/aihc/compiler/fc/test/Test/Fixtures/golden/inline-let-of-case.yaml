@@ -23,9 +23,6 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
-  import prims
-    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
-
   import headers
     constructors [3.cI#] 3.tInt :: sType;
     2.tInt# :: tTYPE cIntRep;
@@ -46,8 +43,8 @@ expected: |-
   pub val 1.vpick :: tInt → tInt
     = λ(x : tInt).
       let! cI# (n : tInt#) = x;
-      case prim ==# n lit (0#cIntRep) :: tInt# of {
-        1#cIntRep →
+      case n of {
+        0#cIntRep →
           cI# lit (1#cIntRep) :: tInt#;
         _ →
           x

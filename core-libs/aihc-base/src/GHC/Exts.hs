@@ -1,3 +1,4 @@
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -5,6 +6,7 @@ module GHC.Exts
   ( WithDict (withDict),
     module GHC.Prim,
     atomicModifyMutVar#,
+    dataToTag#,
     IsList (..),
     Item,
     IsString (..),
@@ -175,3 +177,6 @@ atomicModifyMutVar# reference modify state =
           extra = case pair of (_, second) -> second
        in case writeMutVar# reference replacement readState of
             writtenState -> (# writtenState, extra #)
+
+-- | Return the constructor index after the value is evaluated.
+foreign import prim dataToTag# :: forall a. a -> Int#
