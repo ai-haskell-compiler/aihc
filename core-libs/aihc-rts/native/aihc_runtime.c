@@ -162,10 +162,6 @@ static uint64_t aihc_record_words(size_t bytes) {
   return (bytes + sizeof(AihcSlot) - 1) / sizeof(AihcSlot);
 }
 
-void aihc_unsupported_primitive(void) {
-  aihc_fail("primitive is not implemented by the native runtime");
-}
-
 void aihc_record_allocation(AihcMachine *machine) {
   if (machine->allocation_count == UINT64_MAX) {
     aihc_fail("allocation counter overflow");

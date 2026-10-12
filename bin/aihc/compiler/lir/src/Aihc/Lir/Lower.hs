@@ -116,7 +116,7 @@ data LowerError
   deriving (Eq, Show)
 
 data UnitKind
-  = -- | A library module. Unsupported primitives become runtime failures.
+  = -- | A library module.
     LibraryUnit
   | -- | The executable entry unit with @main@.
     ExecutableUnit
@@ -1603,11 +1603,7 @@ compileCpsPrimitive ctx env runtimeRep name arguments continuation =
           value <- coerceTo (repType resultRep) (Typed result resultType)
           continueTransfer continuationOperand [value]
         NativeCpsResumeScheduler -> resumeTransfer result
-    _
-      | lowerUnitKind (envOptions (ctxEnv ctx)) == LibraryUnit -> do
-          _ <- callRuntime "aihc_unsupported_primitive" [] [] []
-          terminate (Trap "unreachable")
-      | otherwise -> failWith (LowerUnsupportedExpression ("CPS primitive call " <> name))
+    _ -> failWith (LowerUnsupportedExpression ("CPS primitive call " <> name))
 
 -- | The C parameter types after the machine, and the C result type, of each
 -- CPS runtime call.
@@ -2531,15 +2527,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
             0 | null vars -> pure env
             1 -> bind [result]
             _ -> failWith (LowerUnsupportedExpression ("runtime primitive result arity " <> name))
-      | lowerUnitKind (envOptions (ctxEnv ctx)) == LibraryUnit -> do
-          _ <- callRuntime "aihc_unsupported_primitive" [] [] []
-          bind [zeroValue (repType (grinVarRuntimeRep var)) | var <- vars]
       | otherwise -> failWith (LowerUnsupportedPrimitive name)
   where
     bind = bindVars env vars
     word value = materialize ctx env value >>= coerce I64
     widen (Typed flag _) = emitValue "wide" I64 (Convert ZExt I1 flag I64)
-    zeroValue ty = Typed (OperandLiteral (if ty == Ptr then LitNull else LitInt 0)) ty
     -- Whether an MVar holds a value, as a word: its flag is one byte.
     mvarFull mvar = do
       base <- pointerValue ctx env mvar
@@ -2812,6 +2804,7 @@ addressComparisonPrimitives =
   [ ("reallyUnsafePtrEquality#", Eq),
     ("sameMutableArray#", Eq),
     ("sameSmallMutableArray#", Eq),
+    ("sameMutableByteArray#", Eq),
     ("sameMutVar#", Eq),
     ("sameTVar#", Eq),
     ("sameMVar#", Eq),
@@ -2922,7 +2915,19 @@ byteArrayLoadPrimitives =
     ("indexWord8ArrayAsWord32#", (I32, ByteOffset, ZExt)),
     ("readWord8ArrayAsWord32#", (I32, ByteOffset, ZExt)),
     ("indexWord8ArrayAsWord64#", (I64, ByteOffset, ZExt)),
-    ("readWord8ArrayAsWord64#", (I64, ByteOffset, ZExt))
+    ("readWord8ArrayAsWord64#", (I64, ByteOffset, ZExt)),
+    ("indexWideCharArray#", (I32, ElementIndex, ZExt)),
+    ("readWideCharArray#", (I32, ElementIndex, ZExt)),
+    -- A Float# value travels as its bit pattern in the low 32 bits and a
+    -- Double# value as its 64-bit pattern, as for the address reads.
+    ("indexFloatArray#", (I32, ElementIndex, ZExt)),
+    ("readFloatArray#", (I32, ElementIndex, ZExt)),
+    ("indexDoubleArray#", (I64, ElementIndex, ZExt)),
+    ("readDoubleArray#", (I64, ElementIndex, ZExt)),
+    ("indexAddrArray#", (I64, ElementIndex, ZExt)),
+    ("readAddrArray#", (I64, ElementIndex, ZExt)),
+    ("indexStablePtrArray#", (I64, ElementIndex, ZExt)),
+    ("readStablePtrArray#", (I64, ElementIndex, ZExt))
   ]
 
 -- | Writes of one element of a byte array, with the widths and indexing of
@@ -2943,7 +2948,12 @@ byteArrayStorePrimitives =
     ("writeCharArray#", (I8, ByteOffset)),
     ("writeWord8ArrayAsWord16#", (I16, ByteOffset)),
     ("writeWord8ArrayAsWord32#", (I32, ByteOffset)),
-    ("writeWord8ArrayAsWord64#", (I64, ByteOffset))
+    ("writeWord8ArrayAsWord64#", (I64, ByteOffset)),
+    ("writeWideCharArray#", (I32, ElementIndex)),
+    ("writeFloatArray#", (I32, ElementIndex)),
+    ("writeDoubleArray#", (I64, ElementIndex)),
+    ("writeAddrArray#", (I64, ElementIndex)),
+    ("writeStablePtrArray#", (I64, ElementIndex))
   ]
 
 -- | The width in bytes of an integer element.

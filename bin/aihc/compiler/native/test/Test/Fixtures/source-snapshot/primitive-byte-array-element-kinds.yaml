@@ -1,0 +1,26 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int# Int# Int# Int# Int#
+  value = runRW# (\state -> case newByteArray# 32# state of
+    (# allocated, array #) -> case writeWideCharArray# array 1# (chr# 955#) allocated of
+      first -> case writeDoubleArray# array 2# 2.5## first of
+        second -> case writeFloatArray# array 6# 1.5# second of
+          third -> case readWideCharArray# array 1# third of
+            (# fourth, c #) -> case readDoubleArray# array 2# fourth of
+              (# fifth, d #) -> case newByteArray# 8# fifth of
+                (# sixth, other #) -> case unsafeFreezeByteArray# array sixth of
+                  (# _, frozen #) -> Result
+                    (ord# c)
+                    (double2Int# (d *## 2.0##))
+                    (float2Int# (timesFloat# (indexFloatArray# frozen 6#) 2.0#))
+                    (sameMutableByteArray# array array)
+                    (sameMutableByteArray# array other))
+return: "@0"
+heap: |
+  @0 = CResult 955 5 3 1 0
+status: pass
+reason: >-
+  The native lowering reads and writes wide characters, floats and doubles in
+  byte arrays, and compares two mutable byte arrays.

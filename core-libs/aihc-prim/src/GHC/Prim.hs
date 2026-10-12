@@ -1588,13 +1588,14 @@ foreign import prim
     State# RealWorld ->
     (# State# RealWorld, ThreadId# #)
 
--- | CPU affinity is not supported. The runtime rejects this primitive.
-foreign import prim
-  forkOn# ::
-    Int# ->
-    (State# RealWorld -> (# State# RealWorld, a #)) ->
-    State# RealWorld ->
-    (# State# RealWorld, ThreadId# #)
+-- | CPU affinity is not supported. The child thread starts as with 'fork#'
+-- and the capability number has no effect.
+forkOn# ::
+  Int# ->
+  (State# RealWorld -> (# State# RealWorld, a #)) ->
+  State# RealWorld ->
+  (# State# RealWorld, ThreadId# #)
+forkOn# _ action state = fork# action state
 
 foreign import prim yield# :: State# RealWorld -> State# RealWorld
 
