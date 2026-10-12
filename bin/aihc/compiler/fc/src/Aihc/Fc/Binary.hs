@@ -44,7 +44,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (chr, ord)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Ix (inRange)
-import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -60,7 +59,7 @@ formatMagic = "aihc-system-fc"
 
 -- | The version of the format. Change it when the layout changes.
 formatVersion :: Int
-formatVersion = 3
+formatVersion = 4
 
 -- | The name of the System FC file in the directory of a module.
 --
@@ -132,15 +131,9 @@ encodeProgram program =
 
 encodeBody :: Program -> Encode Builder.Builder
 encodeBody program = do
-  scopes <- encodeList encodeScope (scopeEntries (programScopes program))
   imports <- encodeImports (programImports program)
   decls <- encodeList encodeDecl (programDecls program)
-  pure (scopes <> imports <> decls)
-  where
-    encodeScope (scopeId, PackageId package, moduleName) = do
-      packageIndex <- textIndex package
-      moduleIndex <- textIndex moduleName
-      pure (cborInt scopeId <> cborInt packageIndex <> cborInt moduleIndex)
+  pure (imports <> decls)
 
 encodeList :: (value -> Encode Builder.Builder) -> [value] -> Encode Builder.Builder
 encodeList encode values = do
@@ -522,16 +515,9 @@ getProgram = do
   names <- getArray (getNameEntry texts)
   types <- getTypes texts names
   let tables = Decoded texts names types
-  scopes <- List.foldl' (\table (scopeId, package, moduleName) -> insertScope scopeId (PackageId package) moduleName table) emptyScopeTable <$!> getList (getScope tables)
   imports <- getImports tables
   decls <- getList (getDecl tables)
-  pure $! Program scopes imports decls
-  where
-    getScope tables = do
-      scopeId <- getInt
-      package <- getTextIndex tables
-      moduleName <- getTextIndex tables
-      pure (scopeId, package, moduleName)
+  pure $! Program imports decls
 
 -- | A list. Each element is evaluated before the next one is read.
 getList :: Decode value -> Decode [value]

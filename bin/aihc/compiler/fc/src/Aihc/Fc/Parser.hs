@@ -34,7 +34,8 @@ import Text.Megaparsec.Char qualified as MPC
 import Text.Megaparsec.Char.Lexer qualified as L
 
 data ParserEnv = ParserEnv
-  { parserScopes :: ScopeTable,
+  { -- | The package and module of each scope id in the text.
+    parserScopes :: Map.Map Int (PackageId, Text),
     parserGlobals :: Map.Map Text Name,
     parserPrimitives :: Map.Map Name ForeignCall,
     parserCollect :: Bool
@@ -56,11 +57,11 @@ renderParseError = MP.errorBundlePretty
 parseWith :: ParserEnv -> Parser value -> String -> Text -> Either FcParseError value
 parseWith scopes parser = MP.parse (runReaderT parser scopes)
 
-parseScopeHeader :: Text -> Either FcParseError (ScopeTable, Text)
+parseScopeHeader :: Text -> Either FcParseError (Map.Map Int (PackageId, Text), Text)
 parseScopeHeader = MP.parse parser "<system-fc-scope>"
   where
-    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv emptyScopeTable Map.empty Map.empty True)) <*> MP.takeRest
-    toScopeTable = foldr (\(scopeId, package, moduleName) -> insertScope scopeId package moduleName) emptyScopeTable
+    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv Map.empty Map.empty Map.empty True)) <*> MP.takeRest
+    toScopeTable entries = Map.fromList [(scopeId, (package, moduleName)) | (scopeId, package, moduleName) <- entries]
 
 scopeDeclaration :: Parser (Int, PackageId, Text)
 scopeDeclaration =
@@ -71,13 +72,12 @@ scopeDeclaration =
 
 program :: Parser Program
 program = do
-  scopes <- parserScopes <$> ask
   primitives <- MP.option [] (MP.try (keyword "import" *> keyword "prims") *> importEntries primitiveEntry)
   let table = Map.fromList primitives
   when (Map.size table /= length primitives) (fail "duplicate primitive alias")
   local (\environment -> environment {parserPrimitives = table}) $ do
     imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
-    Program scopes imports <$> MP.many declaration
+    Program imports <$> MP.many declaration
   where
     emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
@@ -643,7 +643,7 @@ scopeReference :: Parser (PackageId, Text)
 scopeReference = do
   scopeId <- L.decimal <* MPC.char '.'
   scopes <- parserScopes <$> ask
-  case lookupScope scopeId scopes of
+  case Map.lookup scopeId scopes of
     Just scope -> pure scope
     Nothing -> fail ("unknown scope " <> show scopeId)
 

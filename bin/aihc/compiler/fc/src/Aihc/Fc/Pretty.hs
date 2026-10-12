@@ -12,6 +12,7 @@ where
 
 import Aihc.Fc.Imports (declReferences, referencesFromImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Origins (programOrigins)
 import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
@@ -36,8 +37,9 @@ data Prec
   | PrecForAll
   deriving (Eq, Ord)
 
--- | Reverse lookup from a scope's identity to its printed scope id, built
--- once per program instead of re-scanning the scope table for every name.
+-- | The printed scope id of each module that a top name comes from, built
+-- once per program. The scopes are not part of the program: the printer
+-- numbers only the modules that the program names.
 data ScopeIndex = ScopeIndex
   { scopeIds :: Map.Map (PackageId, Text) Int,
     shortNames :: Map.Map Text Name,
@@ -47,7 +49,7 @@ data ScopeIndex = ScopeIndex
 scopeIndexFromProgram :: Program -> ScopeIndex
 scopeIndexFromProgram program =
   ScopeIndex
-    (Map.fromList [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries (programScopes program)])
+    (Map.fromList (zip (Set.toAscList (programOrigins program)) [1 ..]))
     (globalReferences program)
     (primitiveAliases program)
 
@@ -227,12 +229,11 @@ programDocuments :: Program -> ([Doc ann], [(Decl, Doc ann)])
 programDocuments program =
   (scopeDocuments <> primitiveDocuments <> importDocuments, [(decl, prettyDecl scopeIndex decl) | decl <- programDecls program])
   where
-    scopes = programScopes program
     scopeIndex = scopeIndexFromProgram program
     scopeDocuments =
-      case scopeEntries scopes of
+      case Map.toList (scopeIds scopeIndex) of
         [] -> []
-        entries -> [prettyScopes entries]
+        entries -> [prettyScopes [(scopeId, package, moduleName) | ((package, moduleName), scopeId) <- List.sortOn snd entries]]
     importDocuments = prettyImports scopeIndex (programImports program)
     primitiveDocuments = prettyImportGroup "prims" [prettyPrimitiveAlias alias <+> "=" <+> prettyForeignImportDependencies scopeIndex (foreignCallDependencies call) <> prettyTopName scopeIndex (foreignCallName call) <+> "::" <+> prettyTypeWith scopeIndex PrecForAll (foreignCallType call) | (call, alias) <- primitiveImports (primitiveNames scopeIndex)]
     -- One import for each alias: the first call that has the alias.
