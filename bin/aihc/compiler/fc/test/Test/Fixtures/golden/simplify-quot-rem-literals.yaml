@@ -40,11 +40,11 @@ expected: |-
     constructors [3.cW#] 3.tWord :: sType;
     2.tWord# :: tTYPE cWordRep;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
     unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
     3.cWordRep :: tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
@@ -57,6 +57,6 @@ expected: |-
     = cW# lit (11#cWordRep) :: tWord#
 
   pub val 1.vbyZero :: tWord
-    = let! cTuple2# (q : tWord#) (_pat : tWord#) =
+    = let! cTuple2# (q : tWord#) (unused _pat : tWord#) =
       prim quotRemWord# lit (47#cWordRep) :: tWord# lit (0#cWordRep) :: tWord#;
     cW# q
