@@ -42,7 +42,7 @@ expected: |-
     2.tWord# :: tTYPE cWordRep;
     2.tWord8# :: tTYPE cWord8Rep;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
@@ -53,7 +53,7 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vreadByte :: FUN @cAddrRep @sLiftedRep tAddr# (tInt 3.→ tInt)
+  pub val 1.vreadByte :: FUN @cAddrRep @sLiftedRep tAddr# (tInt → tInt)
     = λ(x : tAddr#) (y : tInt).
       let! cI# (i : tInt#) = y;
       let field : tInt# =

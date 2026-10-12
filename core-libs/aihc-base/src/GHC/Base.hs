@@ -12,6 +12,8 @@ module GHC.Base
     Bool (..),
     Int (..),
     Char (..),
+    Word (..),
+    Type,
     ord,
     unsafeChr,
     assert,
@@ -53,7 +55,7 @@ import GHC.Int (Int (..))
 import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim
 import GHC.Prim.Base
-import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, isTrue#)
+import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, Word (..), isTrue#)
 
 -- | Assertions are not checked. The value is returned unchanged.
 assert :: Bool -> a -> a

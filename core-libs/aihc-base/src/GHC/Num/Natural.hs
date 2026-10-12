@@ -4,6 +4,7 @@
 module GHC.Num.Natural
   ( Natural (..),
     naturalLog2,
+    naturalFromBigNat#,
   )
 where
 
@@ -11,7 +12,7 @@ import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
 import GHC.Num.BigNat (BigNat#)
 import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#))
-import GHC.Prim.Integer (Integer (..), integerFromWord#, wordToInteger)
+import GHC.Prim.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, wordToInteger)
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import GHC.Read ()
 import GHC.Types (isTrue#)
@@ -205,3 +206,7 @@ naturalLog2 value = count value 0
       if remaining < 2
         then result
         else count (quot remaining 2) (result + 1)
+
+-- | Convert a magnitude to a natural number in canonical form.
+naturalFromBigNat# :: BigNat# -> Natural
+naturalFromBigNat# magnitude = naturalFromInteger# (integerFromMagnitude# 1# magnitude)
