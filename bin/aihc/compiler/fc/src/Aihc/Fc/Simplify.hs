@@ -151,6 +151,7 @@ simplifyProgram primPackage phase siteLimit program =
             spSpeculative = False,
             spCaseContext = Nothing,
             spLocalCandidates = Map.empty,
+            spInTemplate = False,
             spFacts = emptyFacts,
             spDiverging = diverging
           }
@@ -275,7 +276,9 @@ data Guidance = Guidance
     -- alternative in each tail.
     guidanceTailsKnown :: !Bool,
     -- | The uses of each value parameter in the body.
-    guidanceParameters :: Map Name ParameterGuidance
+    guidanceParameters :: Map Name ParameterGuidance,
+    -- | Whether the body binds a local recursive group. See 'keepsLoop'.
+    guidanceLoops :: !Bool
   }
   deriving (Eq, Show)
 
@@ -285,7 +288,8 @@ candidateGuidance env arities body =
   Guidance
     { guidanceSize = exprSize env body,
       guidanceTailsKnown = tailsKnownIn env arities (underLambdas body),
-      guidanceParameters = Map.fromList [(binderName binder, parameter binder) | binder <- parameters body]
+      guidanceParameters = Map.fromList [(binderName binder, parameter binder) | binder <- parameters body],
+      guidanceLoops = hasRecursiveGroup body
     }
   where
     parameters expr =
@@ -449,6 +453,9 @@ data Simpl = Simpl
     -- candidate, because a copy under that binder would capture the name.
     -- See 'localCandidateEnv'.
     spLocalCandidates :: !(Map Name (Set Name)),
+    -- | Whether the body under simplification is a template: a value
+    -- whose @INLINE@ pragma asks for a copy at each call. See 'keepsLoop'.
+    spInTemplate :: !Bool,
     -- | The results of the comparisons around the expression under
     -- simplification. They decide a later comparison of the same operands
     -- and remove alternatives that a case on a variable cannot select.
@@ -1319,7 +1326,7 @@ inlineScrutinee env name candidate args binder originalAlternatives = do
       reduction = siteReduction env candidate args'
       discount = resultDiscount env candidate alternatives
       growth = estimateGrowth env candidate args' reduction - discount
-  verdict <- decideSite env candidate reduction growth
+  verdict <- if keepsLoop env candidate args' reduction then pure Nothing else decideSite env candidate reduction growth
   case verdict of
     Nothing -> do
       alternatives' <- mapM (simplifyAlt env original binder alternatives) remaining
@@ -1527,6 +1534,61 @@ tailConstructors env = go . underLambdas
         ExCast body _ -> go body
         ExTyLam _ body -> go body
         _ -> (\con -> [(con, exprSize (spEnv env) expr)]) <$> argumentConstructor env expr
+
+-- | Whether a site keeps its call because the callee binds a local loop
+-- that the site does not make better. A copy of a loop is a second loop
+-- of the same size: the call costs one jump, and the copy does nothing
+-- that the call does not do. A site makes the loop better when it gives a
+-- known constructor to a parameter that the callee scrutinises, or a
+-- function to a parameter that the callee calls: then the copy selects
+-- an alternative or makes a direct call in each turn of the loop. A
+-- candidate that every site takes, because its copies replace it, is
+-- always taken.
+--
+-- This rule keeps such functions as @Data.Map.fromList@ and the loop of
+-- @++@ as calls, where earlier each site had a copy of the loop.
+--
+-- The rule does not apply inside a template. A loop in a template makes
+-- the template large, and the sites of the template then keep it as a
+-- call, with the loop in it once. The slow path of @ensureN@ in the
+-- @binary@ package is such a loop: with the loop kept out, the template
+-- is small, and each of its sixteen calls in a SHA schedule got a copy
+-- of the fast path and a second copy of the decoder after it.
+keepsLoop :: Simpl -> Candidate -> [Arg] -> Reduction -> Bool
+keepsLoop env candidate args reduction =
+  not (spInTemplate env)
+    && guidanceLoops (candidateGuidanceOf candidate)
+    && candidateSites candidate /= SitesUnconditional
+    && reduction == NoReduction
+    && not (givesCalledFunction env candidate args)
+
+-- | Whether a call gives a function to a parameter that the callee
+-- calls.
+givesCalledFunction :: Simpl -> Candidate -> [Arg] -> Bool
+givesCalledFunction env candidate args =
+  or
+    [ True
+    | (binder, argument) <- valueArguments (candidateBody candidate) args,
+      -- A let around a function floats out of it, see 'floatValueLets'.
+      valueArity (spArity env) (underLets argument) > 0,
+      any (>= 1) (parameterCallArities (parameterGuidance candidate binder))
+    ]
+
+-- | Whether an expression binds a recursive group.
+hasRecursiveGroup :: Expr -> Bool
+hasRecursiveGroup expr =
+  case expr of
+    ExRec {} -> True
+    ExLet bind body -> hasRecursiveGroup (bindRhs bind) || hasRecursiveGroup body
+    ExApp function argument -> hasRecursiveGroup function || hasRecursiveGroup argument
+    ExTyApp function _ -> hasRecursiveGroup function
+    ExLam _ body -> hasRecursiveGroup body
+    ExTyLam _ body -> hasRecursiveGroup body
+    ExCase scrutinee _ (NE.toList -> alternatives) -> hasRecursiveGroup scrutinee || any (hasRecursiveGroup . altRhs) alternatives
+    ExAbsurd scrutinee _ -> hasRecursiveGroup scrutinee
+    ExCast body _ -> hasRecursiveGroup body
+    ExForeignCall _ _ arguments -> any hasRecursiveGroup arguments
+    _ -> False
 
 -- | Decide a site from its expected growth, before any copy is made.
 --
@@ -2184,7 +2246,10 @@ inlineSite env name candidate original args' = do
       -- A site in the tail of a copy made in the scrutinee of a
       -- case: that case takes the result of this copy apart too.
       discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
-  verdict <- decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
+  verdict <-
+    if keepsLoop env candidate args' reduction
+      then pure Nothing
+      else decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
   case verdict of
     Nothing -> pure original
     Just charge -> do

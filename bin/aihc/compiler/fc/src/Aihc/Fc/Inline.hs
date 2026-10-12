@@ -482,6 +482,7 @@ simplifyValue config known diverging recursive inTemplates st name
                             spSpeculative = False,
                             spCaseContext = Nothing,
                             spLocalCandidates = Map.empty,
+                            spInTemplate = isTemplate st name,
                             spFacts = emptyFacts,
                             spDiverging = diverging
                           }

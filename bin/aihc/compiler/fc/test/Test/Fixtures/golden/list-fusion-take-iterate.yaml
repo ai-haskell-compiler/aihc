@@ -132,12 +132,7 @@ expected: |-
 
   val 1.viterate :: ∀(a : sType). (a → a) → a → tList a
     = Λ(a : sType). λ(x : a → a) (y : a).
-      cCons @a y (rec {
-        go : a → tList a =
-          λ(x{1} : a).
-            cCons @a x{1} (go (x x{1}))
-      } in
-      go (x y))
+      cCons @a y (viterate @a x (x y))
 
   val 1.viterateFB inline [1] :: ∀(a : sType) (b : sType). (a → b → b) → (a → a) → a → b
     = Λ(a : sType) (b : sType). λ(x : a → b → b) (y : a → a) (z : a).
