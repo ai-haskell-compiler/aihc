@@ -49,7 +49,7 @@ expected: |-
     3.sType :: sType;
     3.sUnliftedRep :: tRuntimeRep;
     3.sUnliftedType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.cUnlifted :: tLevity
@@ -71,12 +71,12 @@ expected: |-
   }
 
   type 1.tHandle :: sType {
-    strict [1] 1.cFile :: tRef 3.→ tRef 3.→ tHandle;
-    strict [1, 2] 1.cDuplex :: tRef 3.→ tRef 3.→ tRef 3.→ tHandle
+    strict [1] 1.cFile :: tRef → tRef → tHandle;
+    strict [1, 2] 1.cDuplex :: tRef → tRef → tRef → tHandle
   }
 
   type 1.tFour :: sType {
-    pub 1.cFour :: tRef 3.→ tRef 3.→ tRef 3.→ tRef 3.→ tFour
+    pub 1.cFour :: tRef → tRef → tRef → tRef → tFour
   }
 
   pub val 1.vsize :: FUN @sLiftedRep @cIntRep tNumber tInt#
@@ -95,20 +95,20 @@ expected: |-
           prim *# (prim *# (prim +# (prim sizeofByteArray# magnitude) lit (1#cIntRep) :: tInt#) (prim +# (prim sizeofByteArray# magnitude) lit (2#cIntRep) :: tInt#)) (prim +# (prim sizeofByteArray# magnitude) lit (3#cIntRep) :: tInt#)
       }
 
-  pub val 1.vpath :: tHandle 3.→ tRef 3.→ tFour
+  pub val 1.vpath :: tHandle → tRef → tFour
     = λ(x : tHandle) (y : tRef).
       let! _ = x;
       let! _ as (state : tRef) =
         case x of {
-          cFile (_pat : tRef) (state{1} : tRef) →
+          cFile (unused _pat : tRef) (state{1} : tRef) →
             state{1};
-          cDuplex (_pat : tRef) (_pat{1} : tRef) (state{1} : tRef) →
+          cDuplex (unused _pat : tRef) (unused _pat{1} : tRef) (state{1} : tRef) →
             state{1}
         };
       cFour state state y (vseqFour (cFour y state y state) y)
 
-  val 1.vseqFour :: tFour 3.→ tRef 3.→ tRef
-    = λ(x : tFour) (y : tRef).
+  val 1.vseqFour :: tFour → tRef → tRef
+    = λ(unused x : tFour) (y : tRef).
       y
 status: pass
 reason: Constructor alternatives that differ only in the fields they use share one default alternative. A case on the case binder reads each used field, which is unlifted or strict, so the read evaluates nothing.

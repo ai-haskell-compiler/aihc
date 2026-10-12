@@ -1,0 +1,20 @@
+scope 1 = "" Marks
+scope 2 = "aihc-prim" GHC.Types
+
+pub type 1.tFlag :: 2.tType {
+  pub 1.cOff :: tFlag;
+  pub 1.cOn :: tFlag
+}
+
+pub type 1.tPair :: 2.tType {
+  pub 1.cPair :: tFlag 2.→ tFlag 2.→ tPair
+}
+
+pub val 1.vpick :: tFlag 2.→ tFlag 2.→ tFlag
+  = λ(unused{0} : tFlag) (unused other : tFlag).
+    unused{0}
+
+pub val 1.vfirst :: tPair 2.→ tFlag
+  = λ(pair : tPair).
+    let! cPair (left : tFlag) (unused _pat{3} : tFlag) as (unused _scrut : tPair) = pair;
+    left

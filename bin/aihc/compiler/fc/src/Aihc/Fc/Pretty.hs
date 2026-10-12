@@ -2,6 +2,15 @@
 {-# LANGUAGE ViewPatterns #-}
 
 -- | Human-readable System FC text.
+--
+-- The parser reads the text back to the same program. The text has these
+-- choices:
+--
+-- * A lambda, pattern or case binder that its scope does not use has the
+--   mark @unused@ before its name: @(unused x : t)@. The binder keeps its
+--   name and its type.
+-- * The arrow on the @LiftedRep@ synonym has no scope prefix when the short
+--   name of the synonym is unambiguous, as for other names.
 module Aihc.Fc.Pretty
   ( renderProgram,
     renderProgramSections,
@@ -531,10 +540,10 @@ prettyTypeWith scopes prec ty =
     TyApp function argument ->
       parenthesize (prec < PrecApp) (prettyTypeWith scopes PrecApp function <+> prettyTypeWith scopes PrecAtom argument)
     TyFun r1 r2 argument result
-      | Just scopeId <- liftedArrowScope scopes r1 r2 ->
+      | Just prefix <- liftedArrowPrefix scopes r1 r2 ->
           parenthesize
             (prec < PrecFun)
-            (prettyTypeWith scopes PrecApp argument <+> (pretty scopeId <> ".→") <+> prettyTypeWith scopes PrecFun result)
+            (prettyTypeWith scopes PrecApp argument <+> (prefix <> "→") <+> prettyTypeWith scopes PrecFun result)
       | otherwise ->
           parenthesize
             (prec < PrecFun)
@@ -557,14 +566,21 @@ prettyTypeWith scopes prec ty =
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith scopes PrecApp left <+> "~" <+> prettyTypeWith scopes PrecApp right)
 
-liftedArrowScope :: ScopeIndex -> Type -> Type -> Maybe Int
-liftedArrowScope scopes left right =
+-- | The scope prefix of an arrow whose two representations are the
+-- @LiftedRep@ synonym. The arrow names the synonym, so it follows the rule
+-- of the other names: it has no prefix when the short name of the synonym
+-- is unambiguous.
+liftedArrowPrefix :: ScopeIndex -> Type -> Type -> Maybe (Doc ann)
+liftedArrowPrefix scopes left right =
   case (left, right) of
     (TyCon leftName, TyCon rightName)
       | leftName == rightName,
         nameText leftName == "LiftedRep",
+        nameSort leftName == SortSynonym,
         OriginTop package moduleName <- nameOrigin leftName ->
-          lookupScopeId scopes package moduleName
+          if Map.lookup (printedNameText leftName) (shortNames scopes) == Just leftName
+            then Just mempty
+            else (\scopeId -> pretty scopeId <> ".") <$> lookupScopeId scopes package moduleName
     _ -> Nothing
 
 prettyForallTail :: ScopeIndex -> Type -> Doc ann
@@ -608,7 +624,7 @@ prettyExprWith scopes expr =
     ExCase scrutinee binder (alternative NE.:| []) ->
       "let! "
         <> prettyAltHead scopes alternative
-        <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
+        <> prettyCaseBinder scopes (alternativeFree alternative) binder
         <> " ="
         <> group (nest 2 (line <> prettyExprWith scopes scrutinee))
         <> ";"
@@ -617,7 +633,7 @@ prettyExprWith scopes expr =
     ExCase scrutinee binder (NE.toList -> alts) ->
       "case "
         <> prettyExprWith scopes scrutinee
-        <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
+        <> prettyCaseBinder scopes (foldMap alternativeFree alts) binder
         <> " of {"
         <> hardline
         <> prettyIndentedItems 2 (map (prettyAlt scopes) alts)
@@ -650,7 +666,11 @@ prettyLambda scopes expression =
        in ((kind, binder) : following, result)
     prettyGroup [] = []
     prettyGroup ((kind, binder) : rest) =
-      finish ((if kind then "Λ" else "λ") <> prettyPiBinder scopes binder : map (prettyPiBinder scopes . snd) rest)
+      finish ((if kind then "Λ" else "λ") <> prettyLambdaBinder kind binder : map (uncurry prettyLambdaBinder) rest)
+    bodyFree = expressionFree body
+    prettyLambdaBinder kind binder
+      | kind = prettyPiBinder scopes binder
+      | otherwise = prettyUnusedBinder scopes bodyFree binder
     finish [] = []
     finish [document] = [document <> "."]
     finish (document : rest) = document : finish rest
@@ -705,8 +725,83 @@ prettyAltHead scopes alternative =
         [] -> mempty
         binder : rest ->
           space
-            <> prettyPiBinder scopes binder
+            <> prettyUnusedBinder scopes rhsFree binder
             <> prettyTermBinders rest
+    rhsFree = expressionFree (altRhs alternative)
+
+-- | The case binder, with the mark of an unused binder when the
+-- alternatives do not use it.
+prettyCaseBinder :: ScopeIndex -> Set.Set Name -> Maybe Binder -> Doc ann
+prettyCaseBinder scopes scope = foldMap (\named -> " as " <> prettyUnusedBinder scopes scope named)
+
+-- | A term binder. A binder that its scope does not use has the mark
+-- @unused@ before its name: @(unused x : t)@. The binder keeps its name and
+-- its type, so the parser gives back the same binder. The word @unused@ is
+-- reserved, so a name with this text prints with its unique and the mark
+-- cannot be a name. The scope is the set of free names of the code where
+-- the binder is visible.
+prettyUnusedBinder :: ScopeIndex -> Set.Set Name -> Binder -> Doc ann
+prettyUnusedBinder scopes scope binder
+  | binderName binder `Set.member` scope = prettyPiBinder scopes binder
+  | otherwise =
+      parens
+        ( "unused "
+            <> pretty (nameText (binderName binder))
+            <> prettyUniqueSuffix (binderName binder)
+            <> " : "
+            <> prettyTypeWith scopes PrecForAll (binderType binder)
+        )
+
+-- | The free names of an expression: its free term, type and coercion
+-- variables.
+expressionFree :: Expr -> Set.Set Name
+expressionFree expression = case expression of
+  ExVar name -> Set.singleton name
+  ExLit _ ty -> typeFree ty
+  ExApp function argument -> expressionFree function <> expressionFree argument
+  ExTyApp function argument -> expressionFree function <> typeFree argument
+  ExLam binder body -> binderScope binder (expressionFree body)
+  ExTyLam binder body -> binderScope binder (expressionFree body)
+  ExLet binding body -> expressionFree (bindRhs binding) <> binderScope (bindBinder binding) (expressionFree body)
+  ExRec bindings body ->
+    foldr (binderScope . bindBinder) (foldMap (expressionFree . bindRhs) bindings <> expressionFree body) bindings
+  ExCase scrutinee binder (NE.toList -> alternatives) ->
+    expressionFree scrutinee <> foldr binderScope (foldMap alternativeFree alternatives) binder
+  ExAbsurd scrutinee resultType -> expressionFree scrutinee <> typeFree resultType
+  ExCast body proof -> expressionFree body <> coercionFree proof
+  ExCoercion proof -> coercionFree proof
+  ExForeignCall call types arguments -> typeFree (foreignCallType call) <> foldMap typeFree types <> foldMap expressionFree arguments
+
+alternativeFree :: Alt -> Set.Set Name
+alternativeFree alternative =
+  foldr binderScope (expressionFree (altRhs alternative)) (altTypeBinders alternative <> altBinders alternative)
+
+-- | The free names of a scope with a binder: the names of the scope other
+-- than the binder, and the free names of the binder type.
+binderScope :: Binder -> Set.Set Name -> Set.Set Name
+binderScope binder free = Set.delete (binderName binder) free <> typeFree (binderType binder)
+
+typeFree :: Type -> Set.Set Name
+typeFree ty = case ty of
+  TyVar name -> Set.singleton name
+  TyApp function argument -> typeFree function <> typeFree argument
+  TyFun r1 r2 argument result -> foldMap typeFree [r1, r2, argument, result]
+  TyForAll binder body -> binderScope binder (typeFree body)
+  TyEq left right -> typeFree left <> typeFree right
+  _ -> mempty
+
+coercionFree :: Coercion -> Set.Set Name
+coercionFree proof = case proof of
+  CoVar name -> Set.singleton name
+  CoRefl ty -> typeFree ty
+  CoSym inner -> coercionFree inner
+  CoTrans left right -> coercionFree left <> coercionFree right
+  CoApp function argument -> coercionFree function <> coercionFree argument
+  CoNth _ inner -> coercionFree inner
+  CoFun argument result -> coercionFree argument <> coercionFree result
+  CoForAll binder body -> binderScope binder (coercionFree body)
+  CoTyConApp _ arguments -> foldMap coercionFree arguments
+  CoAxiom _ arguments -> foldMap typeFree arguments
 
 prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
 prettyIndentedItems _ [] = mempty
@@ -863,6 +958,7 @@ reservedWords =
     "as",
     "return",
     "of",
+    "unused",
     "FUN",
     "lit",
     "refl",

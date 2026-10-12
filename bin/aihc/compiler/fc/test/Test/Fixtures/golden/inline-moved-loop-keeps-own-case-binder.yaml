@@ -45,7 +45,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -53,28 +53,28 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tT :: sType {
-    1.cA :: tInt 2.→ tT;
+    1.cA :: tInt → tT;
     1.cB :: tT
   }
 
   type 1.tList :: sType {
     1.cNil :: tList;
-    1.cCons :: tInt 2.→ tList 2.→ tList
+    1.cCons :: tInt → tList → tList
   }
 
   pub val 1.vempty :: tList
     = cNil
 
-  val 1.vkeep noinline :: tT 2.→ tList 2.→ tList
-    = λ(x : tT) (y : tList).
+  val 1.vkeep noinline :: tT → tList → tList
+    = λ(unused x : tT) (y : tList).
       y
 
-  pub val 1.vwalk :: tT 2.→ tT 2.→ tList
+  pub val 1.vwalk :: tT → tT → tList
     = λ(x : tT) (y : tT).
       case x of {
-        cA (_pat : tInt) →
+        cA (unused _pat : tInt) →
           rec {
-            go : tT 2.→ tList =
+            go : tT → tList =
               λ(x{1} : tT).
                 case x{1} of {
                   cB →

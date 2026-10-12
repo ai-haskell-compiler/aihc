@@ -45,7 +45,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
@@ -56,12 +56,12 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.vdouble :: tInt 3.→ tInt
+  val 1.vdouble :: tInt → tInt
     = λ(x : tInt).
       let! cI# (i : tInt#) = x;
       cI# (prim +# i i)
 
-  val 1.vpick :: tBool 3.→ tInt 3.→ tInt 3.→ tInt
+  val 1.vpick :: tBool → tInt → tInt → tInt
     = λ(x : tBool) (y : tInt) (z : tInt).
       case x of {
         cTrue →
@@ -70,15 +70,15 @@ expected: |-
           z
       }
 
-  pub val 1.vselect :: tBool 3.→ tInt 3.→ tInt 3.→ tInt
+  pub val 1.vselect :: tBool → tInt → tInt → tInt
     = λ(x : tBool) (y : tInt) (z : tInt).
       vpick x (vdouble y) (vdouble z)
 
-  pub val 1.vkeep :: tInt 3.→ tInt 3.→ tInt
+  pub val 1.vkeep :: tInt → tInt → tInt
     = λ(x : tInt).
       let y : tInt =
         vdouble x;
-      λ(_pat : tInt).
+      λ(unused _pat : tInt).
         let! cI# (a : tInt#) = y;
         let! cI# (b : tInt#) = y;
         cI# (prim +# a b)

@@ -47,13 +47,13 @@ expected: |-
     2.tWord# :: tTYPE cWordRep;
     2.tWord8# :: tTYPE cWord8Rep;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
     3.cWord8Rep :: tRuntimeRep;
     3.cWordRep :: tRuntimeRep;
@@ -63,14 +63,14 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vword16 :: tWord 3.→ FUN @cAddrRep @sLiftedRep tAddr# tWord
+  pub val 1.vword16 :: tWord → FUN @cAddrRep @sLiftedRep tAddr# tWord
     = λ(x : tWord) (y : tAddr#).
       let! cTuple2# (s0 : tState# tRealWorld) (high : tWord8#) =
         prim readWord8OffAddr# @tRealWorld y lit (0#cIntRep) :: tInt# (prim realWorld#);
       let! cTuple2# (s1 : tState# tRealWorld) (low : tWord8#) =
         prim readWord8OffAddr# @tRealWorld y lit (1#cIntRep) :: tInt# s0;
       let _case{1} : tState# tRealWorld =
-        prim touch# @(cBoxedRep cLifted) @tWord @tRealWorld x s1;
+        prim touch# @sLiftedRep @tWord @tRealWorld x s1;
       cW# (prim or# (prim uncheckedShiftL# (prim word8ToWord# high) lit (8#cIntRep) :: tInt#) (prim word8ToWord# low))
 status: pass
 reason: Each byte read starts a state thread from 'realWorld#'. The second read now takes the token of the first read. Thus one touch# after the last read keeps the owner alive for the two reads.
