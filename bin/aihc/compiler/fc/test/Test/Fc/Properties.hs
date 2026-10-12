@@ -12,7 +12,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Hedgehog (Gen, Property, PropertyT, annotate, assert, failure, forAll, property, (===))
+import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
@@ -72,7 +72,7 @@ prop_programRoundTrip = property $ do
     Left parseError -> do
       annotate (renderParseError parseError)
       failure
-    Right parsed -> sameProgram parsed program
+    Right parsed -> parsed === program
 
 prop_tidyIdempotent :: Property
 prop_tidyIdempotent = property $ do
@@ -88,15 +88,7 @@ prop_tidyRoundTrip = property $ do
     Left parseError -> do
       annotate (renderParseError parseError)
       failure
-    Right parsed -> sameProgram parsed program
-
--- | The parsed program is the printed program. The text shows only the
--- scopes that it uses, so the parsed scope table can be a part of the
--- scope table of the program.
-sameProgram :: Program -> Program -> PropertyT IO ()
-sameProgram parsed program = do
-  assert (Set.fromList (scopeEntries (programScopes parsed)) `Set.isSubsetOf` Set.fromList (scopeEntries (programScopes program)))
-  parsed === program {programScopes = programScopes parsed}
+    Right parsed -> parsed === program
 
 prop_prefixStrip :: Property
 prop_prefixStrip = property $ do

@@ -3,12 +3,14 @@
 
 -- | Human-readable System FC text.
 --
--- The printer uses only the forms that "Aihc.Fc.Parser" reads. When the
--- format has two forms for one thing, it uses the shorter form:
+-- The parser reads the text back to the same program. The text has these
+-- choices:
 --
--- * The header has only the scopes that the text uses.
--- * A lambda or pattern binder that its scope does not use is @_@.
--- * A case binder that the alternatives do not use is not shown.
+-- * A lambda, pattern or case binder that its scope does not use has the
+--   mark @unused@ before its name: @(unused x : t)@. The binder keeps its
+--   name and its type.
+-- * The arrow on the @LiftedRep@ synonym has no scope prefix when the short
+--   name of the synonym is unambiguous, as for other names.
 module Aihc.Fc.Pretty
   ( renderProgram,
     renderProgramSections,
@@ -32,7 +34,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word8)
 import Numeric (showHex)
-import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), SimpleDocStream (..), annotate, fillSep, group, hardline, hsep, indent, layoutPretty, line, nest, parens, pretty, punctuate, space, vsep, (<+>))
+import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), fillSep, group, hardline, hsep, indent, layoutPretty, line, nest, parens, pretty, punctuate, space, vsep, (<+>))
 import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
@@ -42,12 +44,6 @@ data Prec
   | PrecEq
   | PrecForAll
   deriving (Eq, Ord)
-
--- | The annotation of a scope prefix in a document: the scope id that the
--- prefix uses. The header shows only the scopes that a prefix uses.
-newtype ScopeUse = ScopeUse Int
-
-type FcDoc = Doc ScopeUse
 
 -- | Reverse lookup from a scope's identity to its printed scope id, built
 -- once per program instead of re-scanning the scope table for every name.
@@ -207,7 +203,7 @@ coercionLocals proof = case proof of
 renderProgram :: Program -> Text
 renderProgram = renderDoc . prettyProgram
 
-renderDoc :: FcDoc -> Text
+renderDoc :: Doc ann -> Text
 renderDoc = renderStrict . layoutPretty (LayoutOptions (AvailablePerLine 120 1))
 
 -- | The text of a program in sections: first the header with the scopes and
@@ -228,7 +224,7 @@ renderProgramSections program =
       DeclVal declaration -> Just (valName declaration)
       DeclRule _ -> Nothing
 
-prettyProgram :: Program -> FcDoc
+prettyProgram :: Program -> Doc ann
 prettyProgram program =
   vsep (punctuate hardline (header <> map snd declarations))
   where
@@ -236,17 +232,14 @@ prettyProgram program =
 
 -- | The header documents of a program, and the document of each
 -- declaration.
-programDocuments :: Program -> ([FcDoc], [(Decl, FcDoc)])
+programDocuments :: Program -> ([Doc ann], [(Decl, Doc ann)])
 programDocuments program =
-  (scopeDocuments <> primitiveDocuments <> importDocuments, declarations)
+  (scopeDocuments <> primitiveDocuments <> importDocuments, [(decl, prettyDecl scopeIndex decl) | decl <- programDecls program])
   where
     scopes = programScopes program
     scopeIndex = scopeIndexFromProgram program
-    declarations = [(decl, prettyDecl scopeIndex decl) | decl <- programDecls program]
-    -- A scope that no prefix of the text uses has no line.
-    usedScopes = foldMap documentScopeUses (primitiveDocuments <> importDocuments <> map snd declarations)
     scopeDocuments =
-      case [entry | entry@(scopeId, _, _) <- scopeEntries scopes, scopeId `Set.member` usedScopes] of
+      case scopeEntries scopes of
         [] -> []
         entries -> [prettyScopes entries]
     importDocuments = prettyImports scopeIndex (programImports program)
@@ -254,7 +247,7 @@ programDocuments program =
     -- One import for each alias: the first call that has the alias.
     primitiveImports names = List.sort [(call, alias) | (alias, call) <- Map.toList (Map.fromListWith min [(alias, call) | (call, alias) <- Map.toList names])]
 
-prettyImports :: ScopeIndex -> Imports -> [FcDoc]
+prettyImports :: ScopeIndex -> Imports -> [Doc ann]
 prettyImports scopes imports =
   prettyImportGroup "headers" headerEntries
     <> prettyImportGroup "synonyms" synonymEntries
@@ -287,37 +280,23 @@ importEntries = List.sortOn (importEntryKey . fst) . Map.toAscList
 
 -- | The constructors of an imported data type: @constructors [1.cA, 1.cB]@
 -- in front of its header, or nothing when they are not known.
-prettyDataCons :: ScopeIndex -> Maybe [Name] -> FcDoc
+prettyDataCons :: ScopeIndex -> Maybe [Name] -> Doc ann
 prettyDataCons scopes =
   maybe mempty (\constructors -> "constructors [" <> hsep (punctuate "," (map (prettyTopName scopes) constructors)) <> "] ")
 
-prettyImportGroup :: FcDoc -> [FcDoc] -> [FcDoc]
+prettyImportGroup :: Doc ann -> [Doc ann] -> [Doc ann]
 prettyImportGroup _ [] = []
 prettyImportGroup header entries =
   ["import" <+> header <> hardline <> indent 2 (vsep (punctuate ";" entries))]
 
-prettyScopes :: [(Int, PackageId, Text)] -> FcDoc
+prettyScopes :: [(Int, PackageId, Text)] -> Doc ann
 prettyScopes = vsep . map prettyScopeEntry
 
-prettyScopeEntry :: (Int, PackageId, Text) -> FcDoc
+prettyScopeEntry :: (Int, PackageId, Text) -> Doc ann
 prettyScopeEntry (scopeId, package, moduleName) =
   "scope" <+> pretty scopeId <+> "=" <+> pretty (show (T.unpack (packageIdText package))) <+> pretty moduleName
 
--- | The scope ids that the prefixes of a document use. The compact layout
--- drops the annotations, so this uses an unbounded layout.
-documentScopeUses :: FcDoc -> Set.Set Int
-documentScopeUses = go . layoutPretty (LayoutOptions Unbounded)
-  where
-    go stream = case stream of
-      SFail -> mempty
-      SEmpty -> mempty
-      SChar _ rest -> go rest
-      SText _ _ rest -> go rest
-      SLine _ rest -> go rest
-      SAnnPush (ScopeUse scopeId) rest -> Set.insert scopeId (go rest)
-      SAnnPop rest -> go rest
-
-prettyDecl :: ScopeIndex -> Decl -> FcDoc
+prettyDecl :: ScopeIndex -> Decl -> Doc ann
 prettyDecl scopes decl =
   case decl of
     DeclType declaration -> prettyTypeDecl scopes declaration
@@ -326,11 +305,11 @@ prettyDecl scopes decl =
     DeclVal declaration -> prettyValDecl scopes declaration
     DeclRule declaration -> prettyRuleDecl scopes declaration
 
-prettyVis :: Vis -> FcDoc
+prettyVis :: Vis -> Doc ann
 prettyVis Pub = "pub "
 prettyVis Private = mempty
 
-prettyTypeDecl :: ScopeIndex -> TypeDecl -> FcDoc
+prettyTypeDecl :: ScopeIndex -> TypeDecl -> Doc ann
 prettyTypeDecl scopes declaration =
   prettyVis (typeVis declaration)
     <> "type "
@@ -341,11 +320,11 @@ prettyTypeDecl scopes declaration =
     <> prettyRoleList (typeRoles declaration)
     <> prettyConstructors scopes (typeCons declaration)
 
-prettyHeaderBinders :: ScopeIndex -> [Binder] -> FcDoc
+prettyHeaderBinders :: ScopeIndex -> [Binder] -> Doc ann
 prettyHeaderBinders scopes =
   foldMap ((space <>) . prettyPiBinder scopes)
 
-prettyConstructors :: ScopeIndex -> [ConDecl] -> FcDoc
+prettyConstructors :: ScopeIndex -> [ConDecl] -> Doc ann
 prettyConstructors _ [] = " {}"
 prettyConstructors scopes constructors =
   " {"
@@ -354,7 +333,7 @@ prettyConstructors scopes constructors =
     <> hardline
     <> "}"
 
-prettyConDecl :: ScopeIndex -> ConDecl -> FcDoc
+prettyConDecl :: ScopeIndex -> ConDecl -> Doc ann
 prettyConDecl scopes declaration =
   prettyVis (conVis declaration)
     <> prettyConStrictFields (conStrictFields declaration)
@@ -363,18 +342,18 @@ prettyConDecl scopes declaration =
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (conType declaration)
 
-prettyConStrictFields :: [Int] -> FcDoc
+prettyConStrictFields :: [Int] -> Doc ann
 prettyConStrictFields fields
   | null fields = mempty
   | otherwise = "strict [" <> hsep (punctuate "," (map pretty fields)) <> "] "
 
-prettyConRepresentation :: ConRepresentation -> FcDoc
+prettyConRepresentation :: ConRepresentation -> Doc ann
 prettyConRepresentation representation = case representation of
   HeapConstructor -> mempty
   UnboxedTupleConstructor -> "unboxed-tuple "
   UnboxedSumConstructor alternative arity -> "unboxed-sum" <+> pretty alternative <+> pretty arity <> space
 
-prettySynonymDecl :: ScopeIndex -> SynonymDecl -> FcDoc
+prettySynonymDecl :: ScopeIndex -> SynonymDecl -> Doc ann
 prettySynonymDecl scopes declaration =
   prettyVis (synVis declaration)
     <> "type "
@@ -386,7 +365,7 @@ prettySynonymDecl scopes declaration =
     <> hardline
     <> indent 2 (prettyTypeWith scopes PrecForAll (synBody declaration))
 
-prettyAxiomDecl :: ScopeIndex -> AxiomDecl -> FcDoc
+prettyAxiomDecl :: ScopeIndex -> AxiomDecl -> Doc ann
 prettyAxiomDecl scopes declaration =
   prettyVis (axiomVis declaration)
     <> "axiom "
@@ -397,27 +376,27 @@ prettyAxiomDecl scopes declaration =
     <+> prettyAxiomRole (axiomRole declaration)
     <+> prettyTypeWith scopes PrecForAll (axiomRight declaration)
 
-prettyForAllBinders :: ScopeIndex -> [Binder] -> FcDoc
+prettyForAllBinders :: ScopeIndex -> [Binder] -> Doc ann
 prettyForAllBinders _ [] = mempty
 prettyForAllBinders scopes binders =
   space <> hsep (map (prettyPiBinder scopes) binders)
 
-prettyAxiomRole :: Role -> FcDoc
+prettyAxiomRole :: Role -> Doc ann
 prettyAxiomRole Nominal = "~N"
 prettyAxiomRole Representational = "~R"
 prettyAxiomRole Phantom = "~P"
 
-prettyRoleList :: [Role] -> FcDoc
+prettyRoleList :: [Role] -> Doc ann
 prettyRoleList roles
   | all (== Representational) roles = mempty
   | otherwise = foldMap ((" @" <>) . prettyRoleTag) roles
 
-prettyRoleTag :: Role -> FcDoc
+prettyRoleTag :: Role -> Doc ann
 prettyRoleTag Nominal = "N"
 prettyRoleTag Representational = "R"
 prettyRoleTag Phantom = "P"
 
-prettyValDecl :: ScopeIndex -> ValDecl -> FcDoc
+prettyValDecl :: ScopeIndex -> ValDecl -> Doc ann
 prettyValDecl scopes declaration =
   prettyVis (valVis declaration)
     <> "val "
@@ -429,7 +408,7 @@ prettyValDecl scopes declaration =
     <> indent 2 ("= " <> prettyExprWith scopes (valBody declaration))
 
 -- | A rule: @rule "name" [2] Λ(a : k). λ(x : t). lhs = rhs :: type@.
-prettyRuleDecl :: ScopeIndex -> RuleDecl -> FcDoc
+prettyRuleDecl :: ScopeIndex -> RuleDecl -> Doc ann
 prettyRuleDecl scopes declaration =
   "rule "
     <> pretty (show (T.unpack (ruleName declaration)))
@@ -446,7 +425,7 @@ prettyRuleDecl scopes declaration =
     <> prettyTypeWith scopes PrecForAll (ruleType declaration)
 
 -- | The inline pragma of a value: @inline [2]@, @noinline@, @inlinable@.
-prettyInlineSpec :: InlineSpec -> FcDoc
+prettyInlineSpec :: InlineSpec -> Doc ann
 prettyInlineSpec spec =
   case spec of
     InlineDefault -> mempty
@@ -456,7 +435,7 @@ prettyInlineSpec spec =
     InlineNever NeverActive -> " noinline"
     InlineNever activation -> " noinline" <> prettyActivation activation
 
-prettyActivation :: RuleActivation -> FcDoc
+prettyActivation :: RuleActivation -> Doc ann
 prettyActivation activation =
   case activation of
     AlwaysActive -> mempty
@@ -464,11 +443,11 @@ prettyActivation activation =
     ActiveBefore phase -> " [~" <> pretty phase <> "]"
     NeverActive -> " [~]"
 
-prettyPrimitiveAlias :: Name -> FcDoc
+prettyPrimitiveAlias :: Name -> Doc ann
 prettyPrimitiveAlias name = pretty (nameText name) <> prettyUniqueSuffix name
 
 -- | The head of a foreign call: @foreign {prim 1.vf :: type}@.
-prettyForeignCall :: ScopeIndex -> ForeignCall -> FcDoc
+prettyForeignCall :: ScopeIndex -> ForeignCall -> Doc ann
 prettyForeignCall scopes call
   | Just alias <- Map.lookup call (primitiveNames scopes) = "prim" <+> prettyPrimitiveAlias alias
   | otherwise =
@@ -480,7 +459,7 @@ prettyForeignCall scopes call
         <> prettyTypeWith scopes PrecForAll (foreignCallType call)
         <> "}"
 
-prettyForeignImportDependencies :: ScopeIndex -> [ForeignImportDependency] -> FcDoc
+prettyForeignImportDependencies :: ScopeIndex -> [ForeignImportDependency] -> Doc ann
 prettyForeignImportDependencies _ [] = mempty
 prettyForeignImportDependencies scopes dependencies =
   "using ["
@@ -492,7 +471,7 @@ prettyForeignImportDependencies scopes dependencies =
         ForeignAxiom name -> "axiom" <+> prettyTopName scopes name
         ForeignConstructor name -> "constructor" <+> prettyTopName scopes name
 
-prettyCallingConvention :: CallingConvention -> FcDoc
+prettyCallingConvention :: CallingConvention -> Doc ann
 prettyCallingConvention convention =
   case convention of
     Prim -> "prim "
@@ -510,7 +489,7 @@ prettyCallingConvention convention =
         <> prettyForeignEffect (ccallEffect specification)
         <> "] "
 
-prettyCCallTarget :: CCallTarget -> FcDoc
+prettyCCallTarget :: CCallTarget -> Doc ann
 prettyCCallTarget target =
   case target of
     CCallFunction -> mempty
@@ -519,7 +498,7 @@ prettyCCallTarget target =
     CCallWrapper -> "wrapper "
     CCallFunctionAddress -> "function-address "
 
-prettyCAbiType :: CAbiType -> FcDoc
+prettyCAbiType :: CAbiType -> Doc ann
 prettyCAbiType abiType =
   case abiType of
     CAbiInt -> "Int"
@@ -537,20 +516,20 @@ prettyCAbiType abiType =
     CAbiAddr -> "Addr"
     CAbiVoid -> "Void"
 
-prettyForeignSafety :: ForeignSafety -> FcDoc
+prettyForeignSafety :: ForeignSafety -> Doc ann
 prettyForeignSafety safety =
   case safety of
     ForeignUnsafe -> "unsafe"
     ForeignSafe -> "safe"
     ForeignInterruptible -> "interruptible"
 
-prettyForeignEffect :: ForeignEffect -> FcDoc
+prettyForeignEffect :: ForeignEffect -> Doc ann
 prettyForeignEffect effect =
   case effect of
     ForeignPure -> "pure"
     ForeignRealWorld -> "real-world"
 
-prettyTypeWith :: ScopeIndex -> Prec -> Type -> FcDoc
+prettyTypeWith :: ScopeIndex -> Prec -> Type -> Doc ann
 prettyTypeWith scopes prec ty =
   case ty of
     TyVar name -> prettyName scopes name
@@ -590,7 +569,7 @@ prettyTypeWith scopes prec ty =
 -- @LiftedRep@ synonym. The arrow names the synonym, so it follows the rule
 -- of the other names: it has no prefix when the short name of the synonym
 -- is unambiguous.
-liftedArrowPrefix :: ScopeIndex -> Type -> Type -> Maybe FcDoc
+liftedArrowPrefix :: ScopeIndex -> Type -> Type -> Maybe Doc ann
 liftedArrowPrefix scopes left right =
   case (left, right) of
     (TyCon leftName, TyCon rightName)
@@ -600,17 +579,17 @@ liftedArrowPrefix scopes left right =
         OriginTop package moduleName <- nameOrigin leftName ->
           if Map.lookup (printedNameText leftName) (shortNames scopes) == Just leftName
             then Just mempty
-            else (\scopeId -> annotate (ScopeUse scopeId) (pretty scopeId <> ".")) <$> lookupScopeId scopes package moduleName
+            else (\scopeId -> pretty scopeId <> ".") <$> lookupScopeId scopes package moduleName
     _ -> Nothing
 
-prettyForallTail :: ScopeIndex -> Type -> FcDoc
+prettyForallTail :: ScopeIndex -> Type -> Doc ann
 prettyForallTail scopes ty =
   case ty of
     TyForAll binder body ->
       space <> prettyPiBinder scopes binder <> prettyForallTail scopes body
     _ -> ". " <> prettyTypeWith scopes PrecForAll ty
 
-prettyPiBinder :: ScopeIndex -> Binder -> FcDoc
+prettyPiBinder :: ScopeIndex -> Binder -> Doc ann
 prettyPiBinder scopes binder =
   parens
     ( (pretty (nameText (binderName binder)) <> prettyUniqueSuffix (binderName binder))
@@ -618,7 +597,7 @@ prettyPiBinder scopes binder =
         <> prettyTypeWith scopes PrecForAll (binderType binder)
     )
 
-prettyExprWith :: ScopeIndex -> Expr -> FcDoc
+prettyExprWith :: ScopeIndex -> Expr -> Doc ann
 prettyExprWith scopes expr =
   case expr of
     ExVar name -> prettyName scopes name
@@ -671,7 +650,7 @@ prettyExprWith scopes expr =
         )
 
 -- | Put consecutive lambda binders on one line when they fit.
-prettyLambda :: ScopeIndex -> Expr -> FcDoc
+prettyLambda :: ScopeIndex -> Expr -> Doc ann
 prettyLambda scopes expression =
   fillSep (concatMap prettyGroup groups) <> hardline <> indent 2 (prettyExprWith scopes body)
   where
@@ -695,21 +674,21 @@ prettyLambda scopes expression =
     finish [document] = [document <> "."]
     finish (document : rest) = document : finish rest
 
-prettyApp :: ScopeIndex -> Expr -> FcDoc
+prettyApp :: ScopeIndex -> Expr -> Doc ann
 prettyApp scopes expr =
   case expr of
     ExApp {} -> prettyExprWith scopes expr
     ExTyApp {} -> prettyExprWith scopes expr
     _ -> prettyExprAtom scopes expr
 
-prettyExprAtom :: ScopeIndex -> Expr -> FcDoc
+prettyExprAtom :: ScopeIndex -> Expr -> Doc ann
 prettyExprAtom scopes expr =
   case expr of
     ExVar {} -> prettyExprWith scopes expr
     ExLit {} -> prettyExprWith scopes expr
     _ -> parens (prettyExprWith scopes expr)
 
-prettyBind :: ScopeIndex -> Bind -> FcDoc
+prettyBind :: ScopeIndex -> Bind -> Doc ann
 prettyBind scopes bind =
   (pretty (nameText (binderName (bindBinder bind))) <> prettyUniqueSuffix (binderName (bindBinder bind)))
     <> " : "
@@ -718,14 +697,14 @@ prettyBind scopes bind =
     <> hardline
     <> indent 2 (prettyExprWith scopes (bindRhs bind))
 
-prettyAlt :: ScopeIndex -> Alt -> FcDoc
+prettyAlt :: ScopeIndex -> Alt -> Doc ann
 prettyAlt scopes alternative =
   prettyAltHead scopes alternative
     <> " →"
     <> hardline
     <> indent 2 (prettyExprWith scopes (altRhs alternative))
 
-prettyAltHead :: ScopeIndex -> Alt -> FcDoc
+prettyAltHead :: ScopeIndex -> Alt -> Doc ann
 prettyAltHead scopes alternative =
   case altCon alternative of
     AltDefault -> "_"
@@ -749,21 +728,28 @@ prettyAltHead scopes alternative =
             <> prettyTermBinders rest
     rhsFree = expressionFree (altRhs alternative)
 
--- | The case binder. A binder that the alternatives do not use is not
--- shown, because the grammar makes the case binder optional.
-prettyCaseBinder :: ScopeIndex -> Set.Set Name -> Maybe Binder -> FcDoc
-prettyCaseBinder scopes scope binder = case binder of
-  Just named
-    | binderName named `Set.member` scope -> " as " <> prettyPiBinder scopes named
-  _ -> mempty
+-- | The case binder, with the mark of an unused binder when the
+-- alternatives do not use it.
+prettyCaseBinder :: ScopeIndex -> Set.Set Name -> Maybe Binder -> Doc ann
+prettyCaseBinder scopes scope = foldMap (\named -> " as " <> prettyUnusedBinder scopes scope named)
 
--- | A term binder. A binder that its scope does not use shows as @_@, with
--- its type. The scope is the set of free names of the code where the binder
--- is visible.
-prettyUnusedBinder :: ScopeIndex -> Set.Set Name -> Binder -> FcDoc
+-- | A term binder. A binder that its scope does not use has the mark
+-- @unused@ before its name: @(unused x : t)@. The binder keeps its name and
+-- its type, so the parser gives back the same binder. The word @unused@ is
+-- reserved, so a name with this text prints with its unique and the mark
+-- cannot be a name. The scope is the set of free names of the code where
+-- the binder is visible.
+prettyUnusedBinder :: ScopeIndex -> Set.Set Name -> Binder -> Doc ann
 prettyUnusedBinder scopes scope binder
   | binderName binder `Set.member` scope = prettyPiBinder scopes binder
-  | otherwise = parens ("_ : " <> prettyTypeWith scopes PrecForAll (binderType binder))
+  | otherwise =
+      parens
+        ( "unused "
+            <> pretty (nameText (binderName binder))
+            <> prettyUniqueSuffix (binderName binder)
+            <> " : "
+            <> prettyTypeWith scopes PrecForAll (binderType binder)
+        )
 
 -- | The free names of an expression: its free term, type and coercion
 -- variables.
@@ -816,11 +802,11 @@ coercionFree proof = case proof of
   CoTyConApp _ arguments -> foldMap coercionFree arguments
   CoAxiom _ arguments -> foldMap typeFree arguments
 
-prettyIndentedItems :: Int -> [FcDoc] -> FcDoc
+prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
 prettyIndentedItems _ [] = mempty
 prettyIndentedItems amount documents = indent amount (vsep (punctuate ";" documents))
 
-prettyCoercion :: ScopeIndex -> Coercion -> FcDoc
+prettyCoercion :: ScopeIndex -> Coercion -> Doc ann
 prettyCoercion scopes coercion =
   case coercion of
     CoVar name -> prettyName scopes name
@@ -838,7 +824,7 @@ prettyCoercion scopes coercion =
 
 -- | A type-level literal, in the same spellings the term-level literals
 -- use so that one escaping rule covers both.
-prettyTyLit :: TyLit -> FcDoc
+prettyTyLit :: TyLit -> Doc ann
 prettyTyLit literal =
   case literal of
     TyLitNat value -> pretty value
@@ -856,7 +842,7 @@ encodeStringCharacter character
   | isPrint character = [character]
   | otherwise = "\\x{" <> showHex (ord character) "" <> "}"
 
-prettyLiteral :: ScopeIndex -> Literal -> FcDoc
+prettyLiteral :: ScopeIndex -> Literal -> Doc ann
 prettyLiteral scopes literal =
   case literal of
     LitInt representation value -> pretty value <> "#" <> prettyName scopes (repName representation)
@@ -888,7 +874,7 @@ repName ty =
     TyVar name -> name
     _ -> Name "AddrRep" SortDataConstructor (OriginLocal (Unique 0))
 
-prettyName :: ScopeIndex -> Name -> FcDoc
+prettyName :: ScopeIndex -> Name -> Doc ann
 prettyName scopes name =
   case nameOrigin name of
     OriginLocal (Unique 0)
@@ -898,7 +884,7 @@ prettyName scopes name =
       | Map.lookup (printedNameText name) (shortNames scopes) == Just name -> prettyPrintedName name
       | otherwise -> prettyTopName scopes name
 
-prettyTopName :: ScopeIndex -> Name -> FcDoc
+prettyTopName :: ScopeIndex -> Name -> Doc ann
 prettyTopName scopes name =
   case nameOrigin name of
     OriginTop package moduleName ->
@@ -906,10 +892,10 @@ prettyTopName scopes name =
     OriginLocal {} ->
       prettyPrintedName name
 
-prettyScopePrefix :: ScopeIndex -> PackageId -> Text -> FcDoc
+prettyScopePrefix :: ScopeIndex -> PackageId -> Text -> Doc ann
 prettyScopePrefix scopes package moduleName =
   case lookupScopeId scopes package moduleName of
-    Just scopeId -> annotate (ScopeUse scopeId) (pretty scopeId <> ".")
+    Just scopeId -> pretty scopeId <> "."
     Nothing -> error ("missing System FC scope for " <> show (packageIdText package, moduleName))
 
 lookupScopeId :: ScopeIndex -> PackageId -> Text -> Maybe Int
@@ -919,7 +905,7 @@ lookupScopeId index package moduleName = Map.lookup (package, moduleName) (scope
 -- reads back the same name: @t@ for a type constructor, @s@ for a synonym,
 -- @v@ for a value, and @c@ for a data constructor. An axiom name starts
 -- with @$ax$@ and a type variable is local, so neither needs a letter.
-prettyPrintedName :: Name -> FcDoc
+prettyPrintedName :: Name -> Doc ann
 prettyPrintedName name =
   case nameSort name of
     SortTypeConstructor -> "t" <> prettyRawPrinted (nameText name)
@@ -929,13 +915,13 @@ prettyPrintedName name =
     SortAxiom -> pretty (nameText name)
     SortTypeVariable -> pretty (nameText name)
 
-prettyRawPrinted :: Text -> FcDoc
+prettyRawPrinted :: Text -> Doc ann
 prettyRawPrinted = pretty
 
 -- | A local name prints its unique when it is not zero, and always when
 -- the name is a reserved word: the suffix is what tells the parser that
 -- @as{0}@ is a name and not a keyword.
-prettyUniqueSuffix :: Name -> FcDoc
+prettyUniqueSuffix :: Name -> Doc ann
 prettyUniqueSuffix name =
   case nameOrigin name of
     OriginLocal (Unique unique)
@@ -971,6 +957,7 @@ reservedWords =
     "as",
     "return",
     "of",
+    "unused",
     "FUN",
     "lit",
     "refl",
@@ -980,6 +967,6 @@ reservedWords =
     "axiom-co"
   ]
 
-parenthesize :: Bool -> FcDoc -> FcDoc
+parenthesize :: Bool -> Doc ann -> Doc ann
 parenthesize False value = value
 parenthesize True value = parens value

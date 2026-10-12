@@ -504,7 +504,16 @@ typeLambdaExpr :: Parser Expr
 typeLambdaExpr = flip (foldr ExTyLam) <$> (symbol "Λ" *> MP.some (openTermBinder SortTypeVariable)) <*> (symbol "." *> expression)
 
 openTermBinder :: Sort -> Parser Binder
-openTermBinder sort = parens (Binder <$> localBinderName sort <*> (symbol ":" *> fcType))
+openTermBinder sort = parens (Binder <$> (MP.optional unusedMark *> localBinderName sort) <*> (symbol ":" *> fcType))
+
+-- | The mark of a binder that its scope does not use: @(unused x : t)@.
+-- The mark does not change the binder. The word is reserved, so a name
+-- with this text has its unique, @unused{0}@, and is not the mark.
+unusedMark :: Parser ()
+unusedMark =
+  MP.try . lexeme $ do
+    _ <- MPC.string "unused"
+    MP.notFollowedBy (MP.satisfy (\character -> identContinue character || character == '{'))
 
 letExpr :: Parser Expr
 letExpr = do
