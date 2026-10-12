@@ -1,0 +1,56 @@
+extensions:
+  - GADTs
+modules:
+  - |
+    {-# LANGUAGE GADTs #-}
+    module Test where
+    data U = U
+    data F a c where
+      Unit :: c -> F U c
+      Nil :: F a c
+    table :: F a c -> [(a, c)]
+    table (Unit c) = [(U, c)]
+    table Nil = []
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tU :: sType {
+    pub 1.cU :: tU
+  }
+
+  pub type 1.tF (a : sType) (c : sType) :: sType {
+    pub 1.cUnit :: ∀(a : sType) (c : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tU) (c → tF a c);
+    pub 1.cNil :: ∀(a : sType) (c : sType). tF a c
+  }
+
+  pub val 1.vtable :: ∀(a : sType) (c : sType). tF a c → t[] (tTuple2 a c)
+    = Λ(a : sType) (c : sType). λ(x : tF a c).
+      case x of {
+        cUnit ($co : a ~ tU) (c{1} : c) →
+          c: @(tTuple2 a c) ((c(,) @tU @c cU c{1}) ▷ sym (tycon-co tTuple2 ($co) (refl c))) (c[] @(tTuple2 a c));
+        cNil →
+          c[] @(tTuple2 a c)
+      }
+status: pass
+reason: A list element that only a GADT given equality makes fit the expected element type takes the cast of the proof of that equality.
