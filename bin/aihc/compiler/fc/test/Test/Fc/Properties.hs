@@ -27,26 +27,8 @@ fcPropertyTests =
       testProperty "tidyProgram output round trips" prop_tidyRoundTrip,
       testProperty "t prefix stores Bool" prop_prefixStrip,
       testProperty "uses have no type suffix" prop_noUseTypes,
-      testProperty "alpha-equivalent primitive types share one alias" prop_primitiveAliasUpToBinders,
-      testProperty "pruneScopes keeps the used scopes" prop_pruneScopes
+      testProperty "alpha-equivalent primitive types share one alias" prop_primitiveAliasUpToBinders
     ]
-
--- | 'pruneScopes' drops a scope that no name uses, keeps the others, and
--- the parser gives back the pruned program.
-prop_pruneScopes :: Property
-prop_pruneScopes = property $ do
-  let unused = PackageId "unused"
-      program = identityProgram {programScopes = insertScope 7 unused "Unused" (programScopes identityProgram)}
-      pruned = pruneScopes program
-      printed = renderProgram pruned
-  annotate (T.unpack printed)
-  [(package, moduleName) | (_, package, moduleName) <- scopeEntries (programScopes pruned)]
-    === [(package, moduleName) | (_, package, moduleName) <- scopeEntries (programScopes identityProgram)]
-  case parseProgram printed of
-    Left parseError -> do
-      annotate (renderParseError parseError)
-      failure
-    Right parsed -> parsed === pruned
 
 -- | Two calls of one primitive whose types differ only in the names of
 -- their binders become equal in the canonical form. They print as one
@@ -144,10 +126,6 @@ primPackage = PackageId "aihc-prim"
 testPackage :: PackageId
 testPackage = PackageId ""
 
-scopes :: ScopeTable
-scopes =
-  insertScope 2 primPackage "GHC.Types" (insertScope 1 testPackage "Test" emptyScopeTable)
-
 typeNameTop :: Text -> Name
 typeNameTop text = Name text SortTypeConstructor (OriginTop testPackage "Test")
 
@@ -181,8 +159,7 @@ localValueWith unique text = Name text SortValue (OriginLocal (Unique unique))
 identityProgram :: Program
 identityProgram =
   Program
-    { programScopes = scopes,
-      programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
+    { programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
       programDecls =
         [ DeclType
             TypeDecl
@@ -228,7 +205,7 @@ identityProgram =
 genProgram :: Gen Program
 genProgram = do
   pool <- Gen.list (Range.linear 1 3) genPoolCall
-  Program scopes <$> genImports <*> Gen.list (Range.linear 0 10) (genDecl pool)
+  Program <$> genImports <*> Gen.list (Range.linear 0 10) (genDecl pool)
 
 -- | A primitive of the pool: a name from a small set and a type with a
 -- bound variable.
@@ -520,8 +497,7 @@ genTidyProgram = do
       functionType = TyFun lifted lifted valueType valueType
   pure
     Program
-      { programScopes = scopes,
-        programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
+      { programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
         programDecls =
           [ DeclVal
               ValDecl

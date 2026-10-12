@@ -183,6 +183,7 @@ library
     Aihc.Fc.Merge
     Aihc.Fc.Name
     Aihc.Fc.Normalize
+    Aihc.Fc.Origins
     Aihc.Fc.Parser
     Aihc.Fc.Pass
     Aihc.Fc.Pretty

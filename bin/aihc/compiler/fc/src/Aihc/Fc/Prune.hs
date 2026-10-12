@@ -2,7 +2,6 @@
 module Aihc.Fc.Prune
   ( pruneProgram,
     dropRules,
-    pruneScopes,
   )
 where
 
@@ -117,62 +116,6 @@ dropRules program = program {programDecls = filter (not . isRule) (programDecls 
       case decl of
         DeclRule {} -> True
         _ -> False
-
--- | Keep the scope entries of the modules that a name of the program
--- comes from, and number them again from 1. A merge keeps the scopes of
--- each module, and the prune drops most of the declarations that use them.
--- The scope table is a part of the program, so this step changes the
--- program and not only its text.
-pruneScopes :: Program -> Program
-pruneScopes program =
-  program {programScopes = foldr insert emptyScopeTable (zip [1 ..] kept)}
-  where
-    imports = programImports program
-    declarations = programDecls program
-    names =
-      foldMap declReferences declarations
-        <> referencesFromImports imports
-        <> Set.fromList (concatMap declaredNames declarations)
-        <> Set.fromList (concatMap foreignCallNames declarations)
-        <> Set.fromList
-          ( Map.keys (importHeaders imports)
-              <> Map.keys (importSynonyms imports)
-              <> Map.keys (importAxioms imports)
-              <> Map.keys (importBinders imports)
-              <> Map.keys (importConRepresentations imports)
-              <> Map.keys (importConStrictFields imports)
-              <> Map.keys (importDataCons imports)
-              <> concat (Map.elems (importDataCons imports))
-          )
-    used = Set.fromList [(package, moduleName) | name <- Set.toList names, OriginTop package moduleName <- [nameOrigin name]]
-    kept = [(package, moduleName) | (_, package, moduleName) <- scopeEntries (programScopes program), (package, moduleName) `Set.member` used]
-    insert (scopeId, (package, moduleName)) = insertScope scopeId package moduleName
-    declaredNames decl = case decl of
-      DeclType value -> typeName value : map conName (typeCons value)
-      DeclSynonym value -> [synName value]
-      DeclAxiom value -> [axiomName value]
-      DeclVal value -> [valName value]
-      DeclRule {} -> []
-    foreignCallNames decl = case decl of
-      DeclVal value -> expressionCallNames (valBody value)
-      DeclRule value -> expressionCallNames (ruleLhs value) <> expressionCallNames (ruleRhs value)
-      _ -> []
-
--- | The names of the foreign imports that the calls of an expression use.
--- 'declReferences' leaves them out, because a call carries its own type.
-expressionCallNames :: Expr -> [Name]
-expressionCallNames expr = case expr of
-  ExApp function argument -> expressionCallNames function <> expressionCallNames argument
-  ExTyApp function _ -> expressionCallNames function
-  ExLam _ body -> expressionCallNames body
-  ExTyLam _ body -> expressionCallNames body
-  ExLet binding body -> expressionCallNames (bindRhs binding) <> expressionCallNames body
-  ExRec bindings body -> concatMap (expressionCallNames . bindRhs) bindings <> expressionCallNames body
-  ExCase scrutinee _ alternatives -> expressionCallNames scrutinee <> concatMap (expressionCallNames . altRhs) alternatives
-  ExAbsurd scrutinee _ -> expressionCallNames scrutinee
-  ExCast body _ -> expressionCallNames body
-  ExForeignCall call _ arguments -> foreignCallName call : concatMap expressionCallNames arguments
-  _ -> []
 
 binderReferences :: Binder -> Set Name
 binderReferences = typeReferences . binderType

@@ -476,6 +476,7 @@ simplifyValue config known recursive inTemplates st name
                             spSpeculative = False,
                             spCaseContext = Nothing,
                             spLocalCandidates = Map.empty,
+                            spInTemplate = isTemplate st name,
                             spFacts = emptyFacts
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)

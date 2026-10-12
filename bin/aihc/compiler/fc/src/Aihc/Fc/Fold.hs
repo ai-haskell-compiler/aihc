@@ -41,7 +41,7 @@ where
 
 import Aihc.Fc.Name (nameText)
 import Aihc.Fc.Syntax
-import Aihc.Fc.TypeOf (TypeEnv, reduceType)
+import Aihc.Fc.TypeOf (TypeEnv (..), reduceType)
 import Control.Applicative ((<|>))
 import Control.Monad (guard)
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
@@ -338,6 +338,37 @@ foldForeignCall env call types arguments =
     <|> foldStringLength env call types arguments
     <|> negateBySubtraction env call types arguments
     <|> combineLiteralOffsets call types arguments
+    <|> foldQuotRem env call types arguments
+
+-- | Fold a quotient and remainder of two literals to the unboxed pair of
+-- the two literals: @quotRemWord# 7## 2##@ is @(# 3##, 1## #)@. A
+-- division by zero stays a call.
+foldQuotRem :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+foldQuotRem env call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [ExLit (LitInt _ left) _, ExLit (LitInt _ right) _] <- Just arguments
+  "quotRemWord#" <- Just (nameText (foreignCallName call))
+  let rep = wordRep
+      dividend = normalize rep left
+      divisor = normalize rep right
+  guard (divisor /= 0)
+  (_, resultType) <- resultRepresentation 2 (foreignCallType call)
+  (TyCon tuple, typeArguments@[firstRep, secondRep, firstType, secondType]) <- Just (spine [] (reduceType env resultType))
+  [constructor] <- Map.lookup tuple (teDataCons env)
+  guard (all (representedAs rep) [firstRep, secondRep])
+  let literal value litRep = ExLit (LitInt litRep (normalize rep value))
+      applied = foldl ExTyApp (ExVar constructor) typeArguments
+  Just (ExApp (ExApp applied (literal (dividend `quot` divisor) firstRep firstType)) (literal (dividend `rem` divisor) secondRep secondType))
+  where
+    spine args ty =
+      case ty of
+        TyApp function argument -> spine (argument : args) function
+        _ -> (ty, args)
+    representedAs rep ty =
+      case reduceType env ty of
+        TyCon name -> nameText name == rep
+        _ -> False
 
 -- | Combine two additions or subtractions of literals into one:
 -- @(z +# 1#) +# 1#@ is @z +# 2#@, and @(z -# 1#) +# 3#@ is @z +# 2#@.

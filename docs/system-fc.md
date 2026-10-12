@@ -125,7 +125,6 @@ GRIN lowering is temporarily disabled.
 
 20. Scope syntax stays: `scope 1 = "pkg-id" ModuleName`.
     The printer writes each scope of the program, so the parser gives back the same scope table.
-    A whole program keeps only the scopes that its names use (`pruneScopes`).
     The type of each foreign call has canonical binder names (`canonicalForeignCalls`), so equal calls are equal values and share one primitive alias.
 
 21. A lambda, pattern or case binder that its scope does not use has the mark `unused` before its name.

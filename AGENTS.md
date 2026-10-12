@@ -60,20 +60,16 @@ It can validate GRIN structural invariants.
 It must not reconstruct Haskell type information.
 It must not duplicate System FC desugaring.
 
-## Mandatory Pre-Commit Procedure
+## Mandatory Post-Push Procedure
 
-Do these steps before each commit:
+Open a PR as soon as possible.
 
-1. Run `just fmt`.
-   This command formats all Haskell files with Ormolu.
-2. Run `just check`.
-   This command must complete successfully.
-   It does an Ormolu format check, an HLint check, and the full test suite.
+After each push, run `just fmt` and then `just check` locally.
 
-If `just check` fails, do not commit.
-Correct each problem and run `just check` again.
+If `just fmt` changes files, commit and push those changes.
+Then, run `just fmt` and `just check` again.
 
-Use this sequence: write code, run `just fmt`, run `just check`, and commit.
+If `just check` fails, correct each problem, commit and push the changes, then run both commands again.
 
 ## PR Procedure
 

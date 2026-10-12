@@ -17,7 +17,6 @@ module Aihc.Fc
     mergePrograms,
     pruneProgram,
     dropRules,
-    pruneScopes,
     canonicalForeignCalls,
     inlineProgram,
     etaExpandProgram,
@@ -64,7 +63,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
 import Aihc.Fc.Pass (Pass (..), PassReport (..), passName, runPass, runPasses)
 import Aihc.Fc.Pretty (renderProgram, renderProgramSections)
-import Aihc.Fc.Prune (dropRules, pruneProgram, pruneScopes)
+import Aihc.Fc.Prune (dropRules, pruneProgram)
 import Aihc.Fc.Share (shareProgram)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
