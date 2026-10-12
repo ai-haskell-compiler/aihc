@@ -228,13 +228,25 @@ unfoldType env ty =
       | otherwise -> ty
     _ -> ty
 
--- | The TYPE argument of a kind, after synonym and family reduction.
+-- | The TYPE argument of a kind. The function expands only the synonyms
+-- that hide the TYPE application, so the argument keeps the form that the
+-- kind gives: the kind @Type@ gives @LiftedRep@, not @BoxedRep Lifted@.
+-- When no synonym gives the TYPE application, a family reduction can give
+-- it.
 representationFromKind :: TypeEnv -> Type -> Maybe Type
 representationFromKind env kind =
-  case reduceType env kind of
+  case kind of
     TyApp (TyCon name) representation
       | name == typeConstructor (tePrimPackage env) -> Just representation
-    _ -> Nothing
+    _
+      | unfolded <- unfoldType env kind,
+        unfolded /= kind ->
+          representationFromKind env unfolded
+      | otherwise ->
+          case reduceType env kind of
+            TyApp (TyCon name) representation
+              | name == typeConstructor (tePrimPackage env) -> Just representation
+            _ -> Nothing
 
 repOf :: TypeEnv -> Type -> Maybe Type
 repOf env ty = do
@@ -324,9 +336,13 @@ viewForAll env ty =
 
 viewFun :: TypeEnv -> Type -> Maybe (Type, Type, Type, Type)
 viewFun env ty =
-  case reduceType env ty of
+  case ty of
+    -- A function type keeps the form of its representations, so a pass
+    -- that copies them does not expand their synonyms.
     TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
-    _ -> Nothing
+    _ -> case reduceType env ty of
+      TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
+      _ -> Nothing
 
 -- | The type after the leading binders of a foreign type.
 foreignTypeBody :: TypeEnv -> Type -> Type

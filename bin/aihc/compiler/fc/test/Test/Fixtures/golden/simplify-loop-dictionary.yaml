@@ -34,7 +34,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -42,30 +42,30 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t$Dict$Size (a : sType) :: sType {
-    pub 1.c$Dict$Size :: ∀(a : sType). (a 2.→ tInt) 2.→ (a 2.→ tInt 2.→ tInt) 2.→ t$Dict$Size a
+    pub 1.c$Dict$Size :: ∀(a : sType). (a → tInt) → (a → tInt → tInt) → t$Dict$Size a
   }
 
   type 1.tList (a : sType) :: sType {
     1.cNil :: ∀(a : sType). tList a;
-    1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
+    1.cCons :: ∀(a : sType). a → tList a → tList a
   }
 
-  pub val 1.vsize :: ∀(a : sType). t$Dict$Size a 2.→ a 2.→ tInt
+  pub val 1.vsize :: ∀(a : sType). t$Dict$Size a → a → tInt
     = Λ(a : sType). λ($dSize : t$Dict$Size a).
-      let! c$Dict$Size ($csize : a 2.→ tInt) ($ccombine : a 2.→ tInt 2.→ tInt) = $dSize;
+      let! c$Dict$Size ($csize : a → tInt) (unused $ccombine : a → tInt → tInt) = $dSize;
       $csize
 
-  pub val 1.vcombine :: ∀(a : sType). t$Dict$Size a 2.→ a 2.→ tInt 2.→ tInt
+  pub val 1.vcombine :: ∀(a : sType). t$Dict$Size a → a → tInt → tInt
     = Λ(a : sType). λ($dSize : t$Dict$Size a).
-      let! c$Dict$Size ($csize : a 2.→ tInt) ($ccombine : a 2.→ tInt 2.→ tInt) = $dSize;
+      let! c$Dict$Size (unused $csize : a → tInt) ($ccombine : a → tInt → tInt) = $dSize;
       $ccombine
 
-  pub val 1.vtotal :: ∀(a : sType). t$Dict$Size a 2.→ tInt 2.→ tList a 2.→ tInt
+  pub val 1.vtotal :: ∀(a : sType). t$Dict$Size a → tInt → tList a → tInt
     = Λ(a : sType). λ($dSize : t$Dict$Size a) (x : tInt) (y : tList a).
-      let! c$Dict$Size ($csize : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a tInt) ($ccombine : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt tInt)) =
+      let! c$Dict$Size (unused $csize : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a tInt) ($ccombine : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) a (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt tInt)) =
         $dSize;
       rec {
-        $sgo : tInt 2.→ tList a 2.→ tInt =
+        $sgo : tInt → tList a → tInt =
           λ(x{1} : tInt) (y{1} : tList a).
             case y{1} of {
               cNil →

@@ -44,9 +44,9 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
-    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -61,18 +61,18 @@ expected: |-
 
   axiom 1.$ax$Outer : tOuter ~R tInner
 
-  pub val 1.vwrap :: tInt 2.→ tOuter
+  pub val 1.vwrap :: tInt → tOuter
     = λ(x : tInt).
       x ▷ trans (sym (axiom-co $ax$Inner)) (sym (axiom-co $ax$Outer))
 
-  pub val 1.vrewrap :: tInt 2.→ tInt
+  pub val 1.vrewrap :: tInt → tInt
     = λ(x : tInt).
       x
 
-  pub val 1.vsame :: ∀(a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tChar) (t[] a 2.→ t[] tChar)
+  pub val 1.vsame :: ∀(a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tChar) (t[] a → t[] tChar)
     = Λ(a : sType). λ($co : a ~ tChar) (x : t[] a).
       x ▷ tycon-co t[] ($co)
 
-  pub val 1.vchars :: t[] tChar 2.→ t[] tChar
+  pub val 1.vchars :: t[] tChar → t[] tChar
     = λ(x : t[] tChar).
       x

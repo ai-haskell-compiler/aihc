@@ -30,12 +30,12 @@ expected: |-
     constructors [5.c()] 5.tUnit :: sType;
     4.v$fNumInt :: t$Dict$Num tInt;
     5.c() :: tUnit;
-    6.cBoxedRep :: tLevity 6.→ tRuntimeRep;
+    6.cBoxedRep :: tLevity → tRuntimeRep;
     6.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
     6.cIntRep :: tRuntimeRep;
     6.cLifted :: tLevity;
-    4.vfromInteger :: ∀(a : sType). t$Dict$Num a 6.→ tInteger 6.→ a
+    4.vfromInteger :: ∀(a : sType). t$Dict$Num a → tInteger → a
 
   import synonyms
     6.sLiftedRep = cBoxedRep cLifted;

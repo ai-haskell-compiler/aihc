@@ -32,7 +32,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -40,37 +40,37 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t$Dict$NFData (a : sType) :: sType {
-    pub 1.c$Dict$NFData :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$NFData a
+    pub 1.c$Dict$NFData :: ∀(a : sType). (a → a) → t$Dict$NFData a
   }
 
-  pub type 1.t$Dict$NFData1 (f : sType 2.→ sType) :: sType {
-    pub 1.c$Dict$NFData1 :: ∀(f : sType 2.→ sType). (∀(a : sType). t$Dict$NFData a 2.→ t$Dict$NFData (f a)) 2.→ t$Dict$NFData1 f
+  pub type 1.t$Dict$NFData1 (f : sType → sType) :: sType {
+    pub 1.c$Dict$NFData1 :: ∀(f : sType → sType). (∀(a : sType). t$Dict$NFData a → t$Dict$NFData (f a)) → t$Dict$NFData1 f
   }
 
   pub type 1.tProxy (a : sType) :: sType {
     pub 1.cProxy :: ∀(a : sType). tProxy a
   }
 
-  pub val 1.vrnf :: ∀(a : sType). t$Dict$NFData a 2.→ a 2.→ a
+  pub val 1.vrnf :: ∀(a : sType). t$Dict$NFData a → a → a
     = Λ(a : sType). λ($dNFData : t$Dict$NFData a).
-      let! c$Dict$NFData ($crnf : a 2.→ a) = $dNFData;
+      let! c$Dict$NFData ($crnf : a → a) = $dNFData;
       $crnf
 
   pub val 1.v$fNFDataProxya :: ∀(a : sType). t$Dict$NFData (tProxy a)
     = Λ(a : sType).
       c$Dict$NFData @(tProxy a) (v$fNFDataProxya$crnf @a)
 
-  val 1.v$fNFDataProxya$crnf :: ∀(a : sType). tProxy a 2.→ tProxy a
+  val 1.v$fNFDataProxya$crnf :: ∀(a : sType). tProxy a → tProxy a
     = Λ(a : sType). λ(x : tProxy a).
       x
 
   pub val 1.v$fNFData1Proxy :: t$Dict$NFData1 tProxy
-    = c$Dict$NFData1 @tProxy (Λ(a : sType). λ($dNFData : t$Dict$NFData a).
+    = c$Dict$NFData1 @tProxy (Λ(a : sType). λ(unused $dNFData : t$Dict$NFData a).
       v$fNFDataProxya @a)
 
-  pub val 1.vuse :: ∀(f : sType 2.→ sType) (a : sType). t$Dict$NFData1 f 2.→ t$Dict$NFData a 2.→ f a 2.→ f a
-    = Λ(f : sType 2.→ sType) (a : sType). λ($dNFData1 : t$Dict$NFData1 f) ($dNFData : t$Dict$NFData a) (x : f a).
-      vrnf @(f a) ((let! c$Dict$NFData1 ($dNFData{1} : ∀(a{1} : sType). t$Dict$NFData a{1} 2.→ t$Dict$NFData (f a{1})) =
+  pub val 1.vuse :: ∀(f : sType → sType) (a : sType). t$Dict$NFData1 f → t$Dict$NFData a → f a → f a
+    = Λ(f : sType → sType) (a : sType). λ($dNFData1 : t$Dict$NFData1 f) ($dNFData : t$Dict$NFData a) (x : f a).
+      vrnf @(f a) ((let! c$Dict$NFData1 ($dNFData{1} : ∀(a{1} : sType). t$Dict$NFData a{1} → t$Dict$NFData (f a{1})) =
         $dNFData1;
       $dNFData{1}) @a $dNFData) x
 status: pass

@@ -23,9 +23,9 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
-    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -33,22 +33,22 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t$Dict$Assoc (m : sType) :: sType {
-    pub 1.c$Dict$Assoc :: ∀(m : sType). ((tSt m 2.→ tSt m) 2.→ m) 2.→ (m 2.→ tSt m 2.→ tSt m) 2.→ t$Dict$Assoc m
+    pub 1.c$Dict$Assoc :: ∀(m : sType). ((tSt m → tSt m) → m) → (m → tSt m → tSt m) → t$Dict$Assoc m
   }
 
   pub type 1.tSt (m : sType) :: sType @N {}
 
-  pub val 1.vwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ (tSt m 2.→ tSt m) 2.→ m
+  pub val 1.vwrap :: ∀(m : sType). t$Dict$Assoc m → (tSt m → tSt m) → m
     = Λ(m : sType). λ($dAssoc : t$Dict$Assoc m).
-      let! c$Dict$Assoc ($cwrap : (tSt m 2.→ tSt m) 2.→ m) ($cunwrap : m 2.→ tSt m 2.→ tSt m) = $dAssoc;
+      let! c$Dict$Assoc ($cwrap : (tSt m → tSt m) → m) (unused $cunwrap : m → tSt m → tSt m) = $dAssoc;
       $cwrap
 
-  pub val 1.vunwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ m 2.→ tSt m 2.→ tSt m
+  pub val 1.vunwrap :: ∀(m : sType). t$Dict$Assoc m → m → tSt m → tSt m
     = Λ(m : sType). λ($dAssoc : t$Dict$Assoc m).
-      let! c$Dict$Assoc ($cwrap : (tSt m 2.→ tSt m) 2.→ m) ($cunwrap : m 2.→ tSt m 2.→ tSt m) = $dAssoc;
+      let! c$Dict$Assoc (unused $cwrap : (tSt m → tSt m) → m) ($cunwrap : m → tSt m → tSt m) = $dAssoc;
       $cunwrap
 
-  pub val 1.vconvert :: ∀(m1 : sType) (m2 : sType). t$Dict$Assoc m1 2.→ t$Dict$Assoc m2 2.→ FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tSt m1 ~ tSt m2) (m1 2.→ m2)
+  pub val 1.vconvert :: ∀(m1 : sType) (m2 : sType). t$Dict$Assoc m1 → t$Dict$Assoc m2 → FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tSt m1 ~ tSt m2) (m1 → m2)
     = Λ(m1 : sType) (m2 : sType). λ($dAssoc : t$Dict$Assoc m1) ($dAssoc{1} : t$Dict$Assoc m2) ($co : tSt m1 ~ tSt m2)
     (x : m1).
       vwrap @m2 $dAssoc{1} ((vunwrap @m1 $dAssoc x) ▷ fun-co ($co) ($co))

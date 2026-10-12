@@ -31,7 +31,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -39,23 +39,23 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tBox (a : sType) :: sType {
-    pub 1.cBox :: ∀(a : sType). a 2.→ tBox a
+    pub 1.cBox :: ∀(a : sType). a → tBox a
   }
 
-  type 1.t$Dict$Pick (f : sType 2.→ sType) :: sType {
-    1.c$Dict$Pick :: ∀(f : sType 2.→ sType). (∀(a : sType). f a 2.→ a) 2.→ t$Dict$Pick f
+  type 1.t$Dict$Pick (f : sType → sType) :: sType {
+    1.c$Dict$Pick :: ∀(f : sType → sType). (∀(a : sType). f a → a) → t$Dict$Pick f
   }
 
   pub val 1.v$fPickBox :: t$Dict$Pick tBox
     = c$Dict$Pick @tBox (Λ(a : sType).
       vunbox @a)
 
-  val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
+  val 1.vunbox :: ∀(a : sType). tBox a → a
     = Λ(a : sType). λ(x : tBox a).
       let! cBox (a{1} : a) = x;
       a{1}
 
-  pub val 1.vrun :: tBox tBool 2.→ tBool
+  pub val 1.vrun :: tBox tBool → tBool
     = λ(x : tBox tBool).
       let! cBox (a : tBool) = x;
       a
