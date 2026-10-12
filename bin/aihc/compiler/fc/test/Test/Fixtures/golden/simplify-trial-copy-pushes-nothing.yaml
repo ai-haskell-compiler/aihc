@@ -86,13 +86,13 @@ expected: |-
     constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -100,11 +100,11 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tHandle :: sType {
-    1.cFileHandle :: tInt 3.→ tHandle;
-    1.cDuplexHandle :: tInt 3.→ tInt 3.→ tHandle
+    1.cFileHandle :: tInt → tHandle;
+    1.cDuplexHandle :: tInt → tInt → tHandle
   }
 
-  val 1.vpick :: tInt 3.→ tHandle
+  val 1.vpick :: tInt → tHandle
     = λ(x : tInt).
       let! cI# (n : tInt#) = x;
       case n of {
@@ -116,7 +116,7 @@ expected: |-
           vpick (cI# argument)
       }
 
-  val 1.vwrite :: tInt 3.→ tInt 3.→ FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
+  val 1.vwrite :: tInt → tInt → FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
     = λ(x : tInt) (y : tInt) (z : tInt).
       let! cI# (h : tInt#) = x;
       case h of {
@@ -128,7 +128,7 @@ expected: |-
           vwrite (cI# argument) y z
       }
 
-  pub val 1.vrun :: tInt 3.→ tInt
+  pub val 1.vrun :: tInt → tInt
     = λ(x : tInt).
       let! cTuple2# (s1 : tInt) (_ : tInt) =
         case vpick (cI# lit (1#cIntRep) :: tInt#) of {

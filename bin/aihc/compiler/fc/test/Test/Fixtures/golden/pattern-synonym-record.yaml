@@ -19,7 +19,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -27,30 +27,30 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tPair (a : sType) :: sType {
-    pub 1.cPair :: ∀(a : sType). a 3.→ a 3.→ tPair a
+    pub 1.cPair :: ∀(a : sType). a → a → tPair a
   }
 
-  pub val 1.v$mPoint :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tPair a 3.→ (a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
-    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tPair a) (y : a 3.→ FUN @sLiftedRep @rep a r)
+  pub val 1.v$mPoint :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tPair a → (a → FUN @sLiftedRep @rep a r) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tPair a) (y : a → FUN @sLiftedRep @rep a r)
     (_ : FUN @sLiftedRep @rep tUnit r).
       let! cPair (px : a) (py : a) = x;
       y px py
 
-  pub val 1.v$bPoint :: ∀(a : sType). a 3.→ a 3.→ tPair a
+  pub val 1.v$bPoint :: ∀(a : sType). a → a → tPair a
     = Λ(a : sType). λ(x : a) (y : a).
       cPair @a x y
 
-  pub val 1.vpx :: ∀(a : sType). tPair a 3.→ a
+  pub val 1.vpx :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).
       let! cPair (px : a) (_ : a) = x;
       px
 
-  pub val 1.vpy :: ∀(a : sType). tPair a 3.→ a
+  pub val 1.vpy :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).
       let! cPair (_ : a) (py : a) = x;
       py
 
-  pub val 1.vfirst :: ∀(a : sType). tPair a 3.→ a
+  pub val 1.vfirst :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).
       vpx @a x
 status: pass

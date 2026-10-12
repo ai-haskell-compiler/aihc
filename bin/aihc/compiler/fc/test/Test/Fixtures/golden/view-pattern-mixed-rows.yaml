@@ -29,7 +29,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -42,8 +42,8 @@ expected: |-
   }
 
   pub type 1.tShape :: sType {
-    pub 1.cCircle :: tBool 2.→ tShape;
-    pub 1.cSquare :: tBool 2.→ tShape
+    pub 1.cCircle :: tBool → tShape;
+    pub 1.cSquare :: tBool → tShape
   }
 
   pub type 1.tLabel :: sType {
@@ -54,10 +54,10 @@ expected: |-
   }
 
   pub type 1.tFour :: sType {
-    pub 1.cFour :: tLabel 2.→ tLabel 2.→ tLabel 2.→ tLabel 2.→ tFour
+    pub 1.cFour :: tLabel → tLabel → tLabel → tLabel → tFour
   }
 
-  pub val 1.visRound :: tShape 2.→ tBool
+  pub val 1.visRound :: tShape → tBool
     = λ(x : tShape).
       case x of {
         cCircle (_ : tBool) →
@@ -66,7 +66,7 @@ expected: |-
           cFalse
       }
 
-  pub val 1.vflag :: tShape 2.→ tBool
+  pub val 1.vflag :: tShape → tBool
     = λ(x : tShape).
       case x of {
         cCircle (b : tBool) →
@@ -75,7 +75,7 @@ expected: |-
           b
       }
 
-  pub val 1.vclassify :: tShape 2.→ tLabel
+  pub val 1.vclassify :: tShape → tLabel
     = λ(x : tShape).
       let _fail : tLabel =
         case visRound x of {
@@ -101,7 +101,7 @@ expected: |-
           _fail
       }
 
-  pub val 1.vguarded :: tShape 2.→ tLabel
+  pub val 1.vguarded :: tShape → tLabel
     = λ(x : tShape).
       case vflag x of {
         cTrue →

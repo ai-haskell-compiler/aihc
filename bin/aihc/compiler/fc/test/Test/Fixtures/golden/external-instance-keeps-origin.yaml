@@ -30,8 +30,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    2.c$Dict$Eq :: ∀(a : sType). (a 3.→ a 3.→ tBool) 3.→ (a 3.→ a 3.→ tBool) 3.→ t$Dict$Eq a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c$Dict$Eq :: ∀(a : sType). (a → a → tBool) → (a → a → tBool) → t$Dict$Eq a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cLifted :: tLevity;
     3.cTrue :: tBool
@@ -43,11 +43,11 @@ expected: |-
   pub val 1.v$fEqBool :: t$Dict$Eq tBool
     = c$Dict$Eq @tBool v$fEqBool$c== v$fEqBool$c/=
 
-  val 1.v$fEqBool$c== :: tBool 3.→ tBool 3.→ tBool
+  val 1.v$fEqBool$c== :: tBool → tBool → tBool
     = λ(_ : tBool) (_ : tBool).
       cTrue
 
-  val 1.v$fEqBool$c/= :: tBool 3.→ tBool 3.→ tBool
+  val 1.v$fEqBool$c/= :: tBool → tBool → tBool
     = λ(_ : tBool) (_ : tBool).
       cFalse
   scope 1 = "" Test
@@ -64,15 +64,15 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     2.v$fEqBool :: t$Dict$Eq tBool;
-    3.v== :: ∀(a : sType). t$Dict$Eq a 4.→ a 4.→ a 4.→ tBool;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    3.v== :: ∀(a : sType). t$Dict$Eq a → a → a → tBool;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cLifted :: tLevity
 
   import synonyms
     4.sLiftedRep = cBoxedRep cLifted;
     4.sType = tTYPE sLiftedRep
 
-  pub val 1.veqBool :: tBool 4.→ tBool 4.→ tBool
+  pub val 1.veqBool :: tBool → tBool → tBool
     = v== @tBool v$fEqBool
 status: pass
 reason: keeps the defining module origin on an imported instance dictionary

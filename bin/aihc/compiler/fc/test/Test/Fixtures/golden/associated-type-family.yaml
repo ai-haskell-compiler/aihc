@@ -25,7 +25,7 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -34,15 +34,15 @@ expected: |-
 
   pub type 1.tNat :: sType {
     pub 1.cZ :: tNat;
-    pub 1.cS :: tNat 2.→ tNat
+    pub 1.cS :: tNat → tNat
   }
 
   pub type 1.tBag :: sType {
-    pub 1.cBag :: tNat 2.→ tBag
+    pub 1.cBag :: tNat → tBag
   }
 
   pub type 1.t$Dict$Container (c : sType) :: sType {
-    pub 1.c$Dict$Container :: ∀(c : sType). (c 2.→ tNat) 2.→ t$Dict$Container c
+    pub 1.c$Dict$Container :: ∀(c : sType). (c → tNat) → t$Dict$Container c
   }
 
   pub type 1.tElem (c : sType) :: sType @N {}
@@ -51,15 +51,15 @@ expected: |-
 
   axiom 1.$ax$Elem$List (a : sType) : tElem (t[] a) ~N tNat
 
-  pub val 1.vsize :: ∀(c : sType). t$Dict$Container c 2.→ c 2.→ tNat
+  pub val 1.vsize :: ∀(c : sType). t$Dict$Container c → c → tNat
     = Λ(c : sType). λ($dContainer : t$Dict$Container c).
-      let! c$Dict$Container ($csize : c 2.→ tNat) = $dContainer;
+      let! c$Dict$Container ($csize : c → tNat) = $dContainer;
       $csize
 
   pub val 1.v$fContainerBag :: t$Dict$Container tBag
     = c$Dict$Container @tBag v$fContainerBag$csize
 
-  val 1.v$fContainerBag$csize :: tBag 2.→ tNat
+  val 1.v$fContainerBag$csize :: tBag → tNat
     = λ(x : tBag).
       let! cBag (n : tNat) = x;
       n
@@ -68,7 +68,7 @@ expected: |-
     = Λ(a : sType).
       c$Dict$Container @(t[] a) (v$fContainerList$csize @a)
 
-  val 1.v$fContainerList$csize :: ∀(a : sType). t[] a 2.→ tNat
+  val 1.v$fContainerList$csize :: ∀(a : sType). t[] a → tNat
     = Λ(a : sType). λ(_ : t[] a).
       cZ
 status: pass

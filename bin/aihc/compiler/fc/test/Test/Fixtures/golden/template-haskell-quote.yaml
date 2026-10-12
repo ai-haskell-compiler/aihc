@@ -22,7 +22,7 @@ expected: |-
     4.sType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
     4.cAddrRep :: tRuntimeRep;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cLifted :: tLevity;
     3.vraise# :: ∀(r : tRuntimeRep) (a : sType) (b : tTYPE r). FUN @sLiftedRep @r a b;
     2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
@@ -35,7 +35,7 @@ expected: |-
     pub 1.cBox :: tBox
   }
 
-  pub val 1.vquoted :: tBox 4.→ tBox
+  pub val 1.vquoted :: tBox → tBox
     = λ(_ : tBox).
       vraise# @sLiftedRep @(t[] tChar) @tBox (vunpackCString# lit ("TH is unsupported"#cAddrRep) :: tAddr#)
 status: pass

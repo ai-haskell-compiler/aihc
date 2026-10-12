@@ -28,7 +28,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
@@ -39,12 +39,12 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vpick inline :: tBool 3.→ tInt 3.→ tInt
+  pub val 1.vpick inline :: tBool → tInt → tInt
     = λ(x : tBool) (y : tInt).
       let! _ as (field : tInt#) = v$wpick x y;
       cI# field
 
-  val 1.v$wpick :: tBool 3.→ FUN @sLiftedRep @cIntRep tInt tInt#
+  val 1.v$wpick :: tBool → FUN @sLiftedRep @cIntRep tInt tInt#
     = λ(x : tBool) (y : tInt).
       case x of {
         cTrue →

@@ -411,11 +411,21 @@ funType = do
     representation <- scopedArrow
     TyFun representation representation left <$> funType
 
+-- | An arrow on the @LiftedRep@ synonym. Like another name of the synonym,
+-- it has a scope prefix, or no prefix when the short name is unambiguous.
 scopedArrow :: Parser Type
 scopedArrow = lexeme $ do
-  (package, moduleName) <- scopeReference
+  scope <- MP.optional (MP.try scopeReference)
   _ <- MPC.string "→" <|> MPC.string "->"
-  pure (TyCon (Name "LiftedRep" SortSynonym (OriginTop package moduleName)))
+  case scope of
+    Just (package, moduleName) -> pure (TyCon (Name "LiftedRep" SortSynonym (OriginTop package moduleName)))
+    Nothing -> do
+      environment <- ask
+      case Map.lookup "sLiftedRep" (parserGlobals environment) of
+        Just name -> pure (TyCon name)
+        Nothing
+          | parserCollect environment -> pure (TyCon (Name "LiftedRep" SortSynonym (OriginLocal (Unique 0))))
+          | otherwise -> fail "an arrow with no scope needs an unambiguous LiftedRep"
 
 eqType :: Parser Type
 eqType = do

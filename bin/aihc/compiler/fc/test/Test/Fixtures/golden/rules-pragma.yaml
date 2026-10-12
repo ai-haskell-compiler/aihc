@@ -28,7 +28,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -37,25 +37,25 @@ expected: |-
 
   pub type 1.tNat :: sType {
     pub 1.cZ :: tNat;
-    pub 1.cS :: tNat 2.→ tNat
+    pub 1.cS :: tNat → tNat
   }
 
   pub type 1.tList (a : sType) :: sType {
     pub 1.cNil :: ∀(a : sType). tList a;
-    pub 1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
+    pub 1.cCons :: ∀(a : sType). a → tList a → tList a
   }
 
   pub type 1.t$Dict$C (a : sType) :: sType {
-    pub 1.c$Dict$C :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$C a
+    pub 1.c$Dict$C :: ∀(a : sType). (a → a) → t$Dict$C a
   }
 
-  pub val 1.vop :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
+  pub val 1.vop :: ∀(a : sType). t$Dict$C a → a → a
     = Λ(a : sType). λ($dC : t$Dict$C a).
-      let! c$Dict$C ($cop : a 2.→ a) = $dC;
+      let! c$Dict$C ($cop : a → a) = $dC;
       $cop
 
-  pub val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
-    = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
+  pub val 1.vmap :: ∀(a : sType) (b : sType). (a → b) → tList a → tList b
+    = Λ(a : sType) (b : sType). λ(x : a → b) (y : tList a).
       case y of {
         cNil →
           cNil @b;
@@ -63,11 +63,11 @@ expected: |-
           cCons @b (x y{1}) (vmap @a @b x ys)
       }
 
-  pub val 1.videntity :: ∀(a : sType). a 2.→ a
+  pub val 1.videntity :: ∀(a : sType). a → a
     = Λ(a : sType). λ(x : a).
       x
 
-  rule "map/map" [2] Λ(a : sType). λ(f : a 2.→ a). λ(g : a 2.→ a). λ(xs : tList a).
+  rule "map/map" [2] Λ(a : sType). λ(f : a → a). λ(g : a → a). λ(xs : tList a).
     vmap @a @a f (vmap @a @a g xs)
    = vmap @a @a g (vmap @a @a f xs)
    :: tList a

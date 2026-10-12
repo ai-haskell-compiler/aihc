@@ -51,7 +51,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
@@ -61,12 +61,12 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vdecode :: ∀(r : sType). (tInt 3.→ r) 3.→ (tInt 3.→ r) 3.→ (tInt 3.→ r) 3.→ r 3.→ tInt 3.→ r
-    = Λ(r : sType). λ(x : tInt 3.→ r) (y : tInt 3.→ r) (z : tInt 3.→ r) (x1 : r) (x2 : tInt).
+  pub val 1.vdecode :: ∀(r : sType). (tInt → r) → (tInt → r) → (tInt → r) → r → tInt → r
+    = Λ(r : sType). λ(x : tInt → r) (y : tInt → r) (z : tInt → r) (x1 : r) (x2 : tInt).
       let! cI# (a : tInt#) = x2;
-      let _join : tBool 3.→ r =
+      let _join : tBool → r =
         λ(_ : tBool).
-          let _join{1} : tBool 3.→ r =
+          let _join{1} : tBool → r =
             λ(_ : tBool).
               case prim >=# a lit (240#cIntRep) :: tInt# of {
                 1#cIntRep →

@@ -21,7 +21,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -34,34 +34,34 @@ expected: |-
   }
 
   pub type 1.t$Dict$Parent (a : sType) :: sType {
-    pub 1.c$Dict$Parent :: ∀(a : sType). (a 2.→ tFlag) 2.→ t$Dict$Parent a
+    pub 1.c$Dict$Parent :: ∀(a : sType). (a → tFlag) → t$Dict$Parent a
   }
 
   pub type 1.t$Dict$Child (a : sType) :: sType {
-    pub 1.c$Dict$Child :: ∀(a : sType). t$Dict$Parent a 2.→ (a 2.→ tFlag) 2.→ t$Dict$Child a
+    pub 1.c$Dict$Child :: ∀(a : sType). t$Dict$Parent a → (a → tFlag) → t$Dict$Child a
   }
 
-  pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a 2.→ a 2.→ tFlag
+  pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a → a → tFlag
     = Λ(a : sType). λ($dParent : t$Dict$Parent a).
-      let! c$Dict$Parent ($cparent : a 2.→ tFlag) = $dParent;
+      let! c$Dict$Parent ($cparent : a → tFlag) = $dParent;
       $cparent
 
-  pub val 1.vchild :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ tFlag
+  pub val 1.vchild :: ∀(a : sType). t$Dict$Child a → a → tFlag
     = Λ(a : sType). λ($dChild : t$Dict$Child a).
-      let! c$Dict$Child (_ : t$Dict$Parent a) ($cchild : a 2.→ tFlag) = $dChild;
+      let! c$Dict$Child (_ : t$Dict$Parent a) ($cchild : a → tFlag) = $dChild;
       $cchild
 
   pub val 1.v$fParentFlag :: t$Dict$Parent tFlag
     = c$Dict$Parent @tFlag v$fParentFlag$cparent
 
-  val 1.v$fParentFlag$cparent :: tFlag 2.→ tFlag
+  val 1.v$fParentFlag$cparent :: tFlag → tFlag
     = λ(x : tFlag).
       x
 
   pub val 1.v$fChildFlag :: t$Dict$Child tFlag
     = c$Dict$Child @tFlag v$fParentFlag v$fChildFlag$cchild
 
-  val 1.v$fChildFlag$cchild :: tFlag 2.→ tFlag
+  val 1.v$fChildFlag$cchild :: tFlag → tFlag
     = λ(x : tFlag).
       x
 status: pass

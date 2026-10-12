@@ -29,9 +29,9 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
-    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -43,23 +43,23 @@ expected: |-
   }
 
   pub type 1.tSome :: sType {
-    pub 1.cSome :: ∀(k : sType) (a : k). tProxy k a 2.→ tSome
+    pub 1.cSome :: ∀(k : sType) (a : k). tProxy k a → tSome
   }
 
   pub type 1.tIsFun (k : sType) :: sType {
-    pub 1.cIsFun :: ∀(k : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k ~ (sType 2.→ sType)) (tIsFun k)
+    pub 1.cIsFun :: ∀(k : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k ~ (sType → sType)) (tIsFun k)
   }
 
-  pub val 1.vapply :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ a 2.→ b
-    = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : a).
+  pub val 1.vapply :: ∀(a : sType) (b : sType). (a → b) → a → b
+    = Λ(a : sType) (b : sType). λ(x : a → b) (y : a).
       x y
 
-  pub val 1.vmkApp :: ∀(k1 : sType) (k2 : sType) (f : k1 2.→ k2) (x : k1). tProxy (k1 2.→ k2) f 2.→ tProxy k1 x 2.→ tProxy k2 (f x)
-    = Λ(k1 : sType) (k2 : sType) (f : k1 2.→ k2) (x : k1). λ(_ : tProxy (k1 2.→ k2) f) (_ : tProxy k1 x).
+  pub val 1.vmkApp :: ∀(k1 : sType) (k2 : sType) (f : k1 → k2) (x : k1). tProxy (k1 → k2) f → tProxy k1 x → tProxy k2 (f x)
+    = Λ(k1 : sType) (k2 : sType) (f : k1 → k2) (x : k1). λ(_ : tProxy (k1 → k2) f) (_ : tProxy k1 x).
       cProxy @k2 @(f x)
 
-  pub val 1.vrebuild :: ∀(k : sType) (f : k) (x : sType). tIsFun k 2.→ tProxy k f 2.→ tProxy sType x 2.→ tSome
+  pub val 1.vrebuild :: ∀(k : sType) (f : k) (x : sType). tIsFun k → tProxy k f → tProxy sType x → tSome
     = Λ(k : sType) (f : k) (x : sType). λ(x{1} : tIsFun k) (y : tProxy k f) (z : tProxy sType x).
-      let! cIsFun (_ : k ~ (sType 2.→ sType)) = x{1};
+      let! cIsFun (_ : k ~ (sType → sType)) = x{1};
       vapply @(tProxy sType (f x)) @tSome (cSome @sType @(f x)) (vmkApp @sType @sType @f @x y z)
 status: pass

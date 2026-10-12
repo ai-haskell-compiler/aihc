@@ -45,7 +45,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -53,28 +53,28 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tT :: sType {
-    1.cA :: tInt 3.→ tT;
+    1.cA :: tInt → tT;
     1.cB :: tT
   }
 
   type 1.tList :: sType {
     1.cNil :: tList;
-    1.cCons :: tInt 3.→ tList 3.→ tList
+    1.cCons :: tInt → tList → tList
   }
 
   pub val 1.vempty :: tList
     = cNil
 
-  val 1.vkeep noinline :: tT 3.→ tList 3.→ tList
+  val 1.vkeep noinline :: tT → tList → tList
     = λ(_ : tT) (y : tList).
       y
 
-  pub val 1.vwalk :: tT 3.→ tT 3.→ tList
+  pub val 1.vwalk :: tT → tT → tList
     = λ(x : tT) (y : tT).
       case x of {
         cA (_ : tInt) →
           rec {
-            go : tT 3.→ tList =
+            go : tT → tList =
               λ(x{1} : tT).
                 case x{1} of {
                   cB →

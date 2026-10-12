@@ -31,7 +31,7 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
     2.c[] :: ∀(a : sType). t[] a
 
@@ -46,14 +46,14 @@ expected: |-
 
   pub type 1.tMaybeBool :: sType {
     pub 1.cNothing :: tMaybeBool;
-    pub 1.cJust :: tBool 2.→ tMaybeBool
+    pub 1.cJust :: tBool → tMaybeBool
   }
 
-  pub val 1.vunused :: tBool 2.→ tBool
+  pub val 1.vunused :: tBool → tBool
     = λ(_ : tBool).
       cTrue
 
-  pub val 1.vsingle :: t[] tBool 2.→ tBool
+  pub val 1.vsingle :: t[] tBool → tBool
     = λ(x : t[] tBool).
       case x of {
         c[] →
@@ -62,7 +62,7 @@ expected: |-
           cFalse
       }
 
-  pub val 1.vshared :: tMaybeBool 2.→ tBool
+  pub val 1.vshared :: tMaybeBool → tBool
     = λ(x : tMaybeBool).
       case x of {
         cJust (_pat : tBool) →

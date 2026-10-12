@@ -55,14 +55,14 @@ expected: |-
     constructors [3.c(,)] 3.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
     4.sType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
-    3.c(,) :: ∀(a1 : sType) (a2 : sType). a1 4.→ a2 4.→ tTuple2 a1 a2;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    3.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cFalse :: tBool;
     4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     4.cIntRep :: tRuntimeRep;
     4.cLifted :: tLevity;
     4.cTrue :: tBool;
-    4.cTupleRep :: t[] tRuntimeRep 4.→ tRuntimeRep;
+    4.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     4.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -73,12 +73,12 @@ expected: |-
 
   axiom 1.$ax$Eff (a : sType) : tEff a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) a
 
-  val 1.vstep :: tInt 4.→ tEff tInt
+  val 1.vstep :: tInt → tEff tInt
     = λ(x : tInt).
       (λ(_ : tState# tRealWorld).
         x) ▷ sym (axiom-co $ax$Eff @tInt)
 
-  val 1.vandThen :: tEff tInt 4.→ tEff tInt 4.→ tEff tInt
+  val 1.vandThen :: tEff tInt → tEff tInt → tEff tInt
     = λ(x : tEff tInt) (y : tEff tInt).
       (λ(eta{2} : tState# tRealWorld).
         let f : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
@@ -88,7 +88,7 @@ expected: |-
         let! cI# (_ : tInt#) = f eta{2};
         g eta{2}) ▷ sym (axiom-co $ax$Eff @tInt)
 
-  val 1.vchoose :: tBool 4.→ tBool
+  val 1.vchoose :: tBool → tBool
     = λ(x : tBool).
       case x of {
         cTrue →
@@ -97,9 +97,9 @@ expected: |-
           cTrue
       }
 
-  pub val 1.vrun :: tBool 4.→ tTuple2 (tInt 4.→ tInt) (tEff tInt)
+  pub val 1.vrun :: tBool → tTuple2 (tInt → tInt) (tEff tInt)
     = λ(x : tBool).
-      let pick : tInt 4.→ tInt =
+      let pick : tInt → tInt =
         case vchoose x of {
           cTrue →
             λ(x{1} : tInt).
@@ -116,7 +116,7 @@ expected: |-
             cFalse →
               ((vstep (cI# lit (2#cIntRep) :: tInt#)) ▷ axiom-co $ax$Eff @tInt) eta{3}
           }) ▷ sym (axiom-co $ax$Eff @tInt);
-      c(,) @(tInt 4.→ tInt) @(tEff tInt) (λ(y : tInt).
+      c(,) @(tInt → tInt) @(tEff tInt) (λ(y : tInt).
         pick (pick y)) (vandThen next ((λ(eta{4} : tState# tRealWorld).
         case x of {
           cTrue →

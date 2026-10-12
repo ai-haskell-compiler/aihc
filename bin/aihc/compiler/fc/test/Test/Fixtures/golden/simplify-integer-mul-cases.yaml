@@ -39,7 +39,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
     2.cTrue :: tBool
 
@@ -48,20 +48,20 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tNumber :: sType {
-    1.cIS :: tBool 2.→ tNumber;
-    1.cIP :: tBool 2.→ tNumber;
-    1.cIN :: tBool 2.→ tNumber
+    1.cIS :: tBool → tNumber;
+    1.cIP :: tBool → tNumber;
+    1.cIN :: tBool → tNumber
   }
 
-  val 1.vsmall noinline :: tBool 2.→ tBool 2.→ tNumber
+  val 1.vsmall noinline :: tBool → tBool → tNumber
     = λ(x : tBool) (_ : tBool).
       cIS x
 
-  val 1.vbyInt noinline :: tNumber 2.→ tBool 2.→ tNumber
+  val 1.vbyInt noinline :: tNumber → tBool → tNumber
     = λ(x : tNumber) (_ : tBool).
       x
 
-  pub val 1.vintegerMul :: tNumber 2.→ tNumber 2.→ tNumber
+  pub val 1.vintegerMul :: tNumber → tNumber → tNumber
     = λ(x : tNumber) (y : tNumber).
       case x of {
         cIS (a : tBool) →

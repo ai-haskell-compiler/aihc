@@ -36,8 +36,8 @@ expected: |-
     constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -45,27 +45,27 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tSrcLoc :: sType {
-    pub 1.cSrcLoc :: t[] tChar 3.→ t[] tChar 3.→ t[] tChar 3.→ tInt 3.→ tInt 3.→ tInt 3.→ tInt 3.→ tSrcLoc
+    pub 1.cSrcLoc :: t[] tChar → t[] tChar → t[] tChar → tInt → tInt → tInt → tInt → tSrcLoc
   }
 
   pub type 1.tCallStack :: sType {
     pub 1.cEmptyCallStack :: tCallStack;
-    pub 1.cPushCallStack :: t[] tChar 3.→ tSrcLoc 3.→ tCallStack 3.→ tCallStack
+    pub 1.cPushCallStack :: t[] tChar → tSrcLoc → tCallStack → tCallStack
   }
 
   pub val 1.vemptyCallStack :: tCallStack
     = cEmptyCallStack
 
-  pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc 3.→ tCallStack 3.→ tCallStack
+  pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc → tCallStack → tCallStack
     = λ(x : tTuple2 (t[] tChar) tSrcLoc) (y : tCallStack).
       let! c(,) (name : t[] tChar) (location : tSrcLoc) = x;
       cPushCallStack name location y
 
-  pub val 1.vrenamed :: tCallStack 3.→ tInt 3.→ tCallStack
+  pub val 1.vrenamed :: tCallStack → tInt → tCallStack
     = λ(_ : tCallStack) (_ : tInt).
       vemptyCallStack
 
-  pub val 1.vbound :: tInt 3.→ tInt
+  pub val 1.vbound :: tInt → tInt
     = λ(x : tInt).
       x
 status: pass

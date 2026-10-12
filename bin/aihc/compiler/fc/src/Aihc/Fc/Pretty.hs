@@ -560,10 +560,10 @@ prettyTypeWith scopes prec ty =
     TyApp function argument ->
       parenthesize (prec < PrecApp) (prettyTypeWith scopes PrecApp function <+> prettyTypeWith scopes PrecAtom argument)
     TyFun r1 r2 argument result
-      | Just scopeId <- liftedArrowScope scopes r1 r2 ->
+      | Just prefix <- liftedArrowPrefix scopes r1 r2 ->
           parenthesize
             (prec < PrecFun)
-            (prettyTypeWith scopes PrecApp argument <+> (annotate (ScopeUse scopeId) (pretty scopeId <> ".") <> "→") <+> prettyTypeWith scopes PrecFun result)
+            (prettyTypeWith scopes PrecApp argument <+> (prefix <> "→") <+> prettyTypeWith scopes PrecFun result)
       | otherwise ->
           parenthesize
             (prec < PrecFun)
@@ -586,14 +586,21 @@ prettyTypeWith scopes prec ty =
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith scopes PrecApp left <+> "~" <+> prettyTypeWith scopes PrecApp right)
 
-liftedArrowScope :: ScopeIndex -> Type -> Type -> Maybe Int
-liftedArrowScope scopes left right =
+-- | The scope prefix of an arrow whose two representations are the
+-- @LiftedRep@ synonym. The arrow names the synonym, so it follows the rule
+-- of the other names: it has no prefix when the short name of the synonym
+-- is unambiguous.
+liftedArrowPrefix :: ScopeIndex -> Type -> Type -> Maybe FcDoc
+liftedArrowPrefix scopes left right =
   case (left, right) of
     (TyCon leftName, TyCon rightName)
       | leftName == rightName,
         nameText leftName == "LiftedRep",
+        nameSort leftName == SortSynonym,
         OriginTop package moduleName <- nameOrigin leftName ->
-          lookupScopeId scopes package moduleName
+          if Map.lookup (printedNameText leftName) (shortNames scopes) == Just leftName
+            then Just mempty
+            else (\scopeId -> annotate (ScopeUse scopeId) (pretty scopeId <> ".")) <$> lookupScopeId scopes package moduleName
     _ -> Nothing
 
 prettyForallTail :: ScopeIndex -> Type -> FcDoc

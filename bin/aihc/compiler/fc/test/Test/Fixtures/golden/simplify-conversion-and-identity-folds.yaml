@@ -72,14 +72,14 @@ expected: |-
     2.tWord32# :: tTYPE cWord32Rep;
     2.tWord8# :: tTYPE cWord8Rep;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
     3.cWord32Rep :: tRuntimeRep;
     3.cWord8Rep :: tRuntimeRep;
@@ -90,21 +90,21 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vroundTrip :: tWord 3.→ tWord
+  pub val 1.vroundTrip :: tWord → tWord
     = λ(x : tWord).
       x
 
-  pub val 1.vnarrowWidened :: tWord 3.→ tWord
+  pub val 1.vnarrowWidened :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim word32ToWord# (prim wordToWord32# w))
 
-  pub val 1.vwidenNarrowed :: tWord 3.→ tWord
+  pub val 1.vwidenNarrowed :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim word8ToWord# (prim wordToWord8# w))
 
-  pub val 1.voffsets :: tInt 3.→ FUN @cAddrRep @sLiftedRep tAddr# tInt
+  pub val 1.voffsets :: tInt → FUN @cAddrRep @sLiftedRep tAddr# tInt
     = λ(x : tInt) (y : tAddr#).
       let! cI# (n : tInt#) = x;
       cI# (prim -# n (prim minusAddr# y y))

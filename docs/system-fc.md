@@ -79,6 +79,8 @@ GRIN lowering is temporarily disabled.
 
 11. Print `a → b` when both stored representations are lifted.
     Parse `→` and `->` as `FUN` on `LiftedRep`.
+    The arrow names the `LiftedRep` synonym, so it follows the rule of the other names.
+    It is `N.→` with the scope of the synonym, or `→` when the short name `sLiftedRep` is unambiguous.
     Print `FUN @r1 @r2 a b` when a side is not lifted.
 
 12. Coercions stay a separate AST.
