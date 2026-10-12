@@ -31,6 +31,7 @@ module Aihc.Fc.Diverge
 where
 
 import Aihc.Fc.Name
+import Aihc.Fc.Equivalence (alphaCorrespondence)
 import Aihc.Fc.Size (exprSize, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, reduceType, repOf, substTypes, viewForAll, viewFun)
@@ -38,13 +39,13 @@ import Aihc.Fc.Views (castedSpine, collectSpine)
 import Aihc.Fc.Wired (runtimeRepConstructor, typeConstructor)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad (foldM, guard)
-import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
+import Control.Monad.Trans.State.Strict (State, execState, get, modify', put, runState)
 import Data.Either (isLeft, lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -225,71 +226,79 @@ sameType env left right = reduceType env left == reduceType env right
 
 -- * Diverging calls out of line
 
--- | Move each large call that diverges into a private top-level function
--- of its free variables, and call that function in its place. GHC floats
--- such an expression to the top level too. The code that makes an error
--- message then stays out of the code that does the work, and a copy of a
--- function by the inliner does not copy the message code.
+-- | Move the diverging calls that occur more than once, or that are very
+-- large, into private top-level functions of their free variables, and
+-- call those functions in their place. GHC floats such expressions to
+-- the top level too. The code that makes an error message then stays out
+-- of the code that does the work, and calls that are the same up to the
+-- names of their free variables share one function.
 --
--- A call moves when it diverges, it calls a diverging value or a primitive
--- that raises, and its size is more than 'floatSizeLimit'. The body of a
--- value under its lambdas does not move, because it is out of line
--- already. A call that uses a local coercion variable stays, because the
--- new function cannot take it as a parameter.
+-- A call is a candidate when it diverges, it calls a diverging value or a
+-- primitive that raises, and its size is more than 'floatSizeLimit'. A
+-- first walk counts the candidates that are the same up to their free
+-- variables. A candidate moves when another candidate is the same, or
+-- when its size is more than 'floatAloneLimit': a small call with one use
+-- shares nothing, and a declaration costs more than it saves.
 --
--- The new function takes the type variables that the call needs and its
--- free local variables, in the order of their binders.
+-- The body of a value under its lambdas does not move, because it is out
+-- of line already. A call that uses a local coercion variable stays,
+-- because the new function cannot take it as a parameter. The new
+-- function takes the type variables that the call needs and its free
+-- local variables, in the order of their binders.
 floatBottoms :: TypeEnv -> Diverging -> Program -> Program
 floatBottoms env0 known program =
   let names = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
-      (decls, final) = runState (mapM floatDecl (programDecls program)) (FloatState names [])
+      candidates = execState (mapM_ (traverseDecl collect) (programDecls program)) []
+      groups = List.foldl' addCandidate [] (reverse candidates)
+      (decls, final) = runState (mapM (traverseDecl (float groups)) (programDecls program)) (FloatState names [] [])
    in program {programDecls = decls <> reverse (floatDecls final)}
   where
-    floatDecl decl =
+    traverseDecl :: (Monad m) => (Name -> [Scoped] -> TypeEnv -> Expr -> m (Maybe Expr)) -> Decl -> m Decl
+    traverseDecl visit decl =
       case decl of
-        DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> root (valName value) [] env0 (valBody value)
+        DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> root visit (valName value) [] env0 (valBody value)
         _ -> pure decl
-    root owner scope env expr =
+    root visit owner scope env expr =
       case expr of
-        ExLam binder body -> ExLam binder <$> root owner (scope <> [ScopedValue binder]) (extendBinder env binder) body
-        ExTyLam binder body -> ExTyLam binder <$> root owner (scope <> [ScopedType binder]) (extendBinder env binder) body
-        ExCast body coercion -> (`ExCast` coercion) <$> root owner scope env body
-        _ -> children owner scope env expr
-    walk owner scope env expr
+        ExLam binder body -> ExLam binder <$> root visit owner (scope <> [ScopedValue binder]) (extendBinder env binder) body
+        ExTyLam binder body -> ExTyLam binder <$> root visit owner (scope <> [ScopedType binder]) (extendBinder env binder) body
+        ExCast body coercion -> (`ExCast` coercion) <$> root visit owner scope env body
+        _ -> children visit owner scope env expr
+    walk visit owner scope env expr
       | floatable env expr = do
-          moved <- float owner scope env expr
-          maybe (children owner scope env expr) pure moved
-      | otherwise = children owner scope env expr
-    children owner scope env expr =
+          moved <- visit owner scope env expr
+          maybe (children visit owner scope env expr) pure moved
+      | otherwise = children visit owner scope env expr
+    children visit owner scope env expr =
       case expr of
         ExVar {} -> pure expr
         ExLit {} -> pure expr
         ExCoercion {} -> pure expr
-        ExApp function argument -> ExApp <$> walk owner scope env function <*> walk owner scope env argument
-        ExTyApp function ty -> (`ExTyApp` ty) <$> walk owner scope env function
-        ExLam binder body -> ExLam binder <$> walk owner (scope <> [ScopedValue binder]) (extendBinder env binder) body
-        ExTyLam binder body -> ExTyLam binder <$> walk owner (scope <> [ScopedType binder]) (extendBinder env binder) body
+        ExApp function argument -> ExApp <$> walk visit owner scope env function <*> walk visit owner scope env argument
+        ExTyApp function ty -> (`ExTyApp` ty) <$> walk visit owner scope env function
+        ExLam binder body -> ExLam binder <$> walk visit owner (scope <> [ScopedValue binder]) (extendBinder env binder) body
+        ExTyLam binder body -> ExTyLam binder <$> walk visit owner (scope <> [ScopedType binder]) (extendBinder env binder) body
         ExLet bind body -> do
-          rhs <- walk owner scope env (bindRhs bind)
+          rhs <- walk visit owner scope env (bindRhs bind)
           let binder = bindBinder bind
-          ExLet bind {bindRhs = rhs} <$> walk owner (scope <> [ScopedValue binder]) (extendBinder env binder) body
+          ExLet bind {bindRhs = rhs} <$> walk visit owner (scope <> [ScopedValue binder]) (extendBinder env binder) body
         ExRec binds body -> do
           let binders = map bindBinder binds
               scope' = scope <> map ScopedValue binders
               env' = List.foldl' extendBinder env binders
-          binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> walk owner scope' env' (bindRhs bind)) binds
-          ExRec binds' <$> walk owner scope' env' body
+          binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> walk visit owner scope' env' (bindRhs bind)) binds
+          ExRec binds' <$> walk visit owner scope' env' body
         ExCase scrutinee binder alternatives -> do
-          scrutinee' <- walk owner scope env scrutinee
+          scrutinee' <- walk visit owner scope env scrutinee
           let caseBinders = foldr (:) [] binder
               alternative alt = do
                 let scope' = scope <> map ScopedValue caseBinders <> map ScopedType (altTypeBinders alt) <> map ScopedValue (altBinders alt)
                     env' = List.foldl' extendBinder env (caseBinders <> altTypeBinders alt <> altBinders alt)
-                (\rhs -> alt {altRhs = rhs}) <$> walk owner scope' env' (altRhs alt)
+                (\rhs -> alt {altRhs = rhs}) <$> walk visit owner scope' env' (altRhs alt)
           ExCase scrutinee' binder <$> mapM alternative alternatives
-        ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> walk owner scope env scrutinee
-        ExCast body coercion -> (`ExCast` coercion) <$> walk owner scope env body
-        ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (walk owner scope env) arguments
+        ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> walk visit owner scope env scrutinee
+        ExCast body coercion -> (`ExCast` coercion) <$> walk visit owner scope env body
+        ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (walk visit owner scope env) arguments
     floatable env expr =
       isDivergingCall expr
         && diverges env known expr
@@ -300,14 +309,91 @@ floatBottoms env0 known program =
         (ExVar name, _) -> Map.member name known
         (ExForeignCall call _ _, []) -> isRaise call
         _ -> False
-    float owner scope env expr =
+    -- The first walk records each candidate and moves nothing.
+    collect :: Name -> [Scoped] -> TypeEnv -> Expr -> State [Expr] (Maybe Expr)
+    collect _ _ _ expr = do
+      modify' (expr :)
+      pure Nothing
+    -- Each group holds one candidate and the number of candidates that are
+    -- the same up to their free variables.
+    addCandidate groups expr =
+      case List.break (\(representative, _) -> isJust (sameCall representative expr)) groups of
+        (before, (representative, count) : after) -> before <> ((representative, count + 1 :: Int) : after)
+        _ -> groups <> [(expr, 1)]
+    float groups owner scope env expr =
+      case [count | (representative, count) <- groups, isJust (sameCall representative expr)] of
+        count : _
+          | count >= 2 || exprSize env expr > floatAloneLimit -> do
+              st <- get
+              case listToMaybe [call | moved <- floatMoved st, Just call <- [callOf env moved expr]] of
+                Just call -> pure (Just call)
+                Nothing -> newFunction owner scope env expr
+        _ -> pure Nothing
+    newFunction owner scope env expr =
       case floatedFunction env scope expr of
         Nothing -> pure Nothing
-        Just (ty, body, typeArguments, parameters) -> do
+        Just (ty, body, typeParameters, generality, parameters) -> do
           name <- freshFloatName owner
           let declaration = DeclVal (ValDecl Private name ty body (InlineNever NeverActive))
-          modify' (\st -> st {floatDecls = declaration : floatDecls st})
-          pure (Just (List.foldl' ExApp (List.foldl' ExTyApp (ExVar name) typeArguments) (map (ExVar . binderName) parameters)))
+              moved = Moved name expr typeParameters generality parameters
+          modify' (\st -> st {floatDecls = declaration : floatDecls st, floatMoved = moved : floatMoved st})
+          pure (callOf env moved expr)
+
+-- | Whether two calls are the same up to the names of their free local
+-- variables and type variables, and the correspondence of those names.
+sameCall :: Expr -> Expr -> Maybe (Map Name Name)
+sameCall left right = alphaCorrespondence (holes left) (holes right) left right
+  where
+    holes expr = Set.filter isLocalName (exprFreeNames expr) <> exprTypeVariables expr
+
+-- | A call of a moved function in place of a candidate that is the same
+-- as the call it moved. Each parameter takes the variable of the
+-- candidate that corresponds to it, and that variable must have the type
+-- of the parameter.
+callOf :: TypeEnv -> Moved -> Expr -> Maybe Expr
+callOf env moved expr = do
+  correspondence <- sameCall (movedCall moved) expr
+  let rename name = Map.findWithDefault name name correspondence
+      typeRenaming = Map.fromList [(from, TyVar to) | (from, to) <- Map.toList correspondence]
+      typeArguments = map (TyVar . rename . binderName) (movedTypeParameters moved)
+      arguments = map (ExVar . rename . binderName) (movedParameters moved)
+  guard
+    ( and
+        [ maybe False (sameType env (substTypes typeRenaming (binderType parameter))) (exprType env argument)
+        | (parameter, argument) <- zip (movedParameters moved) arguments
+        ]
+    )
+  resultType <- exprType env expr
+  resultRep <- repOf env resultType
+  let extra = case movedGenerality moved of
+        AnyRepresentation -> [resultRep, resultType]
+        FixedRepresentation -> [resultType]
+        FixedType -> []
+  Just (List.foldl' ExApp (List.foldl' ExTyApp (ExVar (movedName moved)) (typeArguments <> extra)) arguments)
+
+-- | A diverging call that moved into a new function.
+data Moved = Moved
+  { movedName :: !Name,
+    movedCall :: !Expr,
+    movedTypeParameters :: ![Binder],
+    movedGenerality :: !Generality,
+    movedParameters :: ![Binder]
+  }
+
+-- | How the result type of a moved function varies.
+data Generality
+  = -- | The result can have any type and representation.
+    AnyRepresentation
+  | -- | The result can have any type of the representation of the call.
+    FixedRepresentation
+  | -- | The result has the type of the call.
+    FixedType
+
+isLocalName :: Name -> Bool
+isLocalName name =
+  case nameOrigin name of
+    OriginLocal {} -> True
+    _ -> False
 
 -- | The type and body of the function that a moved call becomes, with the
 -- type arguments and the value parameters of its call. The innermost
@@ -317,7 +403,7 @@ floatBottoms env0 known program =
 -- polymorphic in its result type and its representation. A later case or
 -- strict let of the call can then give the call its own type, and needs
 -- no absurd match.
-floatedFunction :: TypeEnv -> [Scoped] -> Expr -> Maybe (Type, Expr, [Type], [Binder])
+floatedFunction :: TypeEnv -> [Scoped] -> Expr -> Maybe (Type, Expr, [Binder], Generality, [Binder])
 floatedFunction env scope expr = do
   resultType <- exprType env expr
   resultRep <- repOf env resultType
@@ -333,11 +419,11 @@ floatedFunction env scope expr = do
       anyRep = Binder resultName (TyApp (TyCon (typeConstructor package)) (TyVar (binderName repBinder)))
       fixedRep = Binder resultName (TyApp (TyCon (typeConstructor package)) resultRep)
       generalize binders = (,binders) <$> retype (List.foldl' extendBinder env binders) expr (TyVar resultName)
-      (body0, result, extraBinders, extraArgs) = case generalize [repBinder, anyRep] of
-        Just (retyped, binders) -> (retyped, TyVar resultName, binders, [resultRep, resultType])
+      (body0, result, extraBinders, generality) = case generalize [repBinder, anyRep] of
+        Just (retyped, binders) -> (retyped, TyVar resultName, binders, AnyRepresentation)
         Nothing -> case generalize [fixedRep] of
-          Just (retyped, binders) -> (retyped, TyVar resultName, binders, [resultType])
-          Nothing -> (expr, resultType, [], [])
+          Just (retyped, binders) -> (retyped, TyVar resultName, binders, FixedRepresentation)
+          Nothing -> (expr, resultType, [], FixedType)
       direct = exprTypeVariables body0 <> foldMap (typeVariables . binderType) parameters <> typeVariables result
       needed = closeTypeVariables typeBinders direct
       typeParameters = [binder | binder <- typeBinders, Set.member (binderName binder) needed]
@@ -347,7 +433,7 @@ floatedFunction env scope expr = do
   functionType <- foldM (\inner parameter -> arrow functionEnv (binderType parameter) inner) result (reverse parameters)
   let ty = foldr TyForAll functionType (typeParameters <> extraBinders)
       body = foldr ExTyLam (foldr ExLam body0 parameters) (typeParameters <> extraBinders)
-  Just (ty, body, map (TyVar . binderName) typeParameters <> extraArgs, parameters)
+  Just (ty, body, typeParameters, generality, parameters)
   where
     arrow functionEnv argument result = do
       argumentRep <- repOf functionEnv argument
@@ -382,7 +468,8 @@ innermost scope = reverse (go Set.empty (reverse scope))
 
 data FloatState = FloatState
   { floatNames :: !(Set Name),
-    floatDecls :: ![Decl]
+    floatDecls :: ![Decl],
+    floatMoved :: ![Moved]
   }
 
 freshFloatName :: Name -> State FloatState Name
@@ -396,6 +483,11 @@ freshFloatName owner = do
 -- | The smallest diverging call that 'floatBottoms' moves.
 floatSizeLimit :: Int
 floatSizeLimit = 12
+
+-- | The smallest diverging call that 'floatBottoms' moves when no other
+-- call is the same.
+floatAloneLimit :: Int
+floatAloneLimit = 60
 
 -- | The type variables of the types in an expression.
 exprTypeVariables :: Expr -> Set Name

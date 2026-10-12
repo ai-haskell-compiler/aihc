@@ -426,9 +426,6 @@ simplifyValue config known diverging recursive inTemplates st name
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
-                    -- A copy of a value that diverges only brings the code
-                    -- of its error into the caller.
-                    callee `Map.notMember` diverging,
                     let spec = Map.findWithDefault InlineDefault callee (inSpecs st),
                     inliningAllowed (inlinePhase config) spec,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
@@ -441,6 +438,10 @@ simplifyValue config known diverging recursive inTemplates st name
                           | every = SitesUnconditional
                           | requested && withinLimit = SitesRequested
                           | otherwise = SitesMeasured,
+                    -- A copy of a large value that diverges only brings the
+                    -- code of its error into the caller. A small one, such as
+                    -- @throwIO@, is a cheap copy.
+                    callee `Map.notMember` diverging || size <= divergingCopyLimit,
                     -- A callee over the limit is never copied, unless every
                     -- copy together replaces it or its pragma asks for it.
                     every || requested || withinLimit
@@ -708,3 +709,7 @@ countTopUses = go
 -- is a cheap value or the alternative does not use it.
 knownValues :: Inliner -> Map Name Expr
 knownValues = inKnown
+
+-- | The largest value that diverges and that the inliner still copies.
+divergingCopyLimit :: Int
+divergingCopyLimit = 40
