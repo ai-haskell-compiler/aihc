@@ -540,6 +540,12 @@ simplifyExpr env expr =
           chain <- freshenExpr rhs
           floatChain env chain continue
         else continue env rhs
+    -- A dictionary that a loop takes apart is taken apart once, in
+    -- front of the loop. See 'loopDictionary'.
+    ExRec binds _
+      | Just (dictionary, con, fieldTypes, hints) <- loopDictionary env binds -> do
+          fields <- zipWithM (\ty hint -> (`Binder` ty) <$> freshLocal hint) fieldTypes hints
+          simplifyExpr env (ExCase (ExVar dictionary) Nothing (Alt (AltData con) [] fields expr NE.:| []))
     ExRec binds body -> do
       let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv inner (binderName (bindBinder bind))) (bindRhs bind)) binds
@@ -637,6 +643,90 @@ constructorFields env con types = do
         Nothing
           | Just _ <- viewForAll env ty -> Nothing
           | otherwise -> Just ([], ty)
+
+-- | A class dictionary that the right-hand sides of a recursive group
+-- take apart, when the dictionary is a local variable from outside the group
+-- that the environment does not know and that is not evaluated yet. The result is the variable,
+-- its constructor, the field types and the names of the fields of the
+-- first such match.
+--
+-- The value of a dictionary does not change in a loop, so one match in
+-- front of the loop gives its fields to every iteration, and the cases
+-- in the loop then select them. The match evaluates the dictionary before
+-- the loop starts. This is safe because a dictionary is never bottom:
+-- the program builds each dictionary from a constructor, as GHC assumes
+-- too. A loop that does not use the dictionary on some path then
+-- evaluates it once, which is cheap.
+loopDictionary :: Simpl -> [Bind] -> Maybe (Name, Name, [Type], [Name])
+loopDictionary env binds =
+  listToMaybe
+    [ (dictionary, con, fieldTypes, map binderName fields)
+    | (dictionary, con, fields) <- concatMap (matches . bindRhs) binds,
+      Set.notMember dictionary bound,
+      isLocalName dictionary,
+      Map.notMember dictionary (spLocals env),
+      -- The match in front of the loop marks the variable evaluated, also
+      -- when the environment cannot record its constructor. The next walk
+      -- over the group then does not match it again.
+      Set.notMember dictionary (spEvaluated env),
+      Just dictionaryType <- [exprType types (ExVar dictionary)],
+      (TyCon tyCon, typeArgs) <- [typeSpine (reduceType types dictionaryType)],
+      "$Dict$" `T.isPrefixOf` nameText tyCon,
+      Map.lookup tyCon (teDataCons types) == Just [con],
+      Just (fieldTypes, _) <- [constructorFields types con typeArgs],
+      length fieldTypes == length fields
+    ]
+  where
+    types = spEnv env
+    bound = foldMap (boundNames . bindRhs) binds <> Set.fromList (map (binderName . bindBinder) binds)
+    -- The matches of a variable with one constructor alternative.
+    matches expr =
+      case expr of
+        ExCase scrutinee _ (NE.toList -> alternatives) ->
+          [ (variable, con, fields)
+          | ExVar variable <- [scrutinee],
+            [Alt (AltData con) [] fields _] <- [alternatives]
+          ]
+            <> matches scrutinee
+            <> concatMap (matches . altRhs) alternatives
+        ExLam _ inner -> matches inner
+        ExTyLam _ inner -> matches inner
+        ExLet bind inner -> matches (bindRhs bind) <> matches inner
+        ExRec inner rest -> concatMap (matches . bindRhs) inner <> matches rest
+        ExApp function argument -> matches function <> matches argument
+        ExTyApp function _ -> matches function
+        ExCast inner _ -> matches inner
+        ExForeignCall _ _ arguments -> concatMap matches arguments
+        ExAbsurd inner _ -> matches inner
+        _ -> []
+
+-- | Whether a name is bound inside a value. A case on a top-level
+-- dictionary is a case on a known value, which selects its fields where
+-- it stands.
+isLocalName :: Name -> Bool
+isLocalName name =
+  case nameOrigin name of
+    OriginLocal {} -> True
+    OriginTop {} -> False
+
+-- | The names that an expression binds anywhere inside it.
+boundNames :: Expr -> Set Name
+boundNames expr =
+  case expr of
+    ExLam binder inner -> Set.insert (binderName binder) (boundNames inner)
+    ExTyLam binder inner -> Set.insert (binderName binder) (boundNames inner)
+    ExLet bind inner -> Set.insert (binderName (bindBinder bind)) (boundNames (bindRhs bind) <> boundNames inner)
+    ExRec binds inner -> Set.fromList (map (binderName . bindBinder) binds) <> foldMap (boundNames . bindRhs) binds <> boundNames inner
+    ExCase scrutinee binder alternatives ->
+      boundNames scrutinee
+        <> foldMap (Set.singleton . binderName) binder
+        <> foldMap (\alternative -> Set.fromList (map binderName (altTypeBinders alternative <> altBinders alternative)) <> boundNames (altRhs alternative)) alternatives
+    ExApp function argument -> boundNames function <> boundNames argument
+    ExTyApp function _ -> boundNames function
+    ExCast inner _ -> boundNames inner
+    ExForeignCall _ _ arguments -> foldMap boundNames arguments
+    ExAbsurd inner _ -> boundNames inner
+    _ -> Set.empty
 
 -- | Whether an expression starts a chain: a let, or a case of one
 -- alternative. See 'floatChain'.
