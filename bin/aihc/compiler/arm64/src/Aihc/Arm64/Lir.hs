@@ -119,6 +119,9 @@ arm64AsCode statement =
 operandIn' :: Ctx Arm64Register -> Int -> Type -> Arm64Register -> Operand -> ([Arm64Statement], Arm64Register)
 operandIn' = Native.operandIn arm64Backend
 
+operandTo' :: Ctx Arm64Register -> Type -> Arm64Register -> Operand -> [Arm64Statement]
+operandTo' = Native.operandTo arm64Backend
+
 parallelMove' :: [(Location Arm64Register, MoveSource Arm64Register)] -> [Arm64Statement]
 parallelMove' = Native.parallelMove arm64Backend
 
@@ -205,6 +208,11 @@ arm64Backend =
       nbSelect = arm64Select,
       nbLoad = arm64Load,
       nbStore = arm64Store,
+      nbLoadAtomic = arm64LoadAtomic,
+      nbStoreAtomic = arm64StoreAtomic,
+      nbCompareSwap = arm64CompareSwap,
+      nbAtomicRmw = arm64AtomicRmw,
+      nbFence = \order -> [arm64Instruction (ArmDmb (order == Acquire))],
       nbPtrAdd = arm64PtrAdd,
       nbStackAddr = arm64StackAddr,
       nbGlobalLoad = \dst symbol -> address scratchRight symbol <> [arm64Instruction (ArmLdr dst (Arm64Offset scratchRight 0))],
@@ -373,6 +381,11 @@ instructionEffect instruction =
     ArmStrh _ base _ -> narrowAccess base (Writes [])
     ArmLdp {} -> Forgets
     ArmStp {} -> Forgets
+    ArmAtomic _ _ _ _ _ result base -> narrowAccess base (writes [result])
+    ArmCas _ _ _ expected _ base -> narrowAccess base (writes [expected])
+    ArmLdar _ destination base -> narrowAccess base (writes [destination])
+    ArmStlr _ _ base -> narrowAccess base (Writes [])
+    ArmDmb _ -> Writes []
   where
     writes registers
       | SP `elem` registers = Forgets
@@ -894,6 +907,80 @@ arm64Store ctx ty value base offset =
   let (loads, a) = operandIn' ctx 0 ty scratchLeft value
       (addressLines, baseRegister) = effectiveAddress ctx base offset ty
    in loads <> addressLines <> [storeMemory ty a baseRegister (memoryOffset offset ty)]
+
+-- | The base register of an atomic access. The atomic instructions take a
+-- base register without an offset, so a nonzero offset goes into the right
+-- scratch register with the base.
+atomicBase :: Ctx Arm64Register -> Operand -> Integer -> ([Arm64Statement], Arm64Register)
+atomicBase ctx base offset
+  | offset == 0 = (loads, register)
+  | otherwise =
+      case addSubConstant 64 (offset `mod` 2 ^ (64 :: Int)) of
+        Just (negated, value) -> (loads <> [arm64Instruction ((if negated then ArmSub else ArmAdd) scratchRight register (Arm64ImmediateValue value))], scratchRight)
+        Nothing -> (loads <> [immediate scratchExtra offset, arm64Instruction (ArmAdd scratchRight register (Arm64RegisterValue scratchExtra))], scratchRight)
+  where
+    (loads, register) = operandIn' ctx 0 Ptr scratchRight base
+
+-- | The acquire and release flags of an atomic instruction.
+acquires, releases :: MemoryOrder -> Bool
+acquires order = order `elem` [Acquire, AcqRel, SeqCst]
+releases order = order `elem` [Release, AcqRel, SeqCst]
+
+-- | The register name of an access of the given type: the 32-bit name for
+-- an access below eight bytes.
+accessRegister :: Type -> Arm64Register -> Arm64Register
+accessRegister ty register = if typeBytes ty == 8 then register else wordRegister register
+
+-- | @ldar@ gives the acquire and the sequentially consistent loads. A
+-- relaxed load is a plain load.
+arm64LoadAtomic :: Ctx Arm64Register -> MemoryOrder -> Type -> Operand -> Integer -> Arm64Register -> [Arm64Statement]
+arm64LoadAtomic ctx order ty base offset dst
+  | order == Relaxed = arm64Load ctx ty base offset dst
+  | otherwise =
+      let (lines', register) = atomicBase ctx base offset
+       in lines' <> [arm64Instruction (ArmLdar (typeBytes ty) (accessRegister ty dst) register)]
+
+-- | @stlr@ gives the release and the sequentially consistent stores. A
+-- relaxed store is a plain store.
+arm64StoreAtomic :: Ctx Arm64Register -> MemoryOrder -> Type -> Operand -> Operand -> Integer -> [Arm64Statement]
+arm64StoreAtomic ctx order ty value base offset
+  | order == Relaxed = arm64Store ctx ty value base offset
+  | otherwise =
+      let (loads, a) = operandIn' ctx 0 ty scratchLeft value
+          (lines', register) = atomicBase ctx base offset
+       in loads <> lines' <> [arm64Instruction (ArmStlr (typeBytes ty) (accessRegister ty a) register)]
+
+-- | @cas@ reads the expected value from its first register and writes the
+-- old value there, so the expected value goes into the left scratch
+-- register first.
+arm64CompareSwap :: Ctx Arm64Register -> MemoryOrder -> Type -> Arm64Register -> Operand -> Operand -> Operand -> Integer -> NativeM Arm64LirError [Arm64Statement]
+arm64CompareSwap ctx order ty dst expected replacement base offset =
+  let (lines', register) = atomicBase ctx base offset
+      (loads, new) = operandIn' ctx 0 ty scratchExtra replacement
+   in pure
+        ( lines'
+            <> operandTo' ctx ty scratchLeft expected
+            <> loads
+            <> [arm64Instruction (ArmCas (typeBytes ty) (acquires order) (releases order) (accessRegister ty scratchLeft) (accessRegister ty new) register)]
+            <> move dst scratchLeft
+        )
+
+-- | The old value goes into the extra scratch register, so it never shares
+-- a register with the operand.
+arm64AtomicRmw :: Ctx Arm64Register -> AtomicOp -> MemoryOrder -> Type -> Arm64Register -> Operand -> Operand -> Integer -> NativeM Arm64LirError [Arm64Statement]
+arm64AtomicRmw ctx op order ty dst value base offset =
+  let (lines', register) = atomicBase ctx base offset
+      (loads, a) = operandIn' ctx 0 ty scratchLeft value
+      atomicOp = case op of
+        AtomicXchg -> ArmSwp
+        AtomicAdd -> ArmLdadd
+        AtomicOr -> ArmLdset
+   in pure
+        ( lines'
+            <> loads
+            <> [arm64Instruction (ArmAtomic atomicOp (typeBytes ty) (acquires order) (releases order) (accessRegister ty a) (accessRegister ty scratchExtra) register)]
+            <> move dst scratchExtra
+        )
 
 memoryOffset :: Integer -> Type -> Int64
 memoryOffset offset ty

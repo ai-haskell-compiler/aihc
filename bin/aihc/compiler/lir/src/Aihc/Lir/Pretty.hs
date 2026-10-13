@@ -21,6 +21,8 @@ module Aihc.Lir.Pretty
     floatBinaryOpName,
     floatUnaryOpName,
     convertOpName,
+    memoryOrderName,
+    atomicOpName,
   )
 where
 
@@ -197,6 +199,14 @@ prettyOperation operation =
     Select ty condition left right -> "select" <+> prettyType ty <+> prettyOperands [condition, left, right]
     Load ty address alignment -> "load" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment
     Store ty value address alignment -> "store" <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address <+> prettyAlign alignment
+    LoadAtomic order ty address -> "load.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyAddress address
+    StoreAtomic order ty value address -> "store.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address
+    LoadDependent ty address -> "load.dependent" <+> prettyType ty <+> prettyAddress address
+    CompareSwap order ty expected replacement address ->
+      "cas" <+> prettyOrder order <+> prettyType ty <+> prettyOperands [expected, replacement] <> "," <+> prettyAddress address
+    AtomicRmw op order ty value address ->
+      pretty (atomicOpName op) <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address
+    Fence order -> "fence" <+> prettyOrder order
     PtrAdd base offset -> "ptr.add" <+> prettyOperands [base, offset]
     StackAlloc size alignment -> "stack.alloc" <+> pretty size <+> prettyAlign alignment
     GlobalGet symbol -> "global.get" <+> prettySymbol symbol
@@ -204,6 +214,9 @@ prettyOperation operation =
     Call symbol arguments -> "call" <+> prettySymbol symbol <> prettyArguments arguments
     CallIndirect target arguments signature ->
       "call.indirect" <+> prettyOperand target <> prettyArguments arguments <+> ":" <+> prettySignature signature
+
+prettyOrder :: MemoryOrder -> Doc ann
+prettyOrder = pretty . memoryOrderName
 
 prettyAlign :: Alignment -> Doc ann
 prettyAlign alignment =
@@ -364,6 +377,8 @@ reservedWords =
     <> map floatUnaryOpName [minBound .. maxBound]
     <> map convertOpName [minBound .. maxBound]
     <> ["ptr.to_int", "ptr.from_int", "select", "load", "store", "ptr.add", "stack.alloc", "global.get", "global.set", "call", "call.indirect"]
+    <> ["load.atomic", "store.atomic", "load.dependent", "cas", "fence"]
+    <> map atomicOpName [minBound .. maxBound]
     <> ["i1", "i8", "i16", "i32", "i64", "f32", "f64", "ptr", "code"]
 
 binaryOpName :: BinaryOp -> Text
@@ -434,6 +449,22 @@ floatUnaryOpName op =
     FNeg -> "fneg"
     FAbs -> "fabs"
     FSqrt -> "fsqrt"
+
+memoryOrderName :: MemoryOrder -> Text
+memoryOrderName order =
+  case order of
+    Relaxed -> "relaxed"
+    Acquire -> "acquire"
+    Release -> "release"
+    AcqRel -> "acq_rel"
+    SeqCst -> "seq_cst"
+
+atomicOpName :: AtomicOp -> Text
+atomicOpName op =
+  case op of
+    AtomicXchg -> "xchg"
+    AtomicAdd -> "atomic.add"
+    AtomicOr -> "atomic.or"
 
 convertOpName :: ConvertOp -> Text
 convertOpName op =

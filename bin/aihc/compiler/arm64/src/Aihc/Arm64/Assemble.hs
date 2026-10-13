@@ -8,6 +8,7 @@ module Aihc.Arm64.Assemble
     Arm64Shift (..),
     Arm64Condition (..),
     Arm64FloatOp (..),
+    Arm64AtomicOp (..),
     assembleMachO,
     addSubImmediate,
     logicalImmediate,
@@ -263,6 +264,25 @@ data Arm64Instruction
   | -- | Float to signed and unsigned 64-bit integer, rounding toward zero.
     ArmFcvtzs !Bool !Arm64Register !Int
   | ArmFcvtzu !Bool !Arm64Register !Int
+  | -- | An LSE atomic operation: the access size in bytes, the acquire and
+    -- release flags, the operand register, the result register, and the
+    -- base register. The result receives the old value.
+    ArmAtomic !Arm64AtomicOp !Int !Bool !Bool !Arm64Register !Arm64Register !Arm64Register
+  | -- | @cas@: the access size in bytes, the acquire and release flags, the
+    -- register with the expected value, which receives the old value, the
+    -- register with the replacement, and the base register.
+    ArmCas !Int !Bool !Bool !Arm64Register !Arm64Register !Arm64Register
+  | -- | @ldar@ and @stlr@: the access size in bytes, the value register, and
+    -- the base register.
+    ArmLdar !Int !Arm64Register !Arm64Register
+  | ArmStlr !Int !Arm64Register !Arm64Register
+  | -- | @dmb ishld@ when the flag is set, otherwise @dmb ish@.
+    ArmDmb !Bool
+  deriving (Eq, Show)
+
+-- | The LSE operations that give the old value: @swp@, @ldadd@, and @ldset@.
+-- They need ARMv8.1, which every Apple ARM64 processor has.
+data Arm64AtomicOp = ArmSwp | ArmLdadd | ArmLdset
   deriving (Eq, Show)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
@@ -415,6 +435,34 @@ encodeInstruction instruction =
           rn = registerInfo trueValue
           rm = registerInfo falseValue
        in words32 [0x9a800000 .|. registerNumber rm `shiftL` 16 .|. conditionCode condition `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+    ArmAtomic op size acquire release source result base ->
+      let opcode = case op of
+            ArmSwp -> 0x8000
+            ArmLdadd -> 0x0000
+            ArmLdset -> 0x3000
+       in words32
+            [ 0x38200000
+                .|. accessSizeField size
+                .|. flag acquire 23
+                .|. flag release 22
+                .|. registerNumber (registerInfo source) `shiftL` 16
+                .|. opcode
+                .|. registerNumber (registerInfo base) `shiftL` 5
+                .|. registerNumber (registerInfo result)
+            ]
+    ArmCas size acquire release expected replacement base ->
+      words32
+        [ 0x08a07c00
+            .|. accessSizeField size
+            .|. flag acquire 22
+            .|. flag release 15
+            .|. registerNumber (registerInfo expected) `shiftL` 16
+            .|. registerNumber (registerInfo base) `shiftL` 5
+            .|. registerNumber (registerInfo replacement)
+        ]
+    ArmLdar size value base -> words32 [0x08dffc00 .|. accessSizeField size .|. registerNumber (registerInfo base) `shiftL` 5 .|. registerNumber (registerInfo value)]
+    ArmStlr size value base -> words32 [0x089ffc00 .|. accessSizeField size .|. registerNumber (registerInfo base) `shiftL` 5 .|. registerNumber (registerInfo value)]
+    ArmDmb loadsOnly -> words32 [if loadsOnly then 0xd50339bf else 0xd5033bbf]
     ArmLdrb value base offset -> encodeNarrowLoadStore 0x39400000 1 value base offset
     ArmLdrh value base offset -> encodeNarrowLoadStore 0x79400000 2 value base offset
     ArmStrb value base offset -> encodeNarrowLoadStore 0x39000000 1 value base offset
@@ -471,6 +519,18 @@ encodeTwoRegister base destination source =
   let rd = registerInfo destination
       rn = registerInfo source
    in words32 [base .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+
+-- | The size field of a load or store exclusive or atomic instruction.
+accessSizeField :: Int -> Word32
+accessSizeField size =
+  case size of
+    1 -> 0
+    2 -> 1 `shiftL` 30
+    4 -> 2 `shiftL` 30
+    _ -> 3 `shiftL` 30
+
+flag :: Bool -> Int -> Word32
+flag set bit = if set then 1 `shiftL` bit else 0
 
 encodeNarrowLoadStore :: Word32 -> Int64 -> Arm64Register -> Arm64Register -> Int64 -> [Item]
 encodeNarrowLoadStore base scale value baseRegister offset =

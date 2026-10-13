@@ -144,7 +144,25 @@ instruction code =
     ArmLdrh destination base offset -> narrow "ldrh" destination base offset
     ArmStrb source base offset -> narrow "strb" source base offset
     ArmStrh source base offset -> narrow "strh" source base offset
+    ArmAtomic op size acquire release source result base ->
+      let name = case op of
+            ArmSwp -> "swp"
+            ArmLdadd -> "ldadd"
+            ArmLdset -> "ldset"
+       in name <> ordered acquire release size <> " " <> sized size source <> ", " <> sized size result <> ", [" <> reg base <> "]"
+    ArmCas size acquire release expected replacement base ->
+      "cas" <> ordered acquire release size <> " " <> sized size expected <> ", " <> sized size replacement <> ", [" <> reg base <> "]"
+    ArmLdar size value base -> "ldar" <> sizeSuffix size <> " " <> sized size value <> ", [" <> reg base <> "]"
+    ArmStlr size value base -> "stlr" <> sizeSuffix size <> " " <> sized size value <> ", [" <> reg base <> "]"
+    ArmDmb loadsOnly -> if loadsOnly then "dmb ishld" else "dmb ish"
   where
+    ordered acquire release size = ['a' | acquire] <> ['l' | release] <> sizeSuffix size
+    sizeSuffix size =
+      case size of
+        1 -> "b"
+        2 -> "h"
+        _ -> ""
+    sized size register = reg (if size == 8 then register else wordName register)
     arithmetic name destination source operand =
       name <> " " <> reg destination <> ", " <> reg source <> ", " <> valueText operand
     logical name destination source operand =

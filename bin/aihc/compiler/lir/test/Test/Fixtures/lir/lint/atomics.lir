@@ -1,0 +1,19 @@
+; error: @main/entry: load.atomic does not accept the order release
+; error: @main/entry: store.atomic does not accept the order acquire
+; error: @main/entry: fence does not accept the order relaxed
+; error: @main/entry: atomic.add does not accept ptr
+; error: @main/entry: cas does not accept f64
+; error: @main/entry: load.dependent does not accept i1
+
+data mut @cell align 8 = { i64 0 }
+
+func @main() -> i64 {
+entry:
+  %a = load.atomic release i64 [@cell]
+  store.atomic acquire i64 %a, [@cell]
+  fence relaxed
+  %p = atomic.add seq_cst ptr @cell, [@cell]
+  %f = cas acq_rel f64 1.0, 2.0, [@cell]
+  %b = load.dependent i1 [@cell]
+  return %a
+}

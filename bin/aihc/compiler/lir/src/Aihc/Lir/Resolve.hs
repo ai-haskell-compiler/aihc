@@ -233,6 +233,13 @@ resolveConstants wordBytes (Module items) = Module [resolveItem item | item <- i
         Select ty condition whenTrue whenFalse -> Select ty (operand condition) (operand whenTrue) (operand whenFalse)
         Load ty address align -> Load ty (resolveAddress address) align
         Store ty value address align -> Store ty (operand value) (resolveAddress address) align
+        LoadAtomic order ty address -> LoadAtomic order ty (resolveAddress address)
+        StoreAtomic order ty value address -> StoreAtomic order ty (operand value) (resolveAddress address)
+        LoadDependent ty address -> LoadDependent ty (resolveAddress address)
+        CompareSwap order ty expected replacement address ->
+          CompareSwap order ty (operand expected) (operand replacement) (resolveAddress address)
+        AtomicRmw op order ty value address -> AtomicRmw op order ty (operand value) (resolveAddress address)
+        Fence _ -> operation
         PtrAdd base offset -> PtrAdd (operand base) (operand offset)
         StackAlloc _ _ -> operation
         GlobalGet _ -> operation

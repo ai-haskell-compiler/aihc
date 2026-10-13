@@ -216,6 +216,13 @@ amd64Backend =
       nbSelect = select,
       nbLoad = amd64Load,
       nbStore = amd64Store,
+      -- Every AMD64 load has acquire order, and a plain store has release
+      -- order. A load keeps its address dependency.
+      nbLoadAtomic = \ctx _ -> amd64Load ctx,
+      nbStoreAtomic = amd64StoreAtomic,
+      nbCompareSwap = amd64CompareSwap,
+      nbAtomicRmw = amd64AtomicRmw,
+      nbFence = \order -> [amd64Instruction AmdMfence | order == SeqCst],
       nbPtrAdd = amd64PtrAdd,
       nbStackAddr = \dst offset -> [amd64Instruction (AmdLea dst (Amd64MemoryAddress (slotMemory offset)))],
       nbGlobalLoad = \dst symbol -> [address scratchRight symbol, amd64Instruction (AmdMov dst (Amd64MoveMemory (Amd64Memory scratchRight 0)))],
@@ -288,7 +295,9 @@ scratchLeft = R11
 scratchRight = R10
 
 data Scratch = Scratch
-  { scratchDivides :: !Bool,
+  { -- | Whether the function uses @rax@ and @rdx@ for a division, a wide
+    -- multiplication, or an atomic operation.
+    scratchDivides :: !Bool,
     scratchShifts :: !Bool
   }
 
@@ -305,6 +314,8 @@ functionScratch function =
         Binary op _ _ _ -> op `elem` [DivS, DivU, RemS, RemU]
         Wide op ty _ _ -> op `elem` [MulWideU, MulWideS] && typeBits ty == 64
         QuotRemWide {} -> True
+        CompareSwap {} -> True
+        AtomicRmw AtomicOr _ _ _ _ -> True
         _ -> False
     shifts operation =
       case operation of
@@ -412,6 +423,11 @@ instructionEffect instruction =
     AmdCvtts2si _ destination _ -> writes [destination]
     AmdBitCount _ destination _ -> writes [destination]
     AmdBmi2 _ destination _ _ -> writes [destination]
+    -- Each atomic operation writes its register, and @cmpxchg@ writes rax.
+    AmdAtomic _ _ (Amd64Memory base _) source
+      | base == RSP -> Forgets
+      | otherwise -> writes [source, RAX]
+    AmdMfence -> Writes []
   where
     writes registers
       | RSP `elem` registers = Forgets
@@ -1037,6 +1053,72 @@ amd64Store ctx ty value base offset =
   let (loads, a) = operandIn' ctx 0 ty scratchLeft value
       (loads', baseRegister) = operandIn' ctx 0 Ptr scratchRight base
    in loads <> loads' <> [storeMemory ty (Amd64Memory baseRegister (fromInteger offset)) a]
+
+-- | The memory operand of an atomic operation. The base is in its own
+-- register or in the right scratch register.
+atomicMemory :: Ctx Amd64Register -> Operand -> Integer -> ([Amd64Statement], Amd64Memory)
+atomicMemory ctx base offset =
+  let (loads, baseRegister) = operandIn' ctx 0 Ptr scratchRight base
+   in (loads, Amd64Memory baseRegister (fromInteger offset))
+
+-- | A sequentially consistent store is an exchange, which has an implicit
+-- lock. A plain store gives the other orders.
+amd64StoreAtomic :: Ctx Amd64Register -> MemoryOrder -> Type -> Operand -> Operand -> Integer -> [Amd64Statement]
+amd64StoreAtomic ctx order ty value base offset
+  | order == SeqCst =
+      let (loads, a) = operandIn' ctx 0 ty scratchLeft value
+          (loads', memory) = atomicMemory ctx base offset
+       in loads <> move scratchLeft a <> loads' <> [amd64Instruction (AmdAtomic AmdXchg (typeBytes ty) memory scratchLeft)]
+  | otherwise = amd64Store ctx ty value base offset
+
+-- | @lock cmpxchg@ compares the location with @rax@ and gives the old value
+-- in @rax@. A function with this operation keeps no value in @rax@.
+amd64CompareSwap :: Ctx Amd64Register -> MemoryOrder -> Type -> Amd64Register -> Operand -> Operand -> Operand -> Integer -> NativeM Amd64LirError [Amd64Statement]
+amd64CompareSwap ctx _ ty dst expected replacement base offset =
+  let (loads, memory) = atomicMemory ctx base offset
+      (loads', new) = operandIn' ctx 0 ty scratchLeft replacement
+   in pure
+        ( loads
+            <> operandTo' ctx ty RAX expected
+            <> loads'
+            <> [amd64Instruction (AmdAtomic AmdCmpxchg (typeBytes ty) memory new)]
+            <> move dst RAX
+            <> narrowRegister ty dst
+        )
+
+-- | An exchange and an addition give the old value in their register. AMD64
+-- has no or that gives the old value, so the or is a loop of compare and
+-- swap operations. A function with an or keeps no value in @rax@ and @rdx@.
+amd64AtomicRmw :: Ctx Amd64Register -> AtomicOp -> MemoryOrder -> Type -> Amd64Register -> Operand -> Operand -> Integer -> NativeM Amd64LirError [Amd64Statement]
+amd64AtomicRmw ctx op _ ty dst value base offset =
+  let width = typeBytes ty
+      (loads, memory) = atomicMemory ctx base offset
+      (loads', a) = operandIn' ctx 0 ty scratchLeft value
+      swap atomicOp =
+        loads
+          <> loads'
+          <> move scratchLeft a
+          <> [amd64Instruction (AmdAtomic atomicOp width memory scratchLeft)]
+          <> move dst scratchLeft
+          <> narrowRegister ty dst
+   in case op of
+        AtomicXchg -> pure (swap AmdXchg)
+        AtomicAdd -> pure (swap AmdXadd)
+        AtomicOr -> do
+          retry <- freshLabel "atomic_or"
+          pure
+            ( loads
+                <> operandTo' ctx ty RDX value
+                <> [ loadMemory ty RAX memory,
+                     Amd64Label retry,
+                     amd64Instruction (AmdMov scratchLeft (Amd64MoveRegister RAX)),
+                     amd64Instruction (AmdOr (Amd64RmRegister scratchLeft) (Amd64BinaryRegister RDX)),
+                     amd64Instruction (AmdAtomic AmdCmpxchg width memory scratchLeft),
+                     amd64Instruction (AmdJne retry)
+                   ]
+                <> move dst RAX
+                <> narrowRegister ty dst
+            )
 
 amd64PtrAdd :: Ctx Amd64Register -> Amd64Register -> Operand -> Amd64Register -> [Amd64Statement]
 amd64PtrAdd ctx a offset dst =

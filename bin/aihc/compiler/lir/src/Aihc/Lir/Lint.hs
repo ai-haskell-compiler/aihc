@@ -11,7 +11,7 @@ module Aihc.Lir.Lint
   )
 where
 
-import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettyQuoted, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
+import Aihc.Lir.Pretty (atomicOpName, binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, memoryOrderName, prettyLabel, prettyLiteral, prettyQuoted, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
 import Aihc.Lir.Resolve (evaluateConstants)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
@@ -368,6 +368,12 @@ operationResultTypes symbols operation =
     Select ty _ _ _ -> Just [ty]
     Load ty _ _ -> Just [ty]
     Store {} -> Just []
+    LoadAtomic _ ty _ -> Just [ty]
+    StoreAtomic {} -> Just []
+    LoadDependent ty _ -> Just [ty]
+    CompareSwap _ ty _ _ _ -> Just [ty]
+    AtomicRmw _ _ ty _ _ -> Just [ty]
+    Fence _ -> Just []
     PtrAdd _ _ -> Just [Ptr]
     StackAlloc _ _ -> Just [Ptr]
     GlobalGet symbol ->
@@ -468,6 +474,19 @@ lintInstruction env blockIndex position instruction =
         Select ty condition left right -> check I1 condition <> check ty left <> check ty right
         Load _ address alignment -> addressErrors address <> alignmentErrors alignment
         Store ty value address alignment -> check ty value <> addressErrors address <> alignmentErrors alignment
+        LoadAtomic order ty address ->
+          atomicTypeErrors ty <> orderErrors [Relaxed, Acquire, SeqCst] order <> addressErrors address
+        StoreAtomic order ty value address ->
+          atomicTypeErrors ty <> orderErrors [Relaxed, Release, SeqCst] order <> check ty value <> addressErrors address
+        LoadDependent ty address -> atomicTypeErrors ty <> addressErrors address
+        CompareSwap _ ty expected replacement address ->
+          atomicTypeErrors ty <> check ty expected <> check ty replacement <> addressErrors address
+        AtomicRmw op _ ty value address ->
+          -- Only an exchange accepts a pointer. Pointer arithmetic is not atomic.
+          (if op == AtomicXchg then atomicTypeErrors ty else if isIntegerType ty then [] else rejects ty)
+            <> check ty value
+            <> addressErrors address
+        Fence order -> orderErrors [Acquire, Release, AcqRel, SeqCst] order
         PtrAdd base offset -> check Ptr base <> check I64 offset
         StackAlloc _ alignment ->
           ["stack.alloc outside the entry block" | blockIndex /= 0] <> alignmentErrors alignment
@@ -488,6 +507,11 @@ lintInstruction env blockIndex position instruction =
             Just (SymbolConstant _) -> []
             Just _ -> [renderSymbol (addressConstantName constant) <> " is not a constant"]
             Nothing -> ["unknown symbol " <> renderSymbol (addressConstantName constant)]
+    -- An atomic access names one integer or pointer of its natural
+    -- alignment, which every target can access in one instruction.
+    atomicTypeErrors ty = if isIntegerType ty || ty == Ptr then [] else rejects ty
+    orderErrors accepted order =
+      [operationName <> " does not accept the order " <> memoryOrderName order | order `notElem` accepted]
     globalErrors symbol =
       case Map.lookup symbol (envSymbols env) of
         Just (SymbolGlobal _) -> []
@@ -677,6 +701,12 @@ operationKeyword operation =
     Select {} -> "select"
     Load {} -> "load"
     Store {} -> "store"
+    LoadAtomic {} -> "load.atomic"
+    StoreAtomic {} -> "store.atomic"
+    LoadDependent {} -> "load.dependent"
+    CompareSwap {} -> "cas"
+    AtomicRmw op _ _ _ _ -> atomicOpName op
+    Fence _ -> "fence"
     PtrAdd _ _ -> "ptr.add"
     StackAlloc _ _ -> "stack.alloc"
     GlobalGet _ -> "global.get"

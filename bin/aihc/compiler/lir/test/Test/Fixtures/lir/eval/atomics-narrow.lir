@@ -1,0 +1,25 @@
+; expect: 70000, 300, 7, 7, -1, 10, 1, 1
+; Atomic operations on narrow integers and pointers. A narrow value is
+; canonical in a register, so a negative expected value must match the same
+; bits in memory. An operation on one byte must not change the next byte.
+
+data mut @cells align 8 = { i32 70000, i16 300, i8 7, i8 255 }
+data mut @pointer align 8 = { ptr null }
+data @target align 8 = { i64 0 }
+
+func @main() -> (i32, i16, i8, i8, i8, i8, i1, i1) {
+entry:
+  %word = atomic.add acq_rel i32 -70001, [@cells]
+  %half = xchg seq_cst i16 -2, [@cells + 4]
+  %failed = cas acquire i8 -1, 1, [@cells + 6]
+  %mask = add i8 %failed, 121
+  %ored = atomic.or seq_cst i8 %mask, [@cells + 6]
+  %swapped = cas release i8 -1, 3, [@cells + 7]
+  %next = load.atomic acquire i8 [@cells + 7]
+  %old = xchg acq_rel ptr @target, [@pointer]
+  %was_null = eq ptr %old, null
+  %previous = cas seq_cst ptr @target, null, [@pointer]
+  %was_target = eq ptr %previous, @target
+  %sum = add i8 %ored, %next
+  return %word, %half, %failed, %ored, %swapped, %sum, %was_null, %was_target
+}

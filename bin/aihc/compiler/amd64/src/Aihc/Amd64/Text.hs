@@ -17,7 +17,7 @@ where
 
 import Aihc.Amd64.Assemble
 import Data.ByteString qualified as BS
-import Data.Char (toLower)
+import Data.Char (isDigit, toLower)
 import Data.Int (Int64)
 import Data.List (intercalate)
 import Data.Text (Text)
@@ -108,6 +108,9 @@ instruction code =
     AmdMovdFromXmm destination source -> "movd " <> reg destination <> ", " <> xmm source
     AmdSse operation wide destination source ->
       sseName operation wide <> " " <> xmm destination <> ", " <> xmm source
+    AmdAtomic op width destination source ->
+      atomicName op <> " " <> widthName width <> " ptr " <> memory destination <> ", " <> sizedRegister width source
+    AmdMfence -> "mfence"
     AmdUcomis wide left right ->
       (if wide then "ucomisd " else "ucomiss ") <> xmm left <> ", " <> xmm right
     AmdCvtsi2s wide destination source ->
@@ -149,6 +152,44 @@ bitCountName operation =
 
 reg :: Amd64Register -> String
 reg = map toLower . show
+
+atomicName :: Amd64AtomicOp -> String
+atomicName op =
+  case op of
+    AmdCmpxchg -> "lock cmpxchg"
+    AmdXchg -> "xchg"
+    AmdXadd -> "lock xadd"
+
+widthName :: Int -> String
+widthName width =
+  case width of
+    1 -> "byte"
+    2 -> "word"
+    4 -> "dword"
+    _ -> "qword"
+
+-- | The name of the part of a 64-bit register that an operation of the
+-- given width in bytes uses.
+sizedRegister :: Int -> Amd64Register -> String
+sizedRegister width register =
+  case (reg register, width) of
+    (name@('r' : digit : _), _) | isDigit digit -> name <> numberedSuffix
+    (name, 8) -> name
+    ('r' : rest, 4) -> 'e' : rest
+    ('r' : rest, 2) -> rest
+    ("rax", _) -> "al"
+    ("rcx", _) -> "cl"
+    ("rdx", _) -> "dl"
+    ("rbx", _) -> "bl"
+    ('r' : rest, _) -> rest <> "l"
+    (name, _) -> name
+  where
+    numberedSuffix =
+      case width of
+        1 -> "b"
+        2 -> "w"
+        4 -> "d"
+        _ -> ""
 
 xmm :: Int -> String
 xmm index = "xmm" <> show index

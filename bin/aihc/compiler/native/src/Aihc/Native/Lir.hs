@@ -177,6 +177,16 @@ data NativeBackend statement register error = NativeBackend
     nbSelect :: Ctx register -> Type -> register -> Operand -> Operand -> Operand -> [statement],
     nbLoad :: Ctx register -> Type -> Operand -> Integer -> register -> [statement],
     nbStore :: Ctx register -> Type -> Operand -> Operand -> Integer -> [statement],
+    -- | An atomic load and an atomic store with an order, a base, and an
+    -- offset. A dependent load is a plain 'nbLoad', which keeps the address
+    -- dependency on both native targets.
+    nbLoadAtomic :: Ctx register -> MemoryOrder -> Type -> Operand -> Integer -> register -> [statement],
+    nbStoreAtomic :: Ctx register -> MemoryOrder -> Type -> Operand -> Operand -> Integer -> [statement],
+    -- | A compare and swap: the destination, the expected value, the
+    -- replacement, the base, and the offset.
+    nbCompareSwap :: Ctx register -> MemoryOrder -> Type -> register -> Operand -> Operand -> Operand -> Integer -> NativeM error [statement],
+    nbAtomicRmw :: Ctx register -> AtomicOp -> MemoryOrder -> Type -> register -> Operand -> Operand -> Integer -> NativeM error [statement],
+    nbFence :: MemoryOrder -> [statement],
     nbPtrAdd :: Ctx register -> register -> Operand -> register -> [statement],
     nbStackAddr :: register -> Int -> [statement],
     nbGlobalLoad :: register -> Text -> [statement],
@@ -1012,6 +1022,17 @@ compileInstruction backend ctx (Instruction results operation) =
       single $ \dst -> pure (nbLoad backend ctx ty (addressBase address) (addressByteOffset wordBytes address) dst)
     Store ty value address _ ->
       pure (nbStore backend ctx ty value (addressBase address) (addressByteOffset wordBytes address))
+    LoadAtomic order ty address ->
+      single $ \dst -> pure (nbLoadAtomic backend ctx order ty (addressBase address) (addressByteOffset wordBytes address) dst)
+    LoadDependent ty address ->
+      single $ \dst -> pure (nbLoad backend ctx ty (addressBase address) (addressByteOffset wordBytes address) dst)
+    StoreAtomic order ty value address ->
+      pure (nbStoreAtomic backend ctx order ty value (addressBase address) (addressByteOffset wordBytes address))
+    CompareSwap order ty expected replacement address ->
+      single $ \dst -> nbCompareSwap backend ctx order ty dst expected replacement (addressBase address) (addressByteOffset wordBytes address)
+    AtomicRmw op order ty value address ->
+      single $ \dst -> nbAtomicRmw backend ctx op order ty dst value (addressBase address) (addressByteOffset wordBytes address)
+    Fence order -> pure (nbFence backend order)
     PtrAdd base offset -> do
       let (loads, a) = operandIn backend ctx 0 Ptr (nbScratchLeft backend) base
       single $ \dst -> pure (loads <> nbPtrAdd backend ctx a offset dst)
