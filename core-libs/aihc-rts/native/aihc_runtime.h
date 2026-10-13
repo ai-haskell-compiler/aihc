@@ -260,6 +260,7 @@ struct AihcCapability {
   /* Compiled code reads this field at a fixed offset: six pointer words on
    * every target. */
   AihcThread *current_thread;
+  /* Compiled barriers read this size at six pointer words plus eight bytes. */
   uint64_t nursery_bytes;
   /* The block cursor counts reserved bytes, including fixed allocation and
      stack charges. A refill extends the limit without a gap in the heap. */
@@ -368,18 +369,12 @@ struct AihcMachine {
   uint64_t fixed_generation_bytes[3];
 };
 
-/* The bounds of the nursery for the write barrier of compiled code: an
-   object is young when its address less the start is below the size. */
-extern uint8_t *aihc_nursery_start;
-extern uint64_t aihc_nursery_bytes;
-
-/* The write barrier. Compiled code calls it for a pointer store into an
-   object outside the nursery, and the C runtime calls it at each store of a
-   pointer into an existing object. A store into a boxed array gives the
-   index of the element, and a copy into one gives the run of elements: a
-   large array keeps a card for each run of 128 elements, and a collection
-   scans only the cards the stores touched. The barrier without an index
-   marks every card of a large array. */
+/* Compiled code calls the write barrier before a pointer store outside the
+   local nursery. The C runtime calls it before each pointer store into an
+   existing object. An array store gives the element index. An array copy
+   gives the element range. A large array has one card for each 128 elements.
+   A collection scans only the cards that stores touched. The barrier without
+   an index marks every card of a large array. */
 void aihc_write_barrier(AihcCapability *capability, AihcValue *object);
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index);

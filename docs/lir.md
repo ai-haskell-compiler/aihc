@@ -756,12 +756,14 @@ The lowering keeps the control model of CPS-GRIN:
   the object. The runtime exports no allocator.
 - A pointer store into an existing object, through `writeArray#`,
   `writeMutVar#`, or a compare-and-swap primitive, starts with the write
-  barrier: the object address less `aihc_nursery_start` is compared with
-  `aihc_nursery_bytes`, and an object outside the nursery goes to
-  `aihc_write_barrier` in a cold block. A store into a boxed array calls
+  barrier. It reads the capability from the stack chunk header.
+  It loads the nursery base and size from that capability.
+  It compares the exclusive or of the object address and aligned base against the size.
+  An object outside the local nursery goes to `aihc_write_barrier` in a cold block.
+  A store into a boxed array calls
   `aihc_write_barrier_at` with the element index instead, so the runtime
   can mark the card of a large array. The call allocates nothing, so it
-  needs no sync of the machine.
+  needs no sync of the capability.
 - A continuation frame goes on the stack of the thread. The push adds the
   bytes of the frame to `%sp` and branches on whether the result is not
   above `%sp_limit`. When it is above, `aihc_stack_grow` gives the first

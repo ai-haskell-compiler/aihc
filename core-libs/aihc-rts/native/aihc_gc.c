@@ -37,9 +37,6 @@
    reaches it only through the remembered set, and only a full collection
    traces the static reference tables. */
 
-uint8_t *aihc_nursery_start;
-uint64_t aihc_nursery_bytes;
-
 /* The capacity of a block of an old generation. Every object below the large
    object bound fits in one. */
 #define AIHC_HEAP_BLOCK_REGIONS ((size_t)4)
@@ -390,7 +387,8 @@ static void aihc_clear_srt_stamps(void) {
 
 static int aihc_in_nursery(const AihcCapability *capability,
                            const void *value) {
-  return (uintptr_t)value - (uintptr_t)capability->heap_start <
+  /* The base has window alignment. The budget can be less than the window. */
+  return ((uintptr_t)value ^ (uintptr_t)capability->heap_start) <
          capability->nursery_bytes;
 }
 
@@ -2748,8 +2746,6 @@ static void aihc_nursery_acquire(AihcCapability *capability, size_t bytes) {
                                   ? capability->nursery_block_bytes
                                   : bytes;
   capability->heap_limit = capability->heap_start + capability->nursery_taken;
-  aihc_nursery_start = capability->heap_start;
-  aihc_nursery_bytes = bytes;
 }
 
 void aihc_nursery_replace(AihcCapability *capability, size_t bytes) {

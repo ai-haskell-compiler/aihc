@@ -643,15 +643,15 @@ extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
 extern func @aihc_write_barrier(ptr, ptr) cc c
 extern func @aihc_stack_enter_chunk(ptr, ptr) cc c
 
-; Whether an object is in the nursery. A pointer store into such an object
-; needs no write barrier.
-inline func @aihc_object_is_young(%object: ptr) -> i1 {
+; A pointer store into the local nursery needs no runtime call.
+; Use its aligned base because the heap pointer can equal the nursery end.
+inline func @aihc_object_is_young(%capability: ptr, %object: ptr) -> i1 {
 entry:
   %object_word = ptr.to_int %object
-  %start = load ptr [@aihc_nursery_start] align 1 word
+  %start = load ptr [%capability + @AIHC_CAPABILITY_HEAP_START_OFFSET] align 1 word
   %start_word = ptr.to_int %start
-  %offset = sub i64 %object_word, %start_word
-  %bytes = load i64 [@aihc_nursery_bytes] align 8
+  %offset = xor i64 %object_word, %start_word
+  %bytes = load i64 [%capability + @AIHC_CAPABILITY_NURSERY_BYTES_OFFSET] align 8
   %young = lt.u i64 %offset, %bytes
   return %young
 }
@@ -667,7 +667,8 @@ entry:
   %header_word = call @aihc_object_header_word(%blackhole)
   %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
   %no_waiters = eq i64 %tag, @AIHC_HEADER_EVALUATING
-  %young = call @aihc_object_is_young(%blackhole)
+  %capability = call @aihc_stack_capability(%sp_limit)
+  %young = call @aihc_object_is_young(%capability, %blackhole)
   %plain = and i1 %no_waiters, %young
   br %plain, plain, waiters
 
@@ -679,8 +680,7 @@ plain:
   return
 
 cold waiters:
-  %capability_waiters = call @aihc_stack_capability(%sp_limit)
-  call @aihc_update_blackhole(%capability_waiters, %blackhole, %result)
+  call @aihc_update_blackhole(%capability, %blackhole, %result)
   return
 }
 

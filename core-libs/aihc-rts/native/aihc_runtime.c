@@ -21,6 +21,9 @@ _Static_assert(offsetof(AihcCapability, heap_start) == 5 * sizeof(void *),
                "capability heap_start ABI");
 _Static_assert(offsetof(AihcCapability, current_thread) == 6 * sizeof(void *),
                "capability current_thread ABI");
+_Static_assert(offsetof(AihcCapability, nursery_bytes) ==
+                   6 * sizeof(void *) + 8,
+               "capability nursery_bytes ABI");
 
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */

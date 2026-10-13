@@ -169,11 +169,13 @@ barrier. Pointer stores into existing objects happen at these sites:
 | MVar, TVar, transaction log, blackhole waiter, IO request, and thread fields | C functions in `aihc_runtime.c` |
 | Global and CAF updates | `aihc_update` and the globals array |
 
-The fast path is one test: the object is in the nursery. The nursery is one
-contiguous range, so the test is a subtraction and an unsigned compare against
-the nursery base and size. Nursery objects are the common case for mutable
-stores and for thunk updates. Every other object takes a cold path. The cold
-path is a runtime call. The call takes the object and the field index, or the
+The fast path tests whether the object is in the nursery of the active capability.
+Compiled code reads the capability from the stack chunk header.
+It reads the aligned nursery base and size from that capability.
+The test uses an exclusive or with the base and an unsigned compare against the size.
+The base stays valid when the heap pointer equals the nursery end.
+Nursery objects are the common case for mutable stores and thunk updates.
+Every other object takes a cold path. The cold path is a runtime call. The call takes the object and the field index, or the
 whole object for an update.
 
 The cold path does two independent things:

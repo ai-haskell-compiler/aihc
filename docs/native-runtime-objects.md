@@ -346,11 +346,14 @@ releases its stack.
 
 ### Write barrier and remembered set
 
-A pointer store into an existing object outside the nursery records the
-object in the remembered set. Compiled code tests the nursery bounds, one
-subtraction and one unsigned compare against `aihc_nursery_start` and
-`aihc_nursery_bytes`, and calls `aihc_write_barrier` for every other
-object. The sites are the array and MutVar stores and compare-and-swap
+A pointer store into an existing object outside the local nursery records the
+object in the remembered set.
+Compiled code reads the capability from the stack chunk header.
+It loads `heap_start` and `nursery_bytes` from that capability.
+The test uses an exclusive or with the aligned base and an unsigned compare against the size.
+It calls `aihc_write_barrier` for every other object.
+The stable base gives the correct result when the heap pointer equals the nursery end.
+The sites are the array and MutVar stores and compare-and-swap
 primitives in the Lir lowering, the inline thunk update in
 `aihc_helpers.lir`, the array copy in `aihc_array.lir`, and every store of
 a pointer into an existing object in the C runtime: thread resumption,
