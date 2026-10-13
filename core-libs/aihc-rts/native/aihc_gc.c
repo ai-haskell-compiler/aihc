@@ -852,17 +852,13 @@ static uint64_t aihc_array_card_count(const AihcValue *array) {
   return (aihc_array_length(array) + AIHC_CARD_ELEMENTS - 1) >> AIHC_CARD_SHIFT;
 }
 
-/* Charge memory outside the nursery to the collection trigger, as if the
-   mutator took it from the nursery: count it in the fixed bytes since the
-   last collection, and lower the heap limit by it. When the charge uses
-   the rest of the nursery, the limit goes below the nursery start. Then
-   every reservation fails its compare and collects, a reservation of zero
-   words too: compiled code makes one before each push of a frame. The
-   first charge after a collection only empties the room: a collection at
-   once would not free its memory, and a stack growth that collects again
-   and again would not progress. Compiled code can keep a heap pointer
-   above the capability copy, so its limit can also go below its heap pointer
-   before that. */
+/* Charge fixed allocation and new stack chunks to the nursery budget.
+   Reduce the current block limit to make the next heap check use that charge.
+   A refill accounts for all charges before it extends the block limit.
+   If the nursery budget is full, the refill collects.
+   The first charge after a collection only empties the available room.
+   This permits progress when one stack chunk exceeds the nursery budget.
+   Compiled code can hold a heap pointer above the capability copy. */
 static void aihc_charge_fixed(AihcCapability *capability, size_t bytes) {
   size_t room = capability->heap_limit > capability->heap_next
                     ? (size_t)(capability->heap_limit - capability->heap_next)
@@ -2650,7 +2646,11 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
 
   aihc_blocks_release(from1);
   capability->heap_next = capability->heap_start;
-  capability->heap_limit = capability->heap_start + capability->nursery_bytes;
+  capability->nursery_taken =
+      capability->nursery_block_bytes < capability->nursery_bytes
+          ? capability->nursery_block_bytes
+          : capability->nursery_bytes;
+  capability->heap_limit = capability->heap_start + capability->nursery_taken;
   capability->heap_alloc_base = capability->heap_next;
   capability->fixed_since_gc = 0;
   for (size_t index = 0; index < context.kept_count; ++index) {
@@ -2726,7 +2726,10 @@ static void aihc_nursery_acquire(AihcCapability *capability, size_t bytes) {
       aihc_regions_acquire(aihc_regions_for_bytes(bytes), AIHC_REGION_NURSERY);
   capability->heap_next = capability->heap_start;
   capability->heap_alloc_base = capability->heap_start;
-  capability->heap_limit = capability->heap_start + bytes;
+  capability->nursery_taken = capability->nursery_block_bytes < bytes
+                                  ? capability->nursery_block_bytes
+                                  : bytes;
+  capability->heap_limit = capability->heap_start + capability->nursery_taken;
   aihc_nursery_start = capability->heap_start;
   aihc_nursery_bytes = bytes;
 }
@@ -2780,7 +2783,21 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
   capability->machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
 }
 
+/* Keep the block size within the address space of the target. A block does
+   not need alignment because each refill extends one contiguous range. */
+static void aihc_apply_block_option(AihcCapability *capability) {
+  uint64_t bytes = aihc_rts_nursery_block_bytes();
+  if (bytes == 0) {
+    bytes = AIHC_NURSERY_BLOCK_BYTES;
+  }
+  if (bytes > SIZE_MAX) {
+    aihc_fail("nursery block size is too large");
+  }
+  capability->nursery_block_bytes = bytes;
+}
+
 void aihc_gc_init(AihcCapability *capability) {
+  aihc_apply_block_option(capability);
   uint64_t nursery = aihc_rts_nursery_bytes();
   aihc_nursery_acquire(capability, nursery == 0 ? AIHC_NURSERY_BYTES : nursery);
   capability->machine->gen1_max_bytes = AIHC_GEN1_MAX_BYTES;
@@ -2792,6 +2809,7 @@ void aihc_gc_init(AihcCapability *capability) {
 }
 
 void aihc_gc_apply_options(AihcCapability *capability) {
+  aihc_apply_block_option(capability);
   uint64_t nursery = aihc_rts_nursery_bytes();
   if (nursery != 0 && nursery != capability->nursery_bytes &&
       capability->heap_next == capability->heap_start) {
@@ -2860,10 +2878,35 @@ static void aihc_ensure_large(AihcCapability *capability, size_t bytes,
   }
 }
 
-/* Collect for a caller that has already found the words do not fit. Compiled
-   code compares the bump pointer against the end of the space itself and only
-   calls the runtime on the slow path. A request of a large object reaches
-   this function whenever the nursery is smaller than the object. */
+/* Extend the block limit without a gap or a collection. Fixed allocation
+   and stack charges use the same nursery budget as movable objects. */
+static int aihc_nursery_refill(AihcCapability *capability, size_t bytes) {
+  size_t used = (size_t)(capability->heap_next - capability->heap_start);
+  uint64_t room = capability->nursery_bytes - used;
+  if (capability->fixed_since_gc != 0 && capability->fixed_since_gc >= room) {
+    return 0;
+  }
+  room -= capability->fixed_since_gc;
+  if (bytes > room) {
+    return 0;
+  }
+  uint64_t required = used + capability->fixed_since_gc + bytes;
+  uint64_t taken = capability->nursery_taken;
+  if (required > taken) {
+    uint64_t block = capability->nursery_block_bytes;
+    uint64_t extra = required - taken;
+    uint64_t count = extra / block + (extra % block != 0);
+    uint64_t left = capability->nursery_bytes - taken;
+    taken += count > left / block ? left : count * block;
+    capability->nursery_taken = taken;
+  }
+  capability->heap_limit =
+      capability->heap_start + (taken - capability->fixed_since_gc);
+  return 1;
+}
+
+/* Collect and reserve the requested space. Startup also uses this function
+   to collect temporary imports before the heap limit applies. */
 void aihc_gc_collect(AihcCapability *capability, uint64_t words,
                      uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
@@ -2878,6 +2921,18 @@ void aihc_gc_collect(AihcCapability *capability, uint64_t words,
        branch: a reservation below the large object bound fits the default. */
     aihc_nursery_replace(capability, bytes);
   }
+  aihc_nursery_refill(capability, bytes);
+}
+
+/* Refill before a collection. Large objects retain their fixed budget. */
+void aihc_gc_refill(AihcCapability *capability, uint64_t words,
+                    uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+  size_t bytes = aihc_reservation_bytes(capability, words);
+  if (aihc_reservation_is_large(bytes)) {
+    aihc_ensure_large(capability, bytes, root_count, roots, srt);
+  } else if (!aihc_nursery_refill(capability, bytes)) {
+    aihc_gc_collect(capability, words, root_count, roots, srt);
+  }
 }
 
 /* Reserve for a caller that has not compared anything: the capability start-up
@@ -2891,7 +2946,7 @@ void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
   }
   if (capability->heap_next > capability->heap_limit ||
       bytes > (size_t)(capability->heap_limit - capability->heap_next)) {
-    aihc_gc_collect(capability, words, root_count, roots, srt);
+    aihc_gc_refill(capability, words, root_count, roots, srt);
   }
 }
 

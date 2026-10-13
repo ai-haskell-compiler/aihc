@@ -22,6 +22,7 @@
 #ifndef AIHC_NURSERY_BYTES
 #define AIHC_NURSERY_BYTES (UINT64_C(4) << 20)
 #endif
+#define AIHC_NURSERY_BLOCK_BYTES (UINT64_C(32) << 10)
 #define AIHC_GEN1_MAX_BYTES (UINT64_C(16) << 20)
 #ifndef AIHC_GEN2_MINIMUM_BYTES
 #define AIHC_GEN2_MINIMUM_BYTES (UINT64_C(8) << 20)
@@ -253,14 +254,17 @@ struct AihcCapability {
      that selects the stack of a thread writes this field, and compiled code
      loads it again. See aihc_stack_push. */
   uint8_t *stack_next;
-  /* The nursery: heap_start is its first byte, heap_limit its end less the
-     charge of fixed allocations and new young stack chunks since the last
-     collection. */
+  /* The nursery starts at heap_start. The heap limit bounds the current
+     block, less the fixed allocation and stack charges. */
   uint8_t *heap_start;
   /* Compiled code reads this field at a fixed offset: six pointer words on
    * every target. */
   AihcThread *current_thread;
   uint64_t nursery_bytes;
+  /* The block cursor counts reserved bytes, including fixed allocation and
+     stack charges. A refill extends the limit without a gap in the heap. */
+  uint64_t nursery_taken;
+  uint64_t nursery_block_bytes;
   uint64_t heap_allocated_bytes;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
@@ -469,9 +473,8 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
 /* Reserve heap for the objects that follow. Compiled code then takes each
    object by bumping the heap pointer itself, so the runtime exports no
    allocator. */
-/* Collect for a caller that has already compared the bump pointer against the
-   end of the space and found the words do not fit. Compiled code takes this
-   entry point; aihc_ensure_heap is for a caller that has compared nothing.
+/* Refill or collect after the heap check fails. Compiled code uses this
+   entry point. Other callers use aihc_ensure_heap to check the available space.
 
    The table is the static reference table of the code that requests the
    collection, and the collector marks everything it names. A running function

@@ -40,7 +40,11 @@ tests =
         "static reference roots collect a static object no table names"
         []
         staticReferenceSource,
-      runtimeProgramTest "stack growth brings the next collection closer" [] stackChargeSource,
+      runtimeProgramTest "stack growth brings the next collection closer" ["+RTS", "-n64k", "-RTS"] stackChargeSource,
+      runtimeProgramTest
+        "nursery blocks keep the collection budget and live roots"
+        ["+RTS", "-A128k", "-n1k", "-RTS"]
+        nurseryBlockSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,
@@ -312,6 +316,44 @@ growthSource =
       "}"
     ]
 
+-- | The -n option must retain the -A collection budget across block refills.
+-- The current root must survive the collection at the end of that budget.
+nurseryBlockSource :: String
+nurseryBlockSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "static const uint8_t fields[] = {0};",
+      "static const AihcInfo info = {.field_is_pointer = fields, .field_count = 1, .object_kind = AIHC_OBJECT_NODE};",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  aihc_gc_collect_generation(capability, 0, 0, NULL, NULL);",
+      "  aihc_reset_heap_allocated_bytes(capability);",
+      "  uint64_t collections = capability->machine->gc_count;",
+      "  AihcSlot root = 0;",
+      "  /* Use the same heap check and slow path as compiled code. */",
+      "  for (uint64_t index = 0; index <= 8192; ++index) {",
+      "    if (capability->heap_next + 2 * sizeof(AihcSlot) > capability->heap_limit) {",
+      "      aihc_heap_collect(capability, 2, 1, &root, NULL);",
+      "    }",
+      "    if (capability->machine->gc_count != collections + (index == 8192)) return 1;",
+      "    if (index != 0 && ((AihcValue *)(uintptr_t)root)->fields[0] != index - 1) return 2;",
+      "    AihcValue *value = aihc_gc_allocate(capability, 2);",
+      "    value->header = (AihcSlot)(uintptr_t)&info;",
+      "    value->fields[0] = index;",
+      "    root = (AihcSlot)(uintptr_t)value;",
+      "  }",
+      "  if (aihc_heap_allocated_bytes(capability) != 8193 * 2 * sizeof(AihcSlot)) return 3;",
+      "  /* A reservation can exceed one block without a collection. */",
+      "  aihc_ensure_heap(capability, 1024, 1, &root, NULL);",
+      "  AihcValue *array = aihc_array_new(capability, 1000, 17);",
+      "  if (aihc_array_elements(array)[999] != 17) return 4;",
+      "  if (capability->machine->gc_count != collections + 1) return 5;",
+      "  if (((AihcValue *)(uintptr_t)root)->fields[0] != 8192) return 6;",
+      "  return 0;",
+      "}"
+    ]
+
 -- | A minor collection scans each young stack chunk, so a stack growth
 -- charges its chunk to the nursery. The program grows the stack by whole
 -- chunks without an allocation, and the heap limit goes down by one chunk
@@ -339,7 +381,8 @@ stackChargeSource =
       "  push(capability);",
       "  return push(capability);",
       "}",
-      "int main(void) {",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
       "  AihcCapability *capability = aihc_machine_new(0);",
       "  /* Move the start-up objects out of the nursery. Then give the capability",
       "     a nursery of CHUNKS chunks. */",

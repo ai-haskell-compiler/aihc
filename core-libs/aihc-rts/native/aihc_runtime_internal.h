@@ -495,6 +495,7 @@ uint64_t aihc_rts_heap_max_bytes(void);
 uint64_t aihc_rts_heap_limit_enabled(void);
 /* The -A, -B, and -F options, or zero for the default. */
 uint64_t aihc_rts_nursery_bytes(void);
+uint64_t aihc_rts_nursery_block_bytes(void);
 uint64_t aihc_rts_gen1_max_bytes(void);
 uint64_t aihc_rts_gen2_factor(void);
 uint64_t aihc_rts_mark_factor(void);
@@ -528,6 +529,9 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
 void aihc_gc_init(AihcCapability *capability);
 void aihc_gc_collect(AihcCapability *capability, uint64_t words,
                      uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
+/* Refill the current block, or collect when the nursery budget is full. */
+void aihc_gc_refill(AihcCapability *capability, uint64_t words,
+                    uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 /* Consume reserved memory without collection. The memory is not initialized

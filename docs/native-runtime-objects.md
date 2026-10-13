@@ -35,6 +35,10 @@ When a collection cannot bring the heap below the limit, the collector runs a
 full collection, and the program stops if the heap is still above it.
 
 The `-A<size>` option sets the size of the nursery, 4 MiB by default.
+The `-n<size>` option sets the nursery block size, 32 KiB by default.
+Zero selects the default block size.
+A block refill extends the allocation limit without a collection.
+Fixed allocations and stack charges share the nursery budget with movable objects.
 The `-B<size>` option sets the maximum size of gen1, 16 MiB by default.
 The `-F<factor>` option sets the growth of gen2 between two gen2 cycles,
 2 by default.
@@ -658,6 +662,7 @@ The delay-variable helper initializes its TVar and timer before any further coll
 GRIN snapshot fixtures request GC stress checks with `gc-stress: true`.
 The test harness changes generated Lir to select the collector path at each reservation.
 It identifies collector blocks by their calls to `aihc_heap_collect`.
+It replaces those calls with `aihc_gc_collect` to force a collection instead of a block refill.
 This transformation exists only in test code.
 Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
