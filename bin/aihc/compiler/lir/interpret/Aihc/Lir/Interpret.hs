@@ -550,6 +550,8 @@ binary op ty a b =
     Shl -> pure (mask ty (a `shiftL` count))
     ShrS -> pure (fromIntegerBits ty (signed ty a `shiftR` count))
     ShrU -> pure (a `shiftR` count)
+    RotL -> pure (mask ty ((a `shiftL` count) .|. (a `shiftR` (typeBits ty - count))))
+    RotR -> pure (mask ty ((a `shiftR` count) .|. (a `shiftL` (typeBits ty - count))))
     Pdep -> pure (depositBits a b)
     Pext -> pure (extractBits a b)
   where

@@ -85,6 +85,8 @@ instruction code =
     AmdShl destination -> "shl " <> rm destination <> ", cl"
     AmdShlImmediate destination count -> "shl " <> rm destination <> ", " <> show count
     AmdShrImmediate destination count -> "shr " <> rm destination <> ", " <> show count
+    AmdRotate leftward width destination count -> (if leftward then "rol " else "ror ") <> rotateRegister width destination <> ", " <> maybe "cl" show count
+    AmdRorx destination source count -> "rorx " <> reg destination <> ", " <> reg source <> ", " <> show count
     AmdSarImmediate destination count -> "sar " <> rm destination <> ", " <> show count
     AmdShr destination -> "shr " <> rm destination <> ", cl"
     AmdSar destination -> "sar " <> rm destination <> ", cl"
@@ -227,3 +229,17 @@ cond condition =
     AmdNotSign -> "ns"
     AmdParity -> "p"
     AmdNotParity -> "np"
+
+rotateRegister :: Int -> Amd64Register -> String
+rotateRegister width register
+  | width /= 16 = reg register
+  | otherwise = case register of
+      RAX -> "ax"
+      RCX -> "cx"
+      RDX -> "dx"
+      RBX -> "bx"
+      RSP -> "sp"
+      RBP -> "bp"
+      RSI -> "si"
+      RDI -> "di"
+      _ -> reg register <> "w"

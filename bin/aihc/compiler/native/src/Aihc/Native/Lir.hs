@@ -52,6 +52,7 @@ import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
 import Aihc.Native.Object (Name (..), SectionRole (..))
+import Control.Applicative ((<|>))
 import Control.Monad (forM, forM_, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
@@ -163,6 +164,8 @@ data NativeBackend statement register error = NativeBackend
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
     nbCompareAndBranchEqual :: Ctx register -> Type -> register -> Integer -> Name -> [statement],
     nbCReturnFloat :: CallingConvention -> [Type] -> [statement],
+    -- | Select a logical operation with a constant rotated right operand.
+    nbRotatedBinary :: Maybe (BinaryOp -> Type -> register -> register -> register -> Int -> [statement]),
     nbBinary :: Ctx register -> BinaryOp -> Type -> register -> register -> Operand -> NativeM error [statement],
     nbUnary :: UnaryOp -> Type -> register -> register -> [statement],
     nbWide :: WideOp -> Type -> register -> register -> register -> register -> [statement],
@@ -220,7 +223,8 @@ data Ctx register = Ctx
     ctxBlockParameters :: !(Map Label [(Var, Type)]),
     ctxSignatures :: !(Map Symbol Signature),
     ctxIncomingOverflow :: Int,
-    ctxReads :: !(Map Var Int)
+    ctxReads :: !(Map Var Int),
+    ctxRotations :: !(Map Var Int)
   }
 
 -- | Where a value lives: a register, or a frame slot at a byte offset above
@@ -490,7 +494,8 @@ compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register
 compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
-    function = lowerWideDivision (isJust (nbQuotRemWide backend)) input
+    lowered = lowerWideDivision (isJust (nbQuotRemWide backend)) input
+    (function, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
     emitStatement statement = do
@@ -500,7 +505,8 @@ compileFunctionTo backend output signatures index input state =
       when keep (lift (output statement))
     emitStatements = mapM_ (lift . lift . emitStatement)
     action = do
-      (ctx, prefix) <- native (prepareFunction backend signatures index function)
+      (prepared, prefix) <- native (prepareFunction backend signatures index function)
+      let ctx = prepared {ctxRotations = rotations}
       emitStatements prefix
       let blocks = functionBlocks function
           -- The number of the first instruction of each block.
@@ -539,7 +545,8 @@ prepareFunction backend signatures index function = do
             ctxIncomingOverflow = case functionConvention function of
               AihcConvention -> overflowBytes backend (length (functionParameters function))
               CConvention -> 0,
-            ctxReads = readCounts function
+            ctxReads = readCounts function,
+            ctxRotations = Map.empty
           }
   prologue <- functionPrologue backend ctx
   pure
@@ -966,7 +973,12 @@ compileInstruction backend ctx (Instruction results operation) =
     Binary op ty left right -> do
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
       single $ \dst -> do
-        body <- nbBinary backend ctx op ty dst a right
+        body <- case (results, nbRotatedBinary backend) of
+          ([result], Just select)
+            | Just count <- Map.lookup result (ctxRotations ctx) ->
+                let (rightLoads, b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
+                 in pure (rightLoads <> select op ty dst a b count)
+          _ -> nbBinary backend ctx op ty dst a right
         pure (loads <> body)
     Unary op ty value -> do
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) value
@@ -1039,3 +1051,29 @@ compileInstruction backend ctx (Instruction results operation) =
           lines' <- body low high
           pure (lines' <> storeLow <> storeHigh)
         _ -> unsupported backend "instruction result count"
+
+-- | Select a single-use rotate as a logical operand within one block.
+-- The allocation input reads the rotate source at its new use position.
+-- The side table retains the count for instruction emission.
+selectRotatedOperands :: Function -> (Function, Map Var Int)
+selectRotatedOperands function = (function {functionBlocks = map fst selected}, Map.unions (map snd selected))
+  where
+    uses = readCounts function
+    selected = map selectBlock (functionBlocks function)
+    selectBlock block = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, counts)
+      where
+        definitions = Map.fromList [(v, operation) | Instruction [v] operation <- blockInstructions block]
+        matches = Map.fromList [(v, (operation, ty, left, source, rotated, count)) | Instruction [v] (Binary operation ty a b) <- blockInstructions block, operation `elem` [And, Or, Xor], ty `elem` [I32, I64], Just (left, source, rotated, count) <- [match ty a b <|> match ty b a]]
+        counts = Map.map (\(_, _, _, _, _, count) -> count) matches
+        removed = Set.fromList [rotated | (_, _, _, _, rotated, _) <- Map.elems matches]
+        rewrite instruction@(Instruction [v] _) = case Map.lookup v matches of
+          Just (operation, ty, left, source, _, _) -> [Instruction [v] (Binary operation ty left source)]
+          Nothing | Set.member v removed -> []
+          Nothing -> [instruction]
+        rewrite instruction = [instruction]
+        match ty left (OperandVar rotated) = do
+          Binary operation operandTy source (OperandLiteral (LitInt amount)) <- Map.lookup rotated definitions
+          if operandTy == ty && operation `elem` [RotL, RotR] && Map.lookup rotated uses == Just 1
+            then Just (left, source, rotated, fromInteger ((if operation == RotL then negate amount else amount) `mod` toInteger (typeBits ty)))
+            else Nothing
+        match _ _ _ = Nothing

@@ -277,6 +277,10 @@ data BinaryOp
   | Shl
   | ShrS
   | ShrU
+  | -- | Rotate left. Reduce the count modulo the integer width.
+    RotL
+  | -- | Rotate right. Reduce the count modulo the integer width.
+    RotR
   | -- | Parallel bit deposit: the low bits of the left operand move to the
     -- set bits of the right operand, the mask, in order.
     Pdep

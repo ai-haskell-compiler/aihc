@@ -103,6 +103,10 @@ instruction code =
       "msub " <> reg destination <> ", " <> reg left <> ", " <> reg right <> ", " <> reg addend
     ArmLsl destination source count -> shifted "lsl" destination source count
     ArmLsr destination source count -> shifted "lsr" destination source count
+    ArmRor destination source count -> shifted "ror" destination source count
+    ArmAndRotate destination left right count -> three "and" destination left right <> ", ror #" <> show count
+    ArmOrrRotate destination left right count -> three "orr" destination left right <> ", ror #" <> show count
+    ArmEorRotate destination left right count -> three "eor" destination left right <> ", ror #" <> show count
     ArmAsr destination source count -> shifted "asr" destination source count
     ArmCset destination condition -> "cset " <> reg destination <> ", " <> cond condition
     ArmCsinv destination left right condition -> conditional "csinv" destination left right condition
