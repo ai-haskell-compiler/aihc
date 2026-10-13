@@ -1,0 +1,41 @@
+; expect: 3, -9223372036854775807, 131, 10, 3, 33554432, 2, -128
+; Detect incorrect rotate combination, shared shift removal, and width assumptions.
+func @logical(%x: i64, %y: i64) -> (i64, i64, i64) {
+entry:
+  %r1 = rotr i64 %x, 63
+  %a = and i64 %y, %r1
+  %r2 = rotl i64 %x, 1
+  %b = or i64 %r2, %y
+  %r3 = rotr i64 %x, 63
+  %c = xor i64 %y, %r3
+  return %a, %b, %c
+}
+func @pattern(%x: i8) -> (i8, i8) {
+entry:
+  %l = shl i8 %x, 1
+  %r = shr.u i8 %x, 7
+  %v = or i8 %l, %r
+  return %v, %l
+}
+func @wide(%x: i64) -> i64 {
+entry:
+  %l = shl i64 %x, 25
+  %t = trunc i64 %l to i32
+  %w = zext i32 %t to i64
+  %r = shr.u i64 %x, 7
+  %v = or i64 %w, %r
+  return %v
+}
+func @main() -> (i64, i64, i64, i64, i8, i64, i8, i8) {
+entry:
+  %a, %b, %c = call @logical(-9223372036854775807, 131)
+  %p, %left = call @pattern(129)
+  %outside = call @wide(4294967296)
+  %identity = rotr i64 -9223372036854775807, 0
+  %shared = rotl i64 1, 1
+  %use1 = or i64 %shared, 1
+  %use2 = xor i64 %shared, 5
+  %sum = add i64 %use1, %use2
+  %negative = rotl i8 1, -1
+  return %a, %identity, %b, %sum, %p, %outside, %left, %negative
+}
