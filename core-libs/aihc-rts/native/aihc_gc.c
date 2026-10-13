@@ -135,21 +135,21 @@ static unsigned aihc_sweep_class;
    not yet scanned. */
 static AihcMarkStack aihc_mark_stack;
 
-static void aihc_mark_old(AihcMachine *machine, AihcValue *value);
-static void aihc_shade_fields(AihcMachine *machine, AihcValue *object);
-static void aihc_shade_elements(AihcMachine *machine, AihcValue *array,
+static void aihc_mark_old(AihcCapability *capability, AihcValue *value);
+static void aihc_shade_fields(AihcCapability *capability, AihcValue *object);
+static void aihc_shade_elements(AihcCapability *capability, AihcValue *array,
                                 uint64_t first, uint64_t end);
-static void aihc_mark_frames(AihcMachine *machine, AihcValue *frame);
+static void aihc_mark_frames(AihcCapability *capability, AihcValue *frame);
 static int aihc_frame_above(const AihcValue *first, const AihcValue *second);
-static int aihc_frame_is_live(const AihcMachine *machine,
+static int aihc_frame_is_live(const AihcCapability *capability,
                               const AihcValue *frame);
 #ifdef AIHC_GC_VERIFY
-static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
+static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
                            AihcSlot *roots, const AihcSrt *srt);
 #endif
 
 typedef struct {
-  AihcMachine *machine;
+  AihcCapability *capability;
   /* The oldest generation this collection copies. */
   unsigned collected;
   /* Set at the end of a gen2 cycle: the young generations were swept
@@ -388,9 +388,10 @@ static void aihc_clear_srt_stamps(void) {
   aihc_srt_stamped = NULL;
 }
 
-static int aihc_in_nursery(const AihcMachine *machine, const void *value) {
-  return (uintptr_t)value - (uintptr_t)machine->heap_start <
-         machine->nursery_bytes;
+static int aihc_in_nursery(const AihcCapability *capability,
+                           const void *value) {
+  return (uintptr_t)value - (uintptr_t)capability->heap_start <
+         capability->nursery_bytes;
 }
 
 /* The room between the allocation pointer and the end of the nursery. A
@@ -400,9 +401,9 @@ static int aihc_in_nursery(const AihcMachine *machine, const void *value) {
    end of the nursery and not against the limit. The allocation pointer can
    thus pass the limit, and every compare against the limit allows for
    that. */
-static size_t aihc_nursery_room(const AihcMachine *machine) {
-  return (size_t)(machine->heap_start + machine->nursery_bytes -
-                  machine->heap_next);
+static size_t aihc_nursery_room(const AihcCapability *capability) {
+  return (size_t)(capability->heap_start + capability->nursery_bytes -
+                  capability->heap_next);
 }
 
 /* Whether an object outside every region is a block of the pinned list and
@@ -419,21 +420,23 @@ static int aihc_outside_is_pinned(const AihcValue *object) {
 
 /* The blocks of gen1. */
 
-static AihcGeneration *aihc_generation(AihcMachine *machine,
+static AihcGeneration *aihc_generation(AihcCapability *capability,
                                        unsigned generation) {
-  return &machine->generations[generation - 1];
+  return &capability->machine->generations[generation - 1];
 }
 
 /* The bytes the gen1 and gen2 tests read: the blocks of the generation and
    the fixed blocks of the same generation. A fixed block is a large object
    or a pinned block. It has no space in a generation. Without its charge
    here, a dead old fixed block waits for the -M limit. */
-static uint64_t aihc_gen1_bytes(const AihcMachine *machine) {
-  return machine->generations[0].bytes + machine->fixed_generation_bytes[1];
+static uint64_t aihc_gen1_bytes(const AihcCapability *capability) {
+  return capability->machine->generations[0].bytes +
+         capability->machine->fixed_generation_bytes[1];
 }
 
-static uint64_t aihc_gen2_bytes(const AihcMachine *machine) {
-  return machine->generations[1].bytes + machine->fixed_generation_bytes[2];
+static uint64_t aihc_gen2_bytes(const AihcCapability *capability) {
+  return capability->machine->generations[1].bytes +
+         capability->machine->fixed_generation_bytes[2];
 }
 
 static uint64_t aihc_generation_used(const AihcGeneration *generation) {
@@ -446,8 +449,8 @@ static uint64_t aihc_generation_used(const AihcGeneration *generation) {
 }
 
 /* Allocate bytes for a copied object in gen1. */
-static uint8_t *aihc_gen1_allocate(AihcMachine *machine, size_t bytes) {
-  AihcGeneration *target = aihc_generation(machine, 1);
+static uint8_t *aihc_gen1_allocate(AihcCapability *capability, size_t bytes) {
+  AihcGeneration *target = aihc_generation(capability, 1);
   AihcHeapBlock *block = target->last;
   if (block == NULL || bytes > (size_t)(block->limit - block->next)) {
     if (bytes > AIHC_HEAP_BLOCK_BYTES) {
@@ -551,12 +554,12 @@ static int aihc_segment_occupied(const AihcSegment *segment, uint32_t slot) {
   return (int)((segment->occupied[slot >> 6] >> (slot & 63U)) & 1U);
 }
 
-static AihcSegment *aihc_segment_new(AihcMachine *machine,
+static AihcSegment *aihc_segment_new(AihcCapability *capability,
                                      unsigned size_class) {
   AihcSegment *segment =
       aihc_regions_acquire(AIHC_SEGMENT_REGIONS, AIHC_REGION_GEN2);
   segment->link = NULL;
-  segment->epoch = machine->gen2_epoch;
+  segment->epoch = capability->machine->gen2_epoch;
   segment->size_class = size_class;
   segment->slot_words = aihc_size_class_words(size_class);
   segment->slot_count = (uint32_t)((AIHC_SEGMENT_BYTES - sizeof(AihcSegment)) /
@@ -598,10 +601,10 @@ static uint32_t aihc_segment_take(AihcSegment *segment, int marking) {
    where the allocator finds it otherwise. A segment the cycle did not touch
    kept an older epoch, and nothing is allocated in an unswept segment, so
    such a segment is empty. */
-static void aihc_segment_sweep(AihcMachine *machine, AihcSizeClass *class,
+static void aihc_segment_sweep(AihcCapability *capability, AihcSizeClass *class,
                                AihcSegment *segment) {
   uint32_t live = 0;
-  if (segment->epoch == machine->gen2_epoch) {
+  if (segment->epoch == capability->machine->gen2_epoch) {
     for (size_t index = 0; index < AIHC_SEGMENT_BITMAP_WORDS; ++index) {
       live += (uint32_t)__builtin_popcountll(segment->bitmap[index]);
     }
@@ -624,7 +627,7 @@ static void aihc_segment_sweep(AihcMachine *machine, AihcSizeClass *class,
 /* Sweep a bounded number of unswept segments. Each collection runs one
    slice, so the sweep is paced by collections and no pause depends on the
    size of gen2. */
-static void aihc_sweep_slice(AihcMachine *machine) {
+static void aihc_sweep_slice(AihcCapability *capability) {
   unsigned budget = AIHC_SWEEP_SLICE;
   unsigned idle = 0;
   while (budget != 0 && idle < AIHC_SIZE_CLASS_COUNT) {
@@ -637,13 +640,13 @@ static void aihc_sweep_slice(AihcMachine *machine) {
     }
     idle = 0;
     class->unswept = segment->link;
-    aihc_segment_sweep(machine, class, segment);
+    aihc_segment_sweep(capability, class, segment);
     --budget;
   }
 }
 
 /* The segment the allocator fills next for a size class. */
-static AihcSegment *aihc_class_next_segment(AihcMachine *machine,
+static AihcSegment *aihc_class_next_segment(AihcCapability *capability,
                                             unsigned size_class) {
   AihcSizeClass *class = &aihc_size_classes[size_class];
   for (;;) {
@@ -653,38 +656,40 @@ static AihcSegment *aihc_class_next_segment(AihcMachine *machine,
       segment->link = NULL;
       return segment;
     }
-    if (machine->gen2_cycle_active || class->unswept == NULL) {
-      return aihc_segment_new(machine, size_class);
+    if (capability->machine->gen2_cycle_active || class->unswept == NULL) {
+      return aihc_segment_new(capability, size_class);
     }
     segment = class->unswept;
     class->unswept = segment->link;
-    aihc_segment_sweep(machine, class, segment);
+    aihc_segment_sweep(capability, class, segment);
   }
 }
 
 /* Allocate a slot for a copied object in gen2. The slot is occupied from
    now on: in a full collection the object is live by construction. */
-static uint8_t *aihc_gen2_allocate(AihcMachine *machine, size_t bytes) {
+static uint8_t *aihc_gen2_allocate(AihcCapability *capability, size_t bytes) {
   unsigned size_class = aihc_size_class_of(bytes / sizeof(AihcSlot));
   AihcSizeClass *class = &aihc_size_classes[size_class];
   for (;;) {
     AihcSegment *segment = class->current;
     if (segment == NULL) {
-      segment = aihc_class_next_segment(machine, size_class);
+      segment = aihc_class_next_segment(capability, size_class);
       class->current = segment;
     }
-    uint32_t slot = aihc_segment_take(segment, machine->gen2_cycle_active != 0);
+    uint32_t slot =
+        aihc_segment_take(segment, capability->machine->gen2_cycle_active != 0);
     if (slot != UINT32_MAX) {
       size_t slot_bytes = aihc_segment_slot_bytes(segment);
-      machine->generations[1].bytes += slot_bytes;
-      if (machine->gen2_cycle_active) {
+      capability->machine->generations[1].bytes += slot_bytes;
+      if (capability->machine->gen2_cycle_active) {
         /* The object is black: the cycle counts it and owes mark work for
            it. */
-        machine->gen2_marked_bytes += slot_bytes;
-        uint64_t owed = (uint64_t)slot_bytes * machine->mark_factor;
-        machine->mark_debt = owed > UINT64_MAX - machine->mark_debt
-                                 ? UINT64_MAX
-                                 : machine->mark_debt + owed;
+        capability->machine->gen2_marked_bytes += slot_bytes;
+        uint64_t owed = (uint64_t)slot_bytes * capability->machine->mark_factor;
+        capability->machine->mark_debt =
+            owed > UINT64_MAX - capability->machine->mark_debt
+                ? UINT64_MAX
+                : capability->machine->mark_debt + owed;
       }
       return aihc_segment_slots(segment) + (size_t)slot * slot_bytes;
     }
@@ -696,34 +701,34 @@ static uint8_t *aihc_gen2_allocate(AihcMachine *machine, size_t bytes) {
 
 /* Set the mark of a gen2 object in the active cycle. Returns whether the
    object was unmarked. */
-static int aihc_gen2_set_mark(AihcMachine *machine, AihcValue *object) {
-  AihcSegment *segment = aihc_segment_of(object);
-  if (segment->epoch != machine->gen2_epoch) {
+static int aihc_gen2_set_mark(AihcCapability *capability, AihcValue *object,
+                              AihcSegment *segment) {
+  if (segment->epoch != capability->machine->gen2_epoch) {
     memset(segment->bitmap, 0, sizeof(segment->bitmap));
-    segment->epoch = machine->gen2_epoch;
+    segment->epoch = capability->machine->gen2_epoch;
   }
   uint32_t slot = aihc_segment_slot_of(segment, object);
   if (aihc_segment_test(segment, slot)) {
     return 0;
   }
   aihc_segment_set(segment, slot);
-  machine->gen2_marked_bytes += aihc_segment_slot_bytes(segment);
+  capability->machine->gen2_marked_bytes += aihc_segment_slot_bytes(segment);
   return 1;
 }
 
 /* Mark one gen2 object a full collection reaches and queue it for the
    scan of the copy phase, which copies its young referents. */
-static void aihc_mark_gen2(AihcMachine *machine, AihcValue *object) {
-  if (aihc_gen2_set_mark(machine, object)) {
+static void aihc_mark_gen2(AihcCapability *capability, AihcValue *object) {
+  if (aihc_gen2_set_mark(capability, object, aihc_segment_of(object))) {
     aihc_value_worklist_push(&aihc_gen2_worklist, object);
   }
 }
 
 /* Whether a gen2 object is marked in the active cycle. */
-static int aihc_gen2_marked(const AihcMachine *machine,
+static int aihc_gen2_marked(const AihcCapability *capability,
                             const AihcValue *object) {
   AihcSegment *segment = aihc_segment_of(object);
-  return segment->epoch == machine->gen2_epoch &&
+  return segment->epoch == capability->machine->gen2_epoch &&
          aihc_segment_test(segment, aihc_segment_slot_of(segment, object));
 }
 
@@ -741,29 +746,30 @@ static void aihc_mark_push(AihcValue *object, uint64_t start) {
    the last cycle are void through the new epoch, and the allocator takes
    new segments until the cycle ends. A cycle that was active is given up:
    the new cycle marks everything again. */
-static void aihc_gen2_begin_marking(AihcMachine *machine) {
-  if (machine->gen2_epoch == UINT64_MAX) {
+static void aihc_gen2_begin_marking(AihcCapability *capability) {
+  if (capability->machine->gen2_epoch == UINT64_MAX) {
     aihc_fail("gen2 cycle counter overflow");
   }
-  if (machine->gen2_cycle_active) {
+  if (capability->machine->gen2_cycle_active) {
     /* The cycle that is given up marked pinned blocks. The segments carry
        the epoch, but a block carries one bit, so the marks are cleared
        here. This is the degradation path, so the walk is acceptable. */
-    for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-         block = block->next) {
+    for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
+         block != NULL; block = block->next) {
       block->bytes &= ~AIHC_PINNED_CYCLE_MARK;
     }
   }
-  ++machine->gen2_epoch;
-  machine->gen2_cycle_active = 1;
-  machine->gen2_marked_bytes = 0;
-  machine->gen2_cycle_start_bytes = aihc_gen2_bytes(machine);
-  machine->mark_debt = 0;
+  ++capability->machine->gen2_epoch;
+  capability->machine->gen2_cycle_active = 1;
+  capability->machine->gen2_marked_bytes = 0;
+  capability->machine->gen2_cycle_start_bytes = aihc_gen2_bytes(capability);
+  capability->machine->mark_debt = 0;
   aihc_mark_stack.count = 0;
   aihc_address_set_clear(&aihc_cycle_statics);
   aihc_clear_srt_stamps();
   aihc_srt_worklist.count = 0;
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
     stack->pending_count = 0;
   }
   for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
@@ -789,7 +795,7 @@ static void aihc_segments_release(AihcSegment *segments) {
   }
 }
 
-static void aihc_gen2_release(AihcMachine *machine) {
+static void aihc_gen2_release(AihcCapability *capability) {
   for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
     AihcSizeClass *class = &aihc_size_classes[index];
     aihc_segments_release(class->current);
@@ -798,27 +804,28 @@ static void aihc_gen2_release(AihcMachine *machine) {
     aihc_segments_release(class->unswept);
     *class = (AihcSizeClass){0};
   }
-  machine->generations[1].bytes = 0;
+  capability->machine->generations[1].bytes = 0;
 }
 
-static uint8_t *aihc_generation_allocate(AihcMachine *machine,
+static uint8_t *aihc_generation_allocate(AihcCapability *capability,
                                          unsigned generation, size_t bytes) {
-  return generation == 1 ? aihc_gen1_allocate(machine, bytes)
-                         : aihc_gen2_allocate(machine, bytes);
+  return generation == 1 ? aihc_gen1_allocate(capability, bytes)
+                         : aihc_gen2_allocate(capability, bytes);
 }
 
 /* The bytes the objects of the old generations and the pinned list take.
    The -M limit bounds this count, not the capacity of the blocks that hold
    it and not the nursery: a block is a whole run of regions, and a program
    with a limit far below one run still has to run. */
-static uint64_t aihc_old_bytes(const AihcMachine *machine) {
-  return aihc_generation_used(&machine->generations[0]) +
-         machine->generations[1].bytes + machine->fixed_bytes;
+static uint64_t aihc_old_bytes(const AihcCapability *capability) {
+  return aihc_generation_used(&capability->machine->generations[0]) +
+         capability->machine->generations[1].bytes +
+         capability->machine->fixed_bytes;
 }
 
-static uint64_t aihc_occupied_bytes(const AihcMachine *machine) {
-  return (uint64_t)(machine->heap_next - machine->heap_start) +
-         aihc_old_bytes(machine);
+static uint64_t aihc_occupied_bytes(const AihcCapability *capability) {
+  return (uint64_t)(capability->heap_next - capability->heap_start) +
+         aihc_old_bytes(capability);
 }
 
 /* Cards of large boxed arrays. */
@@ -854,20 +861,20 @@ static uint64_t aihc_array_card_count(const AihcValue *array) {
    first charge after a collection only empties the room: a collection at
    once would not free its memory, and a stack growth that collects again
    and again would not progress. Compiled code can keep a heap pointer
-   above the machine copy, so its limit can also go below its heap pointer
+   above the capability copy, so its limit can also go below its heap pointer
    before that. */
-static void aihc_charge_fixed(AihcMachine *machine, size_t bytes) {
-  size_t room = machine->heap_limit > machine->heap_next
-                    ? (size_t)(machine->heap_limit - machine->heap_next)
+static void aihc_charge_fixed(AihcCapability *capability, size_t bytes) {
+  size_t room = capability->heap_limit > capability->heap_next
+                    ? (size_t)(capability->heap_limit - capability->heap_next)
                     : 0;
   if (bytes < room) {
-    machine->heap_limit -= bytes;
-  } else if (machine->fixed_since_gc == 0) {
-    machine->heap_limit = machine->heap_next;
+    capability->heap_limit -= bytes;
+  } else if (capability->fixed_since_gc == 0) {
+    capability->heap_limit = capability->heap_next;
   } else {
-    machine->heap_limit = (uint8_t *)((uintptr_t)machine->heap_start - 1);
+    capability->heap_limit = (uint8_t *)((uintptr_t)capability->heap_start - 1);
   }
-  machine->fixed_since_gc += bytes;
+  capability->fixed_since_gc += bytes;
 }
 
 /* Thread stacks. */
@@ -884,25 +891,25 @@ static uint8_t *aihc_stack_chunk_frames(AihcStackChunk *chunk) {
 _Static_assert(AIHC_REGION_BYTES % AIHC_STACK_CHUNK_BYTES == 0,
                "a stack region holds whole chunks");
 
-static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
+static AihcStackChunk *aihc_stack_chunk_new(AihcCapability *capability,
                                             AihcStack *stack) {
-  if (machine->spare_chunks == NULL) {
+  if (capability->spare_chunks == NULL) {
     /* Chunks come from stack regions. The chunks of a region stay with the
-       machine: a released chunk goes to the spare list and is used again. */
+       capability: a released chunk goes to the spare list and is used again. */
     uint8_t *region = aihc_regions_acquire(1, AIHC_REGION_STACK);
     for (size_t offset = AIHC_REGION_BYTES; offset != 0;) {
       offset -= AIHC_STACK_CHUNK_BYTES;
       AihcStackChunk *spare = (AihcStackChunk *)(region + offset);
       spare->stack = NULL;
       spare->below = NULL;
-      spare->above = machine->spare_chunks;
-      machine->spare_chunks = spare;
-      ++machine->spare_chunk_count;
+      spare->above = capability->spare_chunks;
+      capability->spare_chunks = spare;
+      ++capability->spare_chunk_count;
     }
   }
-  AihcStackChunk *chunk = machine->spare_chunks;
-  machine->spare_chunks = chunk->above;
-  --machine->spare_chunk_count;
+  AihcStackChunk *chunk = capability->spare_chunks;
+  capability->spare_chunks = chunk->above;
+  --capability->spare_chunk_count;
   chunk->stack = stack;
   chunk->below = NULL;
   chunk->above = NULL;
@@ -910,31 +917,33 @@ static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
   chunk->scanned_from = NULL;
   chunk->scanned_cycle = 0;
   chunk->depth = 0;
-  chunk->charged_gc = 0;
+  chunk->charged_gc = (uint32_t)capability->machine->gc_count;
+  chunk->capability = capability;
   return chunk;
 }
 
-static void aihc_stack_chunk_free(AihcMachine *machine, AihcStackChunk *chunk) {
+static void aihc_stack_chunk_free(AihcCapability *capability,
+                                  AihcStackChunk *chunk) {
   chunk->stack = NULL;
   chunk->below = NULL;
-  chunk->above = machine->spare_chunks;
-  machine->spare_chunks = chunk;
-  ++machine->spare_chunk_count;
+  chunk->above = capability->spare_chunks;
+  capability->spare_chunks = chunk;
+  ++capability->spare_chunk_count;
 }
 
-AihcStack *aihc_stack_new(AihcMachine *machine, AihcThread *thread) {
+AihcStack *aihc_stack_new(AihcCapability *capability, AihcThread *thread) {
   AihcStack *stack = malloc(sizeof(*stack));
   if (stack == NULL) {
     aihc_fail("out of memory for the thread stack");
   }
   stack->thread = thread;
-  stack->base = aihc_stack_chunk_new(machine, stack);
-  stack->next = machine->stacks;
+  stack->base = aihc_stack_chunk_new(capability, stack);
+  stack->next = capability->machine->stacks;
   stack->top = NULL;
   stack->pending = NULL;
   stack->pending_count = 0;
   stack->pending_capacity = 0;
-  machine->stacks = stack;
+  capability->machine->stacks = stack;
   return stack;
 }
 
@@ -946,8 +955,8 @@ AihcStack *aihc_stack_of(const void *frame) {
   return aihc_stack_chunk_of(frame)->stack;
 }
 
-void aihc_stack_release(AihcMachine *machine, AihcStack *stack) {
-  AihcStack **link = &machine->stacks;
+void aihc_stack_release(AihcCapability *capability, AihcStack *stack) {
+  AihcStack **link = &capability->machine->stacks;
   while (*link != stack) {
     if (*link == NULL) {
       aihc_fail("released stack is not registered");
@@ -958,14 +967,14 @@ void aihc_stack_release(AihcMachine *machine, AihcStack *stack) {
   AihcStackChunk *chunk = stack->base;
   while (chunk != NULL) {
     AihcStackChunk *above = chunk->above;
-    aihc_stack_chunk_free(machine, chunk);
+    aihc_stack_chunk_free(capability, chunk);
     chunk = above;
   }
   free(stack->pending);
   free(stack);
 }
 
-AihcValue *aihc_stack_grow(AihcMachine *machine, uint8_t *stack_next,
+AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
                            uint64_t words) {
   if (words > (AIHC_STACK_CHUNK_BYTES - AIHC_STACK_CHUNK_HEADER_BYTES) /
                   sizeof(AihcSlot)) {
@@ -974,40 +983,45 @@ AihcValue *aihc_stack_grow(AihcMachine *machine, uint8_t *stack_next,
   AihcStackChunk *current = aihc_stack_chunk_of(stack_next - 1);
   AihcStackChunk *next = current->above;
   if (next == NULL) {
-    next = aihc_stack_chunk_new(machine, current->stack);
+    next = aihc_stack_chunk_new(capability, current->stack);
     next->below = current;
     current->above = next;
   }
+  if (current->depth == UINT32_MAX) {
+    aihc_fail("thread stack exceeds the chunk limit");
+  }
   next->depth = current->depth + 1;
+  next->capability = capability;
   aihc_chunk_set_generation(next, 0);
   /* The next minor collection scans each young chunk, so a young chunk
      costs that pause as much as a nursery object of its size. Charge the
      chunk once for each collection: a push and pop across one boundary
      then does not bring the collection closer each time. */
-  if (next->charged_gc != machine->gc_count + 1) {
-    next->charged_gc = machine->gc_count + 1;
-    aihc_charge_fixed(machine, AIHC_STACK_CHUNK_BYTES);
+  if (next->charged_gc != (uint32_t)(capability->machine->gc_count + 1)) {
+    next->charged_gc = (uint32_t)(capability->machine->gc_count + 1);
+    aihc_charge_fixed(capability, AIHC_STACK_CHUNK_BYTES);
   }
   return (AihcValue *)aihc_stack_chunk_frames(next);
 }
 
-AihcValue *aihc_stack_push(AihcMachine *machine, uint64_t words) {
-  uint8_t *frame = machine->stack_next;
+AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words) {
+  uint8_t *frame = capability->stack_next;
   if (frame == NULL) {
-    aihc_fail("stack push before the machine started");
+    aihc_fail("stack push before the capability started");
   }
   uintptr_t last = (uintptr_t)frame + words * sizeof(AihcSlot) - 1;
   if ((((uintptr_t)frame - 1) ^ last) >= AIHC_STACK_CHUNK_BYTES) {
-    frame = (uint8_t *)aihc_stack_grow(machine, frame, words);
+    frame = (uint8_t *)aihc_stack_grow(capability, frame, words);
   }
-  machine->stack_next = frame + words * sizeof(AihcSlot);
+  capability->stack_next = frame + words * sizeof(AihcSlot);
   return (AihcValue *)frame;
 }
 
-void aihc_stack_resume_after(AihcMachine *machine, const AihcValue *frame) {
-  machine->stack_next =
+void aihc_stack_resume_after(AihcCapability *capability,
+                             const AihcValue *frame) {
+  capability->stack_next =
       (uint8_t *)frame + aihc_value_words(frame) * sizeof(AihcSlot);
-  aihc_stack_enter_chunk(machine, frame);
+  aihc_stack_enter_chunk(capability, frame);
 }
 
 /* Remove the deferred frames at or above a frame that the stack pointer
@@ -1029,21 +1043,23 @@ static void aihc_stack_drop_pending_above(AihcStack *stack,
   stack->pending_count = kept;
 }
 
-void aihc_stack_enter_chunk(AihcMachine *machine, const AihcValue *frame) {
+void aihc_stack_enter_chunk(AihcCapability *capability,
+                            const AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
+  chunk->capability = capability;
   aihc_chunk_set_generation(chunk, 0);
-  if (machine->gen2_cycle_active) {
+  if (capability->machine->gen2_cycle_active) {
     aihc_stack_drop_pending_above(chunk->stack, frame);
     /* The frames above the entered one are gone. The entered frame and
        the frames below it in the chunk are read from now on, so the cycle
        scans them before the mutator overwrites any of them. */
-    aihc_mark_frames(machine, (AihcValue *)(uintptr_t)frame);
+    aihc_mark_frames(capability, (AihcValue *)(uintptr_t)frame);
   }
 }
 
-void aihc_gc_frame_read(AihcMachine *machine, AihcValue *frame) {
-  if (machine->gen2_cycle_active) {
-    aihc_mark_frames(machine, frame);
+void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
+  if (capability->machine->gen2_cycle_active) {
+    aihc_mark_frames(capability, frame);
   }
 }
 
@@ -1062,119 +1078,120 @@ static int aihc_compare_addresses(const void *left, const void *right) {
   return first < second ? -1 : first > second;
 }
 
-static void aihc_remembered_grow(AihcMachine *machine) {
-  uint64_t capacity = machine->remembered_capacity == 0
+static void aihc_remembered_grow(AihcCapability *capability) {
+  uint64_t capacity = capability->remembered_capacity == 0
                           ? 256
-                          : machine->remembered_capacity * 2;
-  AihcValue **grown =
-      realloc(machine->remembered, capacity * sizeof(*machine->remembered));
+                          : capability->remembered_capacity * 2;
+  AihcValue **grown = realloc(capability->remembered,
+                              capacity * sizeof(*capability->remembered));
   if (grown == NULL) {
     aihc_fail("out of memory");
   }
-  machine->remembered = grown;
-  machine->remembered_capacity = capacity;
+  capability->remembered = grown;
+  capability->remembered_capacity = capacity;
 }
 
 /* Keep one entry for each object. A hot mutable object enters the set at
    every store, so the list is compacted when it is full of such entries.
    Without a repeatable entry since the last compaction, the list has no
    duplicate and the sort is skipped. */
-static void aihc_remembered_compact(AihcMachine *machine) {
-  if (machine->remembered_repeatable == 0) {
+static void aihc_remembered_compact(AihcCapability *capability) {
+  if (capability->remembered_repeatable == 0) {
     return;
   }
-  machine->remembered_repeatable = 0;
-  if (machine->remembered_count == 0) {
+  capability->remembered_repeatable = 0;
+  if (capability->remembered_count == 0) {
     /* qsort takes no null list, and an empty list has nothing to sort. */
     return;
   }
-  qsort(machine->remembered, machine->remembered_count,
-        sizeof(*machine->remembered), aihc_compare_addresses);
+  qsort(capability->remembered, capability->remembered_count,
+        sizeof(*capability->remembered), aihc_compare_addresses);
   uint64_t kept = 0;
-  for (uint64_t index = 0; index < machine->remembered_count; ++index) {
+  for (uint64_t index = 0; index < capability->remembered_count; ++index) {
     if (kept == 0 ||
-        machine->remembered[kept - 1] != machine->remembered[index]) {
-      machine->remembered[kept++] = machine->remembered[index];
+        capability->remembered[kept - 1] != capability->remembered[index]) {
+      capability->remembered[kept++] = capability->remembered[index];
     }
   }
-  machine->remembered_count = kept;
+  capability->remembered_count = kept;
 }
 
-void aihc_remember(AihcMachine *machine, AihcValue *object) {
-  if (machine->remembered_count != 0 &&
-      machine->remembered[machine->remembered_count - 1] == object) {
+void aihc_remember(AihcCapability *capability, AihcValue *object) {
+  if (capability->remembered_count != 0 &&
+      capability->remembered[capability->remembered_count - 1] == object) {
     /* A loop that stores into one object enters it once. */
     return;
   }
-  ++machine->remembered_repeatable;
-  if (machine->remembered_count == machine->remembered_capacity) {
+  ++capability->remembered_repeatable;
+  if (capability->remembered_count == capability->remembered_capacity) {
     /* Compact only when repeatable entries are half the list or more.
        Otherwise the sort would mostly reorder unique entries. */
-    if (machine->remembered_capacity != 0 &&
-        machine->remembered_repeatable * 2 >= machine->remembered_count) {
-      aihc_remembered_compact(machine);
+    if (capability->remembered_capacity != 0 &&
+        capability->remembered_repeatable * 2 >= capability->remembered_count) {
+      aihc_remembered_compact(capability);
     }
-    if (machine->remembered_count * 2 >= machine->remembered_capacity) {
-      uint64_t capacity = machine->remembered_capacity == 0
+    if (capability->remembered_count * 2 >= capability->remembered_capacity) {
+      uint64_t capacity = capability->remembered_capacity == 0
                               ? 256
-                              : machine->remembered_capacity * 2;
-      if (capacity > SIZE_MAX / sizeof(*machine->remembered)) {
+                              : capability->remembered_capacity * 2;
+      if (capacity > SIZE_MAX / sizeof(*capability->remembered)) {
         aihc_fail("remembered set is too large");
       }
-      AihcValue **grown =
-          realloc(machine->remembered, capacity * sizeof(*machine->remembered));
+      AihcValue **grown = realloc(capability->remembered,
+                                  capacity * sizeof(*capability->remembered));
       if (grown == NULL) {
         aihc_fail("out of memory");
       }
-      machine->remembered = grown;
-      machine->remembered_capacity = capacity;
+      capability->remembered = grown;
+      capability->remembered_capacity = capacity;
     }
   }
-  machine->remembered[machine->remembered_count++] = object;
+  capability->remembered[capability->remembered_count++] = object;
 }
 
 /* Add an object that the set cannot hold since the last collection: no
    compaction is necessary. */
-static void aihc_remember_unique(AihcMachine *machine, AihcValue *object) {
-  if (machine->remembered_count == machine->remembered_capacity) {
-    aihc_remembered_grow(machine);
+static void aihc_remember_unique(AihcCapability *capability,
+                                 AihcValue *object) {
+  if (capability->remembered_count == capability->remembered_capacity) {
+    aihc_remembered_grow(capability);
   }
-  machine->remembered[machine->remembered_count++] = object;
+  capability->remembered[capability->remembered_count++] = object;
 }
 
 /* The barrier of a blackhole update. The update writes the result over the
    payload, so the old referents are shaded as aihc_write_barrier does. A
    blackhole is updated once, so its entry is unique. */
-void aihc_write_barrier_update(AihcMachine *machine, AihcValue *object) {
-  if (object == NULL || aihc_in_nursery(machine, object)) {
+void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
+  if (object == NULL || aihc_in_nursery(capability, object)) {
     return;
   }
-  if (machine->gen2_cycle_active) {
-    aihc_shade_fields(machine, object);
+  if (capability->machine->gen2_cycle_active) {
+    aihc_shade_fields(capability, object);
   }
-  aihc_remember_unique(machine, object);
+  aihc_remember_unique(capability, object);
 }
 
-void aihc_write_barrier(AihcMachine *machine, AihcValue *object) {
-  if (object == NULL || aihc_in_nursery(machine, object)) {
+void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
+  if (object == NULL || aihc_in_nursery(capability, object)) {
     return;
   }
-  if (machine->gen2_cycle_active) {
-    aihc_shade_fields(machine, object);
+  if (capability->machine->gen2_cycle_active) {
+    aihc_shade_fields(capability, object);
   }
   if (aihc_has_cards(object)) {
     memset(aihc_array_cards(object), 1, aihc_array_card_count(object));
   }
-  aihc_remember(machine, object);
+  aihc_remember(capability, object);
 }
 
-void aihc_write_barrier_at(AihcMachine *machine, AihcValue *object,
+void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index) {
-  if (object == NULL || aihc_in_nursery(machine, object)) {
+  if (object == NULL || aihc_in_nursery(capability, object)) {
     return;
   }
-  if (machine->gen2_cycle_active) {
-    aihc_shade_elements(machine, object, index, index + 1);
+  if (capability->machine->gen2_cycle_active) {
+    aihc_shade_elements(capability, object, index, index + 1);
   }
   if (aihc_has_cards(object)) {
     uint64_t card = index >> AIHC_CARD_SHIFT;
@@ -1182,16 +1199,16 @@ void aihc_write_barrier_at(AihcMachine *machine, AihcValue *object,
       aihc_array_cards(object)[card] = 1;
     }
   }
-  aihc_remember(machine, object);
+  aihc_remember(capability, object);
 }
 
-void aihc_write_barrier_range(AihcMachine *machine, AihcValue *object,
+void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
                               uint64_t offset, uint64_t count) {
-  if (object == NULL || count == 0 || aihc_in_nursery(machine, object)) {
+  if (object == NULL || count == 0 || aihc_in_nursery(capability, object)) {
     return;
   }
-  if (machine->gen2_cycle_active) {
-    aihc_shade_elements(machine, object, offset, offset + count);
+  if (capability->machine->gen2_cycle_active) {
+    aihc_shade_elements(capability, object, offset, offset + count);
   }
   if (aihc_has_cards(object)) {
     uint8_t *cards = aihc_array_cards(object);
@@ -1204,7 +1221,7 @@ void aihc_write_barrier_range(AihcMachine *machine, AihcValue *object,
       cards[card] = 1;
     }
   }
-  aihc_remember(machine, object);
+  aihc_remember(capability, object);
 }
 
 static void aihc_gc_keep(AihcGcContext *context, AihcValue *object) {
@@ -1250,9 +1267,9 @@ static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
   size_t bytes = sizeof(AihcSlot) * words;
   AihcValue *copy =
       (AihcValue *)(generation == 1
-                        ? aihc_gen1_allocate(context->machine, bytes)
-                        : aihc_generation_allocate(context->machine, generation,
-                                                   bytes));
+                        ? aihc_gen1_allocate(context->capability, bytes)
+                        : aihc_generation_allocate(context->capability,
+                                                   generation, bytes));
   context->copied_bytes += bytes;
   /* Most objects have a few words, and a call of memcpy costs more than
      the copy. */
@@ -1291,12 +1308,12 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
     promoted = 2;
   }
   block->bytes |= AIHC_PINNED_MARK;
-  if (promoted == 2 && context->machine->gen2_cycle_active) {
+  if (promoted == 2 && context->capability->machine->gen2_cycle_active) {
     /* The block enters gen2 black: the cycle keeps it. */
     block->bytes |= AIHC_PINNED_CYCLE_MARK;
   }
   /* The charge of the fixed block moves with it to its new generation. */
-  uint64_t *fixed = context->machine->fixed_generation_bytes;
+  uint64_t *fixed = context->capability->machine->fixed_generation_bytes;
   fixed[generation] -= aihc_pinned_bytes(block);
   fixed[promoted] += aihc_pinned_bytes(block);
   aihc_pinned_set_generation(block, promoted);
@@ -1318,14 +1335,14 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
    the scan of the referrer does not look it up again. */
 static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
                                    unsigned target, unsigned *where) {
-  AihcMachine *machine = context->machine;
+  AihcCapability *capability = context->capability;
   for (;;) {
     if (value == NULL) {
       *where = AIHC_GENERATION_STATIC;
       return NULL;
     }
     unsigned source;
-    if (aihc_in_nursery(machine, value)) {
+    if (aihc_in_nursery(capability, value)) {
       source = 0;
     } else {
       switch (aihc_region_kind(value)) {
@@ -1347,7 +1364,7 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
           value = (AihcValue *)(uintptr_t)value->fields[0];
           continue;
         }
-        aihc_mark_gen2(machine, value);
+        aihc_mark_gen2(capability, value);
         return value;
       case AIHC_REGION_LARGE:
       case AIHC_REGION_PINNED:
@@ -1363,7 +1380,7 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
            can be at its address, so only a live frame is scanned. */
         if (aihc_chunk_generation(aihc_stack_chunk_of(value)) <=
                 context->collected &&
-            aihc_frame_is_live(machine, value)) {
+            aihc_frame_is_live(capability, value)) {
           aihc_mark_static(value);
         }
         return value;
@@ -1443,7 +1460,7 @@ static AihcSlot aihc_scan_slot(AihcSlot slot, void *opaque_context) {
    it. The chunk takes the result when the collection ends. */
 static void aihc_chunk_note_frame(AihcGcContext *context, AihcStackChunk *chunk,
                                   unsigned youngest) {
-  uint64_t stamp = context->machine->gc_count;
+  uint64_t stamp = context->capability->machine->gc_count;
   if ((chunk->state >> AIHC_CHUNK_STAMP_SHIFT) != stamp) {
     chunk->state =
         (stamp << AIHC_CHUNK_STAMP_SHIFT) |
@@ -1469,10 +1486,11 @@ static void aihc_chunk_note_frame(AihcGcContext *context, AihcStackChunk *chunk,
    that is lower. The chunk of the running stack pointer stays young, because
    compiled code pushes into it without a runtime call. */
 static void aihc_age_chunks(AihcGcContext *context) {
-  AihcMachine *machine = context->machine;
-  AihcStackChunk *running = machine->stack_next == NULL
-                                ? NULL
-                                : aihc_stack_chunk_of(machine->stack_next - 1);
+  AihcCapability *capability = context->capability;
+  AihcStackChunk *running =
+      capability->stack_next == NULL
+          ? NULL
+          : aihc_stack_chunk_of(capability->stack_next - 1);
   for (size_t index = 0; index < context->touched_count; ++index) {
     AihcStackChunk *chunk = context->touched[index];
     unsigned youngest = (unsigned)((chunk->state & AIHC_CHUNK_YOUNGEST_MASK) >>
@@ -1660,7 +1678,7 @@ static int aihc_generation_scan_pending(AihcGeneration *generation) {
 
 static void aihc_generation_scan_one(AihcGcContext *context,
                                      unsigned generation) {
-  AihcGeneration *target = aihc_generation(context->machine, generation);
+  AihcGeneration *target = aihc_generation(context->capability, generation);
   AihcValue *object = (AihcValue *)target->scan;
   aihc_scan_object(context, object, generation);
   target->scan += sizeof(AihcSlot) * aihc_gc_words(object);
@@ -1669,7 +1687,7 @@ static void aihc_generation_scan_one(AihcGcContext *context,
 /* Copying, marking, and table walking all feed one another, so run every
    worklist to quiescence. */
 static void aihc_trace(AihcGcContext *context) {
-  AihcMachine *machine = context->machine;
+  AihcCapability *capability = context->capability;
   for (;;) {
     /* Only a full collection walks the static reference tables in its copy
        phase. The tables a younger collection finds on the list are mark
@@ -1702,7 +1720,7 @@ static void aihc_trace(AihcGcContext *context) {
       aihc_scan_object(context, object, 2);
       continue;
     }
-    if (aihc_generation_scan_pending(aihc_generation(machine, 1))) {
+    if (aihc_generation_scan_pending(aihc_generation(capability, 1))) {
       aihc_generation_scan_one(context, 1);
       continue;
     }
@@ -1714,18 +1732,18 @@ static void aihc_trace(AihcGcContext *context) {
    is copied and scanned if it is live. Another entry is scanned with its own
    generation as the floor of its referents. */
 static void aihc_scan_remembered(AihcGcContext *context) {
-  AihcMachine *machine = context->machine;
+  AihcCapability *capability = context->capability;
   /* A hot object has one entry for each store since the last compaction,
      so the set is compacted before each entry costs a scan. */
-  aihc_remembered_compact(machine);
-  AihcValue **entries = machine->remembered;
-  uint64_t count = machine->remembered_count;
-  machine->remembered = NULL;
-  machine->remembered_count = 0;
-  machine->remembered_capacity = 0;
+  aihc_remembered_compact(capability);
+  AihcValue **entries = capability->remembered;
+  uint64_t count = capability->remembered_count;
+  capability->remembered = NULL;
+  capability->remembered_count = 0;
+  capability->remembered_capacity = 0;
   for (uint64_t index = 0; index < count; ++index) {
     AihcValue *object = entries[index];
-    if (aihc_in_nursery(machine, object)) {
+    if (aihc_in_nursery(capability, object)) {
       continue;
     }
     unsigned generation;
@@ -1790,18 +1808,18 @@ static int aihc_pinned_live(const AihcGcContext *context,
 
 /* Return the relocated address only if tracing retained the object. */
 static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
-  AihcMachine *machine = context->machine;
+  AihcCapability *capability = context->capability;
   for (;;) {
     if (value == NULL) {
       return NULL;
     }
-    if (!aihc_in_nursery(machine, value)) {
+    if (!aihc_in_nursery(capability, value)) {
       switch (aihc_region_kind(value)) {
       case AIHC_REGION_FROM1:
         /* A from-space object: forwarded, followed, or dead, as below. */
         break;
       case AIHC_REGION_GEN2:
-        if (context->collected < 2 || aihc_gen2_marked(machine, value)) {
+        if (context->collected < 2 || aihc_gen2_marked(capability, value)) {
           return value;
         }
         if (aihc_value_kind(value) != AIHC_OBJECT_INDIRECTION) {
@@ -1849,15 +1867,15 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
    Thus the walk starts again at the top of each kept stack until no more
    threads become live. The running stack is a root. */
 static void aihc_trace_kept_stacks(AihcGcContext *context) {
-  AihcMachine *machine = context->machine;
+  AihcCapability *capability = context->capability;
   AihcStack *running =
-      machine->stack_next == NULL
+      capability->stack_next == NULL
           ? NULL
-          : aihc_stack_chunk_of(machine->stack_next - 1)->stack;
+          : aihc_stack_chunk_of(capability->stack_next - 1)->stack;
   int scanned;
   do {
     scanned = 0;
-    for (AihcStack *stack = machine->stacks; stack != NULL;
+    for (AihcStack *stack = capability->machine->stacks; stack != NULL;
          stack = stack->next) {
       if (stack == running || stack->top == NULL ||
           aihc_chunk_generation(aihc_stack_chunk_of(stack->top)) >
@@ -1880,23 +1898,24 @@ static void aihc_trace_kept_stacks(AihcGcContext *context) {
    pointer are dead, and one spare chunk stops a loop at a chunk boundary
    from allocating a chunk on every push. */
 static void aihc_sweep_stacks(AihcGcContext *context) {
-  AihcMachine *machine = context->machine;
-  AihcStack *stack = machine->stacks;
+  AihcCapability *capability = context->capability;
+  AihcStack *stack = capability->machine->stacks;
   while (stack != NULL) {
     AihcStack *next = stack->next;
     AihcThread *thread =
         (AihcThread *)aihc_live_value(context, (AihcValue *)stack->thread);
     if (thread == NULL) {
-      aihc_stack_release(machine, stack);
+      aihc_stack_release(capability, stack);
     } else {
       stack->thread = thread;
     }
     stack = next;
   }
-  if (machine->stack_next == NULL) {
+  if (capability->stack_next == NULL) {
     return;
   }
-  AihcStackChunk *spare = aihc_stack_chunk_of(machine->stack_next - 1)->above;
+  AihcStackChunk *spare =
+      aihc_stack_chunk_of(capability->stack_next - 1)->above;
   if (spare == NULL) {
     return;
   }
@@ -1904,7 +1923,7 @@ static void aihc_sweep_stacks(AihcGcContext *context) {
   spare->above = NULL;
   while (chunk != NULL) {
     AihcStackChunk *above = chunk->above;
-    aihc_stack_chunk_free(machine, chunk);
+    aihc_stack_chunk_free(capability, chunk);
     chunk = above;
   }
 }
@@ -1925,8 +1944,8 @@ static AihcValue *aihc_follow_heap_indirections(AihcValue *value) {
 /* Rebuild the weak lookup list after strong tracing. Do not retain names
    through this list or retain referents through their names. */
 static void aihc_update_stable_names(AihcGcContext *context) {
-  AihcStableName *old = context->machine->stable_names;
-  AihcStableName **tail = &context->machine->stable_names;
+  AihcStableName *old = context->capability->machine->stable_names;
+  AihcStableName **tail = &context->capability->machine->stable_names;
   *tail = NULL;
   while (old != NULL) {
     AihcStableName *next = old->next;
@@ -1955,18 +1974,19 @@ void aihc_pinned_block_release(AihcPinnedBlock *block) {
 
 /* Remove the charge of a fixed block that the sweep frees from the fixed
    byte counts. */
-static void aihc_fixed_uncharge(AihcMachine *machine,
+static void aihc_fixed_uncharge(AihcCapability *capability,
                                 const AihcPinnedBlock *block) {
   uint64_t bytes = aihc_pinned_bytes(block);
-  machine->fixed_bytes -= bytes;
-  machine->fixed_generation_bytes[aihc_pinned_generation(block)] -= bytes;
+  capability->machine->fixed_bytes -= bytes;
+  capability->machine->fixed_generation_bytes[aihc_pinned_generation(block)] -=
+      bytes;
 }
 
 /* Free the pinned blocks of the collected generations that nothing reached,
    and clear the marks of the others. */
 static void aihc_sweep_pinned(AihcGcContext *context) {
-  AihcMachine *machine = context->machine;
-  AihcPinnedBlock **link = &machine->pinned_blocks;
+  AihcCapability *capability = context->capability;
+  AihcPinnedBlock **link = &capability->machine->pinned_blocks;
   while (*link != NULL) {
     AihcPinnedBlock *block = *link;
     if ((block->bytes & AIHC_PINNED_MARK) != 0) {
@@ -1974,7 +1994,7 @@ static void aihc_sweep_pinned(AihcGcContext *context) {
       link = &block->next;
     } else if (aihc_pinned_generation(block) <= context->collected) {
       *link = block->next;
-      aihc_fixed_uncharge(machine, block);
+      aihc_fixed_uncharge(capability, block);
       aihc_pinned_block_release(block);
     } else {
       link = &block->next;
@@ -1984,8 +2004,8 @@ static void aihc_sweep_pinned(AihcGcContext *context) {
 
 /* Free the gen2 blocks of the pinned list the cycle did not mark, and
    clear the cycle marks of the others. */
-static void aihc_sweep_pinned_cycle(AihcMachine *machine) {
-  AihcPinnedBlock **link = &machine->pinned_blocks;
+static void aihc_sweep_pinned_cycle(AihcCapability *capability) {
+  AihcPinnedBlock **link = &capability->machine->pinned_blocks;
   while (*link != NULL) {
     AihcPinnedBlock *block = *link;
     if (aihc_pinned_generation(block) != 2) {
@@ -1995,7 +2015,7 @@ static void aihc_sweep_pinned_cycle(AihcMachine *machine) {
       link = &block->next;
     } else {
       *link = block->next;
-      aihc_fixed_uncharge(machine, block);
+      aihc_fixed_uncharge(capability, block);
       aihc_pinned_block_release(block);
     }
   }
@@ -2034,18 +2054,18 @@ static int aihc_frame_above(const AihcValue *first, const AihcValue *second) {
 /* Whether a frame is live: at or below the top of its stack. The running
    stack ends at the stack pointer, and a suspended one at the frame its
    thread suspended with. */
-static int aihc_frame_is_live(const AihcMachine *machine,
+static int aihc_frame_is_live(const AihcCapability *capability,
                               const AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
   AihcStack *stack = chunk->stack;
   if (stack == NULL) {
     return 0;
   }
-  if (machine->stack_next != NULL) {
-    AihcStackChunk *top = aihc_stack_chunk_of(machine->stack_next - 1);
+  if (capability->stack_next != NULL) {
+    AihcStackChunk *top = aihc_stack_chunk_of(capability->stack_next - 1);
     if (top->stack == stack) {
       return chunk->depth < top->depth ||
-             (chunk == top && (const uint8_t *)frame < machine->stack_next);
+             (chunk == top && (const uint8_t *)frame < capability->stack_next);
     }
   }
   return stack->top != NULL && !aihc_frame_above(frame, stack->top);
@@ -2056,13 +2076,14 @@ static int aihc_frame_is_live(const AihcMachine *machine,
    name it, so it must stay until a copy follows it. A frame is scanned at
    once with the frames below it in its chunk, when it is live and not
    scanned yet. */
-static void aihc_mark_old(AihcMachine *machine, AihcValue *value) {
-  if (value == NULL || aihc_in_nursery(machine, value)) {
+static void aihc_mark_old(AihcCapability *capability, AihcValue *value) {
+  if (value == NULL || aihc_in_nursery(capability, value)) {
     return;
   }
-  switch (aihc_region_kind(value)) {
+  AihcRegionLocation location = aihc_region_location(value);
+  switch (location.kind) {
   case AIHC_REGION_GEN2:
-    if (aihc_gen2_set_mark(machine, value)) {
+    if (aihc_gen2_set_mark(capability, value, location.base)) {
       aihc_mark_push(value, 0);
     }
     return;
@@ -2089,8 +2110,8 @@ static void aihc_mark_old(AihcMachine *machine, AihcValue *value) {
     }
     return;
   case AIHC_REGION_STACK:
-    if (aihc_frame_is_live(machine, value)) {
-      aihc_mark_frames(machine, value);
+    if (aihc_frame_is_live(capability, value)) {
+      aihc_mark_frames(capability, value);
     }
     return;
   default:
@@ -2103,12 +2124,38 @@ static AihcSlot aihc_mark_slot(AihcSlot slot, void *opaque_machine) {
   return slot;
 }
 
+/* Mark ordinary fields directly. Keep the static references and pointer
+   map checks that the general visitors use. */
+static int aihc_mark_plain_object(AihcCapability *capability,
+                                  AihcValue *object) {
+  AihcObjectKind kind = aihc_value_kind(object);
+  if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+      kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
+    const AihcInfo *info = aihc_value_info_table(object);
+    aihc_walk_srt(info->srt);
+    const uint8_t *pointers = info->field_is_pointer;
+    if (pointers != NULL) {
+      for (uint64_t index = 0; index < info->field_count; ++index) {
+        if (pointers[index]) {
+          aihc_mark_old(capability,
+                        (AihcValue *)(uintptr_t)object->fields[index]);
+        }
+      }
+    }
+    return 1;
+  }
+  return 0;
+}
+
 /* Scan one object from the mark stack: mark its old referents. A boxed
    array is scanned in pieces, so no step depends on its size. Returns the
    bytes the step scanned. */
-static uint64_t aihc_mark_scan(AihcMachine *machine, AihcValue *object,
+static uint64_t aihc_mark_scan(AihcCapability *capability, AihcValue *object,
                                uint64_t start) {
-  if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
+  if (aihc_mark_plain_object(capability, object)) {
+    return sizeof(AihcSlot) * aihc_gc_words(object);
+  }
+  if (aihc_visit_runtime_object(object, aihc_mark_slot, capability)) {
     return sizeof(AihcSlot) * aihc_value_words(object);
   }
   const AihcInfo *info = aihc_value_info_table(object);
@@ -2121,14 +2168,14 @@ static uint64_t aihc_mark_scan(AihcMachine *machine, AihcValue *object,
     }
     AihcSlot *elements = aihc_array_elements(object);
     for (uint64_t index = start; index < end; ++index) {
-      aihc_mark_old(machine, (AihcValue *)(uintptr_t)elements[index]);
+      aihc_mark_old(capability, (AihcValue *)(uintptr_t)elements[index]);
     }
     if (end < length) {
       aihc_mark_push(object, end);
     }
     return sizeof(AihcSlot) * (end - start + (start == 0 ? 2 : 0));
   }
-  aihc_visit_plain_fields(object, aihc_mark_slot, machine);
+  aihc_visit_plain_fields(object, aihc_mark_slot, capability);
   return sizeof(AihcSlot) * aihc_value_words(object);
 }
 
@@ -2136,7 +2183,7 @@ static uint64_t aihc_mark_scan(AihcMachine *machine, AihcValue *object,
    same chunk, and below is the frame the chain continues with in a lower
    chunk. */
 typedef struct {
-  AihcMachine *machine;
+  AihcCapability *capability;
   AihcStackChunk *chunk;
   AihcValue *frame;
   AihcValue *parent;
@@ -2147,7 +2194,7 @@ static AihcSlot aihc_mark_frame_slot(AihcSlot slot, void *opaque_scan) {
   AihcFrameScan *scan = opaque_scan;
   AihcValue *value = (AihcValue *)(uintptr_t)slot;
   if (value == NULL || aihc_region_kind(value) != AIHC_REGION_STACK) {
-    aihc_mark_old(scan->machine, value);
+    aihc_mark_old(scan->capability, value);
     return slot;
   }
   AihcStackChunk *chunk = aihc_stack_chunk_of(value);
@@ -2169,10 +2216,10 @@ static AihcSlot aihc_mark_frame_slot(AihcSlot slot, void *opaque_scan) {
    frame stays on the list. One deferred frame cannot stand for another: a
    scan that starts high in the stack stops at the first chunk the cycle
    scanned, and the chunks below that chunk can still wait for a scan. */
-static void aihc_stack_defer(AihcMachine *machine, AihcStack *stack,
+static void aihc_stack_defer(AihcCapability *capability, AihcStack *stack,
                              AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
-  if (chunk->scanned_cycle == machine->gen2_epoch &&
+  if (chunk->scanned_cycle == capability->machine->gen2_epoch &&
       (uint8_t *)frame <= chunk->scanned_from) {
     return;
   }
@@ -2192,20 +2239,20 @@ static void aihc_stack_defer(AihcMachine *machine, AihcStack *stack,
    it was scanned from. When the chain leaves the chunk, the frame below is
    deferred to a slice, or to the pop that enters it. Returns the bytes
    scanned. */
-static uint64_t aihc_mark_frames_counted(AihcMachine *machine,
+static uint64_t aihc_mark_frames_counted(AihcCapability *capability,
                                          AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
   uint8_t *limit = NULL;
-  if (chunk->scanned_cycle == machine->gen2_epoch) {
+  if (chunk->scanned_cycle == capability->machine->gen2_epoch) {
     if ((uint8_t *)frame <= chunk->scanned_from) {
       return 0;
     }
     limit = chunk->scanned_from;
   }
-  chunk->scanned_cycle = machine->gen2_epoch;
+  chunk->scanned_cycle = capability->machine->gen2_epoch;
   chunk->scanned_from = (uint8_t *)frame;
   uint64_t scanned = 0;
-  AihcFrameScan scan = {.machine = machine, .chunk = chunk};
+  AihcFrameScan scan = {.capability = capability, .chunk = chunk};
   while (frame != NULL && (limit == NULL || (uint8_t *)frame > limit)) {
     scan.frame = frame;
     scan.parent = NULL;
@@ -2217,23 +2264,24 @@ static uint64_t aihc_mark_frames_counted(AihcMachine *machine,
     frame = scan.parent;
   }
   if (frame == NULL && scan.below != NULL) {
-    aihc_stack_defer(machine, chunk->stack, scan.below);
+    aihc_stack_defer(capability, chunk->stack, scan.below);
   }
   return scanned;
 }
 
-static void aihc_mark_frames(AihcMachine *machine, AihcValue *frame) {
-  (void)aihc_mark_frames_counted(machine, frame);
+static void aihc_mark_frames(AihcCapability *capability, AihcValue *frame) {
+  (void)aihc_mark_frames_counted(capability, frame);
 }
 
 /* The deletion barrier: before a store into an old object, the old values
    of its pointer fields are marked, so the snapshot of the cycle keeps
    what the store deletes. A thunk update deletes every field at once. */
-static void aihc_shade_fields(AihcMachine *machine, AihcValue *object) {
+static void aihc_shade_fields(AihcCapability *capability, AihcValue *object) {
   if (!aihc_marks_object(object)) {
     return;
   }
-  if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
+  if (aihc_mark_plain_object(capability, object) ||
+      aihc_visit_runtime_object(object, aihc_mark_slot, capability)) {
     return;
   }
   /* A thunk update deletes the code of the thunk as well. The code reaches
@@ -2241,10 +2289,10 @@ static void aihc_shade_fields(AihcMachine *machine, AihcValue *object) {
      after the snapshot can name them, so the table is shaded too. After
      the update, the marker finds an indirection, which has no table. */
   aihc_walk_srt(aihc_value_info_table(object)->srt);
-  aihc_visit_plain_fields(object, aihc_mark_slot, machine);
+  aihc_visit_plain_fields(object, aihc_mark_slot, capability);
 }
 
-static void aihc_shade_elements(AihcMachine *machine, AihcValue *array,
+static void aihc_shade_elements(AihcCapability *capability, AihcValue *array,
                                 uint64_t first, uint64_t end) {
   if (!aihc_marks_object(array) ||
       aihc_value_kind(array) != AIHC_OBJECT_ARRAY) {
@@ -2256,35 +2304,37 @@ static void aihc_shade_elements(AihcMachine *machine, AihcValue *array,
   }
   AihcSlot *elements = aihc_array_elements(array);
   for (uint64_t index = first; index < end; ++index) {
-    aihc_mark_old(machine, (AihcValue *)(uintptr_t)elements[index]);
+    aihc_mark_old(capability, (AihcValue *)(uintptr_t)elements[index]);
   }
 }
 
 static AihcSlot aihc_snapshot_root(AihcSlot slot, void *opaque_machine) {
-  AihcMachine *machine = opaque_machine;
+  AihcCapability *capability = opaque_machine;
   AihcValue *value = (AihcValue *)(uintptr_t)slot;
   if (value != NULL && aihc_region_kind(value) == AIHC_REGION_STACK) {
     /* A root names a live frame: the top frame of the running stack, or
        a frame below it. */
-    aihc_mark_frames(machine, value);
+    aihc_mark_frames(capability, value);
   } else {
-    aihc_mark_old(machine, value);
+    aihc_mark_old(capability, value);
   }
   return slot;
 }
 
 /* Scan one young object at the snapshot: its old referents and the static
    objects its code reaches. */
-static void aihc_mark_young_object(AihcMachine *machine, AihcValue *object) {
-  if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
+static void aihc_mark_young_object(AihcCapability *capability,
+                                   AihcValue *object) {
+  if (aihc_mark_plain_object(capability, object) ||
+      aihc_visit_runtime_object(object, aihc_mark_slot, capability)) {
     return;
   }
   aihc_walk_srt(aihc_value_info_table(object)->srt);
-  aihc_visit_plain_fields(object, aihc_mark_slot, machine);
+  aihc_visit_plain_fields(object, aihc_mark_slot, capability);
 }
 
 /* Scan the objects of one object range at the snapshot. */
-static void aihc_mark_range(AihcMachine *machine, uint8_t *start,
+static void aihc_mark_range(AihcCapability *capability, uint8_t *start,
                             uint8_t *end) {
   uint8_t *cursor = start;
   while (cursor < end) {
@@ -2293,7 +2343,7 @@ static void aihc_mark_range(AihcMachine *machine, uint8_t *start,
       cursor += sizeof(AihcSlot);
       continue;
     }
-    aihc_mark_young_object(machine, object);
+    aihc_mark_young_object(capability, object);
     cursor += sizeof(AihcSlot) * aihc_value_words(object);
   }
 }
@@ -2306,32 +2356,34 @@ static void aihc_mark_range(AihcMachine *machine, uint8_t *start,
    that are still young. They are older than the snapshot, but the barrier
    does not shade young objects, so they are scanned now. The work is
    bounded by the nursery size. */
-static void aihc_cycle_start(AihcMachine *machine, uint64_t root_count,
+static void aihc_cycle_start(AihcCapability *capability, uint64_t root_count,
                              AihcSlot *roots, const AihcSrt *srt) {
-  aihc_gen2_begin_marking(machine);
-  for (const AihcHeapBlock *block = machine->generations[0].first;
+  aihc_gen2_begin_marking(capability);
+  for (const AihcHeapBlock *block = capability->machine->generations[0].first;
        block != NULL; block = block->link) {
-    aihc_mark_range(machine, block->start, block->next);
+    aihc_mark_range(capability, block->start, block->next);
   }
-  aihc_visit_roots(machine, root_count, roots, aihc_snapshot_root, machine);
+  aihc_visit_roots(capability, root_count, roots, aihc_snapshot_root,
+                   capability);
   aihc_walk_srt(srt);
-  for (AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
+  for (AihcForeignFrame *frame = capability->foreign_frames; frame != NULL;
        frame = frame->previous) {
     aihc_walk_srt(frame->srt);
   }
   AihcStack *running =
-      machine->stack_next == NULL
+      capability->stack_next == NULL
           ? NULL
-          : aihc_stack_chunk_of(machine->stack_next - 1)->stack;
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+          : aihc_stack_chunk_of(capability->stack_next - 1)->stack;
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
     if (stack != running && stack->top != NULL) {
-      aihc_mark_frames(machine, stack->top);
+      aihc_mark_frames(capability, stack->top);
     }
   }
-  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-       block = block->next) {
+  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
+       block != NULL; block = block->next) {
     if (aihc_pinned_generation(block) < 2) {
-      aihc_mark_young_object(machine, (AihcValue *)block->object);
+      aihc_mark_young_object(capability, (AihcValue *)block->object);
     }
   }
 }
@@ -2342,15 +2394,16 @@ static void aihc_cycle_start(AihcMachine *machine, uint64_t root_count,
    A static object keeps its entry: it is never freed, and its entry keeps a
    young value that an update after the snapshot gave it alive and in place
    until the value is old. */
-static void aihc_remembered_purge(AihcMachine *machine) {
-  AihcGcContext context = {.machine = machine, .collected = 2, .finishing = 1};
+static void aihc_remembered_purge(AihcCapability *capability) {
+  AihcGcContext context = {
+      .capability = capability, .collected = 2, .finishing = 1};
   uint64_t kept = 0;
-  for (uint64_t index = 0; index < machine->remembered_count; ++index) {
-    AihcValue *object = machine->remembered[index];
+  for (uint64_t index = 0; index < capability->remembered_count; ++index) {
+    AihcValue *object = capability->remembered[index];
     int live;
     switch (aihc_region_kind(object)) {
     case AIHC_REGION_GEN2:
-      live = aihc_gen2_marked(machine, object);
+      live = aihc_gen2_marked(capability, object);
       break;
     case AIHC_REGION_LARGE:
     case AIHC_REGION_PINNED:
@@ -2365,55 +2418,58 @@ static void aihc_remembered_purge(AihcMachine *machine) {
       break;
     }
     if (live) {
-      machine->remembered[kept++] = object;
+      capability->remembered[kept++] = object;
     }
   }
-  machine->remembered_count = kept;
+  capability->remembered_count = kept;
 }
 
 /* End the cycle: drop the weak references to unmarked objects, free the
    unmarked gen2 blocks, and hand the segments to the lazy sweep. */
-static void aihc_cycle_finish(AihcMachine *machine) {
-  AihcGcContext context = {.machine = machine, .collected = 2, .finishing = 1};
-  aihc_remembered_purge(machine);
+static void aihc_cycle_finish(AihcCapability *capability) {
+  AihcGcContext context = {
+      .capability = capability, .collected = 2, .finishing = 1};
+  aihc_remembered_purge(capability);
   aihc_update_stable_names(&context);
   aihc_sweep_stacks(&context);
-  aihc_sweep_pinned_cycle(machine);
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+  aihc_sweep_pinned_cycle(capability);
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
     stack->pending_count = 0;
   }
   aihc_clear_srt_stamps();
-  machine->gen2_cycle_active = 0;
-  machine->generations[1].bytes = machine->gen2_marked_bytes;
+  capability->machine->gen2_cycle_active = 0;
+  capability->machine->generations[1].bytes =
+      capability->machine->gen2_marked_bytes;
   /* The factor is at most AIHC_GEN2_FACTOR_MAX, so the product fits when
      the bytes leave the top bits clear. A check against a quotient would
      become a wide multiply that the wasm32 link does not provide. The
      limit grows from the live gen2 fixed blocks too, because the gen2 test
      counts them. */
-  uint64_t limit = aihc_gen2_bytes(machine);
+  uint64_t limit = aihc_gen2_bytes(capability);
   if (limit > (UINT64_MAX >> AIHC_GEN2_FACTOR_BITS)) {
     limit = UINT64_MAX;
   } else {
-    limit *= machine->gen2_factor;
+    limit *= capability->machine->gen2_factor;
   }
-  machine->gen2_limit_bytes =
+  capability->machine->gen2_limit_bytes =
       limit < AIHC_GEN2_MINIMUM_BYTES ? AIHC_GEN2_MINIMUM_BYTES : limit;
-  if (machine->gc_full_count == UINT64_MAX) {
+  if (capability->machine->gc_full_count == UINT64_MAX) {
     aihc_fail("collection counter overflow");
   }
-  ++machine->gc_full_count;
+  ++capability->machine->gc_full_count;
 }
 
 /* Do mark work up to a budget of scanned bytes, and end the cycle when
    nothing is left: the mark stack, the static reference tables, and the
    deferred frames of every stack. */
-static void aihc_mark_slice(AihcMachine *machine, uint64_t budget) {
+static void aihc_mark_slice(AihcCapability *capability, uint64_t budget) {
   uint64_t done = 0;
   while (done < budget) {
     if (aihc_srt_worklist.count != 0) {
       const AihcSrt *srt = aihc_srt_worklist.items[--aihc_srt_worklist.count];
       for (uintptr_t index = 0; index < srt->object_count; ++index) {
-        aihc_mark_old(machine, (AihcValue *)srt->entries[index]);
+        aihc_mark_old(capability, (AihcValue *)srt->entries[index]);
       }
       for (uintptr_t index = 0; index < srt->child_count; ++index) {
         aihc_walk_srt((const AihcSrt *)srt->entries[srt->object_count + index]);
@@ -2423,19 +2479,19 @@ static void aihc_mark_slice(AihcMachine *machine, uint64_t budget) {
     }
     if (aihc_mark_stack.count != 0) {
       AihcMarkEntry entry = aihc_mark_stack.items[--aihc_mark_stack.count];
-      done += aihc_mark_scan(machine, entry.object, entry.start);
+      done += aihc_mark_scan(capability, entry.object, entry.start);
       continue;
     }
-    AihcStack *stack = machine->stacks;
+    AihcStack *stack = capability->machine->stacks;
     while (stack != NULL && stack->pending_count == 0) {
       stack = stack->next;
     }
     if (stack != NULL) {
       AihcValue *frame = stack->pending[--stack->pending_count];
-      done += aihc_mark_frames_counted(machine, frame);
+      done += aihc_mark_frames_counted(capability, frame);
       continue;
     }
-    aihc_cycle_finish(machine);
+    aihc_cycle_finish(capability);
     return;
   }
 }
@@ -2445,36 +2501,37 @@ static void aihc_mark_slice(AihcMachine *machine, uint64_t budget) {
    collection that copied more than the cap may mark as much as it copied:
    the slice then adds at most the time of the copy to the pause, and a
    gen1 collection that copied gen1 into gen2 marks the data it added. */
-static uint64_t aihc_slice_budget(AihcMachine *machine, uint64_t copied) {
-  uint64_t budget = machine->mark_debt;
-  uint64_t cap = machine->mark_slice_cap;
+static uint64_t aihc_slice_budget(AihcCapability *capability, uint64_t copied) {
+  uint64_t budget = capability->machine->mark_debt;
+  uint64_t cap = capability->machine->mark_slice_cap;
   if (copied > cap) {
     cap = copied;
   }
-  if (budget < machine->mark_slice_floor) {
-    budget = machine->mark_slice_floor;
+  if (budget < capability->machine->mark_slice_floor) {
+    budget = capability->machine->mark_slice_floor;
   }
   if (budget > cap) {
     budget = cap;
   }
-  machine->mark_debt =
-      machine->mark_debt > budget ? machine->mark_debt - budget : 0;
+  capability->machine->mark_debt = capability->machine->mark_debt > budget
+                                       ? capability->machine->mark_debt - budget
+                                       : 0;
   return budget;
 }
 
-void aihc_heap_account(AihcMachine *machine) {
-  size_t taken = (size_t)(machine->heap_next - machine->heap_alloc_base);
-  if ((uint64_t)taken > UINT64_MAX - machine->heap_allocated_bytes) {
+void aihc_heap_account(AihcCapability *capability) {
+  size_t taken = (size_t)(capability->heap_next - capability->heap_alloc_base);
+  if ((uint64_t)taken > UINT64_MAX - capability->heap_allocated_bytes) {
     aihc_fail("allocated byte counter overflow");
   }
-  machine->heap_allocated_bytes += (uint64_t)taken;
-  machine->heap_alloc_base = machine->heap_next;
+  capability->heap_allocated_bytes += (uint64_t)taken;
+  capability->heap_alloc_base = capability->heap_next;
 }
 
-void aihc_gc_record_peak(AihcMachine *machine) {
-  uint64_t used = aihc_occupied_bytes(machine);
-  if (used > machine->heap_peak_bytes) {
-    machine->heap_peak_bytes = used;
+void aihc_gc_record_peak(AihcCapability *capability) {
+  uint64_t used = aihc_occupied_bytes(capability);
+  if (used > capability->machine->heap_peak_bytes) {
+    capability->machine->heap_peak_bytes = used;
   }
 }
 
@@ -2482,34 +2539,36 @@ void aihc_gc_record_peak(AihcMachine *machine) {
    above its maximum, gen2 when it has grown past its limit, and everything
    when the -M limit is near. The size of gen1 and gen2 includes their fixed
    blocks. */
-static unsigned aihc_choose_generation(const AihcMachine *machine,
+static unsigned aihc_choose_generation(const AihcCapability *capability,
                                        uint64_t required_bytes) {
   unsigned generation = 0;
-  if (aihc_gen1_bytes(machine) >= machine->gen1_max_bytes) {
+  if (aihc_gen1_bytes(capability) >= capability->machine->gen1_max_bytes) {
     generation = 1;
   }
-  uint64_t limit = machine->gen2_limit_bytes;
-  if (aihc_gen2_bytes(machine) >= limit && !machine->gen2_cycle_active) {
+  uint64_t limit = capability->machine->gen2_limit_bytes;
+  if (aihc_gen2_bytes(capability) >= limit &&
+      !capability->machine->gen2_cycle_active) {
     /* Gen2 is above its limit. A gen1 collection copies gen1 into gen2,
        and a cycle starts at its end. */
     generation = 1;
   }
-  if (machine->gen2_cycle_active) {
+  if (capability->machine->gen2_cycle_active) {
     /* A cycle that has not finished when gen2 has doubled since its
        snapshot, and is above twice its limit, is finished in one pause:
        this is the degradation mode. The second bound matters for a cycle
        that a test started below the limit. */
-    uint64_t start = machine->gen2_cycle_start_bytes;
+    uint64_t start = capability->machine->gen2_cycle_start_bytes;
     if (start < limit) {
       start = limit;
     }
     uint64_t doubled = start > UINT64_MAX / 2 ? UINT64_MAX : 2 * start;
-    if (aihc_gen2_bytes(machine) >= doubled) {
+    if (aihc_gen2_bytes(capability) >= doubled) {
       generation = 2;
     }
   }
-  if (machine->heap_limit_enabled &&
-      aihc_old_bytes(machine) + required_bytes > machine->heap_max_bytes) {
+  if (capability->machine->heap_limit_enabled &&
+      aihc_old_bytes(capability) + required_bytes >
+          capability->machine->heap_max_bytes) {
     generation = 2;
   }
   return generation;
@@ -2518,29 +2577,39 @@ static unsigned aihc_choose_generation(const AihcMachine *machine,
 /* Collect the generations up to collected. A full collection also runs a
    whole gen2 cycle in this pause. With start_cycle, or when gen2 is above
    its limit, a gen1 collection starts an incremental cycle at its end. */
-static void aihc_collect(AihcMachine *machine, unsigned collected,
+static void aihc_collect(AihcCapability *capability, unsigned collected,
                          int start_cycle, uint64_t root_count, AihcSlot *roots,
                          const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
-  aihc_gc_record_peak(machine);
+  aihc_gc_record_peak(capability);
   /* Everything the mutator took from the nursery it is about to leave. */
-  aihc_heap_account(machine);
-  if (machine->gc_count == UINT64_MAX) {
+  aihc_heap_account(capability);
+  if (capability->machine->gc_count == UINT64_MAX) {
     aihc_fail("collection counter overflow");
   }
-  ++machine->gc_count;
-  machine->gc_last_generation = collected;
-  if (collected == 0) {
-    ++machine->gc_minor_count;
-  } else if (collected == 1) {
-    ++machine->gc_gen1_count;
+  ++capability->machine->gc_count;
+  /* Clear old charge stamps before the 32-bit counter repeats. */
+  if ((uint32_t)capability->machine->gc_count == UINT32_MAX) {
+    for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+         stack = stack->next) {
+      for (AihcStackChunk *chunk = stack->base; chunk != NULL;
+           chunk = chunk->above) {
+        chunk->charged_gc = UINT32_MAX;
+      }
+    }
   }
-  AihcGcContext context = {.machine = machine, .collected = collected};
+  capability->machine->gc_last_generation = collected;
+  if (collected == 0) {
+    ++capability->machine->gc_minor_count;
+  } else if (collected == 1) {
+    ++capability->machine->gc_gen1_count;
+  }
+  AihcGcContext context = {.capability = capability, .collected = collected};
 
   /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
      blocks. A full collection marks gen2 in place. */
   AihcHeapBlock *from1 = NULL;
-  AihcGeneration *gen1 = aihc_generation(machine, 1);
+  AihcGeneration *gen1 = aihc_generation(capability, 1);
   if (collected >= 1) {
     aihc_blocks_set_kind(gen1->first, AIHC_REGION_FROM1);
     from1 = gen1->first;
@@ -2551,7 +2620,7 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   gen1->scan_block = gen1->last;
   gen1->scan = gen1->last == NULL ? NULL : gen1->last->next;
   if (collected == 2) {
-    aihc_gen2_begin_marking(machine);
+    aihc_gen2_begin_marking(capability);
   }
 
   /* The static reference tables waiting for a walk belong to the gen2
@@ -2565,12 +2634,12 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
     /* The table of the code that requested the collection, or NULL when
        that code reaches no static object of its own. */
     aihc_walk_srt(srt);
-    for (AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
+    for (AihcForeignFrame *frame = capability->foreign_frames; frame != NULL;
          frame = frame->previous) {
       aihc_walk_srt(frame->srt);
     }
   }
-  aihc_visit_roots(machine, root_count, roots, aihc_evacuate_root, &context);
+  aihc_visit_roots(capability, root_count, roots, aihc_evacuate_root, &context);
   aihc_scan_remembered(&context);
   aihc_trace(&context);
   aihc_trace_kept_stacks(&context);
@@ -2580,37 +2649,38 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   aihc_age_chunks(&context);
 
   aihc_blocks_release(from1);
-  machine->heap_next = machine->heap_start;
-  machine->heap_limit = machine->heap_start + machine->nursery_bytes;
-  machine->heap_alloc_base = machine->heap_next;
-  machine->fixed_since_gc = 0;
+  capability->heap_next = capability->heap_start;
+  capability->heap_limit = capability->heap_start + capability->nursery_bytes;
+  capability->heap_alloc_base = capability->heap_next;
+  capability->fixed_since_gc = 0;
   for (size_t index = 0; index < context.kept_count; ++index) {
-    aihc_remember_unique(machine, context.kept[index]);
+    aihc_remember_unique(capability, context.kept[index]);
   }
   free(context.kept);
-  if (collected == 1 && !machine->gen2_cycle_active &&
-      (start_cycle || aihc_gen2_bytes(machine) >= machine->gen2_limit_bytes)) {
-    aihc_cycle_start(machine, root_count, roots, srt);
+  if (collected == 1 && !capability->machine->gen2_cycle_active &&
+      (start_cycle ||
+       aihc_gen2_bytes(capability) >= capability->machine->gen2_limit_bytes)) {
+    aihc_cycle_start(capability, root_count, roots, srt);
   }
-  if (machine->gen2_cycle_active) {
+  if (capability->machine->gen2_cycle_active) {
     /* A full collection marked everything it reached: the slice runs the
        cycle to its end. */
-    aihc_mark_slice(machine,
+    aihc_mark_slice(capability,
                     collected == 2
                         ? UINT64_MAX
-                        : aihc_slice_budget(machine, context.copied_bytes));
+                        : aihc_slice_budget(capability, context.copied_bytes));
   }
-  if (!machine->gen2_cycle_active) {
-    aihc_sweep_slice(machine);
+  if (!capability->machine->gen2_cycle_active) {
+    aihc_sweep_slice(capability);
   }
-  machine->heap_live_bytes = aihc_occupied_bytes(machine);
+  capability->machine->heap_live_bytes = aihc_occupied_bytes(capability);
 #ifdef AIHC_GC_VERIFY
-  aihc_gc_verify(machine, root_count, roots, srt);
+  aihc_gc_verify(capability, root_count, roots, srt);
 #endif
   uint64_t pause_ns = aihc_host_monotonic_ns() - started_ns;
-  machine->gc_time_ns += pause_ns;
-  if (pause_ns > machine->gc_max_pause_ns) {
-    machine->gc_max_pause_ns = pause_ns;
+  capability->machine->gc_time_ns += pause_ns;
+  if (pause_ns > capability->machine->gc_max_pause_ns) {
+    capability->machine->gc_max_pause_ns = pause_ns;
   }
 }
 
@@ -2620,145 +2690,150 @@ static _Noreturn void aihc_heap_exhausted(void) {
 
 /* Collect for a reservation, escalating to a full collection when the -M
    limit demands it, and stop the program when even that does not fit. */
-static void aihc_collect_for(AihcMachine *machine, size_t required_bytes,
+static void aihc_collect_for(AihcCapability *capability, size_t required_bytes,
                              uint64_t root_count, AihcSlot *roots,
                              const AihcSrt *srt) {
-  unsigned collected = aihc_choose_generation(machine, required_bytes);
-  aihc_collect(machine, collected, 0, root_count, roots, srt);
-  if (machine->heap_limit_enabled &&
-      aihc_old_bytes(machine) + required_bytes > machine->heap_max_bytes) {
+  unsigned collected = aihc_choose_generation(capability, required_bytes);
+  aihc_collect(capability, collected, 0, root_count, roots, srt);
+  if (capability->machine->heap_limit_enabled &&
+      aihc_old_bytes(capability) + required_bytes >
+          capability->machine->heap_max_bytes) {
     if (collected < 2) {
-      aihc_collect(machine, 2, 0, root_count, roots, srt);
+      aihc_collect(capability, 2, 0, root_count, roots, srt);
     }
-    if (aihc_old_bytes(machine) + required_bytes > machine->heap_max_bytes) {
+    if (aihc_old_bytes(capability) + required_bytes >
+        capability->machine->heap_max_bytes) {
       aihc_heap_exhausted();
     }
   }
 }
 
-void aihc_gc_collect_generation(AihcMachine *machine, unsigned generation,
+void aihc_gc_collect_generation(AihcCapability *capability, unsigned generation,
                                 uint64_t root_count, AihcSlot *roots,
                                 const AihcSrt *srt) {
-  aihc_collect(machine, generation > 2 ? 2 : generation, 0, root_count, roots,
-               srt);
+  aihc_collect(capability, generation > 2 ? 2 : generation, 0, root_count,
+               roots, srt);
 }
 
-void aihc_gc_start_cycle(AihcMachine *machine, uint64_t root_count,
+void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt) {
-  aihc_collect(machine, 1, 1, root_count, roots, srt);
+  aihc_collect(capability, 1, 1, root_count, roots, srt);
 }
 
-static void aihc_nursery_acquire(AihcMachine *machine, size_t bytes) {
-  machine->nursery_bytes = bytes;
-  machine->heap_start =
+static void aihc_nursery_acquire(AihcCapability *capability, size_t bytes) {
+  capability->nursery_bytes = bytes;
+  capability->heap_start =
       aihc_regions_acquire(aihc_regions_for_bytes(bytes), AIHC_REGION_NURSERY);
-  machine->heap_next = machine->heap_start;
-  machine->heap_alloc_base = machine->heap_start;
-  machine->heap_limit = machine->heap_start + bytes;
-  aihc_nursery_start = machine->heap_start;
+  capability->heap_next = capability->heap_start;
+  capability->heap_alloc_base = capability->heap_start;
+  capability->heap_limit = capability->heap_start + bytes;
+  aihc_nursery_start = capability->heap_start;
   aihc_nursery_bytes = bytes;
 }
 
-void aihc_nursery_replace(AihcMachine *machine, size_t bytes) {
+void aihc_nursery_replace(AihcCapability *capability, size_t bytes) {
   if (bytes == 0) {
     aihc_fail("the nursery needs at least one byte");
   }
-  if (machine->heap_start != NULL) {
-    aihc_regions_release(machine->heap_start);
+  if (capability->heap_start != NULL) {
+    aihc_regions_release(capability->heap_start);
   }
-  aihc_nursery_acquire(machine, bytes);
+  aihc_nursery_acquire(capability, bytes);
 }
 
-void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes) {
-  AihcGeneration *gen1 = aihc_generation(machine, 1);
+void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
+  AihcGeneration *gen1 = aihc_generation(capability, 1);
   aihc_blocks_release(gen1->first);
   gen1->first = NULL;
   gen1->last = NULL;
   gen1->bytes = 0;
   gen1->scan_block = NULL;
   gen1->scan = NULL;
-  aihc_gen2_release(machine);
+  aihc_gen2_release(capability);
   aihc_gen2_worklist.count = 0;
   aihc_mark_stack.count = 0;
   aihc_address_set_clear(&aihc_cycle_statics);
   aihc_clear_srt_stamps();
   aihc_srt_worklist.count = 0;
-  machine->gen2_cycle_active = 0;
-  machine->gen2_marked_bytes = 0;
-  machine->mark_debt = 0;
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+  capability->machine->gen2_cycle_active = 0;
+  capability->machine->gen2_marked_bytes = 0;
+  capability->machine->mark_debt = 0;
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
     stack->pending_count = 0;
   }
-  while (machine->pinned_blocks != NULL) {
-    AihcPinnedBlock *block = machine->pinned_blocks;
-    machine->pinned_blocks = block->next;
+  while (capability->machine->pinned_blocks != NULL) {
+    AihcPinnedBlock *block = capability->machine->pinned_blocks;
+    capability->machine->pinned_blocks = block->next;
     aihc_pinned_block_release(block);
   }
-  machine->fixed_bytes = 0;
-  memset(machine->fixed_generation_bytes, 0,
-         sizeof(machine->fixed_generation_bytes));
-  machine->fixed_since_gc = 0;
-  free(machine->remembered);
-  machine->remembered = NULL;
-  machine->remembered_count = 0;
-  machine->remembered_capacity = 0;
-  machine->remembered_repeatable = 0;
-  aihc_nursery_replace(machine, nursery_bytes);
-  machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
+  capability->machine->fixed_bytes = 0;
+  memset(capability->machine->fixed_generation_bytes, 0,
+         sizeof(capability->machine->fixed_generation_bytes));
+  capability->fixed_since_gc = 0;
+  free(capability->remembered);
+  capability->remembered = NULL;
+  capability->remembered_count = 0;
+  capability->remembered_capacity = 0;
+  capability->remembered_repeatable = 0;
+  aihc_nursery_replace(capability, nursery_bytes);
+  capability->machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
 }
 
-void aihc_gc_init(AihcMachine *machine) {
+void aihc_gc_init(AihcCapability *capability) {
   uint64_t nursery = aihc_rts_nursery_bytes();
-  aihc_nursery_acquire(machine, nursery == 0 ? AIHC_NURSERY_BYTES : nursery);
-  machine->gen1_max_bytes = AIHC_GEN1_MAX_BYTES;
-  machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
-  machine->gen2_factor = AIHC_GEN2_FACTOR;
-  machine->mark_factor = AIHC_MARK_FACTOR;
-  machine->mark_slice_floor = AIHC_MARK_SLICE_FLOOR;
-  machine->mark_slice_cap = AIHC_MARK_SLICE_CAP;
+  aihc_nursery_acquire(capability, nursery == 0 ? AIHC_NURSERY_BYTES : nursery);
+  capability->machine->gen1_max_bytes = AIHC_GEN1_MAX_BYTES;
+  capability->machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
+  capability->machine->gen2_factor = AIHC_GEN2_FACTOR;
+  capability->machine->mark_factor = AIHC_MARK_FACTOR;
+  capability->machine->mark_slice_floor = AIHC_MARK_SLICE_FLOOR;
+  capability->machine->mark_slice_cap = AIHC_MARK_SLICE_CAP;
 }
 
-void aihc_gc_apply_options(AihcMachine *machine) {
+void aihc_gc_apply_options(AihcCapability *capability) {
   uint64_t nursery = aihc_rts_nursery_bytes();
-  if (nursery != 0 && nursery != machine->nursery_bytes &&
-      machine->heap_next == machine->heap_start) {
-    aihc_nursery_replace(machine, nursery);
+  if (nursery != 0 && nursery != capability->nursery_bytes &&
+      capability->heap_next == capability->heap_start) {
+    aihc_nursery_replace(capability, nursery);
   }
   uint64_t gen1_max = aihc_rts_gen1_max_bytes();
   if (gen1_max != 0) {
-    machine->gen1_max_bytes = gen1_max;
+    capability->machine->gen1_max_bytes = gen1_max;
   }
   uint64_t factor = aihc_rts_gen2_factor();
   if (factor != 0) {
-    machine->gen2_factor =
+    capability->machine->gen2_factor =
         factor > AIHC_GEN2_FACTOR_MAX ? AIHC_GEN2_FACTOR_MAX : factor;
   }
   uint64_t mark_factor = aihc_rts_mark_factor();
   if (mark_factor != 0) {
-    machine->mark_factor =
+    capability->machine->mark_factor =
         mark_factor > AIHC_GEN2_FACTOR_MAX ? AIHC_GEN2_FACTOR_MAX : mark_factor;
   }
 }
 
-void aihc_gc_apply_limit(AihcMachine *machine) {
-  if (machine->heap_limit_enabled &&
-      machine->nursery_bytes > machine->heap_max_bytes &&
-      machine->heap_next == machine->heap_start) {
-    aihc_nursery_replace(machine, machine->heap_max_bytes == 0
-                                      ? 1
-                                      : (size_t)machine->heap_max_bytes);
+void aihc_gc_apply_limit(AihcCapability *capability) {
+  if (capability->machine->heap_limit_enabled &&
+      capability->nursery_bytes > capability->machine->heap_max_bytes &&
+      capability->heap_next == capability->heap_start) {
+    aihc_nursery_replace(capability,
+                         capability->machine->heap_max_bytes == 0
+                             ? 1
+                             : (size_t)capability->machine->heap_max_bytes);
   }
 }
 
 /* The bytes of a reservation, which a request the address space or the heap
    limit cannot hold does not return from. */
-static size_t aihc_reservation_bytes(const AihcMachine *machine,
+static size_t aihc_reservation_bytes(const AihcCapability *capability,
                                      uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("heap reservation is too large");
   }
   size_t bytes = sizeof(AihcSlot) * words;
-  if (machine->heap_limit_enabled && bytes > machine->heap_max_bytes) {
+  if (capability->machine->heap_limit_enabled &&
+      bytes > capability->machine->heap_max_bytes) {
     aihc_heap_exhausted();
   }
   return bytes;
@@ -2773,13 +2848,15 @@ static int aihc_reservation_is_large(size_t bytes) {
 /* Give a large request its collection when the fixed allocations since the
    last collection have reached the size of a nursery, or when the limit is
    near. */
-static void aihc_ensure_large(AihcMachine *machine, size_t bytes,
+static void aihc_ensure_large(AihcCapability *capability, size_t bytes,
                               uint64_t root_count, AihcSlot *roots,
                               const AihcSrt *srt) {
-  int limit_near = machine->heap_limit_enabled &&
-                   aihc_old_bytes(machine) + bytes > machine->heap_max_bytes;
-  if (machine->fixed_since_gc + bytes > machine->nursery_bytes || limit_near) {
-    aihc_collect_for(machine, bytes, root_count, roots, srt);
+  int limit_near =
+      capability->machine->heap_limit_enabled &&
+      aihc_old_bytes(capability) + bytes > capability->machine->heap_max_bytes;
+  if (capability->fixed_since_gc + bytes > capability->nursery_bytes ||
+      limit_near) {
+    aihc_collect_for(capability, bytes, root_count, roots, srt);
   }
 }
 
@@ -2787,34 +2864,34 @@ static void aihc_ensure_large(AihcMachine *machine, size_t bytes,
    code compares the bump pointer against the end of the space itself and only
    calls the runtime on the slow path. A request of a large object reaches
    this function whenever the nursery is smaller than the object. */
-void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                     AihcSlot *roots, const AihcSrt *srt) {
-  size_t bytes = aihc_reservation_bytes(machine, words);
+void aihc_gc_collect(AihcCapability *capability, uint64_t words,
+                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+  size_t bytes = aihc_reservation_bytes(capability, words);
   if (aihc_reservation_is_large(bytes)) {
-    aihc_ensure_large(machine, bytes, root_count, roots, srt);
+    aihc_ensure_large(capability, bytes, root_count, roots, srt);
     return;
   }
-  aihc_collect_for(machine, bytes, root_count, roots, srt);
-  if (bytes > aihc_nursery_room(machine)) {
+  aihc_collect_for(capability, bytes, root_count, roots, srt);
+  if (bytes > aihc_nursery_room(capability)) {
     /* The nursery is empty now, so a reservation it cannot hold grows it.
        Only a nursery far below the default, as the tests use, reaches this
        branch: a reservation below the large object bound fits the default. */
-    aihc_nursery_replace(machine, bytes);
+    aihc_nursery_replace(capability, bytes);
   }
 }
 
-/* Reserve for a caller that has not compared anything: the machine start-up
+/* Reserve for a caller that has not compared anything: the capability start-up
    path, the runtime units, and the C programs of the tests. */
-void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                    AihcSlot *roots, const AihcSrt *srt) {
-  size_t bytes = aihc_reservation_bytes(machine, words);
+void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
+                    uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+  size_t bytes = aihc_reservation_bytes(capability, words);
   if (aihc_reservation_is_large(bytes)) {
-    aihc_ensure_large(machine, bytes, root_count, roots, srt);
+    aihc_ensure_large(capability, bytes, root_count, roots, srt);
     return;
   }
-  if (machine->heap_next > machine->heap_limit ||
-      bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
-    aihc_gc_collect(machine, words, root_count, roots, srt);
+  if (capability->heap_next > capability->heap_limit ||
+      bytes > (size_t)(capability->heap_limit - capability->heap_next)) {
+    aihc_gc_collect(capability, words, root_count, roots, srt);
   }
 }
 
@@ -2824,25 +2901,25 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
    with one compare against the heap limit and allocates it through the
    runtime, so this is the only pressure a large object below the nursery
    size puts on the collector. */
-static AihcValue *aihc_pinned_block_adopt(AihcMachine *machine,
+static AihcValue *aihc_pinned_block_adopt(AihcCapability *capability,
                                           AihcPinnedBlock *block,
                                           size_t charge_bytes) {
   /* The cast keeps the compare meaningful on a 32-bit host. */
   if ((uint64_t)charge_bytes > AIHC_PINNED_BYTES_MASK) {
     aihc_fail("pinned allocation is too large");
   }
-  aihc_heap_account(machine);
-  if (charge_bytes > UINT64_MAX - machine->heap_allocated_bytes) {
+  aihc_heap_account(capability);
+  if (charge_bytes > UINT64_MAX - capability->heap_allocated_bytes) {
     aihc_fail("allocated byte counter overflow");
   }
   block->bytes = charge_bytes;
-  block->next = machine->pinned_blocks;
-  machine->pinned_blocks = block;
-  machine->fixed_bytes += charge_bytes;
+  block->next = capability->machine->pinned_blocks;
+  capability->machine->pinned_blocks = block;
+  capability->machine->fixed_bytes += charge_bytes;
   /* A new fixed block is young, as a new object in the nursery is. */
-  machine->fixed_generation_bytes[0] += charge_bytes;
-  aihc_charge_fixed(machine, charge_bytes);
-  machine->heap_allocated_bytes += charge_bytes;
+  capability->machine->fixed_generation_bytes[0] += charge_bytes;
+  aihc_charge_fixed(capability, charge_bytes);
+  capability->heap_allocated_bytes += charge_bytes;
   return (AihcValue *)block->object;
 }
 
@@ -2859,7 +2936,7 @@ static AihcPinnedBlock *aihc_fixed_block_new(size_t bytes,
   return block;
 }
 
-AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
+AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("heap allocation is too large");
   }
@@ -2878,13 +2955,13 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
     memset(block->object, 0, bytes);
 #endif
     memset((uint8_t *)block->object + bytes, 0, card_bytes);
-    return aihc_pinned_block_adopt(machine, block, bytes);
+    return aihc_pinned_block_adopt(capability, block, bytes);
   }
-  if (bytes > aihc_nursery_room(machine)) {
+  if (bytes > aihc_nursery_room(capability)) {
     aihc_fail("unchecked allocation exceeded reserved heap");
   }
-  AihcValue *value = (AihcValue *)machine->heap_next;
-  machine->heap_next += bytes;
+  AihcValue *value = (AihcValue *)capability->heap_next;
+  capability->heap_next += bytes;
 #ifdef DEBUG
   memset(value, 0, bytes);
 #endif
@@ -2892,7 +2969,7 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
 }
 
 /* Consume a prior reservation. The allocation list is not a root. */
-AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
+AihcValue *aihc_gc_allocate_pinned(AihcCapability *capability, uint64_t words) {
   size_t bytes = sizeof(AihcPinnedBlock) + words * sizeof(AihcSlot);
   if (words > (SIZE_MAX - sizeof(AihcPinnedBlock)) / sizeof(AihcSlot) ||
       bytes < sizeof(AihcPinnedBlock)) {
@@ -2904,7 +2981,7 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
     /* A pinned block reads as zero, as the C allocation below does. */
     memset(block->object, 0, bytes - sizeof(AihcPinnedBlock));
   } else {
-    if (bytes > aihc_nursery_room(machine)) {
+    if (bytes > aihc_nursery_room(capability)) {
       aihc_fail("unchecked pinned allocation exceeded reserved heap");
     }
     block = calloc(1, bytes);
@@ -2912,7 +2989,7 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
       aihc_fail("out of memory");
     }
   }
-  return aihc_pinned_block_adopt(machine, block, bytes);
+  return aihc_pinned_block_adopt(capability, block, bytes);
 }
 
 /* The verifier. Under AIHC_GC_VERIFY, every collection ends with a walk of
@@ -2932,7 +3009,7 @@ static AihcAddressSet aihc_verify_pinned;
 static AihcAddressSet aihc_verify_srts;
 static AihcValueWorklist aihc_verify_work;
 static AihcSrtWorklist aihc_verify_srt_work;
-static const AihcMachine *aihc_verify_machine;
+static const AihcCapability *aihc_verify_machine;
 /* The object whose fields the walk scans, for the report of a violation. */
 static const AihcValue *aihc_verify_parent;
 
@@ -2967,13 +3044,13 @@ static void aihc_verify_srt(const AihcSrt *srt) {
 
 /* Check one reachable value and queue it for a scan when it is new. */
 static void aihc_verify_value(AihcValue *value) {
-  const AihcMachine *machine = aihc_verify_machine;
+  const AihcCapability *capability = aihc_verify_machine;
   if (value == NULL) {
     return;
   }
   switch (aihc_region_kind(value)) {
   case AIHC_REGION_NURSERY:
-    if (aihc_in_nursery(machine, value)) {
+    if (aihc_in_nursery(capability, value)) {
       aihc_fail("verifier: a reachable object is in the empty nursery");
     }
     aihc_fail("verifier: a reachable object is in a released nursery");
@@ -2984,7 +3061,7 @@ static void aihc_verify_value(AihcValue *value) {
     aihc_verify_fail("verifier: a reachable object is in a free region", value);
   case AIHC_REGION_GEN1: {
     int inside = 0;
-    for (const AihcHeapBlock *block = machine->generations[0].first;
+    for (const AihcHeapBlock *block = capability->machine->generations[0].first;
          block != NULL; block = block->link) {
       if ((const uint8_t *)value >= block->start &&
           (const uint8_t *)value < block->next) {
@@ -3041,7 +3118,7 @@ static void aihc_verify_value(AihcValue *value) {
     if ((const uint8_t *)value < aihc_stack_chunk_frames(chunk)) {
       aihc_fail("verifier: a reachable frame starts in a chunk header");
     }
-    if (!aihc_frame_is_live(machine, value)) {
+    if (!aihc_frame_is_live(capability, value)) {
       aihc_fail("verifier: a reachable frame is popped");
     }
     break;
@@ -3126,21 +3203,23 @@ static void aihc_verify_remembered(const AihcValue *object) {
 /* Check the stacks: every pending frame is live in its stack, and the
    chunks of a stack grow older from its top, so the walk of a collection
    that stops at the first older chunk misses nothing. */
-static void aihc_verify_stacks(const AihcMachine *machine) {
-  AihcStackChunk *running = machine->stack_next == NULL
-                                ? NULL
-                                : aihc_stack_chunk_of(machine->stack_next - 1);
+static void aihc_verify_stacks(const AihcCapability *capability) {
+  AihcStackChunk *running =
+      capability->stack_next == NULL
+          ? NULL
+          : aihc_stack_chunk_of(capability->stack_next - 1);
   if (running != NULL && running->stack == NULL) {
     aihc_fail("verifier: the stack pointer is in a released chunk");
   }
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
     for (size_t index = 0; index < stack->pending_count; ++index) {
       const AihcValue *frame = stack->pending[index];
       if (aihc_region_kind(frame) != AIHC_REGION_STACK ||
           aihc_stack_chunk_of(frame)->stack != stack) {
         aihc_fail("verifier: a pending frame is not in its stack");
       }
-      if (!aihc_frame_is_live(machine, frame)) {
+      if (!aihc_frame_is_live(capability, frame)) {
         aihc_fail("verifier: a pending frame is popped");
       }
     }
@@ -3163,9 +3242,9 @@ static void aihc_verify_stacks(const AihcMachine *machine) {
   }
 }
 
-static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
+static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
                            AihcSlot *roots, const AihcSrt *srt) {
-  aihc_verify_machine = machine;
+  aihc_verify_machine = capability;
   aihc_verify_parent = NULL;
   aihc_address_set_clear(&aihc_verify_seen);
   aihc_address_set_clear(&aihc_verify_pinned);
@@ -3173,8 +3252,8 @@ static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
   aihc_verify_work.count = 0;
   aihc_verify_srt_work.count = 0;
   uint64_t fixed[3] = {0, 0, 0};
-  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-       block = block->next) {
+  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
+       block != NULL; block = block->next) {
     (void)aihc_address_set_insert(&aihc_verify_pinned, (AihcValue *)block);
     if (aihc_pinned_generation(block) > 2) {
       aihc_fail("verifier: a fixed block has an invalid generation");
@@ -3183,29 +3262,30 @@ static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
   }
   /* The counts of each generation must agree with the pinned list. */
   for (unsigned generation = 0; generation < 3; ++generation) {
-    if (fixed[generation] != machine->fixed_generation_bytes[generation]) {
+    if (fixed[generation] !=
+        capability->machine->fixed_generation_bytes[generation]) {
       aihc_fail("verifier: the fixed bytes of a generation are wrong");
     }
   }
-  if (fixed[0] + fixed[1] + fixed[2] != machine->fixed_bytes) {
+  if (fixed[0] + fixed[1] + fixed[2] != capability->machine->fixed_bytes) {
     aihc_fail("verifier: the fixed bytes are wrong");
   }
-  aihc_verify_stacks(machine);
-  for (uint64_t index = 0; index < machine->remembered_count; ++index) {
-    aihc_verify_remembered(machine->remembered[index]);
+  aihc_verify_stacks(capability);
+  for (uint64_t index = 0; index < capability->remembered_count; ++index) {
+    aihc_verify_remembered(capability->remembered[index]);
   }
-  aihc_visit_roots(machine, root_count, roots, aihc_verify_slot, NULL);
+  aihc_visit_roots(capability, root_count, roots, aihc_verify_slot, NULL);
   aihc_verify_srt(srt);
-  for (const AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
-       frame = frame->previous) {
+  for (const AihcForeignFrame *frame = capability->foreign_frames;
+       frame != NULL; frame = frame->previous) {
     aihc_verify_srt(frame->srt);
   }
-  for (AihcStableName *name = machine->stable_names; name != NULL;
+  for (AihcStableName *name = capability->machine->stable_names; name != NULL;
        name = name->next) {
     aihc_verify_value((AihcValue *)name);
     aihc_verify_value(name->value);
   }
-  const AihcBlackholeTable *table = machine->blackholes;
+  const AihcBlackholeTable *table = capability->machine->blackholes;
   if (table != NULL) {
     for (size_t index = 0; index < table->capacity; ++index) {
       AihcValue *object = table->entries[index].object;
@@ -3261,10 +3341,10 @@ static void aihc_walk_range(uint8_t *start, uint8_t *end,
   }
 }
 
-static void aihc_walk_segments(const AihcMachine *machine,
+static void aihc_walk_segments(const AihcCapability *capability,
                                AihcSegment *segments, AihcObjectVisitor visitor,
                                void *context) {
-  (void)machine;
+  (void)capability;
   for (AihcSegment *segment = segments; segment != NULL;
        segment = segment->link) {
     for (uint32_t slot = 0; slot < segment->slot_count; ++slot) {
@@ -3277,37 +3357,38 @@ static void aihc_walk_segments(const AihcMachine *machine,
   }
 }
 
-void aihc_gc_walk_objects(AihcMachine *machine, AihcObjectVisitor visitor,
+void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
                           void *context) {
-  aihc_walk_range(machine->heap_start, machine->heap_next, visitor, context);
-  for (const AihcHeapBlock *block = machine->generations[0].first;
+  aihc_walk_range(capability->heap_start, capability->heap_next, visitor,
+                  context);
+  for (const AihcHeapBlock *block = capability->machine->generations[0].first;
        block != NULL; block = block->link) {
     aihc_walk_range(block->start, block->next, visitor, context);
   }
   for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
     const AihcSizeClass *class = &aihc_size_classes[index];
-    aihc_walk_segments(machine, class->current, visitor, context);
-    aihc_walk_segments(machine, class->available, visitor, context);
-    aihc_walk_segments(machine, class->filled, visitor, context);
-    aihc_walk_segments(machine, class->unswept, visitor, context);
+    aihc_walk_segments(capability, class->current, visitor, context);
+    aihc_walk_segments(capability, class->available, visitor, context);
+    aihc_walk_segments(capability, class->filled, visitor, context);
+    aihc_walk_segments(capability, class->unswept, visitor, context);
   }
-  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-       block = block->next) {
+  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
+       block != NULL; block = block->next) {
     if (aihc_region_kind(block) == AIHC_REGION_LARGE) {
       visitor((AihcValue *)block->object, context);
     }
   }
 }
 
-void aihc_roots_enter(AihcMachine *machine, AihcRootFrame *frame,
+void aihc_roots_enter(AihcCapability *capability, AihcRootFrame *frame,
                       uint64_t count, AihcSlot *roots) {
   *frame = (AihcRootFrame){
-      .next = machine->root_frames, .roots = roots, .count = count};
-  machine->root_frames = frame;
+      .next = capability->root_frames, .roots = roots, .count = count};
+  capability->root_frames = frame;
 }
 
-void aihc_roots_leave(AihcMachine *machine, AihcRootFrame *frame) {
-  AihcRootFrame **link = &machine->root_frames;
+void aihc_roots_leave(AihcCapability *capability, AihcRootFrame *frame) {
+  AihcRootFrame **link = &capability->root_frames;
   while (*link != frame) {
     if (*link == NULL) {
       aihc_fail("host scope is not active");
@@ -3317,9 +3398,9 @@ void aihc_roots_leave(AihcMachine *machine, AihcRootFrame *frame) {
   *link = frame->next;
 }
 
-void aihc_visit_host_roots(AihcMachine *machine, AihcRootVisitor visitor,
+void aihc_visit_host_roots(AihcCapability *capability, AihcRootVisitor visitor,
                            void *context) {
-  for (AihcRootFrame *frame = machine->root_frames; frame;
+  for (AihcRootFrame *frame = capability->root_frames; frame;
        frame = frame->next) {
     for (uint64_t index = 0; index < frame->count; ++index) {
       frame->roots[index] = visitor(frame->roots[index], context);
@@ -3331,9 +3412,9 @@ void aihc_visit_host_roots(AihcMachine *machine, AihcRootVisitor visitor,
   }
 }
 
-void *aihc_host_byte_array(AihcMachine *machine, AihcRootFrame *frame,
+void *aihc_host_byte_array(AihcCapability *capability, AihcRootFrame *frame,
                            uint64_t bytes) {
-  AihcRootFrame *active = machine->root_frames;
+  AihcRootFrame *active = capability->root_frames;
   while (active != NULL && active != frame) {
     active = active->next;
   }
@@ -3347,10 +3428,10 @@ void *aihc_host_byte_array(AihcMachine *machine, AihcRootFrame *frame,
   uint64_t occupied = bytes == 0 ? 1 : bytes;
   uint64_t words = (sizeof(AihcHostBuffer) + occupied + sizeof(AihcSlot) - 1) /
                    sizeof(AihcSlot);
-  aihc_gc_ensure(machine, words + sizeof(AihcPinnedBlock) / sizeof(AihcSlot), 0,
-                 NULL, NULL);
+  aihc_gc_ensure(capability, words + sizeof(AihcPinnedBlock) / sizeof(AihcSlot),
+                 0, NULL, NULL);
   AihcHostBuffer *buffer =
-      (AihcHostBuffer *)aihc_gc_allocate_pinned(machine, words);
+      (AihcHostBuffer *)aihc_gc_allocate_pinned(capability, words);
   buffer->array.header = (AihcSlot)(uintptr_t)&aihc_buffer_info;
   buffer->array.size = bytes;
   buffer->array.contents = buffer->contents;

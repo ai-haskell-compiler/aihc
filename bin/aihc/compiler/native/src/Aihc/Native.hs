@@ -739,8 +739,8 @@ nativeRuntimePrimitiveCalls =
     -- The thread that runs now is a field of the machine, so this call takes
     -- the machine. It only reads that field, and it allocates nothing.
     machineCall "myThreadId#" "aihc_my_thread_id" [] GrinForeignAddr,
-    procedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    procedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    machineProcedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    machineProcedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "cloneMutableArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "freezeArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
@@ -748,8 +748,8 @@ nativeRuntimePrimitiveCalls =
     -- The small-array family shares the boxed-array representation, so every
     -- entry below names the boxed-array runtime function of the same shape.
     machineCall "newSmallArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
-    procedure "copySmallArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    procedure "copySmallMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    machineProcedure "copySmallArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    machineProcedure "copySmallMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneSmallArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "cloneSmallMutableArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "freezeSmallArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
@@ -820,6 +820,7 @@ nativeRuntimePrimitiveCalls =
     call = runtimeCall False 1
     procedure = runtimeCall False 0
     machineCall = runtimeCall True 1
+    machineProcedure = runtimeCall True 0
 
 -- | Describe one runtime call in the shared native ABI.
 runtimeCall :: Bool -> Int -> Text -> Text -> [GrinForeignType] -> GrinForeignType -> (Text, NativeRuntimeCall)

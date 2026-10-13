@@ -7,11 +7,21 @@
 #include <string.h>
 
 /* Match the offsets in aihc_constants.lir on both pointer widths. */
-/* On a 32-bit target, stack_next takes a slot that alignment padding held
-   before. Thus stack_next moves current_thread by one word on a 64-bit
-   target and does not move it on a 32-bit target. */
-_Static_assert(offsetof(AihcMachine, current_thread) == 6 * sizeof(void *) + 16,
-               "machine current-thread ABI");
+_Static_assert(offsetof(AihcCapability, machine) == 0 * sizeof(void *),
+               "capability machine ABI");
+_Static_assert(offsetof(AihcCapability, exit_code) == 1 * sizeof(void *),
+               "capability exit_code ABI");
+_Static_assert(offsetof(AihcCapability, heap_next) == 2 * sizeof(void *),
+               "capability heap_next ABI");
+_Static_assert(offsetof(AihcCapability, heap_limit) == 3 * sizeof(void *),
+               "capability heap_limit ABI");
+_Static_assert(offsetof(AihcCapability, stack_next) == 4 * sizeof(void *),
+               "capability stack_next ABI");
+_Static_assert(offsetof(AihcCapability, heap_start) == 5 * sizeof(void *),
+               "capability heap_start ABI");
+_Static_assert(offsetof(AihcCapability, current_thread) == 6 * sizeof(void *),
+               "capability current_thread ABI");
+
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
 _Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
@@ -19,13 +29,6 @@ _Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
 _Static_assert(_Alignof(AihcInfo) >= 4, "info tables need two header tag bits");
 
 #if UINTPTR_MAX == UINT64_MAX
-_Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
-_Static_assert(offsetof(AihcMachine, heap_next) == 24, "machine heap-next ABI");
-_Static_assert(offsetof(AihcMachine, heap_limit) == 32,
-               "machine heap-limit ABI");
-_Static_assert(offsetof(AihcMachine, stack_next) == 40,
-               "machine stack-next ABI");
-_Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 8,
                "info-table bitmap ABI");
 _Static_assert(offsetof(AihcInfo, next) == 16, "info-table next ABI");
@@ -60,12 +63,6 @@ _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 _Static_assert(offsetof(AihcMVar, full) == 8, "MVar full-flag ABI");
 _Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 #elif UINTPTR_MAX == UINT32_MAX
-_Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
-_Static_assert(offsetof(AihcMachine, heap_next) == 20, "machine heap-next ABI");
-_Static_assert(offsetof(AihcMachine, heap_limit) == 24,
-               "machine heap-limit ABI");
-_Static_assert(offsetof(AihcMachine, stack_next) == 28,
-               "machine stack-next ABI");
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 4,
                "info-table bitmap ABI");
 _Static_assert(offsetof(AihcInfo, next) == 8, "info-table next ABI");
@@ -102,17 +99,19 @@ _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #endif
 
 /* Copy the record to fixed-width slots, then release its object references. */
-void aihc_lir_take_resume(AihcMachine *machine, AihcResume *resume,
+void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
                           uint64_t *slots) {
   /* An application returns to its continuation, so that frame is the top of
      the stack. A continuation that the resumption enters sets the stack
      pointer itself when the continue helper enters it. */
   if (resume->kind == AIHC_RESUME_APPLY) {
-    aihc_stack_resume_after(machine, resume->continuation);
+    aihc_stack_resume_after(capability, resume->continuation);
+  } else if (resume->kind == AIHC_RESUME_CONTINUE) {
+    aihc_stack_resume_after(capability, resume->function);
   } else if (resume->continuation != NULL) {
     /* The continue helper enters the frame without a chunk change when the
        same thread runs again, so the chunk is made young here. */
-    aihc_stack_enter_chunk(machine, resume->continuation);
+    aihc_stack_enter_chunk(capability, resume->continuation);
   }
   slots[0] = resume->kind;
   slots[1] = (uintptr_t)resume->function;
@@ -124,9 +123,9 @@ void aihc_lir_take_resume(AihcMachine *machine, AihcResume *resume,
 
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
-static const AihcResume *aihc_schedule(AihcMachine *machine);
-static void aihc_visit_blackholes(AihcMachine *machine, AihcRootVisitor visitor,
-                                  void *context);
+static const AihcResume *aihc_schedule(AihcCapability *capability);
+static void aihc_visit_blackholes(AihcCapability *capability,
+                                  AihcRootVisitor visitor, void *context);
 
 /* aihc_helpers.lir defines the indirection table, because the update of a
    thunk without waiters writes it there. */
@@ -162,11 +161,11 @@ static uint64_t aihc_record_words(size_t bytes) {
   return (bytes + sizeof(AihcSlot) - 1) / sizeof(AihcSlot);
 }
 
-void aihc_record_allocation(AihcMachine *machine) {
-  if (machine->allocation_count == UINT64_MAX) {
+void aihc_record_allocation(AihcCapability *capability) {
+  if (capability->allocation_count == UINT64_MAX) {
     aihc_fail("allocation counter overflow");
   }
-  ++machine->allocation_count;
+  ++capability->allocation_count;
 }
 
 uint64_t aihc_array_words(int64_t count) {
@@ -290,19 +289,18 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
 /* aihc_mutvar_*, aihc_stable_name_*, the byte-array primitives, and the RTS
    option parser live in core-libs/aihc-rts/native/aihc_mutvar.lir,
    aihc_stable_name.lir, aihc_byte_array.lir, and aihc_runtime_options.lir.
-   The two accessors below stay here: the offsets of the machine fields they
-   reach follow the target word size, and a Lir unit is one file for every
-   target. */
+   The two accessors below reach the stable-name fields of the shared machine.
+ */
 
-AihcStableName **aihc_stable_names(AihcMachine *machine) {
-  return &machine->stable_names;
+AihcStableName **aihc_stable_names(AihcCapability *capability) {
+  return &capability->machine->stable_names;
 }
 
-uint64_t aihc_stable_name_take_hash(AihcMachine *machine) {
-  if (machine->next_stable_name > (uint64_t)INT64_MAX) {
+uint64_t aihc_stable_name_take_hash(AihcCapability *capability) {
+  if (capability->machine->next_stable_name > (uint64_t)INT64_MAX) {
     aihc_fail("stable-name counter overflow");
   }
-  return machine->next_stable_name++;
+  return capability->machine->next_stable_name++;
 }
 
 void aihc_memory_copy(void *destination, const void *source, uint64_t length) {
@@ -321,23 +319,23 @@ void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
    live in core-libs/aihc-rts/native/aihc_runtime_options.lir. This flattens a
    list of C strings for them: the width of a C pointer is the one thing a
    Lir unit does not know. */
-extern int64_t aihc_parse_runtime_arguments(AihcMachine *, AihcRootFrame *,
+extern int64_t aihc_parse_runtime_arguments(AihcCapability *, AihcRootFrame *,
                                             const void *, int64_t);
-extern int64_t aihc_parse_runtime_environment(AihcMachine *, AihcRootFrame *,
+extern int64_t aihc_parse_runtime_environment(AihcCapability *, AihcRootFrame *,
                                               const void *, int64_t);
 
 static int64_t aihc_runtime_import(const void *buffer, int64_t length,
-                                   int64_t (*parse)(AihcMachine *,
+                                   int64_t (*parse)(AihcCapability *,
                                                     AihcRootFrame *,
                                                     const void *, int64_t)) {
-  AihcMachine *machine = aihc_machine_initialize();
-  if (machine->program_started) {
+  AihcCapability *capability = aihc_machine_initialize();
+  if (capability->machine->program_started) {
     return -1;
   }
   AihcRootFrame frame;
-  aihc_roots_enter(machine, &frame, 0, NULL);
-  int64_t result = parse(machine, &frame, buffer, length);
-  aihc_roots_leave(machine, &frame);
+  aihc_roots_enter(capability, &frame, 0, NULL);
+  int64_t result = parse(capability, &frame, buffer, length);
+  aihc_roots_leave(capability, &frame);
   return result;
 }
 
@@ -399,14 +397,14 @@ static void aihc_strings_initialize(size_t count, char *const strings[],
     }
     length += string_length + 1;
   }
-  AihcMachine *machine = aihc_machine_initialize();
-  if (machine->program_started) {
+  AihcCapability *capability = aihc_machine_initialize();
+  if (capability->machine->program_started) {
     aihc_fail("runtime imports require startup");
   }
   AihcRootFrame frame;
-  aihc_roots_enter(machine, &frame, 0, NULL);
-  uint8_t *buffer =
-      aihc_byte_array_contents(aihc_host_byte_array(machine, &frame, length));
+  aihc_roots_enter(capability, &frame, 0, NULL);
+  uint8_t *buffer = aihc_byte_array_contents(
+      aihc_host_byte_array(capability, &frame, length));
   size_t offset = 0;
   for (size_t index = 0; index < count; ++index) {
     size_t string_length = strlen(strings[index]);
@@ -414,10 +412,10 @@ static void aihc_strings_initialize(size_t count, char *const strings[],
     offset += string_length + 1;
   }
   if (initialize(buffer, (int64_t)length) != 0) {
-    aihc_roots_leave(machine, &frame);
+    aihc_roots_leave(capability, &frame);
     aihc_fail(invalid_message);
   }
-  aihc_roots_leave(machine, &frame);
+  aihc_roots_leave(capability, &frame);
 }
 
 void aihc_program_arguments_initialize(int argc, char *const argv[]) {
@@ -437,9 +435,9 @@ void aihc_environment_initialize(char *const envp[]) {
                           "invalid program environment");
 }
 
-/* The machine of the process, for the statistics report: the exit path of
-   the POSIX host has no machine at hand. */
-static AihcMachine *aihc_process_machine;
+/* The capability of the process, for the statistics report: the exit path of
+   the POSIX host has no capability at hand. */
+static AihcCapability *aihc_process_capability;
 static int aihc_statistics_reported;
 
 /* The report is formatted by hand: snprintf would pull the stdio layer of
@@ -526,13 +524,13 @@ static char *aihc_append_allocations(char *cursor, const uint64_t *order) {
 
 void aihc_runtime_statistics_report(void) {
   const char *path = aihc_rts_stats_path();
-  AihcMachine *machine = aihc_process_machine;
-  if (path == NULL || machine == NULL || aihc_statistics_reported) {
+  AihcCapability *capability = aihc_process_capability;
+  if (path == NULL || capability == NULL || aihc_statistics_reported) {
     return;
   }
   aihc_statistics_reported = 1;
-  aihc_gc_record_peak(machine);
-  aihc_heap_account(machine);
+  aihc_gc_record_peak(capability);
+  aihc_heap_account(capability);
   /* The fixed text is 190 bytes and the nine numbers take at most 180. An
      allocation entry takes its name, which can double with escapes, and at
      most 90 more bytes. */
@@ -555,23 +553,23 @@ void aihc_runtime_statistics_report(void) {
   }
   char *cursor = text;
   cursor = aihc_append_text(cursor, "{\"schema\": 3, \"peak_heap_bytes\": ");
-  cursor = aihc_append_decimal(cursor, machine->heap_peak_bytes);
+  cursor = aihc_append_decimal(cursor, capability->machine->heap_peak_bytes);
   cursor = aihc_append_text(cursor, ", \"allocated_bytes\": ");
-  cursor = aihc_append_decimal(cursor, machine->heap_allocated_bytes);
+  cursor = aihc_append_decimal(cursor, capability->heap_allocated_bytes);
   cursor = aihc_append_text(cursor, ", \"gc_count\": ");
-  cursor = aihc_append_decimal(cursor, machine->gc_count);
+  cursor = aihc_append_decimal(cursor, capability->machine->gc_count);
   cursor = aihc_append_text(cursor, ", \"gc_time_ns\": ");
-  cursor = aihc_append_decimal(cursor, machine->gc_time_ns);
+  cursor = aihc_append_decimal(cursor, capability->machine->gc_time_ns);
   cursor = aihc_append_text(cursor, ", \"gc_max_pause_ns\": ");
-  cursor = aihc_append_decimal(cursor, machine->gc_max_pause_ns);
+  cursor = aihc_append_decimal(cursor, capability->machine->gc_max_pause_ns);
   cursor = aihc_append_text(cursor, ", \"live_bytes\": ");
-  cursor = aihc_append_decimal(cursor, machine->heap_live_bytes);
+  cursor = aihc_append_decimal(cursor, capability->machine->heap_live_bytes);
   cursor = aihc_append_text(cursor, ", \"gc_minor_count\": ");
-  cursor = aihc_append_decimal(cursor, machine->gc_minor_count);
+  cursor = aihc_append_decimal(cursor, capability->machine->gc_minor_count);
   cursor = aihc_append_text(cursor, ", \"gc_gen1_count\": ");
-  cursor = aihc_append_decimal(cursor, machine->gc_gen1_count);
+  cursor = aihc_append_decimal(cursor, capability->machine->gc_gen1_count);
   cursor = aihc_append_text(cursor, ", \"gc_full_count\": ");
-  cursor = aihc_append_decimal(cursor, machine->gc_full_count);
+  cursor = aihc_append_decimal(cursor, capability->machine->gc_full_count);
   if (order != NULL) {
     cursor = aihc_append_allocations(cursor, order);
     free(order);
@@ -694,7 +692,7 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
 
 struct AihcCallbackSlot {
   AihcBackendEntry entry;
-  AihcMachine *machine;
+  AihcCapability *capability;
   AihcValue *closure;
   struct AihcCallbackSlot *next;
 };
@@ -704,7 +702,7 @@ _Static_assert(sizeof(AihcCallbackSlot) == 4 * sizeof(void *),
 
 struct AihcCallbackFrame {
   AihcCallbackFrame *previous;
-  AihcMachine *machine;
+  AihcCapability *capability;
   AihcValue *closure;
   AihcValue *continuation;
   uint64_t result;
@@ -716,22 +714,23 @@ _Static_assert(sizeof(AihcCallbackFrame) <= 48,
 
 static AihcCallbackSlot *aihc_callback_slots;
 
-void aihc_foreign_enter(AihcMachine *machine, AihcForeignFrame *frame,
+void aihc_foreign_enter(AihcCapability *capability, AihcForeignFrame *frame,
                         AihcSlot *roots, uint64_t count, const AihcSrt *srt,
                         uint64_t allow_callbacks) {
-  *frame = (AihcForeignFrame){machine->foreign_frames, roots, count, srt,
+  *frame = (AihcForeignFrame){capability->foreign_frames, roots, count, srt,
                               allow_callbacks};
-  machine->foreign_frames = frame;
+  capability->foreign_frames = frame;
 }
 
-void aihc_foreign_leave(AihcMachine *machine, AihcForeignFrame *frame) {
-  if (machine->foreign_frames != frame) {
+void aihc_foreign_leave(AihcCapability *capability, AihcForeignFrame *frame) {
+  if (capability->foreign_frames != frame) {
     aihc_fail("foreign frames are out of order");
   }
-  machine->foreign_frames = frame->previous;
+  capability->foreign_frames = frame->previous;
 }
 
-AihcBackendEntry aihc_callback_create(AihcMachine *machine, AihcValue *closure,
+AihcBackendEntry aihc_callback_create(AihcCapability *capability,
+                                      AihcValue *closure,
                                       AihcCallbackSlot *slots, uint64_t count) {
   for (uint64_t index = 0; index < count; ++index) {
     AihcCallbackSlot *slot = &slots[index];
@@ -744,7 +743,7 @@ AihcBackendEntry aihc_callback_create(AihcMachine *machine, AihcValue *closure,
       aihc_callback_slots = slot;
     }
     if (slot->closure == NULL) {
-      slot->machine = machine;
+      slot->capability = capability;
       slot->closure = closure;
       return slot->entry;
     }
@@ -760,7 +759,7 @@ void aihc_free_haskell_fun_ptr(AihcBackendEntry entry) {
        slot = slot->next) {
     if (slot->entry == entry && slot->closure != NULL) {
       slot->closure = NULL;
-      slot->machine = NULL;
+      slot->capability = NULL;
       return;
     }
   }
@@ -776,25 +775,26 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
   if (slot == NULL || slot->closure == NULL) {
     aihc_fail("invalid foreign callback");
   }
-  AihcMachine *machine = slot->machine;
-  if (machine->foreign_frames != NULL &&
-      !machine->foreign_frames->allow_callbacks) {
+  AihcCapability *capability = slot->capability;
+  if (capability->foreign_frames != NULL &&
+      !capability->foreign_frames->allow_callbacks) {
     aihc_fail("an unsafe foreign call cannot enter a Haskell callback");
   }
   *frame = (AihcCallbackFrame){0};
-  frame->previous = machine->callback_frames;
-  frame->machine = machine;
+  frame->previous = capability->callback_frames;
+  frame->capability = capability;
   frame->closure = slot->closure;
-  machine->callback_frames = frame;
+  capability->callback_frames = frame;
   /* The callback runs on the stack of the thread that made the foreign call.
      Its stop frame goes above the frames of that thread. When the callback
      enters the stop frame, the stack pointer is back where it was. */
-  frame->continuation = aihc_stack_push(machine, 1);
+  frame->continuation = aihc_stack_push(capability, 1);
   frame->continuation->header = (AihcSlot)(uintptr_t)stop_info;
+  aihc_stack_enter_chunk(capability, frame->continuation);
 }
 
-AihcMachine *aihc_callback_machine(AihcCallbackFrame *frame) {
-  return frame->machine;
+AihcCapability *aihc_callback_machine(AihcCallbackFrame *frame) {
+  return frame->capability;
 }
 
 AihcValue *aihc_callback_closure(AihcCallbackFrame *frame) {
@@ -805,97 +805,99 @@ AihcValue *aihc_callback_continuation(AihcCallbackFrame *frame) {
   return frame->continuation;
 }
 
-void aihc_callback_return(AihcMachine *machine, uint64_t result) {
-  if (machine->callback_frames == NULL) {
+void aihc_callback_return(AihcCapability *capability, uint64_t result) {
+  if (capability->callback_frames == NULL) {
     aihc_fail("callback return has no callback frame");
   }
-  machine->callback_frames->result = result;
-  machine->callback_frames->complete = 1;
+  capability->callback_frames->result = result;
+  capability->callback_frames->complete = 1;
 }
 
 uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
-  if (!frame->complete || frame->machine->callback_frames != frame) {
+  if (!frame->complete || frame->capability->callback_frames != frame) {
     aihc_fail("a foreign callback did not complete synchronously");
   }
   uint64_t result = frame->result;
-  frame->machine->callback_frames = frame->previous;
+  frame->capability->callback_frames = frame->previous;
   return result;
 }
 
 /* Static objects are not visited here. They never move, so a collector marks
    and scans the ones it finds reachable instead of treating all of them as
    roots. */
-void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
+void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context) {
   for (AihcCallbackSlot *slot = aihc_callback_slots; slot != NULL;
        slot = slot->next) {
-    if (slot->machine == machine) {
+    if (slot->capability == capability) {
       aihc_visit_value(&slot->closure, visitor, context);
     }
   }
-  for (AihcCallbackFrame *frame = machine->callback_frames; frame != NULL;
+  for (AihcCallbackFrame *frame = capability->callback_frames; frame != NULL;
        frame = frame->previous) {
     aihc_visit_value(&frame->closure, visitor, context);
     aihc_visit_value(&frame->continuation, visitor, context);
   }
-  for (AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
+  for (AihcForeignFrame *frame = capability->foreign_frames; frame != NULL;
        frame = frame->previous) {
     for (uint64_t index = 0; index < frame->count; ++index) {
       frame->roots[index] = visitor(frame->roots[index], context);
     }
   }
-  aihc_visit_value(&machine->global_array, visitor, context);
-  for (uint64_t index = 0; index < machine->global_count; ++index) {
-    machine->globals[index] = visitor(machine->globals[index], context);
+  aihc_visit_value(&capability->machine->global_array, visitor, context);
+  for (uint64_t index = 0; index < capability->machine->global_count; ++index) {
+    capability->machine->globals[index] =
+        visitor(capability->machine->globals[index], context);
   }
   for (uint64_t index = 0; index < root_count; ++index) {
     roots[index] = visitor(roots[index], context);
   }
-  machine->transaction_timers =
-      aihc_visit_pointer(machine->transaction_timers, visitor, context);
-  aihc_visit_value(&machine->selected_resume.function, visitor, context);
-  aihc_visit_value(&machine->selected_resume.continuation, visitor, context);
-  if ((machine->selected_resume.kind == AIHC_RESUME_CONTINUE ||
-       machine->selected_resume.kind == AIHC_RESUME_APPLY) &&
-      machine->selected_resume.count == 1) {
-    machine->selected_resume.value =
-        visitor(machine->selected_resume.value, context);
+  capability->machine->transaction_timers = aihc_visit_pointer(
+      capability->machine->transaction_timers, visitor, context);
+  aihc_visit_value(&capability->selected_resume.function, visitor, context);
+  aihc_visit_value(&capability->selected_resume.continuation, visitor, context);
+  if ((capability->selected_resume.kind == AIHC_RESUME_CONTINUE ||
+       capability->selected_resume.kind == AIHC_RESUME_APPLY) &&
+      capability->selected_resume.count == 1) {
+    capability->selected_resume.value =
+        visitor(capability->selected_resume.value, context);
   }
-  machine->current_thread =
-      aihc_visit_pointer(machine->current_thread, visitor, context);
-  machine->run_queue_head =
-      aihc_visit_pointer(machine->run_queue_head, visitor, context);
-  machine->run_queue_tail =
-      aihc_visit_pointer(machine->run_queue_tail, visitor, context);
-  aihc_visit_blackholes(machine, visitor, context);
-  machine->io_requests_head =
-      aihc_visit_pointer(machine->io_requests_head, visitor, context);
-  machine->io_requests_tail =
-      aihc_visit_pointer(machine->io_requests_tail, visitor, context);
-  aihc_visit_host_roots(machine, visitor, context);
+  capability->current_thread =
+      aihc_visit_pointer(capability->current_thread, visitor, context);
+  capability->run_queue_head =
+      aihc_visit_pointer(capability->run_queue_head, visitor, context);
+  capability->run_queue_tail =
+      aihc_visit_pointer(capability->run_queue_tail, visitor, context);
+  aihc_visit_blackholes(capability, visitor, context);
+  capability->io_requests_head =
+      aihc_visit_pointer(capability->io_requests_head, visitor, context);
+  capability->io_requests_tail =
+      aihc_visit_pointer(capability->io_requests_tail, visitor, context);
+  aihc_visit_host_roots(capability, visitor, context);
   for (uint64_t index = 0; index < 3; ++index) {
     aihc_rts_set_root(
         index, aihc_visit_pointer(aihc_rts_root(index), visitor, context));
   }
 }
 
-void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                      AihcSlot *roots, const AihcSrt *srt) {
-  aihc_gc_ensure(machine, words, root_count, roots, srt);
+void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
+                      uint64_t root_count, AihcSlot *roots,
+                      const AihcSrt *srt) {
+  aihc_gc_ensure(capability, words, root_count, roots, srt);
 }
 
-void aihc_heap_collect(AihcMachine *machine, uint64_t words,
+void aihc_heap_collect(AihcCapability *capability, uint64_t words,
                        uint64_t root_count, AihcSlot *roots,
                        const AihcSrt *srt) {
-  aihc_gc_collect(machine, words, root_count, roots, srt);
+  aihc_gc_collect(capability, words, root_count, roots, srt);
 }
 
 /* Place one object in heap the caller has already reserved. Compiled code
    inlines the same two steps - bump the heap pointer, write the header - and
    the slow apply path below is the only caller left in the runtime. */
-static AihcValue *aihc_place_node(AihcMachine *machine, const AihcInfo *info,
-                                  uint64_t words) {
-  AihcValue *value = aihc_gc_allocate(machine, words);
+static AihcValue *aihc_place_node(AihcCapability *capability,
+                                  const AihcInfo *info, uint64_t words) {
+  AihcValue *value = aihc_gc_allocate(capability, words);
   value->header = aihc_make_header(info);
   return value;
 }
@@ -903,29 +905,29 @@ static AihcValue *aihc_place_node(AihcMachine *machine, const AihcInfo *info,
 /* One stage of a constructor that is not saturated yet. Its width is not in
    the info table - every stage of the constructor shares one - so the caller
    names the slots and the object records them in field zero. */
-static AihcValue *aihc_place_partial(AihcMachine *machine, const AihcInfo *info,
-                                     uint64_t applied) {
-  AihcValue *value = aihc_place_node(machine, info, 2 + applied);
+static AihcValue *aihc_place_partial(AihcCapability *capability,
+                                     const AihcInfo *info, uint64_t applied) {
+  AihcValue *value = aihc_place_node(capability, info, 2 + applied);
   value->fields[0] = applied;
   return value;
 }
 
-uint64_t aihc_allocation_count(const AihcMachine *machine) {
-  return machine->allocation_count;
+uint64_t aihc_allocation_count(const AihcCapability *capability) {
+  return capability->allocation_count;
 }
 
-void aihc_reset_allocation_count(AihcMachine *machine) {
-  machine->allocation_count = 0;
+void aihc_reset_allocation_count(AihcCapability *capability) {
+  capability->allocation_count = 0;
 }
 
-uint64_t aihc_heap_allocated_bytes(AihcMachine *machine) {
-  aihc_heap_account(machine);
-  return machine->heap_allocated_bytes;
+uint64_t aihc_heap_allocated_bytes(AihcCapability *capability) {
+  aihc_heap_account(capability);
+  return capability->heap_allocated_bytes;
 }
 
-void aihc_reset_heap_allocated_bytes(AihcMachine *machine) {
-  aihc_heap_account(machine);
-  machine->heap_allocated_bytes = 0;
+void aihc_reset_heap_allocated_bytes(AihcCapability *capability) {
+  aihc_heap_account(capability);
+  capability->heap_allocated_bytes = 0;
 }
 
 /* The stage of a closure after the given number of stages. Closures keep a
@@ -971,7 +973,7 @@ const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
    of stages of its own chain; a partial constructor keeps its single shared
    info table until the last slot arrives and it becomes the saturated
    constructor. */
-static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
+static AihcValue *aihc_copy_with_fields(AihcCapability *capability,
                                         AihcValue **value_pointer,
                                         uint64_t stages, uint64_t count,
                                         const AihcSlot *fields,
@@ -1010,16 +1012,17 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
   /* The apply helper is entered by a tail call, so the static references of
      the function that applied the value are dead: the roots above carry
      everything the application needs. */
-  aihc_ensure_heap(machine, words, 2 + pointer_count, roots, NULL);
+  aihc_ensure_heap(capability, words, 2 + pointer_count, roots, NULL);
   value = (AihcValue *)roots[0];
   *value_pointer = value;
   *continuation_pointer = (AihcValue *)roots[1];
 
   /* The stage that fills the last slot becomes a saturated node and drops the
      applied count, so the result decides the allocator, not the source. */
-  AihcValue *copy = next_partial ? aihc_place_partial(machine, next_info,
-                                                      original_count + count)
-                                 : aihc_place_node(machine, next_info, words);
+  AihcValue *copy =
+      next_partial
+          ? aihc_place_partial(capability, next_info, original_count + count)
+          : aihc_place_node(capability, next_info, words);
   const AihcSlot *original_fields = partial ? aihc_partial_fields_const(value)
                                             : aihc_value_fields_const(value);
   AihcSlot *copy_fields =
@@ -1036,11 +1039,11 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
   return copy;
 }
 
-static AihcThread *aihc_thread_new(AihcMachine *machine) {
+static AihcThread *aihc_thread_new(AihcCapability *capability) {
   AihcThread *thread = (AihcThread *)aihc_gc_allocate(
-      machine, aihc_record_words(sizeof(*thread)));
+      capability, aihc_record_words(sizeof(*thread)));
   thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
-  thread->id = ++machine->next_thread_id;
+  thread->id = ++capability->machine->next_thread_id;
   thread->resume_kind = AIHC_RESUME_NONE;
   thread->resume_function = NULL;
   thread->resume_continuation = NULL;
@@ -1048,42 +1051,43 @@ static AihcThread *aihc_thread_new(AihcMachine *machine) {
   thread->resume_count = 0;
   thread->next = NULL;
   thread->transaction = NULL;
-  (void)aihc_stack_new(machine, thread);
+  (void)aihc_stack_new(capability, thread);
   return thread;
 }
 
 /* The result is a pointer, because the lowering declares the result of this
    call as an address. A pointer is four bytes on a 32-bit target. */
-AihcThread *aihc_my_thread_id(AihcMachine *machine) {
-  return machine->current_thread;
+AihcThread *aihc_my_thread_id(AihcCapability *capability) {
+  return capability->current_thread;
 }
 
-static void aihc_enqueue_thread(AihcMachine *machine, AihcThread *thread) {
+static void aihc_enqueue_thread(AihcCapability *capability,
+                                AihcThread *thread) {
   if (thread->next != NULL) {
     aihc_fail("attempted to enqueue an already queued thread");
   }
-  if (machine->run_queue_tail == NULL) {
-    machine->run_queue_head = thread;
+  if (capability->run_queue_tail == NULL) {
+    capability->run_queue_head = thread;
   } else {
-    aihc_write_barrier(machine, (AihcValue *)machine->run_queue_tail);
-    machine->run_queue_tail->next = thread;
+    aihc_write_barrier(capability, (AihcValue *)capability->run_queue_tail);
+    capability->run_queue_tail->next = thread;
   }
-  machine->run_queue_tail = thread;
+  capability->run_queue_tail = thread;
 }
 
-static AihcThread *aihc_dequeue_thread(AihcMachine *machine) {
-  AihcThread *thread = machine->run_queue_head;
+static AihcThread *aihc_dequeue_thread(AihcCapability *capability) {
+  AihcThread *thread = capability->run_queue_head;
   if (thread == NULL) {
     aihc_fail("no runnable threads");
   }
-  machine->run_queue_head = thread->next;
-  if (machine->run_queue_head == NULL) {
-    machine->run_queue_tail = NULL;
+  capability->run_queue_head = thread->next;
+  if (capability->run_queue_head == NULL) {
+    capability->run_queue_tail = NULL;
   }
   /* The link to the next thread is deleted from an old record. The barrier
      shades it, so a gen2 cycle that took its snapshot with the thread on
      the queue still marks the threads behind it. */
-  aihc_write_barrier(machine, (AihcValue *)thread);
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->next = NULL;
   return thread;
 }
@@ -1126,9 +1130,9 @@ static void aihc_grow_blackholes(AihcBlackholeTable *table) {
   table->capacity = capacity;
 }
 
-static void aihc_visit_blackholes(AihcMachine *machine, AihcRootVisitor visitor,
-                                  void *context) {
-  AihcBlackholeTable *table = machine->blackholes;
+static void aihc_visit_blackholes(AihcCapability *capability,
+                                  AihcRootVisitor visitor, void *context) {
+  AihcBlackholeTable *table = capability->machine->blackholes;
   if (table == NULL || table->count == 0) {
     return;
   }
@@ -1182,16 +1186,18 @@ static void aihc_check_blackhole_reentry(AihcValue *object,
   }
 }
 
-static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
+static void aihc_add_blackhole_waiter(AihcCapability *capability,
+                                      AihcValue *object,
                                       AihcValue *continuation) {
   aihc_check_blackhole_reentry(object, continuation);
-  if (machine->blackholes == NULL) {
-    machine->blackholes = calloc(1, sizeof(*machine->blackholes));
-    if (machine->blackholes == NULL) {
+  if (capability->machine->blackholes == NULL) {
+    capability->machine->blackholes =
+        calloc(1, sizeof(*capability->machine->blackholes));
+    if (capability->machine->blackholes == NULL) {
       aihc_fail("out of memory");
     }
   }
-  AihcBlackholeTable *table = machine->blackholes;
+  AihcBlackholeTable *table = capability->machine->blackholes;
   if (table->count >= table->capacity / 2) {
     aihc_grow_blackholes(table);
   }
@@ -1203,25 +1209,25 @@ static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
   }
   /* The eval helper reserved this waiter before it entered the C runtime. */
   AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_gc_allocate(
-      machine, aihc_record_words(sizeof(*waiter)));
+      capability, aihc_record_words(sizeof(*waiter)));
   waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
-  waiter->thread = machine->current_thread;
+  waiter->thread = capability->current_thread;
   waiter->continuation = continuation;
   aihc_stack_note_top(continuation);
   waiter->next = NULL;
   if (entry->tail == NULL) {
     entry->head = waiter;
   } else {
-    aihc_write_barrier(machine, (AihcValue *)entry->tail);
+    aihc_write_barrier(capability, (AihcValue *)entry->tail);
     entry->tail->next = waiter;
   }
   entry->tail = waiter;
   object->header |= AIHC_HEADER_WAITERS;
 }
 
-static AihcBlackholeWaiter *aihc_remove_blackhole_waiters(AihcMachine *machine,
-                                                          AihcValue *object) {
-  AihcBlackholeTable *table = machine->blackholes;
+static AihcBlackholeWaiter *
+aihc_remove_blackhole_waiters(AihcCapability *capability, AihcValue *object) {
+  AihcBlackholeTable *table = capability->machine->blackholes;
   if (table == NULL || table->count == 0) {
     aihc_fail("marked thunk has no waiter table entry");
   }
@@ -1245,37 +1251,39 @@ static AihcBlackholeWaiter *aihc_remove_blackhole_waiters(AihcMachine *machine,
   return head;
 }
 
-void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
-  aihc_write_barrier(aihc_process_machine, value);
+void aihc_set_field(AihcCapability *capability, AihcValue *value,
+                    uint64_t index, AihcSlot field) {
+  aihc_write_barrier(capability, value);
   aihc_value_fields(value)[index] = field;
 }
 
-void aihc_set_exit_status(AihcMachine *machine, int64_t status) {
-  machine->exit_status = status;
+void aihc_set_exit_status(AihcCapability *capability, int64_t status) {
+  capability->machine->exit_status = status;
 }
 
-int64_t aihc_get_exit_status(const AihcMachine *machine) {
-  return machine->exit_status;
+int64_t aihc_get_exit_status(const AihcCapability *capability) {
+  return capability->machine->exit_status;
 }
 
-/* The machine of the process. Lir code names it by its symbol, so it has
-   external linkage. */
-AihcMachine aihc_machine;
+static AihcMachine aihc_machine;
+static AihcCapability aihc_initial_capability;
 
-AihcMachine *aihc_machine_initialize(void) {
-  if (aihc_machine.heap_start == NULL) {
-    aihc_machine = (AihcMachine){0};
-    aihc_gc_init(&aihc_machine);
+AihcCapability *aihc_machine_initialize(void) {
+  if (aihc_initial_capability.heap_start == NULL) {
+    aihc_machine = (AihcMachine){.capabilities = &aihc_initial_capability,
+                                 .capability_count = 1};
+    aihc_initial_capability = (AihcCapability){.machine = &aihc_machine};
+    aihc_gc_init(&aihc_initial_capability);
     aihc_machine.next_stable_name = 1;
     aihc_machine.io_backend = aihc_host_io_backend();
-    aihc_process_machine = &aihc_machine;
+    aihc_process_capability = &aihc_initial_capability;
   }
-  return &aihc_machine;
+  return &aihc_initial_capability;
 }
 
 /* Host imports need fixed addresses. Retained process data can move after
  * import. */
-static void aihc_finish_imports(AihcMachine *machine) {
+static void aihc_finish_imports(AihcCapability *capability) {
   for (uint64_t index = 0; index < 3; ++index) {
     AihcValue *source = aihc_rts_root(index);
     if (source == NULL) {
@@ -1293,54 +1301,58 @@ static void aihc_finish_imports(AihcMachine *machine) {
       aihc_rts_set_root(index, NULL);
       continue;
     }
-    aihc_ensure_heap(machine, aihc_byte_array_words(bytes, 0, 1), 0, NULL,
+    aihc_ensure_heap(capability, aihc_byte_array_words(bytes, 0, 1), 0, NULL,
                      NULL);
     source = aihc_rts_root(index);
-    void *array = aihc_byte_array_new(machine, bytes);
+    void *array = aihc_byte_array_new(capability, bytes);
     memcpy(aihc_byte_array_contents(array), aihc_byte_array_contents(source),
            (size_t)bytes);
     aihc_rts_set_root(index, array);
   }
 }
 
-AihcMachine *aihc_machine_new(uint64_t global_count) {
-  AihcMachine *machine = aihc_machine_initialize();
-  if (machine->program_started) {
-    aihc_fail("program machine already started");
+AihcCapability *aihc_machine_new(uint64_t global_count) {
+  AihcCapability *capability = aihc_machine_initialize();
+  if (capability->machine->program_started) {
+    aihc_fail("program capability already started");
   }
-  if (machine->root_frames != NULL) {
+  if (capability->root_frames != NULL) {
     aihc_fail("program start requires completed host scopes");
   }
-  aihc_finish_imports(machine);
+  aihc_finish_imports(capability);
   /* Startup scopes have ended. Collect temporary imports before the limit
    * applies. */
-  aihc_gc_collect(machine, 0, 0, NULL, NULL);
-  aihc_gc_apply_options(machine);
-  machine->heap_max_bytes = aihc_rts_heap_max_bytes();
-  machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
-  aihc_gc_apply_limit(machine);
-  aihc_gc_collect(machine, 0, 0, NULL, NULL);
-  if (global_count > INT64_MAX / sizeof(*machine->globals)) {
+  aihc_gc_collect(capability, 0, 0, NULL, NULL);
+  aihc_gc_apply_options(capability);
+  capability->machine->heap_max_bytes = aihc_rts_heap_max_bytes();
+  capability->machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
+  aihc_gc_apply_limit(capability);
+  aihc_gc_collect(capability, 0, 0, NULL, NULL);
+  if (global_count > INT64_MAX / sizeof(*capability->machine->globals)) {
     aihc_fail("global table is too large");
   }
   if (global_count != 0) {
-    int64_t bytes = (int64_t)(global_count * sizeof(*machine->globals));
-    aihc_ensure_heap(machine, aihc_byte_array_words(bytes, 1, 1), 0, NULL,
+    int64_t bytes =
+        (int64_t)(global_count * sizeof(*capability->machine->globals));
+    aihc_ensure_heap(capability, aihc_byte_array_words(bytes, 1, 1), 0, NULL,
                      NULL);
-    machine->global_array = aihc_byte_array_new_pinned(machine, bytes);
-    machine->globals = aihc_byte_array_contents(machine->global_array);
+    capability->machine->global_array =
+        aihc_byte_array_new_pinned(capability, bytes);
+    capability->machine->globals =
+        aihc_byte_array_contents(capability->machine->global_array);
   }
-  machine->global_count = global_count;
-  aihc_gc_ensure(machine, aihc_record_words(sizeof(AihcThread)), 0, NULL, NULL);
-  machine->current_thread = aihc_thread_new(machine);
-  machine->stack_next = aihc_stack_base(machine->stacks);
-  machine->program_started = 1;
-  return machine;
+  capability->machine->global_count = global_count;
+  aihc_gc_ensure(capability, aihc_record_words(sizeof(AihcThread)), 0, NULL,
+                 NULL);
+  capability->current_thread = aihc_thread_new(capability);
+  capability->stack_next = aihc_stack_base(capability->machine->stacks);
+  capability->machine->program_started = 1;
+  return capability;
 }
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
-AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
+AihcValue *aihc_apply_slow(AihcCapability *capability, AihcValue *function,
                            uint64_t stages, uint64_t count,
                            const AihcSlot *arguments,
                            AihcValue **continuation) {
@@ -1359,15 +1371,15 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
     if (arity <= stages) {
       aihc_fail("closure application does not require the slow path");
     }
-    return aihc_copy_with_fields(machine, &function, stages, count, arguments,
-                                 continuation);
+    return aihc_copy_with_fields(capability, &function, stages, count,
+                                 arguments, continuation);
   }
   case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
     if (aihc_partial_applied(function) + count > aihc_partial_total(function)) {
       aihc_fail("constructor application overruns the constructor");
     }
-    return aihc_copy_with_fields(machine, &function, stages, count, arguments,
-                                 continuation);
+    return aihc_copy_with_fields(capability, &function, stages, count,
+                                 arguments, continuation);
   }
   case AIHC_OBJECT_NODE:
     aihc_fail("saturated constructor was applied");
@@ -1376,9 +1388,9 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
   }
 }
 
-static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
-                               AihcValue *continuation) {
-  aihc_write_barrier(aihc_process_machine, (AihcValue *)thread);
+static void aihc_suspend_apply(AihcCapability *capability, AihcThread *thread,
+                               AihcValue *function, AihcValue *continuation) {
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_APPLY;
   thread->resume_function = function;
   thread->resume_continuation = continuation;
@@ -1386,9 +1398,9 @@ static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
   thread->resume_count = 0;
 }
 
-static void aihc_suspend_raise(AihcThread *thread, AihcValue *exception,
-                               AihcValue *continuation) {
-  aihc_write_barrier(aihc_process_machine, (AihcValue *)thread);
+static void aihc_suspend_raise(AihcCapability *capability, AihcThread *thread,
+                               AihcValue *exception, AihcValue *continuation) {
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_RAISE;
   thread->resume_function = exception;
   thread->resume_continuation = continuation;
@@ -1396,12 +1408,13 @@ static void aihc_suspend_raise(AihcThread *thread, AihcValue *exception,
   thread->resume_count = 0;
 }
 
-static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
+static void aihc_suspend_continue(AihcCapability *capability,
+                                  AihcThread *thread, AihcValue *continuation,
                                   uint64_t count, AihcSlot value) {
   if (count > 1) {
     aihc_fail("suspended continuation has too many immediate values");
   }
-  aihc_write_barrier(aihc_process_machine, (AihcValue *)thread);
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_CONTINUE;
   thread->resume_function = continuation;
   thread->resume_continuation = NULL;
@@ -1410,13 +1423,13 @@ static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
   thread->resume_count = count;
 }
 
-static const AihcResume *aihc_select_thread(AihcMachine *machine,
+static const AihcResume *aihc_select_thread(AihcCapability *capability,
                                             AihcThread *thread) {
-  AihcResume *resume = &machine->selected_resume;
+  AihcResume *resume = &capability->selected_resume;
   /* The resumption is deleted from the record. The barrier shades its
      function, continuation, and value, which only the running code names
      from now on. */
-  aihc_write_barrier(machine, (AihcValue *)thread);
+  aihc_write_barrier(capability, (AihcValue *)thread);
   resume->kind = thread->resume_kind;
   resume->function = thread->resume_function;
   resume->continuation = thread->resume_continuation;
@@ -1427,7 +1440,7 @@ static const AihcResume *aihc_select_thread(AihcMachine *machine,
   thread->resume_continuation = NULL;
   thread->resume_value = 0;
   thread->resume_count = 0;
-  machine->current_thread = thread;
+  capability->current_thread = thread;
   if (resume->kind != AIHC_RESUME_APPLY &&
       resume->kind != AIHC_RESUME_CONTINUE &&
       resume->kind != AIHC_RESUME_RAISE) {
@@ -1438,7 +1451,7 @@ static const AihcResume *aihc_select_thread(AihcMachine *machine,
 
 int64_t aihc_io_error(int error) { return -((int64_t)error) - 1; }
 
-void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
+void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
                             int64_t result) {
   AihcThread *thread = request->thread;
   AihcValue *continuation = request->continuation;
@@ -1446,25 +1459,26 @@ void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
   request->result = result;
   /* The thread and the continuation are deleted from an old record, as in
      aihc_dequeue_thread. */
-  aihc_write_barrier(machine, (AihcValue *)request);
+  aihc_write_barrier(capability, (AihcValue *)request);
   request->thread = NULL;
   request->continuation = NULL;
   request->next = NULL;
-  aihc_suspend_continue(thread, continuation, 0, 0);
-  aihc_enqueue_thread(machine, thread);
+  aihc_suspend_continue(capability, thread, continuation, 0, 0);
+  aihc_enqueue_thread(capability, thread);
 }
 
-static const AihcResume *aihc_schedule(AihcMachine *machine) {
-  if (machine->callback_frames != NULL) {
+static const AihcResume *aihc_schedule(AihcCapability *capability) {
+  if (capability->callback_frames != NULL) {
     aihc_fail("a foreign callback cannot suspend");
   }
   for (;;) {
-    (void)machine->io_backend->poll(machine, 0);
-    if (machine->run_queue_head != NULL) {
-      return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+    (void)capability->machine->io_backend->poll(capability, 0);
+    if (capability->run_queue_head != NULL) {
+      return aihc_select_thread(capability, aihc_dequeue_thread(capability));
     }
-    if (machine->io_request_count != 0) {
-      if (machine->io_backend->poll(machine, 1) == AIHC_IO_POLL_SUSPENDED) {
+    if (capability->io_request_count != 0) {
+      if (capability->machine->io_backend->poll(capability, 1) ==
+          AIHC_IO_POLL_SUSPENDED) {
         return NULL;
       }
       continue;
@@ -1474,19 +1488,19 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
 }
 
 /* The caller reserves sixteen slots. This operation cannot collect. */
-static AihcIoRequest *aihc_io_request_new(AihcMachine *machine) {
+static AihcIoRequest *aihc_io_request_new(AihcCapability *capability) {
   AihcIoRequest *request = (AihcIoRequest *)aihc_gc_allocate_pinned(
-      machine, aihc_record_words(sizeof(*request)));
+      capability, aihc_record_words(sizeof(*request)));
   request->header = (AihcSlot)(uintptr_t)&aihc_io_request_info;
-  request->machine = machine;
+  request->capability = capability;
   return request;
 }
 
 const AihcInfo aihc_io_handle_info = {.object_kind = AIHC_OBJECT_IO_HANDLE};
 
-AihcIoHandle *aihc_io_handle_new(AihcMachine *machine) {
+AihcIoHandle *aihc_io_handle_new(AihcCapability *capability) {
   AihcIoHandle *handle = (AihcIoHandle *)aihc_gc_allocate(
-      machine, aihc_record_words(sizeof(AihcIoHandle)));
+      capability, aihc_record_words(sizeof(AihcIoHandle)));
   *handle = (AihcIoHandle){.header = (AihcSlot)(uintptr_t)&aihc_io_handle_info,
                            .closed = 1};
   return handle;
@@ -1496,7 +1510,7 @@ AihcIoHandle *aihc_io_handle_new(AihcMachine *machine) {
    External buffers remain the caller's responsibility. */
 static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
                                   size_t offset, size_t length) {
-  AihcMachine *machine = request->machine;
+  AihcCapability *capability = request->capability;
   uintptr_t address = (uintptr_t)buffer;
   /* A buffer in a region that moves is rejected. A large byte array never
      moves, and the pinned list below finds it. */
@@ -1509,8 +1523,8 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   default:
     break;
   }
-  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-       block = block->next) {
+  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
+       block != NULL; block = block->next) {
     AihcValue *object = (AihcValue *)block->object;
     if (aihc_value_kind(object) != AIHC_OBJECT_BYTE_ARRAY) {
       continue;
@@ -1522,7 +1536,7 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
       if (offset > available || length > available - offset) {
         return 0;
       }
-      aihc_write_barrier(machine, (AihcValue *)request);
+      aihc_write_barrier(capability, (AihcValue *)request);
       request->buffer_owner = object;
       break;
     }
@@ -1533,13 +1547,14 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   return 1;
 }
 
-static AihcIoRequest *aihc_io_submit(AihcMachine *machine, AihcIoKind kind,
-                                     AihcIoHandle *handle, uint8_t *buffer,
-                                     int64_t offset, int64_t length) {
-  AihcIoRequest *request = aihc_io_request_new(machine);
+static AihcIoRequest *aihc_io_submit(AihcCapability *capability,
+                                     AihcIoKind kind, AihcIoHandle *handle,
+                                     uint8_t *buffer, int64_t offset,
+                                     int64_t length) {
+  AihcIoRequest *request = aihc_io_request_new(capability);
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
-  aihc_write_barrier(machine, (AihcValue *)request);
+  aihc_write_barrier(capability, (AihcValue *)request);
   request->handle = handle;
   if (handle == NULL || handle->closed) {
     request->state = AIHC_IO_COMPLETED;
@@ -1568,14 +1583,14 @@ static AihcIoRequest *aihc_io_submit(AihcMachine *machine, AihcIoKind kind,
   return request;
 }
 
-static AihcIoRequest *aihc_io_submit_open_request(AihcMachine *machine,
+static AihcIoRequest *aihc_io_submit_open_request(AihcCapability *capability,
                                                   uint8_t *path,
                                                   int64_t requested_length,
                                                   int64_t requested_mode) {
-  AihcIoRequest *request = aihc_io_request_new(machine);
+  AihcIoRequest *request = aihc_io_request_new(capability);
   request->kind = AIHC_IO_OPEN;
-  AihcIoHandle *open_handle = aihc_io_handle_new(machine);
-  aihc_write_barrier(machine, (AihcValue *)request);
+  AihcIoHandle *open_handle = aihc_io_handle_new(capability);
+  aihc_write_barrier(capability, (AihcValue *)request);
   request->handle = open_handle;
   request->state = AIHC_IO_SUBMITTED;
   if (requested_length < 0 || (uint64_t)requested_length > SIZE_MAX ||
@@ -1625,22 +1640,22 @@ int64_t aihc_errno_set(int64_t value) {
   return (int64_t)previous;
 }
 
-void *aihc_io_submit_read(AihcMachine *machine, void *opaque_handle,
+void *aihc_io_submit_read(AihcCapability *capability, void *opaque_handle,
                           void *opaque_buffer, int64_t offset, int64_t length) {
-  return aihc_io_submit(machine, AIHC_IO_READ, opaque_handle, opaque_buffer,
+  return aihc_io_submit(capability, AIHC_IO_READ, opaque_handle, opaque_buffer,
                         offset, length);
 }
 
-void *aihc_io_submit_write(AihcMachine *machine, void *opaque_handle,
+void *aihc_io_submit_write(AihcCapability *capability, void *opaque_handle,
                            void *opaque_buffer, int64_t offset,
                            int64_t length) {
-  return aihc_io_submit(machine, AIHC_IO_WRITE, opaque_handle, opaque_buffer,
+  return aihc_io_submit(capability, AIHC_IO_WRITE, opaque_handle, opaque_buffer,
                         offset, length);
 }
 
-void *aihc_io_submit_open(AihcMachine *machine, void *opaque_path,
+void *aihc_io_submit_open(AihcCapability *capability, void *opaque_path,
                           int64_t length, int64_t mode) {
-  return aihc_io_submit_open_request(machine, opaque_path, length, mode);
+  return aihc_io_submit_open_request(capability, opaque_path, length, mode);
 }
 
 int64_t aihc_io_take_result(void *opaque_request) {
@@ -1661,46 +1676,50 @@ void *aihc_io_take_open_result(void *opaque_request) {
   return request->handle;
 }
 
-static const AihcResume *aihc_resume_current(AihcMachine *machine,
+static const AihcResume *aihc_resume_current(AihcCapability *capability,
                                              AihcValue *continuation) {
-  aihc_suspend_continue(machine->current_thread, continuation, 0, 0);
-  return aihc_select_thread(machine, machine->current_thread);
+  aihc_suspend_continue(capability, capability->current_thread, continuation, 0,
+                        0);
+  return aihc_select_thread(capability, capability->current_thread);
 }
 
-static const AihcResume *aihc_resume_current_value(AihcMachine *machine,
+static const AihcResume *aihc_resume_current_value(AihcCapability *capability,
                                                    AihcValue *continuation,
                                                    AihcSlot value) {
-  aihc_suspend_continue(machine->current_thread, continuation, 1, value);
-  return aihc_select_thread(machine, machine->current_thread);
+  aihc_suspend_continue(capability, capability->current_thread, continuation, 1,
+                        value);
+  return aihc_select_thread(capability, capability->current_thread);
 }
 
-static AihcMVarWaiter *aihc_mvar_waiter_new(AihcMachine *machine,
+static AihcMVarWaiter *aihc_mvar_waiter_new(AihcCapability *capability,
                                             AihcValue *continuation,
                                             AihcSlot value) {
   AihcMVarWaiter *waiter = (AihcMVarWaiter *)aihc_gc_allocate(
-      machine, aihc_record_words(sizeof(*waiter)));
+      capability, aihc_record_words(sizeof(*waiter)));
   waiter->header = (AihcSlot)(uintptr_t)&aihc_mvar_waiter_info;
   waiter->next = NULL;
-  waiter->thread = machine->current_thread;
+  waiter->thread = capability->current_thread;
   waiter->continuation = continuation;
   aihc_stack_note_top(continuation);
   waiter->value = value;
   return waiter;
 }
 
-static void aihc_mvar_append_waiter(AihcMVarWaiter **head,
+static void aihc_mvar_append_waiter(AihcCapability *capability,
+                                    AihcMVarWaiter **head,
                                     AihcMVarWaiter **tail,
                                     AihcMVarWaiter *waiter) {
   if (*tail == NULL) {
     *head = waiter;
   } else {
-    aihc_write_barrier(aihc_process_machine, (AihcValue *)*tail);
+    aihc_write_barrier(capability, (AihcValue *)*tail);
     (*tail)->next = waiter;
   }
   *tail = waiter;
 }
 
-static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
+static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcCapability *capability,
+                                            AihcMVarWaiter **head,
                                             AihcMVarWaiter **tail) {
   AihcMVarWaiter *waiter = *head;
   if (waiter == NULL) {
@@ -1712,7 +1731,7 @@ static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
   }
   /* The link to the next waiter is deleted from an old record, as in
      aihc_dequeue_thread. */
-  aihc_write_barrier(aihc_process_machine, (AihcValue *)waiter);
+  aihc_write_barrier(capability, (AihcValue *)waiter);
   waiter->next = NULL;
   return waiter;
 }
@@ -1720,12 +1739,12 @@ static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
 /* A woken waiter gives its continuation to its thread. The waiter can stay
    in the remembered set after this, and the frame is popped later, so the
    waiter keeps no pointer to it. */
-static void aihc_mvar_wake(AihcMachine *machine, AihcMVarWaiter *waiter,
+static void aihc_mvar_wake(AihcCapability *capability, AihcMVarWaiter *waiter,
                            uint64_t count, AihcSlot value) {
   AihcValue *continuation = waiter->continuation;
   waiter->continuation = NULL;
-  aihc_suspend_continue(waiter->thread, continuation, count, value);
-  aihc_enqueue_thread(machine, waiter->thread);
+  aihc_suspend_continue(capability, waiter->thread, continuation, count, value);
+  aihc_enqueue_thread(capability, waiter->thread);
 }
 
 static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
@@ -1736,9 +1755,9 @@ static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
   return mvar;
 }
 
-void *aihc_mvar_new(AihcMachine *machine) {
-  AihcMVar *mvar =
-      (AihcMVar *)aihc_gc_allocate(machine, aihc_record_words(sizeof(*mvar)));
+void *aihc_mvar_new(AihcCapability *capability) {
+  AihcMVar *mvar = (AihcMVar *)aihc_gc_allocate(
+      capability, aihc_record_words(sizeof(*mvar)));
   mvar->header = (AihcSlot)(uintptr_t)&aihc_mvar_info;
   mvar->full = 0;
   mvar->value = 0;
@@ -1751,65 +1770,69 @@ void *aihc_mvar_new(AihcMachine *machine) {
   return mvar;
 }
 
-const AihcResume *aihc_mvar_read(AihcMachine *machine, void *opaque_mvar,
+const AihcResume *aihc_mvar_read(AihcCapability *capability, void *opaque_mvar,
                                  AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  aihc_write_barrier(machine, (AihcValue *)mvar);
+  aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
-    return aihc_resume_current_value(machine, continuation, mvar->value);
+    return aihc_resume_current_value(capability, continuation, mvar->value);
   }
-  AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
-  aihc_mvar_append_waiter(&mvar->readers_head, &mvar->readers_tail, waiter);
-  return aihc_schedule(machine);
+  AihcMVarWaiter *waiter = aihc_mvar_waiter_new(capability, continuation, 0);
+  aihc_mvar_append_waiter(capability, &mvar->readers_head, &mvar->readers_tail,
+                          waiter);
+  return aihc_schedule(capability);
 }
 
-const AihcResume *aihc_mvar_take(AihcMachine *machine, void *opaque_mvar,
+const AihcResume *aihc_mvar_take(AihcCapability *capability, void *opaque_mvar,
                                  AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  aihc_write_barrier(machine, (AihcValue *)mvar);
+  aihc_write_barrier(capability, (AihcValue *)mvar);
   if (!mvar->full) {
-    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
-    aihc_mvar_append_waiter(&mvar->takers_head, &mvar->takers_tail, waiter);
-    return aihc_schedule(machine);
+    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(capability, continuation, 0);
+    aihc_mvar_append_waiter(capability, &mvar->takers_head, &mvar->takers_tail,
+                            waiter);
+    return aihc_schedule(capability);
   }
 
   AihcSlot value = mvar->value;
-  AihcMVarWaiter *putter =
-      aihc_mvar_pop_waiter(&mvar->putters_head, &mvar->putters_tail);
+  AihcMVarWaiter *putter = aihc_mvar_pop_waiter(capability, &mvar->putters_head,
+                                                &mvar->putters_tail);
   if (putter == NULL) {
     mvar->full = 0;
     mvar->value = 0;
   } else {
     mvar->value = putter->value;
-    aihc_mvar_wake(machine, putter, 0, 0);
+    aihc_mvar_wake(capability, putter, 0, 0);
   }
-  return aihc_resume_current_value(machine, continuation, value);
+  return aihc_resume_current_value(capability, continuation, value);
 }
 
-const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
+const AihcResume *aihc_mvar_put(AihcCapability *capability, void *opaque_mvar,
                                 AihcSlot value, AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  aihc_write_barrier(machine, (AihcValue *)mvar);
+  aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
-    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, value);
-    aihc_mvar_append_waiter(&mvar->putters_head, &mvar->putters_tail, waiter);
-    return aihc_schedule(machine);
+    AihcMVarWaiter *waiter =
+        aihc_mvar_waiter_new(capability, continuation, value);
+    aihc_mvar_append_waiter(capability, &mvar->putters_head,
+                            &mvar->putters_tail, waiter);
+    return aihc_schedule(capability);
   }
 
   AihcMVarWaiter *reader;
-  while ((reader = aihc_mvar_pop_waiter(&mvar->readers_head,
+  while ((reader = aihc_mvar_pop_waiter(capability, &mvar->readers_head,
                                         &mvar->readers_tail)) != NULL) {
-    aihc_mvar_wake(machine, reader, 1, value);
+    aihc_mvar_wake(capability, reader, 1, value);
   }
   AihcMVarWaiter *taker =
-      aihc_mvar_pop_waiter(&mvar->takers_head, &mvar->takers_tail);
+      aihc_mvar_pop_waiter(capability, &mvar->takers_head, &mvar->takers_tail);
   if (taker == NULL) {
     mvar->full = 1;
     mvar->value = value;
   } else {
-    aihc_mvar_wake(machine, taker, 1, value);
+    aihc_mvar_wake(capability, taker, 1, value);
   }
-  return aihc_resume_current(machine, continuation);
+  return aihc_resume_current(capability, continuation);
 }
 
 /* The non-blocking MVar operations. None of them suspends the caller, so each
@@ -1818,55 +1841,55 @@ const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
    isEmptyMVar#, tryReadMVar#, and the value half of tryTakeMVar# are loads,
    which is safe because a runtime call never yields, so nothing can change
    the variable between the load and the take. */
-uint64_t aihc_mvar_try_take(AihcMachine *machine, void *opaque_mvar) {
+uint64_t aihc_mvar_try_take(AihcCapability *capability, void *opaque_mvar) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  aihc_write_barrier(machine, (AihcValue *)mvar);
+  aihc_write_barrier(capability, (AihcValue *)mvar);
   if (!mvar->full) {
     return 0;
   }
-  AihcMVarWaiter *putter =
-      aihc_mvar_pop_waiter(&mvar->putters_head, &mvar->putters_tail);
+  AihcMVarWaiter *putter = aihc_mvar_pop_waiter(capability, &mvar->putters_head,
+                                                &mvar->putters_tail);
   if (putter == NULL) {
     mvar->full = 0;
     mvar->value = 0;
   } else {
     mvar->value = putter->value;
-    aihc_mvar_wake(machine, putter, 0, 0);
+    aihc_mvar_wake(capability, putter, 0, 0);
   }
   return 1;
 }
 
-uint64_t aihc_mvar_try_put(AihcMachine *machine, void *opaque_mvar,
+uint64_t aihc_mvar_try_put(AihcCapability *capability, void *opaque_mvar,
                            AihcSlot value) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  aihc_write_barrier(machine, (AihcValue *)mvar);
+  aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
     return 0;
   }
   AihcMVarWaiter *reader;
-  while ((reader = aihc_mvar_pop_waiter(&mvar->readers_head,
+  while ((reader = aihc_mvar_pop_waiter(capability, &mvar->readers_head,
                                         &mvar->readers_tail)) != NULL) {
-    aihc_mvar_wake(machine, reader, 1, value);
+    aihc_mvar_wake(capability, reader, 1, value);
   }
   AihcMVarWaiter *taker =
-      aihc_mvar_pop_waiter(&mvar->takers_head, &mvar->takers_tail);
+      aihc_mvar_pop_waiter(capability, &mvar->takers_head, &mvar->takers_tail);
   if (taker == NULL) {
     mvar->full = 1;
     mvar->value = value;
   } else {
-    aihc_mvar_wake(machine, taker, 1, value);
+    aihc_mvar_wake(capability, taker, 1, value);
   }
   return 1;
 }
 
-const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
-                                AihcValue *continuation) {
+const AihcResume *aihc_await_io(AihcCapability *capability,
+                                void *opaque_request, AihcValue *continuation) {
   AihcIoRequest *request = opaque_request;
   if (request == NULL) {
     aihc_fail("attempted to await a null IO request");
   }
   if (request->state == AIHC_IO_COMPLETED) {
-    return aihc_resume_current(machine, continuation);
+    return aihc_resume_current(capability, continuation);
   }
   if (request->state != AIHC_IO_SUBMITTED) {
     aihc_fail("attempted to await an IO request more than once");
@@ -1875,82 +1898,86 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
   AihcSlot roots[] = {(AihcSlot)(uintptr_t)request,
                       (AihcSlot)(uintptr_t)continuation};
   AihcRootFrame frame;
-  aihc_roots_enter(machine, &frame, 2, roots);
-  int error = machine->io_backend->prepare(request);
+  aihc_roots_enter(capability, &frame, 2, roots);
+  int error = capability->machine->io_backend->prepare(request);
   if (error != 0) {
     request->state = AIHC_IO_COMPLETED;
     request->result = aihc_io_error(error);
-    aihc_roots_leave(machine, &frame);
-    return aihc_resume_current(machine, (AihcValue *)(uintptr_t)roots[1]);
+    aihc_roots_leave(capability, &frame);
+    return aihc_resume_current(capability, (AihcValue *)(uintptr_t)roots[1]);
   }
 
   int64_t result = 0;
-  if (machine->io_backend->try_request(request, &result)) {
+  if (capability->machine->io_backend->try_request(request, &result)) {
     request->state = AIHC_IO_COMPLETED;
-    request->result = machine->io_backend->finish_request(request, result);
-    aihc_roots_leave(machine, &frame);
-    return aihc_resume_current(machine, (AihcValue *)(uintptr_t)roots[1]);
+    request->result =
+        capability->machine->io_backend->finish_request(request, result);
+    aihc_roots_leave(capability, &frame);
+    return aihc_resume_current(capability, (AihcValue *)(uintptr_t)roots[1]);
   }
 
   continuation = (AihcValue *)(uintptr_t)roots[1];
-  aihc_roots_leave(machine, &frame);
+  aihc_roots_leave(capability, &frame);
   request->state = AIHC_IO_PENDING;
-  aihc_write_barrier(machine, (AihcValue *)request);
-  request->thread = machine->current_thread;
+  aihc_write_barrier(capability, (AihcValue *)request);
+  request->thread = capability->current_thread;
   request->continuation = continuation;
   aihc_stack_note_top(continuation);
-  if (machine->io_requests_tail == NULL) {
-    machine->io_requests_head = request;
+  if (capability->io_requests_tail == NULL) {
+    capability->io_requests_head = request;
   } else {
-    machine->io_requests_tail->next = request;
+    capability->io_requests_tail->next = request;
   }
-  machine->io_requests_tail = request;
-  ++machine->io_request_count;
-  return aihc_schedule(machine);
+  capability->io_requests_tail = request;
+  ++capability->io_request_count;
+  return aihc_schedule(capability);
 }
 
-const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
+const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
                                           AihcValue *value,
                                           AihcValue *continuation) {
   if (value == NULL || aihc_value_kind(value) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("attempted to block on a value that is not blackholed");
   }
-  aihc_add_blackhole_waiter(machine, value, continuation);
-  return aihc_schedule(machine);
+  aihc_add_blackhole_waiter(capability, value, continuation);
+  return aihc_schedule(capability);
 }
 
-const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result) {
-  AihcIoRequest *request = machine->io_requests_head;
+const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result) {
+  AihcIoRequest *request = capability->io_requests_head;
   if (request == NULL) {
     aihc_fail("IO completion has no pending request");
   }
-  machine->io_requests_head = request->next;
-  --machine->io_request_count;
-  int64_t request_result = machine->io_backend->finish_request(request, result);
-  aihc_resume_io_request(machine, request, request_result);
+  capability->io_requests_head = request->next;
+  --capability->io_request_count;
+  int64_t request_result =
+      capability->machine->io_backend->finish_request(request, result);
+  aihc_resume_io_request(capability, request, request_result);
 
-  while (machine->io_requests_head != NULL) {
-    request = machine->io_requests_head;
-    if (!machine->io_backend->try_request(request, &request_result)) {
+  while (capability->io_requests_head != NULL) {
+    request = capability->io_requests_head;
+    if (!capability->machine->io_backend->try_request(request,
+                                                      &request_result)) {
       break;
     }
-    request_result =
-        machine->io_backend->finish_request(request, request_result);
-    machine->io_requests_head = request->next;
-    --machine->io_request_count;
-    aihc_resume_io_request(machine, request, request_result);
+    request_result = capability->machine->io_backend->finish_request(
+        request, request_result);
+    capability->io_requests_head = request->next;
+    --capability->io_request_count;
+    aihc_resume_io_request(capability, request, request_result);
   }
-  if (machine->io_requests_head == NULL) {
-    machine->io_requests_tail = NULL;
+  if (capability->io_requests_head == NULL) {
+    capability->io_requests_tail = NULL;
   }
-  return aihc_schedule(machine);
+  return aihc_schedule(capability);
 }
 
-void aihc_update(AihcValue *object, AihcValue *value) {
+void aihc_update(AihcCapability *capability, AihcValue *object,
+                 AihcValue *value) {
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
-  aihc_write_barrier_update(aihc_process_machine, object);
+  aihc_write_barrier_update(capability, object);
   /* An indirection has two words, and the rest of the thunk is slop. The
      collector never walks it: it follows an indirection of a generation it
      copies and leaves an older one in place. A heap walker, such as the
@@ -1964,31 +1991,33 @@ void aihc_update(AihcValue *object, AihcValue *value) {
   }
 }
 
-void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
+void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
                            AihcValue *value) {
   if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("attempted to update a cell that is not blackholed");
   }
   AihcSlot flags = object->header;
-  aihc_update(object, value);
+  aihc_update(capability, object, value);
   if ((flags & AIHC_HEADER_WAITERS) == 0) {
     return;
   }
   /* No collection can occur between the update and removal of its key. */
-  AihcBlackholeWaiter *waiter = aihc_remove_blackhole_waiters(machine, object);
+  AihcBlackholeWaiter *waiter =
+      aihc_remove_blackhole_waiters(capability, object);
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
     AihcValue *continuation = waiter->continuation;
     /* As for an MVar waiter: the frame is popped later. */
     waiter->continuation = NULL;
-    aihc_suspend_continue(waiter->thread, continuation, 1, (AihcSlot)value);
-    aihc_enqueue_thread(machine, waiter->thread);
+    aihc_suspend_continue(capability, waiter->thread, continuation, 1,
+                          (AihcSlot)value);
+    aihc_enqueue_thread(capability, waiter->thread);
     waiter = next;
   }
 }
 
-static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
-                                   AihcValue *exception) {
+static void aihc_abandon_blackhole(AihcCapability *capability,
+                                   AihcValue *object, AihcValue *exception) {
   if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("exception update frame does not contain a blackhole");
   }
@@ -1997,18 +2026,19 @@ static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
   if ((flags & AIHC_HEADER_WAITERS) == 0) {
     return;
   }
-  AihcBlackholeWaiter *waiter = aihc_remove_blackhole_waiters(machine, object);
+  AihcBlackholeWaiter *waiter =
+      aihc_remove_blackhole_waiters(capability, object);
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
     AihcValue *continuation = waiter->continuation;
     waiter->continuation = NULL;
-    aihc_suspend_raise(waiter->thread, exception, continuation);
-    aihc_enqueue_thread(machine, waiter->thread);
+    aihc_suspend_raise(capability, waiter->thread, exception, continuation);
+    aihc_enqueue_thread(capability, waiter->thread);
     waiter = next;
   }
 }
 
-const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
+const AihcResume *aihc_raise(AihcCapability *capability, AihcValue *exception,
                              AihcValue *continuation) {
   if (exception == NULL) {
     aihc_fail("attempted to raise a null exception");
@@ -2020,7 +2050,7 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
     }
     /* The walk pops the frame, so the marking of an active gen2 cycle
        scans it first. */
-    aihc_gc_frame_read(machine, continuation);
+    aihc_gc_frame_read(capability, continuation);
     const AihcInfo *info = aihc_value_info_table(continuation);
     const AihcSlot *fields = aihc_value_fields_const(continuation);
     switch (info->frame_kind) {
@@ -2035,7 +2065,7 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
       if (info->field_count < 2) {
         aihc_fail("catch continuation has an invalid layout");
       }
-      AihcResume *resume = &machine->selected_resume;
+      AihcResume *resume = &capability->selected_resume;
       resume->kind = AIHC_RESUME_APPLY;
       resume->function = (AihcValue *)(uintptr_t)fields[1];
       resume->continuation = (AihcValue *)(uintptr_t)fields[0];
@@ -2047,7 +2077,7 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
       if (info->field_count < 2) {
         aihc_fail("update continuation has an invalid layout");
       }
-      aihc_abandon_blackhole(machine, (AihcValue *)(uintptr_t)fields[1],
+      aihc_abandon_blackhole(capability, (AihcValue *)(uintptr_t)fields[1],
                              exception);
       continuation = (AihcValue *)(uintptr_t)fields[0];
       break;
@@ -2124,7 +2154,7 @@ static int aihc_is_prompt_frame(const AihcValue *frame, const AihcValue *tag) {
          (const AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[1] == tag;
 }
 
-const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
+const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
                                 AihcValue *function, AihcValue *continuation) {
   if (tag == NULL) {
     aihc_fail("control0# received a null prompt tag");
@@ -2135,11 +2165,11 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
            aihc_is_prompt_frame(prompt, tag))) {
     /* The capture copies the frame and pops it, so the marking of an
        active gen2 cycle scans it first. */
-    aihc_gc_frame_read(machine, prompt);
+    aihc_gc_frame_read(capability, prompt);
     words += aihc_value_words(prompt);
     prompt = aihc_captured_frame_parent(prompt, 1);
   }
-  aihc_gc_frame_read(machine, prompt);
+  aihc_gc_frame_read(capability, prompt);
 
   /* Compiled code transfers to the resumption straight after this call, so
      the calling function's static references are dead here. Frames do not
@@ -2147,17 +2177,17 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
      before this call copies them. */
   AihcSlot roots[2] = {(AihcSlot)(uintptr_t)function,
                        (AihcSlot)(uintptr_t)continuation};
-  aihc_ensure_heap(machine, words, 2, roots, NULL);
+  aihc_ensure_heap(capability, words, 2, roots, NULL);
   function = (AihcValue *)(uintptr_t)roots[0];
 
-  AihcValue *captured = aihc_place_node(machine, &aihc_continuation_info,
+  AihcValue *captured = aihc_place_node(capability, &aihc_continuation_info,
                                         1 + aihc_continuation_info.field_count);
   aihc_value_fields(captured)[0] = 0;
   AihcValue *previous = NULL;
   for (AihcValue *frame = continuation; frame != prompt;
        frame = aihc_captured_frame_parent(frame, 1)) {
     uint64_t frame_words = aihc_value_words(frame);
-    AihcValue *copy = aihc_gc_allocate(machine, frame_words);
+    AihcValue *copy = aihc_gc_allocate(capability, frame_words);
     memcpy(copy, frame, frame_words * sizeof(AihcSlot));
     aihc_value_fields(copy)[0] = 0;
     if (previous == NULL) {
@@ -2170,7 +2200,7 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
 
   /* The prompt frame is popped with the frames above it: the function runs
      under the prompt's parent. */
-  AihcResume *resume = &machine->selected_resume;
+  AihcResume *resume = &capability->selected_resume;
   resume->kind = AIHC_RESUME_APPLY;
   resume->function = function;
   resume->continuation =
@@ -2180,7 +2210,7 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
   return resume;
 }
 
-const AihcResume *aihc_continuation_resume(AihcMachine *machine,
+const AihcResume *aihc_continuation_resume(AihcCapability *capability,
                                            AihcValue *captured,
                                            AihcValue *action,
                                            AihcValue *continuation) {
@@ -2213,19 +2243,19 @@ const AihcResume *aihc_continuation_resume(AihcMachine *machine,
      links to the frame below it, and the lowest one links to the resumer's
      continuation, where the prompt frame used to be. Pushes do not collect,
      so the heap copies stay where they are. */
-  aihc_stack_resume_after(machine, continuation);
+  aihc_stack_resume_after(capability, continuation);
   AihcValue *resumed = continuation;
   while (count != 0) {
     AihcValue *source = frames[--count];
     uint64_t frame_words = aihc_value_words(source);
-    AihcValue *copy = aihc_stack_push(machine, frame_words);
+    AihcValue *copy = aihc_stack_push(capability, frame_words);
     memcpy(copy, source, frame_words * sizeof(AihcSlot));
     aihc_value_fields(copy)[0] = (AihcSlot)(uintptr_t)resumed;
     resumed = copy;
   }
   free(frames);
 
-  AihcResume *resume = &machine->selected_resume;
+  AihcResume *resume = &capability->selected_resume;
   resume->kind = AIHC_RESUME_APPLY;
   resume->function = action;
   resume->continuation = resumed;
@@ -2234,39 +2264,40 @@ const AihcResume *aihc_continuation_resume(AihcMachine *machine,
   return resume;
 }
 
-AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action) {
-  if (machine->thread_done_info == NULL) {
+AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action) {
+  if (capability->machine->thread_done_info == NULL) {
     aihc_fail("thread completion continuation is not initialized");
   }
-  AihcThread *child = aihc_thread_new(machine);
+  AihcThread *child = aihc_thread_new(capability);
   /* The new stack starts with the frame that ends the thread. */
-  AihcValue *done = (AihcValue *)aihc_stack_base(machine->stacks);
-  done->header = (AihcSlot)(uintptr_t)machine->thread_done_info;
-  aihc_suspend_apply(child, action, done);
-  aihc_enqueue_thread(machine, child);
+  AihcValue *done = (AihcValue *)aihc_stack_base(capability->machine->stacks);
+  done->header = (AihcSlot)(uintptr_t)capability->machine->thread_done_info;
+  aihc_suspend_apply(capability, child, action, done);
+  aihc_enqueue_thread(capability, child);
   return (AihcSlot)child;
 }
 
-const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation) {
-  AihcThread *current = machine->current_thread;
-  aihc_suspend_continue(current, continuation, 0, 0);
-  aihc_enqueue_thread(machine, current);
-  return aihc_schedule(machine);
+const AihcResume *aihc_yield(AihcCapability *capability,
+                             AihcValue *continuation) {
+  AihcThread *current = capability->current_thread;
+  aihc_suspend_continue(capability, current, continuation, 0, 0);
+  aihc_enqueue_thread(capability, current);
+  return aihc_schedule(capability);
 }
 
-const AihcResume *aihc_thread_done(AihcMachine *machine) {
+const AihcResume *aihc_thread_done(AihcCapability *capability) {
   /* The thread entered the frame at the bottom of its stack, so no frame of
      the stack is live. */
-  AihcStack *stack = aihc_stack_of(machine->stack_next - 1);
-  if (stack->thread != machine->current_thread) {
+  AihcStack *stack = aihc_stack_of(capability->stack_next - 1);
+  if (stack->thread != capability->current_thread) {
     aihc_fail("finished thread does not own the current stack");
   }
-  aihc_stack_release(machine, stack);
-  machine->stack_next = NULL;
-  return aihc_schedule(machine);
+  aihc_stack_release(capability, stack);
+  capability->stack_next = NULL;
+  return aihc_schedule(capability);
 }
 
-void aihc_set_thread_done_continuation(AihcMachine *machine,
+void aihc_set_thread_done_continuation(AihcCapability *capability,
                                        AihcValue *thread_done_continuation) {
   if (thread_done_continuation == NULL ||
       aihc_value_kind(thread_done_continuation) != AIHC_OBJECT_CLOSURE ||
@@ -2274,72 +2305,75 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
       aihc_value_info_table(thread_done_continuation)->field_count != 0) {
     aihc_fail("invalid thread completion continuation");
   }
-  machine->thread_done_info = aihc_value_info_table(thread_done_continuation);
+  capability->machine->thread_done_info =
+      aihc_value_info_table(thread_done_continuation);
 }
 
-AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
+AihcEntry aihc_halt(AihcCapability *capability) {
+  return capability->exit_code;
+}
 
-static void aihc_stm_expire_timers(AihcMachine *machine);
+static void aihc_stm_expire_timers(AihcCapability *capability);
 
 /* Each nested transaction keeps its own reverse write log. */
-uint64_t aihc_stm_begin(AihcMachine *machine) {
-  if (machine->current_thread->transaction == NULL) {
-    aihc_stm_expire_timers(machine);
+uint64_t aihc_stm_begin(AihcCapability *capability) {
+  if (capability->current_thread->transaction == NULL) {
+    aihc_stm_expire_timers(capability);
   }
   uint64_t words = aihc_record_words(sizeof(AihcTransaction));
   AihcTransaction *transaction =
-      (AihcTransaction *)aihc_gc_allocate(machine, words);
+      (AihcTransaction *)aihc_gc_allocate(capability, words);
   transaction->header = (AihcSlot)(uintptr_t)&aihc_transaction_info;
   transaction->writes = NULL;
-  transaction->parent = machine->current_thread->transaction;
-  aihc_write_barrier(machine, (AihcValue *)machine->current_thread);
-  machine->current_thread->transaction = transaction;
+  transaction->parent = capability->current_thread->transaction;
+  aihc_write_barrier(capability, (AihcValue *)capability->current_thread);
+  capability->current_thread->transaction = transaction;
   return 0;
 }
 
-uint64_t aihc_stm_active(AihcMachine *machine) {
-  return machine->current_thread->transaction != NULL;
+uint64_t aihc_stm_active(AihcCapability *capability) {
+  return capability->current_thread->transaction != NULL;
 }
 
-uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
+uint64_t aihc_tvar_write(AihcCapability *capability, AihcValue *variable,
                          AihcSlot value) {
-  AihcTransaction *transaction = machine->current_thread->transaction;
+  AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     aihc_fail("TVar write outside a transaction");
   }
   uint64_t words = aihc_record_words(sizeof(AihcTransactionWrite));
   AihcTransactionWrite *write =
-      (AihcTransactionWrite *)aihc_gc_allocate(machine, words);
+      (AihcTransactionWrite *)aihc_gc_allocate(capability, words);
   write->header = (AihcSlot)(uintptr_t)&aihc_transaction_write_info;
   write->variable = variable;
   write->previous = variable->fields[1];
   write->next = transaction->writes;
-  aihc_write_barrier(machine, (AihcValue *)transaction);
+  aihc_write_barrier(capability, (AihcValue *)transaction);
   transaction->writes = write;
-  aihc_write_barrier(machine, variable);
+  aihc_write_barrier(capability, variable);
   variable->fields[1] = value;
   return 0;
 }
 
-uint64_t aihc_stm_abort(AihcMachine *machine) {
-  AihcTransaction *transaction = machine->current_thread->transaction;
+uint64_t aihc_stm_abort(AihcCapability *capability) {
+  AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     aihc_fail("STM abort outside a transaction");
   }
   AihcTransactionWrite *write = transaction->writes;
   while (write != NULL) {
     AihcTransactionWrite *next = write->next;
-    aihc_write_barrier(machine, write->variable);
+    aihc_write_barrier(capability, write->variable);
     write->variable->fields[1] = write->previous;
     write = next;
   }
-  aihc_write_barrier(machine, (AihcValue *)machine->current_thread);
-  machine->current_thread->transaction = transaction->parent;
+  aihc_write_barrier(capability, (AihcValue *)capability->current_thread);
+  capability->current_thread->transaction = transaction->parent;
   return 0;
 }
 
-uint64_t aihc_stm_commit(AihcMachine *machine) {
-  AihcTransaction *transaction = machine->current_thread->transaction;
+uint64_t aihc_stm_commit(AihcCapability *capability) {
+  AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     aihc_fail("STM commit outside a transaction");
   }
@@ -2349,24 +2383,25 @@ uint64_t aihc_stm_commit(AihcMachine *machine) {
     while (last->next != NULL) {
       last = last->next;
     }
-    aihc_write_barrier(machine, (AihcValue *)last);
+    aihc_write_barrier(capability, (AihcValue *)last);
     last->next = transaction->parent->writes;
-    aihc_write_barrier(machine, (AihcValue *)transaction->parent);
+    aihc_write_barrier(capability, (AihcValue *)transaction->parent);
     transaction->parent->writes = write;
   }
-  aihc_write_barrier(machine, (AihcValue *)machine->current_thread);
-  machine->current_thread->transaction = transaction->parent;
+  aihc_write_barrier(capability, (AihcValue *)capability->current_thread);
+  capability->current_thread->transaction = transaction->parent;
   return 0;
 }
 
-AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
+AihcValue *aihc_tvar_delay(AihcCapability *capability, int64_t delay,
                            AihcSlot initial, AihcSlot final) {
   uint64_t timer_words = aihc_record_words(sizeof(AihcTransactionTimer));
   /* The caller reserves the variable and timer together. */
-  AihcValue *variable = aihc_mutvar_new(machine, delay <= 0 ? final : initial);
+  AihcValue *variable =
+      aihc_mutvar_new(capability, delay <= 0 ? final : initial);
   if (delay > 0) {
     AihcTransactionTimer *timer =
-        (AihcTransactionTimer *)aihc_gc_allocate(machine, timer_words);
+        (AihcTransactionTimer *)aihc_gc_allocate(capability, timer_words);
     timer->header = (AihcSlot)(uintptr_t)&aihc_transaction_timer_info;
     timer->variable = variable;
     timer->final = final;
@@ -2375,19 +2410,19 @@ AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
     timer->deadline = (uint64_t)delay > maximum / 1000
                           ? UINT64_MAX
                           : now + (uint64_t)delay * 1000;
-    timer->next = machine->transaction_timers;
-    machine->transaction_timers = timer;
+    timer->next = capability->machine->transaction_timers;
+    capability->machine->transaction_timers = timer;
   }
   return variable;
 }
 
-static void aihc_stm_expire_timers(AihcMachine *machine) {
+static void aihc_stm_expire_timers(AihcCapability *capability) {
   uint64_t now = aihc_host_monotonic_ns();
-  AihcTransactionTimer **link = &machine->transaction_timers;
+  AihcTransactionTimer **link = &capability->machine->transaction_timers;
   while (*link != NULL) {
     AihcTransactionTimer *timer = *link;
     if (timer->deadline <= now) {
-      aihc_write_barrier(machine, timer->variable);
+      aihc_write_barrier(capability, timer->variable);
       timer->variable->fields[1] = timer->final;
       *link = timer->next;
     } else {
@@ -2396,24 +2431,24 @@ static void aihc_stm_expire_timers(AihcMachine *machine) {
   }
 }
 
-AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable) {
+AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable) {
   /* A transaction observes one timer state until it commits or retries. */
-  if (!aihc_stm_active(machine)) {
-    aihc_stm_expire_timers(machine);
+  if (!aihc_stm_active(capability)) {
+    aihc_stm_expire_timers(capability);
   }
   return variable->fields[1];
 }
 
-void *aihc_stm_wait_request(AihcMachine *machine) {
-  AihcIoRequest *request = aihc_io_request_new(machine);
+void *aihc_stm_wait_request(AihcCapability *capability) {
+  AihcIoRequest *request = aihc_io_request_new(capability);
   request->kind = AIHC_IO_TIMER;
   request->state = AIHC_IO_COMPLETED;
-  if (machine->transaction_timers == NULL) {
+  if (capability->machine->transaction_timers == NULL) {
     return request;
   }
   request->deadline = UINT64_MAX;
-  for (AihcTransactionTimer *timer = machine->transaction_timers; timer != NULL;
-       timer = timer->next) {
+  for (AihcTransactionTimer *timer = capability->machine->transaction_timers;
+       timer != NULL; timer = timer->next) {
     if (timer->deadline < request->deadline) {
       request->deadline = timer->deadline;
     }
@@ -2422,12 +2457,12 @@ void *aihc_stm_wait_request(AihcMachine *machine) {
   return request;
 }
 
-int64_t aihc_stm_wait_result(AihcMachine *machine, void *request) {
+int64_t aihc_stm_wait_result(AihcCapability *capability, void *request) {
   int64_t result = aihc_io_take_result(request);
   if (result < 0) {
     aihc_fail("STM timer wait failed");
   }
-  aihc_stm_expire_timers(machine);
+  aihc_stm_expire_timers(capability);
   return result;
 }
 

@@ -166,8 +166,9 @@ int64_t aihc_io_descriptor_mode(int64_t descriptor) {
    changes the descriptor's flags; a read or a write sets O_NONBLOCK on it the
    same way it does for a descriptor the runtime opened. Closing the handle
    closes the descriptor, which is what a Handle over it promises. */
-void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode) {
-  AihcIoHandle *handle = aihc_io_handle_new(machine);
+void *aihc_io_adopt(AihcCapability *capability, int64_t descriptor,
+                    int64_t mode) {
+  AihcIoHandle *handle = aihc_io_handle_new(capability);
   if (descriptor < 0 || descriptor > INT_MAX) {
     handle->error = AIHC_IO_ERROR_BAD_DESCRIPTOR;
     return handle;
@@ -221,9 +222,9 @@ static int64_t aihc_posix_open(AihcIoRequest *request) {
     return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
   AihcRootFrame frame;
-  aihc_roots_enter(request->machine, &frame, 0, NULL);
+  aihc_roots_enter(request->capability, &frame, 0, NULL);
   char *path = aihc_byte_array_contents(
-      aihc_host_byte_array(request->machine, &frame, length + 1));
+      aihc_host_byte_array(request->capability, &frame, length + 1));
   if (length != 0) {
     memcpy(path, opaque_path, length);
   }
@@ -248,7 +249,7 @@ static int64_t aihc_posix_open(AihcIoRequest *request) {
     capabilities = AIHC_IO_READABLE | AIHC_IO_WRITABLE;
     break;
   default:
-    aihc_roots_leave(request->machine, &frame);
+    aihc_roots_leave(request->capability, &frame);
     return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
 
@@ -257,7 +258,7 @@ static int64_t aihc_posix_open(AihcIoRequest *request) {
     descriptor = open(path, flags | O_NONBLOCK, 0666);
   } while (descriptor == -1 && errno == EINTR);
   int open_error = errno;
-  aihc_roots_leave(request->machine, &frame);
+  aihc_roots_leave(request->capability, &frame);
   if (descriptor == -1) {
     return aihc_io_error(open_error);
   }
@@ -330,14 +331,15 @@ static int64_t aihc_posix_finish_request(AihcIoRequest *request,
   return result;
 }
 
-static void aihc_complete_all_io_with_error(AihcMachine *machine, int error) {
-  AihcIoRequest *request = machine->io_requests_head;
-  machine->io_requests_head = NULL;
-  machine->io_requests_tail = NULL;
-  machine->io_request_count = 0;
+static void aihc_complete_all_io_with_error(AihcCapability *capability,
+                                            int error) {
+  AihcIoRequest *request = capability->io_requests_head;
+  capability->io_requests_head = NULL;
+  capability->io_requests_tail = NULL;
+  capability->io_request_count = 0;
   while (request != NULL) {
     AihcIoRequest *next = request->next;
-    aihc_resume_io_request(machine, request, aihc_io_error(error));
+    aihc_resume_io_request(capability, request, aihc_io_error(error));
     request = next;
   }
 }
@@ -365,14 +367,15 @@ static int aihc_posix_poll_timeout(int may_block, int has_timer,
   return (int)milliseconds;
 }
 
-static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
-  if (machine->io_request_count == 0) {
+static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
+                                         int may_block) {
+  if (capability->io_request_count == 0) {
     return AIHC_IO_POLL_PROGRESS;
   }
   size_t count = 0;
   int has_timer = 0;
   uint64_t earliest = UINT64_MAX;
-  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+  for (AihcIoRequest *request = capability->io_requests_head; request != NULL;
        request = request->next) {
     if (request->kind == AIHC_IO_TIMER) {
       has_timer = 1;
@@ -388,14 +391,14 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
     aihc_fail("poll buffer is too large");
   }
   AihcRootFrame frame;
-  aihc_roots_enter(machine, &frame, 0, NULL);
+  aihc_roots_enter(capability, &frame, 0, NULL);
   struct pollfd *descriptors =
       count == 0 ? NULL
                  : aihc_byte_array_contents(aihc_host_byte_array(
-                       machine, &frame, sizeof(*descriptors) * count));
-  aihc_record_allocation(machine);
+                       capability, &frame, sizeof(*descriptors) * count));
+  aihc_record_allocation(capability);
   size_t index = 0;
-  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+  for (AihcIoRequest *request = capability->io_requests_head; request != NULL;
        request = request->next) {
     if (request->kind == AIHC_IO_TIMER) {
       continue;
@@ -412,14 +415,14 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
                    aihc_posix_poll_timeout(may_block, has_timer, earliest));
   if (ready == -1) {
     int error = errno;
-    aihc_roots_leave(machine, &frame);
+    aihc_roots_leave(capability, &frame);
     if (error != EINTR) {
-      aihc_complete_all_io_with_error(machine, error);
+      aihc_complete_all_io_with_error(capability, error);
     }
     return AIHC_IO_POLL_PROGRESS;
   }
 
-  AihcIoRequest **link = &machine->io_requests_head;
+  AihcIoRequest **link = &capability->io_requests_head;
   AihcIoRequest *tail = NULL;
   index = 0;
   while (*link != NULL) {
@@ -442,15 +445,15 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
     }
     if (complete) {
       *link = request->next;
-      --machine->io_request_count;
-      aihc_resume_io_request(machine, request, result);
+      --capability->io_request_count;
+      aihc_resume_io_request(capability, request, result);
     } else {
       tail = request;
       link = &request->next;
     }
   }
-  machine->io_requests_tail = tail;
-  aihc_roots_leave(machine, &frame);
+  capability->io_requests_tail = tail;
+  aihc_roots_leave(capability, &frame);
   return AIHC_IO_POLL_PROGRESS;
 }
 

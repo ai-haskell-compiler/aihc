@@ -372,7 +372,7 @@ entry:
 
 ; Parse the RTS options out of the buffer and keep the rest. The result is
 ; zero, or minus one when the buffer is malformed and nothing changed.
-export func @aihc_parse_runtime_arguments(%machine: ptr, %scope: ptr, %buffer: ptr, %length: i64) -> i64 cc c {
+export func @aihc_parse_runtime_arguments(%capability: ptr, %scope: ptr, %buffer: ptr, %length: i64) -> i64 cc c {
 entry:
   %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
   %malformed = eq i64 %valid, 0
@@ -387,7 +387,7 @@ reset:
   ; An empty argument list still owns one byte, so the buffer is never null.
   %empty = eq i64 %length, 0
   %capacity = select i64 %empty, 1, %length
-  %arguments_owner = call @aihc_host_byte_array(%machine, %scope, %capacity)
+  %arguments_owner = call @aihc_host_byte_array(%capability, %scope, %capacity)
   %arguments = call @aihc_byte_array_contents(%arguments_owner)
   jump argument(0, 0, 0, 0, 0)
 
@@ -461,7 +461,7 @@ entry:
 ; ends with the terminator of its last string. The result is zero, or minus
 ; one when the buffer is malformed and nothing changed. A variable with an
 ; empty value counts as absent.
-export func @aihc_parse_runtime_environment(%machine: ptr, %scope: ptr, %buffer: ptr, %length: i64) -> i64 cc c {
+export func @aihc_parse_runtime_environment(%capability: ptr, %scope: ptr, %buffer: ptr, %length: i64) -> i64 cc c {
 entry:
   %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
   %malformed = eq i64 %valid, 0
@@ -479,7 +479,7 @@ keep_empty:
   jump parse
 
 keep_copy:
-  %copy_owner = call @aihc_host_byte_array(%machine, %scope, %length)
+  %copy_owner = call @aihc_host_byte_array(%capability, %scope, %length)
   %copy = call @aihc_byte_array_contents(%copy_owner)
   call @aihc_memory_copy(%copy, %buffer, %length)
   call @aihc_rts_environment_install(%copy_owner, %length)
@@ -520,7 +520,7 @@ value:
 copy:
   %value_address = ptr.add %buffer, %value_start
   %size = add i64 %value_length, 1
-  %path_owner = call @aihc_host_byte_array(%machine, %scope, %size)
+  %path_owner = call @aihc_host_byte_array(%capability, %scope, %size)
   %path = call @aihc_byte_array_contents(%path_owner)
   call @aihc_memory_copy(%path, %value_address, %size)
   call @aihc_rts_set_stats_path(%path_owner)

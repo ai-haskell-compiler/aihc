@@ -125,11 +125,18 @@ An application resume sets the stack pointer to the first byte after its continu
 These two rules are correct because code always pushes a frame directly above its current continuation.
 The current continuation is thus always the topmost live frame.
 
-The machine field `stack_next` holds a copy of the stack pointer.
+Each stack chunk header has a capability pointer.
+The header keeps its 64-byte size.
+The depth and collection charge counters each use 32 bits.
+Stack growth, chunk entry, scheduler resume, and callback entry set the capability pointer.
+Compiled code reads it through the stack limit before a C runtime call.
+The capability points to the shared process state in `AihcMachine`.
+
+The capability field `stack_next` holds a copy of the stack pointer.
 Compiled code stores the stack pointer there before a runtime call that can read it, such as a collection or a scheduler operation.
 The scheduler writes `stack_next` when it selects a thread, and `aihc_lir_resume` loads the stack pointer from there.
 The runtime pushes the frames of the list below through `stack_next` while no compiled code runs.
-The machine fields `heap_next` and `heap_limit` are the same kind of copy of the heap pointer and the heap limit.
+The capability fields `heap_next` and `heap_limit` are the same kind of copy of the heap pointer and the heap limit.
 
 The frame layouts do not change, because each frame has its info table.
 The collector finds a live frame through a pointer to it.

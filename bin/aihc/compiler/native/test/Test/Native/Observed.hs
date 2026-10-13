@@ -41,18 +41,18 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
       <> renderRepDeclaration "result_reps" renderedResultReps
       <> renderConstructorTable constructors
       <> renderFunctionTable functions
-      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, AihcMachine *machine) {",
+      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, AihcCapability *capability) {",
            "#ifdef AIHC_SNAPSHOT_REQUIRE_GC",
-           "  if (machine->gc_count == 0) abort();",
+           "  if (capability->machine->gc_count == 0) abort();",
            "#endif",
            "#ifdef AIHC_SNAPSHOT_MINIMUM_COLLECTIONS",
-           "  if (machine->gc_count < AIHC_SNAPSHOT_MINIMUM_COLLECTIONS) {",
-           "    fprintf(stderr, \"aihc runtime: only %\" PRIu64 \" collections\\n\", machine->gc_count);",
+           "  if (capability->machine->gc_count < AIHC_SNAPSHOT_MINIMUM_COLLECTIONS) {",
+           "    fprintf(stderr, \"aihc runtime: only %\" PRIu64 \" collections\\n\", capability->machine->gc_count);",
            "    exit(1);",
            "  }",
            "#endif",
            "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
-           "                     aihc_heap_allocated_bytes(machine),",
+           "                     aihc_heap_allocated_bytes(capability),",
            "                     " <> tshow (length constructors) <> ", " <> pointerOrNull constructors "constructors" <> ",",
            "                     " <> tshow (length functions) <> ", " <> pointerOrNull functions "functions" <> ");",
            "}"

@@ -32,7 +32,7 @@ data @aihc_stable_name_null_message align 1 = {
 
 ; Reuse a live name while its referent remains live.
 ; Compiled code compares names as pointers and reads the stored hash.
-export func @aihc_stable_name_make(%machine: ptr, %value: ptr) -> ptr cc c {
+export func @aihc_stable_name_make(%capability: ptr, %value: ptr) -> ptr cc c {
 entry:
   %missing = eq ptr %value, null
   br %missing, invalid, search
@@ -42,7 +42,7 @@ invalid:
   trap "stable-name primitive received null"
 
 search:
-  %head = call @aihc_stable_names(%machine)
+  %head = call @aihc_stable_names(%capability)
   %first = load ptr [%head] align 8
   jump visit(%first)
 
@@ -63,8 +63,8 @@ known:
   return %name
 
 allocate:
-  %fresh = call @aihc_gc_allocate(%machine, 4)
-  %hash = call @aihc_stable_name_take_hash(%machine)
+  %fresh = call @aihc_gc_allocate(%capability, 4)
+  %hash = call @aihc_stable_name_take_hash(%capability)
   %info = ptr.to_int @aihc_stable_name_info
   store i64 %info, [%fresh] align 8
   store ptr %value, [%fresh + 8] align 8
