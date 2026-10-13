@@ -26,11 +26,10 @@ expected: |
     %result_10 = shr.u i64 %result_9, 3
     %wide_11 = shl i64 %result_10, 29
     %narrow_12 = trunc i64 %wide_11 to i32
-    %result_13 = zext i32 %narrow_12 to i64
-    %wide_14 = add i64 %result_13, %result_10
-    %narrow_15 = trunc i64 %wide_14 to i32
+    %narrow_15_width_right = trunc i64 %result_10 to i32
+    %narrow_15 = add i32 %narrow_12, %narrow_15_width_right
     %result_16 = zext i32 %narrow_15 to i64
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, %result_16)
   }
 status: pass
-reason: a bitwise operation or a right shift of two 32-bit words cannot exceed 32 bits, so only a left shift and an addition narrow their result
+reason: The left shift needs a result mask. The addition uses 32-bit operands and a 32-bit result.
