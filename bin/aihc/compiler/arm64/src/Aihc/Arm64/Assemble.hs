@@ -389,7 +389,7 @@ encodeInstruction instruction =
       let rd = registerInfo destination
           rn = registerInfo source
        in words32 [0xaa2003e0 .|. registerNumber rn `shiftL` 16 .|. registerNumber rd]
-    ArmMul destination left right -> encodeThreeRegister 0x9b007c00 destination left right
+    ArmMul destination left right -> encodeThreeRegister (if registerWidth (registerInfo destination) == 32 then 0x1b007c00 else 0x9b007c00) destination left right
     ArmUmulh destination left right -> encodeThreeRegister 0x9bc07c00 destination left right
     ArmUdiv destination left right -> encodeThreeRegister 0x9ac00800 destination left right
     ArmMsub destination left right accumulator -> encodeMsub destination left right accumulator
@@ -565,6 +565,12 @@ encodeAddSub subtractValue setFlags destination source value =
       let rm = registerInfo register
           useExtended = registerSp rd || registerSp rn
           base
+            | registerWidth rd == 32 && useExtended && subtractValue = 0x4b204000
+            | registerWidth rd == 32 && useExtended = 0x0b204000
+            | registerWidth rd == 32 && subtractValue && setFlags = 0x6b000000
+            | registerWidth rd == 32 && setFlags = 0x2b000000
+            | registerWidth rd == 32 && subtractValue = 0x4b000000
+            | registerWidth rd == 32 = 0x0b000000
             | useExtended && subtractValue = 0xcb206000
             | useExtended = 0x8b206000
             | subtractValue && setFlags = 0xeb000000

@@ -1,10 +1,11 @@
--- | Simplify Boolean switches and rotate expressions before register allocation.
-module Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations) where
+-- | Simplify Boolean switches, rotate expressions, and arithmetic widths before register allocation.
+module Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths) where
 
 import Aihc.Lir.RegAlloc (operationReads, readCounts)
 import Aihc.Lir.Syntax
 import Control.Applicative ((<|>))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 
 -- | A zero extension from i1 can only produce zero or one.
@@ -90,3 +91,74 @@ simplifyRotations function = rewritten {functionBlocks = map clean (functionBloc
             then Just (ty, value, rightCount, Just wide, [l, narrow, shifted, r, source])
             else Nothing
         wideMatch _ _ _ = Nothing
+
+-- | Use 32-bit arithmetic when a truncation discards the high bits.
+-- Only modular operations permit this transformation. Division and shifts do not.
+-- Keep wide operations with other users to avoid duplicate arithmetic.
+-- Do not replace one result truncation with two operand truncations.
+simplifyWidths :: Function -> Function
+simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
+  where
+    uses = readCounts function
+    occupied = Set.fromList (map fst (functionParameters function) <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- functionBlocks function])
+    (blocks, _) = mapAccumLBlocks occupied (functionBlocks function)
+    rewritten = function {functionBlocks = blocks}
+    candidates = Set.fromList [v | block <- functionBlocks function, Instruction [v] op <- blockInstructions block, removable op]
+    remaining = readCounts rewritten
+    clean block = block {blockInstructions = fst (foldr remove ([], remaining) (blockInstructions block))}
+    remove (Instruction [v] operation) (rest, counts)
+      | Set.member v candidates,
+        Map.findWithDefault 0 v counts == 0 =
+          (rest, foldl' (flip (Map.adjust (subtract 1))) counts (operationReads operation))
+    remove instruction (rest, counts) = (instruction : rest, counts)
+    modular op = op `elem` [Add, Sub, Mul, And, Or, Xor]
+    removable (Binary op I64 _ _) = modular op
+    removable (Convert op _ _ _) = op `elem` [Trunc, ZExt]
+    removable _ = False
+    mapAccumLBlocks names [] = ([], names)
+    mapAccumLBlocks names (block : rest) =
+      let definitions = Map.fromList [(v, op) | Instruction [v] op <- blockInstructions block]
+          (instructions, _, names') = foldl' rewrite ([], definitions, names) (blockInstructions block)
+          (blocks', names'') = mapAccumLBlocks names' rest
+       in (block {blockInstructions = reverse instructions} : blocks', names'')
+    rewrite (before, definitions, names) instruction@(Instruction [v] operation) =
+      case operation of
+        Convert Trunc I64 (OperandVar wide) I32
+          | Just (Binary op I64 a b) <- Map.lookup wide definitions,
+            modular op,
+            Map.lookup wide uses == Just 1,
+            cheapOperand definitions a || cheapOperand definitions b ->
+              let (leftCode, left, names') = narrowOperand definitions names v "_left" a
+                  (rightCode, right, names'') = narrowOperand definitions names' v "_right" b
+               in append (leftCode <> rightCode <> [Instruction [v] (Binary op I32 left right)]) names''
+        Binary op I64 a b
+          | op `elem` [And, Or, Xor],
+            Just left <- narrowValue definitions a,
+            Just right <- narrowValue definitions b ->
+              let (result, names') = fresh names v "_word"
+               in append [Instruction [result] (Binary op I32 left right), Instruction [v] (Convert ZExt I32 (OperandVar result) I64)] names'
+        _ -> append [instruction] names
+      where
+        append code names' = (reverse code <> before, foldl' define definitions code, names')
+        define defs (Instruction [result] op) = Map.insert result op defs
+        define defs _ = defs
+    rewrite (before, definitions, names) instruction = (instruction : before, definitions, names)
+    narrowValue definitions (OperandVar v)
+      | Just (Convert ZExt I32 source I64) <- Map.lookup v definitions = Just source
+    narrowValue _ operand@(OperandLiteral (LitInt value))
+      | value >= 0 && value < 2 ^ (32 :: Int) = Just operand
+    narrowValue _ _ = Nothing
+    cheapOperand _ (OperandLiteral (LitInt _)) = True
+    cheapOperand definitions operand = isJust (narrowValue definitions operand)
+    narrowOperand definitions names _ _ operand
+      | Just value <- narrowValue definitions operand = ([], value, names)
+    narrowOperand _ names _ _ (OperandLiteral (LitInt value)) = ([], OperandLiteral (LitInt (value `mod` 2 ^ (32 :: Int))), names)
+    narrowOperand _ names v suffix operand =
+      let (result, names') = fresh names v suffix
+       in ([Instruction [result] (Convert Trunc I64 operand I32)], OperandVar result, names')
+    fresh names v suffix =
+      let result = unused (Var (unVar v <> "_width" <> suffix))
+          unused candidate
+            | Set.member candidate names = unused (Var (unVar candidate <> "_"))
+            | otherwise = candidate
+       in (result, Set.insert result names)

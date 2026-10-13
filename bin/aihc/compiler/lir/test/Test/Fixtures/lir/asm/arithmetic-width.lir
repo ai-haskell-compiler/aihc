@@ -1,0 +1,50 @@
+; Detect wide arithmetic and masks after a 32-bit truncation.
+func @chain(%x: i32, %y: i32) -> i64 {
+entry:
+  %a = zext i32 %x to i64
+  %b = zext i32 %y to i64
+  %sum = add i64 %a, %b
+  %low = trunc i64 %sum to i32
+  %wide = zext i32 %low to i64
+  %product = mul i64 %wide, 4294967295
+  %word = trunc i64 %product to i32
+  %extended = zext i32 %word to i64
+  %difference = sub i64 %extended, %b
+  %result = trunc i64 %difference to i32
+  %return = zext i32 %result to i64
+  return %return
+}
+func @unknown(%x: i64, %y: i64) -> i32 {
+entry:
+  %sum = add i64 %x, %y
+  %low = trunc i64 %sum to i32
+  return %low
+}
+; The shared sum must keep its high bits.
+func @shared(%x: i64, %y: i64) -> (i64, i32) {
+entry:
+  %sum = add i64 %x, %y
+  %low = trunc i64 %sum to i32
+  return %sum, %low
+}
+; High bits can affect division and right shifts.
+func @wide(%x: i64, %y: i64) -> (i32, i32) {
+entry:
+  %quotient = div.u i64 %x, %y
+  %a = trunc i64 %quotient to i32
+  %shift = shr.u i64 %x, 32
+  %b = trunc i64 %shift to i32
+  return %a, %b
+}
+func @sigma(%x: i32) -> i64 {
+entry:
+  %a = rotr i32 %x, 2
+  %b = rotr i32 %x, 13
+  %c = rotr i32 %x, 22
+  %wa = zext i32 %a to i64
+  %wb = zext i32 %b to i64
+  %wc = zext i32 %c to i64
+  %ab = xor i64 %wa, %wb
+  %abc = xor i64 %ab, %wc
+  return %abc
+}

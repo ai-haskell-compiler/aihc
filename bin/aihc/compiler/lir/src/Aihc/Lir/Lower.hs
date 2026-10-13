@@ -75,7 +75,7 @@ import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, nodeWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
-import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations)
+import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -747,16 +747,17 @@ finishFunction symbol linkage parameters results convention = do
   put state {stateBlocksRev = []}
   emitItem
     ( ItemFunction $
-        simplifyRotations $
-          simplifyBooleanBranches
-            Function
-              { functionName = symbol,
-                functionLinkage = linkage,
-                functionParameters = parameters,
-                functionResults = results,
-                functionConvention = convention,
-                functionBlocks = reverse (stateBlocksRev state)
-              }
+        simplifyWidths $
+          simplifyRotations $
+            simplifyBooleanBranches
+              Function
+                { functionName = symbol,
+                  functionLinkage = linkage,
+                  functionParameters = parameters,
+                  functionResults = results,
+                  functionConvention = convention,
+                  functionBlocks = reverse (stateBlocksRev state)
+                }
     )
 
 -- Target layout
