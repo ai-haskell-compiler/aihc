@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 -- | Workspace-wide Hedgehog property registry.
 module Aihc.Dev.Fuzz.Registry
   ( FuzzProperty (..),
@@ -9,11 +11,13 @@ where
 import Aihc.Grin.Fuzz (grinFuzzProperties)
 import Aihc.Tc.Fuzz (tcFuzzProperties)
 import Hedgehog (Property)
+import Test.Native.GcFuzz (withGcFuzzProperty)
 
 data FuzzProperty = FuzzProperty
   { fuzzPropertyComponent :: String,
     fuzzPropertyName :: String,
-    fuzzPropertyValue :: Property
+    fuzzPropertyWeight :: Rational,
+    withFuzzProperty :: forall a. (Property -> IO a) -> IO a
   }
 
 fuzzPropertyId :: FuzzProperty -> String
@@ -25,5 +29,6 @@ fuzzProperties :: [FuzzProperty]
 fuzzProperties =
   qualify "aihc-tc" tcFuzzProperties
     ++ qualify "aihc-grin" grinFuzzProperties
+    ++ [FuzzProperty "aihc-gc" "collects random heaps and stacks" 0.1 withGcFuzzProperty]
   where
-    qualify component = map (uncurry (FuzzProperty component))
+    qualify component = map (\(name, value) -> FuzzProperty component name 1 (\run -> run value))

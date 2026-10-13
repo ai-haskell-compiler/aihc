@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
--- | Parallel, round-robin Hedgehog fuzz runner with a terminal dashboard.
+-- | Parallel, weighted Hedgehog fuzz runner with a terminal dashboard.
 module Aihc.Dev.Fuzz
   ( batchSize,
     cycleProperties,
@@ -15,6 +15,7 @@ where
 import Aihc.Dev.Fuzz.CLI (Command (..), Options (..), Selection (..))
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
 import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
+import Aihc.Testing.RuntimeArchive (releaseCachedRuntimeArchives)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, race, waitAnyCatch)
 import Control.Concurrent.STM
@@ -25,6 +26,8 @@ import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (groupBy, intercalate, isInfixOf, sortOn)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Conc (getNumCapabilities)
@@ -36,7 +39,7 @@ import Hedgehog.Internal.Runner (checkReport)
 import Hedgehog.Internal.Seed qualified as Seed
 import System.Console.Terminal.Size qualified as Terminal
 import System.Exit (exitFailure)
-import System.IO (BufferMode (NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
+import System.IO (BufferMode (BlockBuffering, NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
 import System.Posix.IO (stdInput)
 import System.Posix.Terminal qualified as Posix
 
@@ -44,19 +47,15 @@ import System.Posix.Terminal qualified as Posix
 batchSize :: Int
 batchSize = 10000
 
--- | Keep dashboard redraws deliberately infrequent to avoid terminal flicker.
+-- | Update counters and spinners ten times per second.
 dashboardRefreshMicroseconds :: Int
-dashboardRefreshMicroseconds = 5 * 1000000
-
-data ActiveProperty = ActiveProperty
-  { activePropertyId :: String,
-    activeSuccessfulCases :: Int
-  }
+dashboardRefreshMicroseconds = 100000
 
 data Stats = Stats
-  { statsActive :: TVar (IntMap ActiveProperty),
+  { statsActive :: TVar (IntMap String),
     statsCompletedBatches :: TVar Int,
-    statsSuccessfulCases :: TVar Int
+    statsSuccessfulCases :: TVar Int,
+    statsPropertyCases :: TVar (Map String Int)
   }
 
 data WorkerFailure = WorkerFailure
@@ -68,7 +67,7 @@ runCommand :: Command -> IO ()
 runCommand command =
   case command of
     List selection -> listProperties (selectProperties selection fuzzProperties)
-    Run options -> runFuzzer options
+    Run options -> runFuzzer options `finally` releaseCachedRuntimeArchives
 
 -- | Apply case-insensitive substring inclusion and exclusion rules.
 selectProperties :: Selection -> [FuzzProperty] -> [FuzzProperty]
@@ -94,7 +93,7 @@ listProperties properties =
     printComponent componentProperties@(firstProperty : _) = do
       putStrLn (fuzzPropertyComponent firstProperty)
       forM_ componentProperties $ \fuzzProperty ->
-        putStrLn ("  " <> fuzzPropertyName fuzzProperty)
+        putStrLn ("  " <> fuzzPropertyName fuzzProperty <> "  [weight " <> show (fromRational (fuzzPropertyWeight fuzzProperty) :: Double) <> "]")
 
 runFuzzer :: Options -> IO ()
 runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
@@ -104,8 +103,8 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
     exitFailure
   capabilities <- getNumCapabilities
   let jobs = resolveJobCount capabilities optionsJobs
-  scheduler <- newTVarIO (cycleProperties selected)
-  stats <- Stats <$> newTVarIO IntMap.empty <*> newTVarIO 0 <*> newTVarIO 0
+  scheduler <- newTVarIO (cycleProperties [(fuzzPropertyWeight item, item) | item <- selected])
+  stats <- Stats <$> newTVarIO IntMap.empty <*> newTVarIO 0 <*> newTVarIO 0 <*> newTVarIO (Map.fromList [(fuzzPropertyId item, 0) | item <- selected])
   startedAt <- getCurrentTime
   interactive <- hIsTerminalDevice stderr
   keyboardEnabled <- (interactive &&) <$> hIsTerminalDevice stdin
@@ -166,10 +165,20 @@ durationMicroseconds :: NominalDiffTime -> Int
 durationMicroseconds duration =
   max 1 (floor (realToFrac duration * (1000000 :: Double)))
 
--- | Repeat the selected properties forever in stable registry order.
-cycleProperties :: [property] -> [property]
-cycleProperties [] = []
-cycleProperties properties = cycle properties
+-- | Distribute batches in proportion to positive weights without long bursts.
+cycleProperties :: [(Rational, property)] -> [property]
+cycleProperties properties = go [(weight, 0, value) | (weight, value) <- properties, weight > 0]
+  where
+    total = sum [weight | (weight, _) <- properties, weight > 0]
+    go [] = []
+    go entries =
+      let advanced = [(weight, credit + weight, value) | (weight, credit, value) <- entries]
+          best = maximum [credit | (_, credit, _) <- advanced]
+          (before, after) = break (\(_, credit, _) -> credit == best) advanced
+       in case after of
+            (weight, credit, value) : rest ->
+              value : go (before <> [(weight, credit - total, value)] <> rest)
+            [] -> []
 
 -- | Honor the requested parallelism even when fewer properties are selected.
 resolveJobCount :: Int -> Maybe Int -> Int
@@ -189,16 +198,16 @@ worker scheduler stats workerId = do
   fuzzProperty <- atomically (nextProperty scheduler)
   let propertyId = fuzzPropertyId fuzzProperty
       clearActive = atomically (modifyTVar' (statsActive stats) (IntMap.delete workerId))
-  atomically $ modifyTVar' (statsActive stats) (IntMap.insert workerId (ActiveProperty propertyId 0))
-  result <- runBatch stats workerId fuzzProperty `finally` clearActive
+  atomically $ modifyTVar' (statsActive stats) (IntMap.insert workerId propertyId)
+  result <- runBatch stats fuzzProperty `finally` clearActive
   case result of
     Right () -> do
       atomically $ modifyTVar' (statsCompletedBatches stats) (+ 1)
       worker scheduler stats workerId
     Left failureResult -> pure (WorkerFailure fuzzProperty failureResult)
 
-runBatch :: Stats -> Int -> FuzzProperty -> IO (Either String ())
-runBatch stats workerId FuzzProperty {fuzzPropertyValue} = do
+runBatch :: Stats -> FuzzProperty -> IO (Either String ())
+runBatch stats fuzzProperty = withFuzzProperty fuzzProperty $ \fuzzPropertyValue -> do
   seed <- Seed.random
   previousCount <- newIORef 0
   let batchProperty = withTests (fromIntegral batchSize) fuzzPropertyValue
@@ -209,23 +218,23 @@ runBatch stats workerId FuzzProperty {fuzzPropertyValue} = do
       seed
       (propertyTest batchProperty)
       (progressCallback previousCount)
+  recordCount previousCount result
   case reportStatus result of
     OK -> pure (Right ())
     _ -> Left <$> renderResult DisableColor Nothing result
   where
     progressCallback previousCount report =
       case reportStatus report of
-        Running -> do
-          let TestCount currentCount = reportTests report
-          priorCount <- readIORef previousCount
-          let completed = max 0 (currentCount - priorCount)
-          writeIORef previousCount currentCount
-          atomically $ do
-            modifyTVar' (statsSuccessfulCases stats) (+ completed)
-            modifyTVar' (statsActive stats) $ IntMap.adjust (setCount currentCount) workerId
+        Running -> recordCount previousCount report
         _ -> pure ()
-    setCount currentCount active =
-      active {activeSuccessfulCases = currentCount}
+    recordCount previousCount report = do
+      let TestCount currentCount = reportTests report
+      priorCount <- readIORef previousCount
+      let completed = max 0 (currentCount - priorCount)
+      writeIORef previousCount currentCount
+      atomically $ do
+        modifyTVar' (statsSuccessfulCases stats) (+ completed)
+        modifyTVar' (statsPropertyCases stats) (Map.adjust (+ completed) (fuzzPropertyId fuzzProperty))
 
 withDashboard :: Bool -> TMVar () -> UTCTime -> Int -> Int -> Stats -> IO Outcome -> IO Outcome
 withDashboard keyboardEnabled quitSignal startedAt propertyCount jobs stats action = do
@@ -295,22 +304,27 @@ isQuitKey key = key == 'q' || key == 'Q' || key == '\ESC'
 
 enterDashboard :: IO ()
 enterDashboard = do
-  hSetBuffering stderr NoBuffering
+  hSetBuffering stderr (BlockBuffering Nothing)
   hPutStr stderr "\ESC[?1049h\ESC[2J\ESC[H\ESC[?25l"
+  hFlush stderr
 
 leaveDashboard :: BufferMode -> IO ()
-leaveDashboard originalBuffering = do
-  hPutStr stderr "\ESC[?25h\ESC[?1049l"
-  hSetBuffering stderr originalBuffering
+leaveDashboard originalBuffering =
+  (hPutStr stderr "\ESC[?2026l\ESC[0m\ESC[?25h\ESC[?1049l" >> hFlush stderr)
+    `finally` hSetBuffering stderr originalBuffering
 
 renderLoop :: UTCTime -> Int -> Int -> Stats -> IO ()
 renderLoop startedAt propertyCount jobs stats = go []
   where
     go previousFrame = do
       now <- getCurrentTime
-      active <- readTVarIO (statsActive stats)
-      successfulCases <- readTVarIO (statsSuccessfulCases stats)
-      completedBatches <- readTVarIO (statsCompletedBatches stats)
+      (active, successfulCases, completedBatches, propertyCases) <-
+        atomically $
+          (,,,)
+            <$> readTVar (statsActive stats)
+            <*> readTVar (statsSuccessfulCases stats)
+            <*> readTVar (statsCompletedBatches stats)
+            <*> readTVar (statsPropertyCases stats)
       terminalSize <- Terminal.size
       let (rows, columns) =
             case terminalSize of
@@ -321,10 +335,8 @@ renderLoop startedAt propertyCount jobs stats = go []
               rows
               columns
               Dashboard
-                { dashboardActive =
-                    [ (workerId, activePropertyId, activeSuccessfulCases)
-                    | (workerId, ActiveProperty {activePropertyId, activeSuccessfulCases}) <- IntMap.toAscList active
-                    ],
+                { dashboardActive = IntMap.toAscList active,
+                  dashboardPropertyCases = Map.toAscList propertyCases,
                   dashboardBatches = completedBatches,
                   dashboardCases = successfulCases,
                   dashboardElapsed = diffUTCTime now startedAt,
