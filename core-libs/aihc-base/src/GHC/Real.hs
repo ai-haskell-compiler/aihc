@@ -103,7 +103,7 @@ instance Integral Integer where
   quot numerator denominator = firstOfPair (integerQuotRemChecked numerator denominator)
   rem = integerRemChecked
   div numerator denominator = firstOfPair (integerDivModChecked numerator denominator)
-  mod numerator denominator = secondOfPair (integerDivModChecked numerator denominator)
+  mod = integerModChecked
   quotRem = integerQuotRemChecked
   divMod = integerDivModChecked
 
@@ -294,6 +294,15 @@ integerRemChecked (IS numerator) (IS denominator) =
         _ -> IS (remInt# numerator denominator)
 integerRemChecked _ (IS 0#) = divZeroError
 integerRemChecked numerator denominator = integerRem numerator denominator
+
+-- | Compute a modulus without a quotient. The result has the divisor sign.
+integerModChecked :: Integer -> Integer -> Integer
+integerModChecked numerator denominator =
+  case integerRemChecked numerator denominator of
+    remainder ->
+      case signum remainder == negate (signum denominator) of
+        True -> remainder + denominator
+        False -> remainder
 
 -- | 'divMod' on 'Integer'. The remainder has the sign of the divisor. The
 -- body is large, thus each use stays a call.
