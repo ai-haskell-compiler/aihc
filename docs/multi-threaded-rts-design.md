@@ -21,10 +21,15 @@ Each capability reserves nursery space in blocks.
 The default block size is 32 KiB, and `-n<size>` selects another size.
 A refill retains the heap pointer and does not collect until the nursery budget is full.
 Fixed allocations and stack charges use that same budget.
+The machine owns an aligned nursery arena.
+The current capability uses one power-of-two window in this arena.
+The runtime rounds `-A` up to a power of two.
+A smaller heap limit or test budget can use part of that window.
+The region allocator keeps alignment fragments for reuse.
 The runtime has no worker threads and does not enable `-N`.
 
 The rest of step 1 remains necessary before step 2.
-It includes the aligned nursery arena, the local write barrier, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
+It includes the local write barrier, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

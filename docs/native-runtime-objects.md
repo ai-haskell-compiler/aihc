@@ -35,6 +35,9 @@ When a collection cannot bring the heap below the limit, the collector runs a
 full collection, and the program stops if the heap is still above it.
 
 The `-A<size>` option sets the size of the nursery, 4 MiB by default.
+The runtime rounds this size up to a power of two and aligns the nursery arena to that size.
+The machine owns the arena, and the capability keeps its allocation cursor.
+A smaller heap limit can reduce the allocation budget within an aligned window.
 The `-n<size>` option sets the nursery block size, 32 KiB by default.
 Zero selects the default block size.
 A block refill extends the allocation limit without a collection.
@@ -168,9 +171,10 @@ It never writes the heap copies, so a captured continuation can resume any numbe
 
 ## Heap regions
 
-Every managed allocation lives in a run of regions of 64 KiB. The runtime
-takes each run from the host as one mapping of exactly that size, and a
-two-level region table gives the kind of the region that holds an address.
+Every managed allocation lives in a run of regions of 64 KiB.
+An aligned run can require a larger host mapping.
+The region allocator keeps the unused prefix and suffix in its free list.
+A two-level region table gives the kind of the region that holds an address.
 The top level is indexed by the address bits above the leaf, and a leaf
 covers 4 GiB with one entry for each region. The runtime reserves no address
 space in advance, so it runs where a large reservation is refused. The

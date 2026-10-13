@@ -2720,10 +2720,28 @@ void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
   aihc_collect(capability, 1, 1, root_count, roots, srt);
 }
 
+/* Round the nursery window without overflow on native hosts or wasm32. */
+static size_t aihc_nursery_size(uint64_t bytes) {
+  size_t rounded = 1;
+  while (rounded < bytes) {
+    if (rounded > SIZE_MAX / 2) {
+      aihc_fail("nursery size is too large");
+    }
+    rounded *= 2;
+  }
+  return rounded;
+}
+
 static void aihc_nursery_acquire(AihcCapability *capability, size_t bytes) {
+  size_t stride = aihc_nursery_size(bytes);
+  size_t regions = aihc_regions_for_bytes(stride);
+  capability->machine->nursery_arena =
+      aihc_regions_acquire_aligned(regions, regions, AIHC_REGION_NURSERY);
+  capability->machine->nursery_stride_bytes = stride;
+  /* The heap limit and collector tests can use a smaller allocation budget.
+     The arena window retains its power-of-two size and alignment. */
   capability->nursery_bytes = bytes;
-  capability->heap_start =
-      aihc_regions_acquire(aihc_regions_for_bytes(bytes), AIHC_REGION_NURSERY);
+  capability->heap_start = capability->machine->nursery_arena;
   capability->heap_next = capability->heap_start;
   capability->heap_alloc_base = capability->heap_start;
   capability->nursery_taken = capability->nursery_block_bytes < bytes
@@ -2738,8 +2756,8 @@ void aihc_nursery_replace(AihcCapability *capability, size_t bytes) {
   if (bytes == 0) {
     aihc_fail("the nursery needs at least one byte");
   }
-  if (capability->heap_start != NULL) {
-    aihc_regions_release(capability->heap_start);
+  if (capability->machine->nursery_arena != NULL) {
+    aihc_regions_release(capability->machine->nursery_arena);
   }
   aihc_nursery_acquire(capability, bytes);
 }
@@ -2799,7 +2817,9 @@ static void aihc_apply_block_option(AihcCapability *capability) {
 void aihc_gc_init(AihcCapability *capability) {
   aihc_apply_block_option(capability);
   uint64_t nursery = aihc_rts_nursery_bytes();
-  aihc_nursery_acquire(capability, nursery == 0 ? AIHC_NURSERY_BYTES : nursery);
+  aihc_nursery_acquire(
+      capability,
+      aihc_nursery_size(nursery == 0 ? AIHC_NURSERY_BYTES : nursery));
   capability->machine->gen1_max_bytes = AIHC_GEN1_MAX_BYTES;
   capability->machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
   capability->machine->gen2_factor = AIHC_GEN2_FACTOR;
@@ -2811,6 +2831,9 @@ void aihc_gc_init(AihcCapability *capability) {
 void aihc_gc_apply_options(AihcCapability *capability) {
   aihc_apply_block_option(capability);
   uint64_t nursery = aihc_rts_nursery_bytes();
+  if (nursery != 0) {
+    nursery = aihc_nursery_size(nursery);
+  }
   if (nursery != 0 && nursery != capability->nursery_bytes &&
       capability->heap_next == capability->heap_start) {
     aihc_nursery_replace(capability, nursery);
