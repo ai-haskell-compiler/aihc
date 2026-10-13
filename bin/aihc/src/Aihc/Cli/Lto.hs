@@ -76,6 +76,8 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       -- those constructors emit no info table. No pass comes after this
       -- point, so no rule can fire. Remove the rules before the prune,
       -- because a rule keeps the values of its right-hand side.
+      -- A merge keeps the scopes of each module, so the scopes that no
+      -- name uses go too.
       let pruned = Fc.pruneProgram [entryName] (Fc.dropRules optimized)
       verbose ("Prune System FC: " <> show (length (Fc.programDecls optimized)) <> " -> " <> show (length (Fc.programDecls pruned)) <> " declarations")
       when (compileLint config) $ do

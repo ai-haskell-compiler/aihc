@@ -46,7 +46,7 @@ expected: |-
 
   import prims
     +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    raise# = 2.vraise# :: ∀(r : tRuntimeRep) (a{1} : sType) (b : tTYPE r). FUN @sLiftedRep @r a{1} b
+    raise# = 2.vraise# :: ∀(a : tRuntimeRep) (b : sType) (c : tTYPE a). FUN @sLiftedRep @a b c
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;

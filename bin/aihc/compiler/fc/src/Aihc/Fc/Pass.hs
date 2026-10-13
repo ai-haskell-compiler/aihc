@@ -20,6 +20,7 @@ where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.CallPattern (CallPatternReport (..), callPatternProgram)
+import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
@@ -246,7 +247,7 @@ runPass primPackage roots pass program =
 runPasses :: PackageId -> Maybe [Name] -> [Pass] -> Program -> (Program, [PassReport])
 runPasses primPackage roots passes program0 =
   let (final, reports) = List.foldl' step (program0, []) passes
-   in (final, reverse reports)
+   in (canonicalForeignCalls final, reverse reports)
   where
     step (program, reports) pass =
       let (program', report) = runPass primPackage roots pass program

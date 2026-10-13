@@ -11,6 +11,7 @@ module Aihc.Fc.Desugar
   )
 where
 
+import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Convert
 import Aihc.Fc.Desugar.Value (desugarValues, prepareValueInterface)
 import Aihc.Fc.Imports (emptyImports, importsForProgramLookup, pruneImports)
@@ -262,7 +263,7 @@ desugarFromInterface config moduleBindings interface checked = do
   -- Normalization drops a binding nothing uses, and with it the last use of
   -- an import, so the imports are pruned after it.
   let normalized = pruneImports (normalizeProgram (primPackageId config) (Program imports decls))
-  pure (tidyProgramWithTidiedImports normalized)
+  pure (canonicalForeignCalls (tidyProgramWithTidiedImports normalized))
 
 headerIndex :: ConvertEnv -> TcInterface -> Map.Map Name HeaderSource
 headerIndex convertEnv interface =

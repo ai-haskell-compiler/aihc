@@ -34,7 +34,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    unsafeCoerce# = 2.vunsafeCoerce# :: ∀(q : tRuntimeRep) (r : tRuntimeRep) (a{1} : tTYPE q) (b{1} : tTYPE r). FUN @q @r a{1} b{1}
+    unsafeCoerce# = 2.vunsafeCoerce# :: ∀(a : tRuntimeRep) (b : tRuntimeRep) (c : tTYPE a) (d : tTYPE b). FUN @a @b c d
 
   import headers
     constructors [3.c$Dict$Coercible] 3.t$Dict$Coercible :: ∀(k : sType) (a : k) (b : k). sType;

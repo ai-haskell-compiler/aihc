@@ -42,7 +42,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    newMutVar# = 2.vnewMutVar# :: ∀(a : sType) (d : sType). a → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# d) (tMutVar# d a))
+    newMutVar# = 2.vnewMutVar# :: ∀(a : sType) (b : sType). a → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# b) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# b) (tMutVar# b a))
 
   import headers
     constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;

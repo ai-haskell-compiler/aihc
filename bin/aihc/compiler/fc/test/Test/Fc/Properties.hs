@@ -31,16 +31,29 @@ fcPropertyTests =
     ]
 
 -- | Two calls of one primitive whose types differ only in the names of
--- their binders print as one import and use the same alias.
+-- their binders. The program round-trips exactly as it is. In the
+-- canonical form, the two types are equal, so they print as one import
+-- and use the same alias, and the program also round-trips exactly.
 prop_primitiveAliasUpToBinders :: Property
 prop_primitiveAliasUpToBinders = property $ do
-  let printed = renderProgram primitiveProgram
+  roundTrips primitiveProgram
+  let program = canonicalForeignCalls primitiveProgram
+      printed = renderProgram program
       importLines = filter (T.isInfixOf "= 1.vraise# ::") (T.lines printed)
   annotate (T.unpack printed)
   length importLines === 1
   T.count "prim raise#" printed === 2
   T.isInfixOf "raise#{1}" printed === False
+  roundTrips program
   where
+    roundTrips original = do
+      let text = renderProgram original
+      annotate (T.unpack text)
+      case parseProgram text of
+        Left parseError -> do
+          annotate (renderParseError parseError)
+          failure
+        Right parsed -> parsed === original
     call variable =
       ForeignCall
         { foreignCallName = valueNameTop "raise#",

@@ -19,8 +19,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    newByteArray# = 2.vnewByteArray# :: ∀(d : sType). FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# d) (tMutableByteArray# d)));
-    readIntArray# = 2.vreadIntArray# :: ∀(d : sType). FUN @sUnliftedRep @sLiftedRep (tMutableByteArray# d) (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# d) tInt#)))
+    newByteArray# = 2.vnewByteArray# :: ∀(a : sType). FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# a) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# a) (tMutableByteArray# a)));
+    readIntArray# = 2.vreadIntArray# :: ∀(a : sType). FUN @sUnliftedRep @sLiftedRep (tMutableByteArray# a) (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# a) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# a) tInt#)))
 
   import headers
     2.tInt# :: tTYPE cIntRep;

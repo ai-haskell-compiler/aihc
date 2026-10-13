@@ -25,7 +25,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    raise# = 2.vraise# :: ∀(r{1} : tRuntimeRep) (a{1} : sType) (b : tTYPE r{1}). FUN @sLiftedRep @r{1} a{1} b
+    raise# = 2.vraise# :: ∀(a : tRuntimeRep) (b : sType) (c : tTYPE a). FUN @sLiftedRep @a b c
 
   import headers
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;

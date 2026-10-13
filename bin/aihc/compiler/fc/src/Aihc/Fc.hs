@@ -17,6 +17,7 @@ module Aihc.Fc
     mergePrograms,
     pruneProgram,
     dropRules,
+    canonicalForeignCalls,
     inlineProgram,
     etaExpandProgram,
     demandProgram,
@@ -52,6 +53,7 @@ where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.Binary (decodeProgram, encodeProgram, programFileName, readProgramFile, writeProgramFile)
+import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)

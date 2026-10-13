@@ -16,7 +16,7 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import prims
-    unsafeCoerce# = 1.vunsafeCoerce# :: ∀(q : tRuntimeRep) (r : tRuntimeRep) (a{1} : tTYPE q) (b{1} : tTYPE r). FUN @q @r a{1} b{1}
+    unsafeCoerce# = 1.vunsafeCoerce# :: ∀(a : tRuntimeRep) (b : tRuntimeRep) (c : tTYPE a) (d : tTYPE b). FUN @a @b c d
 
   import headers
     constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
