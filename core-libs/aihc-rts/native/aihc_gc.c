@@ -696,8 +696,8 @@ static uint8_t *aihc_gen2_allocate(AihcMachine *machine, size_t bytes) {
 
 /* Set the mark of a gen2 object in the active cycle. Returns whether the
    object was unmarked. */
-static int aihc_gen2_set_mark(AihcMachine *machine, AihcValue *object) {
-  AihcSegment *segment = aihc_segment_of(object);
+static int aihc_gen2_set_mark(AihcMachine *machine, AihcValue *object,
+                              AihcSegment *segment) {
   if (segment->epoch != machine->gen2_epoch) {
     memset(segment->bitmap, 0, sizeof(segment->bitmap));
     segment->epoch = machine->gen2_epoch;
@@ -714,7 +714,7 @@ static int aihc_gen2_set_mark(AihcMachine *machine, AihcValue *object) {
 /* Mark one gen2 object a full collection reaches and queue it for the
    scan of the copy phase, which copies its young referents. */
 static void aihc_mark_gen2(AihcMachine *machine, AihcValue *object) {
-  if (aihc_gen2_set_mark(machine, object)) {
+  if (aihc_gen2_set_mark(machine, object, aihc_segment_of(object))) {
     aihc_value_worklist_push(&aihc_gen2_worklist, object);
   }
 }
@@ -2060,9 +2060,10 @@ static void aihc_mark_old(AihcMachine *machine, AihcValue *value) {
   if (value == NULL || aihc_in_nursery(machine, value)) {
     return;
   }
-  switch (aihc_region_kind(value)) {
+  AihcRegionLocation location = aihc_region_location(value);
+  switch (location.kind) {
   case AIHC_REGION_GEN2:
-    if (aihc_gen2_set_mark(machine, value)) {
+    if (aihc_gen2_set_mark(machine, value, location.base)) {
       aihc_mark_push(value, 0);
     }
     return;
@@ -2103,11 +2104,35 @@ static AihcSlot aihc_mark_slot(AihcSlot slot, void *opaque_machine) {
   return slot;
 }
 
+/* Mark ordinary fields directly. Keep the static references and pointer
+   map checks that the general visitors use. */
+static int aihc_mark_plain_object(AihcMachine *machine, AihcValue *object) {
+  AihcObjectKind kind = aihc_value_kind(object);
+  if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+      kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
+    const AihcInfo *info = aihc_value_info_table(object);
+    aihc_walk_srt(info->srt);
+    const uint8_t *pointers = info->field_is_pointer;
+    if (pointers != NULL) {
+      for (uint64_t index = 0; index < info->field_count; ++index) {
+        if (pointers[index]) {
+          aihc_mark_old(machine, (AihcValue *)(uintptr_t)object->fields[index]);
+        }
+      }
+    }
+    return 1;
+  }
+  return 0;
+}
+
 /* Scan one object from the mark stack: mark its old referents. A boxed
    array is scanned in pieces, so no step depends on its size. Returns the
    bytes the step scanned. */
 static uint64_t aihc_mark_scan(AihcMachine *machine, AihcValue *object,
                                uint64_t start) {
+  if (aihc_mark_plain_object(machine, object)) {
+    return sizeof(AihcSlot) * aihc_gc_words(object);
+  }
   if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
     return sizeof(AihcSlot) * aihc_value_words(object);
   }
@@ -2233,7 +2258,8 @@ static void aihc_shade_fields(AihcMachine *machine, AihcValue *object) {
   if (!aihc_marks_object(object)) {
     return;
   }
-  if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
+  if (aihc_mark_plain_object(machine, object) ||
+      aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
     return;
   }
   /* A thunk update deletes the code of the thunk as well. The code reaches
@@ -2276,7 +2302,8 @@ static AihcSlot aihc_snapshot_root(AihcSlot slot, void *opaque_machine) {
 /* Scan one young object at the snapshot: its old referents and the static
    objects its code reaches. */
 static void aihc_mark_young_object(AihcMachine *machine, AihcValue *object) {
-  if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
+  if (aihc_mark_plain_object(machine, object) ||
+      aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
     return;
   }
   aihc_walk_srt(aihc_value_info_table(object)->srt);
