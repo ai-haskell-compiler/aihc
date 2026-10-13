@@ -18,9 +18,9 @@ data @aihc_prompt_tag_info align 8 = {
   i8 @AIHC_NEEDS_EVAL_NONE
 }
 
-export func @aihc_prompt_tag_new(%machine: ptr) -> ptr cc c {
+export func @aihc_prompt_tag_new(%capability: ptr) -> ptr cc c {
 entry:
-  %tag = call @aihc_gc_allocate(%machine, 1)
+  %tag = call @aihc_gc_allocate(%capability, 1)
   %header = ptr.to_int @aihc_prompt_tag_info
   store i64 %header, [%tag] align 8
   return %tag

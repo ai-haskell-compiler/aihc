@@ -7,7 +7,7 @@
    that report with a model of the same script.
 
    The driver plays the part of compiled code. It keeps the stack pointer of
-   the running thread in the machine, pushes and enters frames as the
+   the running thread in the capability, pushes and enters frames as the
    continue helpers of the Lir runtime do, and gives each resumption the
    scheduler returns to the thread it names. Every blocking operation goes
    through the C runtime, so waiters, the run queue, and the blackhole table
@@ -22,25 +22,19 @@
 
    Script commands, one for each line:
 
-     machine G R S [L]    new machine with G globals, R root slots, a nursery
-                          of S bytes, and a mark slice of L bytes
-     srt I O C e...       reference table I names O static objects and C
-                          child tables
-     current_srt I|-1     pass table I as the running function's table to
-                          every later collection
-     ssrt K I|-1          give static object K the table I
-     fill K               allocate garbage until K words remain
-     reserve W            reserve W words; this can collect
-     new ID KIND BITS S   new object with kind node, closure, thunk, or
-                          partial, pointer bitmap BITS, and table S or -1
-     array ID N S         new array with N elements and table S or -1
-     mvar ID              new empty MVar
-     set ID I V           write value V to field or element I
-     supdate K V          turn static thunk K into an indirection to V
-     sset K I V           write value V to field I of static node K
-     global I V           write value V to global I
-     root I V             write value V to root slot I
-     stable ID            make a stable name for object ID
+     capability G R S [L]    new capability with G globals, R root slots, a
+   nursery of S bytes, and a mark slice of L bytes srt I O C e... reference
+   table I names O static objects and C child tables current_srt I|-1     pass
+   table I as the running function's table to every later collection ssrt K I|-1
+   give static object K the table I fill K               allocate garbage until
+   K words remain reserve W            reserve W words; this can collect new ID
+   KIND BITS S   new object with kind node, closure, thunk, or partial, pointer
+   bitmap BITS, and table S or -1 array ID N S         new array with N elements
+   and table S or -1 mvar ID              new empty MVar set ID I V write value
+   V to field or element I supdate K V          turn static thunk K into an
+   indirection to V sset K I V           write value V to field I of static node
+   K global I V           write value V to global I root I V             write
+   value V to root slot I stable ID            make a stable name for object ID
      push F normal BITS S v...   push a frame with pointer bitmap BITS for
                           the fields after the parent, table S, and values
      push F forward BITS S v...  the same for a frame without an entry
@@ -164,7 +158,7 @@ static StaticThunk static_thunks[STATIC_THUNKS];
 static StaticNode static_nodes[STATIC_NODES];
 static StaticNullary static_nullary[STATIC_NULLARY];
 
-static AihcMachine *machine;
+static AihcCapability *capability;
 static Entry *entries;
 static size_t entry_capacity;
 static Frame *frames;
@@ -492,15 +486,17 @@ static AihcValue *parse_object(const char *token) {
    reservation can then pass it, so the limit can be below the allocation
    pointer. */
 static size_t remaining_words(void) {
-  if (machine->heap_next >= machine->heap_limit) {
+  if (capability->heap_next >= capability->heap_limit) {
     return 0;
   }
-  return (size_t)(machine->heap_limit - machine->heap_next) / sizeof(AihcSlot);
+  return (size_t)(capability->heap_limit - capability->heap_next) /
+         sizeof(AihcSlot);
 }
 
 /* Take the words a runtime call allocated from the reservation. */
 static void consume_reservation(const uint8_t *before) {
-  uint64_t words = (uint64_t)(machine->heap_next - before) / sizeof(AihcSlot);
+  uint64_t words =
+      (uint64_t)(capability->heap_next - before) / sizeof(AihcSlot);
   if (words > reserved_words) {
     fail("runtime allocation exceeds its reservation");
   }
@@ -848,12 +844,12 @@ static void report_stack(AihcStack *stack) {
   AihcThread *thread = stack->thread;
   uint64_t identity = thread_identity(thread);
   const AihcValue *top = NULL;
-  if (thread == machine->current_thread) {
+  if (thread == capability->current_thread) {
     Entry *entry = entry_of(identity);
     if (entry->top != 0) {
       top = frame_of(entry->top)->address;
     }
-    if (top == NULL && machine->stack_next != aihc_stack_base(stack)) {
+    if (top == NULL && capability->stack_next != aihc_stack_base(stack)) {
       violation("the running stack holds no frame but is not empty");
     }
   } else {
@@ -890,11 +886,12 @@ static void report_stack(AihcStack *stack) {
 }
 
 static void report_collection(void) {
-  unsigned collected = (unsigned)machine->gc_last_generation;
-  int finished = machine->gc_full_count != reported_full_count;
-  int started = machine->gen2_cycle_active != 0 && reported_cycle_active == 0;
-  reported_full_count = machine->gc_full_count;
-  reported_cycle_active = machine->gen2_cycle_active;
+  unsigned collected = (unsigned)capability->machine->gc_last_generation;
+  int finished = capability->machine->gc_full_count != reported_full_count;
+  int started =
+      capability->machine->gen2_cycle_active != 0 && reported_cycle_active == 0;
+  reported_full_count = capability->machine->gc_full_count;
+  reported_cycle_active = capability->machine->gen2_cycle_active;
   printf("collection %zu %u\n", command_index, collected);
   /* A gen2 cycle that started in this command took its snapshot at the end
      of the collection. A cycle that ended freed the gen2 objects that were
@@ -907,7 +904,7 @@ static void report_collection(void) {
   }
 
   object_start_count = 0;
-  aihc_gc_walk_objects(machine, record_object, NULL);
+  aihc_gc_walk_objects(capability, record_object, NULL);
   if (object_start_count != 0) {
     qsort(object_starts, object_start_count, sizeof(*object_starts),
           compare_object_addresses);
@@ -943,24 +940,25 @@ static void report_collection(void) {
       drop_frames_of(index);
     }
   }
-  if (machine->current_thread != NULL) {
-    running = thread_identity(machine->current_thread);
+  if (capability->current_thread != NULL) {
+    running = thread_identity(capability->current_thread);
   }
   printf("running");
-  print_pointer((AihcSlot)(uintptr_t)machine->current_thread);
+  print_pointer((AihcSlot)(uintptr_t)capability->current_thread);
   printf("\nqueue");
-  for (const AihcThread *thread = machine->run_queue_head; thread != NULL;
+  for (const AihcThread *thread = capability->run_queue_head; thread != NULL;
        thread = thread->next) {
     print_pointer((AihcSlot)(uintptr_t)thread);
   }
   printf("\n");
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
     report_stack(stack);
   }
 
-  for (uint64_t index = 0; index < machine->global_count; ++index) {
+  for (uint64_t index = 0; index < capability->machine->global_count; ++index) {
     printf("global %" PRIu64, index);
-    print_pointer(machine->globals[index]);
+    print_pointer(capability->machine->globals[index]);
     printf("\n");
   }
   for (uint64_t index = 0; index < root_count; ++index) {
@@ -978,7 +976,7 @@ static void report_collection(void) {
     print_pointer((AihcSlot)(uintptr_t)name->value);
     printf("\n");
   }
-  const AihcBlackholeTable *table = machine->blackholes;
+  const AihcBlackholeTable *table = capability->machine->blackholes;
   if (table != NULL) {
     for (size_t index = 0; index < table->capacity; ++index) {
       const AihcBlackholeEntry *entry = &table->entries[index];
@@ -1060,12 +1058,12 @@ static void scatter_roots(AihcSlot *roots, size_t total) {
 /* Reserve words through the collector's own entry point and report a
    collection when one ran. */
 static void ensure(uint64_t words) {
-  uint64_t before = machine->gc_count;
+  uint64_t before = capability->machine->gc_count;
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
-  aihc_ensure_heap(machine, words, total, roots, current_srt);
+  aihc_ensure_heap(capability, words, total, roots, current_srt);
   scatter_roots(roots, total);
-  if (machine->gc_count != before) {
+  if (capability->machine->gc_count != before) {
     report_collection();
   }
 }
@@ -1074,7 +1072,7 @@ static void ensure(uint64_t words) {
 static void collect_generation(unsigned generation) {
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
-  aihc_gc_collect_generation(machine, generation, total, roots, current_srt);
+  aihc_gc_collect_generation(capability, generation, total, roots, current_srt);
   scatter_roots(roots, total);
   report_collection();
 }
@@ -1083,7 +1081,7 @@ static void collect_generation(unsigned generation) {
 static void start_cycle(void) {
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
-  aihc_gc_start_cycle(machine, total, roots, current_srt);
+  aihc_gc_start_cycle(capability, total, roots, current_srt);
   scatter_roots(roots, total);
   report_collection();
 }
@@ -1123,26 +1121,26 @@ static void command_machine(char **tokens, size_t count) {
   if (space_bytes == 0 || space_bytes % sizeof(AihcSlot) != 0) {
     fail("initial space must be a positive number of words");
   }
-  if (machine != NULL) {
-    free(machine->globals);
+  if (capability != NULL) {
+    free(capability->machine->globals);
     for (uint64_t index = 0; index < 3; ++index) {
       aihc_rts_set_root(index, NULL);
     }
-    /* Give the heap and every stack back. A machine without a nursery
+    /* Give the heap and every stack back. A capability without a nursery
        starts from zero when it is initialized again, so the next script
        gets a fresh one. */
-    while (machine->stacks != NULL) {
-      aihc_stack_release(machine, machine->stacks);
+    while (capability->machine->stacks != NULL) {
+      aihc_stack_release(capability, capability->machine->stacks);
     }
-    if (machine->blackholes != NULL) {
-      free(machine->blackholes->entries);
-      free(machine->blackholes->spare);
-      free(machine->blackholes);
-      machine->blackholes = NULL;
+    if (capability->machine->blackholes != NULL) {
+      free(capability->machine->blackholes->entries);
+      free(capability->machine->blackholes->spare);
+      free(capability->machine->blackholes);
+      capability->machine->blackholes = NULL;
     }
-    aihc_heap_reset(machine, 1);
-    aihc_regions_release(machine->heap_start);
-    machine->heap_start = NULL;
+    aihc_heap_reset(capability, 1);
+    aihc_regions_release(capability->heap_start);
+    capability->heap_start = NULL;
   }
   free_entries();
   free_srts();
@@ -1158,37 +1156,38 @@ static void command_machine(char **tokens, size_t count) {
   for (uint64_t index = 0; index < 3; ++index) {
     aihc_rts_set_root(index, NULL);
   }
-  machine = aihc_machine_new(0);
-  machine->global_count = global_count;
-  machine->globals = checked_calloc(global_count, sizeof(AihcSlot));
+  capability = aihc_machine_new(0);
+  capability->machine->global_count = global_count;
+  capability->machine->globals = checked_calloc(global_count, sizeof(AihcSlot));
   /* Keep the initial thread when the script replaces the default space. */
-  AihcThread initial_thread = *machine->current_thread;
+  AihcThread initial_thread = *capability->current_thread;
   if (space_bytes > SIZE_MAX - sizeof(initial_thread)) {
     fail("initial space is too large");
   }
   space_bytes += sizeof(initial_thread);
   /* The script drives every collection above the nursery itself, so the
      policy never chooses one. */
-  aihc_heap_reset(machine, space_bytes);
+  aihc_heap_reset(capability, space_bytes);
   if (slice_bytes != 0) {
-    machine->mark_slice_floor = slice_bytes;
-    machine->mark_slice_cap = slice_bytes;
+    capability->machine->mark_slice_floor = slice_bytes;
+    capability->machine->mark_slice_cap = slice_bytes;
   }
   reported_cycle_active = 0;
-  machine->gen1_max_bytes = UINT64_MAX;
-  machine->gen2_limit_bytes = UINT64_MAX;
-  memset(machine->heap_start, 0, space_bytes);
-  machine->heap_next = machine->heap_start + sizeof(initial_thread);
-  machine->heap_alloc_base = machine->heap_next;
-  machine->current_thread = (AihcThread *)machine->heap_start;
-  *machine->current_thread = initial_thread;
+  capability->machine->gen1_max_bytes = UINT64_MAX;
+  capability->machine->gen2_limit_bytes = UINT64_MAX;
+  memset(capability->heap_start, 0, space_bytes);
+  capability->heap_next = capability->heap_start + sizeof(initial_thread);
+  capability->heap_alloc_base = capability->heap_next;
+  capability->current_thread = (AihcThread *)capability->heap_start;
+  *capability->current_thread = initial_thread;
   /* The stack of the initial thread names the thread by its new address. */
-  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
-    stack->thread = machine->current_thread;
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
+    stack->thread = capability->current_thread;
   }
-  adopt_thread(machine->current_thread, INITIAL_THREAD);
+  adopt_thread(capability->current_thread, INITIAL_THREAD);
   running = INITIAL_THREAD;
-  reported_full_count = machine->gc_full_count;
+  reported_full_count = capability->machine->gc_full_count;
   root_count = slot_count;
   root_slots = checked_calloc(slot_count, sizeof(*root_slots));
 }
@@ -1321,7 +1320,7 @@ static void command_new(char **tokens, size_t count) {
     fail("block exceeds its reservation");
   }
   reserved_words -= words;
-  AihcValue *object = aihc_gc_allocate(machine, words);
+  AihcValue *object = aihc_gc_allocate(capability, words);
   object->header = (AihcSlot)(uintptr_t)info;
   for (uint64_t index = 0; index + 1 < words; ++index) {
     object->fields[index] = 0;
@@ -1365,7 +1364,7 @@ static void command_array(char **tokens, size_t count) {
     }
     reserved_words -= words;
   }
-  AihcValue *object = aihc_gc_allocate(machine, words);
+  AihcValue *object = aihc_gc_allocate(capability, words);
   object->header = (AihcSlot)(uintptr_t)info;
   object->fields[0] = length;
   for (uint64_t index = 0; index < length; ++index) {
@@ -1390,8 +1389,8 @@ static void command_mvar(char **tokens, size_t count) {
   if (entry->defined) {
     fail("object is already defined");
   }
-  const uint8_t *before = machine->heap_next;
-  AihcMVar *mvar = aihc_mvar_new(machine);
+  const uint8_t *before = capability->heap_next;
+  AihcMVar *mvar = aihc_mvar_new(capability);
   consume_reservation(before);
   AihcInfo *info = checked_calloc(1, sizeof(*info));
   info->identity = identity;
@@ -1442,11 +1441,11 @@ static void command_set(char **tokens, size_t count) {
      object, so the driver does the same for its direct stores. A store into
      an array gives the index, as the compiled array stores do. */
   if (entry->info->object_kind == AIHC_OBJECT_ARRAY) {
-    aihc_write_barrier_at(machine, entry->address, index);
+    aihc_write_barrier_at(capability, entry->address, index);
     aihc_array_elements(entry->address)[index] = value;
     return;
   }
-  aihc_write_barrier(machine, entry->address);
+  aihc_write_barrier(capability, entry->address);
   entry_fields(entry)[index] = value;
   if (is_word) {
     entry->shadow[index] = value;
@@ -1482,7 +1481,7 @@ static void command_fill(char **tokens, size_t count) {
     info->field_count = piece - 1;
     info->frame_kind = AIHC_FRAME_NONE;
     info->object_kind = AIHC_OBJECT_NODE;
-    AihcValue *object = aihc_gc_allocate(machine, piece);
+    AihcValue *object = aihc_gc_allocate(capability, piece);
     object->header = (AihcSlot)(uintptr_t)info;
     words -= piece;
   }
@@ -1495,8 +1494,8 @@ static Entry *running_thread(void) {
   if (!entry->defined || !entry->is_thread) {
     fail("the running thread is not defined");
   }
-  if ((AihcThread *)entry->address != machine->current_thread) {
-    fail("the running thread is not the current thread of the machine");
+  if ((AihcThread *)entry->address != capability->current_thread) {
+    fail("the running thread is not the current thread of the capability");
   }
   return entry;
 }
@@ -1625,7 +1624,7 @@ static void command_push(char **tokens, size_t count) {
   }
   uint64_t parent = thread->top;
   AihcValue *parent_address = parent == 0 ? NULL : frame_of(parent)->address;
-  AihcValue *frame = aihc_stack_push(machine, 1 + field_count);
+  AihcValue *frame = aihc_stack_push(capability, 1 + field_count);
   Frame *record = define_frame(identity, frame, kind, field_count, pointers,
                                srt, parent, running);
   frame->header = (AihcSlot)(uintptr_t)record->info;
@@ -1683,12 +1682,12 @@ static Frame *entered_frame(Frame *frame) {
    another chunk. */
 static void set_stack_pointer(Frame *target) {
   AihcValue *address = target->address;
-  uint8_t *next = machine->stack_next;
+  uint8_t *next = capability->stack_next;
   if (next == NULL ||
       (((uintptr_t)next - 1) ^ (uintptr_t)address) >= AIHC_STACK_CHUNK_BYTES) {
-    aihc_stack_enter_chunk(machine, address);
+    aihc_stack_enter_chunk(capability, address);
   }
-  machine->stack_next = (uint8_t *)address;
+  capability->stack_next = (uint8_t *)address;
 }
 
 static void apply_resume(const AihcResume *resume);
@@ -1711,7 +1710,7 @@ static void continue_into(Frame *frame, AihcValue *value, int has_value) {
     uintptr_t identity = aihc_value_info_table(thunk)->identity;
     set_stack_pointer(target);
     pop_to(thread, target->info->identity, 1);
-    aihc_update_blackhole(machine, thunk, value);
+    aihc_update_blackhole(capability, thunk, value);
     if (identity != 0 && identity < entry_capacity) {
       entries[identity].indirection = 1;
     }
@@ -1721,7 +1720,7 @@ static void continue_into(Frame *frame, AihcValue *value, int has_value) {
   pop_to(thread, target->info->identity, 1);
   if (kind == AIHC_FRAME_STOP) {
     uint64_t finished = running;
-    const AihcResume *resume = aihc_thread_done(machine);
+    const AihcResume *resume = aihc_thread_done(capability);
     drop_frames_of(finished);
     apply_resume(resume);
   }
@@ -1744,11 +1743,11 @@ static void command_enter(char **tokens, size_t count) {
 /* Give a resumption to the thread it names, as aihc_lir_resume does. */
 static void apply_resume(const AihcResume *resume) {
   if (resume == NULL) {
-    fail("the scheduler suspended the machine");
+    fail("the scheduler suspended the capability");
   }
   uint64_t slots[5];
-  aihc_lir_take_resume(machine, (AihcResume *)(uintptr_t)resume, slots);
-  running = thread_identity(machine->current_thread);
+  aihc_lir_take_resume(capability, (AihcResume *)(uintptr_t)resume, slots);
+  running = thread_identity(capability->current_thread);
   Entry *thread = running_thread();
   AihcResumeKind kind = slots[0];
   AihcValue *function = (AihcValue *)(uintptr_t)slots[1];
@@ -1775,7 +1774,7 @@ static void apply_resume(const AihcResume *resume) {
     return;
   }
   case AIHC_RESUME_RAISE:
-    apply_resume(aihc_raise(machine, function, continuation));
+    apply_resume(aihc_raise(capability, function, continuation));
     return;
   default:
     fail("invalid resumption");
@@ -1805,11 +1804,11 @@ static void command_fork(char **tokens, size_t count) {
   uint8_t *pointers = checked_calloc(1, 1);
   Frame *record = define_frame(frame_identity, NULL, AIHC_FRAME_STOP, 0,
                                pointers, NULL, 0, identity);
-  machine->thread_done_info = record->info;
-  const uint8_t *before = machine->heap_next;
-  AihcThread *child = (AihcThread *)(uintptr_t)aihc_fork(machine, action);
+  capability->machine->thread_done_info = record->info;
+  const uint8_t *before = capability->heap_next;
+  AihcThread *child = (AihcThread *)(uintptr_t)aihc_fork(capability, action);
   consume_reservation(before);
-  record->address = (AihcValue *)aihc_stack_base(machine->stacks);
+  record->address = (AihcValue *)aihc_stack_base(capability->machine->stacks);
   adopt_thread(child, identity);
   entry_of(identity)->top = frame_identity;
 }
@@ -1820,9 +1819,9 @@ static void command_block(char **tokens, size_t count) {
   }
   AihcValue *continuation = running_continuation();
   AihcValue *thunk = parse_object(tokens[1]);
-  const uint8_t *before = machine->heap_next;
+  const uint8_t *before = capability->heap_next;
   const AihcResume *resume =
-      aihc_block_on_blackhole(machine, thunk, continuation);
+      aihc_block_on_blackhole(capability, thunk, continuation);
   consume_reservation(before);
   apply_resume(resume);
 }
@@ -1833,7 +1832,7 @@ static void run_command(char **tokens, size_t count) {
     command_machine(tokens, count);
     return;
   }
-  if (machine == NULL) {
+  if (capability == NULL) {
     fail("machine must come first");
   }
   if (strcmp(name, "srt") == 0) {
@@ -1872,7 +1871,8 @@ static void run_command(char **tokens, size_t count) {
     if (slot >= STATIC_THUNKS) {
       fail("supdate expects a static thunk");
     }
-    aihc_update((AihcValue *)&static_thunks[slot], parse_object(tokens[2]));
+    aihc_update(capability, (AihcValue *)&static_thunks[slot],
+                parse_object(tokens[2]));
   } else if (strcmp(name, "sset") == 0) {
     if (count != 4) {
       fail("sset expects three arguments");
@@ -1895,7 +1895,7 @@ static void run_command(char **tokens, size_t count) {
     }
     /* A static node is old, so the store has the barrier that compiled
        code puts before a store into an old object. */
-    aihc_write_barrier(machine,
+    aihc_write_barrier(capability,
                        (AihcValue *)&static_nodes[slot - STATIC_THUNKS]);
     static_nodes[slot - STATIC_THUNKS].fields[field] = value;
   } else if (strcmp(name, "ssrt") == 0) {
@@ -1917,10 +1917,10 @@ static void run_command(char **tokens, size_t count) {
       fail("global expects two arguments");
     }
     uint64_t index = parse_unsigned(tokens[1]);
-    if (index >= machine->global_count) {
+    if (index >= capability->machine->global_count) {
       fail("global index out of range");
     }
-    machine->globals[index] = parse_pointer(tokens[2]);
+    capability->machine->globals[index] = parse_pointer(tokens[2]);
   } else if (strcmp(name, "root") == 0) {
     if (count != 3) {
       fail("root expects two arguments");
@@ -1935,8 +1935,8 @@ static void run_command(char **tokens, size_t count) {
       fail("stable expects one argument");
     }
     AihcValue *object = parse_object(tokens[1]);
-    const uint8_t *before = machine->heap_next;
-    AihcStableName *stable = aihc_stable_name_make(machine, object);
+    const uint8_t *before = capability->heap_next;
+    AihcStableName *stable = aihc_stable_name_make(capability, object);
     consume_reservation(before);
     for (size_t index = 0; index < stable_count; ++index) {
       if (stable_names[index] == stable) {
@@ -1967,12 +1967,12 @@ static void run_command(char **tokens, size_t count) {
     }
     AihcValue *continuation = running_continuation();
     AihcValue *exception = parse_object(tokens[1]);
-    apply_resume(aihc_raise(machine, exception, continuation));
+    apply_resume(aihc_raise(capability, exception, continuation));
   } else if (strcmp(name, "yield") == 0) {
     if (count != 1) {
       fail("yield expects no argument");
     }
-    apply_resume(aihc_yield(machine, running_continuation()));
+    apply_resume(aihc_yield(capability, running_continuation()));
   } else if (strcmp(name, "fork") == 0) {
     command_fork(tokens, count);
   } else if (strcmp(name, "block") == 0) {
@@ -1983,10 +1983,10 @@ static void run_command(char **tokens, size_t count) {
     }
     AihcValue *continuation = running_continuation();
     AihcMVar *mvar = parse_mvar(tokens[1]);
-    const uint8_t *before = machine->heap_next;
+    const uint8_t *before = capability->heap_next;
     const AihcResume *resume =
-        name[0] == 't' ? aihc_mvar_take(machine, mvar, continuation)
-                       : aihc_mvar_read(machine, mvar, continuation);
+        name[0] == 't' ? aihc_mvar_take(capability, mvar, continuation)
+                       : aihc_mvar_read(capability, mvar, continuation);
     consume_reservation(before);
     apply_resume(resume);
   } else if (strcmp(name, "put") == 0) {
@@ -1996,9 +1996,9 @@ static void run_command(char **tokens, size_t count) {
     AihcValue *continuation = running_continuation();
     AihcMVar *mvar = parse_mvar(tokens[1]);
     AihcSlot value = parse_pointer(tokens[2]);
-    const uint8_t *before = machine->heap_next;
+    const uint8_t *before = capability->heap_next;
     const AihcResume *resume =
-        aihc_mvar_put(machine, mvar, value, continuation);
+        aihc_mvar_put(capability, mvar, value, continuation);
     consume_reservation(before);
     apply_resume(resume);
   } else if (strcmp(name, "cycle") == 0) {

@@ -9,8 +9,6 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern data @aihc_machine
-
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
   entry:
     %roots_5 = stack.alloc 8 align 8
@@ -21,21 +19,22 @@ expected: |
   cold gc_collect_8:
     %slot_13 = ptr.to_int %$cps_return_4
     store i64 %slot_13, [%roots_5] align 8
-    store ptr %hp_0, [@aihc_machine + 20] align 1 word
-    store ptr %sp_2, [@aihc_machine + 28] align 1 word
-    call @aihc_heap_collect(@aihc_machine, 2, 1, %roots_5, null)
-    %$cps_return$gc_14 = load i64 [%roots_5] align 8
-    %$cps_return$gc_15 = ptr.from_int %$cps_return$gc_14
-    %hp_16 = load ptr [@aihc_machine + 20] align 1 word
-    %hp_limit_17 = load ptr [@aihc_machine + 24] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_15, %hp_16, %hp_limit_17)
+    %capability_14 = load ptr [%sp_limit_3 - 4056] align 1 word
+    store ptr %hp_0, [%capability_14 + 8] align 1 word
+    store ptr %sp_2, [%capability_14 + 16] align 1 word
+    call @aihc_heap_collect(%capability_14, 2, 1, %roots_5, null)
+    %$cps_return$gc_15 = load i64 [%roots_5] align 8
+    %$cps_return$gc_16 = ptr.from_int %$cps_return$gc_15
+    %hp_17 = load ptr [%capability_14 + 8] align 1 word
+    %hp_limit_18 = load ptr [%capability_14 + 12] align 1 word
+    jump gc_reserved_9(%$cps_return$gc_16, %hp_17, %hp_limit_18)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_18 = ptr.add %hp_11, 16
-    %slot_19 = ptr.to_int @aihc_c_aihc_entry_Box_0
-    store i64 %slot_19, [%hp_11] align 8
+    %hp_19 = ptr.add %hp_11, 16
+    %slot_20 = ptr.to_int @aihc_c_aihc_entry_Box_0
+    store i64 %slot_20, [%hp_11] align 8
     store i64 1, [%hp_11 + 8] align 8
-    tailcall @aihc_lir_continue_p(%hp_18, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
+    tailcall @aihc_lir_continue_p(%hp_19, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

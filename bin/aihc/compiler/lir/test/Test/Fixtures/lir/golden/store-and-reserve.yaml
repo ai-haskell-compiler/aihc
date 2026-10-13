@@ -8,8 +8,6 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern data @aihc_machine
-
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
   entry:
     %roots_5 = stack.alloc 8 align 8
@@ -19,19 +17,20 @@ expected: |
 
   cold gc_collect_8:
     store ptr %$cps_return_4, [%roots_5] align 8
-    store ptr %hp_0, [@aihc_machine + 24] align 1 word
-    store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    call @aihc_heap_collect(@aihc_machine, 2, 1, %roots_5, null)
-    %$cps_return$gc_13 = load ptr [%roots_5] align 8
-    %hp_14 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_15 = load ptr [@aihc_machine + 32] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_13, %hp_14, %hp_limit_15)
+    %capability_13 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_0, [%capability_13 + 16] align 1 word
+    store ptr %sp_2, [%capability_13 + 32] align 1 word
+    call @aihc_heap_collect(%capability_13, 2, 1, %roots_5, null)
+    %$cps_return$gc_14 = load ptr [%roots_5] align 8
+    %hp_15 = load ptr [%capability_13 + 16] align 1 word
+    %hp_limit_16 = load ptr [%capability_13 + 24] align 1 word
+    jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_16 = ptr.add %hp_11, 16
+    %hp_17 = ptr.add %hp_11, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8
     store i64 1, [%hp_11 + 8] align 8
-    tailcall @aihc_lir_continue_p(%hp_16, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
+    tailcall @aihc_lir_continue_p(%hp_17, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

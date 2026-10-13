@@ -663,13 +663,14 @@ fixture also passes the linter and the pretty-printer round-trip.
 
 `Aihc.Lir.Lower` produces one Lir module for one GC-GRIN program. Every GRIN
 function becomes a Lir function with the `aihc` convention and no results.
-The first four parameters are the context of the running thread. The other
-parameters are the GRIN parameters in order. No function takes the machine
-as a parameter. A process has one machine, the C object `aihc_machine`, and
-Lir code names it by the symbol `@aihc_machine`. Only the code next to a C
-call that takes the machine uses it, so the machine costs no register. A GRIN value with a pointer representation or an address
-representation becomes `ptr`. Every other GRIN value becomes `i64`, and a
-float travels as its bit pattern like in the native runtime ABI.
+The first four parameters are the context of the thread.
+The other parameters are the GRIN parameters in order.
+The stack chunk header gives the capability pointer before a C runtime call.
+No Haskell function needs a capability parameter or a reserved capability register.
+The capability points to the process-wide `AihcMachine`.
+A GRIN pointer or address becomes `ptr`.
+Every other GRIN value becomes `i64`.
+A float uses its bit pattern, as in the native runtime ABI.
 
 The lowering takes a `LowerTarget`: the word size, host kind, and C stack argument layout. Heap
 objects have 8-byte slots on every target, so a pointer that lives in a slot
@@ -695,28 +696,28 @@ continuation. The shared helpers of the runtime units and the generated
 helpers have the same prefix. Thus the context stays in registers from one
 function to the next.
 
-The machine has the fields `heap_next`, `heap_limit`, and `stack_next`.
+The capability has the fields `heap_next`, `heap_limit`, and `stack_next`.
 They hold a copy of the context only where C code can read it:
 
 - Before a C call that can allocate, collect, or read the stack pointer,
   the code stores `%hp` in `heap_next` and `%sp` in `stack_next`. After the
   call, it loads `%hp` and `%hp_limit` again. Such a call is one that takes
-  the machine, and a foreign call that can enter a callback. A C call
-  without the machine cannot see the context, so it has no store and no
+  the capability, and a foreign call that can enter a callback. A C call
+  without the capability cannot see the context, so it has no store and no
   load. A primitive that the lowering emits inline, such as an arithmetic
-  operation or a comparison, touches neither the machine nor the context.
+  operation or a comparison, touches neither the capability nor the context.
 - Lir code never changes the heap limit, so it never stores `%hp_limit`.
   The runtime computes the chunk of a stack pointer when it needs it, so no
-  machine field holds `%sp_limit`.
+  capability field holds `%sp_limit`.
 - A C call from compiled code never changes the stack pointer of the
   running thread, so the code does not load `%sp` after one. A callback
   that a foreign call enters gives the stack back as it found it.
-- The scheduler can select another thread. `aihc_lir_resume` takes only the
-  resumption, and it loads the context from the machine after the scheduler
+- The scheduler can select another thread. `aihc_lir_resume` takes the
+  capability and the resumption, and it loads the context from the capability after the scheduler
   record is taken. The code before it stores the context before the C call
   that gave the resumption. The exit function takes no parameter, and the
   code that halts stores the context first.
-- Where C code starts Haskell code, it loads the context from the machine:
+- Where C code starts Haskell code, it loads the context from the capability:
   the `main` of the executable, the WASI P3 resumption through
   `aihc_lir_resume`, and a foreign callback. The stop frame of a callback
   stores the context before it returns.

@@ -165,7 +165,7 @@ struct AihcIoHandle {
 
 struct AihcIoRequest {
   AihcSlot header;
-  AihcMachine *machine;
+  AihcCapability *capability;
   AihcIoKind kind;
   AihcIoState state;
   AihcIoHandle *handle;
@@ -189,7 +189,7 @@ struct AihcIoBackend {
   int (*prepare)(AihcIoRequest *request);
   int (*try_request)(AihcIoRequest *request, int64_t *result);
   int64_t (*finish_request)(AihcIoRequest *request, int64_t result);
-  AihcIoPollOutcome (*poll)(AihcMachine *machine, int may_block);
+  AihcIoPollOutcome (*poll)(AihcCapability *capability, int may_block);
 };
 
 typedef AihcSlot (*AihcRootVisitor)(AihcSlot root, void *context);
@@ -198,7 +198,7 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context);
 
 _Noreturn void aihc_fail(const char *message);
-void aihc_record_allocation(AihcMachine *machine);
+void aihc_record_allocation(AihcCapability *capability);
 /* Six fixed slots precede the inline byte payload. */
 typedef struct {
   AihcSlot header;
@@ -263,7 +263,7 @@ _Static_assert(offsetof(AihcByteArray, words) == 40,
 _Static_assert(offsetof(AihcPinnedBlock, object) == 16,
                "pinned allocation metadata size");
 
-AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words);
+AihcValue *aihc_gc_allocate_pinned(AihcCapability *capability, uint64_t words);
 /* Give a block of the pinned list back: a region run to the region table, a
    C allocation to the C allocator. */
 void aihc_pinned_block_release(AihcPinnedBlock *block);
@@ -313,7 +313,7 @@ void *aihc_region_run_base(const void *address);
    occupied slots of gen2, and the large objects. The visitor must not
    allocate. The test drivers use this walk. */
 typedef void (*AihcObjectVisitor)(AihcValue *object, void *context);
-void aihc_gc_walk_objects(AihcMachine *machine, AihcObjectVisitor visitor,
+void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
                           void *context);
 
 /* The host side of the region table. Map count regions at a region
@@ -325,19 +325,19 @@ uint8_t *aihc_host_map_regions(size_t count);
 int aihc_host_unmap_regions(void *base, size_t count);
 
 /* Add an object to the remembered set. */
-void aihc_remember(AihcMachine *machine, AihcValue *object);
+void aihc_remember(AihcCapability *capability, AihcValue *object);
 /* The write barrier of an update. A blackhole is updated once, so its
    remembered-set entry cannot repeat and needs no compaction. */
-void aihc_write_barrier_update(AihcMachine *machine, AihcValue *object);
-/* Replace the nursery of a machine with an empty one of the given bytes.
+void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object);
+/* Replace the nursery of a capability with an empty one of the given bytes.
    The collector fuzz driver uses it to force frequent collections. */
-void aihc_nursery_replace(AihcMachine *machine, size_t bytes);
-/* Empty the heap of a machine: release every block, every pinned block,
-   and the remembered set, and give the machine an empty nursery of the
+void aihc_nursery_replace(AihcCapability *capability, size_t bytes);
+/* Empty the heap of a capability: release every block, every pinned block,
+   and the remembered set, and give the capability an empty nursery of the
    given bytes. The caller holds no pointer into the old heap afterwards. */
-void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes);
+void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes);
 /* Run one collection of the generations up to the given one. */
-void aihc_gc_collect_generation(AihcMachine *machine, unsigned generation,
+void aihc_gc_collect_generation(AihcCapability *capability, unsigned generation,
                                 uint64_t root_count, AihcSlot *roots,
                                 const AihcSrt *srt);
 
@@ -351,11 +351,11 @@ void aihc_gc_collect_generation(AihcMachine *machine, unsigned generation,
    the stack pointer. When the frame does not fit in the rest of the chunk,
    the push continues at the start of the next chunk. Compiled code keeps
    the stack pointer and the stack limit, the end of the chunk of the stack
-   pointer, in registers. machine->stack_next holds a copy of the stack
+   pointer, in registers. capability->stack_next holds a copy of the stack
    pointer only while a runtime function can read it: compiled code stores
    the stack pointer before it calls such a function. A runtime function
    that changes the stack pointer of a thread, such as the scheduler, writes
-   machine->stack_next, and compiled code loads it again. A new chunk
+   capability->stack_next, and compiled code loads it again. A new chunk
    comes from the C allocator and not from the managed heap, so a push never
    collects. But a growth charges the new chunk to the nursery, and a
    reservation after it collects when the charges use the nursery. See
@@ -390,11 +390,15 @@ struct AihcStackChunk {
   uint64_t state;
   uint64_t scanned_cycle;
   /* The number of chunks below this one in its stack. */
-  uint64_t depth;
-  /* One more than the collection count when a stack growth last charged
-     the chunk to the nursery, or zero when no growth charged it. */
-  uint64_t charged_gc;
+  uint32_t depth;
+  /* The low 32 bits of one plus the collection count at the last charge.
+     The collector clears old stamps before the counter repeats. */
+  uint32_t charged_gc;
+  AihcCapability *capability;
 };
+
+_Static_assert(offsetof(AihcStackChunk, capability) == 4 * sizeof(void *) + 24,
+               "stack capability ABI");
 
 _Static_assert(sizeof(AihcStackChunk) <= AIHC_STACK_CHUNK_HEADER_BYTES,
                "stack chunk header exceeds its reserved bytes");
@@ -418,7 +422,7 @@ struct AihcStack {
 };
 
 /* Make the stack of a new thread. */
-AihcStack *aihc_stack_new(AihcMachine *machine, AihcThread *thread);
+AihcStack *aihc_stack_new(AihcCapability *capability, AihcThread *thread);
 /* The address of the first frame of a stack. */
 uint8_t *aihc_stack_base(const AihcStack *stack);
 /* The stack that holds a frame. */
@@ -430,27 +434,28 @@ void aihc_stack_note_top(AihcValue *continuation);
 /* The C runtime reads the fields of a live frame it will pop: an exception
    walk or a continuation capture. The marking of the active gen2 cycle
    scans the frame and the frames below it in its chunk first. */
-void aihc_gc_frame_read(AihcMachine *machine, AihcValue *frame);
+void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame);
 /* Collect the nursery and gen1 and start an incremental gen2 cycle. The
    test drivers use this entry. */
-void aihc_gc_start_cycle(AihcMachine *machine, uint64_t root_count,
+void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
-void aihc_stack_release(AihcMachine *machine, AihcStack *stack);
+void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
 /* Push one frame of the given words on the stack of the running thread.
    The caller writes the header and every field. */
-AihcValue *aihc_stack_push(AihcMachine *machine, uint64_t words);
+AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words);
 /* The slow path of a push: the frame does not fit in the chunk of the
    given stack pointer. Give back the frame at the start of the next chunk,
    AIHC_STACK_CHUNK_HEADER_BYTES after the start of the chunk. Compiled code
    computes the stack limit from this rule. The function does not change
-   machine->stack_next, because compiled code keeps the stack pointer
+   capability->stack_next, because compiled code keeps the stack pointer
    itself. */
-AihcValue *aihc_stack_grow(AihcMachine *machine, uint8_t *stack_next,
+AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
                            uint64_t words);
 /* Set the stack pointer to the first byte after a frame. The frame must be
    the topmost live frame of its stack. */
-void aihc_stack_resume_after(AihcMachine *machine, const AihcValue *frame);
+void aihc_stack_resume_after(AihcCapability *capability,
+                             const AihcValue *frame);
 
 /* A host scope publishes all live C references before a host call can collect.
    Pinned ABI buffers remain roots until the scope ends. */
@@ -461,15 +466,15 @@ typedef struct AihcRootFrame {
   uint64_t count;
   AihcHostBuffer *buffers;
 } AihcRootFrame;
-void aihc_roots_enter(AihcMachine *machine, AihcRootFrame *frame,
+void aihc_roots_enter(AihcCapability *capability, AihcRootFrame *frame,
                       uint64_t count, AihcSlot *roots);
-void aihc_roots_leave(AihcMachine *machine, AihcRootFrame *frame);
-void aihc_visit_host_roots(AihcMachine *machine, AihcRootVisitor visitor,
+void aihc_roots_leave(AihcCapability *capability, AihcRootFrame *frame);
+void aihc_visit_host_roots(AihcCapability *capability, AihcRootVisitor visitor,
                            void *context);
-void *aihc_host_byte_array(AihcMachine *machine, AihcRootFrame *frame,
+void *aihc_host_byte_array(AihcCapability *capability, AihcRootFrame *frame,
                            uint64_t bytes);
 extern const AihcInfo aihc_io_handle_info;
-AihcIoHandle *aihc_io_handle_new(AihcMachine *machine);
+AihcIoHandle *aihc_io_handle_new(AihcCapability *capability);
 /* Five slots hold each handle. Open requests reserve these slots in advance. */
 _Static_assert(sizeof(AihcIoHandle) <= 5 * sizeof(AihcSlot),
                "IO handle exceeds the GRIN reservation");
@@ -481,11 +486,9 @@ void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length);
-/* The machine fields that aihc_stable_name.lir needs. Their offsets in
-   AihcMachine follow the target word size, so a Lir unit reaches them through
-   these accessors instead of by offset. */
-AihcStableName **aihc_stable_names(AihcMachine *machine);
-uint64_t aihc_stable_name_take_hash(AihcMachine *machine);
+/* These accessors reach the stable-name fields of the shared machine. */
+AihcStableName **aihc_stable_names(AihcCapability *capability);
+uint64_t aihc_stable_name_take_hash(AihcCapability *capability);
 /* The RTS options of the process, parsed by aihc_runtime_options.lir from
    the arguments the host passed. */
 uint64_t aihc_rts_heap_max_bytes(void);
@@ -495,11 +498,11 @@ uint64_t aihc_rts_nursery_bytes(void);
 uint64_t aihc_rts_gen1_max_bytes(void);
 uint64_t aihc_rts_gen2_factor(void);
 uint64_t aihc_rts_mark_factor(void);
-/* Apply the parsed collector options to a machine whose nursery is empty. */
-void aihc_gc_apply_options(AihcMachine *machine);
+/* Apply the parsed collector options to a capability whose nursery is empty. */
+void aihc_gc_apply_options(AihcCapability *capability);
 /* Cap the nursery at the -M limit once the limit applies, so a reservation
    above the limit reaches the runtime, which refuses it. */
-void aihc_gc_apply_limit(AihcMachine *machine);
+void aihc_gc_apply_limit(AihcCapability *capability);
 /* The zero-terminated path of the statistics file, or null when the
    environment names none. */
 const char *aihc_rts_stats_path(void);
@@ -515,27 +518,27 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
 const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
                                               uint64_t applied);
 int64_t aihc_io_error(int error);
-void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
+void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
                             int64_t result);
-const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result);
-void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
+const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result);
+void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
 /* The header every runtime object outside the managed heap carries. */
 
-void aihc_gc_init(AihcMachine *machine);
-void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                     AihcSlot *roots, const AihcSrt *srt);
-void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                    AihcSlot *roots, const AihcSrt *srt);
+void aihc_gc_init(AihcCapability *capability);
+void aihc_gc_collect(AihcCapability *capability, uint64_t words,
+                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
+void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
+                    uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 /* Consume reserved memory without collection. The memory is not initialized
    unless DEBUG is defined. Initialize all fields before a call can collect. */
-AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);
+AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words);
 /* Raise heap_peak_bytes to what the current space holds now. */
-void aihc_gc_record_peak(AihcMachine *machine);
+void aihc_gc_record_peak(AihcCapability *capability);
 /* Fold the bytes the mutator has taken since the last account into
    heap_allocated_bytes and move the base up. Idempotent: a second call in a
    row adds nothing. */
-void aihc_heap_account(AihcMachine *machine);
+void aihc_heap_account(AihcCapability *capability);
 
 _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);

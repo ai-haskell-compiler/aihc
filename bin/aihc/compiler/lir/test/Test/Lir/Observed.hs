@@ -67,10 +67,10 @@ lowerObservedProgram target gcStress entryName gcProgram = do
     -- hands them to the snapshot runtime, then returns to main. The
     -- snapshot reads the heap, so the machine gets the context first.
     snapshotContinuation resultTypes = do
-      machine <- machineOperand
       (context, contextParameters) <- freshContext
       values <- forM resultTypes $ \ty -> (,ty) <$> fresh "value"
       beginBlock (Label "entry") []
+      machine <- capabilityOperand context
       storeContext machine context
       buffer <- fresh "buffer"
       emit [buffer] (StackAlloc (toInteger (8 * max 1 (length resultTypes))) (byteAlignment 8))
