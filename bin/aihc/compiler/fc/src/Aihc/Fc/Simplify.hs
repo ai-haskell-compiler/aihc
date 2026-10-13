@@ -153,6 +153,7 @@ simplifyProgram primPackage phase siteLimit program =
             spLocalCandidates = Map.empty,
             spInTemplate = False,
             spFacts = emptyFacts,
+            spEscapes = True,
             spDiverging = diverging
           }
       diverging = divergingValues env (Map.toList bodies)
@@ -461,6 +462,14 @@ data Simpl = Simpl
     -- and remove alternatives that a case on a variable cannot select.
     -- See "Aihc.Fc.Facts".
     spFacts :: !Facts,
+    -- | Whether a lambda at this position can escape, so that its closure
+    -- is allocated and kept. The right-hand side of a recursive binding
+    -- is allocated once for the group, and a lambda directly under
+    -- another lambda is the next parameter of the same function. Such a
+    -- lambda does not read the fields of a known constructor inside it.
+    -- See 'readFieldsInside'. 'simplifyExpr' sets it again for every
+    -- expression that is not a lambda, a type lambda or a cast.
+    spEscapes :: !Bool,
     -- | The top-level values that diverge, with the value arguments that
     -- a call gives before it diverges. A case or a strict let of such a
     -- call is the call. See "Aihc.Fc.Diverge".
@@ -505,7 +514,7 @@ ruleFuel = 1000
 type SimplM = State SimplState
 
 simplifyExpr :: Simpl -> Expr -> SimplM Expr
-simplifyExpr env expr =
+simplifyExpr env0 expr =
   case expr of
     ExVar {} -> simplifyApp env expr []
     ExLit {} -> pure expr
@@ -515,8 +524,10 @@ simplifyExpr env expr =
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
     ExLam binder body -> do
-      body' <- simplifyExpr (markUnlifted [binder] (passLambda (shadowNames [binderName binder] env))) body
-      ExLam binder <$> readFieldsInside env body'
+      body' <- simplifyExpr ((markUnlifted [binder] (passLambda (shadowNames [binderName binder] env))) {spEscapes = not (isLambdaHead body)}) body
+      if spEscapes env
+        then ExLam binder <$> readFieldsInside env body'
+        else pure (ExLam binder body')
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
@@ -562,7 +573,7 @@ simplifyExpr env expr =
           simplifyExpr env (ExCase (ExVar dictionary) Nothing (Alt (AltData con) [] fields expr NE.:| []))
     ExRec binds body -> do
       let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
-      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv inner (binderName (bindBinder bind))) (bindRhs bind)) binds
+      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr ((rhsEnv inner (binderName (bindBinder bind))) {spEscapes = False}) (bindRhs bind)) binds
       simplifyExpr inner body >>= sinkGroup binds' ExRec
     ExCase scrutinee binder alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
@@ -597,6 +608,21 @@ simplifyExpr env expr =
         Nothing -> do
           let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
           pure (fromMaybe call' (decidedComparison env call' <|> (ExVar <$> Map.lookup call' (spCse env))))
+  where
+    -- Only a lambda, or the type lambdas and casts around it, keep the
+    -- position that 'spEscapes' gives.
+    env
+      | isLambdaHead expr = env0
+      | otherwise = env0 {spEscapes = True}
+
+-- | Whether an expression is a lambda under type lambdas and casts.
+isLambdaHead :: Expr -> Bool
+isLambdaHead expr =
+  case expr of
+    ExLam {} -> True
+    ExTyLam _ body -> isLambdaHead body
+    ExCast body _ -> isLambdaHead body
+    _ -> False
 
 -- | Read the fields of a known constructor inside a lambda that uses both
 -- the constructor and its fields: @λx. f b v@ where @b@ is @K v@ is
