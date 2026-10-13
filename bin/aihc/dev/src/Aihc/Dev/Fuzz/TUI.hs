@@ -153,6 +153,7 @@ formatCount value
   | value < 1000 = show value
   | otherwise = scale (fromIntegral value :: Double) ["K", "M", "G", "T", "P", "E"]
   where
+    scale :: Double -> [String] -> String
     scale number (suffix : rest)
       | number >= 999950 && not (null rest) = scale (number / 1000) rest
       | otherwise = printf "%.1f%s" (number / 1000) suffix
