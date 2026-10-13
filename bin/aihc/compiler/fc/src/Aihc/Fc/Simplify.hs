@@ -3238,6 +3238,24 @@ mkLet env bind body
   | lifted,
     isConstructorOfTrivials rhs =
       pure (fst (sinkGroupWith EveryAlternative (exprValueNames rhs) [bind] (ExLet bind) body))
+  -- A shared case can move into separate branches that need its result.
+  -- Each path evaluates it at most once. Simplification can then remove
+  -- the thunk and its result box. The growth budget limits code copies.
+  | lifted,
+    not (spSpeculative env),
+    ExCase {} <- rhs,
+    snd (sinkGroupWith EveryAlternative (exprFreeNames rhs) [bind] (ExLet bind) body) = do
+      before <- get
+      copy <- freshenExpr rhs
+      let copiedBind = bind {bindRhs = copy}
+          moved = fst (sinkGroupWith EveryAlternative (exprValueNames copy) [copiedBind] (ExLet copiedBind) body)
+      result <- simplifyExpr env {spSpeculative = True} moved
+      accepted <- acceptGrowth env (exprSize (spEnv env) result - exprSize (spEnv env) (ExLet bind body))
+      if accepted
+        then pure result
+        else do
+          restoreSite before
+          sinkGroup [bind] (flip (foldr ExLet)) body
   -- Any other lifted binding moves into the one alternative that uses
   -- it. A path that does not use it then allocates nothing for it.
   | lifted = sinkGroup [bind] (flip (foldr ExLet)) body
@@ -3265,9 +3283,8 @@ isConstructorOfTrivials expr =
 -- | Which alternatives of a case a moved group may enter.
 data SinkMode
   = -- | Each alternative that uses the group gets a copy, when a path
-    -- through the case does not use it. Only a constructor of trivial
-    -- arguments moves this way: a copy of it is small, and each path
-    -- still allocates it at most once.
+    -- through the case does not use it. Each path still allocates it
+    -- at most once. A nontrivial copy must pass the growth budget.
     EveryAlternative
   | -- | The group enters a case only when exactly one alternative uses
     -- it. The move copies nothing, so it suits a function or a thunk of
