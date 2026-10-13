@@ -37,7 +37,7 @@ heap: |
   @0 = CResult 2001000 @1
   @1 = CTotal 4501500
 allocated-bytes:
-  macos-arm64: 144
-  linux-amd64: 144
+  macos-arm64: 160
+  linux-amd64: 160
 status: pass
 reason: The main thread and a forked thread each have more than one stack chunk live, and each yields at the bottom of its recursion, so the scheduler switches between the two stacks. The main thread then blocks on the thunk that the child is evaluating, and resumes when the child updates it and finishes.

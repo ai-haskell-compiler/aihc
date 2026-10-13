@@ -72,6 +72,7 @@ module Aihc.Fc.Simplify
 where
 
 import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, topLevelSignatures)
+import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, floatBottoms)
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
@@ -84,7 +85,7 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
-import Aihc.Fc.Wired (wiredGhcTypes)
+import Aihc.Fc.Wired (liftedRepName, wiredGhcTypes)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -96,7 +97,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -151,8 +152,11 @@ simplifyProgram primPackage phase siteLimit program =
             spCaseContext = Nothing,
             spLocalCandidates = Map.empty,
             spInTemplate = False,
-            spFacts = emptyFacts
+            spFacts = emptyFacts,
+            spEscapes = True,
+            spDiverging = diverging
           }
+      diverging = divergingValues env (Map.toList bodies)
       escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
       callArities = topCallArities escaping (Map.elems bodies)
       simplifyDecl decl =
@@ -162,7 +166,7 @@ simplifyProgram primPackage phase siteLimit program =
              in (\body -> DeclVal declaration {valBody = body}) <$> (simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration) >>= shareAlternatives env)
           _ -> pure decl
       (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
-      result = tidyProgram (pruneImports program {programDecls = decls})
+      result = tidyProgram (pruneImports (floatBottoms env diverging program {programDecls = decls}))
    in (result, SimplifyReport size0 (programSize primPackage result) (ssRulesFired final))
   where
     size0 = programSize primPackage program
@@ -457,7 +461,19 @@ data Simpl = Simpl
     -- simplification. They decide a later comparison of the same operands
     -- and remove alternatives that a case on a variable cannot select.
     -- See "Aihc.Fc.Facts".
-    spFacts :: !Facts
+    spFacts :: !Facts,
+    -- | Whether a lambda at this position can escape, so that its closure
+    -- is allocated and kept. The right-hand side of a recursive binding
+    -- is allocated once for the group, and a lambda directly under
+    -- another lambda is the next parameter of the same function. Such a
+    -- lambda does not read the fields of a known constructor inside it.
+    -- See 'readFieldsInside'. 'simplifyExpr' sets it again for every
+    -- expression that is not a lambda, a type lambda or a cast.
+    spEscapes :: !Bool,
+    -- | The top-level values that diverge, with the value arguments that
+    -- a call gives before it diverges. A case or a strict let of such a
+    -- call is the call. See "Aihc.Fc.Diverge".
+    spDiverging :: !Diverging
   }
 
 data SimplState = SimplState
@@ -498,7 +514,7 @@ ruleFuel = 1000
 type SimplM = State SimplState
 
 simplifyExpr :: Simpl -> Expr -> SimplM Expr
-simplifyExpr env expr =
+simplifyExpr env0 expr =
   case expr of
     ExVar {} -> simplifyApp env expr []
     ExLit {} -> pure expr
@@ -508,8 +524,10 @@ simplifyExpr env expr =
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
     ExLam binder body -> do
-      body' <- simplifyExpr (markUnlifted [binder] (passLambda (shadowNames [binderName binder] env))) body
-      ExLam binder <$> readFieldsInside env body'
+      body' <- simplifyExpr ((markUnlifted [binder] (passLambda (shadowNames [binderName binder] env))) {spEscapes = not (isLambdaHead body)}) body
+      if spEscapes env
+        then ExLam binder <$> readFieldsInside env body'
+        else pure (ExLam binder body')
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
@@ -555,7 +573,7 @@ simplifyExpr env expr =
           simplifyExpr env (ExCase (ExVar dictionary) Nothing (Alt (AltData con) [] fields expr NE.:| []))
     ExRec binds body -> do
       let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
-      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv inner (binderName (bindBinder bind))) (bindRhs bind)) binds
+      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr ((rhsEnv inner (binderName (bindBinder bind))) {spEscapes = False}) (bindRhs bind)) binds
       simplifyExpr inner body >>= sinkGroup binds' ExRec
     ExCase scrutinee binder alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
@@ -590,6 +608,21 @@ simplifyExpr env expr =
         Nothing -> do
           let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
           pure (fromMaybe call' (decidedComparison env call' <|> (ExVar <$> Map.lookup call' (spCse env))))
+  where
+    -- Only a lambda, or the type lambdas and casts around it, keep the
+    -- position that 'spEscapes' gives.
+    env
+      | isLambdaHead expr = env0
+      | otherwise = env0 {spEscapes = True}
+
+-- | Whether an expression is a lambda under type lambdas and casts.
+isLambdaHead :: Expr -> Bool
+isLambdaHead expr =
+  case expr of
+    ExLam {} -> True
+    ExTyLam _ body -> isLambdaHead body
+    ExCast body _ -> isLambdaHead body
+    _ -> False
 
 -- | Read the fields of a known constructor inside a lambda that uses both
 -- the constructor and its fields: @λx. f b v@ where @b@ is @K v@ is
@@ -814,6 +847,10 @@ tailType env expr =
 -- inner case when the scrutinee is a case, or in place otherwise.
 simplifyCase :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
 simplifyCase env scrutinee binder originalAlternatives
+  -- The alternatives never run after a scrutinee that diverges.
+  | diverges (spEnv env) (spDiverging env) scrutinee,
+    Just resultType <- caseResultType (spEnv env) binder originalAlternatives =
+      pure (bottomAt (spEnv env) (spDiverging env) scrutinee resultType)
   -- A variable whose value the comparisons around the case fix is that
   -- literal: the case selects its alternative.
   | ExVar name <- scrutinee,
@@ -1038,6 +1075,161 @@ shareFieldAlternatives types scrutinee binder alternatives
             || position `elem` Map.findWithDefault [] con (teConStrictFields types)
         _ -> False
 
+-- | Share the right-hand side of alternatives that are the same up to the
+-- fields that they use through a join point: a local function that each
+-- alternative calls in tail position with its fields.
+--
+-- > case h of { FileHandle path _ -> a[path]; DuplexHandle path _ _ -> a[path]; … }
+--
+-- is
+--
+-- > let _join = λpath. a[path] in case h of { FileHandle path _ -> _join path; DuplexHandle path _ _ -> _join path; … }
+--
+-- GRIN compiles a saturated call of a local function as a direct call,
+-- and it allocates no closure for a function that only such calls use.
+-- This form applies where 'shareFieldAlternatives' does not: next to a
+-- default alternative, for literal alternatives, and for lazy fields.
+--
+-- The join point takes the case binder when the code uses it. A join
+-- point that takes nothing else takes the case binder, so that it is a
+-- function and not a thunk. A case with no binder then needs a variable
+-- as its scrutinee.
+joinEqualAlternatives :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM (Maybe Expr)
+joinEqualAlternatives types scrutinee binder alternatives
+  | length alternatives > mergeAlternativeLimit = pure Nothing
+  | otherwise =
+      case listToMaybe [group | leader <- NE.toList alternatives, Just group <- [joinGroup leader]] of
+        Nothing -> pure Nothing
+        Just (leader, members, used) -> do
+          let fieldBinders = filter ((`elem` used) . binderName) (altBinders leader)
+              usesBinder = not (all ((`unused` altRhs leader) . binderName) binder)
+              extra = case (binder, scrutinee) of
+                (Just named, _)
+                  | usesBinder || null fieldBinders -> Just (Just (named, ExVar (binderName named)))
+                  | otherwise -> Just Nothing
+                (Nothing, ExVar name)
+                  | null fieldBinders -> (\ty -> Just (Binder name ty, scrutinee)) <$> exprType types scrutinee
+                  | otherwise -> Just Nothing
+                _
+                  | null fieldBinders -> Nothing
+                  | otherwise -> Just Nothing
+          case (extra, caseResultType types binder alternatives) of
+            (Just extraParameter, Just resultType) -> do
+              joinName <- freshLocal (Name "_join" SortValue (OriginLocal (Unique 0)))
+              extraBinder <- case extraParameter of
+                Just (named, _) | not usesBinder -> (\name -> Just named {binderName = name}) <$> freshLocal (binderName named)
+                Just (named, _) -> pure (Just named)
+                Nothing -> pure Nothing
+              let parameters = fieldBinders <> foldr (:) [] extraBinder
+                  extraArgument = foldr ((:) . snd) [] extraParameter
+                  typeEnv = List.foldl' extendBinder types parameters
+              case foldM (\inner parameter -> arrow typeEnv (binderType parameter) inner) resultType (reverse parameters) of
+                Nothing -> pure Nothing
+                Just joinType -> do
+                  let call arguments = rebuildSpine (ExVar joinName) (map Right (arguments <> extraArgument))
+                      calls =
+                        Map.fromList
+                          ( (altCon leader, call (map (ExVar . binderName) fieldBinders))
+                              : [(altCon other, call [ExVar (correspondence Map.! binderName field) | field <- fieldBinders]) | (other, correspondence) <- members]
+                          )
+                      alternatives' = fmap (\alternative -> maybe alternative (\rhs -> alternative {altRhs = rhs}) (Map.lookup (altCon alternative) calls)) alternatives
+                      joinBody = foldr ExLam (altRhs leader) parameters
+                  pure (Just (ExLet (Bind (Binder joinName joinType) joinBody) (ExCase scrutinee binder alternatives')))
+            _ -> pure Nothing
+  where
+    arrow env argument result = do
+      argumentRep <- repOf env argument
+      resultRep <- repOf env result
+      Just (TyFun argumentRep resultRep argument result)
+    joinGroup leader
+      | null (altTypeBinders leader),
+        uniformAlternative types leader,
+        exprSize types (altRhs leader) > joinSizeLimit,
+        used <- usedFields leader,
+        members@(_ : _) <- [(other, correspondence) | other <- NE.toList alternatives, altCon other /= altCon leader, Just correspondence <- [matching leader used other]] =
+          Just (leader, members, used)
+      | otherwise = Nothing
+    matching leader used other = do
+      guard (null (altTypeBinders other) && uniformAlternative types other)
+      correspondence <- alphaCorrespondence (Set.fromList (map binderName (altBinders leader))) (Set.fromList (map binderName (altBinders other))) (altRhs leader) (altRhs other)
+      guard (Map.keysSet correspondence == Set.fromList used)
+      guard (and [fieldType leader field == fieldType other target | (field, target) <- Map.toList correspondence])
+      Just correspondence
+    usedFields alternative = [binderName named | named <- altBinders alternative, not (unused (binderName named) (altRhs alternative))]
+    fieldType alternative field = listToMaybe [binderType named | named <- altBinders alternative, binderName named == field]
+
+-- | The smallest code that 'joinEqualAlternatives' shares.
+joinSizeLimit :: Int
+joinSizeLimit = 10
+
+-- | Test a run of consecutive integer literals that select the same code
+-- with one range test, as GHC does for a dense set of alternatives:
+--
+-- > case x of { 32# -> a; 9# -> a; 10# -> a; 11# -> a; 12# -> a; 13# -> a; _ -> b }
+--
+-- is
+--
+-- > let! v = x; case leWord# (int2Word# (v -# 9#)) 4## of { 1# -> a; _ -> case v of { 32# -> a; _ -> b } }
+--
+-- The subtraction wraps, so a value below the run gives a large word. A
+-- primitive call names its primitive and its type itself, so the rewrite
+-- needs no import. The run must have at least 'rangeRunLimit' values.
+rangeAlternatives :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM (Maybe Expr)
+rangeAlternatives types scrutinee binder alternatives
+  | [Alt AltDefault [] [] _] <- defaults,
+    Just scrutineeType <- maybe (exprType types scrutinee) (Just . binderType) binder,
+    Just (TyCon intName) <- Just (reduceType types scrutineeType),
+    nameText intName == "Int#",
+    Just (rep, run, rhs) <- listToMaybe (mapMaybe longestRun groups),
+    -- The program must know the word type that the test uses.
+    Just _ <- lookupHeaderType types (Name "Word#" SortTypeConstructor (OriginTop (tePrimPackage types) "GHC.Prim")) = do
+      valueName <- case (binder, scrutinee) of
+        (Just named, _) -> pure (binderName named)
+        (Nothing, ExVar name) -> pure name
+        _ -> freshLocal (Name "value" SortValue (OriginLocal (Unique 0)))
+      let package = tePrimPackage types
+          primitive text = Name text SortValue (OriginTop package "GHC.Prim")
+          wordType = TyCon (Name "Word#" SortTypeConstructor (OriginTop package "GHC.Prim"))
+          wordRep = TyCon (wiredGhcTypes package "WordRep" SortDataConstructor)
+          lifted = TyCon (liftedRepName package)
+          binary left right result = TyFun left lifted scrutineeType (TyFun right result scrutineeType scrutineeType)
+          call text ty = ExForeignCall (ForeignCall (primitive text) Prim [] ty) []
+          low = minimum run
+          high = maximum run
+          value = ExVar valueName
+          difference = call "-#" (binary rep rep rep) [value, ExLit (LitInt rep low) scrutineeType]
+          asWord = call "int2Word#" (TyFun rep wordRep scrutineeType wordType) [difference]
+          test = call "leWord#" (TyFun wordRep lifted wordType (TyFun wordRep rep wordType scrutineeType)) [asWord, ExLit (LitInt wordRep (high - low)) wordType]
+          rest = [alternative | alternative <- NE.toList alternatives, altCon alternative `notElem` [AltLit (LitInt rep literal) | literal <- run]]
+          inner = ExCase value Nothing (NE.fromList rest)
+          ranged = ExCase test Nothing (Alt (AltLit (LitInt rep 1)) [] [] rhs NE.:| [Alt AltDefault [] [] inner])
+          valueBinder = Binder valueName scrutineeType
+      pure $ Just $ case (binder, scrutinee) of
+        (Nothing, ExVar {}) -> ranged
+        _ -> ExCase scrutinee (Just valueBinder) (Alt AltDefault [] [] ranged NE.:| [])
+  | otherwise = pure Nothing
+  where
+    (defaults, others) = List.partition ((== AltDefault) . altCon) (NE.toList alternatives)
+    literals = [(rep, value, rhs) | Alt (AltLit (LitInt rep value)) [] [] rhs <- others]
+    groups =
+      List.foldr
+        ( \(rep, value, rhs) acc -> case List.break (\(_, _, rhs') -> alphaEquivalent rhs rhs') acc of
+            (before, (rep', values, rhs') : after) -> before <> ((rep', value : values, rhs') : after)
+            _ -> (rep, [value], rhs) : acc
+        )
+        []
+        literals
+    longestRun (rep, values, rhs) =
+      let sorted = List.sort values
+          runs = List.foldr (\v acc -> case acc of r@(next : _) : more | next == v + 1 -> (v : r) : more; _ -> [v] : acc) [] sorted
+          best = List.maximumBy (\a b -> compare (length a) (length b)) runs
+       in if null sorted || length best < rangeRunLimit then Nothing else Just (rep, best, rhs)
+
+-- | The fewest consecutive literals that 'rangeAlternatives' tests with
+-- one range test.
+rangeRunLimit :: Int
+rangeRunLimit = 3
+
 -- | Share equal code in the constructor alternatives of each case of a
 -- simplified body, after the walk. See 'shareFieldAlternatives'. When the
 -- shared code is all that remains of a case on a variable that an outer
@@ -1063,13 +1255,17 @@ shareAlternatives = go Set.empty
               alternativeEnv' alternative = List.foldl' extendBinder caseEnv (altTypeBinders alternative <> altBinders alternative)
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go inside (alternativeEnv' alternative) (altRhs alternative)) alternatives
           shared <- shareFieldAlternatives caseEnv scrutinee' binder alternatives'
-          pure $ case shared of
-            Nothing -> mkCase env scrutinee' binder alternatives'
+          case shared of
+            Nothing -> do
+              ranged <- rangeAlternatives env scrutinee' binder alternatives'
+              case ranged of
+                Just expr' -> pure expr'
+                Nothing -> joined env scrutinee' binder alternatives' (8 :: Int)
             Just (Alt AltDefault [] [] rhs NE.:| [])
               | ExVar name <- scrutinee',
                 Set.member name evaluated ->
-                  substExpr (foldMap (\named -> Map.singleton (binderName named) scrutinee') binder) rhs
-            Just merged -> mkCase env scrutinee' binder merged
+                  pure (substExpr (foldMap (\named -> Map.singleton (binderName named) scrutinee') binder) rhs)
+            Just merged -> pure (mkCase env scrutinee' binder merged)
         ExApp function argument -> ExApp <$> go evaluated env function <*> go evaluated env argument
         ExTyApp function ty -> (`ExTyApp` ty) <$> go evaluated env function
         ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go evaluated env scrutinee
@@ -1082,6 +1278,13 @@ shareAlternatives = go Set.empty
       case scrutinee of
         ExVar name -> Set.singleton name
         _ -> Set.empty
+    -- Give each group of equal alternatives a join point, one group at a
+    -- time. The calls are small, so a group shares only once.
+    joined env scrutinee binder alternatives fuel = do
+      result <- if fuel <= 0 then pure Nothing else joinEqualAlternatives env scrutinee binder alternatives
+      case result of
+        Just (ExLet bind (ExCase scrutinee' binder' alternatives')) -> ExLet bind <$> joined (extendBinder env (bindBinder bind)) scrutinee' binder' alternatives' (fuel - 1)
+        _ -> pure (mkCase env scrutinee binder alternatives)
 
 -- | Whether the right-hand side of an alternative can move to another
 -- alternative: a literal or default alternative, or the alternative of a
@@ -2797,6 +3000,11 @@ foldSubstitutedPrimitives env expression = case expression of
 -- A body that returns only its binder reduces to the right-hand side.
 mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
+  -- The body never runs after a strict right-hand side that diverges.
+  | not lifted,
+    diverges (spEnv env) (spDiverging env) rhs,
+    Just bodyType <- exprType (extendBinder (spEnv env) binder) body =
+      pure (bottomAt (spEnv env) (spDiverging env) rhs bodyType)
   | isTrivial rhs = simplifyExpr env (substExpr (Map.singleton name rhs) body)
   -- A let whose body is its own binder is its right-hand side. This is
   -- also correct for a strict binding, because the right-hand side is

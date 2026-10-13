@@ -326,7 +326,39 @@ llvmLtoLinkArguments :: NativeTarget -> Bool -> OptimizationLevel -> [String]
 llvmLtoLinkArguments target lto level =
   case llvmLtoArguments target lto of
     [] -> []
-    arguments -> arguments <> [optimizationArgument level]
+    arguments -> arguments <> [optimizationArgument level] <> llvmLinkCodeGenerationArguments
+
+-- | The LLVM code generator options of the @llvm@ target.
+--
+-- On x86-64, LLVM shrink-wrapping breaks a @tailcc@ function whose tail
+-- calls need stack argument areas of different sizes. X86 calculates one
+-- return address change for the function, but shrink-wrapping puts the
+-- stack adjustment on some paths only. On a path without the adjustment,
+-- the tail call moves the stack pointer too high. The Lir of AIHC makes
+-- such functions, and the programs then fail at exit. Thus this target
+-- disables shrink-wrapping on x86-64. See AIHC issue #2566 and LLVM issue
+-- #109279. AArch64 keeps the adjustment in the entry block, so it does not
+-- need this.
+--
+-- Clang gives these options to the code generator of each compile. A
+-- compile with @-flto@ runs no code generator, so the link must also get
+-- them; see 'llvmLinkCodeGenerationArguments'.
+llvmCodeGenerationArguments :: [String]
+llvmCodeGenerationArguments = concat [["-mllvm", option] | option <- llvmX86CodeGenerationOptions]
+
+-- | The options of 'llvmCodeGenerationArguments' for the LTO link. Clang
+-- does not give @-mllvm@ to the LTO code generator of the linker, so each
+-- option goes to the linker directly. A Mach-O linker takes it after
+-- @-mllvm@, and an ELF linker takes it as a plugin option.
+llvmLinkCodeGenerationArguments :: [String]
+llvmLinkCodeGenerationArguments
+  | System.os == "darwin" = ["-Wl,-mllvm," <> option | option <- llvmX86CodeGenerationOptions]
+  | otherwise = ["-Wl,-plugin-opt=" <> option | option <- llvmX86CodeGenerationOptions]
+
+-- | The code generator options of the @llvm@ target on an x86-64 host;
+-- see 'llvmCodeGenerationArguments'.
+llvmX86CodeGenerationOptions :: [String]
+llvmX86CodeGenerationOptions = ["-enable-shrink-wrap=false" | System.arch == "x86_64"]
 
 -- | Arguments for compiling handwritten C: the runtime sources and the C
 -- sources of a Hackage package, as opposed to the code aihc generates.
@@ -361,7 +393,7 @@ backendCompiler target =
     -- containers spent 32.7 s of a 39.8 s install in Clang at -O2, against
     -- 8.1 s through the in-house arm64 backend. Handwritten C is a separate
     -- case; see handwrittenCArguments.
-    Llvm -> pure ("clang", ["-Wno-override-module"] <> (if System.os == "darwin" then [] else elfSectionArguments))
+    Llvm -> pure ("clang", ["-Wno-override-module"] <> llvmCodeGenerationArguments <> (if System.os == "darwin" then [] else elfSectionArguments))
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
       pure
