@@ -281,7 +281,7 @@ initialInliner config env decls supply =
       inBodyCalls = calls,
       inBodyArities = arities,
       inGuidance = guidance,
-      inKnown = Map.filter (isKnownValue arities) bodies,
+      inKnown = Map.filter isKnownValue bodies,
       inRefs = references,
       inUsers = Map.fromListWith Set.union [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
@@ -570,7 +570,7 @@ updateBody st name body =
     updateKnown current user userBody =
       current
         { inKnown =
-            if isKnownValue arities userBody
+            if isKnownValue userBody
               then Map.insert user userBody (inKnown current)
               else Map.delete user (inKnown current)
         }

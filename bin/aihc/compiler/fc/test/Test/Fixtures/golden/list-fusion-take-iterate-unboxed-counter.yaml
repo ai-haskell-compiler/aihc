@@ -203,12 +203,12 @@ expected: |-
               cS r;
           rec {
             $wgo : tNat → FUN @cIntRep @sLiftedRep tInt# tNat =
-              λ(x{2} : tNat) (eta : tInt#).
-                case eta of {
+              λ(x{2} : tNat) (x2 : tInt#).
+                case x2 of {
                   1#cIntRep →
                     x{1} x{2} cZ;
                   _ →
-                    x{1} x{2} ($wgo (cS x{2}) (prim -# eta lit (1#cIntRep) :: tInt#))
+                    x{1} x{2} ($wgo (cS x{2}) (prim -# x2 lit (1#cIntRep) :: tInt#))
                 }
           } in
           $wgo y k
