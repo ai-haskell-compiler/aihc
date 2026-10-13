@@ -266,12 +266,6 @@ invalid:
   trap "invalid scheduler resumption"
 }
 
-export func @aihc_lir_quotrem2(%high: i64, %low: i64, %divisor: i64) -> (i64, i64) {
-entry:
-  %quotient, %remainder = quotrem.wide.u i64 %high, %low, %divisor
-  return %quotient, %remainder
-}
-
 ; A C function, so that a caller keeps its values in the registers a C
 ; call preserves.
 export func @aihc_lir_cstring_length(%address: ptr) -> i64 cc c {
