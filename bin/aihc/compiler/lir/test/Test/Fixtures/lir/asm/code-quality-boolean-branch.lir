@@ -1,0 +1,28 @@
+; The integer switch must use the original comparison.
+func @one(%left: i64, %right: i64) -> i64 {
+entry:
+  %flag = lt.s i64 %left, %right
+  %wide = zext i1 %flag to i64
+  switch i64 %wide {
+    1 -> yes
+    default -> no
+  }
+yes:
+  return 11
+no:
+  return 22
+}
+
+; An explicit zero case must reverse the branch destinations.
+func @zero(%flag: i1) -> i64 {
+entry:
+  %wide = zext i1 %flag to i8
+  switch i8 %wide {
+    0 -> no
+    default -> yes
+  }
+yes:
+  return 11
+no:
+  return 22
+}

@@ -26,6 +26,7 @@ where
 
 import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants)
+import Aihc.Lir.Simplify (simplifyBooleanBranches)
 import Aihc.Lir.Syntax
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Map.Strict (Map)
@@ -34,17 +35,15 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | The whole of what a module needs between the linter and a backend:
--- constants substituted and inline functions spliced. Every backend and the
--- interpreter run this, so a module reaches them the same way whether it was
--- parsed from text or lowered by the compiler.
--- The two passes commute: the splice copies operands, addresses and switch
--- cases without reading them, so it neither consumes nor creates a constant
--- reference. Constants are resolved first only because it is the cheaper
--- half of the order -- a constant in an inline body is then substituted once
--- in the definition rather than once in each copy of it.
+-- | Prepare LIR for each backend and the interpreter.
+-- Resolve constants before inline expansion to avoid repeated work.
+-- Simplify Boolean branches after inline expansion.
 prepareModule :: Integer -> Module -> Module
-prepareModule wordBytes = inlineModule . resolveConstants wordBytes
+prepareModule wordBytes = simplify . inlineModule . resolveConstants wordBytes
+  where
+    simplify (Module items) = Module (map simplifyItem items)
+    simplifyItem (ItemFunction function) = ItemFunction (simplifyBooleanBranches function)
+    simplifyItem item = item
 
 -- | 'prepareModule', with the module linted as it was written and again as
 -- the backend will receive it.
