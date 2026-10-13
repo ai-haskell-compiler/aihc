@@ -1,0 +1,76 @@
+program: |
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    thunk :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      (1 :: IntRep) ->
+        store (CPair (thunk :: BoxedRep Lifted) (thunk :: BoxedRep Lifted))
+      _ ->
+        eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+
+  $shadow (flag :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    thunk :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    case (flag :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data Pair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+      _ ->
+        constant global-ref Unit
+
+  $recursive (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store-rec
+      cycle :: BoxedRep Lifted = (CPair (x :: BoxedRep Lifted) (cycle :: BoxedRep Lifted))
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      _ ->
+        constant (cycle :: BoxedRep Lifted)
+expected: |-
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      (1 :: IntRep) ->
+        thunk :: BoxedRep Lifted <-
+          store (F$loop (x :: BoxedRep Lifted))
+        store (CPair (thunk :: BoxedRep Lifted) (thunk :: BoxedRep Lifted))
+      _ ->
+        thunk :: BoxedRep Lifted <-
+          store (F$loop (x :: BoxedRep Lifted))
+        eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+
+  $shadow (flag :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    thunk :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    case (flag :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data Pair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+      _ ->
+        constant global-ref Unit
+
+  $recursive (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store-rec
+      cycle :: BoxedRep Lifted = (CPair (x :: BoxedRep Lifted) (cycle :: BoxedRep Lifted))
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      _ ->
+        constant (cycle :: BoxedRep Lifted)
+status: pass
+reason: omit a thunk from the unused branch and preserve its shared pointer within each other branch

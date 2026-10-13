@@ -47,6 +47,7 @@ module Aihc.Grin.Simplify
   )
 where
 
+import Aihc.Grin.Allocation (placeGrinAllocations)
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars)
 import Aihc.Grin.Syntax
 import Control.Applicative ((<|>))
@@ -81,7 +82,7 @@ data Env = Env
 -- | Simplify every function body of a program.
 simplifyGrinProgram :: GrinProgram -> GrinProgram
 simplifyGrinProgram program =
-  program {grinFunctions = map simplifyFunction (grinFunctions program)}
+  placeGrinAllocations program {grinFunctions = map simplifyFunction (grinFunctions program)}
   where
     env =
       Env
