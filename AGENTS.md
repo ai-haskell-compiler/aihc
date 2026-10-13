@@ -110,6 +110,20 @@ Then, open a PR to merge the branch into `main`.
 - If local checks pass and CI fails, merge or rebase `origin/main` into the branch.
 - Then, run `just check` again.
 
+## Property Test Generators
+
+A property test must hold for all values.
+Thus, make each generator as general as possible.
+
+- Generate arbitrary values.
+- Do not add artificial structure to a generator.
+- Do not limit a generator to values that easily satisfy the property.
+- Do not add a generator rule only to find one known defect.
+- For one known defect, write an explicit test with that value.
+- A generator can leave out values that the input domain does not allow.
+  For example, a generator can leave out a variable name that is a reserved keyword.
+- If a generator leaves out values, write the reason in a comment.
+
 ## Commits
 
 Use the Conventional Commits format:
