@@ -108,8 +108,9 @@ int64_t aihc_io_descriptor_mode(int64_t descriptor) {
   }
 }
 
-void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode) {
-  AihcIoHandle *handle = aihc_io_handle_new(machine);
+void *aihc_io_adopt(AihcCapability *capability, int64_t descriptor,
+                    int64_t mode) {
+  AihcIoHandle *handle = aihc_io_handle_new(capability);
   if (descriptor < 0 || descriptor > INT_MAX) {
     handle->error = AIHC_IO_ERROR_BAD_DESCRIPTOR;
     return handle;
@@ -277,8 +278,9 @@ static int64_t aihc_wasip3_finish_request(AihcIoRequest *request,
   return result;
 }
 
-static AihcIoPollOutcome aihc_wasip3_poll(AihcMachine *machine, int may_block) {
-  (void)machine;
+static AihcIoPollOutcome aihc_wasip3_poll(AihcCapability *capability,
+                                          int may_block) {
+  (void)capability;
   return may_block ? AIHC_IO_POLL_SUSPENDED : AIHC_IO_POLL_PROGRESS;
 }
 

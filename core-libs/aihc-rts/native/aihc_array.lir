@@ -53,7 +53,7 @@ data @aihc_array_bounds_message align 1 = {
 ; aihc_gc_allocate rejects a word count the address space cannot hold, so
 ; this checks only that %count is a plausible length. The upper bound is the
 ; largest count whose slots fit a 64-bit address space.
-export func @aihc_array_new(%machine: ptr, %count: i64, %initial: i64) -> ptr cc c {
+export func @aihc_array_new(%capability: ptr, %count: i64, %initial: i64) -> ptr cc c {
 entry:
   %negative = lt.s i64 %count, 0
   %huge = gt.u i64 %count, 2305843009213693949
@@ -66,7 +66,7 @@ invalid_size:
 
 allocate:
   %words = add i64 %count, 2
-  %array = call @aihc_gc_allocate(%machine, %words)
+  %array = call @aihc_gc_allocate(%capability, %words)
   %header = ptr.to_int @aihc_array_info
   store i64 %header, [%array] align 8
   store i64 %count, [%array + 8] align 8
@@ -127,11 +127,11 @@ run:
 ; Copy %count elements from one array to another. Each run is checked once
 ; against its own array, and the move is one memmove, which leaves the
 ; overlap intact when the source and the target are the same array.
-export func @aihc_array_copy(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %count: i64) -> i64 cc c {
+export func @aihc_array_copy(%capability: ptr, %source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %count: i64) -> i64 cc c {
 entry:
   ; The copy stores pointers into the target, which can be old. The run
   ; tells the runtime which cards of a large target the copy touches.
-  call @aihc_write_barrier_range(@aihc_machine, %target, %target_offset, %count)
+  call @aihc_write_barrier_range(%capability, %target, %target_offset, %count)
   %from = call @aihc_array_run(%source, %source_offset, %count)
   %to = call @aihc_array_run(%target, %target_offset, %count)
   %bytes = mul i64 %count, 8
@@ -142,13 +142,13 @@ entry:
 ; A fresh array holding the %count elements that start at %offset. Freezing a
 ; run, thawing one, and cloning one all land here: the three differ only in
 ; the type their caller gives the result.
-export func @aihc_array_clone(%machine: ptr, %source: ptr, %offset: i64, %count: i64) -> ptr cc c {
+export func @aihc_array_clone(%capability: ptr, %source: ptr, %offset: i64, %count: i64) -> ptr cc c {
 entry:
   ; A null slot is a valid non-pointer to the collector, and nothing between
   ; the allocation and the copy allocates, so the fresh array is never
   ; scanned while it still holds the placeholder.
-  %clone = call @aihc_array_new(%machine, %count, 0)
-  %ignored = call @aihc_array_copy(%source, %offset, %clone, 0, %count)
+  %clone = call @aihc_array_new(%capability, %count, 0)
+  %ignored = call @aihc_array_copy(%capability, %source, %offset, %clone, 0, %count)
   return %clone
 }
 
@@ -174,12 +174,12 @@ shrink:
 
 ; A mutable array of %count elements holding the prefix of %array that fits,
 ; with %initial in any slot beyond the old length.
-export func @aihc_array_resize(%machine: ptr, %array: ptr, %count: i64, %initial: i64) -> ptr cc c {
+export func @aihc_array_resize(%capability: ptr, %array: ptr, %count: i64, %initial: i64) -> ptr cc c {
 entry:
   %length = call @aihc_array_length(%array)
   %shorter = lt.u i64 %count, %length
   %kept = select i64 %shorter, %count, %length
-  %resized = call @aihc_array_new(%machine, %count, %initial)
-  %ignored = call @aihc_array_copy(%array, 0, %resized, 0, %kept)
+  %resized = call @aihc_array_new(%capability, %count, %initial)
+  %ignored = call @aihc_array_copy(%capability, %array, 0, %resized, 0, %kept)
   return %resized
 }

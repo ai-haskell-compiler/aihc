@@ -7,8 +7,8 @@
 
 extern func @aihc_array_new(ptr, i64, i64) -> ptr cc c
 
-export func @aihc_mutvar_new(%machine: ptr, %initial: i64) -> ptr cc c {
+export func @aihc_mutvar_new(%capability: ptr, %initial: i64) -> ptr cc c {
 entry:
-  %mutvar = call @aihc_array_new(%machine, 1, %initial)
+  %mutvar = call @aihc_array_new(%capability, 1, %initial)
   return %mutvar
 }

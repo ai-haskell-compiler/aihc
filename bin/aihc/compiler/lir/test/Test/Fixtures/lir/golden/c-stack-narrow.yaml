@@ -13,29 +13,28 @@ expected: |
 
   extern func @narrow(i32, f64, i32, i64, i64, i64, i64, i64, i64, i8, i8, i16, i16) -> i64 cc c
 
-  extern data @aihc_machine
-
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: i64, %word_5: i64, %double_6: i64, %$cps_return_7: ptr) {
   entry:
     %roots_8 = stack.alloc 8 align 8
     %foreign_frame_9 = stack.alloc 40 align 8
     store ptr %$cps_return_7, [%roots_8] align 8
-    store ptr %hp_0, [@aihc_machine + 24] align 1 word
-    store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    call @aihc_foreign_enter(@aihc_machine, %foreign_frame_9, %roots_8, 1, null, 1)
-    %coerced_10 = trunc i64 %value_4 to i32
-    %coerced_11 = bitcast i64 %double_6 to f64
-    %coerced_12 = trunc i64 %value_4 to i32
-    %coerced_13 = trunc i64 %value_4 to i8
-    %coerced_14 = trunc i64 %word_5 to i8
-    %coerced_15 = trunc i64 %value_4 to i16
-    %coerced_16 = trunc i64 %word_5 to i16
-    %result_17 = call @narrow(%coerced_10, %coerced_11, %coerced_12, %value_4, %value_4, %value_4, %value_4, %value_4, %value_4, %coerced_13, %coerced_14, %coerced_15, %coerced_16)
-    call @aihc_foreign_leave(@aihc_machine, %foreign_frame_9)
-    %hp_18 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_19 = load ptr [@aihc_machine + 32] align 1 word
-    %foreign_root_20 = load ptr [%roots_8] align 8
-    tailcall @aihc_lir_continue_i(%hp_18, %hp_limit_19, %sp_2, %sp_limit_3, %foreign_root_20, %result_17)
+    %capability_10 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_0, [%capability_10 + 16] align 1 word
+    store ptr %sp_2, [%capability_10 + 32] align 1 word
+    call @aihc_foreign_enter(%capability_10, %foreign_frame_9, %roots_8, 1, null, 1)
+    %coerced_11 = trunc i64 %value_4 to i32
+    %coerced_12 = bitcast i64 %double_6 to f64
+    %coerced_13 = trunc i64 %value_4 to i32
+    %coerced_14 = trunc i64 %value_4 to i8
+    %coerced_15 = trunc i64 %word_5 to i8
+    %coerced_16 = trunc i64 %value_4 to i16
+    %coerced_17 = trunc i64 %word_5 to i16
+    %result_18 = call @narrow(%coerced_11, %coerced_12, %coerced_13, %value_4, %value_4, %value_4, %value_4, %value_4, %value_4, %coerced_14, %coerced_15, %coerced_16, %coerced_17)
+    call @aihc_foreign_leave(%capability_10, %foreign_frame_9)
+    %hp_19 = load ptr [%capability_10 + 16] align 1 word
+    %hp_limit_20 = load ptr [%capability_10 + 24] align 1 word
+    %foreign_root_21 = load ptr [%roots_8] align 8
+    tailcall @aihc_lir_continue_i(%hp_19, %hp_limit_20, %sp_2, %sp_limit_3, %foreign_root_21, %result_18)
   }
 status: pass
 reason: Apple ARM64 preserves narrow stack widths and extends narrow register arguments.

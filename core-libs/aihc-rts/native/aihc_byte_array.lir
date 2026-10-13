@@ -113,7 +113,7 @@ entry:
   return %address
 }
 
-func @aihc_byte_array_allocate(%size: i64, %pinned: i64, %alignment: i64) -> ptr {
+func @aihc_byte_array_allocate(%capability: ptr, %size: i64, %pinned: i64, %alignment: i64) -> ptr {
 entry:
   %charged = call @aihc_byte_array_words(%size, %pinned, %alignment)
   %is_pinned = ne i64 %pinned, 0
@@ -121,11 +121,11 @@ entry:
 
 pinned:
   %pinned_words = sub i64 %charged, 2
-  %fixed = call @aihc_gc_allocate_pinned(@aihc_machine, %pinned_words)
+  %fixed = call @aihc_gc_allocate_pinned(%capability, %pinned_words)
   jump initialize(%fixed, %pinned_words)
 
 movable:
-  %moving = call @aihc_gc_allocate(@aihc_machine, %charged)
+  %moving = call @aihc_gc_allocate(%capability, %charged)
   jump initialize(%moving, %charged)
 
 initialize(%array: ptr, %words: i64):
@@ -146,21 +146,21 @@ initialize(%array: ptr, %words: i64):
   return %array
 }
 
-export func @aihc_byte_array_new(%machine: ptr, %size: i64) -> ptr cc c {
+export func @aihc_byte_array_new(%capability: ptr, %size: i64) -> ptr cc c {
 entry:
-  %array = call @aihc_byte_array_allocate(%size, 0, 8)
+  %array = call @aihc_byte_array_allocate(%capability, %size, 0, 8)
   return %array
 }
 
-export func @aihc_byte_array_new_pinned(%machine: ptr, %size: i64) -> ptr cc c {
+export func @aihc_byte_array_new_pinned(%capability: ptr, %size: i64) -> ptr cc c {
 entry:
-  %array = call @aihc_byte_array_allocate(%size, 1, 8)
+  %array = call @aihc_byte_array_allocate(%capability, %size, 1, 8)
   return %array
 }
 
-export func @aihc_byte_array_new_aligned_pinned(%machine: ptr, %size: i64, %alignment: i64) -> ptr cc c {
+export func @aihc_byte_array_new_aligned_pinned(%capability: ptr, %size: i64, %alignment: i64) -> ptr cc c {
 entry:
-  %array = call @aihc_byte_array_allocate(%size, 1, %alignment)
+  %array = call @aihc_byte_array_allocate(%capability, %size, 1, %alignment)
   return %array
 }
 
@@ -204,12 +204,12 @@ shrink:
 
 ; Resize an array by copying it. The result keeps the pinning and the
 ; alignment of the original, and the shorter of the two sizes is copied over.
-export func @aihc_byte_array_resize(%machine: ptr, %array: ptr, %size: i64) -> ptr cc c {
+export func @aihc_byte_array_resize(%capability: ptr, %array: ptr, %size: i64) -> ptr cc c {
 entry:
   %current = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_resize_message)
   %pinned = load i64 [%array + 24] align 8
   %alignment = load i64 [%array + 32] align 8
-  %resized = call @aihc_byte_array_allocate(%size, %pinned, %alignment)
+  %resized = call @aihc_byte_array_allocate(%capability, %size, %pinned, %alignment)
   %new_size = load i64 [%resized + 8] align 8
   %shrinks = lt.u i64 %current, %new_size
   %copied = select i64 %shrinks, %current, %new_size

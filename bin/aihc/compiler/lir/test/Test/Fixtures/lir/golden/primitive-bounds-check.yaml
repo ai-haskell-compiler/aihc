@@ -16,8 +16,6 @@ expected: |
 
   extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
 
-  extern data @aihc_machine
-
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
   entry:
     %roots_5 = stack.alloc 8 align 8
@@ -33,35 +31,37 @@ expected: |
 
   cold gc_collect_14:
     store ptr %$cps_return_4, [%roots_5] align 8
-    store ptr %hp_0, [@aihc_machine + 24] align 1 word
-    store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    call @aihc_heap_collect(@aihc_machine, %result_6, 1, %roots_5, null)
-    %$cps_return$gc_19 = load ptr [%roots_5] align 8
-    %hp_20 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_21 = load ptr [@aihc_machine + 32] align 1 word
-    jump gc_reserved_15(%$cps_return$gc_19, %hp_20, %hp_limit_21)
+    %capability_19 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_0, [%capability_19 + 16] align 1 word
+    store ptr %sp_2, [%capability_19 + 32] align 1 word
+    call @aihc_heap_collect(%capability_19, %result_6, 1, %roots_5, null)
+    %$cps_return$gc_20 = load ptr [%roots_5] align 8
+    %hp_21 = load ptr [%capability_19 + 16] align 1 word
+    %hp_limit_22 = load ptr [%capability_19 + 24] align 1 word
+    jump gc_reserved_15(%$cps_return$gc_20, %hp_21, %hp_limit_22)
 
   gc_reserved_15(%$cps_return$gc_16: ptr, %hp_17: ptr, %hp_limit_18: ptr):
-    store ptr %hp_17, [@aihc_machine + 24] align 1 word
-    store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    %result_22 = call @aihc_byte_array_new(@aihc_machine, 8)
-    %hp_23 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_24 = load ptr [@aihc_machine + 32] align 1 word
-    %size_25 = load i64 [%result_22 + 8] align 8
-    %limit_26 = div.u i64 %size_25, 8
-    %invalid_27 = ge.u i64 4, %limit_26
-    br %invalid_27, out_of_bounds_28, inside_29
+    %capability_23 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_17, [%capability_23 + 16] align 1 word
+    store ptr %sp_2, [%capability_23 + 32] align 1 word
+    %result_24 = call @aihc_byte_array_new(%capability_23, 8)
+    %hp_25 = load ptr [%capability_23 + 16] align 1 word
+    %hp_limit_26 = load ptr [%capability_23 + 24] align 1 word
+    %size_27 = load i64 [%result_24 + 8] align 8
+    %limit_28 = div.u i64 %size_27, 8
+    %invalid_29 = ge.u i64 4, %limit_28
+    br %invalid_29, out_of_bounds_30, inside_31
 
-  cold out_of_bounds_28:
+  cold out_of_bounds_30:
     call @aihc_byte_array_bounds_fail()
     trap "byte array access is out of bounds"
 
-  inside_29:
-    %offset_30 = mul i64 4, 8
-    %contents_31 = load ptr [%result_22 + 16] align 8
-    %address_32 = ptr.add %contents_31, %offset_30
-    %value_33 = load i64 [%address_32] align 1
-    tailcall @aihc_lir_continue_i(%hp_23, %hp_limit_24, %sp_2, %sp_limit_3, %$cps_return$gc_16, %value_33)
+  inside_31:
+    %offset_32 = mul i64 4, 8
+    %contents_33 = load ptr [%result_24 + 16] align 8
+    %address_34 = ptr.add %contents_33, %offset_32
+    %value_35 = load i64 [%address_34] align 1
+    tailcall @aihc_lir_continue_i(%hp_25, %hp_limit_26, %sp_2, %sp_limit_3, %$cps_return$gc_16, %value_35)
   }
 status: pass
 reason: |

@@ -113,9 +113,9 @@ tests =
       -- The first case is the one that matters. It is a lower bound rather
       -- than an equality, because a primitive may allocate off the managed
       -- heap -- a byte array does today -- and still belong in the list.
-      testCase "every primitive that is handed the machine allocates" $
+      testCase "capability calls have correct allocation bounds" $
         mapM_
-          (\primitive -> assertEqual ("allocates: " <> show primitive) True (primitiveAllocates primitive))
+          (\primitive -> assertEqual ("allocates: " <> show primitive) (primitive `notElem` copyPrimitives) (primitiveAllocates primitive))
           machinePrimitiveNames,
       testCase "every allocating primitive is a runtime call of some kind" $
         assertEqual
@@ -123,6 +123,10 @@ tests =
           []
           (filter (`notElem` runtimePrimitiveNames) (Set.toAscList allocatingPrimitives))
     ]
+
+-- | Array copies need a capability for the write barrier, but need no heap space.
+copyPrimitives :: [Text]
+copyPrimitives = ["copyArray#", "copyMutableArray#", "copySmallArray#", "copySmallMutableArray#"]
 
 -- | The primitives whose lowering is handed the machine pointer, and so can
 -- reach @aihc_gc_allocate@: the runtime calls that pass it, and the CPS

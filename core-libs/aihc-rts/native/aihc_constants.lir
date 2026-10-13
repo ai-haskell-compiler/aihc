@@ -19,9 +19,6 @@ const @AIHC_INFO_KIND_OFFSET = 5 words + 3
 const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 4
 const @AIHC_INFO_BYTES = 5 words + 8
 
-; The machine of the process. A process has one machine, so Lir code names
-; it by this symbol and no function takes it as a parameter.
-extern data @aihc_machine
 
 ; The bounds of the nursery, for the write barrier: an object is young when
 ; its address less the start is below the size, and a pointer store into a
@@ -29,13 +26,13 @@ extern data @aihc_machine
 extern data @aihc_nursery_start
 extern data @aihc_nursery_bytes
 
-; AihcMachine fields used by evaluation. C assertions check these offsets.
-; The heap pointer and the stack pointer of the machine are a copy of the
+; AihcCapability fields used by evaluation. C assertions check these offsets.
+; The heap pointer and the stack pointer of the capability are a copy of the
 ; context. The code stores them only before a C call that reads them.
-const @AIHC_MACHINE_HEAP_NEXT_OFFSET = 1 word + 16
-const @AIHC_MACHINE_HEAP_LIMIT_OFFSET = 2 words + 16
-const @AIHC_MACHINE_STACK_NEXT_OFFSET = 3 words + 16
-const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 6 words + 16
+const @AIHC_CAPABILITY_HEAP_NEXT_OFFSET = 2 words
+const @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET = 3 words
+const @AIHC_CAPABILITY_STACK_NEXT_OFFSET = 4 words
+const @AIHC_CAPABILITY_CURRENT_THREAD_OFFSET = 6 words
 
 ; Two low header bits preserve the original info-table pointer.
 const @AIHC_HEADER_EVALUATING = 1
@@ -105,3 +102,6 @@ const @AIHC_STACK_CHUNK_LAST = @AIHC_STACK_CHUNK_BYTES - 1
 ; frame of a chunk, so the chunk ends this many bytes after that frame.
 const @AIHC_STACK_CHUNK_HEADER_BYTES = 64
 const @AIHC_STACK_CHUNK_FRAME_BYTES = @AIHC_STACK_CHUNK_BYTES - @AIHC_STACK_CHUNK_HEADER_BYTES
+
+; The capability pointer follows the packed chunk counters.
+const @AIHC_STACK_CAPABILITY_OFFSET = 4 words + 24

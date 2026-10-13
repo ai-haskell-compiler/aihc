@@ -6,10 +6,9 @@
 ; functions of aihc_object.lir, which cost what they would written out.
 ; C code transfers scheduler records.
 ;
-; A helper that runs Haskell code takes the machine and then the context of
-; the running thread: the heap pointer %hp, the heap limit %hp_limit, the
+; A helper that runs Haskell code takes the context of the thread: the heap pointer %hp, the heap limit %hp_limit, the
 ; stack pointer %sp, and the stack limit %sp_limit. It gives the context to
-; each function it transfers control to. The machine holds a copy of the
+; each function it transfers control to. The capability holds a copy of the
 ; heap pointer and the stack pointer only while a C call can read them. See
 ; "Lowering from GC-GRIN" in docs/lir.md.
 
@@ -39,6 +38,12 @@ entry:
   %end = add i64 %last, 1
   %limit = ptr.from_int %end
   return %limit
+}
+
+inline func @aihc_stack_capability(%sp_limit: ptr) -> ptr {
+entry:
+  %capability = load ptr [%sp_limit + @AIHC_STACK_CAPABILITY_OFFSET - @AIHC_STACK_CHUNK_BYTES] align 1 word
+  return %capability
 }
 
 ; A blackhole requires a heap reservation. A thunk pushes its update frame
@@ -76,33 +81,35 @@ thunk:
 
 ; The runtime gives the first frame of a chunk, so the rest of the chunk
 ; follows the frame. Compiled code never stores the heap limit, so the
-; machine copy is the current limit. The charge compares the limit with the
-; machine copy of the heap pointer, so that copy is stored first.
+; capability copy is the current limit. The charge compares the limit with the
+; capability copy of the heap pointer, so that copy is stored first.
 cold stack_grow:
-  store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %grown = call @aihc_stack_grow(@aihc_machine, %sp, @AIHC_UPDATE_FRAME_WORDS)
+  %capability_stack_grow = call @aihc_stack_capability(%sp_limit)
+  store ptr %hp, [%capability_stack_grow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  %grown = call @aihc_stack_grow(%capability_stack_grow, %sp, @AIHC_UPDATE_FRAME_WORDS)
   %grown_end = ptr.add %grown, @AIHC_UPDATE_FRAME_BYTES
   %grown_sp_limit = ptr.add %grown, @AIHC_STACK_CHUNK_FRAME_BYTES
-  %grown_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  %grown_hp_limit = load ptr [%capability_stack_grow + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   %heap_left = le.u ptr %hp, %grown_hp_limit
   br %heap_left, push(%grown, %grown_end, %grown_sp_limit, %grown_hp_limit), stack_collect
 
 ; The new chunk stays empty above the stack pointer, and the next push uses
 ; it again.
 cold stack_collect:
-  store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  %capability_stack_collect = call @aihc_stack_capability(%sp_limit)
+  store ptr %sp, [%capability_stack_collect + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
   %thunk_word = ptr.to_int %current
   store i64 %thunk_word, [%roots] align 8
   %thunk_continuation_word = ptr.to_int %continuation
   store i64 %thunk_continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(@aihc_machine, 0, 2, %roots, null)
+  call @aihc_heap_collect(%capability_stack_collect, 0, 2, %roots, null)
   %moved_thunk_word = load i64 [%roots] align 8
   %moved_thunk = ptr.from_int %moved_thunk_word
   %moved_thunk_continuation_word = load i64 [%roots + 8] align 8
   %moved_thunk_continuation = ptr.from_int %moved_thunk_continuation_word
-  %collected_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %collected_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  %collected_hp = load ptr [%capability_stack_collect + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  %collected_hp_limit = load ptr [%capability_stack_collect + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   tailcall @aihc_lir_eval(%collected_hp, %collected_hp_limit, %sp, %sp_limit, %moved_thunk, %moved_thunk_continuation)
 
 push(%update: ptr, %pushed_sp: ptr, %pushed_sp_limit: ptr, %pushed_hp_limit: ptr):
@@ -123,10 +130,11 @@ indirection:
   jump loop(%next)
 
 ; The waiter comes from the heap, and the thread gives control to the
-; scheduler. Both read the context of the machine.
+; scheduler. Both read the context of the capability.
 blackhole:
-  store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  %capability_blackhole = call @aihc_stack_capability(%sp_limit)
+  store ptr %hp, [%capability_blackhole + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%capability_blackhole + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
   ; A charge of the runtime can put the heap limit below the heap pointer,
   ; so the room is valid only when the limit is not below the pointer.
   %heap_word = ptr.to_int %hp
@@ -138,12 +146,13 @@ blackhole:
   br %heap_fits, block(%current, %continuation), collect
 
 cold collect:
+  %capability_collect = call @aihc_stack_capability(%sp_limit)
   %current_word = ptr.to_int %current
   store i64 %current_word, [%roots] align 8
   %continuation_word = ptr.to_int %continuation
   store i64 %continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(@aihc_machine, @AIHC_EVAL_WAITER_WORDS, 2, %roots, null)
+  call @aihc_heap_collect(%capability_collect, @AIHC_EVAL_WAITER_WORDS, 2, %roots, null)
   %moved_value_word = load i64 [%roots] align 8
   %moved_value = ptr.from_int %moved_value_word
   %moved_continuation_word = load i64 [%roots + 8] align 8
@@ -151,8 +160,9 @@ cold collect:
   jump block(%moved_value, %moved_continuation)
 
 block(%live_value: ptr, %live_continuation: ptr):
-  %result = call @aihc_block_on_blackhole(@aihc_machine, %live_value, %live_continuation)
-  tailcall @aihc_lir_resume(%result)
+  %capability_block = call @aihc_stack_capability(%sp_limit)
+  %result = call @aihc_block_on_blackhole(%capability_block, %live_value, %live_continuation)
+  tailcall @aihc_lir_resume(%capability_block, %result)
 
 ready:
   tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %continuation, %current)
@@ -192,14 +202,14 @@ ready:
   tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %continuation, %value)
 }
 
-; A null resumption returns control to the host. The machine holds the
+; A null resumption returns control to the host. The capability holds the
 ; context of the thread there.
 ; Clear the selected record before the next scheduler operation. The record
-; can select another thread, so the context comes from the machine after the
+; can select another thread, so the context comes from the capability after the
 ; record is taken: the heap context, and the stack pointer of the thread
 ; that runs next. A resumption that continues a frame sets the stack pointer
 ; to that frame when it enters it.
-export func @aihc_lir_resume(%resume: ptr) {
+export func @aihc_lir_resume(%capability: ptr, %resume: ptr) {
 entry:
   %slots = stack.alloc 40 align 8
   %no_resume = eq ptr %resume, null
@@ -209,7 +219,7 @@ suspend:
   return
 
 dispatch:
-  call @aihc_lir_take_resume(@aihc_machine, %resume, %slots)
+  call @aihc_lir_take_resume(%capability, %resume, %slots)
   %kind = load i64 [%slots] align 8
   %function_word = load i64 [%slots + 8] align 8
   %function = ptr.from_int %function_word
@@ -217,9 +227,9 @@ dispatch:
   %continuation = ptr.from_int %continuation_word
   %value = load i64 [%slots + 24] align 8
   %count = load i64 [%slots + 32] align 8
-  %hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
-  %sp = load ptr [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  %hp = load ptr [%capability + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  %hp_limit = load ptr [%capability + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
+  %sp = load ptr [%capability + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
   ; The stack pointer can be the end of a full chunk, so the limit comes
   ; from the byte before it.
   %sp_below = ptr.add %sp, -1
@@ -258,8 +268,8 @@ continue_one:
   tailcall @aihc_lir_continue_slot(%hp, %hp_limit, %sp, %sp_limit, %function, %value)
 
 raise:
-  %result = call @aihc_raise(@aihc_machine, %function, %continuation)
-  tailcall @aihc_lir_resume(%result)
+  %result = call @aihc_raise(%capability, %function, %continuation)
+  tailcall @aihc_lir_resume(%capability, %result)
 
 invalid:
   call @aihc_no_match()
@@ -316,7 +326,8 @@ enter:
 ; The frame is in a lower chunk than the stack pointer was. New frames go
 ; above it, so the collector must scan the chunk again.
 cold enter_chunk:
-  call @aihc_stack_enter_chunk(@aihc_machine, %current)
+  %capability_enter_chunk = call @aihc_stack_capability(%sp_limit)
+  call @aihc_stack_enter_chunk(%capability_enter_chunk, %current)
   jump enter_frame
 
 enter_frame:
@@ -353,7 +364,8 @@ enter:
 ; The frame is in a lower chunk than the stack pointer was. New frames go
 ; above it, so the collector must scan the chunk again.
 cold enter_chunk:
-  call @aihc_stack_enter_chunk(@aihc_machine, %current)
+  %capability_enter_chunk = call @aihc_stack_capability(%sp_limit)
+  call @aihc_stack_enter_chunk(%capability_enter_chunk, %current)
   jump enter_frame
 
 enter_frame:
@@ -390,7 +402,8 @@ enter:
 ; The frame is in a lower chunk than the stack pointer was. New frames go
 ; above it, so the collector must scan the chunk again.
 cold enter_chunk:
-  call @aihc_stack_enter_chunk(@aihc_machine, %current)
+  %capability_enter_chunk = call @aihc_stack_capability(%sp_limit)
+  call @aihc_stack_enter_chunk(%capability_enter_chunk, %current)
   jump enter_frame
 
 enter_frame:
@@ -425,16 +438,17 @@ fast:
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
 
-; The runtime can allocate and collect, so the machine gets the context
+; The runtime can allocate and collect, so the capability gets the context
 ; first and the heap context comes back after.
 slow:
+  %capability_slow = call @aihc_stack_capability(%sp_limit)
   store ptr %continuation, [%slot] align 8
-  store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
-  %result = call @aihc_apply_slow(@aihc_machine, %current, 1, 0, null, %slot)
+  store ptr %hp, [%capability_slow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%capability_slow + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
+  %result = call @aihc_apply_slow(%capability_slow, %current, 1, 0, null, %slot)
   %adjusted = load ptr [%slot] align 8
-  %applied_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %applied_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  %applied_hp = load ptr [%capability_slow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  %applied_hp_limit = load ptr [%capability_slow + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
 }
 
@@ -465,17 +479,18 @@ fast:
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 
-; The runtime can allocate and collect, so the machine gets the context
+; The runtime can allocate and collect, so the capability gets the context
 ; first and the heap context comes back after.
 slow:
+  %capability_slow = call @aihc_stack_capability(%sp_limit)
   store i64 %value, [%arguments] align 8
   store ptr %continuation, [%slot] align 8
-  store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
-  %result = call @aihc_apply_slow(@aihc_machine, %current, 1, 1, %arguments, %slot)
+  store ptr %hp, [%capability_slow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%capability_slow + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
+  %result = call @aihc_apply_slow(%capability_slow, %current, 1, 1, %arguments, %slot)
   %adjusted = load ptr [%slot] align 8
-  %applied_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %applied_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  %applied_hp = load ptr [%capability_slow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  %applied_hp_limit = load ptr [%capability_slow + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
 }
 
@@ -506,18 +521,19 @@ fast:
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
-; The runtime can allocate and collect, so the machine gets the context
+; The runtime can allocate and collect, so the capability gets the context
 ; first and the heap context comes back after.
 slow:
+  %capability_slow = call @aihc_stack_capability(%sp_limit)
   %argument_word = ptr.to_int %value
   store i64 %argument_word, [%arguments] align 8
   store ptr %continuation, [%slot] align 8
-  store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
-  %result = call @aihc_apply_slow(@aihc_machine, %current, 1, 1, %arguments, %slot)
+  store ptr %hp, [%capability_slow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%capability_slow + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
+  %result = call @aihc_apply_slow(%capability_slow, %current, 1, 1, %arguments, %slot)
   %adjusted = load ptr [%slot] align 8
-  %applied_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %applied_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  %applied_hp = load ptr [%capability_slow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  %applied_hp_limit = load ptr [%capability_slow + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
 }
 
@@ -620,7 +636,7 @@ word:
 ; The update frame stores the parent continuation and the entered thunk.
 ; Complete the blackhole update before evaluation of the result.
 ; Eval creates another update frame only if it enters another thunk.
-; The update neither allocates nor reads the stack pointer, so the machine
+; The update neither allocates nor reads the stack pointer, so the capability
 ; does not need the context for it.
 extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
@@ -646,7 +662,7 @@ entry:
 ; blackhole with waiters goes there as well, and the C update wakes the
 ; waiters. An object that is not a blackhole also goes to the C update,
 ; which stops the program.
-inline func @aihc_update_blackhole_inline(%blackhole: ptr, %result: ptr) {
+inline func @aihc_update_blackhole_inline(%sp_limit: ptr, %blackhole: ptr, %result: ptr) {
 entry:
   %header_word = call @aihc_object_header_word(%blackhole)
   %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
@@ -663,16 +679,17 @@ plain:
   return
 
 cold waiters:
-  call @aihc_update_blackhole(@aihc_machine, %blackhole, %result)
+  %capability_waiters = call @aihc_stack_capability(%sp_limit)
+  call @aihc_update_blackhole(%capability_waiters, %blackhole, %result)
   return
 }
 
 ; Update the blackhole with the result of its thunk, and tell whether the
 ; result is a value. The result is usually a value, and then the parent
 ; continuation takes it directly. Another object goes to @aihc_lir_eval.
-inline func @aihc_cps_update_ready(%blackhole: ptr, %result: ptr) -> i1 {
+inline func @aihc_cps_update_ready(%sp_limit: ptr, %blackhole: ptr, %result: ptr) -> i1 {
 entry:
-  call @aihc_update_blackhole_inline(%blackhole, %result)
+  call @aihc_update_blackhole_inline(%sp_limit, %blackhole, %result)
   %header = call @aihc_info_table(%result)
   %needs_eval = load i8 [%header + @AIHC_INFO_NEEDS_EVAL_OFFSET] align 1
   %ready = eq i8 %needs_eval, @AIHC_NEEDS_EVAL_NONE
@@ -681,7 +698,7 @@ entry:
 
 export func @aihc_lir_cps_update(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
 entry:
-  %ready = call @aihc_cps_update_ready(%blackhole, %result)
+  %ready = call @aihc_cps_update_ready(%sp_limit, %blackhole, %result)
   br %ready, ready, evaluate
 
 ready:
@@ -701,7 +718,7 @@ entry:
   %outer = ptr.from_int %outer_word
   %blackhole_word = load i64 [%frame + 16] align 8
   %blackhole = ptr.from_int %blackhole_word
-  %ready = call @aihc_cps_update_ready(%blackhole, %result)
+  %ready = call @aihc_cps_update_ready(%sp_limit, %blackhole, %result)
   br %ready, ready, evaluate
 
 ready:

@@ -11,6 +11,19 @@ Refer to [gc-design.md](gc-design.md) and
 [native-runtime-objects.md](native-runtime-objects.md) for the current
 design.
 
+## Implementation status
+
+The first part of build step 1 separates `AihcCapability` from `AihcMachine`.
+Compiled code reads its capability from the stack chunk header.
+The C runtime takes the capability as an explicit argument.
+The runtime still has one capability on every target.
+This refactor adds no worker threads and does not enable `-N`.
+
+The rest of step 1 remains necessary before step 2.
+It includes the local heap layout, allocation blocks, atomic instructions, thunk owner state, and barrier safepoints.
+Native parallel execution starts at step 4.
+WASM keeps one capability until WASI supports the required thread operations.
+
 ## Goals
 
 - One RTS. There is no `-threaded` build flavour. One runtime library and one
