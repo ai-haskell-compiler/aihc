@@ -3,7 +3,8 @@
 GenMC can execute selected functions from the actual C runtime.
 It detects an injected race inside `aihc_mvar_try_put`, without manual yield points.
 It cannot yet execute full runtime startup with this trial.
-The current limits are Lir linkage and unsupported host and allocation calls.
+The extended trial resolves Lir linkage and several library calls.
+POSIX host calls, a GenMC memory-access failure, and initialization cost remain.
 
 This trial supports the test-system discussion in
 [multi-threaded-rts-design.md](multi-threaded-rts-design.md).
@@ -19,7 +20,7 @@ The GenMC source revision was
 The trial uses the repository Nix pin and a separate GenMC source pin.
 It does not change the development shell or the normal test suite.
 
-## Results
+## Initial results
 
 Every successful control case used RC11.
 The trial disabled automatic selection of a stronger memory model.
@@ -65,7 +66,7 @@ The probe does not execute a collection, waiter wake-up, or Haskell continuation
 It does not verify the future threaded RTS.
 The stable-name probe provides a smaller independent diagnostic check.
 
-## Required preparation
+## Initial preparation
 
 The first direct compilation failed because GenMC supplies reduced C library headers.
 Those headers omit declarations for `calloc`, `realloc`, and `qsort`.
@@ -115,15 +116,15 @@ The fault variants differ only in the test driver's mutex calls.
 The runner compiles the same production runtime sources for all variants.
 It requires no runtime patch and leaves no injected fault in the source tree.
 
-## Limits and next steps
+## Initial limits and next steps
 
 The result establishes feasibility for small C runtime operations with controlled initial state.
 It does not establish support for arbitrary compiled Haskell programs or native machine code.
 Replay applies to the same LLVM module, GenMC version, configuration, and seed.
 The trial has not established replay across hosts or tool versions.
 
-The missing Lir function is a linkage gap in this trial.
-A further trial can link actual LLVM output from the Lir runtime.
+The initial trial identified a Lir linkage gap.
+The extension below closes that gap with actual LLVM output from the Lir runtime.
 The POSIX and allocation failures are separate interpreter limits.
 They remain even when a probe bypasses machine initialization.
 Support for those interfaces needs implementation or an explicit host contract before full-runtime tests become useful.
@@ -142,3 +143,124 @@ Full deterministic simulation through WASM remains a separate option for broader
 - [GenMC source and build instructions](https://github.com/MPI-SWS/genmc)
 - [GenMC usage and diagnostics](https://github.com/MPI-SWS/genmc/blob/master/doc/manual/usage.md)
 - [GenMC supported APIs](https://github.com/MPI-SWS/genmc/blob/master/doc/manual/api.md)
+
+## Full-runtime extension
+
+The extension compiles the actual `rts.lir` through `Aihc.Lir.Resolve` and `Aihc.Llvm.Lir`.
+It links that LLVM output with all four POSIX C runtime units.
+It then removes code that the selected entry point cannot reach.
+Thus, a successful probe verifies its reachable code, not every runtime operation.
+
+The helper uses the compiled `aihc` library from the current Cabal build.
+It does not reproduce Lir functions in C.
+The Lir probe executes mutable-reference allocation, byte-array allocation, byte-array fill, and byte-array copy.
+It also reads the actual default nursery option.
+The machine record in this small probe has an allocated nursery.
+The separate startup probes call the actual machine initializer.
+
+### Real library implementations
+
+`libc.c` supplies C implementations of allocation, reallocation, sorting, and memory operations.
+The allocation header records the allocation size.
+Reallocation allocates a new block, copies the retained bytes, and frees the old block.
+Allocation failure preserves the old block.
+The sort orders actual records through the supplied comparison function.
+All memory operations execute actual loads and stores under GenMC.
+
+These functions use GenMC's existing allocation primitives through its standard headers.
+The native controls compile the same source against the system allocator.
+The replacements cover these probes. They are not a complete C library.
+The trial keeps the production runtime source unchanged.
+
+`regions.c` supplies an alternative region allocator over `malloc` and `free`.
+It reserves alignment space and records the original allocation before the aligned region.
+This satisfies the runtime region contract, which permits unspecified initial contents.
+The region probe writes both ends of a region and releases the allocation.
+The native startup and collection probes use this same allocator.
+
+This allocator does not test the POSIX `mmap` implementation.
+The separate POSIX startup probe keeps the original host implementation and records its failure.
+The trial supplies no clock replacement, syscall stub, fabricated runtime result, or manual yield point.
+
+### Extended results
+
+| Probe | GenMC result | Native control |
+| --- | --- | --- |
+| Byte-buffer allocation, growth, shrink, overlap copy, and sort | Pass | Pass |
+| Zero allocation read as a 64-bit word | Pass | Pass |
+| Reallocation of a stored 64-bit word | Internal GenMC failure, SIGABRT | Pass |
+| Actual Lir mutable-reference and byte-array operations | Pass | Pass |
+| Initial remembered-set allocation through the write barrier | Pass | Pass |
+| Small pinned allocation | Pass | Pass |
+| MVar control with all C and Lir units linked | Pass | Pass |
+| MVar fault with all C and Lir units linked | Runtime race, exit 42 | Not run because the fault has undefined behavior natively |
+| Alternative region allocation and release | Pass | Pass |
+| Original POSIX startup with Lir linked | Unsupported `mmap`, exit 17 | Pass |
+| Original monotonic clock | Unsupported `clock_gettime`, exit 17 | Pass |
+| Startup with alternative region allocation | Incomplete at the 60-second resource limit | Pass |
+| Collection with alternative region allocation | Incomplete at the 60-second resource limit | Pass |
+
+The collection probe first initializes the machine.
+Its GenMC timeout does not establish that it reached the collector.
+The native control completes a minor collection and checks the collection count.
+No resource limit result counts as successful verification.
+
+### The memory-access failure
+
+`libc-copy-word.c` reduces the failure to one allocation and one reallocation.
+It stores the integer 7 through a `uint64_t` pointer.
+The real reallocation implementation copies that value through byte loads.
+GenMC aborts in `ExecutionGraph::resolveAccessValue` with this internal check:
+
+```text
+!(haveNAs_ && access.addr.isDynamic() && !pruned_)
+```
+
+The failure needs no threads, RTS protocol, or operating-system call.
+The native control passes with the same library source.
+This is a tool failure, not a detected RTS race.
+A zero-filled word passes, so that success alone does not establish support for general memory copies.
+The collector and remembered-set reallocation need general memory copies.
+
+### Initialization cost
+
+The region table has 65,536 entries per leaf.
+On the tested target, each leaf occupies 1,572,864 bytes.
+The C zero-fill implementation emits a store for each byte.
+A process sample during startup showed GenMC in non-atomic store handling, RC11 view calculations, and race checks.
+This supports initialization cost as a practical limit, but does not establish eventual completion.
+
+The trial keeps race detection enabled.
+It does not use loop bounds to treat a truncated initialization as a pass.
+An exploratory loop-bound run returned success without establishing full initialization.
+That result does not appear in the pass counts.
+
+### Reproduce the extension
+
+First, build the compiler library with the available GHC environment.
+Then, run the extension in the pinned GenMC shell.
+Use an output directory that does not exist.
+
+```sh
+cabal build lib:aihc
+nix develop --impure --file scripts/experiments/genmc/shell.nix \
+  --command python3 scripts/experiments/genmc/full.py \
+  --output /tmp/aihc-genmc-full-results
+```
+
+The output contains native executables, LLVM modules, logs, commands, and a result manifest.
+The runner records internal tool failures separately from successful verification.
+It records resource exhaustion as incomplete.
+The `--timeout` option changes the resource limit for each process.
+The experiment remains outside the normal test suite.
+
+### Assessment
+
+Lir linkage is resolved.
+Real C implementations remove several library-call failures without fake return values.
+They do not make the full RTS verifiable with this GenMC build.
+
+Further work needs reliable support for mixed-width memory copies and practical bulk-memory operations in GenMC.
+The POSIX boundary also needs explicit support for memory maps, clocks, and the host services that a workload uses.
+Linkage alone cannot supply kernel behavior to an LLVM interpreter.
+The current evidence supports selected runtime probes, not full-runtime deterministic tests without host models.
