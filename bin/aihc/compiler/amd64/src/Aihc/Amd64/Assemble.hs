@@ -446,7 +446,7 @@ encodeInstruction instruction =
     AmdAnd destination source -> encodeBinary [0x21] 4 destination source
     AmdOr destination source -> encodeBinary [0x09] 1 destination source
     AmdXor destination source -> encodeBinary [0x31] 6 destination source
-    AmdImul destination source -> encodeRegisterSource True [0x0f, 0xaf] destination source
+    AmdImul destination source -> encodeRegisterSource (registerWidth (registerInfo destination) == 64) [0x0f, 0xaf] destination source
     AmdCmp left right -> encodeCompare left right
     AmdTest left right -> encodeRm (registerWidth register == 64) [0x85] (registerNumber register) (rmOperand left) False []
       where

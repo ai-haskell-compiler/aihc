@@ -615,7 +615,7 @@ arm64Binary ctx op ty dst a right =
     Sub -> pure (addSub ArmSub ArmAdd)
     Mul ->
       let (loads, b) = rightRegister ty right
-       in pure (loads <> narrow ty dst [arm64Instruction (ArmMul dst a b)])
+       in pure (loads <> arithmeticResult [arm64Instruction (ArmMul (arithmeticRegister dst) (arithmeticRegister a) (arithmeticRegister b))])
     DivS -> do
       zero <- trapLabel "integer division by zero"
       overflow <- trapLabel "integer overflow"
@@ -758,10 +758,12 @@ arm64Binary ctx op ty dst a right =
     addSub operation opposite =
       case constantBits ty right >>= addSubConstant (typeBits ty) of
         Just (negated, value) ->
-          narrow ty dst [arm64Instruction ((if negated then opposite else operation) dst a (Arm64ImmediateValue value))]
+          arithmeticResult [arm64Instruction ((if negated then opposite else operation) (arithmeticRegister dst) (arithmeticRegister a) (Arm64ImmediateValue value))]
         Nothing ->
           let (loads, b) = rightRegister ty right
-           in loads <> narrow ty dst [arm64Instruction (operation dst a (Arm64RegisterValue b))]
+           in loads <> arithmeticResult [arm64Instruction (operation (arithmeticRegister dst) (arithmeticRegister a) (Arm64RegisterValue (arithmeticRegister b)))]
+    arithmeticRegister = if ty == I32 then wordRegister else id
+    arithmeticResult body = if ty == I32 then body else narrow ty dst body
     -- A narrow value is zero-extended, and the 32-bit form keeps it so.
     logical operation =
       case constantBits ty right of

@@ -683,6 +683,7 @@ binarySource operand =
 amd64Binary :: Ctx Amd64Register -> BinaryOp -> Type -> Amd64Register -> Amd64Register -> Operand -> M [Amd64Statement]
 amd64Binary ctx op ty dst a right =
   case op of
+    Add | ty == I32 -> pure (arithmetic32 True AmdAdd)
     Add ->
       let (loads, b) = wrappedValue ty right
        in pure
@@ -695,6 +696,7 @@ amd64Binary ctx op ty dst a right =
                       RightRegister _ -> arith True AmdAdd dst a b
                   )
             )
+    Sub | ty == I32 -> pure (arithmetic32 False AmdSub)
     Sub ->
       let (loads, b) = wrappedValue ty right
        in pure
@@ -707,6 +709,10 @@ amd64Binary ctx op ty dst a right =
                       _ -> arith False AmdSub dst a b
                   )
             )
+    Mul
+      | ty == I32 ->
+          let (loads, b) = rightRegister ty right
+           in pure (loads <> multiply (dwordRegister dst) (dwordRegister a) (dwordRegister b))
     Mul ->
       let (loads, b) = rightRegister ty right
        in pure (loads <> narrow ty dst (multiply dst a b))
@@ -741,6 +747,12 @@ amd64Binary ctx op ty dst a right =
     Pdep -> pure (bmi2 AmdPdep)
     Pext -> pure (bmi2 AmdPext)
   where
+    arithmetic32 commutative instruction =
+      let (loads, b) = wrappedValue ty right
+          source = case b of
+            RightImmediate value -> RightImmediate value
+            RightRegister register -> RightRegister (dwordRegister register)
+       in loads <> arith commutative instruction (dwordRegister dst) (dwordRegister a) source
     rotateBits leftward
       | ty == I1 = move dst a
       | Just 0 <- count = move dst a
@@ -794,7 +806,9 @@ amd64Binary ctx op ty dst a right =
         register == dest =
           if commutative
             then [amd64Instruction (instruction (Amd64RmRegister dest) (Amd64BinaryRegister left))]
-            else move scratchLeft left <> [amd64Instruction (instruction (Amd64RmRegister scratchLeft) (binarySource b))] <> move dest scratchLeft
+            else
+              let scratch = if ty == I32 && op `elem` [Add, Sub] then dwordRegister scratchLeft else scratchLeft
+               in move scratch left <> [amd64Instruction (instruction (Amd64RmRegister scratch) (binarySource b))] <> move dest scratch
       | otherwise = move dest left <> [amd64Instruction (instruction (Amd64RmRegister dest) (binarySource b))]
     addImmediate dest left value
       | dest /= left = [amd64Instruction (AmdLea dest (Amd64MemoryAddress (Amd64Memory left (fromInteger value))))]

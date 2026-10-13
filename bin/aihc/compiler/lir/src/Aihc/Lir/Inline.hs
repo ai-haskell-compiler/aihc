@@ -26,7 +26,7 @@ where
 
 import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants)
-import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations)
+import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths)
 import Aihc.Lir.Syntax
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Map.Strict (Map)
@@ -42,7 +42,7 @@ prepareModule :: Integer -> Module -> Module
 prepareModule wordBytes = simplify . inlineModule . resolveConstants wordBytes
   where
     simplify (Module items) = Module (map simplifyItem items)
-    simplifyItem (ItemFunction function) = ItemFunction (simplifyRotations (simplifyBooleanBranches function))
+    simplifyItem (ItemFunction function) = ItemFunction (simplifyWidths (simplifyRotations (simplifyBooleanBranches function)))
     simplifyItem item = item
 
 -- | 'prepareModule', with the module linted as it was written and again as
