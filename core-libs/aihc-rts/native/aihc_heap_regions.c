@@ -276,3 +276,14 @@ void *aihc_region_run_base(const void *address) {
       (uint8_t *)((uintptr_t)address & ~(uintptr_t)(AIHC_REGION_BYTES - 1));
   return region - ((size_t)entry->offset << AIHC_REGION_SHIFT);
 }
+
+AihcRegionLocation aihc_region_location(const void *address) {
+  const AihcRegionEntry *entry = aihc_region_entry(address, 0);
+  if (entry == NULL || entry->mapping == NULL) {
+    return (AihcRegionLocation){AIHC_REGION_OUTSIDE, NULL};
+  }
+  uintptr_t region = (uintptr_t)address & ~(uintptr_t)(AIHC_REGION_BYTES - 1);
+  return (AihcRegionLocation){
+      (AihcRegionKind)entry->kind,
+      (void *)(region - ((size_t)entry->offset << AIHC_REGION_SHIFT))};
+}
