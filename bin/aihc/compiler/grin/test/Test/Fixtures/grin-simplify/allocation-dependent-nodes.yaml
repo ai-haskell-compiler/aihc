@@ -1,0 +1,36 @@
+program: |
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    thunk :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    pair :: BoxedRep Lifted <-
+      store (CPair (thunk :: BoxedRep Lifted) (thunk :: BoxedRep Lifted))
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      _ ->
+        constant (pair :: BoxedRep Lifted)
+expected: |-
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      _ ->
+        thunk :: BoxedRep Lifted <-
+          store (F$loop (x :: BoxedRep Lifted))
+        store (CPair (thunk :: BoxedRep Lifted) (thunk :: BoxedRep Lifted))
+status: pass
+reason: move a constructor and its captured thunk into the branch that needs both allocations

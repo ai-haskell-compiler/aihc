@@ -297,6 +297,12 @@ void *aihc_regions_acquire(size_t count, AihcRegionKind kind);
 void aihc_regions_release(void *base);
 /* Change the kind of every region of an acquired run. */
 void aihc_regions_set_kind(void *base, AihcRegionKind kind);
+/* The kind and run base from one region table lookup. */
+typedef struct {
+  AihcRegionKind kind;
+  void *base;
+} AihcRegionLocation;
+AihcRegionLocation aihc_region_location(const void *address);
 /* The kind of the region that holds an address. */
 AihcRegionKind aihc_region_kind(const void *address);
 /* The start of the acquired run that holds an address, or null outside every

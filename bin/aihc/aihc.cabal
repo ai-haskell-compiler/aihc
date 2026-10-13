@@ -203,6 +203,7 @@ library
     Aihc.Fc.Wired
     Aihc.Fc.WorkerWrapper
     Aihc.Grin
+    Aihc.Grin.Allocation
     Aihc.Grin.Anf
     Aihc.Grin.Cps
     Aihc.Grin.Dce

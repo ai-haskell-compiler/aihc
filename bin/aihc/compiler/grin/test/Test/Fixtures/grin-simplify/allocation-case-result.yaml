@@ -1,0 +1,46 @@
+program: |
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    first :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    next :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (first :: BoxedRep Lifted)
+    result :: BoxedRep Lifted <-
+      case (flag :: IntRep) as selected :: IntRep of
+        (0 :: IntRep) ->
+          constant (value :: BoxedRep Lifted)
+        _ ->
+          store (CPair (next :: BoxedRep Lifted) (next :: BoxedRep Lifted))
+    store (CPair (result :: BoxedRep Lifted) (first :: BoxedRep Lifted))
+expected: |-
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    first :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (first :: BoxedRep Lifted)
+    result :: BoxedRep Lifted <-
+      case (flag :: IntRep) as selected :: IntRep of
+        (0 :: IntRep) ->
+          constant (value :: BoxedRep Lifted)
+        _ ->
+          next :: BoxedRep Lifted <-
+            store (F$loop (x :: BoxedRep Lifted))
+          store (CPair (next :: BoxedRep Lifted) (next :: BoxedRep Lifted))
+    store (CPair (result :: BoxedRep Lifted) (first :: BoxedRep Lifted))
+status: pass
+reason: move an unused allocation into a case result but retain a thunk whose evaluation and later use need one shared object
