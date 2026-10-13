@@ -8,12 +8,13 @@ module Aihc.Dev.Fuzz.TUI
   )
 where
 
-import Data.List (intercalate, isPrefixOf)
+import Data.List (isPrefixOf, sortOn)
 import Data.Time.Clock (NominalDiffTime)
 import Text.Printf (printf)
 
 data Dashboard = Dashboard
-  { dashboardActive :: [(Int, String, Int)],
+  { dashboardActive :: [(Int, String)],
+    dashboardPropertyCases :: [(String, Int)],
     dashboardBatches :: Int,
     dashboardCases :: Int,
     dashboardElapsed :: NominalDiffTime,
@@ -32,20 +33,20 @@ renderDashboard rows columns dashboard
     usableWidth = columns - 1
 
 fullDashboard :: Int -> Int -> Dashboard -> [String]
-fullDashboard rows width dashboard@Dashboard {dashboardActive, dashboardBatches, dashboardCases, dashboardElapsed, dashboardJobs, dashboardProperties} =
+fullDashboard rows width dashboard@Dashboard {dashboardBatches, dashboardCases, dashboardElapsed, dashboardJobs, dashboardProperties} =
   map (clip width) $
-    [ alignedTitle width (" AIHC FUZZ  " <> statusDot <> " RUNNING") (formatElapsed dashboardElapsed),
+    [ alignedTitle width (" AIHC FUZZ COMMAND CENTER  " <> statusDot <> " RUNNING") (formatElapsed dashboardElapsed),
       replicate width '─',
       " "
-        <> formatInteger dashboardCases
+        <> formatCount dashboardCases
         <> " cases  ·  "
-        <> formatInteger dashboardBatches
+        <> formatCount dashboardBatches
         <> " batches  ·  "
         <> show dashboardProperties
         <> " properties",
       " " <> show dashboardJobs <> " workers  ·  10,000 cases per batch  ·  q/esc quit",
       "",
-      " ACTIVE  " <> show (length dashboardActive)
+      " PROPERTIES  " <> show dashboardProperties
     ]
       <> activeLines (rows - 6) width dashboard
 
@@ -58,49 +59,30 @@ compactDashboard rows width dashboard@Dashboard {dashboardCases, dashboardElapse
           <> "  "
           <> formatElapsed dashboardElapsed
           <> "  ·  "
-          <> formatInteger dashboardCases
+          <> formatCount dashboardCases
           <> " cases"
       ]
         <> activeLines (rows - 1) width dashboard
 
 activeLines :: Int -> Int -> Dashboard -> [String]
-activeLines slots width Dashboard {dashboardActive = firstActive : remainingActive}
+activeLines slots _ Dashboard {dashboardActive, dashboardPropertyCases, dashboardElapsed}
   | slots <= 0 = []
-  | length dashboardActive <= slots = map (renderActive width) dashboardActive
-  | slots == 1 = [renderCompactActive firstActive <> "  (+" <> show (length remainingActive) <> ")"]
+  | length properties <= slots = map renderProperty properties
   | otherwise =
-      map (renderActive width) (take (slots - 1) dashboardActive)
-        <> ["  + " <> show (length dashboardActive - slots + 1) <> " more active workers"]
+      map renderProperty (take (slots - 1) properties)
+        <> ["  + " <> show (length properties - slots + 1) <> " more properties"]
   where
-    dashboardActive = firstActive : remainingActive
-activeLines _ _ Dashboard {dashboardActive = []} = []
-
-renderActive :: Int -> (Int, String, Int) -> String
-renderActive width active@(workerId, propertyId, successfulCases)
-  | width < 50 = renderCompactActive active
-  | otherwise =
+    workers name = length [() | (_, propertyId) <- dashboardActive, propertyId == name]
+    properties = sortOn (\(name, _) -> (workers name == 0, name)) dashboardPropertyCases
+    spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" !! (floor (dashboardElapsed * 10) `mod` 10)
+    renderProperty (name, count) =
       "  "
-        <> leftPad 2 (show workerId)
+        <> [if workers name > 0 then spinner else '·']
         <> "  "
-        <> progressBar barWidth successfulCases
+        <> leftPad 6 (formatCount count)
         <> "  "
-        <> leftPad 6 (formatInteger successfulCases)
-        <> " / 10,000  "
-        <> propertyId
-  where
-    barWidth = max 8 (min 18 (width `div` 5))
-
-renderCompactActive :: (Int, String, Int) -> String
-renderCompactActive (workerId, propertyId, successfulCases) =
-  "[" <> show workerId <> "] " <> leftPad 3 (show percentage) <> "%  " <> propertyId
-  where
-    percentage = min 100 (successfulCases * 100 `div` 10000)
-
-progressBar :: Int -> Int -> String
-progressBar width successfulCases =
-  replicate complete '━' <> replicate (width - complete) '─'
-  where
-    complete = min width (successfulCases * width `div` 10000)
+        <> name
+        <> if workers name > 1 then "  [" <> show (workers name) <> " jobs]" else ""
 
 alignedTitle :: Int -> String -> String -> String
 alignedTitle width left right =
@@ -134,7 +116,7 @@ styleLine :: String -> String
 styleLine line
   | "AIHC FUZZ" `isPrefixOf` dropWhile (== ' ') line = bold <> cyan <> line <> reset
   | not (null line) && all (== '─') line = dim <> line <> reset
-  | " ACTIVE" `isPrefixOf` line = bold <> line <> reset
+  | " PROPERTIES" `isPrefixOf` line = bold <> line <> reset
   | "  + " `isPrefixOf` line = yellow <> line <> reset
   | otherwise = line
 
@@ -165,9 +147,13 @@ formatElapsed elapsed =
 leftPad :: Int -> String -> String
 leftPad width value = replicate (max 0 (width - length value)) ' ' <> value
 
-formatInteger :: Int -> String
-formatInteger value =
-  reverse . intercalate "," . chunksOfThree . reverse $ show value
+-- | Use decimal SI prefixes for cumulative test counts.
+formatCount :: Int -> String
+formatCount value
+  | value < 1000 = show value
+  | otherwise = scale (fromIntegral value :: Double) ["K", "M", "G", "T", "P", "E"]
   where
-    chunksOfThree [] = []
-    chunksOfThree input = take 3 input : chunksOfThree (drop 3 input)
+    scale number (suffix : rest)
+      | number >= 999950 && not (null rest) = scale (number / 1000) rest
+      | otherwise = printf "%.1f%s" (number / 1000) suffix
+    scale number [] = printf "%.0f" number

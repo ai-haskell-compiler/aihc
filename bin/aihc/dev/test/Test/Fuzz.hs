@@ -19,15 +19,31 @@ fuzzTests =
     "fuzz"
     [ testCase "uses 10,000-case scheduling batches" $
         assertEqual "batch size" 10000 batchSize,
-      testCase "refreshes the dashboard at most every five seconds" $
-        assertEqual "refresh interval" (5 * 1000000) dashboardRefreshMicroseconds,
+      testCase "refreshes the dashboard ten times per second" $
+        assertEqual "refresh interval" 100000 dashboardRefreshMicroseconds,
       testCase "feeds one selected property to every worker" $
-        assertEqual "assignments" (replicate 10 "only" :: [String]) (take 10 (cycleProperties ["only"])),
+        assertEqual "assignments" (replicate 10 "only" :: [String]) (take 10 (cycleProperties [(1, "only")])),
       testCase "cycles property assignments without tracking active work" $
         assertEqual
           "assignments"
           (["one", "two", "three", "one", "two", "three", "one"] :: [String])
-          (take 7 (cycleProperties ["one", "two", "three"])),
+          (take 7 (cycleProperties [(1, "one"), (1, "two"), (1, "three")])),
+      testCase "runs weight 1 ten times as often as weight 0.1" $ do
+        let assignments = take 110 (cycleProperties [(1, "a" :: String), (0.1, "b")])
+        assertEqual "weight 1" 100 (length (filter (== "a") assignments))
+        assertEqual "weight 0.1" 10 (length (filter (== "b") assignments)),
+      testCase "shows one cumulative count for concurrent workers" $ do
+        let dashboard =
+              sampleDashboard
+                { dashboardActive = [(1, "gc"), (2, "gc")],
+                  dashboardPropertyCases = [("gc", 1500000), ("idle", 2000000000)]
+                }
+            frame = renderDashboard 20 90 dashboard
+            nextFrame = renderDashboard 20 90 dashboard {dashboardElapsed = 65.1}
+        assertEqual "one property row" 1 (length (filter ("gc" `isInfixOf`) frame))
+        assertBool "cumulative count" (any ("1.5M  gc  [2 jobs]" `isInfixOf`) frame)
+        assertBool "inactive count" (any ("2.0G  idle" `isInfixOf`) frame)
+        assertBool "spinner advances" (frame /= nextFrame),
       testCase "does not cap jobs at the selected property count" $
         assertEqual "jobs" 10 (resolveJobCount 4 (Just 10)),
       testCase "recognizes q and escape as quit keys" $ do
@@ -65,13 +81,13 @@ fuzzTests =
         assertEqual "unique identifiers" (length identifiers) (length (nub identifiers))
         assertEqual
           "components"
-          (Set.fromList ["aihc-grin", "aihc-tc"])
+          (Set.fromList ["aihc-grin", "aihc-tc", "aihc-gc"])
           components,
       testCase "dashboard stays within short and narrow terminals" $ do
         let frame = renderDashboard 3 24 sampleDashboard
         assertEqual "uses available rows" 3 (length frame)
         assertBool "respects terminal width" (all ((<= 23) . length) frame)
-        assertBool "reports hidden workers" (any ("more active" `isInfixOf`) frame),
+        assertBool "reports hidden properties" (any ("more properties" `isInfixOf`) frame),
       testCase "dashboard has a useful one-row fallback" $ do
         let frame = renderDashboard 1 18 sampleDashboard
         assertEqual "one row" 1 (length frame)
@@ -81,8 +97,8 @@ fuzzTests =
       testCase "dashboard renders progress without filling unused rows" $ do
         let frame = renderDashboard 20 90 sampleDashboard
         assertBool "does not pad to terminal height" (length frame < 20)
-        assertBool "shows active count" (any ("ACTIVE  5" `isInfixOf`) frame)
-        assertBool "shows progress bar" (any ('━' `elem`) frame)
+        assertBool "shows active count" (any ("PROPERTIES  35" `isInfixOf`) frame)
+        assertBool "shows spinner" (any ('⠋' `elem`) frame)
         assertBool "respects terminal width" (all ((<= 89) . length) frame),
       testCase "incremental renderer only updates changed rows" $ do
         let update = renderFrameUpdate 10 ["title", "old", "same"] ["title", "new", "same"]
@@ -99,11 +115,18 @@ sampleDashboard :: Dashboard
 sampleDashboard =
   Dashboard
     { dashboardActive =
-        [ (1, "aihc-tc.substitution composition", 1250),
-          (2, "aihc-tc.unification symmetry", 5000),
-          (3, "aihc-grin.lint preservation", 9999),
-          (4, "aihc-tc.zonking idempotent", 2500),
-          (5, "aihc-grin.pretty-printer round-trip", 7500)
+        [ (1, "aihc-tc.substitution composition"),
+          (2, "aihc-tc.unification symmetry"),
+          (3, "aihc-grin.lint preservation"),
+          (4, "aihc-tc.zonking idempotent"),
+          (5, "aihc-grin.pretty-printer round-trip")
+        ],
+      dashboardPropertyCases =
+        [ ("aihc-tc.substitution composition", 1250),
+          ("aihc-tc.unification symmetry", 5000),
+          ("aihc-grin.lint preservation", 9999),
+          ("aihc-tc.zonking idempotent", 2500),
+          ("aihc-grin.pretty-printer round-trip", 7500)
         ],
       dashboardBatches = 42,
       dashboardCases = 424242,

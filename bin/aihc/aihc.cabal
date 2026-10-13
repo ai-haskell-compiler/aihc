@@ -335,6 +335,8 @@ executable aihc-dev
   hs-source-dirs:
     dev/exe
     dev/src
+    compiler/native/test
+    test-support
     compiler/grin/fuzz
     compiler/grin/test
 
@@ -357,8 +359,10 @@ executable aihc-dev
     Aihc.Dev.Fuzz.TUI
     Aihc.Dev.PipelineExamples
     Aihc.Grin.Fuzz
+    Aihc.Testing.RuntimeArchive
     GrinGolden
     Test.Grin.Arbitrary
+    Test.Native.GcFuzz
 
   build-depends:
     aeson >=2.0 && <2.3,
@@ -388,7 +392,9 @@ executable aihc-dev
     process >=1.6 && <1.8,
     regex-pcre-builtin >=0.95.2 && <0.96,
     stm >=2.5 && <2.6,
+    tasty,
     tasty-hedgehog,
+    tasty-hunit,
     temporary,
     terminal-size >=0.3.2 && <0.4,
     text >=1.2.3 && <2.2,
@@ -511,6 +517,8 @@ test-suite dev-spec
   hs-source-dirs:
     dev/test
     dev/src
+    compiler/native/test
+    test-support
     compiler/grin/fuzz
     compiler/grin/test
 
@@ -528,10 +536,12 @@ test-suite dev-spec
     Aihc.Dev.Fuzz.Registry
     Aihc.Dev.Fuzz.TUI
     Aihc.Grin.Fuzz
+    Aihc.Testing.RuntimeArchive
     Test.ExploreDocument
     Test.ExtractHiCompare
     Test.Fuzz
     Test.Grin.Arbitrary
+    Test.Native.GcFuzz
 
   build-depends:
     aeson >=2.0 && <2.3,
@@ -562,6 +572,7 @@ test-suite dev-spec
     tasty,
     tasty-hedgehog,
     tasty-hunit,
+    temporary,
     terminal-size >=0.3.2 && <0.4,
     text >=1.2.3 && <2.2,
     time,

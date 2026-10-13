@@ -578,6 +578,24 @@ collection. An indirection of an older generation stays until a collection
 copies that generation. Static indirections stay in place, because static
 objects do not move. The collector forwards their targets instead.
 
+Run `cabal run aihc-dev -- fuzz --filter aihc-gc` to test the collector continuously.
+The command uses the same GC property as the test suite.
+Each batch has its own C driver.
+The command releases the driver when the batch stops.
+Run this command from the repository or one of its directories.
+
+The fuzz registry gives each property a positive weight.
+A weight of 1 selects ten times as many batches as a weight of 0.1.
+Each batch has 10,000 successful cases.
+The GC property has weight 0.1. Other properties have weight 1.
+Use `aihc-dev fuzz list` to see the weights.
+
+The terminal display shows a spinner for each active property.
+Counts include completed tests from all workers and all batches for each property.
+The display uses decimal prefixes: K, M, G, T, P, and E.
+It updates ten times per second.
+Press `q` or Escape to stop. Use `--time-limit 30s` to stop after 30 seconds.
+
 The collector has a fuzz test in `Test.Native.GcFuzz`. The test generates
 random scripts that build heaps and stacks through the runtime interface,
 change them, and force collections. A C driver runs each script against the

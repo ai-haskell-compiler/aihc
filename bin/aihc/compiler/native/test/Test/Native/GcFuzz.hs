@@ -25,14 +25,15 @@
 -- after it against the shrunk state and every shrunk script stays valid.
 module Test.Native.GcFuzz
   ( tests,
+    withGcFuzzProperty,
   )
 where
 
 import Aihc.Native (NativeTarget (Llvm), backendCompiler)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), cachedRuntimeArchive)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, takeMVar)
-import Control.Exception (IOException, SomeException, throwIO, try)
+import Control.Exception (IOException, SomeAsyncException, SomeException, bracket, finally, fromException, onException, throwIO, try)
 import Control.Monad (forM, replicateM, unless)
 import Data.Bits (shiftL, (.|.))
 import Data.Char (isSpace)
@@ -49,10 +50,10 @@ import Hedgehog (Gen, Property, annotate, classify, cover, evalIO, failure, forA
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric (readHex, showHex)
-import System.Directory (removeDirectoryRecursive)
+import System.Directory (doesFileExist, getCurrentDirectory, removeDirectoryRecursive)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO (BufferMode (BlockBuffering), Handle, hClose, hFlush, hGetContents, hGetLine, hPutStr, hSetBuffering)
 import System.IO.Error (tryIOError)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
@@ -63,6 +64,13 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
 
 -- * Tests
+
+-- | Give each batch its own driver and release it when the batch stops.
+withGcFuzzProperty :: (Property -> IO a) -> IO a
+withGcFuzzProperty action =
+  bracket compileDriver (removeDirectoryRecursive . fst) $ \build ->
+    bracket (newDriver (pure build)) stopDriver $ \driver ->
+      action (prop_collect (pure driver))
 
 tests :: TestTree
 tests =
@@ -1857,7 +1865,7 @@ data Process = Process
 -- taken from the store.
 compileDriver :: IO (FilePath, FilePath)
 compileDriver = do
-  root <- lookupEnv "AIHC_TEST_ROOT" >>= maybe (throwIO (userError "AIHC_TEST_ROOT is not set")) pure
+  root <- lookupEnv "AIHC_TEST_ROOT" >>= maybe (getCurrentDirectory >>= findRoot) pure
   temporary <- getCanonicalTemporaryDirectory
   directory <- createTempDirectory temporary "aihc-gc-fuzz"
   let source = root </> "bin" </> "aihc" </> "compiler" </> "native" </> "test" </> "gc-fuzz" </> "aihc_gc_fuzz.c"
@@ -1884,13 +1892,25 @@ compileDriver = do
       compilePlain =
         buildAndLink []
           >>= either (\message -> throwIO (userError ("cannot compile the collector fuzz driver:\n" <> message))) pure
-  sanitized <- buildAndLink ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
-  case sanitized of
-    Left _ -> compilePlain
-    Right () -> do
-      usable <- driverAnswers executable
-      unless usable compilePlain
+  let compile = do
+        sanitized <- buildAndLink ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        case sanitized of
+          Left _ -> compilePlain
+          Right () -> do
+            usable <- driverAnswers executable
+            unless usable compilePlain
+  compile `onException` removeDirectoryRecursive directory
   pure (directory, executable)
+  where
+    findRoot directory = do
+      exists <- doesFileExist (directory </> "bin" </> "aihc" </> "aihc.cabal")
+      if exists
+        then pure directory
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then throwIO (userError "Cannot find the GC driver. Set AIHC_TEST_ROOT to the repository root.")
+            else findRoot parent
 
 -- | Whether a freshly compiled driver starts and answers a trivial script.
 --
@@ -1904,8 +1924,8 @@ compileDriver = do
 -- build when it cannot.
 driverAnswers :: FilePath -> IO Bool
 driverAnswers executable = do
-  outcome <- timeout (10 * 1000000) (try (readProcessWithExitCode executable [] "end\n"))
-  pure $ case outcome :: Maybe (Either SomeException (ExitCode, String, String)) of
+  outcome <- timeout (10 * 1000000) (tryIOError (readProcessWithExitCode executable [] "end\n"))
+  pure $ case outcome :: Maybe (Either IOException (ExitCode, String, String)) of
     Just (Right (ExitSuccess, output, _)) -> "done" `elem` lines output
     _ -> False
 
@@ -1932,6 +1952,7 @@ killProcess process = do
   _ <- try (hClose (processInput process)) :: IO (Either IOException ())
   _ <- waitForProcess (processHandle process)
   errors <- try (hGetContents (processError process) >>= \text -> length text `seq` pure text) :: IO (Either IOException String)
+  hClose (processOutput process)
   pure (fromRight "" errors)
 
 -- | Run one script and return the driver's report lines.
@@ -1943,19 +1964,26 @@ runScript driver script = modifyMVar (driverProcess driver) $ \state -> do
     Right (Just (Right output)) -> pure (Just process, Right output)
     Right (Just (Left message)) -> failed process message
     Right Nothing -> failed process "the driver did not answer within the time limit"
-    Left exception -> failed process ("the driver stopped: " <> show exception)
+    Left exception -> do
+      message <- killProcess process
+      case fromException exception :: Maybe SomeAsyncException of
+        Just _ -> throwIO exception
+        Nothing -> pure (Nothing, Left ("the driver stopped: " <> show exception <> "\n" <> message))
   where
     -- The driver reports collections while it still reads the script, so
     -- a long script and its reports can fill both pipes at once. A thread
     -- of its own writes the script while this one reads the reports.
     exchange process = timeout (60 * 1000000) $ do
       written <- newEmptyMVar
-      _ <- forkIO $ do
+      writer <- forkIO $ do
         outcome <- try (hPutStr (processInput process) script >> hPutStr (processInput process) "end\n" >> hFlush (processInput process)) :: IO (Either IOException ())
         putMVar written outcome
-      result <- collectLines (processOutput process) []
-      _ <- takeMVar written
-      pure result
+      ( do
+          result <- collectLines (processOutput process) []
+          _ <- takeMVar written
+          pure result
+        )
+        `finally` killThread writer
     collectLines output acc = do
       line <- hGetLine output
       case words line of
