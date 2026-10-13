@@ -45,6 +45,7 @@ They do not predict the cost of larger workloads.
 ## What the MVar probe executes
 
 The driver supplies a 256-byte nursery and an empty machine record.
+GenMC's supported `malloc` operation supplies the nursery storage.
 It calls the actual `aihc_mvar_new`, which uses the actual `aihc_gc_allocate`.
 Two POSIX test threads then call the actual `aihc_mvar_try_put` on that MVar.
 Each call executes the actual write barrier.

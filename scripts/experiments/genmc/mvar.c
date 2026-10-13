@@ -1,12 +1,12 @@
 #include "aihc_runtime_internal.h"
 #include <assert.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 /* The fault removes mutual exclusion from two actual RTS calls.
    The normal RTS permits only one OS thread. */
 
 static AihcMachine machine;
-static AihcSlot nursery[32];
 static void *mvar;
 static pthread_mutex_t lock;
 static uint64_t results[2];
@@ -25,10 +25,11 @@ static void *worker(void *argument) {
 
 int main(void) {
   pthread_t workers[2];
-  machine.heap_start = (uint8_t *)nursery;
+  machine.heap_start = malloc(256);
+  assert(machine.heap_start != NULL);
   machine.heap_next = machine.heap_start;
-  machine.heap_limit = machine.heap_start + sizeof(nursery);
-  machine.nursery_bytes = sizeof(nursery);
+  machine.heap_limit = machine.heap_start + 256;
+  machine.nursery_bytes = 256;
   mvar = aihc_mvar_new(&machine);
   pthread_mutex_init(&lock, NULL);
   pthread_create(&workers[0], NULL, worker, (void *)0);
@@ -39,5 +40,6 @@ int main(void) {
   assert(aihc_mvar_try_take(&machine, mvar) == 1);
   assert(aihc_mvar_try_take(&machine, mvar) == 0);
   pthread_mutex_destroy(&lock);
+  free(machine.heap_start);
   return 0;
 }

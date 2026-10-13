@@ -1,12 +1,14 @@
 #include "aihc_runtime_internal.h"
+#include <assert.h>
+#include <stdlib.h>
 
 static AihcMachine machine;
-static AihcSlot nursery[32];
 
 int main(void) {
-  machine.heap_start = (uint8_t *)nursery;
+  machine.heap_start = malloc(256);
+  assert(machine.heap_start != NULL);
   machine.heap_next = machine.heap_start;
-  machine.heap_limit = machine.heap_start + sizeof(nursery);
-  machine.nursery_bytes = sizeof(nursery);
+  machine.heap_limit = machine.heap_start + 256;
+  machine.nursery_bytes = 256;
   return aihc_gc_allocate_pinned(&machine, 1) == NULL;
 }
