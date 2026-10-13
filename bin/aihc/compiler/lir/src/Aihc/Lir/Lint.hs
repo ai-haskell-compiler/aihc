@@ -11,7 +11,7 @@ module Aihc.Lir.Lint
   )
 where
 
-import Aihc.Lir.Pretty (atomicOpName, binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettyQuoted, prettySymbol, prettyType, prettyVar, renderDoc, memoryOrderName, unaryOpName, wideOpName)
+import Aihc.Lir.Pretty (atomicOpName, binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, memoryOrderName, prettyLabel, prettyLiteral, prettyQuoted, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
 import Aihc.Lir.Resolve (evaluateConstants)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
