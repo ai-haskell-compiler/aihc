@@ -162,7 +162,7 @@ divisionFunction hardware name =
           ]
     v = OperandVar . Var
     n = OperandLiteral . LitInt
-    op label operation = Instruction [Var label] operation
+    op label = Instruction [Var label]
     target label = Target (Label label)
     branch value yes no = Branch (v value) (target yes []) (target no [])
     block label parameters instructions terminator = Block (Label label) [(Var parameter, I64) | parameter <- parameters] instructions terminator False
