@@ -243,6 +243,8 @@ data Operation
     Unary !UnaryOp !Type !Operand
   | -- | An operation with two results.
     Wide !WideOp !Type !Operand !Operand
+  | -- | Unsigned 128-bit dividend divided by an i64 divisor.
+    QuotRemWide !Type !Operand !Operand !Operand
   | Compare !CompareOp !Type !Operand !Operand
   | FloatBinary !FloatBinaryOp !Type !Operand !Operand
   | FloatUnary !FloatUnaryOp !Type !Operand
@@ -440,6 +442,7 @@ forOperationOperands act operation =
     Binary _ _ left right -> act left *> act right
     Unary _ _ value -> act value
     Wide _ _ left right -> act left *> act right
+    QuotRemWide _ high low divisor -> act high *> act low *> act divisor
     Compare _ _ left right -> act left *> act right
     FloatBinary _ _ left right -> act left *> act right
     FloatUnary _ _ value -> act value

@@ -223,6 +223,7 @@ resolveConstants wordBytes (Module items) = Module [resolveItem item | item <- i
         Binary op ty left right -> Binary op ty (operand left) (operand right)
         Unary op ty value -> Unary op ty (operand value)
         Wide op ty left right -> Wide op ty (operand left) (operand right)
+        QuotRemWide ty high low divisor -> QuotRemWide ty (operand high) (operand low) (operand divisor)
         Compare op ty left right -> Compare op ty (operand left) (operand right)
         FloatBinary op ty left right -> FloatBinary op ty (operand left) (operand right)
         FloatUnary op ty value -> FloatUnary op ty (operand value)

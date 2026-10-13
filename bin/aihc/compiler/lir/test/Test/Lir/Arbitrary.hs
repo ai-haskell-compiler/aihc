@@ -79,6 +79,7 @@ genOperation =
     [ Binary <$> Gen.enumBounded <*> genType <*> genOperand <*> genOperand,
       Unary <$> Gen.enumBounded <*> genType <*> genOperand,
       Wide <$> Gen.enumBounded <*> genType <*> genOperand <*> genOperand,
+      QuotRemWide <$> genType <*> genOperand <*> genOperand <*> genOperand,
       Compare <$> Gen.enumBounded <*> genType <*> genOperand <*> genOperand,
       FloatBinary <$> Gen.enumBounded <*> genType <*> genOperand <*> genOperand,
       FloatUnary <$> Gen.enumBounded <*> genType <*> genOperand,

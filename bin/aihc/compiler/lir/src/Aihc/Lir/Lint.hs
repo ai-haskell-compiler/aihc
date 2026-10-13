@@ -358,6 +358,7 @@ operationResultTypes symbols operation =
     Binary _ ty _ _ -> Just [ty]
     Unary _ ty _ -> Just [ty]
     Wide op ty _ _ -> Just (if op `elem` [MulWideS, MulWideU] then [ty, ty] else [ty, I1])
+    QuotRemWide ty _ _ _ -> Just [ty, ty]
     Compare {} -> Just [I1]
     FloatBinary _ ty _ _ -> Just [ty]
     FloatUnary _ ty _ -> Just [ty]
@@ -453,6 +454,8 @@ lintInstruction env blockIndex position instruction =
           (if isIntegerType ty then [] else rejects ty) <> check ty value
         Wide _ ty left right ->
           (if isIntegerType ty then [] else rejects ty) <> check ty left <> check ty right
+        QuotRemWide ty high low divisor ->
+          (if ty == I64 then [] else rejects ty) <> check ty high <> check ty low <> check ty divisor
         Compare op ty left right ->
           (if compareAccepts op ty then [] else rejects ty) <> check ty left <> check ty right
         FloatBinary _ ty left right ->
@@ -664,6 +667,7 @@ operationKeyword operation =
     Binary op _ _ _ -> binaryOpName op
     Unary op _ _ -> unaryOpName op
     Wide op _ _ _ -> wideOpName op
+    QuotRemWide {} -> "quotrem.wide.u"
     Compare op _ _ _ -> compareOpName op
     FloatBinary op _ _ _ -> floatBinaryOpName op
     FloatUnary op _ _ -> floatUnaryOpName op

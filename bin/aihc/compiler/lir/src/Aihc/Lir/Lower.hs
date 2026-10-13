@@ -324,7 +324,6 @@ data Helper
     HelperEvalSingleEntry
   | HelperResume
   | HelperExit
-  | HelperQuotRem2
   | HelperCStringLength
   | HelperContinue ![Type]
   | -- | Apply one to 'grinApplyGroupLimit' argument groups to a function.
@@ -346,7 +345,6 @@ helperSymbol helper =
     HelperEvalSingleEntry -> "aihc_lir_eval_single_entry"
     HelperResume -> "aihc_lir_resume"
     HelperExit -> "aihc_lir_exit"
-    HelperQuotRem2 -> "aihc_lir_quotrem2"
     HelperCStringLength -> "aihc_lir_cstring_length"
     HelperContinue shape -> "aihc_lir_continue_" <> shapeName shape
     HelperApply groups -> "aihc_lir_apply_" <> groupsName groups
@@ -674,7 +672,6 @@ helperSignature helper = case helper of
   HelperExit -> signature [] []
   HelperContinueSlot -> running [Ptr, I64]
   HelperApplySlot -> running [Ptr, Ptr, I64]
-  HelperQuotRem2 -> signature [I64, I64, I64] [I64, I64]
   HelperCStringLength -> Signature [Ptr] [I64] CConvention
   where
     signature parameters results = Signature parameters results AihcConvention
@@ -2322,11 +2319,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       remainder <- emitValue "remainder" I64 (Binary RemU I64 leftOperand rightOperand)
       bind [quotient, remainder]
     ("quotRemWord2#", [high, low, divisor]) -> do
-      operands <- mapM word [high, low, divisor]
-      helper <- requireHelper HelperQuotRem2
+      highOperand <- word high
+      lowOperand <- word low
+      divisorOperand <- word divisor
       quotient <- fresh "quotient"
       remainder <- fresh "remainder"
-      emit [quotient, remainder] (Call helper operands)
+      emit [quotient, remainder] (QuotRemWide I64 highOperand lowOperand divisorOperand)
       bind [Typed (OperandVar quotient) I64, Typed (OperandVar remainder) I64]
     ("nullAddr#", []) -> bind [Typed (OperandLiteral LitNull) Ptr]
     ("realWorld#", [])

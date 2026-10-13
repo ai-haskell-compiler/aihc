@@ -1,0 +1,8 @@
+; expect-trap: integer division by zero
+; Wide division must reject an invalid divisor or a quotient that does not fit.
+
+func @main() -> (i64, i64) {
+entry:
+  %q, %r = quotrem.wide.u i64 0, 1, 0
+  return %q, %r
+}

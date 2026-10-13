@@ -17,6 +17,7 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
+import Aihc.Lir.Division (lowerWideDivision)
 import Aihc.Lir.Inline (prepareCheckedModule)
 import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
@@ -463,7 +464,8 @@ edgeTo parameters (Target label arguments)
       pure ("%" <> name)
 
 compileFunction :: Ctx -> Function -> StateT ModuleState (Either LlvmLirError) [Text]
-compileFunction ctx function = do
+compileFunction ctx input = do
+  let function = lowerWideDivision True input
   ModuleState traps shims <- get
   let initial =
         FunctionState
@@ -669,6 +671,28 @@ compileInstruction ctx (Instruction results operation) =
         MulWideS -> wideMultiply "sext" ty a b
         AddCarry -> overflowIntrinsic "uadd" ty a b
         SubBorrow -> overflowIntrinsic "usub" ty a b
+    QuotRemWide _ high low divisor ->
+      case results of
+        [quotient, remainder] -> do
+          h <- fresh
+          l <- fresh
+          d <- fresh
+          shifted <- fresh
+          numerator <- fresh
+          q <- fresh
+          productValue <- fresh
+          r <- fresh
+          emit (h <> " = zext i64 " <> renderOperand I64 high <> " to i128")
+          emit (l <> " = zext i64 " <> renderOperand I64 low <> " to i128")
+          emit (d <> " = zext i64 " <> renderOperand I64 divisor <> " to i128")
+          emit (shifted <> " = shl i128 " <> h <> ", 64")
+          emit (numerator <> " = or i128 " <> shifted <> ", " <> l)
+          emit (q <> " = udiv i128 " <> numerator <> ", " <> d)
+          emit (productValue <> " = mul i128 " <> q <> ", " <> d)
+          emit (r <> " = sub i128 " <> numerator <> ", " <> productValue)
+          emit (renderVar quotient <> " = trunc i128 " <> q <> " to i64")
+          emit (renderVar remainder <> " = trunc i128 " <> r <> " to i64")
+        _ -> unsupported "wide division result count"
     Compare op ty left right ->
       single (comparison op ty <> " " <> renderType ty <> " " <> renderOperand ty left <> ", " <> renderOperand ty right)
     FloatBinary op ty left right ->
