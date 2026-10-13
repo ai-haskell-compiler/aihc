@@ -662,6 +662,7 @@ The delay-variable helper initializes its TVar and timer before any further coll
 GRIN snapshot fixtures request GC stress checks with `gc-stress: true`.
 The test harness changes generated Lir to select the collector path at each reservation.
 It identifies collector blocks by their calls to `aihc_heap_collect`.
+It replaces those calls with `aihc_gc_collect` to force a collection instead of a block refill.
 This transformation exists only in test code.
 Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
