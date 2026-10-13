@@ -124,6 +124,14 @@ and cancelling casts. The inliner calls it on every copy it
 makes, and the plan runs it standalone. A new local rewrite goes there. A new
 rule about *which* copies to make goes in the inliner.
 
+A shared lazy case can move into separate branches that use its result.
+The move requires a path that does not use the result.
+It does not enter a lambda or cross a use of the bound value.
+Thus, each execution path evaluates the case at most once, and unused paths stay lazy.
+The simplifier processes the copies before it applies the existing growth budget.
+If the copies exceed that budget, it retains the original shared case.
+This exposes scanner character conversions at their uses and can remove both the thunk and the character box.
+
 A cast on a case, a let or a recursive group in the head of an application
 moves into the branches, and the application follows it there. The lowered
 code erases the cast, so a call in a branch then gives the arguments of the
