@@ -26,10 +26,15 @@ The current capability uses one power-of-two window in this arena.
 The runtime rounds `-A` up to a power of two.
 A smaller heap limit or test budget can use part of that window.
 The region allocator keeps alignment fragments for reuse.
+Compiled stores and inline thunk updates test the nursery of the active capability.
+The test reads the capability from the stack chunk, then reads its nursery base and size.
+It uses an exclusive or with the aligned base and an unsigned size compare.
+The C runtime uses the same test.
+The runtime has no global nursery bounds.
 The runtime has no worker threads and does not enable `-N`.
 
 The rest of step 1 remains necessary before step 2.
-It includes the local write barrier, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
+It includes the escape count, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 
@@ -91,7 +96,7 @@ WASM keeps one capability until WASI supports the required thread operations.
 | Capability pointer | Loaded from the header of the stack chunk of `%sp`. No new register. | `BaseReg` is a pinned register. |
 | Nursery | One arena with one sub-range of `-A` bytes for each capability. A capability fills its own sub-range in 32 KiB blocks, in the same order in every round. | One nursery for each capability, optional `-n` chunks. |
 | Gen1 | Local blocks of each capability. A survivor stays for `-B` collections, one by default. No byte maximum. | Gen0 to-space, emptied at every collection. |
-| Write barrier | The fast path tests whether the object is in the sub-range of this capability. The test is an exclusive or with `%hp` and one shift. | A generation test through the block descriptor. |
+| Write barrier | The fast path tests whether the object is in the sub-range of this capability. The test uses the aligned nursery base and size from the capability. | A generation test through the block descriptor. |
 | Safepoints for GC | The block refill, the write barrier cold path, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
 | Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
 | Young collection, end state | Each capability collects its local heap alone, with the sequential collector and no stop. An escape promotes the local object graph into gen2. | A prototype in 2011, not merged. |
@@ -225,16 +230,29 @@ sub-range. It takes blocks of 32 KiB in address order from the start of
 the sub-range after each collection. No atomic operation is on the refill
 path. The RTS option `-n<size>` sets the block size.
 
-The write barrier fast path tests whether the object is in the sub-range
-of this capability. `%hp` is always inside that sub-range, so the test is:
+The write barrier fast path tests whether the object is in the nursery of
+this capability. It reads the capability from the stack chunk header, then
+reads `heap_start` and `nursery_bytes` from the capability. The test is:
 
 ```text
-(object xor %hp) >> log2(A) == 0
+(object xor heap_start) < nursery_bytes
 ```
 
-This is one exclusive or, one shift, and one branch, with no load. It
-replaces the subtraction and the compare against `aihc_nursery_start` and
-`aihc_nursery_bytes`. A store into an object outside the sub-range takes
+The compare is unsigned. The base has power-of-two window alignment.
+Within the window, the exclusive or gives the byte offset from the base.
+Outside the window, it gives a value at least as large as the window.
+The nursery budget never exceeds the window size.
+Thus a smaller heap limit or test budget also gives the correct result.
+
+The original design used `(object xor %hp) >> log2(A) == 0` without loads.
+However, `%hp` can equal the nursery end after an allocation.
+At that point, it names the next aligned window.
+Also, the runtime selects `-A`, so compiled code cannot use a constant shift.
+The implemented test uses the stable base and reads the size at runtime.
+It needs three loads, one exclusive or, one compare, and one branch before optimization.
+The previous test needed two global loads, one subtraction, one compare, and one branch.
+
+A store into an object outside the sub-range takes
 the cold path. In the first version the cold path records the object in
 the remembered set when it is old, as today, and counts the store when the
 object is young and belongs to another capability. In the end state that
@@ -1920,9 +1938,9 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | Cost | Where | Estimate |
 | --- | --- | --- |
 | Block refill | One slow path for each 32 KiB of allocation | Below 1 percent |
-| Sub-range barrier test | An exclusive or, a shift, and a branch in place of a subtraction, a compare, and a branch, with two loads fewer | Zero or a gain |
+| Sub-range barrier test | Capability, base, and size loads, then an exclusive or, a compare, and a branch | Measurement required |
 | Escape count | One counter add on the cold path of the write barrier | Near zero |
-| Capability load | One load next to each C call that took the machine | Near zero |
+| Capability load | One load next to each C call that took the machine and each compiled barrier | Near zero |
 | Owner word | One word in each thunk with free variables | 2 to 4 percent on lazy code |
 | Entry | The bit store of today disappears | A gain |
 | Claim walk | One compare-and-swap, two barriers, and one mark store for each update frame that is live at a pause, once for each frame | Below 1 percent |
@@ -1937,7 +1955,7 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | Collection with idle capabilities | One lock and one worker wake-up for each idle capability for each collection | Measured, see below |
 | Idle workers | `n - 1` parked OS threads | Zero CPU |
 
-The sum of the estimates is below 7 percent. The gate is 10 percent against
+The barrier load cost still needs measurement. The gate is 10 percent against
 the RTS before step 1. The workloads are the `gc-*` examples and the compile
 workloads of the benchmark suite. Each runs at `-N1` and at `-N<cores>`.
 
@@ -1977,7 +1995,7 @@ microseconds, so `-qn` may need a default below `-N` for this case.
 | Ticker | Timer thread or signal, 20 ms. | Timer thread, 20 ms, started at the second Haskell thread. |
 | Nursery | A block list for each capability, `-n` chunks optional. | One arena, one sub-range of `-A` bytes for each capability, 32 KiB blocks in address order. |
 | Gen1 | Gen0 to-space, emptied at every collection. | Local blocks, emptied every `-B` collections of the own capability, one by default. |
-| Write barrier | Generation test through the block descriptor, `mut_list` for each capability. | An exclusive or with `%hp` and a shift, remembered set for each capability. |
+| Write barrier | Generation test through the block descriptor, `mut_list` for each capability. | An exclusive or with the local nursery base and a size compare, remembered set for each capability. |
 | Local heaps | A prototype in 2011, not merged. | The end state. Promotion on escape at the cold paths. |
 | Minor collection | STW, parallel copy, work stealing. | First version: STW, parallel copy, work stealing, sequential instance for one worker. End state: a local sequential copy for each capability, no stop. |
 | Old generation | Copying by default, concurrent non-moving optional. | Non-moving mark and sweep with a concurrent marker. One stop for the flip, ragged root scans and termination. |

@@ -20,19 +20,16 @@ const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 4
 const @AIHC_INFO_BYTES = 5 words + 8
 
 
-; The bounds of the nursery, for the write barrier: an object is young when
-; its address less the start is below the size, and a pointer store into a
-; young object needs no barrier.
-extern data @aihc_nursery_start
-extern data @aihc_nursery_bytes
-
 ; AihcCapability fields used by evaluation. C assertions check these offsets.
 ; The heap pointer and the stack pointer of the capability are a copy of the
 ; context. The code stores them only before a C call that reads them.
 const @AIHC_CAPABILITY_HEAP_NEXT_OFFSET = 2 words
 const @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET = 3 words
 const @AIHC_CAPABILITY_STACK_NEXT_OFFSET = 4 words
+const @AIHC_CAPABILITY_HEAP_START_OFFSET = 5 words
 const @AIHC_CAPABILITY_CURRENT_THREAD_OFFSET = 6 words
+; The size follows seven pointer fields, with 8-byte alignment on both targets.
+const @AIHC_CAPABILITY_NURSERY_BYTES_OFFSET = 6 words + 8
 
 ; Two low header bits preserve the original info-table pointer.
 const @AIHC_HEADER_EVALUATING = 1

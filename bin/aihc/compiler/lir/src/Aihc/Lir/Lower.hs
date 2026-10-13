@@ -850,6 +850,14 @@ capabilityHeapLimitOffset target = capabilityHeapNextOffset target + toInteger (
 capabilityStackNextOffset :: LowerTarget -> Integer
 capabilityStackNextOffset target = capabilityHeapLimitOffset target + toInteger (lowerWordSize target)
 
+-- | The nursery base follows the stack pointer.
+capabilityHeapStartOffset :: LowerTarget -> Integer
+capabilityHeapStartOffset target = 5 * toInteger (lowerWordSize target)
+
+-- | The nursery size follows seven pointer fields, with 8-byte alignment.
+capabilityNurseryBytesOffset :: LowerTarget -> Integer
+capabilityNurseryBytesOffset target = 6 * toInteger (lowerWordSize target) + 8
+
 -- | The size and the alignment of a thread stack chunk. See
 -- @aihc_runtime_internal.h@.
 stackChunkBytes :: Integer
@@ -872,12 +880,10 @@ capabilityOperand context = do
 currentCapability :: LowerM Operand
 currentCapability = currentContext >>= capabilityOperand
 
--- | The write barrier before a pointer store into an existing object. A
--- store into a young object needs none, and the nursery is one range, so
--- the test is one subtraction and one unsigned compare against its bounds.
--- Every other object goes to the runtime, which records it in the
--- remembered set. The call allocates nothing and reads no context, so it
--- needs no sync of the capability.
+-- | The write barrier before a pointer store into an existing object.
+-- A store into the local nursery needs no runtime call.
+-- Its aligned base and size come from the capability of the stack chunk.
+-- The call allocates nothing and reads no context, so it needs no sync.
 emitWriteBarrier :: FunctionCtx -> Operand -> LowerM ()
 emitWriteBarrier ctx object = emitBarrier ctx object Nothing
 
@@ -889,28 +895,23 @@ emitWriteBarrierAt ctx object index = emitBarrier ctx object (Just index)
 
 emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> LowerM ()
 emitBarrier _ object index = do
-  requireExternData nurseryStartSymbol
-  requireExternData nurseryBytesSymbol
+  target <- targetM
+  capability <- currentCapability
   objectWord <- emitValue "object_word" I64 (PtrToInt object)
-  start <- emitValue "nursery_start" Ptr (Load Ptr (byteAddress (OperandLiteral (LitSymbol nurseryStartSymbol)) 0) (wordAlignment 1))
+  start <- emitValue "nursery_start" Ptr (Load Ptr (byteAddress capability (capabilityHeapStartOffset target)) (wordAlignment 1))
   startWord <- emitValue "nursery_start_word" I64 (PtrToInt (typedOperand start))
-  offset <- emitValue "nursery_offset" I64 (Binary Sub I64 (typedOperand objectWord) (typedOperand startWord))
-  bytes <- emitValue "nursery_bytes" I64 (Load I64 (byteAddress (OperandLiteral (LitSymbol nurseryBytesSymbol)) 0) (byteAlignment 8))
+  offset <- emitValue "nursery_offset" I64 (Binary Xor I64 (typedOperand objectWord) (typedOperand startWord))
+  bytes <- emitValue "nursery_bytes" I64 (Load I64 (byteAddress capability (capabilityNurseryBytesOffset target)) (byteAlignment 8))
   young <- emitValue "young" I1 (Compare LtU I64 (typedOperand offset) (typedOperand bytes))
   old <- freshLabel "barrier_old"
   done <- freshLabel "barrier_done"
   terminate (Branch (typedOperand young) (Target done []) (Target old []))
   beginColdBlock old []
-  capability <- currentCapability
   _ <- case index of
     Nothing -> callRuntime "aihc_write_barrier" [Ptr, Ptr] [] [capability, object]
     Just element -> callRuntime "aihc_write_barrier_at" [Ptr, Ptr, I64] [] [capability, object, element]
   terminate (Jump (Target done []))
   beginBlock done []
-
-nurseryStartSymbol, nurseryBytesSymbol :: Symbol
-nurseryStartSymbol = Symbol "aihc_nursery_start"
-nurseryBytesSymbol = Symbol "aihc_nursery_bytes"
 
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])
