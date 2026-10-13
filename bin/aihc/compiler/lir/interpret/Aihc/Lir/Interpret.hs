@@ -454,6 +454,34 @@ execOperation program locals operation =
       target <- effectiveAddress address alignment
       storeBytes program target (encodeValue ty stored)
       pure []
+    -- The interpreter runs one thread, so an atomic access is a plain
+    -- access at the natural alignment of its type.
+    LoadAtomic _ ty address -> naturalLoad ty address
+    LoadDependent ty address -> naturalLoad ty address
+    StoreAtomic _ ty value address -> do
+      stored <- operand ty value
+      target <- naturalAddress ty address
+      storeBytes program target (encodeValue ty stored)
+      pure []
+    CompareSwap _ ty expected replacement address -> do
+      wanted <- operand ty expected
+      new <- operand ty replacement
+      target <- naturalAddress ty address
+      old <- decodeValue ty <$> readBytes target (typeBytes ty)
+      when (old == wanted) $ storeBytes program target (encodeValue ty new)
+      pure [old]
+    AtomicRmw op _ ty value address -> do
+      argument <- operand ty value
+      target <- naturalAddress ty address
+      old <- decodeValue ty <$> readBytes target (typeBytes ty)
+      new <- case (op, old, argument) of
+        (AtomicXchg, _, _) -> pure argument
+        (AtomicAdd, VInt a, VInt b) -> VInt <$> binary Add ty a b
+        (AtomicOr, VInt a, VInt b) -> VInt <$> binary Or ty a b
+        _ -> trap "atomic operation on a value that is not an integer"
+      storeBytes program target (encodeValue ty new)
+      pure [old]
+    Fence _ -> pure []
     PtrAdd base offset -> do
       address <- ptrOperand base
       delta <- intOperand I64 offset
@@ -505,6 +533,11 @@ execOperation program locals operation =
           bytes = alignmentInBytes wordBytes alignment
       when (bytes > 1 && target `mod` fromInteger bytes /= 0) $ trap "misaligned memory access"
       pure target
+    naturalAddress ty location = effectiveAddress location (byteAlignment (toInteger (typeBytes ty)))
+    naturalLoad ty location = do
+      target <- naturalAddress ty location
+      bytes <- readBytes target (typeBytes ty)
+      pure [decodeValue ty bytes]
 
 readBytes :: Word64 -> Word64 -> M [Word8]
 readBytes address count = do

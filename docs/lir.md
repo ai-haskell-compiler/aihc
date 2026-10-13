@@ -554,6 +554,35 @@ therefore wrong wherever it runs, and caught only by the interpreter.
 may be `code`. Loading a `code` value from bytes that are not the address of a
 function gives a value that traps in `call.indirect`.
 
+### Atomic memory
+
+```text
+order ::= "relaxed" | "acquire" | "release" | "acq_rel" | "seq_cst"
+```
+
+An atomic operation accesses one value at the natural alignment of its type.
+It has no `align` clause. `T` is `i8`, `i16`, `i32`, `i64`, or `ptr`. The
+orders have the C11 meaning. `relaxed` gives atomicity and no order. A plain
+`load` or `store` names a location that no other thread can access at the
+same time. Refer to the memory model section of
+[multi-threaded-rts-design.md](multi-threaded-rts-design.md) for the rules
+that select an operation and an order.
+
+| Operation | Result | Semantics |
+| --- | --- | --- |
+| `load.atomic O T address` | `T` | Read a `T`. `O` is `relaxed`, `acquire`, or `seq_cst`. |
+| `store.atomic O T %v, address` | none | Write `%v`. `O` is `relaxed`, `release`, or `seq_cst`. |
+| `load.dependent T address` | `T` | Read a `T`. Each later load through the result occurs after this load. |
+| `cas O T %expected, %new, address` | `T` | Write `%new` when the location holds `%expected`. The result is the old value. |
+| `xchg O T %v, address` | `T` | Write `%v`. The result is the old value. |
+| `atomic.add O T %v, address` | `T` | Add `%v` with wrapping. The result is the old value. `T` is not `ptr`. |
+| `atomic.or O T %v, address` | `T` | Write the bitwise or. The result is the old value. `T` is not `ptr`. |
+| `fence O` | none | Order the memory accesses before and after it. `O` is not `relaxed`. |
+
+The read and the write of `cas`, `xchg`, `atomic.add`, and `atomic.or` are one
+indivisible operation. A failed `cas` does not write. Its order then applies
+to the read only, without the release part.
+
 ### Globals
 
 | Operation | Result | Semantics |
@@ -647,7 +676,9 @@ module from a named function and reports the results or the trap. Memory is a
 flat address space. Data objects, the stack, and code addresses have distinct
 regions. Code addresses are not readable, and a `ptr.from_int` of a code
 address is a pointer that traps on `load` and `store`. The interpreter uses a
-64-bit word size. It cannot call an extern function.
+64-bit word size. It cannot call an extern function. The interpreter runs one
+thread, so an atomic operation is a plain access. It traps when the address
+does not have the natural alignment of the type.
 
 The interpreter renders results with their declared types. An `iN` result is a
 signed decimal. An `i1` result is `0` or `1`. A float result uses the Haskell
@@ -1105,6 +1136,14 @@ rather than as a change of some object bytes. Run the suite with
   architecture has no scalar bit deposit or extract. A deposit walks the
   mask from its lowest set bit; an extract walks it from its highest set
   bit, which `clz` finds.
+- The atomic operations use the LSE instructions of ARMv8.1, which every
+  Apple ARM64 processor has. `cas`, `xchg`, `atomic.add`, and `atomic.or`
+  are `cas`, `swp`, `ldadd`, and `ldset`. The order selects the `a` and `l`
+  forms. An acquire or a sequentially consistent load is `ldar`, and a
+  release or a sequentially consistent store is `stlr`. A relaxed access and
+  `load.dependent` are plain loads and stores. The address dependency of a
+  plain load gives the order of `load.dependent`. An acquire `fence` is
+  `dmb ishld`, and the other fences are `dmb ish`.
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
 
@@ -1152,6 +1191,14 @@ design of the AArch64 backend:
   fit. Otherwise, the function calls and returns. A float travels as its bit
   pattern and moves through an `xmm` register at the boundary. A C function saves the preserved
   registers it uses, and all of them when it calls an aihc function.
+- Each AMD64 load has acquire order, and each plain store has release
+  order. Thus every atomic load, `load.dependent`, and a relaxed or release
+  store is a plain `mov`. A sequentially consistent store and `xchg` are
+  `xchg`, `atomic.add` is `lock xadd`, and `cas` is `lock cmpxchg`. AMD64 has
+  no or that gives the old value, so `atomic.or` is a loop of `lock cmpxchg`.
+  A function with `cas` or `atomic.or` keeps `rax` and `rdx` from the
+  allocator, as a division does. A sequentially consistent `fence` is
+  `mfence`. The other fences need no instruction.
 - `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`, and
   `pdep` and `pext` are the BMI2 instructions of the same name. This backend
   targets modern hardware and assumes SSE4.2, LZCNT, BMI1, and BMI2; a host
@@ -1180,6 +1227,9 @@ design of the AArch64 backend:
   one.
 - `pdep` and `pext` call internal functions of the module that loop over
   the set bits of the mask, since LLVM has no portable intrinsic for them.
+- The atomic operations are `load atomic`, `store atomic`, `cmpxchg`,
+  `atomicrmw`, and `fence`. A relaxed order is `monotonic`. LLVM gives no
+  order for an address dependency, so `load.dependent` is an acquire load.
 
 ### WebAssembly
 
@@ -1211,6 +1261,8 @@ Clang assembles:
   whole function.
 - The full 64-bit multiplications are Lir helper functions that the backend
   adds to the module.
+- A module without shared memory runs one thread, so each atomic operation
+  is a plain load and store, and a `fence` is no instruction.
 - A trap calls `aihc_lir_trap` with the message and its length and then
   executes `unreachable`. The WASI P3 host has no synchronous error stream,
   so its `aihc_lir_trap` drops the message and traps.

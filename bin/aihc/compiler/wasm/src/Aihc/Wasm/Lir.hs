@@ -504,6 +504,12 @@ resultTypes ctx (Instruction results operation) =
     Select ty _ _ _ -> [ty]
     Load ty _ _ -> [ty]
     Store {} -> []
+    LoadAtomic _ ty _ -> [ty]
+    StoreAtomic {} -> []
+    LoadDependent ty _ -> [ty]
+    CompareSwap _ ty _ _ _ -> [ty]
+    AtomicRmw _ _ ty _ _ -> [ty]
+    Fence _ -> []
     PtrAdd _ _ -> [Ptr]
     StackAlloc _ _ -> [Ptr]
     GlobalGet symbol -> [Map.findWithDefault I64 symbol (ctxGlobals ctx)]
@@ -951,6 +957,46 @@ compileInstruction fn (Instruction results operation) =
       offset <- effectiveAddress address
       push fn ty value
       emit (storeInstruction ty <> "\t" <> tshow offset)
+    -- A module without shared memory runs one thread, so each atomic
+    -- operation is a plain access.
+    LoadAtomic _ ty address -> plainLoad ty address
+    LoadDependent ty address -> plainLoad ty address
+    StoreAtomic _ ty value address -> do
+      offset <- effectiveAddress address
+      push fn ty value
+      emit (storeInstruction ty <> "\t" <> tshow offset)
+    CompareSwap _ ty expected replacement address ->
+      case results of
+        [old] -> do
+          plainLoad ty address
+          offset <- effectiveAddress address
+          push fn ty replacement
+          push fn ty (OperandVar old)
+          push fn ty (OperandVar old)
+          push fn ty expected
+          emit (prefix ty <> ".eq")
+          emit (wasmType ty <> ".select")
+          emit (storeInstruction ty <> "\t" <> tshow offset)
+        _ -> unsupported "cas result count"
+    AtomicRmw op _ ty value address ->
+      case results of
+        [old] -> do
+          plainLoad ty address
+          offset <- effectiveAddress address
+          case op of
+            AtomicXchg -> push fn ty value
+            AtomicAdd -> do
+              push fn ty (OperandVar old)
+              push fn ty value
+              emit (prefix ty <> ".add")
+              narrow ty
+            AtomicOr -> do
+              push fn ty (OperandVar old)
+              push fn ty value
+              emit (prefix ty <> ".or")
+          emit (storeInstruction ty <> "\t" <> tshow offset)
+        _ -> unsupported "atomic operation result count"
+    Fence _ -> pure ()
     PtrAdd base offset -> do
       push fn Ptr base
       push fn I64 offset
@@ -1036,6 +1082,11 @@ compileInstruction fn (Instruction results operation) =
       push fn from value
       emit (prefix target <> ".trunc_" <> f <> suffix)
       narrow to
+      single
+
+    plainLoad ty address = do
+      offset <- effectiveAddress address
+      emit (loadInstruction ty <> "\t" <> tshow offset)
       single
 
     effectiveAddress address = do

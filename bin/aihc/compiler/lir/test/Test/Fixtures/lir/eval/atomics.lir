@@ -1,0 +1,25 @@
+; expect: 5, 9, 21, 12, 42, 300, -1, 256
+; Atomic loads, stores, compare and swap, read-modify-write operations, and
+; fences on a word. A failed compare and swap gives the old value and does
+; not store. An operation whose result is not used still writes.
+
+data mut @word align 8 = { i64 5 }
+
+func @main() -> (i64, i64, i64, i64, i64, i64, i64, i64) {
+entry:
+  %initial = load.atomic acquire i64 [@word]
+  store.atomic seq_cst i64 9, [@word]
+  %stored = load.atomic seq_cst i64 [@word]
+  %swapped = cas acq_rel i64 9, 12, [@word]
+  %failed = cas seq_cst i64 %stored, 13, [@word]
+  %added = atomic.add relaxed i64 30, [@word]
+  %bits = add i64 %added, 244
+  %ored = atomic.or release i64 %bits, [@word]
+  %unused = atomic.add seq_cst i64 2, [@word]
+  %exchanged = xchg acquire i64 -1, [@word]
+  fence acquire
+  fence seq_cst
+  %final = load.dependent i64 [@word]
+  %sum = add i64 %swapped, %failed
+  return %initial, %stored, %sum, %added, %ored, %exchanged, %final, %bits
+}

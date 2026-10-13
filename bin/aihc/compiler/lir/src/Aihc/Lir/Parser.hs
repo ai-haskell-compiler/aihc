@@ -6,7 +6,7 @@ module Aihc.Lir.Parser
   )
 where
 
-import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, unaryOpName, wideOpName)
+import Aihc.Lir.Pretty (atomicOpName, binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, memoryOrderName, unaryOpName, wideOpName)
 import Aihc.Lir.Syntax
 import Control.Applicative (empty, optional, (<|>))
 import Control.Monad (void)
@@ -367,6 +367,7 @@ operations =
         <> [(compareOpName op, binary (Compare op)) | op <- [minBound .. maxBound]]
         <> [(floatBinaryOpName op, binary (FloatBinary op)) | op <- [minBound .. maxBound]]
         <> [(floatUnaryOpName op, FloatUnary op <$> typeParser <*> operand) | op <- [minBound .. maxBound]]
+        <> [(atomicOpName op, AtomicRmw op <$> memoryOrder <*> typeParser <*> operand <* token "," <*> address) | op <- [minBound .. maxBound]]
         <> [(convertOpName op, Convert op <$> typeParser <*> operand <* keyword "to" <*> typeParser) | op <- [minBound .. maxBound]]
         <> [ ("quotrem.wide.u", QuotRemWide <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
              ("ptr.to_int", PtrToInt <$> operand),
@@ -374,6 +375,11 @@ operations =
              ("select", Select <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
              ("load", Load <$> typeParser <*> address <*> alignment),
              ("store", Store <$> typeParser <*> operand <* token "," <*> address <*> alignment),
+             ("load.atomic", LoadAtomic <$> memoryOrder <*> typeParser <*> address),
+             ("store.atomic", StoreAtomic <$> memoryOrder <*> typeParser <*> operand <* token "," <*> address),
+             ("load.dependent", LoadDependent <$> typeParser <*> address),
+             ("cas", CompareSwap <$> memoryOrder <*> typeParser <*> operand <* token "," <*> operand <* token "," <*> address),
+             ("fence", Fence <$> memoryOrder),
              ("ptr.add", PtrAdd <$> operand <* token "," <*> operand),
              ("stack.alloc", StackAlloc <$> natural <*> alignment),
              ("global.get", GlobalGet <$> symbolName),
@@ -384,6 +390,9 @@ operations =
     )
   where
     binary construct = construct <$> typeParser <*> operand <* token "," <*> operand
+
+memoryOrder :: Parser MemoryOrder
+memoryOrder = MP.choice [order <$ keyword (memoryOrderName order) | order <- [minBound .. maxBound]]
 
 address :: Parser Address
 address = MP.between (token "[") (token "]") (addressTerms <$> operand <*> MP.many addressTerm)

@@ -36,6 +36,8 @@ module Aihc.Lir.Syntax
     FloatBinaryOp (..),
     FloatUnaryOp (..),
     ConvertOp (..),
+    MemoryOrder (..),
+    AtomicOp (..),
     Address (..),
     AddressConstant (..),
     byteAddress,
@@ -255,6 +257,21 @@ data Operation
   | Select !Type !Operand !Operand !Operand
   | Load !Type !Address !Alignment
   | Store !Type !Operand !Address !Alignment
+  | -- | An atomic load. The location has the natural alignment of the type.
+    LoadAtomic !MemoryOrder !Type !Address
+  | -- | An atomic store. The location has the natural alignment of the type.
+    StoreAtomic !MemoryOrder !Type !Operand !Address
+  | -- | A load that orders each later load through its result. A native
+    -- backend keeps the address dependency. LLVM uses an acquire load.
+    LoadDependent !Type !Address
+  | -- | @cas order type expected, replacement, address@. The store occurs
+    -- only when the location holds the expected value. The result is the
+    -- value that the location held before the operation.
+    CompareSwap !MemoryOrder !Type !Operand !Operand !Address
+  | -- | An atomic read, modify, and write. The result is the value that the
+    -- location held before the operation.
+    AtomicRmw !AtomicOp !MemoryOrder !Type !Operand !Address
+  | Fence !MemoryOrder
   | PtrAdd !Operand !Operand
   | StackAlloc !Integer !Alignment
   | GlobalGet !Symbol
@@ -262,6 +279,15 @@ data Operation
   | Call !Symbol ![Operand]
   | CallIndirect !Operand ![Operand] !Signature
   deriving (Eq, Show)
+
+-- | The memory order of an atomic operation, as in C11. 'Relaxed' gives
+-- atomicity and no order.
+data MemoryOrder = Relaxed | Acquire | Release | AcqRel | SeqCst
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | The read-modify-write operations. 'AtomicXchg' stores the operand.
+data AtomicOp = AtomicXchg | AtomicAdd | AtomicOr
+  deriving (Eq, Ord, Show, Enum, Bounded)
 
 data BinaryOp
   = Add
@@ -452,6 +478,12 @@ forOperationOperands act operation =
     Select _ condition left right -> act condition *> act left *> act right
     Load _ address _ -> act (addressBase address)
     Store _ value address _ -> act value *> act (addressBase address)
+    LoadAtomic _ _ address -> act (addressBase address)
+    StoreAtomic _ _ value address -> act value *> act (addressBase address)
+    LoadDependent _ address -> act (addressBase address)
+    CompareSwap _ _ expected replacement address -> act expected *> act replacement *> act (addressBase address)
+    AtomicRmw _ _ _ value address -> act value *> act (addressBase address)
+    Fence _ -> pure ()
     PtrAdd base offset -> act base *> act offset
     StackAlloc _ _ -> pure ()
     GlobalGet _ -> pure ()

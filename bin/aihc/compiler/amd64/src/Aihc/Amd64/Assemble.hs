@@ -4,6 +4,7 @@ module Aihc.Amd64.Assemble
     Amd64Instruction (..),
     Amd64BitCountOp (..),
     Amd64Bmi2Op (..),
+    Amd64AtomicOp (..),
     Amd64Register (..),
     Amd64Memory (..),
     Amd64Address (..),
@@ -179,6 +180,12 @@ data Amd64BitCountOp = AmdPopcnt | AmdLzcnt | AmdTzcnt
 data Amd64Bmi2Op = AmdPdep | AmdPext
   deriving (Eq, Show)
 
+-- | The atomic operations on a memory operand and a register. The encoder
+-- adds the @lock@ prefix to @cmpxchg@ and @xadd@. @xchg@ with memory has an
+-- implicit lock.
+data Amd64AtomicOp = AmdCmpxchg | AmdXchg | AmdXadd
+  deriving (Eq, Show)
+
 data Amd64Instruction
   = AmdRet
   | AmdUd2
@@ -262,6 +269,11 @@ data Amd64Instruction
     -- 64-bit registers or all 32-bit registers. The 32-bit form zero-extends
     -- its result. They need BMI2, which the hardware this backend targets has.
     AmdBmi2 !Amd64Bmi2Op !Amd64Register !Amd64Register !Amd64Register
+  | -- | An atomic operation of the given width in bytes. The register is a
+    -- 64-bit name, and the width selects the part of it that the operation
+    -- uses. @cmpxchg@ compares with @rax@ as well.
+    AmdAtomic !Amd64AtomicOp !Int !Amd64Memory !Amd64Register
+  | AmdMfence
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
 assembleElf statements = assembleObject id writeAmd64Elf (`applyStatements` statements)
@@ -466,6 +478,15 @@ encodeInstruction instruction =
     AmdCvtts2si double destination xmm -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2c] (registerNumber (registerInfo destination)) (RegisterOperand (xmmRegister xmm)) False []
     AmdBitCount op destination source -> bytes [0xf3] <> encodeRegisterSource True [0x0f, bitCountOpcode op] destination source
     AmdBmi2 op destination source mask -> encodeVex3 (bmi2Prefix op) 0xf5 destination source mask
+    AmdAtomic op width destination source ->
+      let byteForm = width == 1
+          opcode = case op of
+            AmdCmpxchg -> [0x0f, if byteForm then 0xb0 else 0xb1]
+            AmdXchg -> [if byteForm then 0x86 else 0x87]
+            AmdXadd -> [0x0f, if byteForm then 0xc0 else 0xc1]
+          prefixes = [0xf0 | op /= AmdXchg] <> [0x66 | width == 2]
+       in bytes prefixes <> encodeRm (width == 8) opcode (registerNumber (registerInfo source)) (memoryOperand destination) byteForm []
+    AmdMfence -> bytes [0x0f, 0xae, 0xf0]
 
 -- | The @VEX.LZ.pp.0F38.W@ encoding of a three-operand BMI2 instruction:
 -- the two-byte escape @C4@, the inverted @R@, @X@, and @B@ bits with the

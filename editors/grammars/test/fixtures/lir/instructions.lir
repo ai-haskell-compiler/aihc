@@ -80,3 +80,13 @@ code
 pdep
 pext
 quotrem.wide.u
+load.atomic
+store.atomic
+load.dependent
+cas
+xchg
+atomic.add
+atomic.or
+fence
+%old = cas acq_rel i64 %a, %b, [%p]
+fence seq_cst

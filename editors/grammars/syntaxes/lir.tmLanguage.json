@@ -133,11 +133,11 @@
     },
     "keywords": {
       "name": "keyword.control.lir",
-      "match": "(?<![A-Za-z0-9_.$%@])(?:export|extern|func|global|data|mut|align|const|include|cc|word|words|bytes|zero|to|jump|br|switch|default|return|tailcall|tailcall\\.indirect|trap)(?![A-Za-z0-9_.$])"
+      "match": "(?<![A-Za-z0-9_.$%@])(?:export|extern|func|global|data|mut|align|const|include|cc|word|words|bytes|zero|to|jump|br|switch|default|return|tailcall|tailcall\\.indirect|trap|relaxed|acquire|release|acq_rel|seq_cst)(?![A-Za-z0-9_.$])"
     },
     "instructions": {
       "name": "keyword.operator.instruction.lir",
-      "match": "(?<![A-Za-z0-9_.$%@])(?:add|sub|mul|div\\.s|div\\.u|rem\\.s|rem\\.u|and|or|xor|shl|shr\\.s|shr\\.u|mul\\.wide\\.s|mul\\.wide\\.u|quotrem\\.wide\\.u|add\\.carry|sub\\.borrow|clz|ctz|popcount|pdep|pext|eq|ne|lt\\.s|lt\\.u|le\\.s|le\\.u|gt\\.s|gt\\.u|ge\\.s|ge\\.u|flt|fle|fgt|fge|fadd|fsub|fmul|fdiv|fneg|fabs|fsqrt|sext|zext|trunc|itof\\.s|itof\\.u|ftoi\\.s|ftoi\\.u|fpext|fptrunc|bitcast|ptr\\.to_int|ptr\\.from_int|select|load|store|ptr\\.add|stack\\.alloc|global\\.get|global\\.set|call|call\\.indirect)(?![A-Za-z0-9_.$])"
+      "match": "(?<![A-Za-z0-9_.$%@])(?:add|sub|mul|div\\.s|div\\.u|rem\\.s|rem\\.u|and|or|xor|shl|shr\\.s|shr\\.u|mul\\.wide\\.s|mul\\.wide\\.u|quotrem\\.wide\\.u|add\\.carry|sub\\.borrow|clz|ctz|popcount|pdep|pext|eq|ne|lt\\.s|lt\\.u|le\\.s|le\\.u|gt\\.s|gt\\.u|ge\\.s|ge\\.u|flt|fle|fgt|fge|fadd|fsub|fmul|fdiv|fneg|fabs|fsqrt|sext|zext|trunc|itof\\.s|itof\\.u|ftoi\\.s|ftoi\\.u|fpext|fptrunc|bitcast|ptr\\.to_int|ptr\\.from_int|select|load|store|load\\.atomic|store\\.atomic|load\\.dependent|cas|xchg|atomic\\.add|atomic\\.or|fence|ptr\\.add|stack\\.alloc|global\\.get|global\\.set|call|call\\.indirect)(?![A-Za-z0-9_.$])"
     },
     "numbers": {
       "name": "constant.numeric.lir",

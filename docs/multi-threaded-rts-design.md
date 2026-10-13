@@ -33,8 +33,11 @@ The C runtime uses the same test.
 The runtime has no global nursery bounds.
 The runtime has no worker threads and does not enable `-N`.
 
+Lir has the atomic instructions of the memory model section on every backend.
+No compiled code or runtime unit uses them yet.
+
 The rest of step 1 remains necessary before step 2.
-It includes the escape count, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
+It includes the escape count, local gen1 blocks, the access rules, thunk owner state, and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

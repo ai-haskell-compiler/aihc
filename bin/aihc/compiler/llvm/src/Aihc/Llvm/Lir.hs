@@ -284,6 +284,25 @@ renderType ty =
     Ptr -> "ptr"
     Code -> "ptr"
 
+-- | The LLVM name of a memory order. LLVM calls a relaxed order monotonic.
+llvmOrder :: MemoryOrder -> Text
+llvmOrder order =
+  case order of
+    Relaxed -> "monotonic"
+    Acquire -> "acquire"
+    Release -> "release"
+    AcqRel -> "acq_rel"
+    SeqCst -> "seq_cst"
+
+-- | The order of a compare and swap that does not store. LLVM does not
+-- accept a release part in this order.
+failureOrder :: MemoryOrder -> MemoryOrder
+failureOrder order =
+  case order of
+    Release -> Relaxed
+    AcqRel -> Acquire
+    _ -> order
+
 renderResults :: [Type] -> Text
 renderResults types =
   case types of
@@ -740,6 +759,44 @@ compileInstruction ctx (Instruction results operation) =
           emit (byte <> " = zext i1 " <> renderOperand I1 value <> " to i8")
           emit ("store i8 " <> byte <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
         _ -> emit ("store " <> typed ty value <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
+    LoadAtomic order ty address -> do
+      pointer <- effectiveAddress address
+      single ("load atomic " <> renderType ty <> ", ptr " <> pointer <> " " <> llvmOrder order <> ", align " <> naturalAlign ty)
+    -- LLVM orders no load by an address dependency, so a dependent load is
+    -- an acquire load.
+    LoadDependent ty address -> do
+      pointer <- effectiveAddress address
+      single ("load atomic " <> renderType ty <> ", ptr " <> pointer <> " acquire, align " <> naturalAlign ty)
+    StoreAtomic order ty value address -> do
+      pointer <- effectiveAddress address
+      emit ("store atomic " <> typed ty value <> ", ptr " <> pointer <> " " <> llvmOrder order <> ", align " <> naturalAlign ty)
+    CompareSwap order ty expected replacement address -> do
+      pointer <- effectiveAddress address
+      pair <- fresh
+      emit
+        ( pair
+            <> " = cmpxchg ptr "
+            <> pointer
+            <> ", "
+            <> typed ty expected
+            <> ", "
+            <> typed ty replacement
+            <> " "
+            <> llvmOrder order
+            <> " "
+            <> llvmOrder (failureOrder order)
+            <> ", align "
+            <> naturalAlign ty
+        )
+      single ("extractvalue { " <> renderType ty <> ", i1 } " <> pair <> ", 0")
+    AtomicRmw op order ty value address -> do
+      pointer <- effectiveAddress address
+      let name = case op of
+            AtomicXchg -> "xchg"
+            AtomicAdd -> "add"
+            AtomicOr -> "or"
+      single ("atomicrmw " <> name <> " ptr " <> pointer <> ", " <> typed ty value <> " " <> llvmOrder order <> ", align " <> naturalAlign ty)
+    Fence order -> emit ("fence " <> llvmOrder order)
     PtrAdd base offset -> single ("getelementptr i8, ptr " <> renderOperand Ptr base <> ", i64 " <> renderOperand I64 offset)
     StackAlloc size alignment -> do
       case results of
@@ -755,6 +812,7 @@ compileInstruction ctx (Instruction results operation) =
       beginBlock continue
       call (renderOperand Code target) signature arguments
   where
+    naturalAlign ty = tshow (if ty == Ptr then wordBytes else toInteger (typeBits ty `div` 8))
     single body =
       case results of
         [var] -> emit (renderVar var <> " = " <> body)

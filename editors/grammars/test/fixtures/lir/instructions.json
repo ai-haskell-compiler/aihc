@@ -80,5 +80,16 @@
   {"line":79,"text":"to","scope":"keyword.control.lir","occurrence":2},
   {"line":80,"text":"pdep","scope":"keyword.operator.instruction.lir"},
   {"line":81,"text":"pext","scope":"keyword.operator.instruction.lir"},
-  {"line":82,"text":"quotrem.wide.u","scope":"keyword.operator.instruction.lir"}
+  {"line":82,"text":"quotrem.wide.u","scope":"keyword.operator.instruction.lir"},
+  {"line":83,"text":"load.atomic","scope":"keyword.operator.instruction.lir"},
+  {"line":84,"text":"store.atomic","scope":"keyword.operator.instruction.lir"},
+  {"line":85,"text":"load.dependent","scope":"keyword.operator.instruction.lir"},
+  {"line":86,"text":"cas","scope":"keyword.operator.instruction.lir"},
+  {"line":87,"text":"xchg","scope":"keyword.operator.instruction.lir"},
+  {"line":88,"text":"atomic.add","scope":"keyword.operator.instruction.lir"},
+  {"line":89,"text":"atomic.or","scope":"keyword.operator.instruction.lir"},
+  {"line":90,"text":"fence","scope":"keyword.operator.instruction.lir"},
+  {"line":91,"text":"cas","scope":"keyword.operator.instruction.lir"},
+  {"line":91,"text":"acq_rel","scope":"keyword.control.lir"},
+  {"line":92,"text":"seq_cst","scope":"keyword.control.lir"}
 ]
