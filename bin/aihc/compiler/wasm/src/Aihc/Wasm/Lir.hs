@@ -31,6 +31,7 @@ module Aihc.Wasm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
+import Aihc.Lir.Division (lowerWideDivision)
 import Aihc.Lir.Inline (prepareCheckedModule)
 import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
@@ -347,7 +348,8 @@ trapIf message = do
   emit "end_if"
 
 compileFunction :: Ctx -> Function -> StateT ModuleState (Either WasmLirError) [Text]
-compileFunction ctx function = do
+compileFunction ctx input = do
+  let function = lowerWideDivision False input
   moduleState <- get
   let parameters = functionParameters function
       blocks = functionBlocks function
@@ -492,6 +494,7 @@ resultTypes ctx (Instruction results operation) =
     Binary _ ty _ _ -> [ty]
     Unary _ ty _ -> [ty]
     Wide op ty _ _ -> if op `elem` [AddCarry, SubBorrow] then [ty, I1] else [ty, ty]
+    QuotRemWide ty _ _ _ -> [ty, ty]
     Compare {} -> [I1]
     FloatBinary _ ty _ _ -> [ty]
     FloatUnary _ ty _ -> [ty]
@@ -804,6 +807,7 @@ compileInstruction fn (Instruction results operation) =
           emit ("call\t" <> linkedName Internal (Symbol helper))
           unless (is64 ty) (emit "i32.wrap_i64")
           single
+    QuotRemWide {} -> unsupported "wide division reached instruction selection"
     Wide op ty left right ->
       case results of
         [first, second] ->

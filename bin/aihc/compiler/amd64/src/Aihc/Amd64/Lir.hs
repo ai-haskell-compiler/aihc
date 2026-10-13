@@ -207,6 +207,7 @@ amd64Backend =
       nbBinary = amd64Binary,
       nbUnary = bitCount,
       nbWide = wide,
+      nbQuotRemWide = Just quotRemWide,
       nbCompare = compareResult,
       nbFloatBinary = \op ty dst a b -> [toFloat ty 0 a, toFloat ty 1 b, amd64Instruction (AmdSse (floatOp op) (ty == F64) 0 1), fromFloat ty dst 0],
       nbFloatUnary = floatUnary,
@@ -302,6 +303,7 @@ functionScratch function =
       case operation of
         Binary op _ _ _ -> op `elem` [DivS, DivU, RemS, RemU]
         Wide op ty _ _ -> op `elem` [MulWideU, MulWideS] && typeBits ty == 64
+        QuotRemWide {} -> True
         _ -> False
     shifts operation =
       case operation of
@@ -817,6 +819,18 @@ bitCount op ty dst a =
                    )
                 <> [amd64Instruction (AmdBitCount AmdTzcnt dst (Amd64RmRegister scratchLeft))]
           | otherwise -> [amd64Instruction (AmdBitCount AmdTzcnt dst (Amd64RmRegister a))]
+
+-- | RAX and RDX are reserved by functionScratch for this instruction.
+quotRemWide :: Ctx Amd64Register -> Amd64Register -> Amd64Register -> Operand -> Operand -> Operand -> M [Amd64Statement]
+quotRemWide ctx quotient remainder high low divisor =
+  pure
+    ( operandTo' ctx I64 RDX high
+        <> operandTo' ctx I64 RAX low
+        <> operandTo' ctx I64 scratchRight divisor
+        <> [amd64Instruction (AmdDiv (Amd64RmRegister scratchRight))]
+        <> move quotient RAX
+        <> move remainder RDX
+    )
 
 wide :: WideOp -> Type -> Amd64Register -> Amd64Register -> Amd64Register -> Amd64Register -> [Amd64Statement]
 wide op ty low high a b =

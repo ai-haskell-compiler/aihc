@@ -438,8 +438,21 @@ condition never traps.
 | `pext iN %a, %b` | `iN` | Parallel bit extract. The bits of `%a` at the set bits of the mask `%b` gather into the low bits, in order. |
 | `mul.wide.s iN %a, %b` | `iN, iN` | Signed full multiplication. The results are the low and the high half. |
 | `mul.wide.u iN %a, %b` | `iN, iN` | Unsigned full multiplication. The results are the low and the high half. |
+| `quotrem.wide.u i64 %high, %low, %divisor` | `i64, i64` | Unsigned 128-bit division by a 64-bit divisor. The results are the quotient and remainder. |
 | `add.carry iN %a, %b` | `iN, i1` | Wrapping addition and the unsigned carry. |
 | `sub.borrow iN %a, %b` | `iN, i1` | Wrapping subtraction and the unsigned borrow. |
+
+`quotrem.wide.u` divides `high * 2^64 + low` by `divisor`.
+It accepts only `i64` operands.
+It traps if the divisor is zero or the quotient does not fit in 64 bits.
+The quotient overflow condition is `high >= divisor`.
+
+Each backend uses ordinary unsigned division when the high word is zero.
+AMD64 uses `divq` for the wide case.
+LLVM uses one unsigned `i128` division and computes the remainder from the quotient.
+ARM64 and Wasm use normalized division with two base-2^32 quotient digits.
+Each digit needs at most two corrections.
+This algorithm removes the previous 64-step loop.
 
 ### Comparison
 

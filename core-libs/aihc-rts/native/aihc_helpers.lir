@@ -268,31 +268,7 @@ invalid:
 
 export func @aihc_lir_quotrem2(%high: i64, %low: i64, %divisor: i64) -> (i64, i64) {
 entry:
-  jump loop(%high, %low, 0, @WORD_BITS)
-
-loop(%h: i64, %l: i64, %q: i64, %n: i64):
-  %done = eq i64 %n, 0
-  br %done, finish(%q, %h), step
-
-step:
-  %top = shr.u i64 %h, @WORD_HIGH_BIT
-  %top_set = ne i64 %top, 0
-  %carry = shr.u i64 %l, @WORD_HIGH_BIT
-  %shifted_high = shl i64 %h, 1
-  %next_high = or i64 %shifted_high, %carry
-  %next_low = shl i64 %l, 1
-  %next_quotient = shl i64 %q, 1
-  %next_count = sub i64 %n, 1
-  %fits = ge.u i64 %next_high, %divisor
-  %subtract = or i1 %top_set, %fits
-  br %subtract, subtract(%next_high, %next_low, %next_quotient, %next_count), loop(%next_high, %next_low, %next_quotient, %next_count)
-
-subtract(%h_2: i64, %l_2: i64, %q_2: i64, %n_2: i64):
-  %reduced = sub i64 %h_2, %divisor
-  %set_quotient = or i64 %q_2, 1
-  jump loop(%reduced, %l_2, %set_quotient, %n_2)
-
-finish(%quotient: i64, %remainder: i64):
+  %quotient, %remainder = quotrem.wide.u i64 %high, %low, %divisor
   return %quotient, %remainder
 }
 

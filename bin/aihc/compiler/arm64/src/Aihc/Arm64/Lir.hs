@@ -196,6 +196,7 @@ arm64Backend =
       nbBinary = arm64Binary,
       nbUnary = bitCount,
       nbWide = wide,
+      nbQuotRemWide = Nothing,
       nbCompare = compareResult,
       nbFloatBinary = \op ty dst a b -> [toFloat ty 16 a, toFloat ty 17 b, arm64Instruction (ArmFloat (floatOp op) (ty == F64) 16 16 17), fromFloat ty dst 16],
       nbFloatUnary = \op ty dst a -> [toFloat ty 16 a, arm64Instruction (ArmFloat (floatUnaryOp op) (ty == F64) 16 16 16), fromFloat ty dst 16],

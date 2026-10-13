@@ -44,6 +44,7 @@ module Aihc.Native.Lir
   )
 where
 
+import Aihc.Lir.Division (lowerWideDivision)
 import Aihc.Lir.Inline (prepareCheckedModule, prepareModule)
 import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, operationReads, readCounts, terminatorReads)
@@ -165,6 +166,7 @@ data NativeBackend statement register error = NativeBackend
     nbBinary :: Ctx register -> BinaryOp -> Type -> register -> register -> Operand -> NativeM error [statement],
     nbUnary :: UnaryOp -> Type -> register -> register -> [statement],
     nbWide :: WideOp -> Type -> register -> register -> register -> register -> [statement],
+    nbQuotRemWide :: Maybe (Ctx register -> register -> register -> Operand -> Operand -> Operand -> NativeM error [statement]),
     nbCompare :: Ctx register -> CompareOp -> Type -> register -> Operand -> Operand -> [statement],
     nbFloatBinary :: FloatBinaryOp -> Type -> register -> register -> register -> [statement],
     nbFloatUnary :: FloatUnaryOp -> Type -> register -> register -> [statement],
@@ -485,9 +487,10 @@ compileFunction backend signatures index function = StateT $ \state ->
 -- | Keep allocation state for one function and emit its instructions directly.
 compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register error -> (statement -> m ()) -> Map Symbol Signature -> Int -> Function -> ObjectState -> m (Either error ObjectState)
 {-# INLINEABLE compileFunctionTo #-}
-compileFunctionTo backend output signatures index function state =
+compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
+    function = lowerWideDivision (isJust (nbQuotRemWide backend)) input
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
     emitStatement statement = do
@@ -972,6 +975,10 @@ compileInstruction backend ctx (Instruction results operation) =
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
           (loads', b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
       pair $ \low high -> pure (loads <> loads' <> nbWide backend op ty low high a b)
+    QuotRemWide _ high low divisor ->
+      case nbQuotRemWide backend of
+        Just divide -> pair $ \q r -> divide ctx q r high low divisor
+        Nothing -> unsupported backend "wide division reached instruction selection"
     Compare op ty left right ->
       single $ \dst -> pure (nbCompare backend ctx op ty dst left right)
     FloatBinary op ty left right -> do

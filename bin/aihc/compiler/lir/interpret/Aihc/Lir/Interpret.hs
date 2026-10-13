@@ -412,6 +412,18 @@ execOperation program locals operation =
       a <- intOperand ty left
       b <- intOperand ty right
       pure (wide op ty a b)
+    QuotRemWide ty high low divisor -> do
+      h <- toInteger <$> intOperand ty high
+      l <- toInteger <$> intOperand ty low
+      d <- toInteger <$> intOperand ty divisor
+      if d == 0
+        then trap "integer division by zero"
+        else
+          if h >= d
+            then trap "integer division overflow"
+            else
+              let (q, r) = ((h `shiftL` 64) + l) `quotRem` d
+               in pure [VInt (fromInteger q), VInt (fromInteger r)]
     Compare op ty left right -> do
       a <- operand ty left
       b <- operand ty right

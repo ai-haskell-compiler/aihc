@@ -79,3 +79,4 @@ code
 %f = itof.s i64 %n to f64
 pdep
 pext
+quotrem.wide.u

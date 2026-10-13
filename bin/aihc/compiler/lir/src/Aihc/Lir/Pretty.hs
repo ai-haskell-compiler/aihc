@@ -187,6 +187,7 @@ prettyOperation operation =
     Binary op ty left right -> pretty (binaryOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     Unary op ty value -> pretty (unaryOpName op) <+> prettyType ty <+> prettyOperand value
     Wide op ty left right -> pretty (wideOpName op) <+> prettyType ty <+> prettyOperands [left, right]
+    QuotRemWide ty high low divisor -> "quotrem.wide.u" <+> prettyType ty <+> prettyOperands [high, low, divisor]
     Compare op ty left right -> pretty (compareOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     FloatBinary op ty left right -> pretty (floatBinaryOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     FloatUnary op ty operand -> pretty (floatUnaryOpName op) <+> prettyType ty <+> prettyOperand operand
@@ -357,6 +358,7 @@ reservedWords =
     <> ["jump", "br", "switch", "return", "tailcall", "tailcall.indirect", "trap"]
     <> map binaryOpName [minBound .. maxBound]
     <> map wideOpName [minBound .. maxBound]
+    <> ["quotrem.wide.u"]
     <> map compareOpName [minBound .. maxBound]
     <> map floatBinaryOpName [minBound .. maxBound]
     <> map floatUnaryOpName [minBound .. maxBound]

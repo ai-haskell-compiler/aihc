@@ -368,7 +368,8 @@ operations =
         <> [(floatBinaryOpName op, binary (FloatBinary op)) | op <- [minBound .. maxBound]]
         <> [(floatUnaryOpName op, FloatUnary op <$> typeParser <*> operand) | op <- [minBound .. maxBound]]
         <> [(convertOpName op, Convert op <$> typeParser <*> operand <* keyword "to" <*> typeParser) | op <- [minBound .. maxBound]]
-        <> [ ("ptr.to_int", PtrToInt <$> operand),
+        <> [ ("quotrem.wide.u", QuotRemWide <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
+             ("ptr.to_int", PtrToInt <$> operand),
              ("ptr.from_int", PtrFromInt <$> operand),
              ("select", Select <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
              ("load", Load <$> typeParser <*> address <*> alignment),
