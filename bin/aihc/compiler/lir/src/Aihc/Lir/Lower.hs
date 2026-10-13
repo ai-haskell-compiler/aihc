@@ -76,6 +76,7 @@ import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, nodeWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
+import Aihc.Lir.Simplify (simplifyBooleanBranches)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -746,15 +747,16 @@ finishFunction symbol linkage parameters results convention = do
   when (isJust (stateOpen state)) $ failWith (LowerUnsupportedExpression "internal: function finished with an open block")
   put state {stateBlocksRev = []}
   emitItem
-    ( ItemFunction
-        Function
-          { functionName = symbol,
-            functionLinkage = linkage,
-            functionParameters = parameters,
-            functionResults = results,
-            functionConvention = convention,
-            functionBlocks = reverse (stateBlocksRev state)
-          }
+    ( ItemFunction $
+        simplifyBooleanBranches
+          Function
+            { functionName = symbol,
+              functionLinkage = linkage,
+              functionParameters = parameters,
+              functionResults = results,
+              functionConvention = convention,
+              functionBlocks = reverse (stateBlocksRev state)
+            }
     )
 
 -- Target layout

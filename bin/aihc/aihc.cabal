@@ -245,6 +245,7 @@ library
     Aihc.Lir.Convert
     Aihc.Lir.Division
     Aihc.Lir.Flat
+    Aihc.Lir.Simplify
     Aihc.Native.Elf
     Aihc.Native.Emit
     Aihc.Native.Lir

@@ -1,0 +1,53 @@
+; Both Boolean destinations exist without a default.
+; The edge argument and the later block still require the extension.
+func @shared(%flag: i1) -> i64 {
+entry:
+  %wide = zext i1 %flag to i64
+  switch i64 %wide {
+    0 -> no(%wide)
+    1 -> yes
+  }
+no(%value: i64):
+  return %value
+yes:
+  return %wide
+}
+
+; The false path must still trap when the switch has no destination for zero.
+func @partial(%flag: i1) -> i64 {
+entry:
+  %wide = zext i1 %flag to i64
+  switch i64 %wide {
+    1 -> yes
+  }
+yes:
+  return 11
+}
+
+; Sign extension produces minus one for true.
+func @signed(%flag: i1) -> i64 {
+entry:
+  %wide = sext i1 %flag to i64
+  switch i64 %wide {
+    1 -> yes
+    default -> no
+  }
+yes:
+  return 11
+no:
+  return 22
+}
+
+; A wider input can have values other than zero and one.
+func @integer(%value: i8) -> i64 {
+entry:
+  %wide = zext i8 %value to i64
+  switch i64 %wide {
+    1 -> yes
+    default -> no
+  }
+yes:
+  return 11
+no:
+  return 22
+}

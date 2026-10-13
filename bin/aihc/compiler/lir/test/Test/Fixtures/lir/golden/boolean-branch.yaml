@@ -1,0 +1,28 @@
+program: |
+  primitive <#%1 :: IntRep/2
+
+  $entry (left%2 :: IntRep) (right%3 :: IntRep) -> IntRep =
+    (flag%4 :: IntRep) <- primitive-call @IntRep <# (left%2 :: IntRep) (right%3 :: IntRep)
+    case (flag%4 :: IntRep) as result%5 :: IntRep of
+      (1 :: IntRep) ->
+        constant (11 :: IntRep)
+      _ ->
+        constant (22 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern data @aihc_machine
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %left_4: i64, %right_5: i64, %$cps_return_6: ptr) {
+  entry:
+    %flag_7 = lt.s i64 %left_4, %right_5
+    br %flag_7, alt_9, alt_10
+
+  alt_9:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, 11)
+
+  alt_10:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, 22)
+  }
+status: pass
+reason: A Boolean comparison must reach its destinations without an integer switch.
