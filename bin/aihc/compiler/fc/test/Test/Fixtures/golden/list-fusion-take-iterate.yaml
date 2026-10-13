@@ -204,8 +204,8 @@ expected: |-
               cS r;
           rec {
             go : tNat → tInt → tNat =
-              λ(x{2} : tNat) (eta : tInt).
-                let! cI# (k{1} : tInt#) = eta;
+              λ(x{2} : tNat) (x2 : tInt).
+                let! cI# (k{1} : tInt#) = x2;
                 case k{1} of {
                   1#cIntRep →
                     x{1} x{2} cZ;

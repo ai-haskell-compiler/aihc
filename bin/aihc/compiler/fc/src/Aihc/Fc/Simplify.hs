@@ -132,7 +132,7 @@ simplifyProgram primPackage phase siteLimit program =
         Simpl
           { spEnv = env,
             spInline = Map.empty,
-            spKnown = Map.filter (isKnownValue arities) bodies,
+            spKnown = Map.filter isKnownValue bodies,
             spArity = arities,
             spLocals = Map.empty,
             spExcluded = Map.empty,
@@ -184,14 +184,12 @@ isKnownConstructor arities expr =
         ExCast inner _ -> underBinders inner
         _ -> body
 
--- | A top-level body that a case on the value can select from: a known
--- constructor of cheap fields under lambdas, or a constructor
--- application of any fields under type lambdas and casts. A value of the
--- second form is not a function, so each use shares its fields, and a
--- case takes only its cheap fields. See 'knownConstructor'.
-isKnownValue :: Map Name Int -> Expr -> Bool
-isKnownValue arities body =
-  isKnownConstructor arities body || (functionArity body == 0 && isConstructorValue body)
+-- | A constructor application under lambdas and casts. A case can select
+-- its cheap fields even when other fields are costly. The selection must
+-- not copy a costly field or reconstruct a value with an omitted field.
+-- See 'knownConstructor'.
+isKnownValue :: Expr -> Bool
+isKnownValue = isConstructorValue
 
 -- | A body that is a constructor application under lambdas and casts,
 -- with any arguments. A case on a top-level value of this form selects
@@ -3997,6 +3995,9 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
               value == expensiveField
             ]
     guard (not usesExpensiveField)
+    -- A function call does not share a top-level constant. If the case
+    -- uses its whole result, reconstruction needs every original field.
+    guard (shared || expensiveField `notElem` fields || all (\named -> unused (binderName named) (altRhs alternative)) binder)
     let rhs = altRhs alternative
         -- The case evaluated the scrutinee, so the binder held a value.
         -- A scrutinee that is a value binds the binder as it is. A call
@@ -4073,14 +4074,26 @@ knownConstructor env expr = do
     -- not hold the field, and no alternative takes it.
     unfoldShared body args
       | isKnownConstructor (spArity env) body = unfold body args
-      | otherwise = unfold (cheapFieldsOnly body) args
-    cheapFieldsOnly body =
+      | otherwise =
+          case cheapFieldsOnly (spEnv env) body of
+            Just cheap -> unfold cheap args
+            Nothing -> pure Nothing
+    cheapFieldsOnly scope body =
       case body of
-        ExTyLam binder inner -> ExTyLam binder (cheapFieldsOnly inner)
-        ExCast inner coercion -> ExCast (cheapFieldsOnly inner) coercion
-        _ ->
+        ExTyLam binder inner -> ExTyLam binder <$> cheapFieldsOnly (extendBinder scope binder) inner
+        ExLam binder inner -> ExLam binder <$> cheapFieldsOnly (extendBinder scope binder) inner
+        ExCast inner coercion -> (`ExCast` coercion) <$> cheapFieldsOnly scope inner
+        _ -> do
           let (headExpr, conArgs) = collectSpine body
-           in rebuildSpine headExpr (map (fmap (\value -> if isCheapValue (spArity env) value then value else expensiveField)) conArgs)
+              field value
+                | isCheapValue (spArity env) value = Just value
+                | otherwise = do
+                    ty <- exprType scope value
+                    -- An unlifted field must run before the constructor
+                    -- returns, even when the alternative does not use it.
+                    guard (isLiftedType scope ty)
+                    Just expensiveField
+          rebuildSpine headExpr <$> traverse (traverse field) conArgs
     peel binds body args =
       case (body, args) of
         (ExTyLam binder inner, Left ty : rest) -> peel binds (substTypeExpr (Map.singleton (binderName binder) ty) inner) rest
@@ -4145,6 +4158,7 @@ pushCast env coercion (binds, con, types, fields) = do
   fieldCoercions <- mapM (liftCoercion env subst) fieldTypes
   Just (binds, con, types', zipWith cast fields fieldCoercions)
   where
+    cast field _ | field == expensiveField = expensiveField
     cast field fieldCoercion =
       case fieldCoercion of
         CoRefl _ -> field

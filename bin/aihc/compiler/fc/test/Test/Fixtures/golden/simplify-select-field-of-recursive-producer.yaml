@@ -1,0 +1,76 @@
+---
+extensions: []
+modules:
+- |
+  module Test (select, costly, whole) where
+
+  data Box a = Box (a -> a) a
+
+  keep :: a -> a -> a
+  keep x _ = x
+
+  make :: a -> Box a
+  make x = Box (keep x) (costly x)
+
+  costly :: a -> a
+  costly x = case make x of Box _ value -> value
+
+  select :: a -> a -> a
+  select x y = case make x of Box field _ -> field y
+
+  consume :: a -> Box a -> Box a
+  consume _ box = box
+  {-# NOINLINE consume #-}
+
+  whole :: a -> Box a
+  whole x = case make x of box@(Box field _) -> consume (field x) box
+passes:
+- inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). (a → a) → a → tBox a
+  }
+
+  val 1.vkeep :: ∀(a : sType). a → a → a
+    = Λ(a : sType). λ(x : a) (unused y : a).
+      x
+
+  val 1.vmake :: ∀(a : sType). a → tBox a
+    = Λ(a : sType). λ(x : a).
+      cBox @a (vkeep @a x) (vcostly @a x)
+
+  pub val 1.vcostly :: ∀(a : sType). a → a
+    = Λ(a : sType). λ(x : a).
+      let! cBox (unused _pat : a → a) (value : a) = vmake @a x;
+      value
+
+  pub val 1.vselect :: ∀(a : sType). a → a → a
+    = Λ(a : sType). λ(x : a) (unused y : a).
+      x
+
+  val 1.vconsume noinline :: ∀(a : sType). a → tBox a → tBox a
+    = Λ(a : sType). λ(unused x : a) (y : tBox a).
+      y
+
+  pub val 1.vwhole :: ∀(a : sType). a → tBox a
+    = Λ(a : sType). λ(x : a).
+      let! cBox (field : a → a) (unused _pat : a) as (_scrut : tBox a) = vmake @a x;
+      vconsume @a (field x) _scrut
+status: pass
+reason: An unused costly field must not block selection of a cheap field from a recursive constructor producer.
