@@ -17,10 +17,14 @@ The first part of build step 1 separates `AihcCapability` from `AihcMachine`.
 Compiled code reads its capability from the stack chunk header.
 The C runtime takes the capability as an explicit argument.
 The runtime still has one capability on every target.
-This refactor adds no worker threads and does not enable `-N`.
+Each capability reserves nursery space in blocks.
+The default block size is 32 KiB, and `-n<size>` selects another size.
+A refill retains the heap pointer and does not collect until the nursery budget is full.
+Fixed allocations and stack charges use that same budget.
+The runtime has no worker threads and does not enable `-N`.
 
 The rest of step 1 remains necessary before step 2.
-It includes the local heap layout, allocation blocks, atomic instructions, thunk owner state, and barrier safepoints.
+It includes the aligned nursery arena, the local write barrier, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

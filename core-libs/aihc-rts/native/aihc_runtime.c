@@ -889,7 +889,7 @@ void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
 void aihc_heap_collect(AihcCapability *capability, uint64_t words,
                        uint64_t root_count, AihcSlot *roots,
                        const AihcSrt *srt) {
-  aihc_gc_collect(capability, words, root_count, roots, srt);
+  aihc_gc_refill(capability, words, root_count, roots, srt);
 }
 
 /* Place one object in heap the caller has already reserved. Compiled code

@@ -58,6 +58,13 @@ bitmap of one bit for each slot. Objects above the largest size class go to
 byte arrays already allocate through the runtime, so the runtime selects the
 space. Compiled code stores only fixed-size nodes into reserved nursery space.
 
+The capability reserves nursery space in blocks of 32 KiB by default.
+The RTS option `-n<size>` selects the block size.
+A block refill extends the allocation limit without a gap or a collection.
+A reservation can span several blocks.
+The nursery size and fixed allocation charges still determine when a collection is necessary.
+The block cursor returns to the start after each collection.
+
 ## Generations and policy
 
 | Generation | Collected by | Survivors go to | Size rule |
@@ -259,6 +266,7 @@ least one chunk of stack growth.
 | Option | Meaning | Default |
 | --- | --- | --- |
 | `-A<size>` | Nursery size | Decided by measurement, 1 MiB or 4 MiB |
+| `-n<size>` | Nursery block size, zero selects the default | 32 KiB |
 | `-B<size>` | Gen1 maximum | 16 MiB |
 | `-F<factor>` | Gen2 growth factor between cycles | 2 |
 | `-k<factor>` | Mark work for each byte promoted into gen2 | 2 |

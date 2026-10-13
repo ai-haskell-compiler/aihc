@@ -46,6 +46,8 @@ global @aihc_rts_option_heap_limit_enabled: i64
 ; maximum, -F the growth factor of gen2, and -k the mark work for each
 ; promoted byte. Zero means the default.
 global @aihc_rts_option_nursery_bytes: i64
+; -n sets the nursery block size. Zero selects the default.
+global @aihc_rts_option_nursery_block_bytes: i64
 global @aihc_rts_option_gen1_max_bytes: i64
 global @aihc_rts_option_gen2_factor: i64
 global @aihc_rts_option_mark_factor: i64
@@ -89,6 +91,12 @@ entry:
 export func @aihc_rts_nursery_bytes() -> i64 cc c {
 entry:
   %value = global.get @aihc_rts_option_nursery_bytes
+  return %value
+}
+
+export func @aihc_rts_nursery_block_bytes() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_nursery_block_bytes
   return %value
 }
 
@@ -286,11 +294,20 @@ heap_limit:
 
 nursery_option:
   %is_nursery = eq i8 %second, 'A'
-  br %is_nursery, nursery, gen1_option
+  br %is_nursery, nursery, block_option
 
 nursery:
   %nursery_size = call @aihc_rts_parse_heap_size(%size_text)
   global.set @aihc_rts_option_nursery_bytes, %nursery_size
+  return
+
+block_option:
+  %is_block = eq i8 %second, 'n'
+  br %is_block, block_size, gen1_option
+
+block_size:
+  %block_bytes = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_nursery_block_bytes, %block_bytes
   return
 
 gen1_option:

@@ -35,6 +35,10 @@ When a collection cannot bring the heap below the limit, the collector runs a
 full collection, and the program stops if the heap is still above it.
 
 The `-A<size>` option sets the size of the nursery, 4 MiB by default.
+The `-n<size>` option sets the nursery block size, 32 KiB by default.
+Zero selects the default block size.
+A block refill extends the allocation limit without a collection.
+Fixed allocations and stack charges share the nursery budget with movable objects.
 The `-B<size>` option sets the maximum size of gen1, 16 MiB by default.
 The `-F<factor>` option sets the growth of gen2 between two gen2 cycles,
 2 by default.
