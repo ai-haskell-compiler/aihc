@@ -53,6 +53,6 @@ move pointer node = go
         GrinCase value binder alternatives
           | Set.notMember pointer (freeValueVars value),
             safe (binder : concatMap grinAltBinders alternatives),
-            any (not . uses . grinAltRhs) alternatives ->
+            not (all (uses . grinAltRhs) alternatives) ->
               Just (GrinCase value binder [alternative {grinAltRhs = placeBranch (grinAltRhs alternative)} | alternative <- alternatives])
         _ -> Nothing
