@@ -45,6 +45,10 @@ tests =
         "nursery blocks keep the collection budget and live roots"
         ["+RTS", "-A128k", "-n1k", "-RTS"]
         nurseryBlockSource,
+      runtimeProgramTest
+        "nursery size rounds up to a power of two"
+        ["+RTS", "-A96k", "-n1k", "-RTS"]
+        nurseryBlockSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,

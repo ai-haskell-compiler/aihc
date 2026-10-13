@@ -10,8 +10,9 @@
    written, so the table needs no reservation of address space.
 
    The runtime takes memory from the host one mapping at a time, each the
-   exact size of the run that is wanted. Regions of a released run wait in a
-   free list for the next run that fits. When every region of a mapping is
+   size of the run plus any space necessary for alignment. Unused regions
+   and regions of a released run wait in a free list for the next run that
+   fits. When every region of a mapping is
    free and the free list is above its cache bound, the mapping goes back to
    the host. */
 
@@ -184,24 +185,55 @@ static void aihc_free_run_insert(uint8_t *base, size_t count,
   *link = run;
 }
 
-void *aihc_regions_acquire(size_t count, AihcRegionKind kind) {
-  if (count == 0 || count > UINT32_MAX || kind == AIHC_REGION_OUTSIDE ||
-      kind == AIHC_REGION_FREE) {
-    aihc_fail("invalid region request");
-  }
+/* The prefix before the next aligned region. Unsigned subtraction keeps
+   this calculation valid at every address. */
+static size_t aihc_region_alignment_offset(const void *base, size_t alignment) {
+  size_t index = (uintptr_t)base >> AIHC_REGION_SHIFT;
+  return (0 - index) & (alignment - 1);
+}
+
+static void *aihc_regions_take(size_t count, size_t alignment,
+                               AihcRegionKind kind) {
   for (AihcRegionFreeRun **link = &aihc_region_free_runs; *link != NULL;
        link = &(*link)->next) {
-    if ((*link)->count < count) {
+    uint8_t *prefix = (*link)->base;
+    size_t offset = aihc_region_alignment_offset(prefix, alignment);
+    if (offset > (*link)->count || count > (*link)->count - offset) {
       continue;
     }
-    uint8_t *base = (*link)->base;
-    AihcRegionMapping *mapping = aihc_region_entry(base, 0)->mapping;
-    aihc_free_run_take(link, count);
+    AihcRegionMapping *mapping = aihc_region_entry(prefix, 0)->mapping;
+    aihc_free_run_take(link, offset + count);
+    if (offset != 0) {
+      aihc_free_run_insert(prefix, offset, mapping);
+    }
     mapping->free_count -= count;
+    uint8_t *base = aihc_region_at(prefix, offset);
     aihc_regions_mark(base, count, mapping, kind, (uint32_t)count);
     return base;
   }
-  uint8_t *base = aihc_host_map_regions(count);
+  return NULL;
+}
+
+void *aihc_regions_acquire(size_t count, AihcRegionKind kind) {
+  return aihc_regions_acquire_aligned(count, 1, kind);
+}
+
+void *aihc_regions_acquire_aligned(size_t count, size_t alignment,
+                                   AihcRegionKind kind) {
+  if (count == 0 || count > UINT32_MAX || alignment == 0 ||
+      alignment > UINT32_MAX || (alignment & (alignment - 1)) != 0 ||
+      kind == AIHC_REGION_OUTSIDE || kind == AIHC_REGION_FREE) {
+    aihc_fail("invalid region request");
+  }
+  void *available = aihc_regions_take(count, alignment, kind);
+  if (available != NULL) {
+    return available;
+  }
+  if (count > UINT32_MAX - (alignment - 1)) {
+    aihc_fail("heap allocation is too large");
+  }
+  size_t mapped = count + alignment - 1;
+  uint8_t *base = aihc_host_map_regions(mapped);
   if (base == NULL) {
     aihc_fail("out of memory");
   }
@@ -210,10 +242,17 @@ void *aihc_regions_acquire(size_t count, AihcRegionKind kind) {
     aihc_fail("out of memory for the region table");
   }
   mapping->base = base;
-  mapping->count = count;
+  mapping->count = mapped;
   mapping->free_count = 0;
-  aihc_regions_mark(base, count, mapping, kind, (uint32_t)count);
-  return base;
+  if (alignment == 1) {
+    aihc_regions_mark(base, count, mapping, kind, (uint32_t)count);
+    return base;
+  }
+  /* Keep both alignment fragments in the free list, also on WASM. */
+  mapping->free_count = mapped;
+  aihc_regions_mark(base, mapped, mapping, AIHC_REGION_FREE, 0);
+  aihc_free_run_insert(base, mapped, mapping);
+  return aihc_regions_take(count, alignment, kind);
 }
 
 /* Give a mapping whose regions are all free back to the host. The free list

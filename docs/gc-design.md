@@ -22,8 +22,10 @@ that does not allocate does not reach a safepoint. GHC has the same limit.
 ## Heap layout
 
 The heap is a set of runs of regions of `AIHC_REGION_BYTES`, 64 KiB. The
-runtime takes each run from the host as one mapping of exactly that size and
-reserves no address space in advance. A large reservation is refused on hosts
+runtime takes each run from the host as one mapping and reserves no address space in advance.
+An aligned run can require a larger mapping.
+The region allocator keeps the unused prefix and suffix for reuse.
+A large reservation is refused on hosts
 with strict overcommit, under address space limits, and in some hardened
 container policies, so the design does not depend on one. A region is one
 WebAssembly page, so the wasm32 host grows its memory by whole regions, and a
@@ -58,6 +60,9 @@ bitmap of one bit for each slot. Objects above the largest size class go to
 byte arrays already allocate through the runtime, so the runtime selects the
 space. Compiled code stores only fixed-size nodes into reserved nursery space.
 
+The machine owns the nursery arena.
+The runtime rounds `-A` up to a power of two and aligns the arena to that size.
+A smaller heap limit or collector test budget can use part of the aligned window.
 The capability reserves nursery space in blocks of 32 KiB by default.
 The RTS option `-n<size>` selects the block size.
 A block refill extends the allocation limit without a gap or a collection.
@@ -265,7 +270,7 @@ least one chunk of stack growth.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `-A<size>` | Nursery size | Decided by measurement, 1 MiB or 4 MiB |
+| `-A<size>` | Nursery size, rounded up to a power of two | Decided by measurement, 1 MiB or 4 MiB |
 | `-n<size>` | Nursery block size, zero selects the default | 32 KiB |
 | `-B<size>` | Gen1 maximum | 16 MiB |
 | `-F<factor>` | Gen2 growth factor between cycles | 2 |

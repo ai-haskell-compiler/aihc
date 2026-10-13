@@ -304,6 +304,10 @@ struct AihcCapability {
 struct AihcMachine {
   AihcCapability *capabilities;
   uint64_t capability_count;
+  /* The machine owns the nursery arena. Each capability has one aligned
+     window of nursery_stride_bytes bytes. The runtime currently has one. */
+  uint8_t *nursery_arena;
+  uint64_t nursery_stride_bytes;
   AihcSlot *globals;
   uint64_t global_count;
   /* The info table of the frame at the bottom of each forked thread. Each

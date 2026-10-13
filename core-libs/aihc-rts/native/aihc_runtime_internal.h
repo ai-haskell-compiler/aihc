@@ -293,6 +293,10 @@ size_t aihc_regions_for_bytes(size_t bytes);
    at a region boundary. The function does not return when the host has no
    room for the run. */
 void *aihc_regions_acquire(size_t count, AihcRegionKind kind);
+/* Acquire a run whose start is a multiple of alignment regions.
+   The alignment must be a power of two. Unused regions remain available. */
+void *aihc_regions_acquire_aligned(size_t count, size_t alignment,
+                                   AihcRegionKind kind);
 /* Give a run back. The address is the start of a run that acquire gave. */
 void aihc_regions_release(void *base);
 /* Change the kind of every region of an acquired run. */
