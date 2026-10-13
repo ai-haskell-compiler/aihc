@@ -34,7 +34,8 @@ import Text.Megaparsec.Char qualified as MPC
 import Text.Megaparsec.Char.Lexer qualified as L
 
 data ParserEnv = ParserEnv
-  { parserScopes :: ScopeTable,
+  { -- | The package and module of each scope id in the text.
+    parserScopes :: Map.Map Int (PackageId, Text),
     parserGlobals :: Map.Map Text Name,
     parserPrimitives :: Map.Map Name ForeignCall,
     parserCollect :: Bool
@@ -56,11 +57,11 @@ renderParseError = MP.errorBundlePretty
 parseWith :: ParserEnv -> Parser value -> String -> Text -> Either FcParseError value
 parseWith scopes parser = MP.parse (runReaderT parser scopes)
 
-parseScopeHeader :: Text -> Either FcParseError (ScopeTable, Text)
+parseScopeHeader :: Text -> Either FcParseError (Map.Map Int (PackageId, Text), Text)
 parseScopeHeader = MP.parse parser "<system-fc-scope>"
   where
-    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv emptyScopeTable Map.empty Map.empty True)) <*> MP.takeRest
-    toScopeTable = foldr (\(scopeId, package, moduleName) -> insertScope scopeId package moduleName) emptyScopeTable
+    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv Map.empty Map.empty Map.empty True)) <*> MP.takeRest
+    toScopeTable entries = Map.fromList [(scopeId, (package, moduleName)) | (scopeId, package, moduleName) <- entries]
 
 scopeDeclaration :: Parser (Int, PackageId, Text)
 scopeDeclaration =
@@ -71,13 +72,12 @@ scopeDeclaration =
 
 program :: Parser Program
 program = do
-  scopes <- parserScopes <$> ask
   primitives <- MP.option [] (MP.try (keyword "import" *> keyword "prims") *> importEntries primitiveEntry)
   let table = Map.fromList primitives
   when (Map.size table /= length primitives) (fail "duplicate primitive alias")
   local (\environment -> environment {parserPrimitives = table}) $ do
     imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
-    Program scopes imports <$> MP.many declaration
+    Program imports <$> MP.many declaration
   where
     emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
@@ -411,11 +411,21 @@ funType = do
     representation <- scopedArrow
     TyFun representation representation left <$> funType
 
+-- | An arrow on the @LiftedRep@ synonym. Like another name of the synonym,
+-- it has a scope prefix, or no prefix when the short name is unambiguous.
 scopedArrow :: Parser Type
 scopedArrow = lexeme $ do
-  (package, moduleName) <- scopeReference
+  scope <- MP.optional (MP.try scopeReference)
   _ <- MPC.string "→" <|> MPC.string "->"
-  pure (TyCon (Name "LiftedRep" SortSynonym (OriginTop package moduleName)))
+  case scope of
+    Just (package, moduleName) -> pure (TyCon (Name "LiftedRep" SortSynonym (OriginTop package moduleName)))
+    Nothing -> do
+      environment <- ask
+      case Map.lookup "sLiftedRep" (parserGlobals environment) of
+        Just name -> pure (TyCon name)
+        Nothing
+          | parserCollect environment -> pure (TyCon (Name "LiftedRep" SortSynonym (OriginLocal (Unique 0))))
+          | otherwise -> fail "an arrow with no scope needs an unambiguous LiftedRep"
 
 eqType :: Parser Type
 eqType = do
@@ -494,7 +504,16 @@ typeLambdaExpr :: Parser Expr
 typeLambdaExpr = flip (foldr ExTyLam) <$> (symbol "Λ" *> MP.some (openTermBinder SortTypeVariable)) <*> (symbol "." *> expression)
 
 openTermBinder :: Sort -> Parser Binder
-openTermBinder sort = parens (Binder <$> localBinderName sort <*> (symbol ":" *> fcType))
+openTermBinder sort = parens (Binder <$> (MP.optional unusedMark *> localBinderName sort) <*> (symbol ":" *> fcType))
+
+-- | The mark of a binder that its scope does not use: @(unused x : t)@.
+-- The mark does not change the binder. The word is reserved, so a name
+-- with this text has its unique, @unused{0}@, and is not the mark.
+unusedMark :: Parser ()
+unusedMark =
+  MP.try . lexeme $ do
+    _ <- MPC.string "unused"
+    MP.notFollowedBy (MP.satisfy (\character -> identContinue character || character == '{'))
 
 letExpr :: Parser Expr
 letExpr = do
@@ -643,7 +662,7 @@ scopeReference :: Parser (PackageId, Text)
 scopeReference = do
   scopeId <- L.decimal <* MPC.char '.'
   scopes <- parserScopes <$> ask
-  case lookupScope scopeId scopes of
+  case Map.lookup scopeId scopes of
     Just scope -> pure scope
     Nothing -> fail ("unknown scope " <> show scopeId)
 

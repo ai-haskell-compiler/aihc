@@ -11,24 +11,17 @@ import Data.Set qualified as Set
 
 -- | One program that holds the declarations of every given program.
 --
--- Each program numbers the scopes it names on its own, so the merged
--- program numbers the union of the scopes again. A name carries its full
--- origin, so the declarations do not change. The merged program imports
+-- A name carries its full origin, so the declarations do not change. The
+-- merged program imports
 -- only the facts that none of its declarations supplies.
 mergePrograms :: [Program] -> Program
 mergePrograms programs =
   Program
-    { programScopes = scopes,
-      programImports = imports,
+    { programImports = imports,
       programDecls = decls
     }
   where
     decls = concatMap programDecls programs
-    scopes =
-      foldl
-        (\table (scopeId, (package, moduleName)) -> insertScope scopeId package moduleName table)
-        emptyScopeTable
-        (zip [1 ..] (Set.toAscList (Set.fromList [(package, moduleName) | program <- programs, (_, package, moduleName) <- scopeEntries (programScopes program)])))
     declared = Set.fromList (concatMap declaredNames decls)
     notDeclared = Map.filterWithKey (\name _ -> name `Set.notMember` declared)
     imports =

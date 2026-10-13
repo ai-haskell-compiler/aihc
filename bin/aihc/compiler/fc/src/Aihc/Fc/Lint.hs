@@ -13,6 +13,7 @@ where
 import Aihc.Fc.Binary (programFileName, readProgramFile)
 import Aihc.Fc.Imports (unusedImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Origins (programOrigins)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf hiding (coercionEndpoints)
@@ -166,8 +167,7 @@ moduleDirectoryText name =
   List.foldl' (</>) "" (map T.unpack (T.splitOn "." name))
 
 scopeKeys :: Program -> [(PackageId, Text)]
-scopeKeys program =
-  [(package, name) | (_, package, name) <- scopeEntries (programScopes program)]
+scopeKeys = Set.toList . programOrigins
 
 lintImportDeclarations :: TypeEnv -> Imports -> [LintError]
 lintImportDeclarations env imports =

@@ -1,0 +1,32 @@
+entry: $entry
+program: |
+  constructor Done/0 []
+  constructor Result/1 [BoxedRep Lifted]
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  global action = (F$make_child)
+  global shared = (F$shared)
+
+  $make_child -> BoxedRep Lifted =
+    store (P$child/[[]])
+
+  $child -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref shared
+
+  $shared -> BoxedRep Lifted =
+    store (CDone)
+
+  $entry -> BoxedRep Lifted =
+    (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref action
+    () <- primitive-call @(TupleRep []) yield#
+    store (CResult global-ref shared)
+return: "@0"
+heap: |
+  @0 = CResult @1
+  @1 = Indirection @2
+  @2 = CDone
+allocated-bytes:
+  macos-arm64: 120
+  linux-amd64: 120
+status: pass
+reason: fork# must evaluate an action that is a thunk before it applies it.

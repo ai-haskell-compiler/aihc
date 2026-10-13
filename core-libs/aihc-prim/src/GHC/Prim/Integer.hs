@@ -22,6 +22,7 @@ module GHC.Prim.Integer
     integerMul,
     integerNegate,
     integerQuotRem,
+    integerRem,
     integerOr,
     integerPopCount#,
     integerQuotRemWord#,
@@ -577,22 +578,237 @@ signedRemainder _ remainder = integerNegate remainder
 
 positiveQuotRem :: Integer -> Integer -> (Integer, Integer)
 positiveQuotRem dividend divisor =
-  case magnitudeSize# divisor of
+  case compareMagnitudes# dividend divisor of
+    0# -> (IS 1#, IS 0#)
     1# ->
-      case integerQuotRemWord# dividend (magnitudeWord# divisor 0#) of
-        (# quotient, remainder #) -> (quotient, integerFromWord# 1# remainder)
-    _ -> divideFromScale dividend divisor (IS 1#)
+      case magnitudeSize# divisor of
+        1# ->
+          case integerQuotRemWord# dividend (magnitudeWord# divisor 0#) of
+            (# quotient, remainder #) -> (quotient, integerFromWord# 1# remainder)
+        _ ->
+          case divideByteArrays# (magnitudeBytes# dividend) (magnitudeBytes# divisor) 1# of
+            (# quotient, remainder #) -> (integerFromMagnitude# 1# quotient, integerFromMagnitude# 1# remainder)
+    _ -> (IS 0#, dividend)
 
-divideFromScale :: Integer -> Integer -> Integer -> (Integer, Integer)
-divideFromScale dividend scaledDivisor quotientBit =
-  case compareMagnitudes# scaledDivisor dividend of
-    1# -> (IS 0#, dividend)
+-- | Divide magnitudes without a quotient array. The remainder has the
+-- sign of the numerator.
+integerRem :: Integer -> Integer -> Integer
+integerRem numerator denominator =
+  case signInteger# denominator of
+    0# -> integerDivisionByZero
     _ ->
-      case divideFromScale dividend (integerAdd scaledDivisor scaledDivisor) (integerAdd quotientBit quotientBit) of
-        (quotient, remainder) ->
-          case compareMagnitudes# scaledDivisor remainder of
-            1# -> (quotient, remainder)
-            _ -> (integerAdd quotient quotientBit, integerSub remainder scaledDivisor)
+      case compareMagnitudes# numerator denominator of
+        0# -> IS 0#
+        1# -> signedRemainder (signInteger# numerator) (positiveRemainder numerator denominator)
+        _ -> numerator
+
+positiveRemainder :: Integer -> Integer -> Integer
+positiveRemainder dividend divisor =
+  case magnitudeSize# divisor of
+    1# -> integerFromWord# 1# (integerRemWord# dividend (magnitudeWord# divisor 0#))
+    _ ->
+      case divideByteArrays# (magnitudeBytes# dividend) (magnitudeBytes# divisor) 0# of
+        (# _, remainder #) -> integerFromMagnitude# 1# remainder
+
+integerRemWord# :: Integer -> Word# -> Word#
+integerRemWord# (IS small) divisor =
+  case quotRemWord2# 0## (absoluteIntWord# small) divisor of
+    (# _, remainder #) -> remainder
+integerRemWord# (IP magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
+integerRemWord# (IN magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
+
+remainderWords# :: ByteArray# -> Word# -> Int# -> Word# -> Word#
+remainderWords# magnitude divisor index remainder =
+  case index <# 0# of
+    1# -> remainder
+    _ ->
+      case quotRemWord2# remainder (indexWordArray# magnitude index) divisor of
+        (# _, next #) -> remainderWords# magnitude divisor (index -# 1#) next
+
+-- | Normalize the divisor, then divide one limb at a time. Each step
+-- changes the dividend scratch array in place. A remainder needs no
+-- quotient array. The first result is unused when wantQuotient is zero.
+divideByteArrays# :: ByteArray# -> ByteArray# -> Int# -> (# ByteArray#, ByteArray# #)
+divideByteArrays# dividend divisor wantQuotient =
+  let dividendSize = wordCount# dividend
+      divisorSize = wordCount# divisor
+      shift = word2Int# (clz# (indexWordArray# divisor (divisorSize -# 1#)))
+   in case newByteArray# (divisorSize *# 8#) realWorld# of
+        (# state, divisorScratch #) ->
+          case normalizeDivisionWords# divisor divisorScratch divisorSize shift state of
+            (# state1, _ #) ->
+              case unsafeFreezeByteArray# divisorScratch state1 of
+                (# state2, normalizedDivisor #) ->
+                  case newByteArray# ((dividendSize +# 1#) *# 8#) state2 of
+                    (# state3, dividendScratch #) ->
+                      case normalizeDivisionWords# dividend dividendScratch dividendSize shift state3 of
+                        (# state4, high #) ->
+                          case writeWordArray# dividendScratch dividendSize high state4 of
+                            state5 ->
+                              case wantQuotient of
+                                0# -> finishLimbDivision# normalizedDivisor dividendScratch dividendScratch dividendSize divisorSize shift 0# state5
+                                _ ->
+                                  case newByteArray# ((dividendSize -# divisorSize +# 1#) *# 8#) state5 of
+                                    (# state6, quotient #) -> finishLimbDivision# normalizedDivisor dividendScratch quotient dividendSize divisorSize shift 1# state6
+
+normalizeDivisionWords# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Word# #)
+normalizeDivisionWords# source target count shift state =
+  case shift of
+    0# ->
+      case copyByteArray# source 0# target 0# (count *# 8#) state of
+        state1 -> (# state1, 0## #)
+    _ -> shiftDivisionWords# source target count shift 0# 0## state
+
+shiftDivisionWords# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Word# #)
+shiftDivisionWords# source target count shift index carry state =
+  case index ==# count of
+    1# -> (# state, carry #)
+    _ ->
+      let word = indexWordArray# source index
+          result = or# (uncheckedShiftL# word shift) carry
+          next = uncheckedShiftRL# word (64# -# shift)
+       in case writeWordArray# target index result state of
+            state1 -> shiftDivisionWords# source target count shift (index +# 1#) next state1
+
+finishLimbDivision# :: ByteArray# -> MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Int# -> State# RealWorld -> (# ByteArray#, ByteArray# #)
+finishLimbDivision# divisor dividend quotient dividendSize divisorSize shift wantQuotient state =
+  case divideLimbLoop# divisor dividend quotient divisorSize (dividendSize -# divisorSize) wantQuotient state of
+    state1 ->
+      case unnormalizeRemainder# dividend divisorSize shift 0# state1 of
+        state2 ->
+          case trimMagnitudeWords# dividend (divisorSize -# 1#) state2 of
+            (# state3, used #) ->
+              case shrinkMutableByteArray# dividend (used *# 8#) state3 of
+                state4 ->
+                  case unsafeFreezeByteArray# dividend state4 of
+                    (# state5, remainder #) ->
+                      case wantQuotient of
+                        0# -> (# divisor, remainder #)
+                        _ ->
+                          case trimMagnitudeWords# quotient (dividendSize -# divisorSize) state5 of
+                            (# state6, quotientUsed #) -> (# freezeTrimmed# quotient quotientUsed state6, remainder #)
+
+-- | Estimate a quotient limb from the top dividend limbs. Correct the
+-- estimate with the next divisor limb before the multiply and subtraction.
+divideLimbLoop# :: ByteArray# -> MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> State# RealWorld -> State# RealWorld
+divideLimbLoop# divisor dividend quotient count offset wantQuotient state =
+  case offset <# 0# of
+    1# -> state
+    _ ->
+      case readWordArray# dividend (offset +# count) state of
+        (# state1, high #) ->
+          case readWordArray# dividend (offset +# count -# 1#) state1 of
+            (# state2, low #) ->
+              case readWordArray# dividend (offset +# count -# 2#) state2 of
+                (# state3, next #) ->
+                  let top = indexWordArray# divisor (count -# 1#)
+                      second = indexWordArray# divisor (count -# 2#)
+                   in case estimateQuotientLimb# high low next top second of
+                        estimate ->
+                          case subtractDivisorProduct# divisor dividend count offset estimate 0# 0## state3 of
+                            (# state4, borrow #) ->
+                              case borrow of
+                                0# -> storeQuotientLimb# divisor dividend quotient count offset wantQuotient estimate state4
+                                _ ->
+                                  case addDivisorBack# divisor dividend count offset 0# 0## state4 of
+                                    state5 -> storeQuotientLimb# divisor dividend quotient count offset wantQuotient (minusWord# estimate (int2Word# 1#)) state5
+
+storeQuotientLimb# :: ByteArray# -> MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> State# RealWorld
+storeQuotientLimb# divisor dividend quotient count offset wantQuotient word state =
+  case wantQuotient of
+    0# -> divideLimbLoop# divisor dividend quotient count (offset -# 1#) 0# state
+    _ ->
+      case writeWordArray# quotient offset word state of
+        state1 -> divideLimbLoop# divisor dividend quotient count (offset -# 1#) 1# state1
+
+estimateQuotientLimb# :: Word# -> Word# -> Word# -> Word# -> Word# -> Word#
+estimateQuotientLimb# high low next top second =
+  case eqWord# high top of
+    1# ->
+      case addWordC# low top of
+        (# remainder, overflow #) ->
+          case overflow of
+            0# -> correctQuotientLimb# (not# 0##) remainder next top second
+            _ -> not# 0##
+    _ ->
+      case quotRemWord2# high low top of
+        (# quotient, remainder #) -> correctQuotientLimb# quotient remainder next top second
+
+correctQuotientLimb# :: Word# -> Word# -> Word# -> Word# -> Word# -> Word#
+correctQuotientLimb# quotient remainder next top second =
+  case timesWord2# quotient second of
+    (# high, low #) ->
+      case ltWord# remainder high of
+        1# -> decreaseQuotientLimb# quotient remainder next top second
+        _ ->
+          case eqWord# remainder high of
+            1# ->
+              case ltWord# next low of
+                1# -> decreaseQuotientLimb# quotient remainder next top second
+                _ -> quotient
+            _ -> quotient
+
+decreaseQuotientLimb# :: Word# -> Word# -> Word# -> Word# -> Word# -> Word#
+decreaseQuotientLimb# quotient remainder next top second =
+  let corrected = minusWord# quotient (int2Word# 1#)
+   in case addWordC# remainder top of
+        (# remainder1, overflow #) ->
+          case overflow of
+            0# -> correctQuotientLimb# corrected remainder1 next top second
+            _ -> corrected
+
+subtractDivisorProduct# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Word# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Int# #)
+subtractDivisorProduct# divisor dividend count offset quotient index carry state =
+  case index ==# count of
+    1# ->
+      case readWordArray# dividend (offset +# count) state of
+        (# state1, word #) ->
+          case subWordC# word carry of
+            (# result, borrow #) ->
+              case writeWordArray# dividend (offset +# count) result state1 of
+                state2 -> (# state2, borrow #)
+    _ ->
+      case timesWord2# quotient (indexWordArray# divisor index) of
+        (# high, low #) ->
+          case addWordC# low carry of
+            (# product, overflow #) ->
+              case readWordArray# dividend (offset +# index) state of
+                (# state1, word #) ->
+                  case subWordC# word product of
+                    (# result, borrow #) ->
+                      case writeWordArray# dividend (offset +# index) result state1 of
+                        state2 -> subtractDivisorProduct# divisor dividend count offset quotient (index +# 1#) (plusWord# high (int2Word# (overflow +# borrow))) state2
+
+-- | If the estimate was one too large, restore one divisor in place.
+addDivisorBack# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> State# RealWorld
+addDivisorBack# divisor dividend count offset index carry state =
+  case readWordArray# dividend (offset +# index) state of
+    (# state1, word #) ->
+      case index ==# count of
+        1# -> writeWordArray# dividend (offset +# index) (plusWord# word carry) state1
+        _ ->
+          case addWordC# word (indexWordArray# divisor index) of
+            (# partial, carry0 #) ->
+              case addWordC# partial carry of
+                (# result, carry1 #) ->
+                  case writeWordArray# dividend (offset +# index) result state1 of
+                    state2 -> addDivisorBack# divisor dividend count offset (index +# 1#) (int2Word# (carry0 +# carry1)) state2
+
+unnormalizeRemainder# :: MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> State# RealWorld -> State# RealWorld
+unnormalizeRemainder# magnitude count shift index state =
+  case shift of
+    0# -> state
+    _ ->
+      case index ==# count of
+        1# -> state
+        _ ->
+          case readWordArray# magnitude index state of
+            (# state1, low #) ->
+              case readWordArray# magnitude (index +# 1#) state1 of
+                (# state2, high #) ->
+                  let result = or# (uncheckedShiftRL# low shift) (uncheckedShiftL# high (64# -# shift))
+                   in case writeWordArray# magnitude index result state2 of
+                        state3 -> unnormalizeRemainder# magnitude count shift (index +# 1#) state3
 
 integerDivisionByZero :: a
 integerDivisionByZero = integerDivisionByZero

@@ -173,6 +173,7 @@ library
     Aihc.Fc.Cse
     Aihc.Fc.Demand
     Aihc.Fc.Desugar
+    Aihc.Fc.Diverge
     Aihc.Fc.Equivalence
     Aihc.Fc.Facts
     Aihc.Fc.Fold
@@ -182,6 +183,7 @@ library
     Aihc.Fc.Merge
     Aihc.Fc.Name
     Aihc.Fc.Normalize
+    Aihc.Fc.Origins
     Aihc.Fc.Parser
     Aihc.Fc.Pass
     Aihc.Fc.Pretty

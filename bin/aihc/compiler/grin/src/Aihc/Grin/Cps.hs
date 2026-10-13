@@ -244,6 +244,16 @@ transformTail parent bound resultRep continuation expression =
                   (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [[]])
               )
           pure (GrinBind [promptVar] (GrinStore promptNode) delimitedAction)
+    GrinPrimitiveCall runtimeRep name [action]
+      | name == "fork#" -> do
+          entry <- forkActionEntry parent
+          wrapper <- freshVar "$cps_fork_action" liftedGrinRep
+          pure
+            ( GrinBind
+                [wrapper]
+                (GrinStore (GrinNode (GrinClosure entry [[]]) [action]))
+                (GrinCpsPrimitiveCall runtimeRep name [GrinVarValue wrapper] continuation)
+            )
     GrinPrimitiveCall runtimeRep name arguments
       | isControlPrimitive name ->
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
@@ -338,6 +348,38 @@ liftJoinPoint parent resultRep captures resultVars body = do
       }
     joinContinuation
   pure joinName
+
+-- | Make the entry that a new thread starts in. The action of @fork#@ is a
+-- lifted value, and it can be a thunk. The runtime applies the closure that
+-- it gets, so this entry evaluates the action and then applies it. The
+-- evaluation occurs in the new thread, as in GHC.
+forkActionEntry :: FunctionName -> CpsM FunctionName
+forkActionEntry parent = do
+  entryName <- freshFunctionName (unFunctionName parent <> "_fork")
+  action <- freshVar "$cps_fork_capture" liftedGrinRep
+  evaluated <- freshVar "$cps_fork_evaluated" liftedGrinRep
+  entryContinuation <- freshVar "$cps_fork_return" liftedGrinRep
+  let parameters = [action, entryContinuation]
+  body <-
+    transformTail
+      parent
+      (Set.fromList parameters)
+      liftedResultRep
+      (GrinVarValue entryContinuation)
+      ( GrinBind
+          [evaluated]
+          (GrinEval EvalUpdate liftedGrinRep (GrinVarValue action))
+          (GrinApply liftedResultRep (GrinVarValue evaluated) [[]])
+      )
+  addComputationFunction
+    GrinFunction
+      { grinFunctionName = entryName,
+        grinFunctionParameters = parameters,
+        grinFunctionResultRep = liftedResultRep,
+        grinFunctionBody = body
+      }
+    entryContinuation
+  pure entryName
 
 -- | The size of an expression after the CPS transformation, used only to
 -- weigh a copy of a continuation against a call of it.

@@ -347,11 +347,31 @@ compareKeys :: (Ord key) => (key, value) -> (key, value) -> Ordering
 compareKeys (leftKey, _) (rightKey, _) = compare leftKey rightKey
 
 sortBy :: (a -> a -> Ordering) -> [a] -> [a]
-sortBy _ [] = []
-sortBy _ [value] = [value]
-sortBy order values =
-  case splitAt (length values `div` 2) values of
-    (left, right) -> mergeBy order (sortBy order left) (sortBy order right)
+sortBy order values = mergeAll (runs values)
+  where
+    -- Equal elements stay in ascending runs. The sort reverses only strictly
+    -- descending runs. Each merge preserves the order of equal elements.
+    runs (value : next : rest) =
+      case order value next of
+        GT -> descending next [value] rest
+        _ -> ascending next (value :) rest
+    runs [] = []
+    runs rest = [rest]
+
+    descending value accumulated (next : rest)
+      | order value next == GT = descending next (value : accumulated) rest
+    descending value accumulated rest = (value : accumulated) : runs rest
+
+    ascending value accumulated (next : rest)
+      | order value next /= GT = ascending next (\remaining -> accumulated (value : remaining)) rest
+    ascending value accumulated rest = accumulated [value] : runs rest
+
+    mergeAll [] = []
+    mergeAll [run] = run
+    mergeAll remaining = mergeAll (mergePairs remaining)
+
+    mergePairs (left : right : rest) = mergeBy order left right : mergePairs rest
+    mergePairs rest = rest
 
 mergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a]
 mergeBy _ [] right = right

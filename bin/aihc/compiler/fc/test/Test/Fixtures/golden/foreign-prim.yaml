@@ -24,15 +24,15 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
     2.sLiftedRep = cBoxedRep cLifted;
     2.sType = tTYPE sLiftedRep
 
-  pub val 1.valias :: ∀(a : sType) (b : sType). a 2.→ b
+  pub val 1.valias :: ∀(a : sType) (b : sType). a → b
     = Λ(a : sType) (b : sType). λ(_foreign_argument : a).
-      prim raise# @(cBoxedRep cLifted) @a @b _foreign_argument
+      prim raise# @sLiftedRep @a @b _foreign_argument
 status: pass
 reason: A use of a foreign import prim without arguments is a lambda around a foreign call.

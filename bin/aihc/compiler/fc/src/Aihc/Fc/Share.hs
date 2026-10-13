@@ -47,8 +47,7 @@ shareProgram program =
         decls <- mapM shareDecl (programDecls program)
         pure
           Program
-            { programScopes = programScopes program,
-              programImports = imports,
+            { programImports = imports,
               programDecls = decls
             }
     )

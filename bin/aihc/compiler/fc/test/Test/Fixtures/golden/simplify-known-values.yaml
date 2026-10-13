@@ -74,26 +74,26 @@ expected: |-
     5.tTYPE :: ∀(rep : tRuntimeRep). sType;
     5.sType :: sType;
     4.v$fNumInt :: t$Dict$Num tInt;
-    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cBoxedRep :: tLevity → tRuntimeRep;
     5.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
     5.cIntRep :: tRuntimeRep;
     5.cLifted :: tLevity;
-    4.vfromInteger :: ∀(a : sType). t$Dict$Num a 5.→ tInteger 5.→ a
+    4.vfromInteger :: ∀(a : sType). t$Dict$Num a → tInteger → a
 
   import synonyms
     5.sLiftedRep = cBoxedRep cLifted;
     5.sType = tTYPE sLiftedRep
 
   pub type 1.tPair :: sType {
-    pub strict [0, 1] 1.cPair :: tInt 5.→ tInt 5.→ tPair
+    pub strict [0, 1] 1.cPair :: tInt → tInt → tPair
   }
 
   pub type 1.tD :: sType {
-    pub 1.cD :: tInt 5.→ (tInt 5.→ tInt) 5.→ tD
+    pub 1.cD :: tInt → (tInt → tInt) → tD
   }
 
-  pub val 1.vpick :: tInt 5.→ tInt 5.→ tInt 5.→ tInt
+  pub val 1.vpick :: tInt → tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (n : tInt#) = x;
       let! cI# (m : tInt#) = y;
@@ -107,11 +107,11 @@ expected: |-
         _ →
           let quotient : tInt =
             cI# argument;
-          λ(_pat : tInt).
+          λ(unused _pat : tInt).
             quotient
       }
 
-  pub val 1.vforce :: tInt 5.→ tInt 5.→ tInt
+  pub val 1.vforce :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (a : tInt#) = x;
       let! cI# (b : tInt#) = y;
@@ -122,7 +122,7 @@ expected: |-
           cI# (prim +# a b)
       }
 
-  pub val 1.vforceCall :: tInt 5.→ tInt 5.→ tInt
+  pub val 1.vforceCall :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (b : tInt#) = y;
       let! cI# (a : tInt#) = vexpensive x;
@@ -133,12 +133,12 @@ expected: |-
           cI# (prim +# a b)
       }
 
-  pub val 1.vmkPair :: tInt 5.→ tPair
+  pub val 1.vmkPair :: tInt → tPair
     = λ(x : tInt).
       let! _ = x;
       cPair (cI# lit (3#cIntRep) :: tInt#) x
 
-  val 1.vexpensive noinline :: tInt 5.→ tInt
+  val 1.vexpensive noinline :: tInt → tInt
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cI# (prim *# x{1} x{1})
@@ -148,7 +148,7 @@ expected: |-
       let! cI# (x{1} : tInt#) = x;
       cI# (prim +# x{1} lit (1#cIntRep) :: tInt#))
 
-  pub val 1.vuse :: tInt 5.→ tInt
+  pub val 1.vuse :: tInt → tInt
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cI# (prim +# x{1} lit (1#cIntRep) :: tInt#)

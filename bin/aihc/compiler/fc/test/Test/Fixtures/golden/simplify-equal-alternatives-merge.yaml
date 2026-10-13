@@ -33,7 +33,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -48,7 +48,7 @@ expected: |-
     1.cAppending :: tMode
   }
 
-  pub val 1.vpick :: tMode 3.→ FUN @cIntRep @cIntRep tInt# tInt#
+  pub val 1.vpick :: tMode → FUN @cIntRep @cIntRep tInt# tInt#
     = λ(x : tMode) (y : tInt#).
       case x of {
         cClosed →
@@ -60,7 +60,7 @@ expected: |-
       }
 
   pub val 1.vsame :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
-    = λ(x : tInt#) (y : tInt#).
+    = λ(unused x : tInt#) (y : tInt#).
       y
 status: pass
 reason: Alternatives with the same right-hand side merge into one default alternative, and a case of only a default alternative on an unlifted variable is its right-hand side.

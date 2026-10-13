@@ -5,7 +5,8 @@ module Test.Native.Compiler
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0, O1, Os), backendCompiler, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol, runtimeOptimizationLevel)
+import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0, O1, O2, Os), backendCompiler, handwrittenCArguments, llvmLtoArguments, llvmLtoLinkArguments, optimizationArgument, renderLinkedFunctionSymbol, runtimeOptimizationLevel)
+import Control.Monad (forM_)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, isDigit, isHexDigit, ord)
 import Data.Text (Text)
@@ -14,6 +15,10 @@ import Data.Text.Encoding qualified as Text
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Test.Tasty.Hedgehog (testProperty)
@@ -35,6 +40,7 @@ tests =
         assertEqual "level 1 argument" "-O1" (optimizationArgument O1)
         assertEqual "size argument" "-Os" (optimizationArgument Os)
         assertEqual "module-warning flag count" 1 (length (filter (== "-Wno-override-module") arguments)),
+      testCase "keeps the stack pointer of tailcc tail calls with different stack areas" test_tailCallStackAreas,
       testCase "renders common linker identities readably" $ do
         assertEqual
           "library symbol"
@@ -65,6 +71,72 @@ tests =
           "a count cannot swallow the digits after it"
           (renderLinkedFunctionSymbol ",,5" /= renderLinkedFunctionSymbol ",25"),
       testProperty "rendered symbols read back unchanged" prop_symbolRoundTrip
+    ]
+
+-- | LLVM shrink-wrapping on x86-64 moves the stack adjustment of @f@ to one
+-- of its two tail calls, so the other tail call moves the stack pointer too
+-- high and @main@ returns to a bad address (#2566, LLVM #109279). The
+-- arguments of the @llvm@ target must prevent this, in a build that
+-- compiles to machine code and in an LTO build whose link does the code
+-- generation. Other targets do not show the defect, so there the test only
+-- runs the program.
+test_tailCallStackAreas :: IO ()
+test_tailCallStackAreas =
+  withSystemTempDirectory "aihc-tailcc-stack" $ \directory -> do
+    let source = directory </> "repro.ll"
+    writeFile source tailCallStackAreasSource
+    (compiler, arguments) <- backendCompiler Llvm
+    forM_ [False, True] $ \lto -> do
+      let object = directory </> "repro.o"
+          executable = directory </> "repro"
+          name = if lto then "LTO build" else "build"
+      compileExit <- run compiler (arguments <> [optimizationArgument O2] <> llvmLtoArguments Llvm lto <> ["-c", source, "-o", object])
+      assertEqual (name <> " compile") ExitSuccess compileExit
+      linkExit <- run compiler (arguments <> llvmLtoLinkArguments Llvm lto O2 <> [object, "-o", executable])
+      assertEqual (name <> " link") ExitSuccess linkExit
+      programExit <- run executable []
+      assertEqual (name <> " program exit status") ExitSuccess programExit
+  where
+    run command commandArguments = do
+      (exit, _stdout, _stderr) <- readProcessWithExitCode command commandArguments ""
+      pure exit
+
+-- | The reproducer of #2566. @f@ has six arguments and tail-calls a function
+-- with six arguments and a function with eight.
+tailCallStackAreasSource :: String
+tailCallStackAreasSource =
+  unlines
+    [ "@sink = global i64 0",
+      "define tailcc void @six(ptr, ptr, ptr, ptr, ptr, ptr) noinline {",
+      "  store volatile i64 1, ptr @sink",
+      "  ret void",
+      "}",
+      "define tailcc void @eight(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr) noinline {",
+      "  store volatile i64 1, ptr @sink",
+      "  ret void",
+      "}",
+      "define tailcc void @f(ptr %a, ptr %b, ptr %c, ptr %d, ptr %e, ptr %k) noinline {",
+      "entry:",
+      "  %x = load i64, ptr %e",
+      "  %p = getelementptr i8, ptr %e, i64 8",
+      "  %y = load i64, ptr %p",
+      "  %same = icmp eq i64 %x, %y",
+      "  br i1 %same, label %done, label %loop",
+      "done:",
+      "  musttail call tailcc void @six(ptr %a, ptr %b, ptr %c, ptr %d, ptr %k, ptr %e)",
+      "  ret void",
+      "loop:",
+      "  musttail call tailcc void @eight(ptr %a, ptr %b, ptr %c, ptr %d, ptr %e, ptr %e, ptr %p, ptr %k)",
+      "  ret void",
+      "}",
+      "define i32 @main() {",
+      "  %pair = alloca [2 x i64], align 8",
+      "  store i64 7, ptr %pair",
+      "  %second = getelementptr i8, ptr %pair, i64 8",
+      "  store i64 7, ptr %second",
+      "  call tailcc void @f(ptr null, ptr null, ptr null, ptr null, ptr %pair, ptr null)",
+      "  ret i32 0",
+      "}"
     ]
 
 -- | Every logical name has exactly one rendering, and this reads it back. The

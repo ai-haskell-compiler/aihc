@@ -228,13 +228,25 @@ unfoldType env ty =
       | otherwise -> ty
     _ -> ty
 
--- | The TYPE argument of a kind, after synonym and family reduction.
+-- | The TYPE argument of a kind. The function expands only the synonyms
+-- that hide the TYPE application, so the argument keeps the form that the
+-- kind gives: the kind @Type@ gives @LiftedRep@, not @BoxedRep Lifted@.
+-- When no synonym gives the TYPE application, a family reduction can give
+-- it.
 representationFromKind :: TypeEnv -> Type -> Maybe Type
 representationFromKind env kind =
-  case reduceType env kind of
+  case kind of
     TyApp (TyCon name) representation
       | name == typeConstructor (tePrimPackage env) -> Just representation
-    _ -> Nothing
+    _
+      | unfolded <- unfoldType env kind,
+        unfolded /= kind ->
+          representationFromKind env unfolded
+      | otherwise ->
+          case reduceType env kind of
+            TyApp (TyCon name) representation
+              | name == typeConstructor (tePrimPackage env) -> Just representation
+            _ -> Nothing
 
 repOf :: TypeEnv -> Type -> Maybe Type
 repOf env ty = do
@@ -324,9 +336,13 @@ viewForAll env ty =
 
 viewFun :: TypeEnv -> Type -> Maybe (Type, Type, Type, Type)
 viewFun env ty =
-  case reduceType env ty of
+  case ty of
+    -- A function type keeps the form of its representations, so a pass
+    -- that copies them does not expand their synonyms.
     TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
-    _ -> Nothing
+    _ -> case reduceType env ty of
+      TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
+      _ -> Nothing
 
 -- | The type after the leading binders of a foreign type.
 foreignTypeBody :: TypeEnv -> Type -> Type
@@ -406,12 +422,29 @@ applyFamilyEquations env equations source = snd <$> select equations
           selected@(later, _) <- select rest
           -- A later equation can pass an earlier equation when both give
           -- the same result throughout the earlier equation's domain.
+          -- As in GHC, the results must be the same without family
+          -- reduction. A comparison that reduces families can come back
+          -- here with a larger type each time: the catch-all
+          -- @i + i' = Succ i + Pred i'@ of numtype-dk does not stop.
           overlap <- applyNominalAxiom env later (axiomLeft equation)
-          guard (typesEqual env overlap (axiomRight equation))
+          guard (synonymsEqual (reduceSynonyms env overlap) (reduceSynonyms env (axiomRight equation)))
           pure selected
       | otherwise = select rest
     spine arguments (TyApp function argument) = spine (argument : arguments) function
     spine arguments headType = (headType, arguments)
+    -- Structural equality of two types whose synonyms are unfolded. Bound
+    -- type variables can have different names.
+    synonymsEqual first second =
+      case (first, second) of
+        (TyForAll binder1 body1, TyForAll binder2 body2) ->
+          synonymsEqual (binderType binder1) (binderType binder2)
+            && synonymsEqual body1 (substType (binderName binder2) (TyVar (binderName binder1)) body2)
+        (TyApp function1 argument1, TyApp function2 argument2) ->
+          synonymsEqual function1 function2 && synonymsEqual argument1 argument2
+        (TyFun r1a r2a a1 b1, TyFun r1b r2b a2 b2) ->
+          and (zipWith synonymsEqual [r1a, r2a, a1, b1] [r1b, r2b, a2, b2])
+        (TyEq a1 b1, TyEq a2 b2) -> synonymsEqual a1 a2 && synonymsEqual b1 b2
+        _ -> first == second
     couldUnify patternType target =
       case (patternType, target) of
         (TyVar _, _) -> True

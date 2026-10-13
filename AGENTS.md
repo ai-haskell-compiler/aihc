@@ -60,20 +60,16 @@ It can validate GRIN structural invariants.
 It must not reconstruct Haskell type information.
 It must not duplicate System FC desugaring.
 
-## Mandatory Pre-Commit Procedure
+## Mandatory Post-Push Procedure
 
-Do these steps before each commit:
+Open a PR as soon as possible.
 
-1. Run `just fmt`.
-   This command formats all Haskell files with Ormolu.
-2. Run `just check`.
-   This command must complete successfully.
-   It does an Ormolu format check, an HLint check, and the full test suite.
+After each push, run `just fmt` and then `just check` locally.
 
-If `just check` fails, do not commit.
-Correct each problem and run `just check` again.
+If `just fmt` changes files, commit and push those changes.
+Then, run `just fmt` and `just check` again.
 
-Use this sequence: write code, run `just fmt`, run `just check`, and commit.
+If `just check` fails, correct each problem, commit and push the changes, then run both commands again.
 
 ## PR Procedure
 
@@ -113,6 +109,64 @@ Then, open a PR to merge the branch into `main`.
 - CI does not only check the branch `HEAD`.
 - If local checks pass and CI fails, merge or rebase `origin/main` into the branch.
 - Then, run `just check` again.
+
+## Test Rules
+
+### Do
+
+- Each new test must fail without the other changes in the PR.
+  Run the test on `main` or with the fix reverted.
+  If the test passes before and after, delete it.
+- Before you add a test, name the defect it finds.
+  No existing test must find that defect.
+  If you cannot name one, do not add the test.
+- Put the test in the existing harness for its layer.
+  Examples are the resolver, tc, FC, GRIN, and eval fixtures.
+  Do not write a new harness for one test.
+- Test at the lowest layer that shows the defect.
+  A resolver defect gets a resolver fixture, not an end-to-end program.
+  If a defect only shows end-to-end, use an end-to-end test.
+- For a bug fix, first reduce the input.
+  Find the smallest program that shows the bug.
+  Then add that program as the test.
+- Test observable results only.
+  Examples are diagnostics, golden output, and program output.
+- Keep golden output small.
+  A golden file that changes on each unrelated optimizer change is too costly.
+- A property test must state a property that is not the implementation.
+  Say what the generator covers.
+- Make each test give the same result on each run.
+  Do not depend on wall-clock time, the network, the environment, or map order.
+- When a test fails after your change, give a reason in the PR for each changed expectation.
+  Do not accept a new golden output without a reason.
+- Give the cost of each new test in the PR.
+  The cost is run time, flakiness, and the number of unrelated changes that will break it.
+
+### Do Not
+
+- Do not add tests to a refactor PR.
+  If the behavior is the same, the existing tests are the proof.
+  An empty test diff is the evidence that the PR is a refactor.
+- Do not test what the type checker already proves.
+  A test that a bad program gives a diagnostic is correct.
+  A test that a well-typed value has a type is not.
+- Do not test trivial code.
+  Examples are getters, constants, Show instances, and derived instances.
+- Do not compute the expected value with the function under test.
+  That test cannot fail.
+- Do not use mocks.
+  The compiler is pure.
+  Run the real pipeline.
+- Do not add timing tests.
+  They are fragile.
+  If performance is the subject, measure allocation or instruction counts.
+  As an alternative, report the numbers in the PR and add no test.
+- Do not skip, weaken, or delete a failing test to make CI green.
+- Do not assert on internal data structures.
+  A refactor can change them without a change in behavior.
+- Do not use test coverage as a goal.
+- Do not put test-only code in the `aihc` library.
+  Put it in `aihc-testing` or beside the caller.
 
 ## Commits
 

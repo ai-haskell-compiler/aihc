@@ -37,9 +37,9 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
-    4.c: :: ∀(a : sType). a 4.→ t[] a 4.→ t[] a;
+    4.c: :: ∀(a : sType). a → t[] a → t[] a;
     4.cAddrRep :: tRuntimeRep;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
     4.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
     4.cLifted :: tLevity;
     4.cWordRep :: tRuntimeRep;

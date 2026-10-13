@@ -49,6 +49,7 @@ import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, openTempFile)
 import System.IO.Error (ioeGetErrorString)
+import System.Info qualified
 import System.Process (readProcess, readProcessWithExitCode)
 import Test.Aihc.SeedStore
   ( Sandbox (..),
@@ -863,7 +864,12 @@ test_ltoLlvm getStore =
         linked = root </> "linked" </> "greet"
     _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
     bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
-    assertEqual "bundle records the LTO link arguments" ["-flto", "-O2"] (linkBundleLtoArguments bundleManifest)
+    -- On x86-64, the link also disables LLVM shrink-wrapping (#2566).
+    let shrinkWrapArguments
+          | System.Info.arch /= "x86_64" = []
+          | System.Info.os == "darwin" = ["-Wl,-mllvm,-enable-shrink-wrap=false"]
+          | otherwise = ["-Wl,-plugin-opt=-enable-shrink-wrap=false"]
+    assertEqual "bundle records the LTO link arguments" (["-flto", "-O2"] <> shrinkWrapArguments) (linkBundleLtoArguments bundleManifest)
     -- The link reads no archive: the wrapper objects of the packages are
     -- among the objects, and the C objects were already.
     assertEqual "bundle lists no archive" [] (linkBundleArchives bundleManifest)
