@@ -197,6 +197,7 @@ arm64Backend =
           (CConvention, [ty]) | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) 0 X0)]
           _ -> [],
       nbBinary = arm64Binary,
+      nbRotatedBinary = Just rotatedBinary,
       nbUnary = bitCount,
       nbWide = wide,
       nbQuotRemWide = Nothing,
@@ -340,6 +341,10 @@ instructionEffect instruction =
     ArmMsub destination _ _ _ -> writes [destination]
     ArmLsl destination _ _ -> writes [destination]
     ArmLsr destination _ _ -> writes [destination]
+    ArmRor destination _ _ -> writes [destination]
+    ArmAndRotate destination _ _ _ -> writes [destination]
+    ArmOrrRotate destination _ _ _ -> writes [destination]
+    ArmEorRotate destination _ _ _ -> writes [destination]
     ArmAsr destination _ _ -> writes [destination]
     ArmCset destination _ -> writes [destination]
     ArmCsinv destination _ _ _ -> writes [destination]
@@ -707,6 +712,8 @@ arm64Binary ctx op ty dst a right =
     And -> pure (logical ArmAnd)
     Or -> pure (logical ArmOrr)
     Xor -> pure (logical ArmEor)
+    RotL -> pure (rotateBits True)
+    RotR -> pure (rotateBits False)
     Shl ->
       let (loads, count) = shiftOperand
        in pure (loads <> narrow ty dst [arm64Instruction (ArmLsl dst a count)])
@@ -718,6 +725,25 @@ arm64Binary ctx op ty dst a right =
       let (loads, count) = shiftOperand
        in pure (loads <> [arm64Instruction (ArmLsr dst a count)])
   where
+    rotateBits leftward
+      | ty == I1 = move dst a
+      | Just 0 <- count = move dst a
+      | otherwise = loads <> repeated <> negateCount <> [arm64Instruction (ArmRor (width dst) (width source) rotation)] <> [mask | typeBits ty < 32, mask <- narrowRegister ty dst]
+      where
+        width = if typeBits ty <= 32 then wordRegister else id
+        count = (\value -> (if leftward then negate value else value) `mod` toInteger (typeBits ty)) <$> constantBits ty right
+        (loads, rotation, negateCount) = case count of
+          Just value -> ([], Arm64ImmediateShift (fromInteger value), [])
+          Nothing ->
+            let (code, register) = rightRegister ty right
+             in if leftward
+                  then (code, Arm64RegisterShift (width scratchRight), [arm64Instruction (ArmSub scratchRight XZR (Arm64RegisterValue register))])
+                  else (code, Arm64RegisterShift (width register), [])
+        -- Repeat narrow bits to fill a 32-bit word before the rotate.
+        source = if typeBits ty < 32 then scratchLeft else a
+        repeated
+          | typeBits ty >= 32 = []
+          | otherwise = move scratchLeft a <> concat [[arm64Instruction (ArmLsl scratchExtra scratchLeft (Arm64ImmediateShift bits)), arm64Instruction (ArmOrr scratchLeft scratchLeft (Arm64RegisterValue scratchExtra))] | bits <- if ty == I8 then [8, 16] else [16]]
     rightRegister operandTy = operandIn' ctx 0 operandTy scratchRight
     -- A shift count is taken modulo the width of the type.
     shiftOperand =
@@ -1357,3 +1383,14 @@ storeMemory ty value base offset =
     2 -> arm64Instruction (ArmStrh (wordRegister value) base offset)
     4 -> arm64Instruction (ArmStr (wordRegister value) (Arm64Offset base offset))
     _ -> arm64Instruction (ArmStr value (Arm64Offset base offset))
+
+rotatedBinary :: BinaryOp -> Type -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> [Arm64Statement]
+rotatedBinary operation ty destination left right count =
+  [arm64Instruction (instruction (width destination) (width left) (width right) count)]
+  where
+    width = if ty == I32 then wordRegister else id
+    instruction = case operation of
+      And -> ArmAndRotate
+      Or -> ArmOrrRotate
+      Xor -> ArmEorRotate
+      _ -> error "A non-logical operation reached rotated operand selection."

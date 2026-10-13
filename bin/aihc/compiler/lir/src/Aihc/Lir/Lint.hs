@@ -454,7 +454,7 @@ lintInstruction env blockIndex position instruction =
     operationErrors =
       case operation of
         Binary op ty left right ->
-          let accepted = isIntegerType ty || (ty == I1 && op `elem` [And, Or, Xor])
+          let accepted = isIntegerType ty || (ty == I1 && op `elem` [And, Or, Xor, RotL, RotR])
            in (if accepted then [] else rejects ty) <> check ty left <> check ty right
         Unary _ ty value ->
           (if isIntegerType ty then [] else rejects ty) <> check ty value

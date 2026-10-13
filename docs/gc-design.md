@@ -74,14 +74,22 @@ The block cursor returns to the start after each collection.
 
 | Generation | Collected by | Survivors go to | Size rule |
 | --- | --- | --- | --- |
-| Nursery | Every minor collection | Gen1 | Fixed, option `-A` |
-| Gen1 | A minor collection when gen1 is above its maximum | Gen2 | Maximum, option `-B` |
+| Nursery | Every minor collection | Gen1, or gen2 with `-B0` | Fixed, option `-A` |
+| Gen1 | A minor collection after the `-B` count of collections | Gen2 | Count, option `-B` |
 | Gen2 | Incremental mark and sweep | Stay | Growth factor `-F`, limit `-M` |
 
-A minor collection copies live nursery objects into gen1. When gen1 is above
-its maximum, the same collection also copies live gen1 objects into gen2. Thus
-an object survives one collection before it reaches the non-moving heap. This
-one aging step limits floating garbage in gen2, which only a full cycle frees.
+A minor collection copies live nursery objects into gen1. A survivor stays in
+gen1 for `-B` collections. The collection at the end of this time also copies
+all live gen1 objects into gen2. The default count is one, so each collection
+copies gen1 into gen2. Thus an object survives one collection before it
+reaches the non-moving heap. This one aging step limits floating garbage in
+gen2, which only a full cycle frees. A count of zero copies live nursery
+objects into gen2 directly.
+
+Gen1 has no byte maximum. A copying generation cannot copy only its oldest
+part, because younger gen1 objects name older gen1 objects without a barrier
+record. Thus a byte maximum is one pause term, and the count rule bounds that
+term by the survivors of `-B` collections.
 
 A gen2 cycle starts at a minor collection that empties gen1. It starts when
 gen2 is above `-F` times the live gen2 bytes after the last cycle.
@@ -89,10 +97,11 @@ gen2 is above `-F` times the live gen2 bytes after the last cycle.
 A fixed block is a large object or a pinned block. A fixed block never moves,
 but it has a generation. A new fixed block is young. A fixed block that
 survives a collection goes up one generation, as a copied object does. The
-size of gen1 and gen2 includes the charges of their fixed blocks. The gen1
-maximum, the gen2 limit, and the live gen2 bytes after a cycle count these
-charges. Thus a dead old fixed block causes the collection that frees it. It
-does not wait for the `-M` limit.
+size of gen2 includes the charges of its fixed blocks. The gen2 limit and the
+live gen2 bytes after a cycle count these charges. A gen1 fixed block goes
+into gen2 with the rest of gen1 after `-B` collections. Thus a dead old fixed
+block causes the collection that frees it. It does not wait for the `-M`
+limit.
 
 If gen2 reaches the `-M` limit while a cycle is active, the collector finishes
 the cycle in one stop-the-world step. This is the only unbounded pause, and it
@@ -246,7 +255,7 @@ A minor collection costs the sum of these terms:
 
 | Term | Bound |
 | --- | --- |
-| Copy of live young objects | Nursery size plus gen1 maximum |
+| Copy of live young objects | Nursery size times the `-B` count plus one |
 | Root scan | Machine roots plus remembered set plus dirty cards |
 | Stack scan | One chunk for each live thread plus young chunks, which the nursery size bounds |
 | Mark slice | The slice cap |
@@ -274,7 +283,7 @@ least one chunk of stack growth.
 | --- | --- | --- |
 | `-A<size>` | Nursery size, rounded up to a power of two | Decided by measurement, 1 MiB or 4 MiB |
 | `-n<size>` | Nursery block size, zero selects the default | 32 KiB |
-| `-B<size>` | Gen1 maximum | 16 MiB |
+| `-B<count>` | Collections that a survivor stays in gen1, zero for none | 1 |
 | `-F<factor>` | Gen2 growth factor between cycles | 2 |
 | `-k<factor>` | Mark work for each byte promoted into gen2 | 2 |
 | `-M<size>` | Heap limit, as today | Off |

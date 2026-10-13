@@ -431,6 +431,8 @@ condition never traps.
 | `shl iN %a, %b` | `iN` | Shift left. The count is `%b` modulo `N`. |
 | `shr.s iN %a, %b` | `iN` | Arithmetic shift right. The count is `%b` modulo `N`. |
 | `shr.u iN %a, %b` | `iN` | Logical shift right. The count is `%b` modulo `N`. |
+| `rotl iN %a, %b` | `iN` | Rotate left. The count is `%b` modulo `N`. Also accepts `i1`. |
+| `rotr iN %a, %b` | `iN` | Rotate right. The count is `%b` modulo `N`. Also accepts `i1`. |
 | `clz iN %a` | `iN` | The number of leading zero bits. `N` when `%a` is zero. |
 | `ctz iN %a` | `iN` | The number of trailing zero bits. `N` when `%a` is zero. |
 | `popcount iN %a` | `iN` | The number of one bits. |
@@ -1129,6 +1131,9 @@ rather than as a change of some object bytes. Run the suite with
   aihc function, since that call clobbers them.
 - A narrow integer is canonical: an `iN` value is zero-extended to 64 bits.
   Signed operations sign-extend the operands first.
+- A 32-bit or 64-bit rotate uses `ror`. A left rotate uses the opposite count.
+  A single-use constant rotate can become an operand of `and`, `orr`, or `eor`.
+  The selector combines these operations before register allocation.
 - `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no
   population count of a general register, so `popcount` goes through the
   vector unit with `cnt` and `addv`, which the base architecture requires.
@@ -1199,6 +1204,9 @@ design of the AArch64 backend:
   A function with `cas` or `atomic.or` keeps `rax` and `rdx` from the
   allocator, as a division does. A sequentially consistent `fence` is
   `mfence`. The other fences need no instruction.
+- Rotates use `rol` or `ror`, with an immediate count or `cl`.
+  A constant 32-bit or 64-bit rotate uses `rorx` when the source and destination registers differ.
+  This instruction avoids a copy and preserves the flags.
 - `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`, and
   `pdep` and `pext` are the BMI2 instructions of the same name. This backend
   targets modern hardware and assumes SSE4.2, LZCNT, BMI1, and BMI2; a host

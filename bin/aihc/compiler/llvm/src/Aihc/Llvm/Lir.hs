@@ -120,6 +120,7 @@ preamble externSymbols =
         ]
       | ty <- ["i8", "i16", "i32", "i64"]
       ]
+    <> ["declare " <> ty <> " @llvm." <> op <> "." <> ty <> "(" <> ty <> ", " <> ty <> ", " <> ty <> ")" | ty <- ["i1", "i8", "i16", "i32", "i64"], op <- ["fshl", "fshr"]]
     <> bitScatterHelpers
 
 -- | The C functions that the trap blocks call, with their declarations.
@@ -656,6 +657,8 @@ compileInstruction ctx (Instruction results operation) =
         Shl -> shift "shl" ty a b
         ShrS -> shift "ashr" ty a b
         ShrU -> shift "lshr" ty a b
+        RotL -> single ("call " <> llvmType <> " @llvm.fshl." <> llvmType <> "(" <> typed ty left <> ", " <> typed ty left <> ", " <> typed ty right <> ")")
+        RotR -> single ("call " <> llvmType <> " @llvm.fshr." <> llvmType <> "(" <> typed ty left <> ", " <> typed ty left <> ", " <> typed ty right <> ")")
         DivS -> do
           divisionChecks ty a b
           overflowCheck ty a b

@@ -397,6 +397,8 @@ binaryOpName op =
     Shl -> "shl"
     ShrS -> "shr.s"
     ShrU -> "shr.u"
+    RotL -> "rotl"
+    RotR -> "rotr"
     Pdep -> "pdep"
     Pext -> "pext"
 

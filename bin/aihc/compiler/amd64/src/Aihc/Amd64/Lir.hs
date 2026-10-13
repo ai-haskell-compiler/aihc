@@ -205,6 +205,7 @@ amd64Backend =
           (CConvention, [F32]) -> [amd64Instruction (AmdMovdToXmm 0 EAX)]
           _ -> [],
       nbBinary = amd64Binary,
+      nbRotatedBinary = Nothing,
       nbUnary = bitCount,
       nbWide = wide,
       nbQuotRemWide = Just quotRemWide,
@@ -318,7 +319,7 @@ functionScratch function =
         _ -> False
     shifts operation =
       case operation of
-        Binary op _ _ right -> op `elem` [Shl, ShrS, ShrU] && not (isLiteral right)
+        Binary op _ _ right -> op `elem` [Shl, ShrS, ShrU, RotL, RotR] && not (isLiteral right)
         _ -> False
     isLiteral operand = case operand of
       OperandLiteral _ -> True
@@ -399,6 +400,8 @@ instructionEffect instruction =
     AmdShr destination -> modifies destination
     AmdShlImmediate destination _ -> modifies destination
     AmdShrImmediate destination _ -> modifies destination
+    AmdRotate _ _ destination _ -> writes [destination]
+    AmdRorx destination _ _ -> writes [destination]
     AmdSarImmediate destination _ -> modifies destination
     AmdNot destination -> modifies destination
     AmdMul _ -> writes [RAX, RDX]
@@ -728,6 +731,8 @@ amd64Binary ctx op ty dst a right =
        in pure (loads <> arith True AmdAnd dst a b)
     Or -> pure (logical AmdOr)
     Xor -> pure (logical AmdXor)
+    RotL -> pure (rotateBits True)
+    RotR -> pure (rotateBits False)
     Shl -> pure (shift ty dst (move dst a) AmdShl AmdShlImmediate right)
     ShrS -> pure (shift ty dst (signExtendTo dst ty a) AmdSar AmdSarImmediate right)
     ShrU -> pure (shift ty dst (move dst a) AmdShr AmdShrImmediate right)
@@ -736,6 +741,26 @@ amd64Binary ctx op ty dst a right =
     Pdep -> pure (bmi2 AmdPdep)
     Pext -> pure (bmi2 AmdPext)
   where
+    rotateBits leftward
+      | ty == I1 = move dst a
+      | Just 0 <- count = move dst a
+      | Just n <- count,
+        bits >= 32,
+        dst /= a =
+          [amd64Instruction (AmdRorx (width dst) (width a) (if leftward then (bits - n) `mod` bits else n))]
+      | Just n <- count = move dst a <> [amd64Instruction (AmdRotate leftward bits (width dst) (Just n))]
+      | otherwise =
+          let (loads, b) = rightRegister ty right
+           in loads <> move RCX b <> move dst a <> [amd64Instruction (AmdRotate leftward bits (width dst) Nothing)]
+      where
+        bits = typeBits ty
+        width = case ty of
+          I8 -> byteRegister
+          I32 -> dwordRegister
+          _ -> id
+        count = case right of
+          OperandLiteral (LitInt n) -> Just (fromInteger (n `mod` toInteger bits))
+          _ -> Nothing
     bmi2 operation =
       let (loads, b) = rightRegister ty right
           width register = if typeBits ty == 64 then register else dwordRegister register

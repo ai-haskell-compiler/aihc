@@ -1,0 +1,35 @@
+; expect: -127, -127, 3, -64, -32768, 1, 1, -9223372036854775808
+; Detect incorrect variable counts, narrow widths, and source preservation.
+func @byte(%x: i8, %n: i8) -> (i8, i8) {
+entry:
+  %l = rotl i8 %x, %n
+  %r = rotr i8 %x, %n
+  return %l, %r
+}
+func @half(%x: i16, %n: i16) -> i16 {
+entry:
+  %r = rotl i16 %x, %n
+  return %r
+}
+func @word(%x: i32, %n: i32) -> i32 {
+entry:
+  %r = rotr i32 %x, %n
+  return %r
+}
+func @wide(%x: i64, %n: i64) -> (i64, i64) {
+entry:
+  %r = rotr i64 %x, %n
+  %l = rotl i64 %x, %n
+  return %r, %l
+}
+func @main() -> (i8, i8, i8, i8, i16, i32, i64, i64) {
+entry:
+  %zero = rotr i8 129, 0
+  %full = rotl i8 129, 8
+  %l, %r = call @byte(129, 9)
+  %half = call @half(1, -1)
+  %word = call @word(2147483648, -1)
+  %wide_zero, %wide_full = call @wide(1, 64)
+  %top, %unused = call @wide(1, 1)
+  return %zero, %full, %l, %r, %half, %word, %wide_full, %top
+}

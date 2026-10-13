@@ -217,6 +217,10 @@ data Arm64Instruction
   | ArmMsub !Arm64Register !Arm64Register !Arm64Register !Arm64Register
   | ArmLsl !Arm64Register !Arm64Register !Arm64Shift
   | ArmLsr !Arm64Register !Arm64Register !Arm64Shift
+  | ArmRor !Arm64Register !Arm64Register !Arm64Shift
+  | ArmAndRotate !Arm64Register !Arm64Register !Arm64Register !Int
+  | ArmOrrRotate !Arm64Register !Arm64Register !Arm64Register !Int
+  | ArmEorRotate !Arm64Register !Arm64Register !Arm64Register !Int
   | ArmCset !Arm64Register !Arm64Condition
   | ArmCsinv !Arm64Register !Arm64Register !Arm64Register !Arm64Condition
   | ArmSxtw !Arm64Register !Arm64Register
@@ -411,6 +415,10 @@ encodeInstruction instruction =
     ArmMsub destination left right accumulator -> encodeMsub destination left right accumulator
     ArmLsl destination left right -> encodeShift 0x9ac02000 True destination left right
     ArmLsr destination left right -> encodeShift 0x9ac02400 False destination left right
+    ArmRor destination source count -> encodeRotate destination source count
+    ArmAndRotate destination left right count -> encodeLogicalRotate 0x0ac00000 destination left right count
+    ArmOrrRotate destination left right count -> encodeLogicalRotate 0x2ac00000 destination left right count
+    ArmEorRotate destination left right count -> encodeLogicalRotate 0x4ac00000 destination left right count
     ArmCset destination condition -> encodeCset destination condition
     ArmCsinv destination trueValue falseValue condition -> encodeCsinv destination trueValue falseValue condition
     ArmSxtw destination source -> encodeTwoRegister 0x93407c00 destination source
@@ -833,3 +841,22 @@ encodeCsinv destination trueValue falseValue condition =
 
 words32 :: [Word32] -> [Item]
 words32 = map (Word 4 . fromIntegral)
+
+-- | Encode ROR as EXTR for a constant count or RORV for a register count.
+encodeRotate :: Arm64Register -> Arm64Register -> Arm64Shift -> [Item]
+encodeRotate destination source count =
+  let rd = registerInfo destination
+      rn = registerInfo source
+      wide = registerWidth rd == 64
+      fields = registerNumber rn `shiftL` 5 .|. registerNumber rd
+   in case count of
+        Arm64ImmediateShift amount -> words32 [(if wide then 0x93c00000 else 0x13800000) .|. registerNumber rn `shiftL` 16 .|. amount `shiftL` 10 .|. fields]
+        Arm64RegisterShift register -> words32 [(if wide then 0x9ac02c00 else 0x1ac02c00) .|. registerNumber (registerInfo register) `shiftL` 16 .|. fields]
+
+encodeLogicalRotate :: Word32 -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> [Item]
+encodeLogicalRotate base destination left right count =
+  let rd = registerInfo destination
+      rn = registerInfo left
+      rm = registerInfo right
+      width = if registerWidth rd == 64 then 0x80000000 else 0
+   in words32 [width .|. base .|. registerNumber rm `shiftL` 16 .|. fromIntegral count `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]

@@ -149,6 +149,9 @@ typedef struct {
   AihcCapability *capability;
   /* The oldest generation this collection copies. */
   unsigned collected;
+  /* The generation that receives the survivors of the nursery: gen1, or
+     gen2 when the -B count is zero. */
+  unsigned young_target;
   /* Set at the end of a gen2 cycle: the young generations were swept
      already, so a young object is live, and gen2 is judged by the marks of
      the cycle. */
@@ -423,15 +426,11 @@ static AihcGeneration *aihc_generation(AihcCapability *capability,
   return &capability->machine->generations[generation - 1];
 }
 
-/* The bytes the gen1 and gen2 tests read: the blocks of the generation and
-   the fixed blocks of the same generation. A fixed block is a large object
-   or a pinned block. It has no space in a generation. Without its charge
-   here, a dead old fixed block waits for the -M limit. */
-static uint64_t aihc_gen1_bytes(const AihcCapability *capability) {
-  return capability->machine->generations[0].bytes +
-         capability->machine->fixed_generation_bytes[1];
-}
-
+/* The bytes the gen2 tests read: the segments of gen2 and the fixed blocks
+   of gen2. A fixed block is a large object or a pinned block. It has no
+   space in a generation. Without its charge here, a dead old fixed block
+   waits for the -M limit. Gen1 needs no such test: the -B count copies all
+   of gen1, with its fixed blocks, after a bounded number of collections. */
 static uint64_t aihc_gen2_bytes(const AihcCapability *capability) {
   return capability->machine->generations[1].bytes +
          capability->machine->fixed_generation_bytes[2];
@@ -1294,7 +1293,7 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
       (block->bytes & AIHC_PINNED_MARK) != 0) {
     return;
   }
-  unsigned promoted = generation + 1;
+  unsigned promoted = generation == 0 ? context->young_target : generation + 1;
   if (promoted < target) {
     promoted = target;
   }
@@ -1404,7 +1403,7 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
       value = (AihcValue *)(uintptr_t)value->fields[0];
       continue;
     }
-    unsigned generation = source + 1;
+    unsigned generation = source == 0 ? context->young_target : 2;
     if (generation < target) {
       generation = target;
     }
@@ -2529,14 +2528,14 @@ void aihc_gc_record_peak(AihcCapability *capability) {
   }
 }
 
-/* The oldest generation the next collection copies. Gen1 goes when it is
-   above its maximum, gen2 when it has grown past its limit, and everything
-   when the -M limit is near. The size of gen1 and gen2 includes their fixed
-   blocks. */
+/* The oldest generation the next collection copies. Gen1 goes when its
+   survivors have stayed for the -B count of collections, gen2 when it has
+   grown past its limit, and everything when the -M limit is near. The size
+   of gen2 includes its fixed blocks. */
 static unsigned aihc_choose_generation(const AihcCapability *capability,
                                        uint64_t required_bytes) {
   unsigned generation = 0;
-  if (aihc_gen1_bytes(capability) >= capability->machine->gen1_max_bytes) {
+  if (capability->machine->gen1_age >= capability->machine->gen1_collections) {
     generation = 1;
   }
   uint64_t limit = capability->machine->gen2_limit_bytes;
@@ -2598,7 +2597,17 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
   } else if (collected == 1) {
     ++capability->machine->gc_gen1_count;
   }
-  AihcGcContext context = {.capability = capability, .collected = collected};
+  /* After a collection that copies gen1, gen1 holds the survivors of this
+     collection alone. A count of zero leaves gen1 empty. */
+  uint64_t gen1_collections = capability->machine->gen1_collections;
+  if (collected >= 1) {
+    capability->machine->gen1_age = gen1_collections == 0 ? 0 : 1;
+  } else if (capability->machine->gen1_age != UINT64_MAX) {
+    ++capability->machine->gen1_age;
+  }
+  AihcGcContext context = {.capability = capability,
+                           .collected = collected,
+                           .young_target = gen1_collections == 0 ? 2 : 1};
 
   /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
      blocks. A full collection marks gen2 in place. */
@@ -2816,7 +2825,7 @@ void aihc_gc_init(AihcCapability *capability) {
   aihc_nursery_acquire(
       capability,
       aihc_nursery_size(nursery == 0 ? AIHC_NURSERY_BYTES : nursery));
-  capability->machine->gen1_max_bytes = AIHC_GEN1_MAX_BYTES;
+  capability->machine->gen1_collections = AIHC_GEN1_COLLECTIONS;
   capability->machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
   capability->machine->gen2_factor = AIHC_GEN2_FACTOR;
   capability->machine->mark_factor = AIHC_MARK_FACTOR;
@@ -2834,9 +2843,8 @@ void aihc_gc_apply_options(AihcCapability *capability) {
       capability->heap_next == capability->heap_start) {
     aihc_nursery_replace(capability, nursery);
   }
-  uint64_t gen1_max = aihc_rts_gen1_max_bytes();
-  if (gen1_max != 0) {
-    capability->machine->gen1_max_bytes = gen1_max;
+  if (aihc_rts_gen1_collections_set()) {
+    capability->machine->gen1_collections = aihc_rts_gen1_collections();
   }
   uint64_t factor = aihc_rts_gen2_factor();
   if (factor != 0) {

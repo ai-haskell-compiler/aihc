@@ -15,15 +15,16 @@
 
 /* The defaults of the generational collector. The nursery is one run of
    regions that the mutator fills with a bump pointer. Gen1 holds the
-   objects that survived one collection, up to its maximum. Gen2 holds the
-   rest, and a full collection runs when gen2 has grown by the factor since
-   the last one, or at least to the minimum. RTS options -A, -B, and -F
-   replace the first three. */
+   survivors of the last collections: the gen1 count is the number of
+   collections after which the next collection copies all of gen1 into gen2.
+   Gen2 holds the rest, and a full collection runs when gen2 has grown by the
+   factor since the last one, or at least to the minimum. RTS options -A, -B,
+   and -F replace the first three. */
 #ifndef AIHC_NURSERY_BYTES
 #define AIHC_NURSERY_BYTES (UINT64_C(4) << 20)
 #endif
 #define AIHC_NURSERY_BLOCK_BYTES (UINT64_C(32) << 10)
-#define AIHC_GEN1_MAX_BYTES (UINT64_C(16) << 20)
+#define AIHC_GEN1_COLLECTIONS UINT64_C(1)
 #ifndef AIHC_GEN2_MINIMUM_BYTES
 #define AIHC_GEN2_MINIMUM_BYTES (UINT64_C(8) << 20)
 #endif
@@ -342,7 +343,11 @@ struct AihcMachine {
   uint64_t heap_live_bytes;
   /* The generations above the nursery: index zero is gen1. */
   AihcGeneration generations[2];
-  uint64_t gen1_max_bytes;
+  /* The -B count: a survivor stays in gen1 for this many collections. Zero
+     copies the survivors of the nursery into gen2 directly. gen1_age is the
+     number of collections since the last one that copied gen1. */
+  uint64_t gen1_collections;
+  uint64_t gen1_age;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
   uint64_t gc_minor_count;

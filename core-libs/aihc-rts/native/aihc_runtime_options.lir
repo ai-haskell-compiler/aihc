@@ -42,13 +42,16 @@ global @aihc_program_environment_bytes: i64
 ; initializes the arguments, so a program without options gets the defaults.
 global @aihc_rts_option_heap_max_bytes: i64
 global @aihc_rts_option_heap_limit_enabled: i64
-; The generational collector: -A sets the nursery bytes, -B the gen1
-; maximum, -F the growth factor of gen2, and -k the mark work for each
-; promoted byte. Zero means the default.
+; The generational collector: -A sets the nursery bytes, -F the growth
+; factor of gen2, and -k the mark work for each promoted byte. Zero means the
+; default.
 global @aihc_rts_option_nursery_bytes: i64
 ; -n sets the nursery block size. Zero selects the default.
 global @aihc_rts_option_nursery_block_bytes: i64
-global @aihc_rts_option_gen1_max_bytes: i64
+; -B sets the number of collections that a survivor stays in gen1. Zero is a
+; valid count, so a second global records that the option is present.
+global @aihc_rts_option_gen1_collections: i64
+global @aihc_rts_option_gen1_collections_set: i64
 global @aihc_rts_option_gen2_factor: i64
 global @aihc_rts_option_mark_factor: i64
 ; The zero-terminated path of the statistics file, or null when the
@@ -100,9 +103,15 @@ entry:
   return %value
 }
 
-export func @aihc_rts_gen1_max_bytes() -> i64 cc c {
+export func @aihc_rts_gen1_collections() -> i64 cc c {
 entry:
-  %value = global.get @aihc_rts_option_gen1_max_bytes
+  %value = global.get @aihc_rts_option_gen1_collections
+  return %value
+}
+
+export func @aihc_rts_gen1_collections_set() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_gen1_collections_set
   return %value
 }
 
@@ -315,8 +324,9 @@ gen1_option:
   br %is_gen1, gen1, factor_option
 
 gen1:
-  %gen1_size = call @aihc_rts_parse_heap_size(%size_text)
-  global.set @aihc_rts_option_gen1_max_bytes, %gen1_size
+  %gen1_count = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_gen1_collections, %gen1_count
+  global.set @aihc_rts_option_gen1_collections_set, 1
   return
 
 factor_option:

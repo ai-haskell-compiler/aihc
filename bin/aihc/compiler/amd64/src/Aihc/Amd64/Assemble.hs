@@ -222,6 +222,9 @@ data Amd64Instruction
   | -- | Shifts by an immediate count.
     AmdShlImmediate !Amd64Rm !Int
   | AmdShrImmediate !Amd64Rm !Int
+  | -- | Direction, width, destination, and optional immediate count. Nothing selects CL.
+    AmdRotate !Bool !Int !Amd64Register !(Maybe Int)
+  | AmdRorx !Amd64Register !Amd64Register !Int
   | AmdSarImmediate !Amd64Rm !Int
   | AmdNot !Amd64Rm
   | AmdMul !Amd64Rm
@@ -452,6 +455,22 @@ encodeInstruction instruction =
     AmdShr destination -> encodeGroup True [0xd3] 5 (rmOperand destination) []
     AmdShlImmediate destination count -> encodeGroup True [0xc1] 4 (rmOperand destination) [fromIntegral count]
     AmdShrImmediate destination count -> encodeGroup True [0xc1] 5 (rmOperand destination) [fromIntegral count]
+    AmdRotate leftward width destination count ->
+      let opcode = case count of
+            Nothing -> if width == 8 then 0xd2 else 0xd3
+            Just 1 -> if width == 8 then 0xd0 else 0xd1
+            Just _ -> if width == 8 then 0xc0 else 0xc1
+          suffix = case count of
+            Just n | n /= 1 -> [fromIntegral n]
+            _ -> []
+       in bytes [0x66 | width == 16] <> encodeGroupWithWidth (width == 64) [opcode] (if leftward then 0 else 1) (RegisterOperand (registerInfo destination)) suffix (width == 8)
+    AmdRorx destination source count ->
+      let rd = registerInfo destination
+          rn = registerInfo source
+          byte1 = (if registerNumber rd < 8 then 0x80 else 0) .|. 0x40 .|. (if registerNumber rn < 8 then 0x20 else 0) .|. 3
+          byte2 = (if registerWidth rd == 64 then 0x80 else 0) .|. 0x7b
+          modrm = 0xc0 .|. (registerNumber rd .&. 7) `shiftL` 3 .|. (registerNumber rn .&. 7)
+       in bytes [0xc4, byte1, byte2, 0xf0, modrm, fromIntegral count]
     AmdSarImmediate destination count -> encodeGroup True [0xc1] 7 (rmOperand destination) [fromIntegral count]
     AmdNot destination -> encodeGroup True [0xf7] 2 (rmOperand destination) []
     AmdMul source -> encodeGroup True [0xf7] 4 (rmOperand source) []

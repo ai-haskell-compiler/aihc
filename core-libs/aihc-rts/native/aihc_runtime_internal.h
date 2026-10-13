@@ -500,7 +500,8 @@ uint64_t aihc_rts_heap_limit_enabled(void);
 /* The -A, -B, and -F options, or zero for the default. */
 uint64_t aihc_rts_nursery_bytes(void);
 uint64_t aihc_rts_nursery_block_bytes(void);
-uint64_t aihc_rts_gen1_max_bytes(void);
+uint64_t aihc_rts_gen1_collections(void);
+uint64_t aihc_rts_gen1_collections_set(void);
 uint64_t aihc_rts_gen2_factor(void);
 uint64_t aihc_rts_mark_factor(void);
 /* Apply the parsed collector options to a capability whose nursery is empty. */

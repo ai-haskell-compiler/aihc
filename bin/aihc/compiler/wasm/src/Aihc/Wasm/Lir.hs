@@ -788,6 +788,8 @@ compileInstruction fn (Instruction results operation) =
         Xor -> operands ty left right >> emit (p <> ".xor") >> single
         Shl -> push fn ty left >> shiftCount ty right >> emit (p <> ".shl") >> narrow ty >> single
         ShrU -> push fn ty left >> shiftCount ty right >> emit (p <> ".shr_u") >> single
+        RotL -> rotateBits True ty left right >> single
+        RotR -> rotateBits False ty left right >> single
         ShrS -> push fn ty left >> signExtend ty >> shiftCount ty right >> emit (p <> ".shr_s") >> narrow ty >> single
         DivS -> do
           zeroCheck ty right
@@ -1038,6 +1040,21 @@ compileInstruction fn (Instruction results operation) =
       signExtend ty
       push fn ty right
       signExtend ty
+
+    rotateBits leftward ty value count
+      | typeBits ty >= 32 = operands ty value count >> emit (prefix ty <> if leftward then ".rotl" else ".rotr")
+      | ty == I1 = push fn ty value
+      | otherwise = do
+          push fn ty value
+          shiftCount ty count
+          emit (if leftward then "i32.shl" else "i32.shr_u")
+          push fn ty value
+          emit ("i32.const\t" <> tshow (typeBits ty))
+          shiftCount ty count
+          emit "i32.sub"
+          emit (if leftward then "i32.shr_u" else "i32.shl")
+          emit "i32.or"
+          narrow ty
 
     shiftCount ty count = do
       push fn ty count

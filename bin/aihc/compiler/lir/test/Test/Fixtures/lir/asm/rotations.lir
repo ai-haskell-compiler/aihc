@@ -1,0 +1,48 @@
+; Detect separate shifts for rotates and unnecessary copies.
+func @constant(%x: i32) -> (i32, i32) {
+entry:
+  %r = rotr i32 %x, 7
+  %l = rotl i32 %r, 9
+  return %x, %l
+}
+func @variable(%x: i64, %count: i64) -> (i64, i64) {
+entry:
+  %r = rotr i64 %x, %count
+  %l = rotl i64 %r, %count
+  return %r, %l
+}
+func @pattern(%x: i32) -> i32 {
+entry:
+  %low = shr.u i32 %x, 7
+  %high = shl i32 %x, 25
+  %r = or i32 %low, %high
+  return %r
+}
+func @sigma(%x: i32) -> i32 {
+entry:
+  %r = rotr i32 %x, 7
+  %s = rotr i32 %x, 18
+  %t = xor i32 %r, %s
+  return %t
+}
+func @narrow(%x: i8, %n: i8, %y: i16, %m: i16) -> (i8, i16) {
+entry:
+  %r = rotl i8 %x, %n
+  %s = rotr i16 %y, %m
+  return %r, %s
+}
+func @wide_pattern(%x: i32) -> i64 {
+entry:
+  %wide = zext i32 %x to i64
+  %shift = shl i64 %wide, 25
+  %trunc = trunc i64 %shift to i32
+  %high = zext i32 %trunc to i64
+  %low = shr.u i64 %wide, 7
+  %r = or i64 %high, %low
+  return %r
+}
+func @constant64(%x: i64) -> (i64, i64) {
+entry:
+  %r = rotl i64 %x, 41
+  return %x, %r
+}
