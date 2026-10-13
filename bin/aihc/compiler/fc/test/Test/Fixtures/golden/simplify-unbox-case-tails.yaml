@@ -1,0 +1,86 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (clamp, count) where
+
+  import GHC.Prim ((*#), (+#), (<#), Int#)
+  import GHC.Types (Int (..))
+
+  -- A strict match of a box whose scrutinee is a case of known boxes.
+  clamp :: Int -> Int -> Int
+  clamp (I# a) (I# n) =
+    let m = I# n
+     in case (case a <# 11# of { 1# -> I# 11#; _ -> m }) of
+          I# y -> I# (y *# y *# y *# y *# y *# y *# a)
+
+  -- A strict match of a box of a call around a local loop.
+  count :: Int -> Int
+  count (I# n) =
+    case (let go :: Int# -> Int#
+              go x = case x <# 10# of
+                1# -> go (x +# 1#)
+                _ -> x
+           in I# (go n)) of
+      I# y -> I# (y *# y *# y *# y *# y *# y *# n)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vclamp :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (n : tInt#) = y;
+      let y{1} : tInt# =
+        case prim <# a lit (11#cIntRep) :: tInt# of {
+          1#cIntRep →
+            lit (11#cIntRep) :: tInt#;
+          _ →
+            n
+        };
+      cI# (prim *# (prim *# (prim *# (prim *# (prim *# (prim *# y{1} y{1}) y{1}) y{1}) y{1}) y{1}) a)
+
+  pub val 1.vcount :: tInt → tInt
+    = λ(x : tInt).
+      let! cI# (n : tInt#) = x;
+      let y : tInt# =
+        rec {
+          go : FUN @cIntRep @cIntRep tInt# tInt# =
+            λ(x{1} : tInt#).
+              case prim <# x{1} lit (10#cIntRep) :: tInt# of {
+                1#cIntRep →
+                  go (prim +# x{1} lit (1#cIntRep) :: tInt#);
+                _ →
+                  x{1}
+              }
+        } in
+        go n;
+      cI# (prim *# (prim *# (prim *# (prim *# (prim *# (prim *# y y) y) y) y) y) n)
+status: pass
+reason: Each tail of the scrutinee is a known box of a trivial field, or the scrutinee has one tail. The match takes the field from the tails, so no tail builds the box and the body is not copied.

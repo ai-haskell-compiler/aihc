@@ -908,9 +908,16 @@ simplifyCaseOf env scrutinee binder originalAlternatives =
       | otherwise -> do
           reduced <- caseOfKnown env scrutinee binder alternatives
           nested <- maybe (nestedComponentCase env scrutinee binder alternatives) (const (pure Nothing)) reduced
+          unboxed <- case (reduced, nested) of
+            (Nothing, Nothing) -> unboxedFieldCase env scrutinee binder alternatives
+            _ -> pure Nothing
           case (reduced, nested) of
             (Just result, _) -> simplifyExpr env result
             (Nothing, Just (scrutinee', alternative')) -> simplifyCase env scrutinee' Nothing (alternative' NE.:| [])
+            (Nothing, Nothing)
+              | Just (field, scrutinee', rest) <- unboxed -> do
+                  body <- simplifyExpr (bindingEnv env field scrutinee') rest
+                  pure (ExLet (Bind field scrutinee') body)
             (Nothing, Nothing) -> do
               pushed <- caseOfCase env scrutinee binder remaining (pure ())
               case pushed of
@@ -1385,6 +1392,109 @@ forcedConstructor env scrutinee named rhs = do
             ExForeignCall _ _ arguments -> List.foldr ((<|>) . go) Nothing arguments
             ExAbsurd inner _ -> go inner
             _ -> Nothing
+
+-- | A strict match of a constructor with one unlifted field, whose
+-- scrutinee is a case, a let or a recursive group, and whose every tail
+-- is that constructor, as the result of @min 11 n@:
+--
+-- > let! I# y = case c of { 1# -> I# 11#; _ -> n' };
+-- > rest
+--
+-- where @n'@ is a let of @I# n@. The tails give the field in place of the
+-- constructor, so the match takes the field and no tail builds the box:
+--
+-- > let! y = case c of { 1# -> 11#; _ -> n };
+-- > rest
+--
+-- A case of a case would copy @rest@ into each tail. This rewrite copies
+-- nothing. Each tail is the constructor of a trivial field, a local or
+-- top-level known constructor of a trivial field, or a tail that does
+-- not return. Then the scrutinee only selects a variable or a literal.
+-- Any other tail keeps the box, and the rewrite does not apply:
+--
+-- * A call in a tail would have to be taken apart by a case there, and
+--   the smaller scrutinee would make the growing inliner copy the callee
+--   at such sites.
+-- * A field that computes, such as @x +# 1#@, in a tail of a case makes
+--   a strict let of a case whose tails compute. A later walk pushes the body of such a let
+--   into each tail, where the case of a case keeps one join point for it.
+--
+-- A scrutinee with one tail, such as a recursive group around a box of a
+-- call, gives any field: the strict let then evaluates the call where the
+-- match did.
+--
+-- The type has one constructor, and the case binder has no use.
+--
+-- The result is the field binder, the new scrutinee and the body of the
+-- alternative, which is not simplified. The body stays after the strict
+-- let, so the rewrite does not copy it.
+unboxedFieldCase :: Simpl -> Expr -> Maybe Binder -> [Alt] -> SimplM (Maybe (Binder, Expr, Expr))
+unboxedFieldCase env scrutinee binder alternatives
+  | [Alt (AltData con) [] [field] rest] <- alternatives,
+    maybe True ((`unused` rest) . binderName) binder,
+    not (isLiftedBinder types field),
+    isBranching scrutinee,
+    Just conType <- lookupHeaderType types con,
+    (_, [_], result) <- splitConstructorType types conType,
+    Just tyCon <- typeHead (reduceType types result),
+    Map.lookup tyCon (teDataCons types) == Just [con],
+    tailList <- tails Set.empty scrutinee,
+    any (isJust . knownField con) tailList,
+    all (\(bound, expr) -> isAbsurd expr || maybe False (\argument -> single tailList || isTrivial argument) (knownField con (bound, expr))) tailList =
+      pure (Just (field, rewrite con (binderType field) Set.empty scrutinee, rest))
+  | otherwise = pure Nothing
+  where
+    types = spEnv env
+    isAbsurd expr =
+      case expr of
+        ExAbsurd {} -> True
+        _ -> False
+    single list =
+      case list of
+        [_] -> True
+        _ -> False
+    isBranching expr =
+      case expr of
+        ExCase {} -> True
+        ExLet {} -> True
+        ExRec {} -> True
+        _ -> False
+    -- The tails of an expression, with the names bound around each one.
+    tails bound expr =
+      case expr of
+        ExCase _ caseBinder caseAlternatives ->
+          concat
+            [ tails (Set.fromList (map binderName (foldr (:) [] caseBinder <> altBinders alternative)) <> bound) (altRhs alternative)
+            | alternative <- NE.toList caseAlternatives
+            ]
+        ExLet bind body -> tails (Set.insert (binderName (bindBinder bind)) bound) body
+        ExRec binds body -> tails (Set.fromList (map (binderName . bindBinder) binds) <> bound) body
+        _ -> [(bound, expr)]
+    -- The field of a tail that is the constructor, when it is known.
+    knownField con (bound, expr) =
+      case collectSpine expr of
+        (ExVar name, args)
+          | name == con,
+            [argument] <- rights args ->
+              Just argument
+          | null args,
+            Set.notMember name bound,
+            Just body <- Map.lookup name (spLocals env) <|> Map.lookup name (spKnown env),
+            (ExVar bodyCon, bodyArgs) <- collectSpine body,
+            bodyCon == con,
+            [argument] <- rights bodyArgs,
+            isCheapValue (spArity env) argument,
+            Set.disjoint bound (exprValueNames argument) ->
+              Just argument
+        _ -> Nothing
+    rewrite con fieldType bound expr =
+      case expr of
+        ExAbsurd inside _ -> ExAbsurd inside fieldType
+        ExCase inside caseBinder caseAlternatives ->
+          ExCase inside caseBinder (fmap (\alternative -> alternative {altRhs = rewrite con fieldType (Set.fromList (map binderName (foldr (:) [] caseBinder <> altBinders alternative)) <> bound) (altRhs alternative)}) caseAlternatives)
+        ExLet bind body -> ExLet bind (rewrite con fieldType (Set.insert (binderName (bindBinder bind)) bound) body)
+        ExRec binds body -> ExRec binds (rewrite con fieldType (Set.fromList (map (binderName . bindBinder) binds) <> bound) body)
+        _ -> fromMaybe expr (knownField con (bound, expr))
 
 -- | A strict match on an unboxed tuple whose alternative first takes a
 -- component apart, as the bind of an @IO Int@ action does:
