@@ -49,6 +49,9 @@ tests =
         "nursery size rounds up to a power of two"
         ["+RTS", "-A96k", "-n1k", "-RTS"]
         nurseryBlockSource,
+      runtimeProgramTest "gen1 copies its survivors into gen2 at each collection by default" [] (gen1CountSource 1),
+      runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),
+      runtimeProgramTest "-B3 keeps survivors in gen1 for three collections" ["+RTS", "-B3", "-RTS"] (gen1CountSource 3),
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,
@@ -354,6 +357,45 @@ nurseryBlockSource =
       "  if (aihc_array_elements(array)[999] != 17) return 4;",
       "  if (capability->machine->gc_count != collections + 1) return 5;",
       "  if (((AihcValue *)(uintptr_t)root)->fields[0] != 8192) return 6;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | The -B count gives the number of collections that a survivor stays in
+-- gen1. The collection that ends this time copies all of gen1 into gen2. A
+-- count of zero copies the survivors of the nursery into gen2 directly. The
+-- program keeps one new object alive across each collection. It checks the
+-- kind of each collection and the generation that holds the object after it.
+gen1CountSource :: Int -> String
+gen1CountSource count =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "#define COUNT " <> show count,
+      "static const uint8_t fields[] = {0};",
+      "static const AihcInfo info = {.field_is_pointer = fields, .field_count = 1, .object_kind = AIHC_OBJECT_NODE};",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  /* After a full collection, gen1 holds the survivors of one collection. */",
+      "  aihc_gc_collect_generation(capability, 2, 0, NULL, NULL);",
+      "  AihcSlot root = 0;",
+      "  for (uint64_t index = 1; index <= 3 * COUNT + 3; ++index) {",
+      "    uint64_t minor = capability->machine->gc_minor_count;",
+      "    uint64_t gen1 = capability->machine->gc_gen1_count;",
+      "    aihc_gc_collect(capability, 2, 1, &root, NULL);",
+      "    int copies_gen1 = COUNT == 0 || index % COUNT == 0;",
+      "    if (capability->machine->gc_gen1_count != gen1 + copies_gen1) return 1;",
+      "    if (capability->machine->gc_minor_count != minor + !copies_gen1) return 2;",
+      "    if (root != 0) {",
+      "      AihcValue *value = (AihcValue *)(uintptr_t)root;",
+      "      if (value->fields[0] != index - 1) return 3;",
+      "      if (aihc_region_kind(value) != (COUNT == 0 ? AIHC_REGION_GEN2 : AIHC_REGION_GEN1)) return 4;",
+      "    }",
+      "    AihcValue *value = aihc_gc_allocate(capability, 2);",
+      "    value->header = (AihcSlot)(uintptr_t)&info;",
+      "    value->fields[0] = index;",
+      "    root = (AihcSlot)(uintptr_t)value;",
+      "  }",
       "  return 0;",
       "}"
     ]

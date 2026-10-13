@@ -1170,7 +1170,7 @@ static void command_machine(char **tokens, size_t count) {
     capability->machine->mark_slice_cap = slice_bytes;
   }
   reported_cycle_active = 0;
-  capability->machine->gen1_max_bytes = UINT64_MAX;
+  capability->machine->gen1_collections = UINT64_MAX;
   capability->machine->gen2_limit_bytes = UINT64_MAX;
   memset(capability->heap_start, 0, space_bytes);
   capability->heap_next = capability->heap_start + sizeof(initial_thread);

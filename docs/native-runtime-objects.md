@@ -42,7 +42,9 @@ The `-n<size>` option sets the nursery block size, 32 KiB by default.
 Zero selects the default block size.
 A block refill extends the allocation limit without a collection.
 Fixed allocations and stack charges share the nursery budget with movable objects.
-The `-B<size>` option sets the maximum size of gen1, 16 MiB by default.
+The `-B<count>` option sets the number of collections that a survivor stays in gen1, 1 by default.
+The collection at the end of this time copies all of gen1 into gen2.
+A count of zero copies the survivors of the nursery into gen2 directly.
 The `-F<factor>` option sets the growth of gen2 between two gen2 cycles,
 2 by default.
 The `-k<factor>` option sets the mark work of a gen2 cycle for each byte
@@ -405,10 +407,9 @@ A fixed block is a large object or a pinned block. The machine keeps the
 charges of the fixed blocks of each generation in `fixed_generation_bytes`.
 A new fixed block counts in generation zero. A promotion moves the charge of
 a fixed block to its new generation. The sweep removes the charge of each
-fixed block that it frees. The gen1 test compares the bytes of the gen1
-blocks plus the charges of the gen1 fixed blocks with the gen1 maximum. The
-gen2 limit test and the doubling test of a cycle add the charges of the gen2
-fixed blocks to the gen2 bytes. The next gen2 limit after a cycle also
+fixed block that it frees. A gen1 fixed block goes into gen2 with the rest of
+gen1 when the `-B` count ends. The gen2 limit test and the doubling test of a
+cycle add the charges of the gen2 fixed blocks to the gen2 bytes. The next gen2 limit after a cycle also
 includes these charges. Thus a dead old fixed block causes a collection
 before the `-M` limit is near.
 

@@ -31,10 +31,12 @@ The test reads the capability from the stack chunk, then reads its nursery base 
 It uses an exclusive or with the aligned base and an unsigned size compare.
 The C runtime uses the same test.
 The runtime has no global nursery bounds.
+Gen1 uses the `-B` count rule and has no byte maximum.
+The default count is one, and a count of zero promotes nursery survivors into gen2 directly.
 The runtime has no worker threads and does not enable `-N`.
 
 The rest of step 1 remains necessary before step 2.
-It includes the escape count, local gen1 blocks, atomic instructions, thunk owner state, and barrier safepoints.
+It includes the escape count, gen1 blocks for each capability, atomic instructions, thunk owner state, and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 
