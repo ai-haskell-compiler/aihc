@@ -39,7 +39,7 @@ import Hedgehog.Internal.Runner (checkReport)
 import Hedgehog.Internal.Seed qualified as Seed
 import System.Console.Terminal.Size qualified as Terminal
 import System.Exit (exitFailure)
-import System.IO (BufferMode (NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
+import System.IO (BufferMode (BlockBuffering, NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
 import System.Posix.IO (stdInput)
 import System.Posix.Terminal qualified as Posix
 
@@ -304,13 +304,14 @@ isQuitKey key = key == 'q' || key == 'Q' || key == '\ESC'
 
 enterDashboard :: IO ()
 enterDashboard = do
-  hSetBuffering stderr NoBuffering
+  hSetBuffering stderr (BlockBuffering Nothing)
   hPutStr stderr "\ESC[?1049h\ESC[2J\ESC[H\ESC[?25l"
+  hFlush stderr
 
 leaveDashboard :: BufferMode -> IO ()
-leaveDashboard originalBuffering = do
-  hPutStr stderr "\ESC[?25h\ESC[?1049l"
-  hSetBuffering stderr originalBuffering
+leaveDashboard originalBuffering =
+  (hPutStr stderr "\ESC[?2026l\ESC[0m\ESC[?25h\ESC[?1049l" >> hFlush stderr)
+    `finally` hSetBuffering stderr originalBuffering
 
 renderLoop :: UTCTime -> Int -> Int -> Stats -> IO ()
 renderLoop startedAt propertyCount jobs stats = go []

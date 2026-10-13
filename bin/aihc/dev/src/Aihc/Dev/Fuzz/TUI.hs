@@ -69,11 +69,12 @@ activeLines slots _ Dashboard {dashboardActive, dashboardPropertyCases, dashboar
   | slots <= 0 = []
   | length properties <= slots = map renderProperty properties
   | otherwise =
-      map renderProperty (take (slots - 1) properties)
+      map renderProperty visibleProperties
         <> ["  + " <> show (length properties - slots + 1) <> " more properties"]
   where
     workers name = length [() | (_, propertyId) <- dashboardActive, propertyId == name]
-    properties = sortOn (\(name, _) -> (workers name == 0, name)) dashboardPropertyCases
+    properties = sortOn fst dashboardPropertyCases
+    visibleProperties = sortOn fst . take (slots - 1) . sortOn (\(name, _) -> workers name == 0) $ properties
     spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" !! (floor (dashboardElapsed * 10) `mod` 10)
     renderProperty (name, count) =
       "  "
@@ -90,15 +91,17 @@ alignedTitle width left right =
   where
     padding = max 1 (width - length left - length right)
 
--- | Render only rows whose contents changed. The returned update never clears
--- the whole screen, so frequent progress updates do not produce visible flashes.
+-- | Send changed rows as one synchronized terminal frame.
+-- Replace text before the erase command so terminals without mode 2026 do not show empty rows.
 renderFrameUpdate :: Int -> [String] -> [String] -> String
-renderFrameUpdate rows previous current =
-  concatMap renderChangedRow [1 .. min rows (max (length previous) (length current))]
+renderFrameUpdate rows previous current
+  | null update = ""
+  | otherwise = "\ESC[?2026h" <> update <> "\ESC[?2026l"
   where
+    update = concatMap renderChangedRow [1 .. min rows (max (length previous) (length current))]
     renderChangedRow row
       | previousLine == currentLine = ""
-      | otherwise = cursorAt row <> "\ESC[2K" <> styleLine currentLine
+      | otherwise = cursorAt row <> styleLine currentLine <> "\ESC[K"
       where
         previousLine = lineAt row previous
         currentLine = lineAt row current

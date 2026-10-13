@@ -7,7 +7,7 @@ import Aihc.Dev.Fuzz (batchSize, cycleProperties, dashboardRefreshMicroseconds, 
 import Aihc.Dev.Fuzz.CLI (Command (..), Selection (..), commandParser, parseDuration)
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
 import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
-import Data.List (isInfixOf, nub)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, nub)
 import Data.Set qualified as Set
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
 import Test.Tasty (TestTree, testGroup)
@@ -100,15 +100,31 @@ fuzzTests =
         assertBool "shows active count" (any ("PROPERTIES  35" `isInfixOf`) frame)
         assertBool "shows spinner" (any ('⠋' `elem`) frame)
         assertBool "respects terminal width" (all ((<= 89) . length) frame),
+      testCase "keeps property rows fixed when active workers change" $ do
+        let dashboard =
+              sampleDashboard
+                { dashboardActive = [(1, "a")],
+                  dashboardPropertyCases = [("a", 1), ("b", 2)]
+                }
+            rows active = map (drop 13) (drop 6 (renderDashboard 20 90 dashboard {dashboardActive = active}))
+        assertEqual "property positions" (rows [(1, "a")]) (rows [(1, "b")]),
+      testCase "synchronizes all changed rows in one terminal frame" $ do
+        let update = renderFrameUpdate 10 ["old", "stale"] ["new", "fresh"]
+        assertBool "starts synchronized output" ("\ESC[?2026h" `isPrefixOf` update)
+        assertBool "ends synchronized output" ("\ESC[?2026l" `isSuffixOf` update)
+        assertEqual "unchanged frame has no output" "" (renderFrameUpdate 10 ["same"] ["same"])
+        assertEqual "zero rows have no output" "" (renderFrameUpdate 0 ["old"] ["new"]),
       testCase "incremental renderer only updates changed rows" $ do
         let update = renderFrameUpdate 10 ["title", "old", "same"] ["title", "new", "same"]
+        assertBool "does not erase a row before its replacement" (not ("\ESC[2K" `isInfixOf` update))
+        assertBool "clears the old row suffix after its replacement" ("new\ESC[K" `isInfixOf` update)
         assertBool "does not clear screen" (not ("\ESC[2J" `isInfixOf` update))
         assertBool "leaves unchanged first row alone" (not ("\ESC[1;1H" `isInfixOf` update))
         assertBool "updates changed row" ("\ESC[2;1H" `isInfixOf` update),
       testCase "incremental renderer clears stale rows" $
         assertBool
           "clears removed second row"
-          ("\ESC[2;1H\ESC[2K" `isInfixOf` renderFrameUpdate 10 ["title", "stale"] ["title"])
+          ("\ESC[2;1H\ESC[K" `isInfixOf` renderFrameUpdate 10 ["title", "stale"] ["title"])
     ]
 
 sampleDashboard :: Dashboard
