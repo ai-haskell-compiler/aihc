@@ -386,19 +386,16 @@ static Frame *frame_at(const AihcValue *address) {
   if (address == NULL || aihc_region_kind(address) != AIHC_REGION_STACK) {
     return NULL;
   }
-  const AihcInfo *info = aihc_value_info_table(address);
-  if (info == NULL) {
-    return NULL;
+  /* A dead heap address can now name stack storage. It need not hold a
+     frame header. Check the known frame addresses before a header access. */
+  for (size_t identity = 1; identity < frame_capacity; ++identity) {
+    Frame *frame = &frames[identity];
+    if (frame->defined && frame->address == address &&
+        aihc_value_info_table(address) == frame->info) {
+      return frame;
+    }
   }
-  uintptr_t identity = info->identity;
-  if (identity == 0 || identity >= frame_capacity) {
-    return NULL;
-  }
-  Frame *frame = &frames[identity];
-  if (!frame->defined || frame->address != address) {
-    return NULL;
-  }
-  return frame;
+  return NULL;
 }
 
 static void free_entries(void) {
