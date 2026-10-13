@@ -15,6 +15,7 @@ module Foreign.Marshal.Utils
   )
 where
 
+import Control.Monad (void)
 import Foreign.C.Types (CInt (..), CSize (..))
 import Foreign.Marshal.Alloc (alloca, malloc)
 import Foreign.Storable (Storable (..))
@@ -58,19 +59,19 @@ withMany wrap (value : values) action =
 copyBytes :: Ptr a -> Ptr a -> Int -> IO ()
 copyBytes destination@(Ptr _) source@(Ptr _) count@(I# _)
   | count <= 0 = return ()
-  | otherwise = c_memcpy destination source (fromIntegral count) >> return ()
+  | otherwise = void (c_memcpy destination source (fromIntegral count))
 
 -- | Copy bytes between two regions that can overlap.
 moveBytes :: Ptr a -> Ptr a -> Int -> IO ()
 moveBytes destination@(Ptr _) source@(Ptr _) count@(I# _)
   | count <= 0 = return ()
-  | otherwise = c_memmove destination source (fromIntegral count) >> return ()
+  | otherwise = void (c_memmove destination source (fromIntegral count))
 
 -- | Set every byte of a region to the given value.
 fillBytes :: Ptr a -> Word8 -> Int -> IO ()
 fillBytes destination@(Ptr _) byte@(W8# _) count@(I# _)
   | count <= 0 = return ()
-  | otherwise = c_memset destination (fromIntegral byte) (fromIntegral count) >> return ()
+  | otherwise = void (c_memset destination (fromIntegral byte) (fromIntegral count))
 
 foreign import ccall unsafe "memcpy"
   c_memcpy :: Ptr a -> Ptr a -> CSize -> IO (Ptr a)
