@@ -24,7 +24,7 @@ heap: |
   @1 = CI# 103
   @2 = CI# 322
 allocated-bytes:
-  macos-arm64: 544
-  linux-amd64: 544
+  macos-arm64: 568
+  linux-amd64: 568
 status: pass
 reason: An unknown call that supplies fewer arguments than the function takes builds a partial application.

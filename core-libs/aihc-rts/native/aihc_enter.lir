@@ -12,8 +12,9 @@ include "aihc_object.lir"
 ; It loads the S stored fields of the object and tail-calls the code in the
 ; identity field of the info table with the context, the stored fields,
 ; and the supplied values. aihc_lir_enter_S_V_k passes the
-; continuation after them. A continuation object ignores the continuation
-; parameter, so it uses the form without the suffix.
+; continuation after them. V is at least one in that form, because a
+; thunk uses aihc_lir_enter_thunk_S below. A continuation object ignores the
+; continuation parameter, so it uses the form without the suffix.
 ;
 ; The header and the identity field are read through the inline functions of
 ; aihc_object.lir. A stored field is one eight-byte slot on every target,
@@ -28,13 +29,6 @@ entry:
   %header = call @aihc_info_table(%object)
   %code = call @aihc_info_identity(%header)
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit) : (ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_0_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %continuation) : (ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_0_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -100,15 +94,6 @@ entry:
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0) : (ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_1_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_1_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -192,17 +177,6 @@ entry:
   %stored1_word = load i64 [%object + 16] align 8
   %stored1 = ptr.from_int %stored1_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1) : (ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_2_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_2_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -304,19 +278,6 @@ entry:
   %stored2_word = load i64 [%object + 24] align 8
   %stored2 = ptr.from_int %stored2_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_3_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  %stored2_word = load i64 [%object + 24] align 8
-  %stored2 = ptr.from_int %stored2_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_3_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -436,21 +397,6 @@ entry:
   %stored3_word = load i64 [%object + 32] align 8
   %stored3 = ptr.from_int %stored3_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_4_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  %stored2_word = load i64 [%object + 24] align 8
-  %stored2 = ptr.from_int %stored2_word
-  %stored3_word = load i64 [%object + 32] align 8
-  %stored3 = ptr.from_int %stored3_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_4_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -588,23 +534,6 @@ entry:
   %stored4_word = load i64 [%object + 40] align 8
   %stored4 = ptr.from_int %stored4_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_5_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  %stored2_word = load i64 [%object + 24] align 8
-  %stored2 = ptr.from_int %stored2_word
-  %stored3_word = load i64 [%object + 32] align 8
-  %stored3 = ptr.from_int %stored3_word
-  %stored4_word = load i64 [%object + 40] align 8
-  %stored4 = ptr.from_int %stored4_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_5_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -760,25 +689,6 @@ entry:
   %stored5_word = load i64 [%object + 48] align 8
   %stored5 = ptr.from_int %stored5_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_6_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  %stored2_word = load i64 [%object + 24] align 8
-  %stored2 = ptr.from_int %stored2_word
-  %stored3_word = load i64 [%object + 32] align 8
-  %stored3 = ptr.from_int %stored3_word
-  %stored4_word = load i64 [%object + 40] align 8
-  %stored4 = ptr.from_int %stored4_word
-  %stored5_word = load i64 [%object + 48] align 8
-  %stored5 = ptr.from_int %stored5_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_6_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -952,27 +862,6 @@ entry:
   %stored6_word = load i64 [%object + 56] align 8
   %stored6 = ptr.from_int %stored6_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
-export func @aihc_lir_enter_7_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  %stored2_word = load i64 [%object + 24] align 8
-  %stored2 = ptr.from_int %stored2_word
-  %stored3_word = load i64 [%object + 32] align 8
-  %stored3 = ptr.from_int %stored3_word
-  %stored4_word = load i64 [%object + 40] align 8
-  %stored4 = ptr.from_int %stored4_word
-  %stored5_word = load i64 [%object + 48] align 8
-  %stored5 = ptr.from_int %stored5_word
-  %stored6_word = load i64 [%object + 56] align 8
-  %stored6 = ptr.from_int %stored6_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_enter_7_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
@@ -1166,29 +1055,6 @@ entry:
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
-export func @aihc_lir_enter_8_0_k(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
-entry:
-  %header = call @aihc_info_table(%object)
-  %code = call @aihc_info_identity(%header)
-  %stored0_word = load i64 [%object + 8] align 8
-  %stored0 = ptr.from_int %stored0_word
-  %stored1_word = load i64 [%object + 16] align 8
-  %stored1 = ptr.from_int %stored1_word
-  %stored2_word = load i64 [%object + 24] align 8
-  %stored2 = ptr.from_int %stored2_word
-  %stored3_word = load i64 [%object + 32] align 8
-  %stored3 = ptr.from_int %stored3_word
-  %stored4_word = load i64 [%object + 40] align 8
-  %stored4 = ptr.from_int %stored4_word
-  %stored5_word = load i64 [%object + 48] align 8
-  %stored5 = ptr.from_int %stored5_word
-  %stored6_word = load i64 [%object + 56] align 8
-  %stored6 = ptr.from_int %stored6_word
-  %stored7_word = load i64 [%object + 64] align 8
-  %stored7 = ptr.from_int %stored7_word
-  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-}
-
 export func @aihc_lir_enter_8_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
 entry:
   %header = call @aihc_info_table(%object)
@@ -1371,4 +1237,143 @@ entry:
   %stored7_word = load i64 [%object + 64] align 8
   %stored7 = ptr.from_int %stored7_word
   tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7, %supplied0, %supplied1, %supplied2, %supplied3, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+; aihc_lir_enter_thunk_S enters a thunk with S stored pointers. Field zero of
+; a thunk is its owner word, so the stored fields start at the second slot.
+; It passes the continuation after the stored fields.
+
+export func @aihc_lir_enter_thunk_0(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %continuation) : (ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_1(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_2(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_3(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 32] align 8
+  %stored2 = ptr.from_int %stored2_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_4(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 32] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 40] align 8
+  %stored3 = ptr.from_int %stored3_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_5(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 32] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 40] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 48] align 8
+  %stored4 = ptr.from_int %stored4_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_6(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 32] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 40] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 48] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 56] align 8
+  %stored5 = ptr.from_int %stored5_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_7(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 32] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 40] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 48] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 56] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 64] align 8
+  %stored6 = ptr.from_int %stored6_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_thunk_8(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @aihc_info_table(%object)
+  %code = call @aihc_info_identity(%header)
+  %stored0_word = load i64 [%object + 16] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 24] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 32] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 40] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 48] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 56] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 64] align 8
+  %stored6 = ptr.from_int %stored6_word
+  %stored7_word = load i64 [%object + 72] align 8
+  %stored7 = ptr.from_int %stored7_word
+  tailcall.indirect %code(%hp, %hp_limit, %sp, %sp_limit, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
