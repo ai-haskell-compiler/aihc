@@ -55,9 +55,7 @@ int aihc_host_run_lock_wanted(void) { return 0; }
 
 void aihc_host_wake(AihcCapability *capability) { (void)capability; }
 
-void *aihc_host_lock_new(void) {
-  aihc_fail("this host has one capability");
-}
+void *aihc_host_lock_new(void) { aihc_fail("this host has one capability"); }
 
 void aihc_host_lock_acquire(void *lock) { (void)lock; }
 
