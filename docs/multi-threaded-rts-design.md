@@ -16,7 +16,7 @@ design.
 The first part of build step 1 separates `AihcCapability` from `AihcMachine`.
 Compiled code reads its capability from the stack chunk header.
 The C runtime takes the capability as an explicit argument.
-The runtime still has one capability on every target.
+Programs still run with one capability on every target.
 Each capability reserves nursery space in blocks.
 The default block size is 32 KiB, and `-n<size>` selects another size.
 A refill retains the heap pointer and does not collect until the nursery budget is full.
@@ -54,6 +54,14 @@ The write barrier counts its scan work against the `-R` budget. When the work re
 It includes the barrier safepoints at the store sites, the barrier bounds of the runtime operations, and the copy of an array in pieces.
 The cold path of the write barrier at a compiled store site gets the stored value and counts escapes.
 The runtime statistics report the count as `escape_count`.
+The first part of step 2 gives the machine an array of capabilities.
+The arena has one window for each capability, and each capability has its own gen1 blocks and remembered set.
+A collection on one OS thread copies the nurseries of all capabilities.
+It copies a survivor into the gen1 of the capability whose nursery held it.
+The write barrier ignores an object in the nursery of any capability.
+`aihc_machine_set_capabilities` changes the count when all nurseries are empty.
+A removed capability gives its gen1 blocks and its remembered set to the first capability.
+Only the collector fuzz driver uses more than one capability.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

@@ -22,19 +22,28 @@
 
    Script commands, one for each line:
 
-     capability G R S [L]    new capability with G globals, R root slots, a
-   nursery of S bytes, and a mark slice of L bytes srt I O C e... reference
-   table I names O static objects and C child tables current_srt I|-1     pass
-   table I as the running function's table to every later collection ssrt K I|-1
-   give static object K the table I fill K               allocate garbage until
-   K words remain reserve W            reserve W words; this can collect new ID
-   KIND BITS S   new object with kind node, closure, thunk, or partial, pointer
-   bitmap BITS, and table S or -1 array ID N S         new array with N elements
-   and table S or -1 mvar ID              new empty MVar set ID I V write value
-   V to field or element I supdate K V          turn static thunk K into an
-   indirection to V sset K I V           write value V to field I of static node
-   K global I V           write value V to global I root I V             write
-   value V to root slot I stable ID            make a stable name for object ID
+     machine G R S [L]    new machine with G globals, R root slots, a
+                          nursery of S bytes, and a mark slice of L bytes
+     capabilities C       give the machine C capabilities
+     heap K               allocate the objects of later commands in the
+                          nursery of capability K
+     srt I O C e...       reference table I names O static objects and C
+                          child tables
+     current_srt I|-1     pass table I as the running function's table to
+                          every later collection
+     ssrt K I|-1          give static object K the table I
+     fill K               allocate garbage until K words remain
+     reserve W            reserve W words; this can collect
+     new ID KIND BITS S   new object with kind node, closure, thunk, or
+                          partial, pointer bitmap BITS, and table S or -1
+     array ID N S         new array with N elements and table S or -1
+     mvar ID              new empty MVar
+     set ID I V           write value V to field or element I
+     supdate K V          turn static thunk K into an indirection to V
+     sset K I V           write value V to field I of static node K
+     global I V           write value V to global I
+     root I V             write value V to root slot I
+     stable ID            make a stable name for object ID
      push F normal BITS S v...   push a frame with pointer bitmap BITS for
                           the fields after the parent, table S, and values
      push F forward BITS S v...  the same for a frame without an entry
@@ -158,7 +167,13 @@ static StaticThunk static_thunks[STATIC_THUNKS];
 static StaticNode static_nodes[STATIC_NODES];
 static StaticNullary static_nullary[STATIC_NULLARY];
 
+/* The capability that runs the threads. */
 static AihcCapability *capability;
+/* The capability whose nursery gets the objects of the script, and its
+   index. Runtime operations allocate in the nursery of the running
+   capability. */
+static AihcCapability *heap;
+static uint64_t heap_index;
 static Entry *entries;
 static size_t entry_capacity;
 static Frame *frames;
@@ -172,7 +187,10 @@ static AihcSlot *root_slots;
 static uint64_t root_count;
 static AihcStableName **stable_names;
 static size_t stable_count;
-static uint64_t reserved_words;
+/* The reserved words of each capability. */
+#define MAX_CAPABILITIES 4
+static uint64_t reserved[MAX_CAPABILITIES];
+#define reserved_words reserved[heap_index]
 static size_t command_index;
 static AihcValue **object_starts;
 static size_t object_start_count;
@@ -483,21 +501,21 @@ static AihcValue *parse_object(const char *token) {
    reservation can then pass it, so the limit can be below the allocation
    pointer. */
 static size_t remaining_words(void) {
-  if (capability->heap_next >= capability->heap_limit) {
+  if (heap->heap_next >= heap->heap_limit) {
     return 0;
   }
-  return (size_t)(capability->heap_limit - capability->heap_next) /
-         sizeof(AihcSlot);
+  return (size_t)(heap->heap_limit - heap->heap_next) / sizeof(AihcSlot);
 }
 
-/* Take the words a runtime call allocated from the reservation. */
+/* Take the words a runtime call on the running capability allocated from
+   the reservation. */
 static void consume_reservation(const uint8_t *before) {
   uint64_t words =
       (uint64_t)(capability->heap_next - before) / sizeof(AihcSlot);
-  if (words > reserved_words) {
+  if (words > reserved[0]) {
     fail("runtime allocation exceeds its reservation");
   }
-  reserved_words -= words;
+  reserved[0] -= words;
 }
 
 static int in_range(const void *address, const uint8_t *start, size_t bytes) {
@@ -1085,7 +1103,7 @@ static void ensure(uint64_t words) {
   uint64_t before = capability->machine->gc_count;
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
-  aihc_ensure_heap(capability, words, total, roots, current_srt);
+  aihc_ensure_heap(heap, words, total, roots, current_srt);
   scatter_roots(roots, total);
   if (capability->machine->gc_count != before) {
     report_collection();
@@ -1146,6 +1164,14 @@ static void command_machine(char **tokens, size_t count) {
     fail("initial space must be a positive number of words");
   }
   if (capability != NULL) {
+    /* The next script starts with one capability. Its objects are garbage,
+       so the nurseries are empty for the change. */
+    for (uint64_t index = 0; index < capability->machine->capability_count;
+         ++index) {
+      AihcCapability *each = capability->machine->capabilities[index];
+      each->heap_next = each->heap_start;
+    }
+    aihc_machine_set_capabilities(capability, 1);
     free(capability->machine->globals);
     for (uint64_t index = 0; index < 3; ++index) {
       aihc_rts_set_root(index, NULL);
@@ -1169,12 +1195,14 @@ static void command_machine(char **tokens, size_t count) {
   stable_count = 0;
   reset_statics();
   current_srt = NULL;
-  reserved_words = 0;
+  memset(reserved, 0, sizeof(reserved));
   /* The model supplies external roots and excludes process startup objects. */
   for (uint64_t index = 0; index < 3; ++index) {
     aihc_rts_set_root(index, NULL);
   }
   capability = aihc_machine_new(0);
+  heap = capability;
+  heap_index = 0;
   capability->machine->global_count = global_count;
   capability->machine->globals = checked_calloc(global_count, sizeof(AihcSlot));
   /* Keep the initial thread when the script replaces the default space. */
@@ -1347,7 +1375,7 @@ static void command_new(char **tokens, size_t count) {
     fail("block exceeds its reservation");
   }
   reserved_words -= words;
-  AihcValue *object = aihc_gc_allocate(capability, words);
+  AihcValue *object = aihc_gc_allocate(heap, words);
   object->header = (AihcSlot)(uintptr_t)info;
   for (uint64_t index = 0; index + 1 < words; ++index) {
     object->fields[index] = 0;
@@ -1391,7 +1419,7 @@ static void command_array(char **tokens, size_t count) {
     }
     reserved_words -= words;
   }
-  AihcValue *object = aihc_gc_allocate(capability, words);
+  AihcValue *object = aihc_gc_allocate(heap, words);
   object->header = (AihcSlot)(uintptr_t)info;
   object->fields[0] = length;
   for (uint64_t index = 0; index < length; ++index) {
@@ -1416,9 +1444,13 @@ static void command_mvar(char **tokens, size_t count) {
   if (entry->defined) {
     fail("object is already defined");
   }
-  const uint8_t *before = capability->heap_next;
-  AihcMVar *mvar = aihc_mvar_new(capability);
-  consume_reservation(before);
+  const uint8_t *before = heap->heap_next;
+  AihcMVar *mvar = aihc_mvar_new(heap);
+  uint64_t words = (uint64_t)(heap->heap_next - before) / sizeof(AihcSlot);
+  if (words > reserved_words) {
+    fail("block exceeds its reservation");
+  }
+  reserved_words -= words;
   AihcInfo *info = checked_calloc(1, sizeof(*info));
   info->identity = identity;
   info->object_kind = AIHC_OBJECT_MVAR;
@@ -1508,7 +1540,7 @@ static void command_fill(char **tokens, size_t count) {
     info->field_count = piece - 1;
     info->frame_kind = AIHC_FRAME_NONE;
     info->object_kind = AIHC_OBJECT_NODE;
-    AihcValue *object = aihc_gc_allocate(capability, piece);
+    AihcValue *object = aihc_gc_allocate(heap, piece);
     object->header = (AihcSlot)(uintptr_t)info;
     words -= piece;
   }
@@ -1869,6 +1901,27 @@ static void run_command(char **tokens, size_t count) {
     }
     link_srts();
     current_srt = srt_of(parse_signed(tokens[1]));
+  } else if (strcmp(name, "capabilities") == 0) {
+    if (count != 2) {
+      fail("capabilities expects one argument");
+    }
+    uint64_t total = parse_unsigned(tokens[1]);
+    if (total == 0 || total > MAX_CAPABILITIES) {
+      fail("capabilities expects a count from one to four");
+    }
+    aihc_machine_set_capabilities(capability, total);
+    heap = capability;
+    heap_index = 0;
+  } else if (strcmp(name, "heap") == 0) {
+    if (count != 2) {
+      fail("heap expects one argument");
+    }
+    uint64_t index = parse_unsigned(tokens[1]);
+    if (index >= capability->machine->capability_count) {
+      fail("heap expects a capability");
+    }
+    heap = capability->machine->capabilities[index];
+    heap_index = index;
   } else if (strcmp(name, "fill") == 0) {
     command_fill(tokens, count);
   } else if (strcmp(name, "reserve") == 0) {

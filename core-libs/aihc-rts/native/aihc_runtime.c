@@ -1151,7 +1151,8 @@ static AihcCapability aihc_initial_capability;
 
 AihcCapability *aihc_machine_initialize(void) {
   if (aihc_initial_capability.heap_start == NULL) {
-    aihc_machine = (AihcMachine){.capabilities = &aihc_initial_capability,
+    static AihcCapability *initial_capabilities[1] = {&aihc_initial_capability};
+    aihc_machine = (AihcMachine){.capabilities = initial_capabilities,
                                  .capability_count = 1};
     aihc_initial_capability = (AihcCapability){.machine = &aihc_machine};
     aihc_gc_init(&aihc_initial_capability);

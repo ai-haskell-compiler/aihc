@@ -316,10 +316,14 @@ struct AihcCapability {
 
 /* The process state shared by all capabilities. */
 struct AihcMachine {
-  AihcCapability *capabilities;
+  /* The capability records, which never move: compiled code finds its
+     record through the header of its stack chunk. */
+  AihcCapability **capabilities;
   uint64_t capability_count;
-  /* The machine owns the nursery arena. Each capability has one aligned
-     window of nursery_stride_bytes bytes. The runtime currently has one. */
+  /* Not zero when the machine allocated the capabilities array. */
+  uint8_t capabilities_owned;
+  /* The machine owns the nursery arena. Capability i has the aligned window
+     of nursery_stride_bytes bytes at i times the stride. */
   uint8_t *nursery_arena;
   uint64_t nursery_stride_bytes;
   AihcSlot *globals;

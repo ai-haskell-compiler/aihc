@@ -339,6 +339,9 @@ void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object);
 /* Replace the nursery of a capability with an empty one of the given bytes.
    The collector fuzz driver uses it to force frequent collections. */
 void aihc_nursery_replace(AihcCapability *capability, size_t bytes);
+/* Change the number of capabilities. All nurseries must be empty. A removed
+   capability must be idle. Its gen1 blocks go to the first capability. */
+void aihc_machine_set_capabilities(AihcCapability *capability, uint64_t count);
 /* Empty the heap of a capability: release every block, every pinned block,
    and the remembered set, and give the capability an empty nursery of the
    given bytes. The caller holds no pointer into the old heap afterwards. */
