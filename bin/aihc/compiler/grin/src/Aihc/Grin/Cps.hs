@@ -213,7 +213,7 @@ transformTail parent bound resultRep continuation expression =
             _ -> slow
     GrinStore node -> continuePlaced (GrinStore node)
     GrinEnsureNursery words' roots -> continuePlaced (GrinEnsureNursery words' roots)
-    GrinEnsureHeap requiredWords roots -> continuePlaced (GrinEnsureHeap requiredWords roots)
+    GrinAllocate requiredWords pinned roots -> continuePlaced (GrinAllocate requiredWords pinned roots)
     GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)
@@ -556,6 +556,8 @@ isDirectExpression expression =
   case expression of
     GrinConstant {} -> True
     GrinStore {} -> True
+    GrinEnsureNursery {} -> True
+    GrinAllocate {} -> True
     GrinUpdate {} -> True
     GrinUpdateBlackhole {} -> True
     GrinPrimitiveCall _ name _ -> not (isControlPrimitive name)

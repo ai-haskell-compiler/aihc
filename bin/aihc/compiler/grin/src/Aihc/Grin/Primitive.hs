@@ -25,6 +25,7 @@ module Aihc.Grin.Primitive
   ( primitiveAllocates,
     allocatingPrimitives,
     primitiveHeapWords,
+    primitiveInitializes,
   )
 where
 
@@ -182,3 +183,7 @@ controlPrimitives =
     -- it never reaches a backend as a call.
     "prompt#"
   ]
+
+-- | Initialization must precede the next operation that can collect.
+primitiveInitializes :: Text -> Bool
+primitiveInitializes name = name `elem` ["aihcInitArray#", "aihcInitArrayClone#", "aihcInitArrayResize#", "aihcInitByteArray#", "aihcInitByteArrayResize#"]

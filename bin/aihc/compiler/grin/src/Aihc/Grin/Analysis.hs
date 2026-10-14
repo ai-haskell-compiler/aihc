@@ -19,7 +19,7 @@ freeExprVars expression =
       freeExprVars valueExpression <> (freeExprVars body `Set.difference` Set.fromList vars)
     GrinStore node -> freeNodeVars node
     GrinEnsureNursery _ roots -> foldMap freeValueVars roots
-    GrinEnsureHeap requiredWords roots -> freeValueVars requiredWords <> foldMap freeValueVars roots
+    GrinAllocate requiredWords pinned roots -> freeValueVars requiredWords <> freeValueVars pinned <> foldMap freeValueVars roots
     GrinStoreUnchecked node -> freeNodeVars node
     GrinStoreRec bindings body -> freeStoreRecVars bindings body
     GrinStoreRecUnchecked bindings body -> freeStoreRecVars bindings body
@@ -93,7 +93,7 @@ maximumProgramVarUnique program =
         GrinBind vars valueExpression body -> map grinVarUnique vars <> exprUniques valueExpression <> exprUniques body
         GrinStore node -> nodeUniques node
         GrinEnsureNursery _ roots -> concatMap valueUnique roots
-        GrinEnsureHeap requiredWords roots -> valueUnique requiredWords <> concatMap valueUnique roots
+        GrinAllocate requiredWords pinned roots -> valueUnique requiredWords <> valueUnique pinned <> concatMap valueUnique roots
         GrinStoreUnchecked node -> nodeUniques node
         GrinStoreRec bindings body -> storeRecUniques bindings body
         GrinStoreRecUnchecked bindings body -> storeRecUniques bindings body

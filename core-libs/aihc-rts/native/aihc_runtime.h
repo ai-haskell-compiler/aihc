@@ -479,8 +479,8 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
 /* Reserve nursery space for a batch of objects, regardless of its total size.
    Compiled code then advances the heap pointer for each object. */
 /* Refill or collect after the heap check fails. Compiled code uses this
-   entry point. A single array uses aihc_ensure_heap instead. That function
-   uses the separate allocation budget when the object exceeds the threshold.
+   entry point. Dynamic allocation uses aihc_heap_allocate instead. It can
+   return nursery memory or separately allocated memory.
 
    The table is the static reference table of the code that requests the
    collection, and the collector marks everything it names. A running function
@@ -496,6 +496,12 @@ void aihc_heap_collect(AihcCapability *capability, uint64_t words,
                        const AihcSrt *srt);
 void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
                       uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
+/* Allocate one object and return its address. A nursery allocation advances
+   the heap pointer. The caller must initialize the object before collection. */
+AihcValue *aihc_heap_allocate(AihcCapability *capability, uint64_t words,
+                              uint64_t pinned, uint64_t root_count,
+                              AihcSlot *roots, const AihcSrt *srt);
+
 /* Initialize the process and return its initial capability. */
 AihcCapability *aihc_machine_initialize(void);
 AihcCapability *aihc_machine_new(uint64_t global_count);
@@ -545,8 +551,9 @@ int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_replace(const void *array, int64_t length);
 void aihc_set_field(AihcCapability *capability, AihcValue *value,
                     uint64_t index, AihcSlot field);
-/* Boxed arrays are contiguous managed objects. GrinEnsureHeap reserves their
-   length-dependent storage before this initializer advances the heap.
+/* Boxed arrays are contiguous managed objects. GrinAllocate returns their
+   storage before initialization. The unchecked wrappers below require a
+   reservation and advance the heap pointer themselves.
 
    The boxed arrays, the mutable references, the stable names, and the byte
    arrays below are defined by the Lir runtime units in

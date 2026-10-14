@@ -10,14 +10,14 @@ module Aihc.Grin.Gc
     gcGrinProgram,
     lowerGc,
     nodeWords,
-    dynamicReservation,
+    dynamicAllocationSize,
   )
 where
 
 import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinError, CpsGrinProgram (..), toCpsGrin)
 import Aihc.Grin.Heap (normalizeHeapReservations)
-import Aihc.Grin.Primitive (primitiveHeapWords)
+import Aihc.Grin.Primitive (primitiveHeapWords, primitiveInitializes)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -50,7 +50,7 @@ entryGcProgram =
           grinFunctions = []
         }
 
--- | Insert and normalize reservations. Give each safepoint explicit live
+-- | Insert allocations and normalize nursery reservations. Give each safepoint explicit live
 -- roots and fresh SSA names for roots that collection can relocate.
 lowerGc :: CpsGrinProgram -> GcGrinProgram
 lowerGc cps =
@@ -68,16 +68,16 @@ lowerGc cps =
     dynamicFunctions = evalState (mapM insertDynamicFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)
     dynamicProgram = program {grinFunctions = dynamicFunctions, grinPrimitives = grinPrimitives program <> dynamicDeclarations}
     dynamicDeclarations =
-      [ (GrinVar helper (-2000000001) WordRep, arity)
-      | (names, helper, arity) <- reservationHelpers,
+      [ (GrinVar helper (-2000000001) (if primitiveInitializes helper then BoxedRep Unlifted else WordRep), arity)
+      | (names, helper, arity) <- allocationSizeHelpers <> initializationHelpers,
         any (\(var, _) -> grinVarName var `elem` names) (grinPrimitives program)
       ]
     normalizedProgram = normalizeHeapReservations (insertHeapReservations (cpsContinuationFunctions cps) dynamicProgram)
     nextUnique = 1 + maximumProgramVarUnique normalizedProgram
 
--- | Size helpers validate counts before the reservation. They cannot collect.
-reservationHelpers :: [([Text], Text, Int)]
-reservationHelpers =
+-- | Size helpers validate counts before allocation. They cannot collect.
+allocationSizeHelpers :: [([Text], Text, Int)]
+allocationSizeHelpers =
   [ (["newByteArray#", "newPinnedByteArray#", "newAlignedPinnedByteArray#"], "aihcByteArrayWords#", 3),
     (["resizeMutableByteArray#"], "aihcResizeByteArrayWords#", 2),
     (arrayCountPrimitives, "aihcArrayWords#", 1)
@@ -107,17 +107,29 @@ insertDynamicFunction function = do
 
 insertDynamic :: GrinExpr -> State Int GrinExpr
 insertDynamic expression = case expression of
-  GrinBind results call@(GrinPrimitiveCall _ name arguments) body
-    | Just (helper, operands) <- dynamicReservation name arguments -> do
+  GrinBind results (GrinPrimitiveCall resultRep name arguments) body
+    | Just (helper, operands) <- dynamicAllocationSize name arguments -> do
         unique <- get
-        put (unique + 1)
-        let wordsVar = GrinVar (if helper == "aihcArrayWords#" then "$gc_array_words" else "$gc_byte_array_words") unique WordRep
+        put (unique + 3)
+        let wordsVar = GrinVar "$gc_words" unique WordRep
+            memoryVar = GrinVar "$gc_memory" (unique + 1) AddrRep
+            pinnedVar = GrinVar "$gc_pinned" (unique + 2) WordRep
+            memory = GrinVarValue memoryVar
+            (initializer, initialArguments) = initializePrimitive name arguments
+            pinned = case name of
+              "newPinnedByteArray#" -> literal 1
+              "newAlignedPinnedByteArray#" -> literal 1
+              "resizeMutableByteArray#" -> GrinVarValue pinnedVar
+              _ -> literal 0
+            withPinned rest = case (name, arguments) of
+              ("resizeMutableByteArray#", array : _) -> GrinBind [pinnedVar] (GrinPrimitiveCall WordRep "aihcByteArrayPinned#" [array]) rest
+              _ -> rest
         rest <- insertDynamic body
         pure
           ( GrinBind
               [wordsVar]
               (GrinPrimitiveCall WordRep helper operands)
-              (GrinBind [] (GrinEnsureHeap (GrinVarValue wordsVar) []) (GrinBind results call rest))
+              (withPinned (GrinBind [memoryVar] (GrinAllocate (GrinVarValue wordsVar) pinned []) (GrinBind results (GrinPrimitiveCall resultRep initializer (memory : initialArguments)) rest)))
           )
   GrinBind results value body -> GrinBind results <$> insertDynamic value <*> insertDynamic body
   GrinCase value binder alternatives -> GrinCase value binder <$> mapM alter alternatives
@@ -126,15 +138,40 @@ insertDynamic expression = case expression of
   GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked bindings <$> insertDynamic body
   _ -> pure expression
   where
+    literal = GrinLitValue . GrinLitInt WordRep
     alter alternative = do
       rhs <- insertDynamic (grinAltRhs alternative)
       pure alternative {grinAltRhs = rhs}
 
+-- | Initialization writes into the address returned by allocation.
+-- These primitives do not allocate or collect.
+initializationHelpers :: [([Text], Text, Int)]
+initializationHelpers =
+  [ (["newArray#", "newSmallArray#"], "aihcInitArray#", 3),
+    (filter (`notElem` ["newArray#", "newSmallArray#", "resizeSmallMutableArray#"]) arrayCountPrimitives, "aihcInitArrayClone#", 4),
+    (["resizeSmallMutableArray#"], "aihcInitArrayResize#", 4),
+    (["newByteArray#", "newPinnedByteArray#", "newAlignedPinnedByteArray#"], "aihcInitByteArray#", 4),
+    (["resizeMutableByteArray#"], "aihcInitByteArrayResize#", 3),
+    (["resizeMutableByteArray#"], "aihcByteArrayPinned#", 1)
+  ]
+
+initializePrimitive :: Text -> [GrinValue] -> (Text, [GrinValue])
+initializePrimitive name arguments = case (name, arguments) of
+  ("newByteArray#", [size]) -> ("aihcInitByteArray#", [size, literal 0, literal 8])
+  ("newPinnedByteArray#", [size]) -> ("aihcInitByteArray#", [size, literal 1, literal 8])
+  ("newAlignedPinnedByteArray#", [size, alignment]) -> ("aihcInitByteArray#", [size, literal 1, alignment])
+  ("resizeMutableByteArray#", _) -> ("aihcInitByteArrayResize#", arguments)
+  ("resizeSmallMutableArray#", _) -> ("aihcInitArrayResize#", arguments)
+  _ | name `elem` ["newArray#", "newSmallArray#"] -> ("aihcInitArray#", arguments)
+  _ -> ("aihcInitArrayClone#", arguments)
+  where
+    literal = GrinLitValue . GrinLitInt IntRep
+
 -- | The size helper and its operands for a primitive whose allocation size
 -- depends on an argument. A boxed array of n elements takes n plus two
 -- words: the header and the length.
-dynamicReservation :: Text -> [GrinValue] -> Maybe (Text, [GrinValue])
-dynamicReservation name arguments = case (name, arguments) of
+dynamicAllocationSize :: Text -> [GrinValue] -> Maybe (Text, [GrinValue])
+dynamicAllocationSize name arguments = case (name, arguments) of
   ("newByteArray#", [size]) -> Just ("aihcByteArrayWords#", [size, literal 0, literal 8])
   ("newPinnedByteArray#", [size]) -> Just ("aihcByteArrayWords#", [size, literal 1, literal 8])
   ("newAlignedPinnedByteArray#", [size, alignment]) -> Just ("aihcByteArrayWords#", [size, literal 1, alignment])
@@ -228,10 +265,10 @@ relocateFunction function = do
 relocateExpr :: Set GrinVar -> GrinExpr -> State Int GrinExpr
 relocateExpr bound expression =
   case expression of
-    GrinBind [] (GrinEnsureHeap requiredWords []) body ->
-      relocateReservation bound (GrinEnsureHeap requiredWords) body
+    GrinBind resultVars (GrinAllocate requiredWords pinned []) body ->
+      relocateSafepoint bound resultVars (GrinAllocate requiredWords pinned) body
     GrinBind [] (GrinEnsureNursery words' []) body ->
-      relocateReservation bound (GrinEnsureNursery words') body
+      relocateSafepoint bound [] (GrinEnsureNursery words') body
     GrinBind resultVars valueExpression body -> do
       valueExpression' <- relocateExpr bound valueExpression
       body' <- relocateExpr (bound <> Set.fromList resultVars) body
@@ -241,7 +278,7 @@ relocateExpr bound expression =
       GrinCase scrutinee binder <$> mapM (relocateAlternative (Set.insert binder bound)) alternatives
     GrinConstant {} -> pure expression
     GrinEnsureNursery {} -> pure expression
-    GrinEnsureHeap {} -> pure expression
+    GrinAllocate {} -> pure expression
     GrinStore {} -> pure expression
     GrinStoreUnchecked {} -> pure expression
     GrinStoreRec {} -> pure expression
@@ -268,19 +305,18 @@ relocateExpr bound expression =
     GrinCatch {} -> pure expression
     GrinForeignCallExpr {} -> pure expression
 
--- Reservations inserted before CPS carry only their dynamic size. Once
--- control flow is explicit, populate the reservation with every live pointer
--- root and rewrite the following expression to use the relocated SSA names.
-relocateReservation :: Set GrinVar -> ([GrinValue] -> GrinExpr) -> GrinExpr -> State Int GrinExpr
-relocateReservation bound reservation body = do
+-- Give each safepoint its live pointer roots.
+-- Use the relocated SSA names after the safepoint.
+relocateSafepoint :: Set GrinVar -> [GrinVar] -> ([GrinValue] -> GrinExpr) -> GrinExpr -> State Int GrinExpr
+relocateSafepoint bound resultVars reservation body = do
   let roots = livePointerRoots bound (freeExprVars body)
   relocated <- mapM freshRelocated roots
   let substitutions = Map.fromList (zip roots relocated)
       bodyWithRelocatedRoots = substituteExpr substitutions body
-  body' <- relocateExpr (bound <> Set.fromList relocated) bodyWithRelocatedRoots
+  body' <- relocateExpr (bound <> Set.fromList (resultVars <> relocated)) bodyWithRelocatedRoots
   pure
     ( GrinBind
-        relocated
+        (resultVars <> relocated)
         (reservation (map GrinVarValue roots))
         body'
     )
@@ -325,7 +361,7 @@ substituteExpr substitutions expression =
       GrinBind vars (substituteExpr substitutions valueExpression) (substituteExpr (without vars substitutions) body)
     GrinStore node -> GrinStore (substituteNode substitutions node)
     GrinEnsureNursery words' roots -> GrinEnsureNursery words' (map (substituteValue substitutions) roots)
-    GrinEnsureHeap requiredWords roots -> GrinEnsureHeap (substituteValue substitutions requiredWords) (map (substituteValue substitutions) roots)
+    GrinAllocate requiredWords pinned roots -> GrinAllocate (substituteValue substitutions requiredWords) (substituteValue substitutions pinned) (map (substituteValue substitutions) roots)
     GrinStoreUnchecked node -> GrinStoreUnchecked (substituteNode substitutions node)
     GrinStoreRec bindings body -> substituteStoreRec GrinStoreRec substitutions bindings body
     GrinStoreRecUnchecked bindings body -> substituteStoreRec GrinStoreRecUnchecked substitutions bindings body

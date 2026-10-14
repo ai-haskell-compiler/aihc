@@ -773,22 +773,20 @@ The lowering keeps the control model of CPS-GRIN:
   a constant. The fast path compares the reservation end with `%hp_limit`.
   The slow path calls `aihc_heap_collect`, which reserves nursery space
   even when the batch exceeds the large-object threshold.
-- `ensure-heap` reserves space for one dynamic object. Its size can be a
-  constant or a computed value. The fast path compares free words with
-  the requested words. It also checks that `%hp` does not exceed `%hp_limit`.
-  The slow path calls `aihc_ensure_heap`. Large objects use separate storage.
-  This reservation cannot cover other nursery allocations.
-- Both slow paths save live roots in a `stack.alloc` array and pass the
-  function's static reference table to the runtime. They then reload the
-  relocated roots, `%hp`, and `%hp_limit`. Both paths join at a block whose
-  parameters carry the roots and heap context.
-- GC-GRIN lint checks the nursery budget for unchecked stores and fixed-size
-  primitives. It checks dynamic reservations separately. `--lint` does not
-  select a different runtime.
-- A store takes its object from that reservation itself: the object starts
-  at `%hp`, and `%hp` advances by the words of the object. Then the store
-  writes the header and the fields. Neither step touches memory other than
-  the object. The runtime exports no allocator.
+- `allocate` allocates one dynamic object and returns its address.
+  It calls `aihc_heap_allocate` with the size, pinned flag, and live roots.
+  A nursery allocation advances `%hp` immediately.
+  Large and pinned objects use separate storage.
+  An initializer writes the object into the returned address before the next safepoint.
+  The initializer does not allocate or advance `%hp`.
+- Both operations save live roots in a `stack.alloc` array before a runtime call.
+  They pass the static reference table and reload relocated roots and heap context.
+- GC-GRIN lint checks the nursery budget for unchecked stores and fixed-size primitives.
+  It also checks that each dynamic allocation has initialization before the next safepoint.
+  Dynamic allocations cannot supply nursery space for later stores.
+  `--lint` does not select a different runtime.
+- A store starts at `%hp` and advances `%hp` by the object size.
+  It writes the header and fields into the reserved nursery space.
 - A pointer store into an existing object, through `writeArray#`,
   `writeMutVar#`, or a compare-and-swap primitive, starts with the write
   barrier. It reads the capability from the stack chunk header.

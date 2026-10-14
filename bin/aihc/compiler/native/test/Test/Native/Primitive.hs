@@ -115,7 +115,7 @@ tests =
       -- heap -- a byte array does today -- and still belong in the list.
       testCase "capability calls have correct allocation bounds" $
         mapM_
-          (\primitive -> assertEqual ("allocates: " <> show primitive) (primitive `notElem` copyPrimitives) (primitiveAllocates primitive))
+          (\primitive -> assertEqual ("allocates: " <> show primitive) (primitive `notElem` nonallocatingPrimitives) (primitiveAllocates primitive))
           machinePrimitiveNames,
       testCase "every allocating primitive is a runtime call of some kind" $
         assertEqual
@@ -124,9 +124,9 @@ tests =
           (filter (`notElem` runtimePrimitiveNames) (Set.toAscList allocatingPrimitives))
     ]
 
--- | Array copies need a capability for the write barrier, but need no heap space.
-copyPrimitives :: [Text]
-copyPrimitives = ["copyArray#", "copyMutableArray#", "copySmallArray#", "copySmallMutableArray#"]
+-- | Array copies and initializers use the write barrier but do not allocate.
+nonallocatingPrimitives :: [Text]
+nonallocatingPrimitives = ["copyArray#", "copyMutableArray#", "copySmallArray#", "copySmallMutableArray#", "aihcInitArrayClone#", "aihcInitArrayResize#"]
 
 -- | The primitives whose lowering is handed the machine pointer, and so can
 -- reach @aihc_gc_allocate@: the runtime calls that pass it, and the CPS

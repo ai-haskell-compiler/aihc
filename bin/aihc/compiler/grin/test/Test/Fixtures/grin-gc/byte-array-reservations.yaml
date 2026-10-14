@@ -16,22 +16,32 @@ expected: |
 
   primitive aihcResizeByteArrayWords# :: WordRep/2
 
+  primitive aihcInitByteArray# :: BoxedRep Unlifted/4
+
+  primitive aihcInitByteArrayResize# :: BoxedRep Unlifted/3
+
+  primitive aihcByteArrayPinned# :: WordRep/1
+
   allocate (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_byte_array_words :: WordRep <-
+    $gc_words :: WordRep <-
       primitive-call @WordRep aihcByteArrayWords# (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
-    $cps_return$gc :: BoxedRep Lifted <-
-      ensure-heap ($gc_byte_array_words :: WordRep) ($cps_return :: BoxedRep Lifted)
+    $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted <-
+      allocate ($gc_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
-      primitive-call @(BoxedRep Unlifted) newByteArray# (size :: IntRep)
+      primitive-call @(BoxedRep Unlifted) aihcInitByteArray# ($gc_memory :: AddrRep) (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
 
   resize (array :: BoxedRep Unlifted) (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_byte_array_words :: WordRep <-
+    $gc_words :: WordRep <-
       primitive-call @WordRep aihcResizeByteArrayWords# (array :: BoxedRep Unlifted) (size :: IntRep)
-    $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted <-
-      ensure-heap ($gc_byte_array_words :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
+    $gc_pinned :: WordRep <-
+      primitive-call @WordRep aihcByteArrayPinned# (array :: BoxedRep Unlifted)
+    $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted <-
+      allocate ($gc_words :: WordRep) ($gc_pinned :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
     $cps_result :: BoxedRep Unlifted <-
-      primitive-call @(BoxedRep Unlifted) resizeMutableByteArray# (array$gc :: BoxedRep Unlifted) (size :: IntRep)
+      primitive-call @(BoxedRep Unlifted) aihcInitByteArrayResize# ($gc_memory :: AddrRep) (array$gc :: BoxedRep Unlifted) (size :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
 status: pass
-reason: Dynamic byte-array reservations must protect the original array and caller continuation.
+reason: |
+  Dynamic allocation returns memory before byte array initialization.
+  Resize preserves the pinned flag and relocates the source array.

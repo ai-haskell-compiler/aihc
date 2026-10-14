@@ -327,7 +327,7 @@ atomicExpr =
       MP.try (unaryNodeExpr "store-unchecked" GrinStoreUnchecked),
       unaryNodeExpr "store" GrinStore,
       ensureNurseryExpr,
-      ensureHeapExpr,
+      allocateExpr,
       twoValuesExpr "update-blackhole" GrinUpdateBlackhole,
       twoValuesExpr "update" GrinUpdate,
       MP.try (runtimeRepValueExpr "eval-once" (GrinEval EvalSingleEntry)),
@@ -382,14 +382,16 @@ ensureNurseryExpr = do
   lineEnd
   pure (GrinEnsureNursery words' roots)
 
-ensureHeapExpr :: Parser GrinExpr
-ensureHeapExpr = do
-  keyword "ensure-heap"
+allocateExpr :: Parser GrinExpr
+allocateExpr = do
+  keyword "allocate"
   horizontal1
   requiredWords <- grinValue
+  horizontal1
+  pinned <- grinValue
   roots <- grinValues
   lineEnd
-  pure (GrinEnsureHeap requiredWords roots)
+  pure (GrinAllocate requiredWords pinned roots)
 
 runtimeRepValueExpr :: Text -> (GrinRep -> GrinValue -> GrinExpr) -> Parser GrinExpr
 runtimeRepValueExpr expressionName constructor = do

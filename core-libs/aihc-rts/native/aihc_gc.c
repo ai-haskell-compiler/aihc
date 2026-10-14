@@ -3156,6 +3156,20 @@ AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words) {
   return value;
 }
 
+/* Allocate one object. The returned address owns its space immediately.
+   The caller must initialize the object before another collection. */
+AihcValue *aihc_heap_allocate(AihcCapability *capability, uint64_t words,
+                              uint64_t pinned, uint64_t root_count,
+                              AihcSlot *roots, const AihcSrt *srt) {
+  uint64_t overhead = pinned ? sizeof(AihcPinnedBlock) / sizeof(AihcSlot) : 0;
+  if (words < overhead) {
+    aihc_fail("invalid pinned allocation size");
+  }
+  aihc_gc_ensure(capability, words, root_count, roots, srt);
+  return pinned ? aihc_gc_allocate_pinned(capability, words - overhead)
+                : aihc_gc_allocate(capability, words);
+}
+
 AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("global allocation is too large");

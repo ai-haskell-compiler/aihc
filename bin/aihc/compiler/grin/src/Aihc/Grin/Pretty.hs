@@ -108,8 +108,8 @@ prettyExprWith scopes expr =
     GrinStore node -> "store" <+> prettyNode scopes node
     GrinEnsureNursery words' roots ->
       "ensure-nursery" <+> pretty words' <> prettyValues scopes roots
-    GrinEnsureHeap requiredWords roots ->
-      "ensure-heap" <+> prettyValue scopes requiredWords <> prettyValues scopes roots
+    GrinAllocate requiredWords pinned roots ->
+      "allocate" <+> prettyValue scopes requiredWords <+> prettyValue scopes pinned <> prettyValues scopes roots
     GrinStoreUnchecked node -> "store-unchecked" <+> prettyNode scopes node
     GrinStoreRec bindings body ->
       prettyStoreRec scopes "store-rec" bindings body

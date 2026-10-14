@@ -213,7 +213,7 @@ bodyReferences expression =
     GrinConstant {} -> Set.empty
     GrinStore node -> nodeReferences node
     GrinEnsureNursery {} -> Set.empty
-    GrinEnsureHeap {} -> Set.empty
+    GrinAllocate {} -> Set.empty
     GrinStoreUnchecked node -> nodeReferences node
     GrinUpdate {} -> Set.empty
     GrinEval {} -> Set.empty

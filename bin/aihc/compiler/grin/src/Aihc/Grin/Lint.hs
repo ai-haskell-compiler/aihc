@@ -9,8 +9,8 @@ module Aihc.Grin.Lint
 where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), CpsGrinProgram, cpsContinuationFrames, cpsFunctionContinuations, cpsGrinProgram)
-import Aihc.Grin.Gc (GcGrinProgram, dynamicReservation, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
-import Aihc.Grin.Primitive (primitiveAllocates, primitiveHeapWords)
+import Aihc.Grin.Gc (GcGrinProgram, dynamicAllocationSize, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
+import Aihc.Grin.Primitive (primitiveAllocates, primitiveHeapWords, primitiveInitializes)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -54,7 +54,9 @@ data GrinLintError
     GrinLintFetchTag !GrinNodeTag
   | GrinLintFetchNonPointer !GrinRep
   | GrinLintNurseryReservation !Integer !Integer
-  | GrinLintDynamicReservation !Text
+  | GrinLintUnloweredAllocation !Text
+  | GrinLintInitializationWithoutAllocation !Text
+  | GrinLintUninitializedAllocation
   | GrinLintInvalidNurseryReservation !Integer
   deriving (Eq, Show)
 
@@ -84,20 +86,26 @@ lintGcProgram gc =
   lintProgramWith (gcFunctionContinuations gc) (gcContinuationFrames gc) (gcGrinProgram gc)
     <> concatMap (lintHeapReservations (gcContinuationFunctions gc) . grinFunctionBody) (grinFunctions (gcGrinProgram gc))
 
--- | Track nursery words separately from a single dynamic allocation.
--- A collection can invalidate either reservation. Each branch receives
--- the same input budget. Only space available on every branch survives.
+-- | Nursery checks grant a word budget. Dynamic allocation returns an address.
+-- Initialization must consume that address before another safepoint.
 lintHeapReservations :: Set FunctionName -> GrinExpr -> [GrinLintError]
-lintHeapReservations frames = fst . check (0, False)
+lintHeapReservations frames expression =
+  let (errors, (_, pending)) = check (0, Set.empty) expression
+   in errors <> uninitialized pending
   where
-    check budget@(available, dynamic) expression = case expression of
+    uninitialized pending = [GrinLintUninitializedAllocation | not (Set.null pending)]
+    check budget@(available, pending) expr = case expr of
+      GrinBind (memory : _) allocation@GrinAllocate {} body ->
+        let (errors, _) = check budget allocation
+            (bodyErrors, final) = check (0, Set.singleton memory) body
+         in (errors <> bodyErrors, final)
       GrinBind _ value body ->
         let (valueErrors, remaining) = check budget value
             (bodyErrors, final) = check remaining body
          in (valueErrors <> bodyErrors, final)
       GrinEnsureNursery words' _ ->
-        ([GrinLintInvalidNurseryReservation words' | words' < 0 || words' > (2 ^ (61 :: Int) - 1)], (max 0 words', False))
-      GrinEnsureHeap _ _ -> ([], (0, True))
+        (uninitialized pending <> [GrinLintInvalidNurseryReservation words' | words' < 0 || words' > (2 ^ (61 :: Int) - 1)], (max 0 words', Set.empty))
+      GrinAllocate {} -> barrier
       GrinStoreUnchecked node -> consume (allocationWords node) budget
       GrinStoreRecUnchecked bindings body ->
         let (errors, remaining) = consume (sum (map (allocationWords . snd) bindings)) budget
@@ -113,21 +121,24 @@ lintHeapReservations frames = fst . check (0, False)
       GrinForeignCallExpr {} -> barrier
       _ -> ([], budget)
       where
-        barrier = ([], (0, False))
+        barrier = (uninitialized pending, (0, Set.empty))
         primitive name arguments
-          | Just _ <- dynamicReservation name arguments =
-              ([GrinLintDynamicReservation name | not dynamic], (0, False))
+          | primitiveInitializes name = case arguments of
+              GrinVarValue memory : _ | memory `Set.member` pending -> ([], (available, Set.delete memory pending))
+              _ -> ([GrinLintInitializationWithoutAllocation name], budget)
+          | Just _ <- dynamicAllocationSize name arguments =
+              (GrinLintUnloweredAllocation name : uninitialized pending, (0, Set.empty))
           | Just words' <- primitiveHeapWords name =
               let (errors, _) = consume (toInteger words') budget
-               in (errors, (0, False))
+               in (errors, (0, pending))
           | primitiveAllocates name = barrier
           | otherwise = ([], budget)
         branches expressions =
           let results = map (check budget) expressions
               remaining = map snd results
-           in (concatMap fst results, (minimum (available : map fst remaining), dynamic && all snd remaining))
-    consume required (available, dynamic) =
-      ([GrinLintNurseryReservation required available | required > available], (max 0 (available - required), dynamic))
+           in (concatMap fst results, (minimum (available : map fst remaining), Set.unions (map snd remaining)))
+    consume required (available, pending) =
+      ([GrinLintNurseryReservation required available | required > available], (max 0 (available - required), pending))
     allocationWords node = case grinNodeTag node of
       GrinClosure name _ | name `Set.member` frames -> 0
       _ -> toInteger (nodeWords node)
@@ -258,7 +269,7 @@ lintFunctionResult env resultRep expr =
       ]
     GrinStore {} -> []
     GrinEnsureNursery {} -> []
-    GrinEnsureHeap {} -> []
+    GrinAllocate {} -> []
     GrinStoreUnchecked (GrinNode (GrinClosure functionName []) _) ->
       [ GrinLintSaturatedClosure functionName
       | Map.lookup functionName (lintFunctionResults env) == Just resultRep
@@ -287,7 +298,7 @@ lintExpr env bound expr =
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
     GrinEnsureNursery _ roots -> concatMap (lintValue bound) roots
-    GrinEnsureHeap requiredWords roots -> lintValue bound requiredWords <> concatMap (lintValue bound) roots
+    GrinAllocate requiredWords pinned roots -> lintValue bound requiredWords <> lintValue bound pinned <> concatMap (lintValue bound) roots
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
       let recursiveBound = Set.fromList (map fst bindings) <> bound
@@ -497,7 +508,7 @@ exprResults env expr =
     GrinBind _ _ body -> exprResults env body
     GrinStore {} -> [Placed [liftedGrinRep]]
     GrinEnsureNursery _ roots -> [Placed (map grinValueRuntimeRep roots)]
-    GrinEnsureHeap _ roots -> [Placed (map grinValueRuntimeRep roots)]
+    GrinAllocate _ _ roots -> [Placed (AddrRep : map grinValueRuntimeRep roots)]
     GrinStoreUnchecked {} -> [Placed [liftedGrinRep]]
     GrinStoreRec _ body -> exprResults env body
     GrinStoreRecUnchecked _ body -> exprResults env body

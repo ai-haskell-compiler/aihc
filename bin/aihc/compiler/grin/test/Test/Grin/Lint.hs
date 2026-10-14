@@ -14,12 +14,14 @@ tests =
     "lint"
     [ testGroup
         "heap reservations"
-        [ testCase "a dynamic reservation cannot cover a nursery store" $
-            assertHeapLint nurseryProgram [GrinLintNurseryReservation 1 0] replaceNursery,
+        [ testCase "dynamic allocation cannot cover a nursery store" $
+            assertHeapLint allocatedProgram [GrinLintNurseryReservation 1 0] removeNursery,
           testCase "a nursery reservation must cover every store" $
             assertHeapLint nurseryProgram [GrinLintNurseryReservation 1 0] removeWords,
-          testCase "a nursery reservation cannot cover a dynamic allocation" $
-            assertHeapLint dynamicProgram [GrinLintDynamicReservation "newByteArray#"] replaceDynamic
+          testCase "initialization requires allocated memory" $
+            assertHeapLint missingAllocationProgram [GrinLintInitializationWithoutAllocation "aihcInitArray#"] id,
+          testCase "allocated memory must be initialized before a safepoint" $
+            assertHeapLint uninitializedProgram [GrinLintUninitializedAllocation] id
         ],
       testGroup
         "node arities"
@@ -209,20 +211,25 @@ assertHeapLint sourceText expected change = do
         _ -> change expression
   assertEqual "heap reservation diagnostics" expected (lintGcProgram gc {gcGrinProgram = changed})
 
-replaceNursery :: GrinExpr -> GrinExpr
-replaceNursery (GrinEnsureNursery words' roots) = GrinEnsureHeap (GrinLitValue (GrinLitInt WordRep words')) roots
-replaceNursery expression = expression
-
 removeWords :: GrinExpr -> GrinExpr
 removeWords (GrinEnsureNursery _ roots) = GrinEnsureNursery 0 roots
 removeWords expression = expression
 
-replaceDynamic :: GrinExpr -> GrinExpr
-replaceDynamic (GrinEnsureHeap _ roots) = GrinEnsureNursery 8 roots
-replaceDynamic expression = expression
-
 nurseryProgram :: Text
 nurseryProgram = "constructor Unit/0 []\n$entry -> BoxedRep Lifted =\n  store (CUnit)\n"
 
-dynamicProgram :: Text
-dynamicProgram = "primitive newByteArray# :: BoxedRep Unlifted/1\n$entry -> BoxedRep Unlifted =\n  primitive-call @(BoxedRep Unlifted) newByteArray# (8 :: IntRep)\n"
+allocatedProgram :: Text
+allocatedProgram =
+  "constructor Unit/0 []\nprimitive newArray# :: BoxedRep Unlifted/2\n$entry -> BoxedRep Lifted =\n  (array%2 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newArray# (0 :: IntRep) (0 :: IntRep)\n  store (CUnit)\n"
+
+missingAllocationProgram :: Text
+missingAllocationProgram =
+  "primitive aihcInitArray# :: BoxedRep Unlifted/3\n$entry -> BoxedRep Unlifted =\n  primitive-call @(BoxedRep Unlifted) aihcInitArray# (0 :: AddrRep) (0 :: IntRep) (0 :: IntRep)\n"
+
+uninitializedProgram :: Text
+uninitializedProgram =
+  "$entry -> IntRep =\n  (memory%1 :: AddrRep) <- allocate (2 :: WordRep) (0 :: WordRep)\n  () <- ensure-nursery 0\n  constant (0 :: IntRep)\n"
+
+removeNursery :: GrinExpr -> GrinExpr
+removeNursery (GrinEnsureNursery _ roots) = GrinConstant roots
+removeNursery expression = expression

@@ -4,7 +4,7 @@ module Aihc.Grin.Heap
   )
 where
 
-import Aihc.Grin.Primitive (primitiveAllocates)
+import Aihc.Grin.Primitive (primitiveAllocates, primitiveInitializes)
 import Aihc.Grin.Syntax
 
 normalizeHeapReservations :: GrinProgram -> GrinProgram
@@ -72,9 +72,6 @@ normalizeExpr expression =
     GrinBind [] (GrinEnsureNursery reservedWords []) body ->
       let (bodyWords, body') = normalizeExpr body
        in (sequential (Reserve reservedWords) bodyWords, body')
-    GrinBind [] reservation@(GrinEnsureHeap _ _) body ->
-      let (bodyWords, body') = normalizeExpr body
-       in (NoReservation, const (GrinBind [] reservation (placeReservation bodyWords body')))
     GrinBind vars valueExpression body ->
       let (valueWords, valueExpression') = normalizeExpr valueExpression
           (bodyWords, body') = normalizeExpr body
@@ -148,11 +145,11 @@ isReservationBarrier :: GrinExpr -> Bool
 isReservationBarrier expression =
   case expression of
     GrinEnsureNursery {} -> True
-    GrinEnsureHeap {} -> True
+    GrinAllocate {} -> True
     GrinEval {} -> True
     GrinCpsEval {} -> True
     GrinCall {} -> True
-    GrinPrimitiveCall _ name _ -> primitiveAllocates name
+    GrinPrimitiveCall _ name _ -> primitiveAllocates name || primitiveInitializes name
     GrinCpsPrimitiveCall {} -> True
     GrinApply {} -> True
     GrinForward -> False
