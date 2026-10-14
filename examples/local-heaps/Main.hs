@@ -24,7 +24,7 @@ main = do
   references <- newIORef []
   box <- newEmptyMVar
   spare <- newEmptyMVar
-  print (churn 2000000)
+  print (churn 500000)
   -- A young list of thunks goes into an old reference. The promotion
   -- copies it into gen2.
   writeIORef shared (map (+ 1) [1 .. 100 :: Int])
@@ -34,7 +34,7 @@ main = do
   fresh <- newIORef (5 :: Int)
   writeIORef references [fresh]
   modifyIORef fresh (+ 1)
-  print (churn 2000000)
+  print (churn 500000)
   readIORef shared >>= print . sum
   readIORef references >>= mapM readIORef >>= print
   print (sum table)
