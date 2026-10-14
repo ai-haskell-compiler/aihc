@@ -82,7 +82,8 @@ tests =
           testCase "forwards the target of an evaluated static thunk" (checkScript getDriver evaluatedStaticScript),
           testCase "scans the frames below a pop across chunks" (checkScript getDriver deepPopScript),
           testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
-          testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript)
+          testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript),
+          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -177,6 +178,34 @@ deadMVarScript =
     <> [CStable (VHeap 2)]
     <> [CSUpdate slot (VHeap 2) | slot <- [4 .. 7]]
     <> [CCollectGeneration 1, CSSet 8 0 VNull, CCycle, CCollect]
+
+-- | The initial thread blocks on an MVar that only a static thunk names.
+-- A frame of the blocked stack names a node, and the node names the
+-- static thunk. Thus the full trace does not reach the thread, and the
+-- cycle marks the static thunk stale. The snapshot of the cycle scans
+-- the blocked stack as a root, and reaches the MVar and the thread through
+-- the static thunk. Both must survive the end of the cycle.
+staleStaticSnapshotScript :: [Command]
+staleStaticSnapshotScript =
+  [ CMachine 0 0 512 64,
+    CSSrt 4 Nothing,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CReserve 48,
+    CNew 2 KNode [True] Nothing,
+    CMVar 3,
+    CNew 4 KClosure [] Nothing,
+    CSUpdate 4 (VHeap 3),
+    CSet 2 0 (VStatic 4),
+    CPush 2 (FSNormal [True] Nothing [VHeap 2]),
+    CFork 5 3 (VHeap 4),
+    CTake 3,
+    CCollect,
+    CCycle,
+    CCollect,
+    CCollect,
+    CCollect
+  ]
 
 -- | Run one fixed script and compare the driver's reports with the model.
 checkScript :: IO Driver -> [Command] -> IO ()
@@ -1089,8 +1118,13 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                 problems = generationProblems command report <> checkReport checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
-                -- a new cycle.
-                live = snapshotLiveness checked
+                -- a new cycle. A cycle marks the static thunks stale with
+                -- the full trace, but the snapshot also scans the stacks
+                -- that the trace does not keep. Through such a stack, the
+                -- snapshot reaches a slot that this command marked stale,
+                -- and the cycle keeps its value. Thus the snapshot reads
+                -- the slots as they were before the command.
+                live = snapshotLiveness checked {mStaticThunks = mStaticThunks model}
                 reported = Map.keysSet (rAges report)
                 deadNow = Set.fromList [identity | (identity, age) <- Map.toList (rAges report), age == 2, not (Set.member identity (liveHeap live)), not (Set.member identity (liveInds live))]
                 snapshot
