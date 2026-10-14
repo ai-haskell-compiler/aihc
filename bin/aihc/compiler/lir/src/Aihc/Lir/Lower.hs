@@ -919,13 +919,13 @@ currentCapability = currentContext >>= capabilityOperand
 -- | The write barrier of a store into an object. The cold call also takes
 -- the value that the site stores, so the runtime can count an escape.
 emitWriteBarrier :: FunctionCtx -> Operand -> Operand -> LowerM ()
-emitWriteBarrier ctx object value = emitBarrier ctx object Nothing value
+emitWriteBarrier ctx object = emitBarrier ctx object Nothing
 
 -- | The write barrier of a store into a boxed array. The cold call takes
 -- the index of the element: a large array keeps a card for each run of
 -- elements, and the runtime marks the card of the store.
 emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> Operand -> LowerM ()
-emitWriteBarrierAt ctx object index value = emitBarrier ctx object (Just index) value
+emitWriteBarrierAt ctx object index = emitBarrier ctx object (Just index)
 
 emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> Operand -> LowerM ()
 emitBarrier _ object index value = do
