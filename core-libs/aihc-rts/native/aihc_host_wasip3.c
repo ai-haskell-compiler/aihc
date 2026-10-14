@@ -41,9 +41,20 @@ void aihc_program_environment_initialize(void) {}
 
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
-/* WASM keeps one capability, so it has no workers and no run lock. */
+/* WASM keeps one capability, so it has no workers and no run lock. The
+   runtime reaches the two functions below only with workers. */
 void aihc_host_workers_start(AihcCapability *capability) {
   (void)capability;
+  aihc_fail("this host has one capability");
+}
+
+void aihc_host_sleep_ns(uint64_t duration) {
+  (void)duration;
+  aihc_fail("this host has one capability");
+}
+
+_Noreturn void aihc_exit_process(int64_t status) {
+  (void)status;
   aihc_fail("this host has one capability");
 }
 
