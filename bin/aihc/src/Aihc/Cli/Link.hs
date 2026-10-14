@@ -176,7 +176,7 @@ instance Cbor LinkBundle where
     expectArray 7
     "aihc-linkbundle-1" <- getText
     LinkBundle
-      <$!> (getText >>= either fail pure . parseNativeTarget)
+      <$!> (fromCbor >>= either fail pure . parseNativeTarget)
         <*!> fromCbor
         <*!> fromCbor
         <*!> fromCbor

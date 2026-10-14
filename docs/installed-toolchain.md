@@ -160,7 +160,7 @@ target, such as a Mac for `apple-arm64` objects compiled on Linux:
 aihc link-exe program-bundle --output program
 ```
 
-The manifest is plain JSON, so a host without the compiler can also run the
+The manifest uses CBOR. A host without the compiler can run the
 link through the C driver of the target directly. The weekly cross-compilation
 workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
 example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`
