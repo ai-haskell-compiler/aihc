@@ -696,12 +696,14 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
         aihc_visit_pointer(transaction->writes, visitor, context);
     transaction->parent =
         aihc_visit_pointer(transaction->parent, visitor, context);
+    transaction->reads =
+        aihc_visit_pointer(transaction->reads, visitor, context);
     return 1;
   }
   case AIHC_OBJECT_TRANSACTION_WRITE: {
     AihcTransactionWrite *write = (AihcTransactionWrite *)object;
     aihc_visit_value(&write->variable, visitor, context);
-    write->previous = visitor(write->previous, context);
+    write->value = visitor(write->value, context);
     write->next = aihc_visit_pointer(write->next, visitor, context);
     return 1;
   }
@@ -2609,6 +2611,7 @@ uint64_t aihc_stm_begin(AihcCapability *capability) {
       (AihcTransaction *)aihc_gc_allocate(capability, words);
   transaction->header = (AihcSlot)(uintptr_t)&aihc_transaction_info;
   transaction->writes = NULL;
+  transaction->reads = NULL;
   transaction->parent = capability->current_thread->transaction;
   capability->current_thread->transaction = transaction;
   return 0;
@@ -2618,25 +2621,45 @@ uint64_t aihc_stm_active(AihcCapability *capability) {
   return capability->current_thread->transaction != NULL;
 }
 
+/* Add an entry to a log of a transaction. The caller reserved it. */
+static void aihc_log_add(AihcCapability *capability,
+                         AihcTransaction *transaction,
+                         AihcTransactionWrite **log, AihcValue *variable,
+                         AihcSlot value) {
+  uint64_t words = aihc_record_words(sizeof(AihcTransactionWrite));
+  AihcTransactionWrite *entry =
+      (AihcTransactionWrite *)aihc_gc_allocate(capability, words);
+  entry->header = (AihcSlot)(uintptr_t)&aihc_transaction_write_info;
+  entry->variable = variable;
+  entry->value = value;
+  entry->next = *log;
+  aihc_write_barrier(capability, (AihcValue *)transaction);
+  *log = entry;
+}
+
 uint64_t aihc_tvar_write(AihcCapability *capability, AihcValue *variable,
                          AihcSlot value) {
   AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     aihc_fail("TVar write outside a transaction");
   }
-  uint64_t words = aihc_record_words(sizeof(AihcTransactionWrite));
-  AihcTransactionWrite *write =
-      (AihcTransactionWrite *)aihc_gc_allocate(capability, words);
-  write->header = (AihcSlot)(uintptr_t)&aihc_transaction_write_info;
-  write->variable = variable;
-  write->previous = variable->fields[1];
-  write->next = transaction->writes;
-  aihc_write_barrier(capability, (AihcValue *)transaction);
-  transaction->writes = write;
-  aihc_count_escape(capability, variable, value);
-  aihc_write_barrier(capability, variable);
-  __atomic_store_n(&variable->fields[1], value, __ATOMIC_RELEASE);
+  aihc_log_add(capability, transaction, &transaction->writes, variable, value);
   return 0;
+}
+
+/* Whether every read of a transaction and of its parents still sees the
+   value that it saw. */
+static int aihc_transaction_valid(const AihcTransaction *transaction) {
+  for (; transaction != NULL; transaction = transaction->parent) {
+    for (const AihcTransactionWrite *read = transaction->reads; read != NULL;
+         read = read->next) {
+      if (__atomic_load_n(&read->variable->fields[1], __ATOMIC_ACQUIRE) !=
+          read->value) {
+        return 0;
+      }
+    }
+  }
+  return 1;
 }
 
 uint64_t aihc_stm_abort(AihcCapability *capability) {
@@ -2644,36 +2667,94 @@ uint64_t aihc_stm_abort(AihcCapability *capability) {
   if (transaction == NULL) {
     aihc_fail("STM abort outside a transaction");
   }
-  AihcTransactionWrite *write = transaction->writes;
-  while (write != NULL) {
-    AihcTransactionWrite *next = write->next;
-    aihc_write_barrier(capability, write->variable);
-    __atomic_store_n(&write->variable->fields[1], write->previous,
-                     __ATOMIC_RELEASE);
-    write = next;
-  }
+  int valid = aihc_transaction_valid(transaction);
   capability->current_thread->transaction = transaction->parent;
-  return 0;
+  return (uint64_t)valid;
 }
 
+/* Put a log in front of another one. */
+static void aihc_log_prepend(AihcCapability *capability,
+                             AihcTransaction *owner,
+                             AihcTransactionWrite **log,
+                             AihcTransactionWrite *first) {
+  if (first == NULL) {
+    return;
+  }
+  AihcTransactionWrite *last = first;
+  while (last->next != NULL) {
+    last = last->next;
+  }
+  aihc_write_barrier(capability, (AihcValue *)last);
+  last->next = *log;
+  aihc_write_barrier(capability, (AihcValue *)owner);
+  *log = first;
+}
+
+/* The commit gives 1 when it applied the writes, 0 when a read no longer
+   holds and the transaction must run again, and 2 when the promotion of a
+   written value needs a collection. The caller then collects at its store
+   safepoint and commits again. A nested commit gives its logs to its
+   parent. */
 uint64_t aihc_stm_commit(AihcCapability *capability) {
+  AihcValue *top = capability->pause_top;
+  capability->pause_top = NULL;
   AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     aihc_fail("STM commit outside a transaction");
   }
-  AihcTransactionWrite *write = transaction->writes;
-  if (transaction->parent != NULL && write != NULL) {
-    AihcTransactionWrite *last = write;
-    while (last->next != NULL) {
-      last = last->next;
-    }
-    aihc_write_barrier(capability, (AihcValue *)last);
-    last->next = transaction->parent->writes;
-    aihc_write_barrier(capability, (AihcValue *)transaction->parent);
-    transaction->parent->writes = write;
+  AihcTransaction *parent = transaction->parent;
+  if (parent != NULL) {
+    aihc_log_prepend(capability, parent, &parent->writes, transaction->writes);
+    aihc_log_prepend(capability, parent, &parent->reads, transaction->reads);
+    capability->current_thread->transaction = parent;
+    return 1;
   }
-  capability->current_thread->transaction = transaction->parent;
-  return 0;
+  if (!aihc_transaction_valid(transaction)) {
+    capability->current_thread->transaction = NULL;
+    return 0;
+  }
+  /* A global variable gets a global value. The promotions come first, so a
+     promotion that needs a collection leaves every variable as it was. */
+  uint64_t count = 0;
+  for (AihcTransactionWrite *write = transaction->writes; write != NULL;
+       write = write->next) {
+    capability->pause_top = top;
+    AihcSlot stored = aihc_escape(capability, write->variable, write->value);
+    if (stored == AIHC_ESCAPE_COLLECT) {
+      capability->pause_top = NULL;
+      return 2;
+    }
+    if (stored != write->value) {
+      aihc_write_barrier(capability, (AihcValue *)write);
+      write->value = stored;
+    }
+    ++count;
+  }
+  capability->pause_top = NULL;
+  /* The log has the newest write first, and the newest write of a variable
+     must be its final value. */
+  AihcTransactionWrite **writes = NULL;
+  if (count != 0) {
+    writes = malloc(count * sizeof(*writes));
+    if (writes == NULL) {
+      aihc_fail("out of memory");
+    }
+  }
+  uint64_t index = count;
+  for (AihcTransactionWrite *write = transaction->writes; write != NULL;
+       write = write->next) {
+    writes[--index] = write;
+  }
+  for (index = 0; index < count; ++index) {
+    AihcTransactionWrite *write = writes[index];
+    aihc_count_escape(capability, write->variable, write->value);
+    aihc_write_barrier(capability, write->variable);
+    __atomic_store_n(&write->variable->fields[1], write->value,
+                     __ATOMIC_RELEASE);
+  }
+  free(writes);
+  capability->current_thread->transaction = NULL;
+  return 1;
 }
 
 AihcValue *aihc_tvar_delay(AihcCapability *capability, int64_t delay,
@@ -2715,8 +2796,30 @@ static void aihc_stm_expire_timers(AihcCapability *capability) {
   }
 }
 
+/* A read inside a transaction sees the newest write of the transaction and
+   of its parents. Another read goes into the read log, which the caller
+   reserved. A transaction observes one timer state until it commits or
+   retries. */
 AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable) {
-  /* A transaction observes one timer state until it commits or retries. */
+  AihcTransaction *transaction = capability->current_thread->transaction;
+  if (transaction == NULL) {
+    return aihc_tvar_read_io(capability, variable);
+  }
+  for (const AihcTransaction *each = transaction; each != NULL;
+       each = each->parent) {
+    for (const AihcTransactionWrite *write = each->writes; write != NULL;
+         write = write->next) {
+      if (write->variable == variable) {
+        return write->value;
+      }
+    }
+  }
+  AihcSlot value = __atomic_load_n(&variable->fields[1], __ATOMIC_ACQUIRE);
+  aihc_log_add(capability, transaction, &transaction->reads, variable, value);
+  return value;
+}
+
+AihcSlot aihc_tvar_read_io(AihcCapability *capability, AihcValue *variable) {
   if (!aihc_stm_active(capability)) {
     aihc_stm_expire_timers(capability);
   }

@@ -625,6 +625,8 @@ AihcValue *aihc_array_new(AihcCapability *capability, int64_t count,
 AihcValue *aihc_tvar_delay(AihcCapability *capability, int64_t delay,
                            AihcSlot initial, AihcSlot final);
 AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable);
+/* The read of readTVarIO#, outside a transaction. It allocates nothing. */
+AihcSlot aihc_tvar_read_io(AihcCapability *capability, AihcValue *variable);
 void *aihc_stm_wait_request(AihcCapability *capability);
 int64_t aihc_stm_wait_result(AihcCapability *capability, void *request);
 uint64_t aihc_stm_begin(AihcCapability *capability);

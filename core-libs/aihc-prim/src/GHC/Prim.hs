@@ -1683,12 +1683,14 @@ foreign import prim writeTVar# :: TVar# d a -> a -> State# d -> State# d
 
 foreign import prim sameTVar# :: TVar# d a -> TVar# d a -> Int#
 
--- | Save or restore the transaction write log for the current thread.
+-- | Begin a transaction or a nested savepoint of the current thread. A
+-- commit gives one when it applied the writes and zero when a read no
+-- longer holds. An abort gives one when every read still holds.
 foreign import prim stmBegin# :: State# RealWorld -> State# RealWorld
 
-foreign import prim stmCommit# :: State# RealWorld -> State# RealWorld
+foreign import prim stmCommit# :: State# RealWorld -> (# State# RealWorld, Int# #)
 
-foreign import prim stmAbort# :: State# RealWorld -> State# RealWorld
+foreign import prim stmAbort# :: State# RealWorld -> (# State# RealWorld, Int# #)
 
 foreign import prim stmActive# :: State# RealWorld -> (# State# RealWorld, Int# #)
 

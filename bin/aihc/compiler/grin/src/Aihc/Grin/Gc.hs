@@ -250,7 +250,8 @@ isEscapingStore expression =
 -- | The primitives whose pointer store into an existing object takes the
 -- write barrier: in compiled code, or in a runtime call that gives a
 -- sentinel when its promotion needs a collection. makeStableName# stores
--- into the global list of names.
+-- into the global list of names, and stmCommit# stores the writes of a
+-- transaction into their variables.
 escapingStorePrimitives :: [Text]
 escapingStorePrimitives =
   [ "writeMutVar#",
@@ -264,7 +265,8 @@ escapingStorePrimitives =
     "copyArray#",
     "copyMutableArray#",
     "copySmallArray#",
-    "copySmallMutableArray#"
+    "copySmallMutableArray#",
+    "stmCommit#"
   ]
 
 insertAlternativeReservations :: Set FunctionName -> GrinAlt -> GrinAlt

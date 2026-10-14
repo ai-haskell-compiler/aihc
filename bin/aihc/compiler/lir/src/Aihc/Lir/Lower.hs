@@ -3079,7 +3079,8 @@ escapingRuntimeSentinels =
     ("copyArray#", OperandLiteral (LitInt 1)),
     ("copyMutableArray#", OperandLiteral (LitInt 1)),
     ("copySmallArray#", OperandLiteral (LitInt 1)),
-    ("copySmallMutableArray#", OperandLiteral (LitInt 1))
+    ("copySmallMutableArray#", OperandLiteral (LitInt 1)),
+    ("stmCommit#", OperandLiteral (LitInt 2))
   ]
 
 -- | The compare and swap of one element of a boxed array.

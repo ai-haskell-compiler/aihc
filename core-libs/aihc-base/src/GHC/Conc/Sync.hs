@@ -170,23 +170,42 @@ instance Show Retry where
 
 instance Exception Retry
 
+-- | A transaction whose reads no longer hold runs again. Conflict has a
+-- private exception type too, and catchSTM must let it pass.
+data Conflict = Conflict
+
+instance Show Conflict where
+  show Conflict = "STM conflict"
+
+instance Exception Conflict
+
 unsafeIOToSTM :: IO a -> STM a
 unsafeIOToSTM (IO action) = STM action
 
 stmToIO :: STM a -> IO a
 stmToIO (STM action) = IO action
 
--- | A failed action restores all writes since this savepoint.
+-- | A failed action drops all writes since this savepoint. A failure or a
+-- commit whose reads no longer hold raises Conflict.
 transaction :: IO a -> IO a
 transaction action = do
   IO (\state -> case stmBegin# state of next -> (# next, () #))
   result <- catch action abort
-  IO (\state -> case stmCommit# state of next -> (# next, result #))
+  committed <-
+    IO
+      ( \state -> case stmCommit# state of
+          (# next, flag #) -> (# next, case flag of 0# -> False; _ -> True #)
+      )
+  if committed then return result else throwIO Conflict
   where
     abort :: SomeException -> IO a
     abort exception = do
-      IO (\state -> case stmAbort# state of next -> (# next, () #))
-      throwIO exception
+      valid <-
+        IO
+          ( \state -> case stmAbort# state of
+              (# next, flag #) -> (# next, case flag of 0# -> False; _ -> True #)
+          )
+      if valid then throwIO exception else throwIO Conflict
 
 atomically :: STM a -> IO a
 atomically action = do
@@ -197,8 +216,9 @@ atomically action = do
       )
   if active
     then error "atomically: nested transaction"
-    else catch (transaction (stmToIO action)) blocked
+    else catch (catch (transaction (stmToIO action)) conflict) blocked
   where
+    conflict Conflict = atomically action
     blocked Retry = do
       changed <-
         IO
@@ -226,8 +246,10 @@ catchSTM action handler =
     select exception = case fromException exception of
       Just Retry -> throwIO exception
       Nothing -> case fromException exception of
-        Just selected -> stmToIO (handler selected)
-        Nothing -> throwIO exception
+        Just Conflict -> throwIO exception
+        Nothing -> case fromException exception of
+          Just selected -> stmToIO (handler selected)
+          Nothing -> throwIO exception
 
 newTVar :: a -> STM (TVar a)
 newTVar value = unsafeIOToSTM (newTVarIO value)
