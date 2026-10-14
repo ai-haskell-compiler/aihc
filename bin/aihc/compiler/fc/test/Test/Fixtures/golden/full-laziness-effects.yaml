@@ -1,0 +1,93 @@
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+  import GHC.Prim (State#, RealWorld, newMutVar#, realWorld#)
+  import GHC.Types (Int (..), Bool (..))
+  data Nat = Z | S Nat
+  count :: Nat -> Nat
+  count Z = Z
+  count (S n) = count n
+  lazy :: Bool -> Nat
+  lazy flag = case flag of
+    True -> count (S Z)
+    False -> Z
+  effect :: Int -> Int -> Int
+  effect x y = case newMutVar# x realWorld# of
+    (# s, r #) -> x
+passes:
+- full-laziness
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+  
+  import prims
+    newMutVar# = 2.vnewMutVar# :: ∀(a : sType) (b : sType). a → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# b) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# b) (tMutVar# b a));
+    realWorld# = 2.vrealWorld# :: tState# tRealWorld
+  
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tMutVar# :: ∀(d : sType) (a : sType). tTYPE sUnliftedRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    3.sUnliftedRep :: tRuntimeRep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.cUnlifted :: tLevity;
+    3.c[] :: ∀(a : sType). t[] a
+  
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep;
+    3.sUnliftedRep = cBoxedRep cUnlifted
+  
+  pub type 1.tNat :: sType {
+    pub 1.cZ :: tNat;
+    pub 1.cS :: tNat → tNat
+  }
+  
+  pub val 1.vcount :: tNat → tNat
+    = λ(x : tNat).
+      case x of {
+        cZ →
+          cZ;
+        cS (n : tNat) →
+          vcount n
+      }
+  
+  pub val 1.vlazy :: tBool → tNat
+    = λ(x : tBool).
+      case x of {
+        cTrue →
+          vlazy$float$2;
+        cFalse →
+          cZ
+      }
+  
+  pub val 1.veffect :: tInt → tInt → tInt
+    = λ(x : tInt) (unused y : tInt).
+      let! cTuple2# (unused s : tState# tRealWorld) (unused r : tMutVar# tRealWorld tInt) =
+        prim newMutVar# @tInt @tRealWorld x (prim realWorld#);
+      x
+  
+  val 1.vlazy$float$2 noinline :: tNat
+    = vcount (cS cZ)
+status: pass
+reason: A shared computation must stay lazy, and a state operation must stay inside its function.

@@ -85,6 +85,6 @@ optimizationPlan lto level =
     -- evaluate it. Its simplifying walks copy a local function at a call
     -- that the copy of a loop gives a constructor, within the site limit
     -- of the growing policy.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
-    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassSimplify 0, Fc.PassLiftConstants]
+    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4

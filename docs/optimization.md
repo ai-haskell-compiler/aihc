@@ -60,6 +60,7 @@ after each pass under `--lint`.
 | `PassEtaExpand` | Arity analysis, then eta expansion of every top-level value to the arity it finds. `Aihc.Fc.Arity`. |
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
+| `PassFullLaziness` | Move invariant computations outside function parameters. Preserve lazy evaluation, local scope, and direct-call arity. `Aihc.Fc.FullLaziness`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassUnroll` | Copy the body of a small local loop, or of a top-level function that calls itself, at each call whose literal arguments decide its recursion, until no call is left. At most 8 copies of at most 200 nodes each. `Aihc.Fc.Unroll`. |
 | `PassStateTokens` | Use the value of an earlier read of a `MutVar#` for a read that takes its token, and remove a `touch#` that a later `touch#` of the same object makes redundant. `Aihc.Fc.StateToken`. |
@@ -86,9 +87,9 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, full laziness, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, lift constants |
+| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, full laziness, simplify [0], lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
@@ -1211,3 +1212,20 @@ and a change that breaks one needs a reason in its pull request.
   field is treated as used once and copied unconditionally, which the
   case-of-known rule then selects at every site. The rule should count only
   saturated calls as the uses that make a value unconditional.
+
+## Full laziness
+
+The pass moves a lifted computation outside function parameters that it does not use.
+A computation that uses an outer parameter stays inside that parameter.
+A closed computation becomes a private top-level thunk.
+The pass gives that thunk `NOINLINE` to preserve its shared result across later module passes.
+
+The pass keeps consecutive parameters together to preserve direct-call arity.
+Free term, type, and coercion names must remain in scope.
+The pass excludes unlifted results, function results, explicit foreign calls, and primitive calls whose types contain `State#`.
+Constructor applications remain with the constant lift pass.
+The pass does not evaluate a computation before its original use.
+A final simplifier walk removes the aliases that the moves create.
+
+Full laziness can increase result lifetime.
+Benchmark checks must include heap use as well as execution time.

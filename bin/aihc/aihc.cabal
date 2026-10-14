@@ -178,6 +178,7 @@ library
     Aihc.Fc.Equivalence
     Aihc.Fc.Facts
     Aihc.Fc.Fold
+    Aihc.Fc.FullLaziness
     Aihc.Fc.Imports
     Aihc.Fc.Inline
     Aihc.Fc.Lint
