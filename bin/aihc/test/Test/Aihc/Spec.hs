@@ -635,11 +635,11 @@ test_buildModuleSourceDirectories getStore =
     BS.writeFile unusedType "invalid unused type interface"
     void (build options)
     BS.writeFile unusedType typeBytes
+    rtsPackage <- seededPackagePath storeRoot target "aihc-rts"
     void (build options {buildLint = True})
     -- The entry unit is generated beside the module objects of the
     -- executable, and the runtime is an installed package like any other.
     assertFileExists (root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "entry.o")
-    rtsPackage <- seededPackagePath storeRoot target "aihc-rts"
     assertFileExists (rtsPackage </> "cbits" </> "native_aihc_runtime.o")
     -- What the program prints and how the runtime treats its arguments is
     -- the business of the examples (rts-options, heap-limit); this checks

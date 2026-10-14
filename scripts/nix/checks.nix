@@ -149,7 +149,7 @@
   compilationModes = [
     {
       name = "incremental";
-      flags = [];
+      flags = ["--lint"];
     }
   ];
   nativeBackendBySystem = {
@@ -657,13 +657,9 @@
     export AIHC_WASM_SYSROOT=${wasmSysroot}
   '';
 
-  # aihc-prim on its own, one derivation per target. The example toolchains
-  # layer aihc-base on these and the seed store gathers them, so aihc-prim,
-  # and the runtime it depends on, compile once per target rather than once
-  # per consumer. The lint that the toolchain used to run over aihc-prim while
-  # installing aihc-base runs here instead: a store that already holds
-  # aihc-prim does not compile it again.
-  primStoreWith = extraSetup: target:
+  # Keep separate runtime variants for builds with and without heap checks.
+  # Examples use --lint. The test seed uses the normal runtime.
+  primStoreWithLint = lint: extraSetup: target:
     pkgs.runCommand "aihc-prim-store-${target}" {
       src = coreLibrariesSource;
       nativeBuildInputs = coreLibraryInstallInputs;
@@ -673,13 +669,14 @@
       ${extraSetup}
       mkdir -p "$out"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$out" --immutable --lint --target ${target}
+      ${aihcExe} install core-libs/aihc-prim --store "$out" --immutable ${pkgs.lib.optionalString lint "--lint"} --target ${target}
 
       test -n "$(find "$out" -type f -name 'libaihc-prim.a' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-rts.a' -print -quit)"
     '';
 
-  primStoreFor = primStoreWith "";
+  primStoreWith = primStoreWithLint true;
+  primStoreFor = primStoreWithLint false "";
 
   # The lto tests want both core libraries built at -O2, which implies --lto.
   # The build is part of the identity of a package, so the entries of the
@@ -711,12 +708,8 @@
   # everything Test.Aihc.SeedStore asks for; a superset is harmless, a missing
   # target only makes the tests install it again.
   #
-  # This derivation compiles nothing. It gathers the per-target aihc-prim
-  # stores, the toolchain of the host backend and the -O2 store, all of which
-  # build in parallel and are shared with the example and Hackage checks, so
-  # it takes the seconds the copies take rather than the minutes of every
-  # install run back to back. Store entries are named after a content
-  # fingerprint, so -n skips the files an earlier copy already put in place.
+  # Gather the normal runtime variants for the test seed.
+  # Each source store builds separately. The copies need no compiler.
   specSeedStore = pkgs.runCommand "aihc-spec-seed-store" {} ''
     mkdir -p "$out/prim" "$out/core" "$out/lto" "$out/lto-llvm"
 
@@ -729,7 +722,7 @@
     # aihc-base as well. Keeping them apart matches what the suite builds for
     # itself outside CI, so a test sees the same store either way.
     cp -R --no-preserve=mode "$out/prim/." "$out/core/"
-    cp -Rn --no-preserve=mode ${exampleToolchainFor hostBackendTarget}/. "$out/core/"
+    cp -Rn --no-preserve=mode ${exampleToolchainWithLint false "" hostBackendTarget}/. "$out/core/"
 
     cp -R --no-preserve=mode ${ltoStore}/. "$out/lto/"
     cp -R --no-preserve=mode ${ltoStoreFor "llvm"}/. "$out/lto-llvm/"
@@ -762,7 +755,9 @@
     ''
     else "";
 
-  exampleToolchainWith = extraSetup: target:
+  exampleToolchainWith = exampleToolchainWithLint true;
+
+  exampleToolchainWithLint = lint: extraSetup: target:
     pkgs.runCommand "aihc-example-toolchain-${target}" {
       src = coreLibrariesSource;
       nativeBuildInputs = coreLibraryInstallInputs ++ [pkgs.wit-bindgen];
@@ -778,8 +773,8 @@
 
       # aihc-prim and the runtime come from the per-target store, so this
       # install compiles aihc-base alone.
-      cp -R --no-preserve=mode ${primStoreWith extraSetup target}/. "$out/"
-      ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --lint --target ${target}
+      cp -R --no-preserve=mode ${primStoreWithLint lint extraSetup target}/. "$out/"
+      ${aihcExe} install core-libs/aihc-base --store "$out" --immutable ${pkgs.lib.optionalString lint "--lint"} --target ${target}
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
@@ -1237,6 +1232,7 @@
           --store "$store" \
           --build-root "$TMPDIR/.aihc-target-$example_name" \
           "''${package_flags[@]}" \
+          --lint \
           --no-link \
           --output "$bundle/link"
       ) > "$bundle/compile.log" 2>&1; then
