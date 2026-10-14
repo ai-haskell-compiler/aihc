@@ -84,7 +84,7 @@ runtimeProgramTestWith name programArguments extraEnvironment source check =
               <> concatMap (\include -> ["-I", include]) (runtimeBuildIncludeDirectories build)
               -- "-x c" reads the program from stdin; "-x none" ends it so the
               -- archive is a linker input rather than another C source.
-              <> ["-x", "c", "-", "-x", "none", runtimeBuildArchive build, "-lm", "-o", executable]
+              <> ["-x", "c", "-", "-x", "none", runtimeBuildArchive build, "-lm", "-lpthread", "-o", executable]
       -- Link with the driver that built the archive, so a host whose "cc" is
       -- not Clang cannot mix two toolchains in one program.
       (compiler, _targetArguments) <- backendCompiler Llvm
@@ -734,7 +734,7 @@ runtimeStatisticsTest name requested ending =
           assertBool "the statistics file exists" present
           decoded <- eitherDecodeFileStrict (statisticsFile directory)
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
-          assertEqual "field names" ["allocated_bytes", "escape_count", "gc_count", "gc_full_count", "gc_gen1_count", "gc_max_pause_ns", "gc_minor_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "schema"] (Map.keys statistics)
+          assertEqual "field names" ["allocated_bytes", "escape_count", "gc_count", "gc_full_count", "gc_gen1_count", "gc_max_pause_ns", "gc_minor_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "push_count", "schema"] (Map.keys statistics)
           assertEqual "schema" (Just 3) (Map.lookup "schema" statistics)
           -- After the counter reset, one leaf and 1000 cells use 8 + 1000 * 16 bytes.
           assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)

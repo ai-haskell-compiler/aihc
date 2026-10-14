@@ -1014,6 +1014,21 @@ AihcStack *aihc_stack_of(const void *frame) {
   return aihc_stack_chunk_of(frame)->stack;
 }
 
+void aihc_stack_move(AihcThread *thread, AihcCapability *capability) {
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
+    if (stack->thread != thread) {
+      continue;
+    }
+    for (AihcStackChunk *chunk = stack->base; chunk != NULL;
+         chunk = chunk->above) {
+      chunk->capability = capability;
+    }
+    return;
+  }
+  aihc_fail("a pushed thread has no stack");
+}
+
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack) {
   AihcStack **link = &capability->machine->stacks;
   while (*link != stack) {
@@ -2745,7 +2760,12 @@ static void aihc_remembered_purge(AihcCapability *capability) {
 static void aihc_cycle_finish(AihcCapability *capability) {
   AihcGcContext context = {
       .capability = capability, .collected = 2, .finishing = 1};
-  aihc_remembered_purge(capability);
+  /* A local collection empties only the remembered set of its own
+     capability, so every set can name an object that the cycle frees. */
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    aihc_remembered_purge(capability->machine->capabilities[index]);
+  }
   aihc_update_stable_names(&context);
   aihc_sweep_stacks(&context);
   aihc_sweep_pinned_cycle(capability);

@@ -83,7 +83,8 @@ tests =
           testCase "scans the frames below a pop across chunks" (checkScript getDriver deepPopScript),
           testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
           testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript),
-          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript)
+          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript),
+          testCase "drops a freed object from the remembered set of another capability" (checkScript getDriver remotePurgeScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -104,6 +105,36 @@ evaluatedStaticScript =
     CSUpdate 0 (VHeap 2),
     CFill 0,
     CCollect
+  ]
+
+-- | The second capability stores into a gen2 object, which then dies. A
+-- gen2 cycle that starts and ends in a local collection of the first
+-- capability frees the object. The next local collection of the second
+-- capability must not scan it from its remembered set.
+remotePurgeScript :: [Command]
+remotePurgeScript =
+  [ CMachine 0 1 512 0,
+    CCapabilities 2,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CReserve 2,
+    CNew 2 KNode [True] Nothing,
+    CRoot 0 (VHeap 2),
+    CCollectGeneration 2,
+    CCollectGeneration 2,
+    CHeap 1,
+    CSet 2 0 (VStatic 0),
+    CHeap 0,
+    CRoot 0 VNull,
+    CGen2Limit 0,
+    CFill 0,
+    CReserve 1,
+    CFill 0,
+    CReserve 1,
+    CHeap 1,
+    CFill 0,
+    CReserve 1,
+    CHeap 0
   ]
 
 -- | A stack of frames across several chunks, a gen2 cycle with a small
@@ -392,6 +423,9 @@ data Model = Model
     mCapabilities :: Int,
     -- | The capability whose nursery gets the objects of new commands.
     mHeapIndex :: Int,
+    -- | A script set the gen2 limit. A reservation can then collect gen1
+    -- and start a gen2 cycle.
+    mGen2Limit :: Bool,
     -- | The capability that allocated each object. A young object belongs
     -- to the local heap of that capability, and a local collection of
     -- another capability leaves it alone.
@@ -450,6 +484,7 @@ emptyModel =
       mCurrentSrt = Nothing,
       mCapabilities = 1,
       mHeapIndex = 0,
+      mGen2Limit = False,
       mOwner = Map.empty,
       mAges = Map.empty,
       mPromoted = Set.empty,
@@ -460,7 +495,7 @@ emptyModel =
 
 -- | The words of an MVar and of a thread record on the 64-bit targets.
 recordWords :: Int
-recordWords = 10
+recordWords = 11
 
 -- | The words of an MVar waiter, a blackhole waiter with the queue that the
 -- first waiter of a thunk makes, and a stable name.
@@ -585,6 +620,9 @@ data Command
     -- or zero for the default slice.
     CMachine Int Int Int Int
   | CCapabilities Int
+  | -- | Start a gen2 cycle at the next collection of gen1 when gen2 has
+    -- this many bytes or more.
+    CGen2Limit Int
   | -- | Allocate the objects of later commands in the nursery of this
     -- capability. Runtime operations allocate in the first nursery.
     CHeap Int
@@ -638,6 +676,7 @@ renderCommand :: Command -> String
 renderCommand command = unwords $ case command of
   CMachine globals roots bytes slice -> ["machine", show globals, show roots, show bytes, show slice]
   CCapabilities count -> ["capabilities", show count]
+  CGen2Limit bytes -> ["gen2limit", show bytes]
   CHeap index -> ["heap", show index]
   CSrt index objects children -> ["srt", show index, show (length objects), show (length children)] <> map (('s' :) . show) objects <> map show children
   CCurrentSrt srt -> ["current_srt", renderSrt srt]
@@ -706,6 +745,7 @@ applyCommand command model = case command of
     | slot < staticThunkCount -> model {mStaticThunkSrts = setAt slot srt (mStaticThunkSrts model)}
     | otherwise -> model {mStaticNodeSrts = setAt (slot - staticThunkCount) srt (mStaticNodeSrts model)}
   CCapabilities count -> model {mCapabilities = count}
+  CGen2Limit _ -> model {mGen2Limit = True}
   CHeap index -> model {mHeapIndex = index}
   CFill _ -> model
   CReserve _ -> model
@@ -1322,7 +1362,12 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                   CCollectGeneration _ -> Nothing
                   CCycle -> Nothing
                   _ -> Just 0
-                problems = generationProblems (escapeCollection model command) command report <> checkReport scope checked report
+                -- Under a gen2 limit, a reservation chooses its generation
+                -- from the bytes of gen2 too.
+                generations = case command of
+                  CReserve _ | mGen2Limit model -> []
+                  _ -> generationProblems (escapeCollection model command) command report
+                problems = generations <> checkReport scope checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
                 -- a new cycle. A cycle marks the static thunks stale with
@@ -2182,7 +2227,7 @@ compileDriver = do
                 extra
                   <> base
                   <> concatMap (\include -> ["-I", include]) (runtimeBuildIncludeDirectories build)
-                  <> [source, runtimeBuildArchive build, "-lm", "-o", executable]
+                  <> [source, runtimeBuildArchive build, "-lm", "-lpthread", "-o", executable]
           readProcessWithExitCode compiler arguments ""
         pure $ case attempt of
           Left err -> Left (show err)

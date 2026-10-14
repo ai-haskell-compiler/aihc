@@ -18,6 +18,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,117 @@ _Noreturn void aihc_host_fail(const char *message) {
 _Noreturn void aihc_exit_process(int64_t status) {
   aihc_runtime_statistics_report();
   exit((int)status);
+}
+
+/* Workers. See "Workers" in docs/multi-threaded-rts-design.md. The run lock
+   is a ticket lock: a worker that releases the lock and asks for it again
+   waits behind the workers that asked first. Its mutex also orders the
+   memory of the runtime between two holders. */
+static pthread_mutex_t aihc_run_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t aihc_run_turn = PTHREAD_COND_INITIALIZER;
+static uint64_t aihc_run_next_ticket;
+static uint64_t aihc_run_serving;
+/* The wake-up descriptors: one pipe for each capability. The idle wait
+   polls the read end, and a write to the write end ends the wait. */
+static int (*aihc_wake_pipes)[2];
+static uint64_t aihc_wake_pipe_count;
+
+static void aihc_posix_check(int result, const char *message) {
+  if (result != 0) {
+    aihc_fail(message);
+  }
+}
+
+void aihc_host_run_lock(void) {
+  aihc_posix_check(pthread_mutex_lock(&aihc_run_mutex), "run lock failed");
+  uint64_t ticket = aihc_run_next_ticket++;
+  while (aihc_run_serving != ticket) {
+    aihc_posix_check(pthread_cond_wait(&aihc_run_turn, &aihc_run_mutex),
+                     "run lock wait failed");
+  }
+  aihc_posix_check(pthread_mutex_unlock(&aihc_run_mutex), "run lock failed");
+}
+
+void aihc_host_run_unlock(void) {
+  aihc_posix_check(pthread_mutex_lock(&aihc_run_mutex), "run lock failed");
+  ++aihc_run_serving;
+  aihc_posix_check(pthread_cond_broadcast(&aihc_run_turn),
+                   "run lock signal failed");
+  aihc_posix_check(pthread_mutex_unlock(&aihc_run_mutex), "run lock failed");
+}
+
+int aihc_host_run_lock_wanted(void) {
+  aihc_posix_check(pthread_mutex_lock(&aihc_run_mutex), "run lock failed");
+  /* The holder has the ticket that is served. */
+  int wanted = aihc_run_next_ticket - aihc_run_serving > 1;
+  aihc_posix_check(pthread_mutex_unlock(&aihc_run_mutex), "run lock failed");
+  return wanted;
+}
+
+void aihc_host_wake(AihcCapability *capability) {
+  if (capability->index >= aihc_wake_pipe_count) {
+    aihc_fail("capability has no wake-up descriptor");
+  }
+  /* A full pipe already ends the wait, so a failed write is harmless. */
+  char byte = 0;
+  (void)!write(aihc_wake_pipes[capability->index][1], &byte, 1);
+}
+
+/* Read every byte of the wake-up descriptor of a capability. */
+static void aihc_posix_drain_wake(const AihcCapability *capability) {
+  char bytes[64];
+  while (read(aihc_wake_pipes[capability->index][0], bytes, sizeof(bytes)) >
+         0) {
+  }
+}
+
+static void *aihc_worker_main(void *argument) {
+  AihcCapability *capability = argument;
+  aihc_host_run_lock();
+  aihc_worker_run(capability);
+}
+
+/* A worker runs Haskell code, which can use as much C stack as the main
+   thread. */
+#define AIHC_WORKER_STACK_BYTES ((size_t)8 << 20)
+
+void aihc_host_workers_start(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  uint64_t count = machine->capability_count;
+  aihc_wake_pipes = calloc(count, sizeof(*aihc_wake_pipes));
+  if (aihc_wake_pipes == NULL) {
+    aihc_fail("out of memory");
+  }
+  for (uint64_t index = 0; index < count; ++index) {
+    if (pipe(aihc_wake_pipes[index]) != 0) {
+      aihc_fail("cannot make a wake-up descriptor");
+    }
+    for (int end = 0; end < 2; ++end) {
+      int descriptor = aihc_wake_pipes[index][end];
+      if (fcntl(descriptor, F_SETFL,
+                fcntl(descriptor, F_GETFL) | O_NONBLOCK) != 0 ||
+          fcntl(descriptor, F_SETFD, FD_CLOEXEC) != 0) {
+        aihc_fail("cannot set up a wake-up descriptor");
+      }
+    }
+  }
+  aihc_wake_pipe_count = count;
+  aihc_host_run_lock();
+  pthread_attr_t attributes;
+  aihc_posix_check(pthread_attr_init(&attributes), "worker setup failed");
+  aihc_posix_check(
+      pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED),
+      "worker setup failed");
+  aihc_posix_check(
+      pthread_attr_setstacksize(&attributes, AIHC_WORKER_STACK_BYTES),
+      "worker setup failed");
+  for (uint64_t index = 1; index < count; ++index) {
+    pthread_t thread;
+    aihc_posix_check(pthread_create(&thread, &attributes, aihc_worker_main,
+                                    machine->capabilities[index]),
+                     "cannot start a worker");
+  }
+  aihc_posix_check(pthread_attr_destroy(&attributes), "worker setup failed");
 }
 
 void aihc_program_environment_initialize(void) {
@@ -369,10 +481,15 @@ static int aihc_posix_poll_timeout(int may_block, int has_timer,
 
 static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
                                          int may_block) {
-  if (capability->io_request_count == 0) {
+  /* With workers, a wait that may block is the idle wait of the
+     capability. It also polls the wake-up descriptor in the first slot, and
+     the worker gives the run lock to the other workers while it waits. */
+  int idle = may_block && capability->machine->workers_active != 0;
+  if (capability->io_request_count == 0 && !idle) {
     return AIHC_IO_POLL_PROGRESS;
   }
-  size_t count = 0;
+  size_t count = idle ? 1 : 0;
+  size_t first = count;
   int has_timer = 0;
   uint64_t earliest = UINT64_MAX;
   for (AihcIoRequest *request = capability->io_requests_head; request != NULL;
@@ -397,7 +514,11 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
                  : aihc_byte_array_contents(aihc_host_byte_array(
                        capability, &frame, sizeof(*descriptors) * count));
   aihc_record_allocation(capability);
-  size_t index = 0;
+  if (idle) {
+    descriptors[0].fd = aihc_wake_pipes[capability->index][0];
+    descriptors[0].events = POLLIN;
+  }
+  size_t index = first;
   for (AihcIoRequest *request = capability->io_requests_head; request != NULL;
        request = request->next) {
     if (request->kind == AIHC_IO_TIMER) {
@@ -411,10 +532,17 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
         request->kind == AIHC_IO_READ ? POLLIN : POLLOUT;
     ++index;
   }
-  int ready = poll(descriptors, (nfds_t)count,
-                   aihc_posix_poll_timeout(may_block, has_timer, earliest));
+  int timeout = aihc_posix_poll_timeout(may_block, has_timer, earliest);
+  if (idle) {
+    aihc_host_run_unlock();
+  }
+  int ready = poll(descriptors, (nfds_t)count, timeout);
+  int error = errno;
+  if (idle) {
+    aihc_host_run_lock();
+    aihc_posix_drain_wake(capability);
+  }
   if (ready == -1) {
-    int error = errno;
     aihc_roots_leave(capability, &frame);
     if (error != EINTR) {
       aihc_complete_all_io_with_error(capability, error);
@@ -424,7 +552,7 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
 
   AihcIoRequest **link = &capability->io_requests_head;
   AihcIoRequest *tail = NULL;
-  index = 0;
+  index = first;
   while (*link != NULL) {
     AihcIoRequest *request = *link;
     int64_t result = 0;

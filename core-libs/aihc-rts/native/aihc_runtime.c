@@ -129,6 +129,7 @@ void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
 static const AihcResume *aihc_schedule(AihcCapability *capability);
+static void aihc_workers_start(AihcCapability *capability);
 
 /* aihc_helpers.lir defines the indirection table, because the update of a
    thunk without waiters writes it there. */
@@ -538,8 +539,19 @@ void aihc_runtime_statistics_report(void) {
   }
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(capability);
-  aihc_heap_account(capability);
-  /* The fixed text is 190 bytes and the nine numbers take at most 180. An
+  /* The counts of the capabilities add up. */
+  uint64_t allocated = 0;
+  uint64_t escapes = 0;
+  uint64_t pushes = 0;
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    AihcCapability *each = capability->machine->capabilities[index];
+    aihc_heap_account(each);
+    allocated += each->heap_allocated_bytes;
+    escapes += each->escape_count;
+    pushes += each->push_count;
+  }
+  /* The fixed text is 204 bytes and the ten numbers take at most 200. An
      allocation entry takes its name, which can double with escapes, and at
      most 90 more bytes. */
   size_t capacity = 512;
@@ -563,7 +575,7 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_text(cursor, "{\"schema\": 3, \"peak_heap_bytes\": ");
   cursor = aihc_append_decimal(cursor, capability->machine->heap_peak_bytes);
   cursor = aihc_append_text(cursor, ", \"allocated_bytes\": ");
-  cursor = aihc_append_decimal(cursor, capability->heap_allocated_bytes);
+  cursor = aihc_append_decimal(cursor, allocated);
   cursor = aihc_append_text(cursor, ", \"gc_count\": ");
   cursor = aihc_append_decimal(cursor, capability->machine->gc_count);
   cursor = aihc_append_text(cursor, ", \"gc_time_ns\": ");
@@ -579,7 +591,9 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_text(cursor, ", \"gc_full_count\": ");
   cursor = aihc_append_decimal(cursor, capability->machine->gc_full_count);
   cursor = aihc_append_text(cursor, ", \"escape_count\": ");
-  cursor = aihc_append_decimal(cursor, capability->escape_count);
+  cursor = aihc_append_decimal(cursor, escapes);
+  cursor = aihc_append_text(cursor, ", \"push_count\": ");
+  cursor = aihc_append_decimal(cursor, pushes);
   if (order != NULL) {
     cursor = aihc_append_allocations(cursor, order);
     free(order);
@@ -1102,6 +1116,7 @@ static AihcThread *aihc_thread_new(AihcCapability *capability) {
   thread->next = NULL;
   thread->transaction = NULL;
   thread->queues = NULL;
+  thread->capability = capability->index;
   (void)aihc_stack_new(capability, thread);
   return thread;
 }
@@ -1112,18 +1127,26 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
   return capability->current_thread;
 }
 
+/* Put a thread on the run queue of its own capability. A woken thread goes
+   back to the capability that ran it, because its stack can name objects of
+   the local heap of that capability. The capability in the idle wait gets
+   a wake-up. */
 static void aihc_enqueue_thread(AihcCapability *capability,
                                 AihcThread *thread) {
   if (thread->next != NULL) {
     aihc_fail("attempted to enqueue an already queued thread");
   }
-  if (capability->run_queue_tail == NULL) {
-    capability->run_queue_head = thread;
+  AihcCapability *target = capability->machine->capabilities[thread->capability];
+  if (target->run_queue_tail == NULL) {
+    target->run_queue_head = thread;
   } else {
-    aihc_write_barrier(capability, (AihcValue *)capability->run_queue_tail);
-    capability->run_queue_tail->next = thread;
+    aihc_write_barrier(capability, (AihcValue *)target->run_queue_tail);
+    target->run_queue_tail->next = thread;
   }
-  capability->run_queue_tail = thread;
+  target->run_queue_tail = thread;
+  if (target != capability && target->idle) {
+    aihc_host_wake(target);
+  }
 }
 
 static AihcThread *aihc_dequeue_thread(AihcCapability *capability) {
@@ -1241,6 +1264,9 @@ AihcCapability *aihc_machine_new(uint64_t global_count) {
   capability->current_thread = aihc_thread_new(capability);
   capability->stack_next = aihc_stack_base(capability->machine->stacks);
   capability->machine->program_started = 1;
+  if (capability->machine->capability_count > 1) {
+    aihc_workers_start(capability);
+  }
   return capability;
 }
 
@@ -1355,14 +1381,118 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
   aihc_enqueue_thread(capability, thread);
 }
 
+/* Take the last thread of the run queue. */
+static AihcThread *aihc_dequeue_last_thread(AihcCapability *capability) {
+  AihcThread *last = capability->run_queue_tail;
+  if (last == capability->run_queue_head) {
+    return aihc_dequeue_thread(capability);
+  }
+  AihcThread *before = capability->run_queue_head;
+  while (before->next != last) {
+    before = before->next;
+  }
+  /* As in aihc_dequeue_thread, the link is deleted from an old record. */
+  aihc_write_barrier(capability, (AihcValue *)before);
+  before->next = NULL;
+  capability->run_queue_tail = before;
+  return last;
+}
+
+/* Whether a capability waits in the idle wait with nothing to run. */
+static int aihc_capability_available(const AihcCapability *capability) {
+  return capability->idle && capability->run_queue_head == NULL;
+}
+
+/* Push surplus threads to idle capabilities. See "Thread movement" in
+   docs/multi-threaded-rts-design.md. A pushed thread can name objects of
+   the local heap of this capability. Thus a collection first moves each
+   young survivor of the local heap into gen2, and the pushes then need no
+   promotion of their own. The capability keeps the first thread of its
+   queue and pushes at most half of the others. */
+static void aihc_push_threads(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  if (machine->idle_count == 0 || capability->run_queue_head == NULL ||
+      capability->run_queue_head->next == NULL) {
+    return;
+  }
+  uint64_t surplus = 0;
+  for (const AihcThread *thread = capability->run_queue_head->next;
+       thread != NULL; thread = thread->next) {
+    ++surplus;
+  }
+  uint64_t available = 0;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    available += aihc_capability_available(machine->capabilities[index]);
+  }
+  uint64_t pushes = (surplus + 1) / 2;
+  if (pushes > available) {
+    pushes = available;
+  }
+  if (pushes == 0) {
+    return;
+  }
+  aihc_escape_collect(capability, 0, NULL, NULL);
+  for (uint64_t index = 0; index < machine->capability_count && pushes != 0;
+       ++index) {
+    AihcCapability *target = machine->capabilities[index];
+    if (!aihc_capability_available(target)) {
+      continue;
+    }
+    AihcThread *thread = aihc_dequeue_last_thread(capability);
+    thread->capability = target->index;
+    aihc_stack_move(thread, target);
+    aihc_enqueue_thread(capability, thread);
+    ++capability->push_count;
+    --pushes;
+  }
+}
+
+/* The machine has a deadlock when every capability waits with nothing to
+   run and no IO request. */
+static int aihc_machine_deadlocked(const AihcCapability *capability) {
+  const AihcMachine *machine = capability->machine;
+  if (machine->idle_count + 1 < machine->capability_count) {
+    return 0;
+  }
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    const AihcCapability *each = machine->capabilities[index];
+    if (each->run_queue_head != NULL || each->io_request_count != 0) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 static const AihcResume *aihc_schedule(AihcCapability *capability) {
   if (capability->callback_frames != NULL) {
     aihc_fail("a foreign callback cannot suspend");
   }
+  AihcMachine *machine = capability->machine;
+  if (machine->workers_active && aihc_host_run_lock_wanted()) {
+    /* The ticket lock lets the workers that wait run first. */
+    aihc_host_run_unlock();
+    aihc_host_run_lock();
+  }
   for (;;) {
-    (void)capability->machine->io_backend->poll(capability, 0);
+    (void)machine->io_backend->poll(capability, 0);
     if (capability->run_queue_head != NULL) {
+      if (machine->workers_active) {
+        aihc_push_threads(capability);
+      }
       return aihc_select_thread(capability, aihc_dequeue_thread(capability));
+    }
+    if (machine->workers_active) {
+      if (aihc_machine_deadlocked(capability)) {
+        aihc_fail("no runnable threads");
+      }
+      /* The idle wait gives the run lock to the other workers. A push into
+         the run queue, a completed IO request, or a timer ends it. */
+      capability->idle = 1;
+      ++machine->idle_count;
+      (void)machine->io_backend->poll(capability, 1);
+      capability->idle = 0;
+      --machine->idle_count;
+      continue;
     }
     if (capability->io_request_count != 0) {
       if (capability->machine->io_backend->poll(capability, 1) ==
@@ -2377,7 +2507,34 @@ void aihc_set_thread_done_continuation(AihcCapability *capability,
 }
 
 AihcEntry aihc_halt(AihcCapability *capability) {
+  if (capability->index != 0) {
+    /* The main thread ran on a worker, which did not start the program.
+       The process ends here, as main ends it after its exit function. */
+    aihc_exit_process(0);
+  }
   return capability->exit_code;
+}
+
+extern void aihc_lir_worker_enter(AihcCapability *capability,
+                                  const AihcResume *resume);
+
+_Noreturn void aihc_worker_run(AihcCapability *capability) {
+  aihc_lir_worker_enter(capability, aihc_schedule(capability));
+  aihc_fail("a worker returned");
+}
+
+/* Give each capability except the first a worker. The first capability
+   waits until every worker is in its idle wait, so the first push of the
+   program does not depend on the speed of the OS threads. */
+static void aihc_workers_start(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  aihc_host_workers_start(capability);
+  machine->workers_active = 1;
+  while (machine->idle_count + 1 < machine->capability_count) {
+    aihc_host_run_unlock();
+    aihc_host_sleep_ns(100000);
+    aihc_host_run_lock();
+  }
 }
 
 static void aihc_stm_expire_timers(AihcCapability *capability);
