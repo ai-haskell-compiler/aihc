@@ -1225,6 +1225,8 @@ design of the AArch64 backend:
   On AArch64, all value slots use `i64`.
   On x86-64, the first ten slots use `i64` and the other thirteen use `double`.
   This leaves RAX free for an indirect tail-call target on x86-64.
+  LLVM 21 FastISel can select the wrong register for these bitcasts at `-O0`.
+  The x86-64 backend disables FastISel and uses SelectionDAG.
   Unused slots contain `poison`, and a call without overflow passes a null pointer.
 - An overflow buffer holds arguments after the first 23.
   The caller allocates this buffer with `malloc`.

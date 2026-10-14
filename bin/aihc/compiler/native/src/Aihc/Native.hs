@@ -340,6 +340,11 @@ llvmLtoLinkArguments target lto level =
 -- #109279. AArch64 keeps the adjustment in the entry block, so it does not
 -- need this.
 --
+-- LLVM 21 FastISel can use the wrong argument register after a bitcast
+-- from a floating-point slot of a @preserve_nonecc@ function at @-O0@.
+-- This corrupts pointers in the fixed argument layout. Use SelectionDAG
+-- on x86-64 to preserve these argument bits.
+--
 -- Clang gives these options to the code generator of each compile. A
 -- compile with @-flto@ runs no code generator, so the link must also get
 -- them; see 'llvmLinkCodeGenerationArguments'.
@@ -358,7 +363,9 @@ llvmLinkCodeGenerationArguments
 -- | The code generator options of the @llvm@ target on an x86-64 host;
 -- see 'llvmCodeGenerationArguments'.
 llvmX86CodeGenerationOptions :: [String]
-llvmX86CodeGenerationOptions = ["-enable-shrink-wrap=false" | System.arch == "x86_64"]
+llvmX86CodeGenerationOptions
+  | System.arch == "x86_64" = ["-enable-shrink-wrap=false", "-fast-isel=false"]
+  | otherwise = []
 
 -- | Arguments for compiling handwritten C: the runtime sources and the C
 -- sources of a Hackage package, as opposed to the code aihc generates.
