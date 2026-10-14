@@ -97,8 +97,11 @@ jobs:
           mkdir cross-examples
           tar -C cross-examples -xf cross-examples.tar
 
+      - name: Install Nix
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+
       - name: Link and run the examples
-        run: scripts/link-and-run-example-bundles.sh cross-examples results
+        run: nix shell .#link-bundle-python --command bash scripts/link-and-run-example-bundles.sh cross-examples results
 
       - name: Upload the results
         if: always()

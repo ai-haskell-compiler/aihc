@@ -5,7 +5,7 @@ module Test.Aihc.Spec (tests) where
 import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build, buildWith)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
-import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, runLinkExe)
+import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, readLinkBundle, runLinkExe)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Progress (withProgress)
@@ -24,7 +24,6 @@ import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_, void)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
-import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
@@ -711,7 +710,7 @@ test_buildModuleLinkBundle getStore =
     void (build options {buildNoLink = True, buildOutput = Just bundle})
     assertFileDoesNotExist (root </> "program")
     assertFileExists (linkBundleManifestPath bundle)
-    decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
+    decoded <- readLinkBundle (linkBundleManifestPath bundle)
     manifest <- either assertFailure pure decoded
     assertEqual "bundle target" (buildTarget options) (linkBundleTarget manifest)
     assertBool "a program without C++ sources links no C++ standard library" (not (linkBundleCxxStdLib manifest))
@@ -808,7 +807,7 @@ test_lto getStore =
     -- the module objects.
     let bundles = root </> "bundles"
     _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
-    bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    bundleManifest <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "greet"))
     assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
     assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects bundleManifest)))
     -- An install at the same level stops at System FC in the same way.
@@ -863,7 +862,7 @@ test_ltoLlvm getStore =
     let bundles = root </> "bundles"
         linked = root </> "linked" </> "greet"
     _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
-    bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    bundleManifest <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "greet"))
     -- On x86-64, the link also disables LLVM shrink-wrapping (#2566).
     let shrinkWrapArguments
           | System.Info.arch /= "x86_64" = []
@@ -1021,10 +1020,10 @@ test_buildExecutables getStore =
     assertEqual "written bundles" [bundles </> "greet", bundles </> "shout"] bundleOutputs
     forM_ ["greet", "shout"] $ \name -> do
       assertFileExists (linkBundleManifestPath (bundles </> name))
-      decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath (bundles </> name))
+      decoded <- readLinkBundle (linkBundleManifestPath (bundles </> name))
       manifest <- either assertFailure pure decoded
       assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
-    bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "greet"))
     assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
 
 -- | Two dependencies can each hold a module of one name, as @filepath@ and
@@ -1114,7 +1113,7 @@ test_buildCxxSources getStore = do
     let bundles = root </> "bundles"
     bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "triangle"] bundleOutputs
-    bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "triangle"))
+    bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "triangle"))
     assertBool "the bundle asks for the C++ standard library" (linkBundleCxxStdLib bundle)
     assertBool "the bundle lists the C++ object" (any ("cbits_triangle.o" `isSuffixOf`) (linkBundleObjects bundle))
     let linked = root </> "linked" </> "triangle"
@@ -1184,7 +1183,7 @@ test_buildExtraLibraries getStore = do
     let bundles = root </> "bundles"
     bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "answer"] bundleOutputs
-    bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "answer"))
+    bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "answer"))
     assertEqual "the bundle records the link arguments" expectedArguments (linkBundleLinkArguments bundle)
     let linked = root </> "linked" </> "answer"
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "answer", linkExeOutputFile = linked}

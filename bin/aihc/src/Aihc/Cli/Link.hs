@@ -5,11 +5,13 @@
 module Aihc.Cli.Link
   ( LinkBundle (..),
     linkBundleManifestPath,
+    readLinkBundle,
     linkCompiledExecutable,
     runLinkExe,
   )
 where
 
+import Aihc.Cbor (Cbor (..), cborArray, cborText, decodeCbor, encodeCbor, expectArray, getText, (<*!>))
 import Aihc.Cli.Backend (compileEntryObject)
 import Aihc.Cli.Install
   ( CompiledExecutable (..),
@@ -26,9 +28,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
-import Control.Monad (filterM, forM, forM_, unless, when)
-import Data.Aeson ((.:), (.=))
-import Data.Aeson qualified as Aeson
+import Control.Monad (filterM, forM, forM_, unless, when, (<$!>))
 import Data.ByteString.Lazy qualified as BL
 import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
@@ -146,12 +146,7 @@ validatePackageNames packages =
 -- cannot run the compiler, or that lacks the linker for the target the
 -- compiler ran on, can still produce the executable with @link-exe@.
 --
--- Schema 5 adds the arguments of a link-time optimized link, whose inputs
--- are bitcode. Schema 4 adds the arguments that link the system libraries
--- of the packages. Schema 3 adds whether the link needs the C++ standard
--- library. Schema 2 lists objects and archives only. Schema 1 also named an
--- entry and a runtime archive, which are now an object among the objects
--- and the archive and C objects of the @aihc-rts@ package.
+-- The LTO arguments apply when the link inputs are bitcode.
 data LinkBundle = LinkBundle
   { linkBundleTarget :: !NativeTarget,
     -- | An input was compiled from @cxx-sources@, so the link adds the
@@ -167,55 +162,32 @@ data LinkBundle = LinkBundle
   }
   deriving (Eq, Show)
 
-instance Aeson.ToJSON LinkBundle where
-  toJSON bundle =
-    Aeson.object
-      [ "schemaVersion" .= (5 :: Int),
-        "target" .= renderNativeTarget (linkBundleTarget bundle),
-        "cxxStdLib" .= linkBundleCxxStdLib bundle,
-        "linkArguments" .= linkBundleLinkArguments bundle,
-        "ltoArguments" .= linkBundleLtoArguments bundle,
-        "objects" .= linkBundleObjects bundle,
-        "archives" .= linkBundleArchives bundle
-      ]
-
-instance Aeson.FromJSON LinkBundle where
-  parseJSON = Aeson.withObject "LinkBundle" $ \object -> do
-    schemaVersion <- object .: "schemaVersion"
-    case schemaVersion :: Int of
-      2 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target False [] []
-          <$> object .: "objects"
-          <*> object .: "archives"
-      3 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "cxxStdLib"
-          <*> pure []
-          <*> pure []
-          <*> object .: "objects"
-          <*> object .: "archives"
-      4 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "cxxStdLib"
-          <*> object .: "linkArguments"
-          <*> pure []
-          <*> object .: "objects"
-          <*> object .: "archives"
-      5 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "cxxStdLib"
-          <*> object .: "linkArguments"
-          <*> object .: "ltoArguments"
-          <*> object .: "objects"
-          <*> object .: "archives"
-      _ -> fail "unsupported link bundle schema"
+instance Cbor LinkBundle where
+  toCbor value =
+    cborArray 7
+      <> cborText "aihc-linkbundle-1"
+      <> toCbor (renderNativeTarget (linkBundleTarget value))
+      <> toCbor (linkBundleCxxStdLib value)
+      <> toCbor (linkBundleLinkArguments value)
+      <> toCbor (linkBundleLtoArguments value)
+      <> toCbor (linkBundleObjects value)
+      <> toCbor (linkBundleArchives value)
+  fromCbor = do
+    expectArray 7
+    "aihc-linkbundle-1" <- getText
+    LinkBundle
+      <$!> (getText >>= either fail pure . parseNativeTarget)
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
 
 linkBundleManifestPath :: FilePath -> FilePath
-linkBundleManifestPath bundle = bundle </> "link.json"
+linkBundleManifestPath bundle = bundle </> "link.cbor"
+
+readLinkBundle :: FilePath -> IO (Either String LinkBundle)
+readLinkBundle path = decodeCbor <$> BL.readFile path
 
 -- | Copy the link inputs into the bundle directory and describe them in the
 -- manifest. Each copy carries its position in the link order as a prefix, so
@@ -231,7 +203,7 @@ writeLinkBundle target bundle libraries objects archives = do
   let (copiedObjects, copiedArchives) = splitAt (length objects) copied
   BL.writeFile
     (linkBundleManifestPath bundle)
-    ( Aeson.encode
+    ( encodeCbor
         LinkBundle
           { linkBundleTarget = target,
             linkBundleCxxStdLib = linkCxxStdLib libraries,
@@ -251,7 +223,7 @@ runLinkExe options = do
       output = linkExeOutputFile options
   exists <- doesFileExist manifest
   unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
-  decoded <- Aeson.eitherDecode <$> BL.readFile manifest
+  decoded <- readLinkBundle manifest
   LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleLinkArguments, linkBundleLtoArguments, linkBundleObjects, linkBundleArchives} <-
     either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
   createDirectoryIfMissing True (takeDirectory output)

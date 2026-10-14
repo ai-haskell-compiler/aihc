@@ -63,7 +63,7 @@ import Aihc.Hackage.Source (HackageSource (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget, defaultOptimizationLevel, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (DependencyVersions, PackagePlan (..), PlanOrigin (..), dependencyVersionsFromManifests, parseSourcePackageDescriptionAt)
-import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap)
+import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap)
 import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve
   ( ModuleExports,
@@ -95,7 +95,6 @@ import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, rea
 import Control.DeepSeq (force, rnf)
 import Control.Exception (bracket, evaluate)
 import Control.Monad (foldM, unless, when)
-import Data.Aeson (Value)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
@@ -473,7 +472,7 @@ unitTaskId :: UnitId -> TaskId
 unitTaskId (UnitId order) = TaskId order
 
 -- | Report the errors of a phase and exit, unless there are none.
-stopOnFailure :: (FilePath -> IO DiagnosticSourceMap) -> [Value] -> [ResolveError] -> [(Text, TcDiagnostic)] -> IO ()
+stopOnFailure :: (FilePath -> IO DiagnosticSourceMap) -> [Diagnostic] -> [ResolveError] -> [(Text, TcDiagnostic)] -> IO ()
 stopOnFailure loader parseDiagnostics resolveDiagnostics typeDiagnostics = do
   failure <- renderFrontendFailure loader parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null failure) $ do

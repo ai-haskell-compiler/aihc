@@ -12,7 +12,7 @@
 # exit status is non-zero when any example fails.
 #
 # The link goes through the C driver of the target rather than `aihc
-# link-exe`, so the host needs clang and jq but no compiler build.
+# link-exe`. The host needs clang and Python with cbor2.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -25,18 +25,15 @@ mkdir -p "$2"
 results=$(cd "$2" && pwd)
 target=$(<"$bundles/target")
 
-# These follow executableLinkArguments and cxxStandardLibraryArguments in
-# Aihc.Native, so the link is the same as the link of `aihc link-exe`.
+# The target arguments follow executableLinkArguments in Aihc.Native.
 case "$target" in
 apple-arm64)
 	triple=arm64-apple-darwin
 	target_arguments=("-Wl,-dead_strip" "-Wl,-no_exported_symbols")
-	cxx_arguments=(-lc++)
 	;;
 linux-amd64)
 	triple=x86_64-unknown-linux-gnu
 	target_arguments=("-Wl,--gc-sections")
-	cxx_arguments=(-lstdc++)
 	;;
 *)
 	echo "unsupported bundle target: $target" >&2
@@ -81,19 +78,34 @@ for bundle in "$bundles"/*/; do
 	# The order is that of `aihc link-exe`: the system libraries come after
 	# every archive, so the members of each archive can resolve symbols
 	# from them.
-	inputs=()
-	while IFS= read -r input; do
-		inputs+=("$link/$input")
-	done < <(jq -r '.objects[], .archives[]' "$link/link.json")
-	libraries=()
-	while IFS= read -r argument; do
-		libraries+=("$argument")
-	done < <(jq -r '.linkArguments // [] | .[]' "$link/link.json")
-	libraries+=(-lm)
-	if [[ $(jq -r '.cxxStdLib // false' "$link/link.json") == true ]]; then
-		libraries+=("${cxx_arguments[@]}")
+	# Decode the manifest once. Each argument has a NUL terminator.
+	if ! python3 - "$link/link.cbor" >"$result/link-arguments" <<'PYTHON'
+import sys
+import cbor2
+
+with open(sys.argv[1], "rb") as source:
+    manifest = cbor2.load(source)
+    if source.read(1):
+        raise ValueError("invalid trailing data")
+if not isinstance(manifest, list) or len(manifest) != 7 or manifest[0] != "aihc-linkbundle-1":
+    raise ValueError("unsupported link bundle manifest")
+_, target, cxx, arguments, lto, objects, archives = manifest
+for value in objects + archives:
+    sys.stdout.buffer.write((sys.argv[1].rsplit("/", 1)[0] + "/" + value).encode() + b"\0")
+for value in arguments + lto + ["-lm"] + (["-lc++"] if cxx and target == "apple-arm64" else ["-lstdc++"] if cxx else []):
+    sys.stdout.buffer.write(value.encode() + b"\0")
+PYTHON
+	then
+		echo link-failed >"$result/status"
+		echo "$name: invalid link bundle manifest"
+		failed=1
+		continue
 	fi
-	if ! clang "--target=$triple" "${target_arguments[@]}" "${inputs[@]}" "${libraries[@]}" \
+	inputs=()
+	while IFS= read -r -d '' argument; do
+		inputs+=("$argument")
+	done <"$result/link-arguments"
+	if ! clang "--target=$triple" "${target_arguments[@]}" "${inputs[@]}" \
 		-o "$executable" >"$result/link.log" 2>&1; then
 		echo link-failed >"$result/status"
 		echo "$name: link failed"
