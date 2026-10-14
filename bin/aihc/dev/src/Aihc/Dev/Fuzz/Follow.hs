@@ -21,6 +21,7 @@ import Aihc.Dev.Fuzz.Model (FollowStatus (..))
 import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
 import Data.Char (isSpace)
+import Data.Either (fromRight)
 import Data.List (dropWhileEnd)
 import Data.Map.Strict qualified as Map
 import GHC.Environment (getFullArgs)
@@ -104,7 +105,7 @@ followLoop follower@Follower {followerRepository, followerCommit} report = go No
 selectTarget :: FilePath -> IO (Either String (String, String))
 selectTarget repository = do
   symbolic <- git repository ["symbolic-ref", "--quiet", "--short", "HEAD"]
-  let branch = either (const "HEAD") id symbolic
+  let branch = fromRight "HEAD" symbolic
   local <- git repository ["rev-parse", "HEAD"]
   case local of
     Left reason -> pure (Left reason)
@@ -116,7 +117,7 @@ selectTarget repository = do
           -- Without a network, use the upstream commit that is known.
           _ <- git repository ["fetch", "--quiet"]
           upstreamCommit <- git repository ["rev-parse", upstreamName]
-          ahead <- gitSucceeds repository ["merge-base", "--is-ancestor", localCommit, either (const localCommit) id upstreamCommit]
+          ahead <- gitSucceeds repository ["merge-base", "--is-ancestor", localCommit, fromRight localCommit upstreamCommit]
           pure $ Right $ case upstreamCommit of
             Right commit | ahead -> (branch, commit)
             _ -> (branch, localCommit)
@@ -187,7 +188,7 @@ relaunch Relaunch {relaunchExecutable, relaunchRoot, relaunchRepository, relaunc
   executeFile relaunchExecutable False arguments (Just updated)
 
 git :: FilePath -> [String] -> IO (Either String String)
-git directory arguments = run directory "git" arguments
+git directory = run directory "git"
 
 gitSucceeds :: FilePath -> [String] -> IO Bool
 gitSucceeds directory arguments =
