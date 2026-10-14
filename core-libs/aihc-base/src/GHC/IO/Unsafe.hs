@@ -16,6 +16,7 @@ import GHC.Prim.IO (IO (..))
 -- first. Another thread that evaluates the same thunk then waits for this
 -- one, as in GHC. The module has no composition operator, so the lambdas
 -- stay.
+
 {- HLINT ignore unsafePerformIO "Avoid lambda" -}
 unsafePerformIO :: IO a -> a
 unsafePerformIO (IO action) =

@@ -2358,6 +2358,9 @@ static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
 const AihcResume *aihc_no_duplicate(AihcCapability *capability,
                                     AihcValue *continuation) {
   AihcThread *current = capability->current_thread;
+  if (current == NULL) {
+    aihc_fail("noDuplicate# without a running thread");
+  }
   AihcMachine *machine = capability->machine;
   aihc_object_lock(machine);
   AihcValue *lowest = NULL;
