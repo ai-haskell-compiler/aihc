@@ -22,6 +22,7 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Parser.Syntax (SourceSpan, pattern SourceSpan)
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData (..))
 import Data.Aeson (object, (.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -37,6 +38,9 @@ import Text.Read (readMaybe)
 -- | A diagnostic from the parser or preprocessor.
 newtype Diagnostic = Diagnostic Aeson.Value
   deriving (Eq, Show)
+
+instance NFData Diagnostic where
+  rnf (Diagnostic value) = rnf value
 
 isCppWarning :: Diagnostic -> Bool
 isCppWarning (Diagnostic value) = stringField "severity" value == Just "Warning"
