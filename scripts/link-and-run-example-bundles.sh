@@ -84,8 +84,13 @@ import sys
 import cbor2
 
 with open(sys.argv[1], "rb") as source:
-    manifest = cbor2.load(source)
-    if source.read(1):
+    decoder = cbor2.CBORDecoder(source)
+    manifest = decoder.decode()
+    try:
+        decoder.read(1)
+    except cbor2.CBORDecodeEOF:
+        pass
+    else:
         raise ValueError("invalid trailing data")
 if not isinstance(manifest, list) or len(manifest) != 7 or manifest[0] != "aihc-linkbundle-1":
     raise ValueError("unsupported link bundle manifest")
