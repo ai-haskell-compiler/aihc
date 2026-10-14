@@ -95,17 +95,18 @@ makeTotal x y =
 ```
 
 AIHC can represent this suspended call as a GRIN thunk for the generated `total` function.
-The object stores the captured values in its payload.
+Field 0 of the object is the owner word, and the captured values follow it.
+The run-time system will keep the state of an evaluation in the owner word.
 Its table has the following logical values:
 
 | Field | Value |
 | --- | --- |
 | `identity` | The generated `total` function. |
-| `field_is_pointer` | One byte for `x` and one byte for `y`. |
+| `field_is_pointer` | One byte of `0` for the owner word, then one byte for `x` and one byte for `y`. |
 | `next` | Null. |
 | `backend_entry` | The backend entry for `total`. |
 | `srt` | Null. |
-| `field_count` | `2` |
+| `field_count` | `3` |
 | `remaining_arity` | `0` |
 | `frame_kind` | No frame. |
 | `object_kind` | Thunk. |
@@ -124,6 +125,7 @@ During evaluation, the run-time system pushes an update frame and sets bit 0 of 
 The header still points to the thunk table.
 A second evaluation sees this bit and handles the object as a blackhole.
 After evaluation, the run-time system changes the thunk into an indirection to the result.
+It writes the result into the owner word.
 
 Use the example below to see the thunk before, during, and after evaluation.
 

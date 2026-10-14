@@ -253,7 +253,9 @@
 
   function buildThunk(reps, state) {
     const captured = reps.length;
-    const slots = argSlots(reps, captured);
+    // Field 0 is the owner word. A new thunk does not set it, so it is not a pointer.
+    const owner = { label: "owner", detail: "not set", pointer: false };
+    const slots = [owner].concat(argSlots(reps, captured));
     const tables = [
       {
         id: "thunk",
@@ -300,7 +302,7 @@
         current: "thunk",
         object: { header: "thunk", headerNote: null, slots: plain },
         note:
-          "The thunk stores the captured values. The inline evaluation check reads needs_eval = 1 " +
+          "Field 0 is the owner word, and the captured values follow it. The inline evaluation check reads needs_eval = 1 " +
           "and calls the run-time evaluation code.",
       };
     }
@@ -324,7 +326,7 @@
       current: "indirection",
       object: { header: "indirection", headerNote: null, slots: updated },
       note:
-        "The update writes the result into field 0 and changes the header to the indirection table. " +
+        "The update writes the result into field 0, the owner word, and changes the header to the indirection table. " +
         "Compiled code reads needs_eval = 2 and follows field 0 without a call.",
     };
   }

@@ -158,8 +158,10 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     if (function == NULL) {
       snapshot_fail("function descriptor is missing");
     }
-    uint64_t count = aihc_value_count(object);
-    discover_fields(state, aihc_value_fields_const(object), count,
+    /* Field zero of a thunk is its owner word, not a free variable. */
+    uint64_t skipped = kind == AIHC_OBJECT_THUNK ? 1 : 0;
+    uint64_t count = aihc_value_count(object) - skipped;
+    discover_fields(state, aihc_value_fields_const(object) + skipped, count,
                     function->parameter_count, function->parameter_reps);
     return;
   }
@@ -250,16 +252,17 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
     if (function == NULL) {
       snapshot_fail("function descriptor is missing");
     }
-    uint64_t count;
+    uint64_t skipped = 0;
     if (kind == AIHC_OBJECT_CLOSURE) {
       printf("P%s/%" PRIu64, function->name, aihc_value_arity(object));
-      count = aihc_value_count(object);
     } else {
       printf("F%s", function->name);
-      count = aihc_value_count(object);
+      /* Field zero of a thunk is its owner word, not a free variable. */
+      skipped = 1;
     }
-    print_fields(state, aihc_value_fields_const(object), count,
-                 function->parameter_count, function->parameter_reps);
+    print_fields(state, aihc_value_fields_const(object) + skipped,
+                 aihc_value_count(object) - skipped, function->parameter_count,
+                 function->parameter_reps);
     return;
   }
   case AIHC_OBJECT_INDIRECTION:

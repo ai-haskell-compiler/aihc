@@ -282,6 +282,9 @@ constructorStage remaining
 
 data RuntimeEnter = RuntimeEnter
   { enterTarget :: !Symbol,
+    -- | The stored fields start after this many words of the payload: one
+    -- for the owner word of a thunk, and zero otherwise.
+    enterStoredOffset :: !Int,
     enterStored :: ![Type],
     enterSupplied :: ![Type],
     enterTargetParameters :: ![Type],
@@ -592,6 +595,7 @@ lowerEnvironment options gcProgram =
               Just
                 RuntimeEnter
                   { enterTarget = target,
+                    enterStoredOffset = 0,
                     enterStored = map repType fields,
                     enterSupplied = map repType (concat layouts),
                     enterTargetParameters = targetParameters name,
@@ -601,6 +605,7 @@ lowerEnvironment options gcProgram =
           Just
             RuntimeEnter
               { enterTarget = target,
+                enterStoredOffset = thunkOwnerWords,
                 enterStored = map repType fields,
                 enterSupplied = [],
                 enterTargetParameters = targetParameters name,
@@ -1148,8 +1153,10 @@ enterFunction info enter =
 -- | The shared enter function of the runtime for one object shape, when the
 -- runtime defines one. @aihc_enter.lir@ defines @aihc_lir_enter_S_V@ and
 -- @aihc_lir_enter_S_V_k@ for @S@ stored pointers up to 'sharedEnterMaxStored'
--- and @V@ supplied pointers up to 'sharedEnterMaxSupplied'; the @_k@ form
--- passes the continuation to the code. Those functions load the stored
+-- and @V@ supplied pointers from one up to 'sharedEnterMaxSupplied'; the @_k@
+-- form passes the continuation to the code. It defines
+-- @aihc_lir_enter_thunk_S@ for a thunk, whose stored fields start after the
+-- owner word, and which takes no supplied value. Those functions load the stored
 -- fields and tail-call the code through the identity field of the info
 -- table, which is what a generated stub does for the same shape. Any value
 -- that is not a pointer keeps a generated stub, since WebAssembly checks the
@@ -1162,7 +1169,11 @@ sharedEnterSymbol enter
     length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
     stored <= sharedEnterMaxStored,
     supplied <= sharedEnterMaxSupplied =
-      Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> (if passesContinuation then "_k" else ""))))
+      case (enterStoredOffset enter, supplied, passesContinuation) of
+        (0, _, False) -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied)))
+        (0, _, True) | supplied > 0 -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> "_k")))
+        (offset, 0, True) | offset == thunkOwnerWords -> Just (Symbol (T.pack ("aihc_lir_enter_thunk_" <> show stored)))
+        _ -> Nothing
   | otherwise = Nothing
   where
     stored = length (enterStored enter)
@@ -1184,7 +1195,7 @@ lowerEnterStub stub enter = do
   supplied <- forM (enterSupplied enter) $ \ty -> (,ty) <$> fresh "supplied"
   beginBlock (Label "entry") []
   stored <- forM (zip [0 :: Int ..] (enterStored enter)) $ \(index, ty) ->
-    loadSlot "stored" ty (OperandVar object) (toInteger (8 * (index + 1)))
+    loadSlot "stored" ty (OperandVar object) (toInteger (8 * (index + 1 + enterStoredOffset enter)))
   let values = stored <> [Typed (OperandVar var) ty | (var, ty) <- supplied] <> [Typed (OperandVar continuation) Ptr | enterPassesContinuation enter]
       parameters = enterTargetParameters enter
   when (length parameters /= length values) $
@@ -1224,6 +1235,7 @@ continuationInfoItems spec = do
             Just
               RuntimeEnter
                 { enterTarget = continuationTarget spec,
+                  enterStoredOffset = 0,
                   enterStored = continuationStored spec,
                   enterSupplied = continuationSupplied spec,
                   enterTargetParameters = continuationStored spec <> continuationSupplied spec,
@@ -1253,8 +1265,9 @@ lowerStaticObject env object = do
   header <- slotPointerFields target . (`DataSymbol` 0) <$> nodeInfoSymbol env node
   fields <- concat <$> mapM (staticField target) (grinNodeFields node)
   let applied = [DataInt I64 (toInteger (length (grinNodeFields node))) | isPartialConstructorNode node]
-      payload = if null fields && isThunk then [DataZero 8] else fields
-  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) linkage True 8 (header <> applied <> payload)))
+      -- The owner word of a static thunk starts as zero.
+      owner = [DataZero (8 * toInteger thunkOwnerWords) | isThunk]
+  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) linkage True 8 (header <> applied <> owner <> fields)))
   where
     node = staticObjectNode object
     -- A private object is named only from inside this object file, so give
@@ -1656,7 +1669,7 @@ compileBinding ctx env vars expression =
     GrinFetch tag value -> do
       object <- pointerValue ctx env value
       -- The fields start where 'initializeFields' writes them.
-      let payloadShift = if isPartialConstructorNode (GrinNode tag []) then 1 else 0
+      let payloadShift = nodePayloadShift (GrinNode tag [])
       fields <- forM (zip [0 :: Int ..] vars) $ \(index, var) -> do
         typed <- loadSlot (varBase var) (repType (grinVarRuntimeRep var)) object (toInteger (8 * (index + 1 + payloadShift)))
         pure (var, typed)
@@ -1903,6 +1916,22 @@ pushStackFrame context words' = do
         }
     )
 
+-- | The words before the first field of a node. An unsaturated constructor
+-- spends field zero on its applied count. A thunk spends it on its owner
+-- word. The payload of each of them starts one slot later.
+nodePayloadShift :: GrinNode -> Int
+nodePayloadShift node
+  | isPartialConstructorNode node = 1
+  | GrinThunk {} <- grinNodeTag node = thunkOwnerWords
+  | otherwise = 0
+
+-- | The owner word of a thunk is field zero. The runtime keeps the state of
+-- an evaluation there. A new thunk does not initialize it, so its info table
+-- marks it as a word that is not a pointer. See "Thunk layout" in
+-- docs/multi-threaded-rts-design.md.
+thunkOwnerWords :: Int
+thunkOwnerWords = 1
+
 -- | An unsaturated constructor spends field zero on its applied count, so its
 -- payload starts one slot later than every other object's.
 isPartialConstructorNode :: GrinNode -> Bool
@@ -1917,7 +1946,7 @@ initializeFields ctx env object node =
     typed <- materialize ctx env field
     storeSlot (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1 + payloadShift)))
   where
-    payloadShift = if isPartialConstructorNode node then 1 else 0
+    payloadShift = nodePayloadShift node
 
 -- | A GRIN value as a typed Lir operand.
 materialize :: FunctionCtx -> ValueEnv -> GrinValue -> LowerM Typed
@@ -3748,7 +3777,8 @@ runtimeInfoKeyFields key =
   case key of
     ConstructorRuntimeInfo {} -> []
     ClosureRuntimeInfo _ fields _ -> fields
-    ThunkRuntimeInfo _ fields -> fields
+    -- The owner word is field zero of the payload.
+    ThunkRuntimeInfo _ fields -> replicate thunkOwnerWords IntRep <> fields
 
 runtimeInfoKeyRemainingArity :: RuntimeInfoKey -> Int
 runtimeInfoKeyRemainingArity key =

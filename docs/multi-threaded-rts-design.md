@@ -34,6 +34,9 @@ The runtime has no global nursery bounds.
 Gen1 uses the `-B` count rule and has no byte maximum.
 Thread records are in gen2 from the fork and never move.
 Their resumption and transaction fields are roots of the capability, so a store into them takes no barrier.
+Each thunk has the owner word as field zero, and its free variables start at field one.
+The entry still sets bit zero of the header, and the blackhole table still holds the waiters.
+The lazy claims, the one-word state, and the blackhole queues remain necessary.
 The default count is one, and a count of zero promotes nursery survivors into gen2 directly.
 The runtime has no worker threads and does not enable `-N`.
 

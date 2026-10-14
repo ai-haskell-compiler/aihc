@@ -34,7 +34,7 @@ heap: |
   @1 = CBox 1
   @2 = CTotal 4501500
 allocated-bytes:
-  macos-arm64: 48072
-  linux-amd64: 48072
+  macos-arm64: 48080
+  linux-amd64: 48080
 status: pass
 reason: A single-entry eval enters its thunk with no update frame, so the thunk continues directly to the stack frame of the eval. The thunk then pushes 3000 frames that hold heap cells across more than one stack chunk, and a collection runs at each reservation. The frame of the eval must keep its capture, and the pops must return to it.
