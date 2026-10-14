@@ -193,7 +193,7 @@ It emits the tables and entry adapters with ARM64 sections, symbols, and calling
 ### LLVM
 
 The LLVM backend emits constant values of the `%AihcInfo` type.
-It puts a `tailcc` adapter in `backend_entry` for an enterable object.
+It puts a `preserve_nonecc` adapter in `backend_entry` for an enterable object.
 It emits only the constructor tables that the current compilation unit requires.
 Linked constructor table names keep constructor identities equal across compilation units.
 

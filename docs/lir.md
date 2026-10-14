@@ -1219,15 +1219,19 @@ design of the AArch64 backend:
 
 `Aihc.Llvm.Lir` renders textual LLVM IR that Clang compiles for the host:
 
-- The `aihc` convention is `tailcc`, and a `tailcall` is a `musttail` call
-  followed by `ret`, so LLVM verifies that the stack does not grow.
-- A `call` to an `aihc` function that can pass stack arguments goes through
-  a `noinline` shim. Such a call has more than six integer or more than eight
-  float arguments. The shim makes the call and returns immediately. A
-  `tailcc` callee removes its stack arguments. At `-O0`, LLVM for AArch64 can
-  put a spill reload before the caller moves the stack pointer back, and the
-  reload then reads the wrong slot (issue #2254). The shim has no reload
-  after its call.
+- The `aihc` convention uses `preserve_nonecc` and a fixed argument layout.
+  Each call passes 23 `i64` slots and one overflow pointer.
+  Pointer and float arguments use their bit representations in the integer slots.
+  Unused slots contain `poison`, and a call without overflow passes a null pointer.
+- An overflow buffer holds arguments after the first 23.
+  The caller allocates this buffer with `malloc`.
+  The callee loads all overflow arguments and frees the buffer before its body.
+  Thus, overflow arguments remain valid after a tail call removes the previous native stack frame.
+- A `tailcall` uses `musttail` followed by `ret`.
+  The fixed argument layout gives the caller and callee compatible LLVM prototypes.
+  Lir already requires equal result types for a tail call.
+  LLVM verifies the tail-call guarantee at every optimization level.
+- C functions keep their original signatures and the C call convention.
 - Block parameters are `phi` instructions. Every edge with arguments goes
   through its own block, so a target reached twice from one predecessor has
   one `phi` entry per edge.

@@ -2,10 +2,9 @@
 
 -- | Compile Lir modules to textual LLVM IR.
 --
--- The @aihc@ convention is @tailcc@, and every @tailcall@ is a @musttail@
--- call followed by @ret@, so LLVM verifies that the stack does not grow.
--- A call that is not a tail call and passes stack arguments goes to an
--- @aihc@ function through a shim. See 'renderCallShim'.
+-- The @aihc@ convention uses @preserve_nonecc@ with a fixed argument layout.
+-- Every AIHC tail call uses @musttail@. The fixed layout gives the caller
+-- and callee compatible prototypes, including calls between different Lir signatures.
 -- Block parameters become @phi@ instructions. Every edge with arguments
 -- goes through its own block, so a target reached twice from one
 -- predecessor still has one @phi@ entry per edge. The operations that trap
@@ -22,14 +21,13 @@ import Aihc.Lir.Inline (prepareCheckedModule)
 import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Either (fromRight)
-import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -55,7 +53,7 @@ compileLirModule :: Module -> Either LlvmLirError Text
 compileLirModule lirModule =
   case prepared of
     Right _ -> do
-      (functions, ModuleState traps shims) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty Map.empty)
+      (functions, ModuleState traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty)
       pure
         ( T.unlines
             ( preamble externSymbols
@@ -69,7 +67,6 @@ compileLirModule lirModule =
                    ]
                 <> [""]
                 <> concat functions
-                <> concatMap (uncurry renderCallShim) (Map.toAscList shims)
             )
         )
     Left errors -> Left (LlvmLirLintErrors errors)
@@ -102,6 +99,10 @@ preamble externSymbols =
   ["; Lir module compiled by Aihc.Llvm.Lir."]
     <> [ declaration
        | (symbol, declaration) <- trapFunctionDeclarations,
+         Symbol symbol `notElem` externSymbols
+       ]
+    <> [ declaration
+       | (symbol, declaration) <- [("malloc", "declare ptr @malloc(i64)"), ("free", "declare void @free(ptr)")],
          Symbol symbol `notElem` externSymbols
        ]
     <> [ "declare float @llvm.fabs.f32(float)",
@@ -191,7 +192,7 @@ declareExtern external =
       <> " "
       <> renderSymbol (externFunctionName external)
       <> "("
-      <> T.intercalate ", " (map renderType (signatureParameters signature))
+      <> T.intercalate ", " (map renderType (abiParameterTypes signature))
       <> ")"
   ]
   where
@@ -314,7 +315,7 @@ renderResults types =
 renderConvention :: CallingConvention -> Text
 renderConvention convention =
   case convention of
-    AihcConvention -> "tailcc "
+    AihcConvention -> "preserve_nonecc "
     CConvention -> ""
 
 zeroValue :: Type -> Text
@@ -362,14 +363,10 @@ typed ty operand = renderType ty <> " " <> renderOperand ty operand
 -- | The trap messages of the module, each with its constant index.
 type Traps = Map Text Int
 
--- | The call shims of the module, each with its index. See 'renderCallShim'.
-type CallShims = Map Signature Int
-
-data ModuleState = ModuleState !Traps !CallShims
+newtype ModuleState = ModuleState Traps
 
 data FunctionState = FunctionState
   { stateTraps :: !Traps,
-    stateCallShims :: !CallShims,
     -- | The trap blocks this function branches to.
     stateFunctionTraps :: !(Map Text Int),
     stateNextTemp :: !Int,
@@ -422,51 +419,92 @@ trapBlock message = do
 trapBlockName :: Int -> Text
 trapBlockName index = quote ("trap." <> tshow index)
 
--- | The shim that makes a call that is not a tail call to a function of the
--- @aihc@ convention.
-callShim :: Signature -> M Text
-callShim signature = do
-  state <- get
-  case Map.lookup signature (stateCallShims state) of
-    Just index -> pure (callShimName index)
-    Nothing -> do
-      let index = Map.size (stateCallShims state)
-      put state {stateCallShims = Map.insert signature index (stateCallShims state)}
-      pure (callShimName index)
+-- | Use 23 scalar slots and one overflow pointer on every AIHC call.
+-- Each scalar slot holds the bits of one Lir value. This layout is stable
+-- across modules and fits the 24 integer argument registers on AArch64.
+-- The callee loads the overflow values and frees their buffer before its body.
+-- Thus a tail call never refers to storage in the previous native stack frame.
+abiScalarSlots :: Int
+abiScalarSlots = 23
 
--- | Whether a @tailcc@ call can pass arguments on the stack. The limits are
--- the smallest register counts of the hosts: six integer registers on
--- x86-64 and eight float registers on x86-64 and AArch64. A call below them
--- passes all of its arguments in registers, so the callee removes nothing.
-hasStackArguments :: Signature -> Bool
-hasStackArguments signature =
-  length integers > 6 || length floats > 8
+abiParameterTypes :: Signature -> [Type]
+abiParameterTypes signature
+  | signatureConvention signature == AihcConvention = replicate abiScalarSlots I64 <> [Ptr]
+  | otherwise = signatureParameters signature
+
+abiParameter :: Int -> Text
+abiParameter index = "%abi." <> tshow index
+
+-- | Convert one argument to its 64-bit slot without a numeric conversion.
+argumentBits :: Type -> Operand -> M Text
+argumentBits ty operand = case ty of
+  I64 -> pure value
+  Ptr -> convert "ptrtoint" "ptr" "i64" value
+  Code -> convert "ptrtoint" "ptr" "i64" value
+  F64 -> convert "bitcast" "double" "i64" value
+  F32 -> convert "bitcast" "float" "i32" value >>= convert "zext" "i32" "i64"
+  _ -> convert "zext" (renderType ty) "i64" value
   where
-    (floats, integers) = partition isFloatType (signatureParameters signature)
+    value = renderOperand ty operand
+    convert operation from to input = do
+      result <- fresh
+      emit (result <> " = " <> operation <> " " <> from <> " " <> input <> " to " <> to)
+      pure result
 
-callShimName :: Int -> Text
-callShimName index = "@" <> quote (".Llir_call_" <> tshow index)
-
--- | A @tailcc@ callee removes its stack arguments, and the caller then moves
--- the stack pointer back. At -O0, LLVM for AArch64 can put a spill reload
--- between the call and that adjustment, and the reload then reads the wrong
--- stack slot (issue #2254). Thus a call that is not a tail call and passes
--- stack arguments calls this shim. The shim takes the callee as its first
--- argument, does the call, and returns immediately, so no reload can occur
--- there. The shim is @noinline@, so the defect cannot come back after
--- inlining. Remove the shim when the supported LLVM versions are correct.
-renderCallShim :: Signature -> Int -> [Text]
-renderCallShim signature index =
-  [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline {",
-    "  " <> (if null (signatureResults signature) then "" else "%result = ") <> "call " <> renderConvention (signatureConvention signature) <> results <> " %callee(" <> T.intercalate ", " (zipWith typed' (signatureParameters signature) arguments) <> ")",
-    "  " <> (if null (signatureResults signature) then "ret void" else "ret " <> results <> " %result"),
-    "}",
-    ""
-  ]
+-- | Load the original parameters from the common LLVM argument layout.
+bindParameters :: Function -> M ()
+bindParameters function
+  | functionConvention function /= AihcConvention = pure ()
+  | otherwise = do
+      forM_ (zip [0 :: Int ..] (functionParameters function)) $ \(index, (var, ty)) -> do
+        bits <-
+          if index < abiScalarSlots
+            then pure (abiParameter index)
+            else do
+              address <- fresh
+              emit (address <> " = getelementptr i64, ptr %abi.overflow, i64 " <> tshow (index - abiScalarSlots))
+              value <- fresh
+              emit (value <> " = load i64, ptr " <> address <> ", align 8")
+              pure value
+        case ty of
+          I64 -> emit (renderVar var <> " = add i64 " <> bits <> ", 0")
+          Ptr -> convert var "inttoptr" "i64" bits "ptr"
+          Code -> convert var "inttoptr" "i64" bits "ptr"
+          F64 -> convert var "bitcast" "i64" bits "double"
+          F32 -> do
+            narrow <- fresh
+            emit (narrow <> " = trunc i64 " <> bits <> " to i32")
+            convert var "bitcast" "i32" narrow "float"
+          _ -> convert var "trunc" "i64" bits (renderType ty)
+      when (length (functionParameters function) > abiScalarSlots) $
+        emit "call void @free(ptr %abi.overflow)"
   where
-    results = renderResults (signatureResults signature)
-    arguments = ["%a" <> tshow position | position <- [0 :: Int .. length (signatureParameters signature) - 1]]
-    typed' ty argument = renderType ty <> " " <> argument
+    convert var operation from value to =
+      emit (renderVar var <> " = " <> operation <> " " <> from <> " " <> value <> " to " <> to)
+
+-- | Pack AIHC arguments. A C call keeps its original signature.
+callArguments :: Signature -> [Operand] -> M [Text]
+callArguments signature arguments
+  | signatureConvention signature /= AihcConvention = pure (zipWith typed types arguments)
+  | otherwise = do
+      values <- zipWithM argumentBits types arguments
+      let (registers, overflow) = splitAt abiScalarSlots values
+      buffer <- case overflow of
+        [] -> pure "null"
+        _ -> do
+          pointer <- fresh
+          emit (pointer <> " = call ptr @malloc(i64 " <> tshow (8 * length overflow) <> ")")
+          failed <- fresh
+          emit (failed <> " = icmp eq ptr " <> pointer <> ", null")
+          trapWhen failed "LLVM argument allocation failed"
+          forM_ (zip [0 :: Int ..] overflow) $ \(index, value) -> do
+            address <- fresh
+            emit (address <> " = getelementptr i64, ptr " <> pointer <> ", i64 " <> tshow index)
+            emit ("store i64 " <> value <> ", ptr " <> address <> ", align 8")
+          pure pointer
+      pure (map ("i64 " <>) (registers <> replicate (abiScalarSlots - length registers) "poison") <> ["ptr " <> buffer])
+  where
+    types = signatureParameters signature
 
 -- | A jump edge. A target with parameters gets its own block so the phi of
 -- the target sees one predecessor per edge.
@@ -486,11 +524,10 @@ edgeTo parameters (Target label arguments)
 compileFunction :: Ctx -> Function -> StateT ModuleState (Either LlvmLirError) [Text]
 compileFunction ctx input = do
   let function = lowerWideDivision True input
-  ModuleState traps shims <- get
+  ModuleState traps <- get
   let initial =
         FunctionState
           { stateTraps = traps,
-            stateCallShims = shims,
             stateFunctionTraps = Map.empty,
             stateNextTemp = 0,
             stateBlocksRev = [],
@@ -500,7 +537,7 @@ compileFunction ctx input = do
           }
       parameters = Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function]
   (bodies, final) <- lift (runStateT (mapM (compileBlock ctx function parameters) (functionBlocks function)) initial)
-  put (ModuleState (stateTraps final) (stateCallShims final))
+  put (ModuleState (stateTraps final))
   let edges = stateEdges final
       -- The phi instructions of a block are known only after every edge is
       -- compiled, so the blocks are rendered from their bodies here.
@@ -536,7 +573,12 @@ compileFunction ctx input = do
           <> " "
           <> renderSymbol (functionName function)
           <> "("
-          <> T.intercalate ", " [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
+          <> T.intercalate
+            ", "
+            ( if functionConvention function == AihcConvention
+                then ["i64 " <> abiParameter index | index <- [0 .. abiScalarSlots - 1]] <> ["ptr %abi.overflow"]
+                else [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
+            )
           <> ") {"
       ]
         <> rendered
@@ -551,6 +593,9 @@ compileFunction ctx input = do
 compileBlock :: Ctx -> Function -> Map Label [(Var, Type)] -> Block -> M [Text]
 compileBlock ctx function parameters block = do
   modify' $ \state -> state {stateBlocksRev = [], stateOpenRev = []}
+  case functionBlocks function of
+    entry : _ | blockLabel entry == blockLabel block -> bindParameters function
+    _ -> pure ()
   mapM_ (compileInstruction ctx) (blockInstructions block)
   compileTerminator ctx function parameters (blockTerminator block)
   state <- get
@@ -587,7 +632,8 @@ compileTerminator ctx function parameters terminator =
       emit ("br label %" <> name)
   where
     tailCall callee signature arguments = do
-      let call = renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"
+      rendered <- callArguments signature arguments
+      let call = renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " rendered <> ")"
           keyword = case signatureConvention signature of
             AihcConvention -> "musttail call "
             CConvention -> "tail call "
@@ -907,13 +953,8 @@ compileInstruction ctx (Instruction results operation) =
         offset = addressByteOffset wordBytes address
 
     call callee signature arguments = do
-      let rendered = zipWith typed (signatureParameters signature) arguments
-      body <-
-        if signatureConvention signature == AihcConvention && hasStackArguments signature
-          then do
-            shim <- callShim signature
-            pure ("call " <> renderResults (signatureResults signature) <> " " <> shim <> "(" <> T.intercalate ", " (("ptr " <> callee) : rendered) <> ")")
-          else pure ("call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " rendered <> ")")
+      rendered <- callArguments signature arguments
+      let body = "call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " rendered <> ")"
       case (signatureResults signature, results) of
         ([], []) -> emit body
         ([_], [var]) -> emit (renderVar var <> " = " <> body)
