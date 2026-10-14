@@ -1247,6 +1247,34 @@ void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
   aihc_remember(capability, object);
 }
 
+/* Whether an address is in the local heap of a capability: its nursery or
+   its gen1 blocks. */
+static int aihc_is_local(const AihcCapability *capability,
+                         const void *address) {
+  return address != NULL && (aihc_in_nursery(capability, address) ||
+                             aihc_region_kind(address) == AIHC_REGION_GEN1);
+}
+
+void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
+                       AihcSlot value) {
+  if (!aihc_is_local(capability, object) &&
+      aihc_is_local(capability, (const void *)(uintptr_t)value)) {
+    ++capability->escape_count;
+  }
+}
+
+void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                              AihcSlot value) {
+  aihc_count_escape(capability, object, value);
+  aihc_write_barrier(capability, object);
+}
+
+void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
+                                 uint64_t index, AihcSlot value) {
+  aihc_count_escape(capability, object, value);
+  aihc_write_barrier_at(capability, object, index);
+}
+
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index) {
   if (object == NULL || aihc_in_nursery(capability, object)) {

@@ -305,6 +305,9 @@ struct AihcCapability {
      docs/multi-threaded-rts-design.md. */
   AihcGeneration gen1;
   uint64_t gen1_age;
+  /* The stores that gave an object outside the local heap a value of the
+     local heap. In the end state each one promotes the value. */
+  uint64_t escape_count;
 };
 
 /* The process state shared by all capabilities. */
@@ -385,6 +388,18 @@ struct AihcMachine {
    A collection scans only the cards that stores touched. The barrier without
    an index marks every card of a large array. */
 void aihc_write_barrier(AihcCapability *capability, AihcValue *object);
+/* The barriers of a compiled store site. They also take the value that the
+   site stores, and they count an escape: a store of a value of the local
+   heap of the capability into an object outside it. See "Local heaps" in
+   docs/multi-threaded-rts-design.md. */
+void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                              AihcSlot value);
+void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
+                                 uint64_t index, AihcSlot value);
+/* Count an escape when the value is in the local heap of the capability and
+   the object is not. */
+void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
+                       AihcSlot value);
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index);
 void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,

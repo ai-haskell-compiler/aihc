@@ -916,17 +916,19 @@ currentCapability = currentContext >>= capabilityOperand
 -- A store into the local nursery needs no runtime call.
 -- Its aligned base and size come from the capability of the stack chunk.
 -- The call allocates nothing and reads no context, so it needs no sync.
-emitWriteBarrier :: FunctionCtx -> Operand -> LowerM ()
-emitWriteBarrier ctx object = emitBarrier ctx object Nothing
+-- | The write barrier of a store into an object. The cold call also takes
+-- the value that the site stores, so the runtime can count an escape.
+emitWriteBarrier :: FunctionCtx -> Operand -> Operand -> LowerM ()
+emitWriteBarrier ctx object value = emitBarrier ctx object Nothing value
 
 -- | The write barrier of a store into a boxed array. The cold call takes
 -- the index of the element: a large array keeps a card for each run of
 -- elements, and the runtime marks the card of the store.
-emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> LowerM ()
-emitWriteBarrierAt ctx object index = emitBarrier ctx object (Just index)
+emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> Operand -> LowerM ()
+emitWriteBarrierAt ctx object index value = emitBarrier ctx object (Just index) value
 
-emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> LowerM ()
-emitBarrier _ object index = do
+emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> Operand -> LowerM ()
+emitBarrier _ object index value = do
   target <- targetM
   capability <- currentCapability
   objectWord <- emitValue "object_word" I64 (PtrToInt object)
@@ -940,8 +942,8 @@ emitBarrier _ object index = do
   terminate (Branch (typedOperand young) (Target done []) (Target old []))
   beginColdBlock old []
   _ <- case index of
-    Nothing -> callRuntime "aihc_write_barrier" [Ptr, Ptr] [] [capability, object]
-    Just element -> callRuntime "aihc_write_barrier_at" [Ptr, Ptr, I64] [] [capability, object, element]
+    Nothing -> callRuntime "aihc_write_barrier_store" [Ptr, Ptr, I64] [] [capability, object, value]
+    Just element -> callRuntime "aihc_write_barrier_store_at" [Ptr, Ptr, I64, I64] [] [capability, object, element, value]
   terminate (Jump (Target done []))
   beginBlock done []
 
@@ -2525,17 +2527,17 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [value]
     ("writeMutVar#", [reference, value]) -> do
       base <- pointerValue ctx env reference
-      emitWriteBarrier ctx base
       operand <- word value
+      emitWriteBarrier ctx base operand
       emit [] (StoreAtomic Release I64 operand (byteAddress base mutVarContentsOffset))
       bind []
     -- casMutVar# gives a failure flag, one when the contents differed from
     -- the expected value, and the final contents.
     ("casMutVar#", [reference, expected, replacement]) -> do
       base <- pointerValue ctx env reference
-      emitWriteBarrier ctx base
       expectedOperand <- word expected
       replacementOperand <- word replacement
+      emitWriteBarrier ctx base replacementOperand
       current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress base mutVarContentsOffset))
       matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
       final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
@@ -2586,9 +2588,9 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | name `elem` arrayStorePrimitives -> do
           base <- pointerValue ctx env array
           indexOperand <- word index
-          emitWriteBarrierAt ctx base indexOperand
-          slot <- arrayElement array index
           operand <- word value
+          emitWriteBarrierAt ctx base indexOperand operand
+          slot <- arrayElement array index
           emit [] (StoreAtomic Release I64 operand (byteAddress slot arrayElementsOffset))
           bind []
       | Just (ty, indexing) <- lookup name byteArrayStorePrimitives -> do
@@ -2603,10 +2605,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | name `elem` arrayCasPrimitives -> do
           base <- pointerValue ctx env array
           indexOperand <- word index
-          emitWriteBarrierAt ctx base indexOperand
-          slot <- arrayElement array index
           expectedOperand <- word expected
           replacementOperand <- word replacement
+          emitWriteBarrierAt ctx base indexOperand replacementOperand
+          slot <- arrayElement array index
           current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress slot arrayElementsOffset))
           matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
           final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))

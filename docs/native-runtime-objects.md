@@ -448,7 +448,7 @@ runtime statistics of a program. When the program exits normally, the runtime
 writes one JSON object to that file:
 
 ```json
-{"schema": 3, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0}
+{"schema": 3, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0, "escape_count": 0}
 ```
 
 A normal exit is a return from `main` or an `exitWith` call. A runtime failure
@@ -467,6 +467,13 @@ writes no file. An empty value counts as an unset variable.
 - `gc_minor_count`, `gc_gen1_count`, and `gc_full_count` count the
   collections that copied the nursery alone, the nursery and gen1, and
   every generation.
+- `escape_count` counts the stores that gave an object outside the local
+  heap a value of the local heap. The local heap of a capability is its
+  nursery and its gen1. The count covers the compiled store sites into
+  references and boxed arrays, the update of a thunk, `MVar` puts, `TVar`
+  writes, and `aihc_set_field`. In the end state of
+  [multi-threaded-rts-design.md](multi-threaded-rts-design.md) each such
+  store promotes its value.
 
 ### Allocation profile
 

@@ -576,6 +576,8 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_decimal(cursor, capability->machine->gc_gen1_count);
   cursor = aihc_append_text(cursor, ", \"gc_full_count\": ");
   cursor = aihc_append_decimal(cursor, capability->machine->gc_full_count);
+  cursor = aihc_append_text(cursor, ", \"escape_count\": ");
+  cursor = aihc_append_decimal(cursor, capability->escape_count);
   if (order != NULL) {
     cursor = aihc_append_allocations(cursor, order);
     free(order);
@@ -1131,6 +1133,7 @@ static AihcThread *aihc_dequeue_thread(AihcCapability *capability) {
 
 void aihc_set_field(AihcCapability *capability, AihcValue *value,
                     uint64_t index, AihcSlot field) {
+  aihc_count_escape(capability, value, field);
   aihc_write_barrier(capability, value);
   __atomic_store_n(&aihc_value_fields(value)[index], field, __ATOMIC_RELEASE);
 }
@@ -1698,6 +1701,7 @@ const AihcResume *aihc_mvar_put(AihcCapability *capability, void *opaque_mvar,
   AihcMVarWaiter *taker =
       aihc_mvar_pop_waiter(capability, &mvar->takers_head, &mvar->takers_tail);
   if (taker == NULL) {
+    aihc_count_escape(capability, (AihcValue *)mvar, value);
     __atomic_store_n(&mvar->full, (uint8_t)1, __ATOMIC_RELEASE);
     mvar->value = value;
   } else {
@@ -1745,6 +1749,7 @@ uint64_t aihc_mvar_try_put(AihcCapability *capability, void *opaque_mvar,
   AihcMVarWaiter *taker =
       aihc_mvar_pop_waiter(capability, &mvar->takers_head, &mvar->takers_tail);
   if (taker == NULL) {
+    aihc_count_escape(capability, (AihcValue *)mvar, value);
     __atomic_store_n(&mvar->full, (uint8_t)1, __ATOMIC_RELEASE);
     mvar->value = value;
   } else {
@@ -1988,6 +1993,7 @@ void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   }
   /* The update deletes the owner or the queue in field zero and every free
      variable, so the barrier shades them. */
+  aihc_count_escape(capability, object, (AihcSlot)(uintptr_t)value);
   aihc_write_barrier_update(capability, object);
   AihcBlackholeQueue *queue = NULL;
   AihcThread *owner = (header & AIHC_HEADER_EVALUATING) != 0
@@ -2350,6 +2356,7 @@ uint64_t aihc_tvar_write(AihcCapability *capability, AihcValue *variable,
   write->next = transaction->writes;
   aihc_write_barrier(capability, (AihcValue *)transaction);
   transaction->writes = write;
+  aihc_count_escape(capability, variable, value);
   aihc_write_barrier(capability, variable);
   __atomic_store_n(&variable->fields[1], value, __ATOMIC_RELEASE);
   return 0;
