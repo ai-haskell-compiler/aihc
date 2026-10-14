@@ -305,7 +305,7 @@ linkExeOptionsParser =
   LinkExeOptions
     <$> OA.strArgument
       ( OA.metavar "BUNDLE"
-          <> OA.help "Directory holding the link.args response file written by build --no-link"
+          <> OA.help "Directory that contains the link.args response file from build --no-link"
       )
     <*> OA.strOption
       ( OA.long "output"

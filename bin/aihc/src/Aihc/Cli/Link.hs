@@ -192,7 +192,7 @@ parseLinkArguments input =
 
 -- | Copy inputs into the bundle and write a Clang response file.
 writeLinkBundle :: NativeTarget -> FilePath -> LinkLibraries -> [FilePath] -> [FilePath] -> IO ()
-writeLinkBundle Wasm32Wasip3 _ _ _ _ = ioError (userError "WASM link bundles are not supported")
+writeLinkBundle Wasm32Wasip3 _ _ _ _ = ioError (userError "AIHC does not support WASM link bundles")
 writeLinkBundle target bundle libraries objects archives = do
   let inputs = bundle </> "inputs"
   createDirectoryIfMissing True inputs
@@ -216,7 +216,7 @@ runLinkExe options = do
   decoded <- readLinkBundle manifest
   LinkBundle {linkBundleTarget} <-
     either (ioError . userError . (("Invalid link bundle " <> manifest <> ": ") <>)) pure decoded
-  when (linkBundleTarget == Wasm32Wasip3) (ioError (userError "WASM link bundles are not supported"))
+  when (linkBundleTarget == Wasm32Wasip3) (ioError (userError "AIHC does not support WASM link bundles"))
   createDirectoryIfMissing True (takeDirectory output)
   (compiler, hostArguments) <- backendCompiler linkBundleTarget
   result <- readCreateProcessWithExitCode (proc compiler (hostArguments <> ["@link.args", "-o", output])) {cwd = Just bundle} ""
