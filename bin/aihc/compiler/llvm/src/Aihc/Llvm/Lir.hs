@@ -36,6 +36,7 @@ import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
 import GHC.Float (castDoubleToWord64, double2Float, float2Double)
 import Numeric (showHex)
+import System.Info qualified as System
 
 -- | The LLVM backend targets 64-bit machines, so a word-scaled address
 -- offset counts eight bytes.
@@ -427,9 +428,19 @@ trapBlockName index = quote ("trap." <> tshow index)
 abiScalarSlots :: Int
 abiScalarSlots = 23
 
+-- | On x86-64, leave RAX free for an indirect tail-call target.
+-- PreserveNone has 12 integer argument registers. Its first ten slots and
+-- the overflow pointer use eleven of them. The other slots use double bits,
+-- with no numeric conversion. LLVM can use XMM registers for these slots.
+-- On AArch64, X16 and X17 remain free with 24 integer arguments.
+abiSlotType :: Int -> Type
+abiSlotType index
+  | System.arch == "x86_64" && index >= 10 = F64
+  | otherwise = I64
+
 abiParameterTypes :: Signature -> [Type]
 abiParameterTypes signature
-  | signatureConvention signature == AihcConvention = replicate abiScalarSlots I64 <> [Ptr]
+  | signatureConvention signature == AihcConvention = map abiSlotType [0 .. abiScalarSlots - 1] <> [Ptr]
   | otherwise = signatureParameters signature
 
 abiParameter :: Int -> Text
@@ -459,7 +470,12 @@ bindParameters function
       forM_ (zip [0 :: Int ..] (functionParameters function)) $ \(index, (var, ty)) -> do
         bits <-
           if index < abiScalarSlots
-            then pure (abiParameter index)
+            then case abiSlotType index of
+              F64 -> do
+                value <- fresh
+                emit (value <> " = bitcast double " <> abiParameter index <> " to i64")
+                pure value
+              _ -> pure (abiParameter index)
             else do
               address <- fresh
               emit (address <> " = getelementptr i64, ptr %abi.overflow, i64 " <> tshow (index - abiScalarSlots))
@@ -502,9 +518,17 @@ callArguments signature arguments
             emit (address <> " = getelementptr i64, ptr " <> pointer <> ", i64 " <> tshow index)
             emit ("store i64 " <> value <> ", ptr " <> address <> ", align 8")
           pure pointer
-      pure (map ("i64 " <>) (registers <> replicate (abiScalarSlots - length registers) "poison") <> ["ptr " <> buffer])
+      slots <- zipWithM renderSlot [0 ..] (registers <> replicate (abiScalarSlots - length registers) "poison")
+      pure (slots <> ["ptr " <> buffer])
   where
     types = signatureParameters signature
+    renderSlot index value
+      | value == "poison" = pure (renderType (abiSlotType index) <> " poison")
+      | abiSlotType index == F64 = do
+          bits <- fresh
+          emit (bits <> " = bitcast i64 " <> value <> " to double")
+          pure ("double " <> bits)
+      | otherwise = pure ("i64 " <> value)
 
 -- | A jump edge. A target with parameters gets its own block so the phi of
 -- the target sees one predecessor per edge.
@@ -576,7 +600,7 @@ compileFunction ctx input = do
           <> T.intercalate
             ", "
             ( if functionConvention function == AihcConvention
-                then ["i64 " <> abiParameter index | index <- [0 .. abiScalarSlots - 1]] <> ["ptr %abi.overflow"]
+                then [renderType (abiSlotType index) <> " " <> abiParameter index | index <- [0 .. abiScalarSlots - 1]] <> ["ptr %abi.overflow"]
                 else [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
             )
           <> ") {"

@@ -1220,8 +1220,11 @@ design of the AArch64 backend:
 `Aihc.Llvm.Lir` renders textual LLVM IR that Clang compiles for the host:
 
 - The `aihc` convention uses `preserve_nonecc` and a fixed argument layout.
-  Each call passes 23 `i64` slots and one overflow pointer.
-  Pointer and float arguments use their bit representations in the integer slots.
+  Each call passes 23 64-bit value slots and one overflow pointer.
+  Pointer and float arguments retain their bits without a numeric conversion.
+  On AArch64, all value slots use `i64`.
+  On x86-64, the first ten slots use `i64` and the other thirteen use `double`.
+  This leaves RAX free for an indirect tail-call target on x86-64.
   Unused slots contain `poison`, and a call without overflow passes a null pointer.
 - An overflow buffer holds arguments after the first 23.
   The caller allocates this buffer with `malloc`.
