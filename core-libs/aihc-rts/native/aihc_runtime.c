@@ -2673,8 +2673,7 @@ uint64_t aihc_stm_abort(AihcCapability *capability) {
 }
 
 /* Put a log in front of another one. */
-static void aihc_log_prepend(AihcCapability *capability,
-                             AihcTransaction *owner,
+static void aihc_log_prepend(AihcCapability *capability, AihcTransaction *owner,
                              AihcTransactionWrite **log,
                              AihcTransactionWrite *first) {
   if (first == NULL) {
