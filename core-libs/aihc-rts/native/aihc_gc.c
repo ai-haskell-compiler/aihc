@@ -4027,7 +4027,8 @@ static int64_t aihc_verify_owner(const AihcValue *value) {
   }
   case AIHC_REGION_GEN1:
     for (uint64_t index = 0; index < machine->capability_count; ++index) {
-      for (const AihcHeapBlock *block = machine->capabilities[index]->gen1.first;
+      for (const AihcHeapBlock *block =
+               machine->capabilities[index]->gen1.first;
            block != NULL; block = block->link) {
         if ((const uint8_t *)value >= block->start &&
             (const uint8_t *)value < block->next) {
@@ -4039,9 +4040,8 @@ static int64_t aihc_verify_owner(const AihcValue *value) {
   case AIHC_REGION_LARGE:
   case AIHC_REGION_PINNED: {
     const AihcPinnedBlock *block = aihc_pinned_block_of(value);
-    return aihc_pinned_generation(block) < 2
-               ? (int64_t)aihc_pinned_owner(block)
-               : -1;
+    return aihc_pinned_generation(block) < 2 ? (int64_t)aihc_pinned_owner(block)
+                                             : -1;
   }
   case AIHC_REGION_OUTSIDE:
     if (aihc_outside_is_pinned(value)) {
@@ -4225,10 +4225,9 @@ static AihcSlot aihc_verify_slot(AihcSlot slot, void *context) {
    code reaches, and for a frame the parent link. */
 static void aihc_verify_scan(AihcValue *object) {
   aihc_verify_parent = object;
-  aihc_verify_parent_owner =
-      aihc_verify_machine->machine->capability_count > 1
-          ? aihc_verify_owner(object)
-          : -1;
+  aihc_verify_parent_owner = aihc_verify_machine->machine->capability_count > 1
+                                 ? aihc_verify_owner(object)
+                                 : -1;
   if (aihc_visit_runtime_object(object, aihc_verify_slot, NULL)) {
     return;
   }
