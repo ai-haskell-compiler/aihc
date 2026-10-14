@@ -50,7 +50,8 @@ Lir has the atomic instructions of the memory model section on every backend.
 No compiled code or runtime unit uses them yet.
 
 The rest of step 1 remains necessary before step 2.
-It includes the barrier budget and the barrier safepoints.
+The write barrier counts its scan work against the `-R` budget. When the work reaches the budget, the next reservation collects.
+It includes the barrier safepoints at the store sites, the barrier bounds of the runtime operations, and the copy of an array in pieces.
 The cold path of the write barrier at a compiled store site gets the stored value and counts escapes.
 The runtime statistics report the count as `escape_count`.
 Native parallel execution starts at step 4.
