@@ -1,51 +1,45 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
--- | Parallel, weighted Hedgehog fuzz runner with a terminal dashboard.
+-- | Parallel, weighted Hedgehog fuzz runner with a bug store and a dashboard.
 module Aihc.Dev.Fuzz
-  ( batchSize,
-    cycleProperties,
-    dashboardRefreshMicroseconds,
-    isQuitKey,
-    resolveJobCount,
-    runCommand,
-    selectProperties,
+  ( runCommand,
   )
 where
 
-import Aihc.Dev.Fuzz.CLI (Command (..), Options (..), Selection (..))
+import Aihc.Dev.Fuzz.Bugs
+import Aihc.Dev.Fuzz.CLI (BugsOptions (..), Command (..), Options (..), ReplayOptions (..))
+import Aihc.Dev.Fuzz.Model
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
-import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
+import Aihc.Dev.Fuzz.Report (reporterLoop)
+import Aihc.Dev.Fuzz.Schedule (batchSize, cycleProperties, pickProperty, resolveJobCount, restSeconds, selectProperties)
+import Aihc.Dev.Fuzz.TUI (Model (..), runDashboard)
 import Aihc.Testing.RuntimeArchive (releaseCachedRuntimeArchives)
+import Brick.BChan (newBChan, writeBChan, writeBChanNonBlocking)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, race, waitAnyCatch)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, bracket_, displayException, finally, onException)
-import Control.Monad (forM, forM_, unless, void, when)
-import Data.Char (toLower)
+import Control.Exception (ErrorCall (..), SomeException, displayException, finally, toException)
+import Control.Monad (forM, forM_, forever, void, when)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
-import Data.List (groupBy, intercalate, isInfixOf, sortOn)
+import Data.List (find, groupBy, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
-import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import GHC.Conc (getNumCapabilities)
 import Hedgehog (withTests)
 import Hedgehog.Internal.Config (UseColor (DisableColor))
-import Hedgehog.Internal.Property (Property (..), TestCount (..))
-import Hedgehog.Internal.Report (Progress (Running), Report (..), Result (..), renderResult)
+import Hedgehog.Internal.Property (Property (..), PropertyName (..), Skip (..), TestCount (..), skipCompress, withSkip)
+import Hedgehog.Internal.Report (FailedAnnotation (..), FailureReport (..), Progress (Running), Report (..), Result (..), renderResult)
 import Hedgehog.Internal.Runner (checkReport)
 import Hedgehog.Internal.Seed qualified as Seed
-import System.Console.Terminal.Size qualified as Terminal
+import Hedgehog.Internal.Source (Span (..), unLineNo)
 import System.Exit (exitFailure)
-import System.IO (BufferMode (BlockBuffering, NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
-import System.Posix.IO (stdInput)
-import System.Posix.Terminal qualified as Posix
-
--- | Number of successful cases a worker runs before rotating the property.
-batchSize :: Int
-batchSize = 10000
+import System.IO (hIsTerminalDevice, hPutStrLn, stderr, stdin, stdout)
 
 -- | Update counters and spinners ten times per second.
 dashboardRefreshMicroseconds :: Int
@@ -55,12 +49,14 @@ data Stats = Stats
   { statsActive :: TVar (IntMap String),
     statsCompletedBatches :: TVar Int,
     statsSuccessfulCases :: TVar Int,
-    statsPropertyCases :: TVar (Map String Int)
-  }
-
-data WorkerFailure = WorkerFailure
-  { workerFailureProperty :: FuzzProperty,
-    workerFailureResult :: String
+    statsPropertyCases :: TVar (Map String Int),
+    statsBugs :: TVar [Bug],
+    statsNewBugs :: TVar (Set String),
+    statsResting :: TVar (Map String UTCTime),
+    statsReporter :: TVar ReporterStatus,
+    statsStoreLock :: MVar (),
+    statsStorePath :: FilePath,
+    statsAnnounce :: Announcement -> IO ()
   }
 
 runCommand :: Command -> IO ()
@@ -68,18 +64,8 @@ runCommand command =
   case command of
     List selection -> listProperties (selectProperties selection fuzzProperties)
     Run options -> runFuzzer options `finally` releaseCachedRuntimeArchives
-
--- | Apply case-insensitive substring inclusion and exclusion rules.
-selectProperties :: Selection -> [FuzzProperty] -> [FuzzProperty]
-selectProperties Selection {selectionFilters, selectionExclusions} =
-  filter selected
-  where
-    selected fuzzProperty =
-      let propertyId = lowercase (fuzzPropertyId fuzzProperty)
-          matches term = lowercase term `isInfixOf` propertyId
-       in (null selectionFilters || any matches selectionFilters)
-            && not (any matches selectionExclusions)
-    lowercase = map toLower
+    Bugs options -> runBugs options
+    Replay options -> runReplay options `finally` releaseCachedRuntimeArchives
 
 listProperties :: [FuzzProperty] -> IO ()
 listProperties properties =
@@ -95,133 +81,282 @@ listProperties properties =
       forM_ componentProperties $ \fuzzProperty ->
         putStrLn ("  " <> fuzzPropertyName fuzzProperty <> "  [weight " <> show (fromRational (fuzzPropertyWeight fuzzProperty) :: Double) <> "]")
 
+resolveStorePath :: Maybe FilePath -> IO FilePath
+resolveStorePath = maybe bugStorePath pure
+
+loadStore :: FilePath -> IO [Bug]
+loadStore path = do
+  loaded <- loadBugs path
+  case loaded of
+    Right bugs -> pure bugs
+    Left reason -> do
+      hPutStrLn stderr ("aihc-dev fuzz: cannot read the bug store " <> path <> ": " <> reason)
+      exitFailure
+
+runBugs :: BugsOptions -> IO ()
+runBugs BugsOptions {bugsForget, bugsClear, bugsBugFile} = do
+  path <- resolveStorePath bugsBugFile
+  bugs <- loadStore path
+  let kept
+        | bugsClear = []
+        | otherwise = [bug | bug <- bugs, not (any (`matchesBug` bug) bugsForget)]
+  when (length kept /= length bugs) (saveBugs path kept)
+  printBugs ReporterIdle Set.empty kept
+  putStrLn ("Bug store: " <> path)
+  where
+    matchesBug prefix bug = not (null prefix) && take (length prefix) (bugId bug) == prefix
+
+printBugs :: ReporterStatus -> Set String -> [Bug] -> IO ()
+printBugs reporter newBugs bugs
+  | null bugs = putStrLn "No known bugs."
+  | otherwise = do
+      putStrLn ("Known bugs: " <> show (length bugs) <> " (" <> show (Set.size newBugs) <> " new)")
+      forM_ bugs $ \bug ->
+        putStrLn $
+          "  "
+            <> (if bugId bug `Set.member` newBugs then "● " else "○ ")
+            <> take 12 (bugId bug)
+            <> "  "
+            <> padRight 40 (bugProperty bug)
+            <> "  "
+            <> padLeft 5 (show (bugHits bug))
+            <> " hits  "
+            <> formatSeen (bugFirstSeen bug)
+            <> "  "
+            <> maybe (bugStatus reporter bug) issueUrl (bugIssue bug)
+  where
+    padRight width text = text <> replicate (width - length text) ' '
+    padLeft width text = replicate (width - length text) ' ' <> text
+
+runReplay :: ReplayOptions -> IO ()
+runReplay ReplayOptions {replayProperty, replayArgument} = do
+  fuzzProperty <- case find ((== replayProperty) . fuzzPropertyId) fuzzProperties of
+    Just found -> pure found
+    Nothing -> do
+      hPutStrLn stderr ("aihc-dev fuzz: unknown property " <> show replayProperty)
+      hPutStrLn stderr "Known properties:"
+      forM_ fuzzProperties (hPutStrLn stderr . ("  " <>) . fuzzPropertyId)
+      exitFailure
+  (skip, seed) <- case parseReplay replayArgument of
+    Right parsed -> pure parsed
+    Left reason -> hPutStrLn stderr ("aihc-dev fuzz: " <> reason) >> exitFailure
+  withFuzzProperty fuzzProperty $ \propertyValue -> do
+    let configured = withSkip skip (withTests (fromIntegral batchSize) propertyValue)
+    report <- checkReport (propertyConfig configured) 0 seed (propertyTest configured) (const (pure ()))
+    rendered <- renderResult DisableColor (Just (PropertyName (fuzzPropertyId fuzzProperty))) report
+    putStrLn rendered
+    case reportStatus report of
+      OK -> pure ()
+      _ -> exitFailure
+
 runFuzzer :: Options -> IO ()
-runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
+runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit, optionsRepository, optionsReport, optionsBugFile} = do
   let selected = selectProperties optionsSelection fuzzProperties
   when (null selected) $ do
     hPutStrLn stderr "aihc-dev fuzz: no properties matched the selection"
     exitFailure
   capabilities <- getNumCapabilities
   let jobs = resolveJobCount capabilities optionsJobs
+  storePath <- resolveStorePath optionsBugFile
+  knownBugs <- loadStore storePath
+  interactive <- (&&) <$> hIsTerminalDevice stdin <*> hIsTerminalDevice stdout
   scheduler <- newTVarIO (cycleProperties [(fuzzPropertyWeight item, item) | item <- selected])
-  stats <- Stats <$> newTVarIO IntMap.empty <*> newTVarIO 0 <*> newTVarIO 0 <*> newTVarIO (Map.fromList [(fuzzPropertyId item, 0) | item <- selected])
+  stats <-
+    Stats
+      <$> newTVarIO IntMap.empty
+      <*> newTVarIO 0
+      <*> newTVarIO 0
+      <*> newTVarIO (Map.fromList [(fuzzPropertyId item, 0) | item <- selected])
+      <*> newTVarIO knownBugs
+      <*> newTVarIO Set.empty
+      <*> newTVarIO Map.empty
+      <*> newTVarIO ReporterIdle
+      <*> newMVar ()
+      <*> pure storePath
+      <*> (if interactive then pure (const (pure ())) else announceToLog <$> newMVar ())
   startedAt <- getCurrentTime
-  interactive <- hIsTerminalDevice stderr
-  keyboardEnabled <- (interactive &&) <$> hIsTerminalDevice stdin
-  quitSignal <- newEmptyTMVarIO
-  workers <- forM [1 .. jobs] $ \workerId -> async (worker scheduler stats workerId)
-  let run = awaitOutcome optionsTimeLimit workers quitSignal
+  workers <- forM [1 .. jobs] $ \workerId -> async (worker scheduler stats (length selected) workerId)
+  reporter <-
+    if optionsReport
+      then Just <$> async (reporterLoop optionsRepository (statsBugs stats) (statsReporter stats) (persistBugs stats) (statsAnnounce stats . ReportedBug) (statsAnnounce stats . ReporterChanged))
+      else pure Nothing
+  let stopAll = mapM_ cancel reporter >> mapM_ cancel workers
   outcome <-
     ( if interactive
-        then withDashboard keyboardEnabled quitSignal startedAt (length selected) jobs stats run
-        else do
-          hPutStrLn stderr ("Fuzzing " <> show (length selected) <> " properties with " <> show jobs <> " jobs (10,000 cases per batch)")
-          run
+        then runInteractive startedAt jobs optionsTimeLimit selected stats workers
+        else runHeadless jobs optionsTimeLimit selected workers
     )
-      `onException` mapM_ cancel workers
-  mapM_ cancel workers
+      `finally` stopAll
   successfulCases <- readTVarIO (statsSuccessfulCases stats)
+  bugs <- readTVarIO (statsBugs stats)
+  newBugs <- readTVarIO (statsNewBugs stats)
+  reporterStatus <- readTVarIO (statsReporter stats)
   case outcome of
     TimeLimitReached ->
       putStrLn ("Time limit reached after " <> formatInteger successfulCases <> " successful Hedgehog cases.")
     UserQuit ->
       putStrLn ("Stopped after " <> formatInteger successfulCases <> " successful Hedgehog cases.")
-    PropertyFailed WorkerFailure {workerFailureProperty, workerFailureResult} -> do
-      hPutStrLn stderr ("Fuzz failure in " <> fuzzPropertyId workerFailureProperty)
-      hPutStr stderr workerFailureResult
-      exitFailure
-    WorkerCrashed exception -> do
-      hPutStrLn stderr ("Fuzz worker crashed: " <> displayException exception)
-      exitFailure
+    WorkerCrashed exception ->
+      putStrLn ("Fuzz worker crashed after " <> formatInteger successfulCases <> " successful Hedgehog cases: " <> displayException exception)
+  printBugs reporterStatus newBugs bugs
+  putStrLn ("Bug store: " <> storePath)
+  let crashed = case outcome of
+        WorkerCrashed _ -> True
+        _ -> False
+  when (crashed || not (Set.null newBugs)) exitFailure
 
-data Outcome
-  = TimeLimitReached
-  | UserQuit
-  | PropertyFailed WorkerFailure
-  | WorkerCrashed SomeException
+runInteractive :: UTCTime -> Int -> Maybe NominalDiffTime -> [FuzzProperty] -> Stats -> [Async ()] -> IO Outcome
+runInteractive startedAt jobs timeLimit selected stats workers = do
+  channel <- newBChan 16
+  initial <- snapshot stats
+  ticker <- async $ forever $ do
+    current <- snapshot stats
+    void (writeBChanNonBlocking channel (Tick current))
+    threadDelay dashboardRefreshMicroseconds
+  limiter <- forM timeLimit $ \limit -> async $ do
+    threadDelay (durationMicroseconds limit)
+    writeBChan channel TimeLimitEvent
+  watcher <- async $ do
+    exception <- awaitCrash workers
+    writeBChan channel (Crashed exception)
+  let helpers = [ticker, watcher] <> maybe [] pure limiter
+  runDashboard
+    channel
+    Model
+      { modelStartedAt = startedAt,
+        modelJobs = jobs,
+        modelTimeLimit = timeLimit,
+        modelProperties = selected,
+        modelStorePath = statsStorePath stats,
+        modelSnapshot = initial,
+        modelRates = Map.empty,
+        modelOutcome = Nothing
+      }
+    `finally` mapM_ cancel helpers
 
-awaitOutcome :: Maybe NominalDiffTime -> [Async WorkerFailure] -> TMVar () -> IO Outcome
-awaitOutcome maybeTimeLimit workers quitSignal =
-  case maybeTimeLimit of
-    Nothing -> waitForStop
-    Just timeLimit -> do
-      result <- race (threadDelay (durationMicroseconds timeLimit)) waitForStop
+runHeadless :: Int -> Maybe NominalDiffTime -> [FuzzProperty] -> [Async ()] -> IO Outcome
+runHeadless jobs timeLimit selected workers = do
+  hPutStrLn stderr ("Fuzzing " <> show (length selected) <> " properties with " <> show jobs <> " jobs (" <> formatInteger batchSize <> " cases per batch)")
+  case timeLimit of
+    Nothing -> WorkerCrashed <$> awaitCrash workers
+    Just limit -> do
+      result <- race (threadDelay (durationMicroseconds limit)) (awaitCrash workers)
       pure $ case result of
         Left () -> TimeLimitReached
-        Right outcome -> outcome
-  where
-    waitForStop = do
-      result <- race (atomically (takeTMVar quitSignal)) waitForWorker
-      pure $ case result of
-        Left () -> UserQuit
-        Right outcome -> outcome
-    waitForWorker = do
-      (_, result) <- waitAnyCatch workers
-      pure $ case result of
-        Left exception -> WorkerCrashed exception
-        Right failure -> PropertyFailed failure
+        Right exception -> WorkerCrashed exception
+
+-- | Wait until a worker stops. A worker only stops with an exception.
+awaitCrash :: [Async ()] -> IO SomeException
+awaitCrash workers = do
+  (_, result) <- waitAnyCatch workers
+  pure $ case result of
+    Left exception -> exception
+    Right () -> toException (ErrorCall "a fuzz worker stopped without a failure")
+
+snapshot :: Stats -> IO Snapshot
+snapshot stats = do
+  now <- getCurrentTime
+  atomically $
+    Snapshot now . IntMap.toAscList
+      <$> readTVar (statsActive stats)
+      <*> readTVar (statsPropertyCases stats)
+      <*> readTVar (statsSuccessfulCases stats)
+      <*> readTVar (statsCompletedBatches stats)
+      <*> readTVar (statsBugs stats)
+      <*> readTVar (statsNewBugs stats)
+      <*> readTVar (statsReporter stats)
+
+-- | Write one announcement at a time, so that workers do not mix their lines.
+announceToLog :: MVar () -> Announcement -> IO ()
+announceToLog lock announcement = withMVar lock $ \() ->
+  case announcement of
+    FoundBug bug True -> do
+      hPutStrLn stderr ("✗ new bug " <> take 12 (bugId bug) <> " in " <> bugProperty bug)
+      hPutStrLn stderr (failureReport (bugFailure bug))
+      hPutStrLn stderr ("  replay: " <> replayCommand (bugFailure bug))
+    FoundBug bug False ->
+      hPutStrLn stderr ("· known bug " <> take 12 (bugId bug) <> " in " <> bugProperty bug <> " hit again (" <> show (bugHits bug) <> " hits)")
+    ReportedBug bug ->
+      hPutStrLn stderr ("↑ reported bug " <> take 12 (bugId bug) <> " as " <> maybe "?" issueUrl (bugIssue bug))
+    ReporterChanged status ->
+      hPutStrLn stderr ("  reporter: " <> describeReporter status)
 
 durationMicroseconds :: NominalDiffTime -> Int
 durationMicroseconds duration =
   max 1 (floor (realToFrac duration * (1000000 :: Double)))
 
--- | Distribute batches in proportion to positive weights without long bursts.
-cycleProperties :: [(Rational, property)] -> [property]
-cycleProperties properties = go [(weight, 0, value) | (weight, value) <- properties, weight > 0]
-  where
-    total = sum [weight | (weight, _) <- properties, weight > 0]
-    go [] = []
-    go entries =
-      let advanced = [(weight, credit + weight, value) | (weight, credit, value) <- entries]
-          best = maximum [credit | (_, credit, _) <- advanced]
-          (before, after) = break (\(_, credit, _) -> credit == best) advanced
-       in case after of
-            (weight, credit, value) : rest ->
-              value : go (before <> [(weight, credit - total, value)] <> rest)
-            [] -> []
+-- | Take the next property that does not rest. If each property rests,
+-- wait until the rest of the first one ends.
+nextProperty :: TVar [FuzzProperty] -> Stats -> Int -> IO FuzzProperty
+nextProperty scheduler stats lookahead = do
+  now <- getCurrentTime
+  (fuzzProperty, mustWait) <- atomically $ do
+    resting <- readTVar (statsResting stats)
+    scheduled <- readTVar scheduler
+    let rests item = maybe False (> now) (Map.lookup (fuzzPropertyId item) resting)
+    case pickProperty rests lookahead scheduled of
+      Just (picked, mustWait, remaining) -> do
+        writeTVar scheduler remaining
+        pure (picked, mustWait)
+      Nothing -> retry
+  when mustWait $ do
+    resting <- readTVarIO (statsResting stats)
+    forM_ (Map.lookup (fuzzPropertyId fuzzProperty) resting) $ \restEnd ->
+      threadDelay (durationMicroseconds (diffUTCTime restEnd now))
+  pure fuzzProperty
 
--- | Honor the requested parallelism even when fewer properties are selected.
-resolveJobCount :: Int -> Maybe Int -> Int
-resolveJobCount = fromMaybe
-
-nextProperty :: TVar [FuzzProperty] -> STM FuzzProperty
-nextProperty scheduler = do
-  scheduled <- readTVar scheduler
-  case scheduled of
-    fuzzProperty : remaining -> do
-      writeTVar scheduler remaining
-      pure fuzzProperty
-    [] -> retry
-
-worker :: TVar [FuzzProperty] -> Stats -> Int -> IO WorkerFailure
-worker scheduler stats workerId = do
-  fuzzProperty <- atomically (nextProperty scheduler)
+-- | Run batches until the thread is cancelled. A failure becomes a known bug.
+worker :: TVar [FuzzProperty] -> Stats -> Int -> Int -> IO ()
+worker scheduler stats lookahead workerId = forever $ do
+  fuzzProperty <- nextProperty scheduler stats lookahead
   let propertyId = fuzzPropertyId fuzzProperty
       clearActive = atomically (modifyTVar' (statsActive stats) (IntMap.delete workerId))
   atomically $ modifyTVar' (statsActive stats) (IntMap.insert workerId propertyId)
   result <- runBatch stats fuzzProperty `finally` clearActive
   case result of
-    Right () -> do
-      atomically $ modifyTVar' (statsCompletedBatches stats) (+ 1)
-      worker scheduler stats workerId
-    Left failureResult -> pure (WorkerFailure fuzzProperty failureResult)
+    Nothing -> atomically $ modifyTVar' (statsCompletedBatches stats) (+ 1)
+    Just failure -> do
+      now <- getCurrentTime
+      atomically $ modifyTVar' (statsResting stats) (Map.insert propertyId (addUTCTime (fromIntegral restSeconds) now))
+      recordBug stats failure
 
-runBatch :: Stats -> FuzzProperty -> IO (Either String ())
+recordBug :: Stats -> Failure -> IO ()
+recordBug stats failure = do
+  now <- getCurrentTime
+  (bug, isNew) <- atomically $ do
+    bugs <- readTVar (statsBugs stats)
+    let (bug, isNew, updated) = recordFailure now failure bugs
+    writeTVar (statsBugs stats) updated
+    when isNew $ modifyTVar' (statsNewBugs stats) (Set.insert (bugId bug))
+    pure (bug, isNew)
+  persistBugs stats
+  statsAnnounce stats (FoundBug bug isNew)
+
+-- | Write the current bugs to the store. The lock keeps the writes in order.
+persistBugs :: Stats -> IO ()
+persistBugs stats =
+  withMVar (statsStoreLock stats) $ \() -> do
+    bugs <- readTVarIO (statsBugs stats)
+    saveBugs (statsStorePath stats) bugs
+
+runBatch :: Stats -> FuzzProperty -> IO (Maybe Failure)
 runBatch stats fuzzProperty = withFuzzProperty fuzzProperty $ \fuzzPropertyValue -> do
   seed <- Seed.random
   previousCount <- newIORef 0
   let batchProperty = withTests (fromIntegral batchSize) fuzzPropertyValue
-  result <-
+  report <-
     checkReport
       (propertyConfig batchProperty)
       0
       seed
       (propertyTest batchProperty)
       (progressCallback previousCount)
-  recordCount previousCount result
-  case reportStatus result of
-    OK -> pure (Right ())
-    _ -> Left <$> renderResult DisableColor Nothing result
+  recordCount previousCount report
+  case reportStatus report of
+    OK -> pure Nothing
+    _ -> do
+      rendered <- renderResult DisableColor (Just (PropertyName (fuzzPropertyId fuzzProperty))) report
+      pure (Just (toFailure (fuzzPropertyId fuzzProperty) report rendered))
   where
     progressCallback previousCount report =
       case reportStatus report of
@@ -236,121 +371,27 @@ runBatch stats fuzzProperty = withFuzzProperty fuzzProperty $ \fuzzPropertyValue
         modifyTVar' (statsSuccessfulCases stats) (+ completed)
         modifyTVar' (statsPropertyCases stats) (Map.adjust (+ completed) (fuzzPropertyId fuzzProperty))
 
-withDashboard :: Bool -> TMVar () -> UTCTime -> Int -> Int -> Stats -> IO Outcome -> IO Outcome
-withDashboard keyboardEnabled quitSignal startedAt propertyCount jobs stats action = do
-  originalBuffering <- hGetBuffering stderr
-  bracket_
-    enterDashboard
-    (leaveDashboard originalBuffering)
-    (if keyboardEnabled then withKeyboard quitSignal run else run)
+-- | Describe a failed or given-up report.
+toFailure :: String -> Report Result -> String -> Failure
+toFailure propertyId Report {reportTests, reportDiscards, reportSeed, reportStatus} rendered =
+  Failure
+    { failureProperty = propertyId,
+      failureSeed = show reportSeed,
+      failureReplay = replay,
+      failureText = text,
+      failureValues = values,
+      failureSite = site,
+      failureReport = rendered
+    }
   where
-    run = do
-      renderer <- async (renderLoop startedAt propertyCount jobs stats)
-      action `finally` cancel renderer
-
-withKeyboard :: TMVar () -> IO Outcome -> IO Outcome
-withKeyboard quitSignal action = do
-  originalBuffering <- hGetBuffering stdin
-  originalAttributes <- Posix.getTerminalAttributes stdInput
-  bracket_
-    (enterKeyboardMode originalBuffering originalAttributes)
-    (leaveKeyboardMode originalBuffering originalAttributes)
-    ( do
-        watcher <- async (watchKeyboard quitSignal)
-        action `finally` cancel watcher
-    )
-
-enterKeyboardMode :: BufferMode -> Posix.TerminalAttributes -> IO ()
-enterKeyboardMode originalBuffering originalAttributes = do
-  let immediateInput =
-        Posix.withTime
-          (Posix.withMinInput (Posix.withoutMode (Posix.withoutMode originalAttributes Posix.EnableEcho) Posix.ProcessInput) 1)
-          0
-  hSetBuffering stdin NoBuffering
-  Posix.setTerminalAttributes stdInput immediateInput Posix.Immediately
-    `onException` hSetBuffering stdin originalBuffering
-
-leaveKeyboardMode :: BufferMode -> Posix.TerminalAttributes -> IO ()
-leaveKeyboardMode originalBuffering originalAttributes =
-  Posix.setTerminalAttributes stdInput originalAttributes Posix.Immediately
-    `finally` hSetBuffering stdin originalBuffering
-
-watchKeyboard :: TMVar () -> IO ()
-watchKeyboard quitSignal = go
-  where
-    go = do
-      key <- getChar
-      quit <-
-        if key == '\ESC'
-          then do
-            threadDelay 50000
-            hasContinuation <- hReady stdin
-            if hasContinuation
-              then drainAvailableInput >> pure False
-              else pure True
-          else pure (isQuitKey key)
-      if quit
-        then atomically (void (tryPutTMVar quitSignal ()))
-        else go
-
-drainAvailableInput :: IO ()
-drainAvailableInput = do
-  available <- hReady stdin
-  when available (getChar >> drainAvailableInput)
-
--- | Keys that request an immediate, successful stop.
-isQuitKey :: Char -> Bool
-isQuitKey key = key == 'q' || key == 'Q' || key == '\ESC'
-
-enterDashboard :: IO ()
-enterDashboard = do
-  hSetBuffering stderr (BlockBuffering Nothing)
-  hPutStr stderr "\ESC[?1049h\ESC[2J\ESC[H\ESC[?25l"
-  hFlush stderr
-
-leaveDashboard :: BufferMode -> IO ()
-leaveDashboard originalBuffering =
-  (hPutStr stderr "\ESC[?2026l\ESC[0m\ESC[?25h\ESC[?1049l" >> hFlush stderr)
-    `finally` hSetBuffering stderr originalBuffering
-
-renderLoop :: UTCTime -> Int -> Int -> Stats -> IO ()
-renderLoop startedAt propertyCount jobs stats = go []
-  where
-    go previousFrame = do
-      now <- getCurrentTime
-      (active, successfulCases, completedBatches, propertyCases) <-
-        atomically $
-          (,,,)
-            <$> readTVar (statsActive stats)
-            <*> readTVar (statsSuccessfulCases stats)
-            <*> readTVar (statsCompletedBatches stats)
-            <*> readTVar (statsPropertyCases stats)
-      terminalSize <- Terminal.size
-      let (rows, columns) =
-            case terminalSize of
-              Just window -> (Terminal.height window, Terminal.width window)
-              Nothing -> (24, 80)
-          currentFrame =
-            renderDashboard
-              rows
-              columns
-              Dashboard
-                { dashboardActive = IntMap.toAscList active,
-                  dashboardPropertyCases = Map.toAscList propertyCases,
-                  dashboardBatches = completedBatches,
-                  dashboardCases = successfulCases,
-                  dashboardElapsed = diffUTCTime now startedAt,
-                  dashboardJobs = jobs,
-                  dashboardProperties = propertyCount
-                }
-          update = renderFrameUpdate rows previousFrame currentFrame
-      unless (null update) $ hPutStr stderr update >> hFlush stderr
-      threadDelay dashboardRefreshMicroseconds
-      go currentFrame
-
-formatInteger :: Int -> String
-formatInteger value =
-  reverse . intercalate "," . chunksOfThree . reverse $ show value
-  where
-    chunksOfThree [] = []
-    chunksOfThree input = take 3 input : chunksOfThree (drop 3 input)
+    (replay, text, values, site) =
+      case reportStatus of
+        Failed failure ->
+          ( skipCompress (SkipToShrink reportTests reportDiscards (failureShrinkPath failure)) <> " " <> show reportSeed,
+            failureMessage failure,
+            map failedValue (failureAnnotations failure),
+            fmap renderSpan (failureLocation failure)
+          )
+        GaveUp -> (show reportSeed, "gave up: too many discards", [], Nothing)
+        OK -> (show reportSeed, "", [], Nothing)
+    renderSpan Span {spanFile, spanStartLine} = spanFile <> ":" <> show (unLineNo spanStartLine)

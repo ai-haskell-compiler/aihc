@@ -524,7 +524,9 @@ Timer variables remain garbage collection roots throughout the wait.
 Native heap objects have an eight-byte header followed by payload slots.
 The header contains an info-table address and two low tag bits.
 Info tables have at least four-byte alignment on every target.
-Bit zero marks a thunk under evaluation. Bit one marks a thunk with blocked waiters.
+In a thunk, bit zero alone marks a claimed or an evaluated thunk.
+Both bits mark a claim between its two stores, which one capability never shows.
+In an update frame, bit one marks a frame that a pause processed.
 Header readers mask both bits before they read the info table.
 
 ```text
@@ -539,7 +541,8 @@ Field zero of a thunk is its owner word.
 The free variables start at field one.
 A new thunk does not initialize the owner word, so the pointer bitmap marks it as a word that is not a pointer.
 An update writes the result into the owner word, so the free variables stay intact.
-The design of the owner word is in the blackholing section of
+A thunk with bit zero names its owner thread, a blackhole queue of its owner, or its value in field zero.
+The design of the owner word and the lazy claims is in the blackholing section of
 [multi-threaded-rts-design.md](multi-threaded-rts-design.md).
 
 Each info table records the object's identity, populated field count, remaining
@@ -548,7 +551,7 @@ apply entry, and the static reference table of the object's code.
 Its `needs_eval` byte is `1` for a thunk and a blackhole, `2` for an indirection, and `0` for a value.
 The inline evaluation check of compiled code reads only this byte.
 The byte is correct for each header state.
-A thunk under evaluation keeps its thunk table, and an update writes the indirection table.
+A claimed and an evaluated thunk keep their thunk table, and the collector makes indirections.
 Application changes the header to the statically known next table.
 Ordinary objects share this static metadata.
 A thunk under evaluation retains its original info table and payload.
@@ -584,19 +587,20 @@ lowered to an ordinary closure whose generated entry makes the saturated
 primitive call.
 
 Every updateable object reserves at least two words. A thunk has its owner
-word for this purpose. Evaluating a thunk changes
-its header to `BLACKHOLE`, executes the entry encoded by its old header, then
-changes the same object to `INDIRECTION` and writes the returned heap pointer
-into its first payload word. There is no separate cell allocation.
+word for this purpose. Evaluating a thunk executes the entry encoded by its
+header. The update writes the returned heap pointer into the owner word and
+sets bit zero of the header. There is no separate cell allocation.
 
 Exceptions have no native heap tag or object representation. They are removed
 before native runtime lowering. The final physical tag is the collector's
 temporary forwarding marker.
 
-The collector does not copy heap indirections of the generations it copies.
-When it forwards a pointer to such an indirection, it follows the chain and
-stores the final target, so the copied objects hold no indirection after a
-collection. An indirection of an older generation stays until a collection
+The collector does not copy heap indirections or evaluated thunks of the
+generations it copies. When it forwards a pointer to such an object, it
+follows the chain and stores the final target, so the copied objects hold no
+indirection after a collection. The thunk field of an update frame is the
+exception: the collector keeps an evaluated thunk there, because a second
+update of the thunk must not write into its value. An indirection of an older generation stays until a collection
 copies that generation. Static indirections stay in place, because static
 objects do not move. The collector forwards their targets instead.
 
@@ -625,7 +629,7 @@ runtime. The driver plays the part of compiled code for several threads: it
 pushes and enters frames as the continue helpers do, and it gives each
 resumption of the scheduler to the thread it names. After every collection
 the driver reports the objects, the frames of every live stack, the threads,
-the run queue, the MVar waiters, the blackhole table, the roots, and the
+the run queue, the MVar waiters, the blackhole queues, the roots, and the
 static objects. A model of the same script checks the report.
 
 The model knows no collector policy. After every collection, each object
@@ -646,7 +650,7 @@ The runtime has a verifier for these tests. When the C preprocessor symbol
 objects the roots reach. The walk checks that each reachable object is in
 an occupied slot of a live block, that no reachable header is a forwarding
 header, that each reachable frame is live in a registered chunk, that the
-remembered set and the blackhole table hold valid objects, that the
+remembered set holds valid objects, that the
 pending frames of a cycle are live, and that the chunks of a stack grow
 older from its top. A violation stops the program at the collection that
 caused it. The fuzz driver and the GRIN `gc-stress` fixtures run with the
@@ -732,56 +736,64 @@ The number remains at offset eight on every target.
 `aihcThreadIdNumber#` reads it with one load.
 `myThreadId#` reads the current thread from the machine.
 
-Blackhole waiters use the managed heap.
+Blackhole waiters and blackhole queues use the managed heap.
 Each waiter has a header, thread, continuation, and queue link.
+A queue has a header, its owner thread, its thunk, both ends of its waiter list, and the link of the queue list of its owner.
+A claimed thunk with waiters names its queue in field zero.
+The resumption fields of a thread record include the queues of the thunks that the thread claimed, and they are roots.
 The collector traces these fields through the C layout.
-A machine-local hash table maps each contended thunk to both ends of its waiter queue.
-The first contention allocates the table with C allocation.
-The table grows as necessary and retains its capacity for reuse.
-These arrays are runtime metadata, outside managed allocation statistics and the `-M` limit.
-Waiter records count toward both statistics and the limit.
-Ordinary thunk evaluation allocates no table entry or blackhole record.
+Waiter and queue records count toward allocation statistics and the `-M` limit.
+Ordinary thunk evaluation allocates no queue.
 
-`aihc_lir_eval` follows indirections before it selects a branch.
+`aihc_lir_eval` follows indirections and evaluated thunks before it selects a branch.
 A ready value requires no reservation or update frame.
 The thunk branch pushes a three-slot update frame on the thread stack.
 If the push grows the stack and the charge of the new chunk uses the nursery, the branch collects.
 It protects the value and the continuation as roots, and then it evaluates the value again.
 The new chunk stays empty above the stack pointer for the next push.
-The blackhole branch reserves four slots, which cover a waiter on every target.
+The blackhole branch takes a claimed thunk: field zero names a thread record or a queue.
+It reserves ten slots, which cover a waiter and a queue on every target.
 It protects the resolved value and the continuation as roots across collection.
 The thunk branch stores the parent continuation and resolved thunk in the update frame.
-It sets the evaluation bit and transfers to the thunk entry.
-The original info table and payload remain intact, including across suspension.
-No owner record is necessary.
+It writes nothing into the thunk and transfers to the thunk entry.
 
-`aihc_block_on_blackhole` walks the current continuation chain to detect self-re-entry.
-An update frame for the same thunk proves self-re-entry.
-Otherwise, it inserts a waiter into the hash table and sets the waiter bit.
-The runtime consumes the reserved waiter space without collection.
+A pause claims the thunks of the update frames of a thread.
+The thread pauses when it yields, when it blocks on an MVar or a thunk, and when an IO request suspends it.
+A collection is a pause too, and the collector claims the thunk of each update frame that it scans.
+The pause walks the frames from the top, claims each thunk in the state Thunk, and marks each update frame.
+It stops at the first marked frame.
+A claim stores the thread into field zero and sets bit zero.
+A thunk that the same thread claimed stays as it is: the thread entered the thunk twice.
+
+`aihc_block_on_blackhole` reads the owner from field zero.
+When the owner is the current thread, the thread re-entered its thunk, and the runtime stops the program.
+Otherwise, it appends a waiter to the queue of the thunk, and the first waiter makes the queue.
+The runtime consumes the reserved space without collection.
 The scheduler suspends that thread until an update or exception wakes it.
 
-The shared update continuation saves the tag bits and updates the thunk to an indirection.
-If the waiter bit was set, it removes the table entry and wakes its waiters.
-An uncontended update performs no table lookup.
+The shared update continuation writes the result into field zero and sets bit zero.
+A young thunk that no pause claimed gets the two stores in Lir.
+The C update wakes the waiters of a queue of the current thread and removes the queue from its list.
 The continuation then evaluates the result with the parent continuation.
-Exception unwinding clears both bits and raises the exception in each waiter.
-The restored thunk can be evaluated again.
-No collection or scheduler switch occurs between a header change and removal of its waiter entry.
+Exception unwinding gives a thunk that the thread claimed back the state Thunk and raises the exception in each waiter.
+A thunk that no pause claimed needs nothing, because the entry wrote nothing into it.
 
 `aihc_lir_eval_single_entry` enters a thunk with no update frame, evaluation bit, or reservation.
 The compiler uses it only for a thunk that no other evaluation can reach.
 The thunk is not updated, and the collector can reclaim it as soon as its entry has loaded its fields.
-A value with the evaluation bit, an indirection, or a blackhole goes to `aihc_lir_eval`.
+A value with bit zero or an indirection goes to `aihc_lir_eval`.
 
 The inline check that compiled code does before an evaluation tests `needs_eval` against zero first.
-Only an object that is not a value then tests for an indirection.
-The check follows an indirection to its target, because an updated thunk stays an indirection until the next collection.
+Only an object that is not a value then tests for an indirection and for a thunk with bit zero alone.
+The check follows an indirection to its target.
+It also follows an evaluated thunk to its value: field zero names an object that is not a thread record and not a queue.
+Both stay until the next collection that copies their generation.
 
 The collector masks the header tags and traces the original thunk layout and static reference table.
+For a thunk with bit zero, it traces field zero as well.
+The code and the free variables of an evaluated thunk are dead, so the collector does not trace them.
 An update continuation retains its thunk while evaluation is in progress.
-The waiter table also retains contended thunks and their waiter queues.
-Collection relocates the table keys and queue ends, then rebuilds the hash table in a reusable spare array.
+The owner thread retains its queues, and each queue retains its thunk and its waiters.
 This rule applies to both static and heap thunks.
 The scheduler does not scan the table to find completed thunks.
 

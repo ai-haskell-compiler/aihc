@@ -240,8 +240,7 @@ after the snapshot reference objects that are either newer than the snapshot
 or reachable at the snapshot, and the barrier covers every deletion.
 
 **Weak references.** At the end of the cycle, stable names with an unmarked
-referent, unmarked pinned blocks, and blackhole table entries with an unmarked
-key are dropped. The lists are short, and the work is one bounded slice.
+referent and unmarked pinned blocks are dropped. The lists are short, and the work is one bounded slice.
 
 **Sweep.** The mark bitmap of a segment becomes its free map. A segment is
 swept when the promotion allocator takes it, and each collection sweeps a

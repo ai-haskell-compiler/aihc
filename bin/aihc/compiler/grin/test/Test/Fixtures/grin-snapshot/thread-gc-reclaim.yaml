@@ -28,7 +28,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 19200
-  linux-amd64: 19200
+  macos-arm64: 20800
+  linux-amd64: 20800
 status: pass
 reason: Completed threads must become reclaimable in a small heap.

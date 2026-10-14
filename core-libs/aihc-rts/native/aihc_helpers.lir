@@ -62,7 +62,26 @@ entry:
 loop(%current: ptr):
   %header_word = call @aihc_object_header_word(%current)
   %evaluating = call @aihc_header_is_evaluating(%header_word)
-  br %evaluating, blackhole, inspect
+  br %evaluating, claimed, inspect
+
+; Bit zero marks a claimed or an evaluated thunk. Both bits mark a claim
+; between its two stores, which lasts two stores of another thread, so the
+; header is read again. Field zero names the owner, a thread record or a
+; blackhole queue, or it is the value. No Haskell value has the kind of a
+; thread record or a queue.
+claimed:
+  %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
+  %claiming = eq i64 %tag, @AIHC_HEADER_TAG_MASK
+  br %claiming, loop(%current), owned
+
+owned:
+  %word = call @aihc_indirection_target(%current)
+  %word_header = call @aihc_info_table(%word)
+  %word_kind = call @aihc_info_kind(%word_header)
+  %is_thread = eq i64 %word_kind, @AIHC_OBJECT_THREAD
+  %is_queue = eq i64 %word_kind, @AIHC_OBJECT_BLACKHOLE_QUEUE
+  %has_owner = or i1 %is_thread, %is_queue
+  br %has_owner, blackhole, loop(%word)
 
 inspect:
   %header = call @aihc_info_table_of_header(%header_word)
@@ -119,10 +138,9 @@ push(%update: ptr, %pushed_sp: ptr, %pushed_sp_limit: ptr, %pushed_hp_limit: ptr
   store i64 %parent_word, [%update + 8] align 8
   %value_word = ptr.to_int %current
   store i64 %value_word, [%update + 16] align 8
-  ; The thunk payload and original info table remain intact.
+  ; The entry writes nothing into the thunk. A pause claims it later, when
+  ; the evaluation has not ended by then.
   %entry = call @aihc_info_entry(%header)
-  %marked = or i64 %header_word, @AIHC_HEADER_EVALUATING
-  store i64 %marked, [%current] align 8
   tailcall.indirect %entry(%hp, %pushed_hp_limit, %pushed_sp, %pushed_sp_limit, %current, %update) : (ptr, ptr, ptr, ptr, ptr, ptr)
 
 indirection:
@@ -656,27 +674,28 @@ entry:
   return %young
 }
 
-; Replace a blackhole with an indirection to the result. Most blackholes are
-; young and have no waiters, so the two stores do the update here. An old
-; blackhole goes to the C update, which records it in the remembered set. A
-; blackhole with waiters goes there as well, and the C update wakes the
-; waiters. An object that is not a blackhole also goes to the C update,
-; which stops the program.
+; Update a thunk with the result of its evaluation: the result goes into
+; field zero, and the header keeps the thunk table with bit zero. Most
+; thunks are young, and no pause claimed them, so the two stores do the
+; update here. An old thunk goes to the C update, which records it in the
+; remembered set. A claimed thunk goes there as well, and the C update wakes
+; the waiters of its queue. An object that is not a thunk also goes to the C
+; update, which stops the program.
 inline func @aihc_update_blackhole_inline(%sp_limit: ptr, %blackhole: ptr, %result: ptr) {
 entry:
   %header_word = call @aihc_object_header_word(%blackhole)
   %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
-  %no_waiters = eq i64 %tag, @AIHC_HEADER_EVALUATING
+  %unclaimed = eq i64 %tag, 0
   %capability = call @aihc_stack_capability(%sp_limit)
   %young = call @aihc_object_is_young(%capability, %blackhole)
-  %plain = and i1 %no_waiters, %young
+  %plain = and i1 %unclaimed, %young
   br %plain, plain, waiters
 
 plain:
   %result_word = ptr.to_int %result
   store i64 %result_word, [%blackhole + 8] align 8
-  %indirection_word = ptr.to_int @aihc_indirection_info
-  store i64 %indirection_word, [%blackhole] align 8
+  %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
+  store i64 %evaluated_word, [%blackhole] align 8
   return
 
 cold waiters:

@@ -58,8 +58,7 @@ enum {
   AIHC_OBJECT_MVAR,
   AIHC_OBJECT_MVAR_WAITER,
   AIHC_OBJECT_BLACKHOLE_WAITER,
-  /* Reserved legacy object kind. */
-  AIHC_OBJECT_BLACKHOLE_RECORD,
+  AIHC_OBJECT_BLACKHOLE_QUEUE,
   AIHC_OBJECT_STABLE_NAME,
   AIHC_OBJECT_BYTE_ARRAY,
   AIHC_OBJECT_IO_REQUEST,
@@ -84,7 +83,7 @@ typedef struct AihcTransactionTimer AihcTransactionTimer;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
-typedef struct AihcBlackholeTable AihcBlackholeTable;
+typedef struct AihcBlackholeQueue AihcBlackholeQueue;
 typedef struct AihcIoHandle AihcIoHandle;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
@@ -318,7 +317,6 @@ struct AihcMachine {
   uint64_t heap_max_bytes;
   uint8_t heap_limit_enabled;
   uint8_t program_started;
-  AihcBlackholeTable *blackholes;
   AihcStableName *stable_names;
   uint64_t next_stable_name;
   /* The number of the next new thread. The counter starts at one, it gives the
@@ -415,9 +413,13 @@ void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
                           uint64_t *slots);
 
 /* Info tables have at least four-byte alignment on every target.
-   These bits belong to the thunk header, not to references to the thunk. */
+   These bits belong to the thunk header, not to references to the thunk.
+   Bit zero alone marks a claimed or evaluated thunk: field zero names its
+   owner or its value. Both bits mark a claim between its two stores. Bit one
+   of an update frame marks a frame that a pause processed. */
 #define AIHC_HEADER_EVALUATING UINT64_C(1)
-#define AIHC_HEADER_WAITERS UINT64_C(2)
+#define AIHC_HEADER_CLAIMING UINT64_C(2)
+#define AIHC_FRAME_PROCESSED UINT64_C(2)
 #define AIHC_HEADER_TAG_MASK UINT64_C(3)
 
 static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {

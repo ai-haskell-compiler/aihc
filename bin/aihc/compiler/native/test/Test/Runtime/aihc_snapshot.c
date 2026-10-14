@@ -112,6 +112,22 @@ static void print_scalar(AihcSlot value, AihcSnapshotRep rep) {
   snapshot_fail("unknown runtime representation");
 }
 
+/* The kind of an object as a snapshot shows it. An evaluated thunk keeps
+   its thunk table with bit zero, and field zero is its value, so it shows as
+   an indirection. A claimed thunk names its owner there instead: a thread
+   record or a blackhole queue. */
+static AihcObjectKind snapshot_kind(const AihcValue *object) {
+  AihcObjectKind kind = aihc_value_kind(object);
+  if (kind == AIHC_OBJECT_BLACKHOLE) {
+    const AihcValue *word = (const AihcValue *)(uintptr_t)object->fields[0];
+    AihcObjectKind owner = aihc_value_info_table(word)->object_kind;
+    if (owner != AIHC_OBJECT_THREAD && owner != AIHC_OBJECT_BLACKHOLE_QUEUE) {
+      return AIHC_OBJECT_INDIRECTION;
+    }
+  }
+  return kind;
+}
+
 static void discover_value(SnapshotState *state, AihcSlot slot,
                            AihcSnapshotRep rep);
 
@@ -133,7 +149,7 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     return;
   }
 
-  AihcObjectKind kind = aihc_value_kind(object);
+  AihcObjectKind kind = snapshot_kind(object);
   switch (kind) {
   case AIHC_OBJECT_NODE:
   case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
@@ -217,7 +233,7 @@ static void print_fields(SnapshotState *state, const AihcSlot *fields,
 }
 
 static void print_object(SnapshotState *state, const AihcValue *object) {
-  AihcObjectKind kind = aihc_value_kind(object);
+  AihcObjectKind kind = snapshot_kind(object);
   switch (kind) {
   case AIHC_OBJECT_NODE:
   case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
