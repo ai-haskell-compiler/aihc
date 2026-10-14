@@ -520,6 +520,7 @@ uint64_t aihc_rts_gen1_collections_set(void);
 uint64_t aihc_rts_gen2_factor(void);
 /* The -R option, or zero for the default. */
 uint64_t aihc_rts_barrier_budget_bytes(void);
+uint64_t aihc_rts_gc_workers(void);
 uint64_t aihc_rts_mark_factor(void);
 /* Apply the parsed collector options to a capability whose nursery is empty. */
 void aihc_gc_apply_options(AihcCapability *capability);
@@ -546,6 +547,14 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
 const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result);
 void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
+/* The two parts of aihc_visit_roots: the roots of one capability, and the
+   roots of the machine with the roots of the requester. A collection with
+   several workers visits each part once. */
+void aihc_visit_capability_roots(AihcCapability *capability,
+                                 AihcRootVisitor visitor, void *context);
+void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
+                              AihcSlot *roots, AihcRootVisitor visitor,
+                              void *context);
 /* The header every runtime object outside the managed heap carries. */
 
 void aihc_gc_init(AihcCapability *capability);

@@ -366,6 +366,9 @@ struct AihcMachine {
   /* The -R budget of barrier work between two collections of a capability,
      in bytes. */
   uint64_t barrier_budget;
+  /* The -qn count: the workers of a collection that copies the young
+     generations. One selects the sequential collector. */
+  uint64_t gc_workers;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
   uint64_t gc_minor_count;

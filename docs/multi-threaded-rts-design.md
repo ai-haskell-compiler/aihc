@@ -62,6 +62,14 @@ The write barrier ignores an object in the nursery of any capability.
 `aihc_machine_set_capabilities` changes the count when all nurseries are empty.
 A removed capability gives its gen1 blocks and its remembered set to the first capability.
 Only the collector fuzz driver uses more than one capability.
+The bridge collector copies the young generations with `-qn` workers on OS threads.
+Each worker visits the roots of its capabilities, and the first worker also visits the roots of the machine.
+The workers divide the remembered objects of all capabilities.
+A worker claims an object with a busy header before it copies the object, and it writes the forwarding header with a release store.
+Each worker fills its own gen1 blocks and gives long unscanned runs to the other workers.
+The workers record frames under a lock, and they claim the thunks of update frames after the parallel phase.
+A full collection still uses one worker, because it marks gen2 and walks the static reference tables.
+The default of `-qn` is one until `-N` above one is available.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

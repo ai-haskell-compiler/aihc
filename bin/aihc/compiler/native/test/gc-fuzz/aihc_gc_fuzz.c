@@ -27,6 +27,7 @@
      capabilities C       give the machine C capabilities
      heap K               allocate the objects of later commands in the
                           nursery of capability K
+     workers K            collect the young generations with K workers
      srt I O C e...       reference table I names O static objects and C
                           child tables
      current_srt I|-1     pass table I as the running function's table to
@@ -1912,6 +1913,15 @@ static void run_command(char **tokens, size_t count) {
     aihc_machine_set_capabilities(capability, total);
     heap = capability;
     heap_index = 0;
+  } else if (strcmp(name, "workers") == 0) {
+    if (count != 2) {
+      fail("workers expects one argument");
+    }
+    uint64_t workers = parse_unsigned(tokens[1]);
+    if (workers == 0 || workers > 64) {
+      fail("workers expects a count from one to 64");
+    }
+    capability->machine->gc_workers = workers;
   } else if (strcmp(name, "heap") == 0) {
     if (count != 2) {
       fail("heap expects one argument");

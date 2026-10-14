@@ -51,8 +51,17 @@ typedef struct AihcRegionFreeRun {
   struct AihcRegionFreeRun *next;
 } AihcRegionFreeRun;
 
-static AihcRegionLeaf **aihc_region_top;
-static size_t aihc_region_top_count;
+/* The top level of the table. A larger table replaces it, and the old
+   table stays allocated: the workers of a collection read the table while
+   one of them acquires regions under the allocation lock. Thus a reader
+   loads the table with an acquire load and finds a table that holds its
+   own count. A leaf is published with a release store. */
+typedef struct {
+  size_t count;
+  AihcRegionLeaf *leaves[];
+} AihcRegionTop;
+
+static AihcRegionTop *aihc_region_top;
 static AihcRegionFreeRun *aihc_region_free_runs;
 static size_t aihc_region_free_count;
 
@@ -73,27 +82,34 @@ static size_t aihc_region_leaf_index(const void *address) {
    leaf gives null. */
 static AihcRegionEntry *aihc_region_entry(const void *address, int create) {
   size_t top = aihc_region_top_index(address);
-  if (top >= aihc_region_top_count) {
+  AihcRegionTop *table = __atomic_load_n(&aihc_region_top, __ATOMIC_ACQUIRE);
+  size_t count = table == NULL ? 0 : table->count;
+  if (top >= count) {
     if (!create) {
       return NULL;
     }
-    size_t grown = aihc_region_top_count == 0 ? 1 : aihc_region_top_count;
+    size_t grown = count == 0 ? 1 : count;
     while (grown <= top) {
-      if (grown > SIZE_MAX / 2 / sizeof(*aihc_region_top)) {
+      if (grown >
+          (SIZE_MAX - sizeof(AihcRegionTop)) / 2 / sizeof(AihcRegionLeaf *)) {
         aihc_fail("region table is too large");
       }
       grown *= 2;
     }
-    AihcRegionLeaf **table = realloc(aihc_region_top, grown * sizeof(*table));
-    if (table == NULL) {
+    AihcRegionTop *larger =
+        calloc(1, sizeof(AihcRegionTop) + grown * sizeof(AihcRegionLeaf *));
+    if (larger == NULL) {
       aihc_fail("out of memory for the region table");
     }
-    memset(table + aihc_region_top_count, 0,
-           (grown - aihc_region_top_count) * sizeof(*table));
-    aihc_region_top = table;
-    aihc_region_top_count = grown;
+    larger->count = grown;
+    for (size_t index = 0; index < count; ++index) {
+      larger->leaves[index] =
+          __atomic_load_n(&table->leaves[index], __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&aihc_region_top, larger, __ATOMIC_RELEASE);
+    table = larger;
   }
-  AihcRegionLeaf *leaf = aihc_region_top[top];
+  AihcRegionLeaf *leaf = __atomic_load_n(&table->leaves[top], __ATOMIC_ACQUIRE);
   if (leaf == NULL) {
     if (!create) {
       return NULL;
@@ -102,7 +118,7 @@ static AihcRegionEntry *aihc_region_entry(const void *address, int create) {
     if (leaf == NULL) {
       aihc_fail("out of memory for the region table");
     }
-    aihc_region_top[top] = leaf;
+    __atomic_store_n(&table->leaves[top], leaf, __ATOMIC_RELEASE);
   }
   return &leaf->entries[aihc_region_leaf_index(address)];
 }

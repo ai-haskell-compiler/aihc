@@ -55,6 +55,7 @@ tests =
       runtimeProgramTest "a thread record stays in gen2 at one address" [] globalThreadSource,
       runtimeProgramTest "a store of a local value into a global object counts an escape" [] escapeCountSource,
       runtimeProgramTest "barrier work that reaches the -R budget makes the next reservation collect" ["+RTS", "-R64", "-RTS"] barrierBudgetSource,
+      runtimeProgramTest "-qn3 collects the young generations with three workers" ["+RTS", "-qn3", "-RTS"] parallelCollectionSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,
@@ -429,6 +430,50 @@ escapeCountSource =
       "  if (capability->escape_count != before + 1) return 3;",
       "  aihc_write_barrier_store_at(capability, old, 0, (AihcSlot)(uintptr_t)young);",
       "  if (capability->escape_count != before + 2) return 4;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | The -qn option sets the workers of a young collection. A tree of 1023
+-- nodes is more than one shared run, so the workers scan runs that other
+-- workers copied. The sum of the tree does not change across collections
+-- of the nursery and of gen1. One reservation below the large object bound
+-- holds the whole tree.
+parallelCollectionSource :: String
+parallelCollectionSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "#define DEPTH 10",
+      "static const uint8_t pointers[] = {1, 1, 0};",
+      "static const AihcInfo info = {.field_is_pointer = pointers, .field_count = 3, .object_kind = AIHC_OBJECT_NODE};",
+      "static AihcSlot build(AihcCapability *capability, unsigned depth, uint64_t *next) {",
+      "  if (depth == 0) return 0;",
+      "  AihcSlot left = build(capability, depth - 1, next);",
+      "  AihcSlot right = build(capability, depth - 1, next);",
+      "  AihcValue *node = aihc_gc_allocate(capability, 4);",
+      "  node->header = (AihcSlot)(uintptr_t)&info;",
+      "  node->fields[0] = left;",
+      "  node->fields[1] = right;",
+      "  node->fields[2] = (*next)++;",
+      "  return (AihcSlot)(uintptr_t)node;",
+      "}",
+      "static uint64_t sum(AihcSlot slot) {",
+      "  if (slot == 0) return 0;",
+      "  const AihcValue *node = (const AihcValue *)(uintptr_t)slot;",
+      "  return node->fields[2] + sum(node->fields[0]) + sum(node->fields[1]);",
+      "}",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  if (capability->machine->gc_workers != 3) return 1;",
+      "  aihc_ensure_heap(capability, 4 * ((UINT64_C(1) << DEPTH) - 1), 0, NULL, NULL);",
+      "  uint64_t next = 1;",
+      "  AihcSlot root = build(capability, DEPTH, &next);",
+      "  uint64_t expected = sum(root);",
+      "  for (unsigned round = 0; round < 4; ++round) {",
+      "    aihc_gc_collect_generation(capability, round % 2, 1, &root, NULL);",
+      "    if (sum(root) != expected) return 2;",
+      "  }",
       "  return 0;",
       "}"
     ]

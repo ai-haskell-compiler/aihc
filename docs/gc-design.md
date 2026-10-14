@@ -284,6 +284,7 @@ least one chunk of stack growth.
 | `-n<size>` | Nursery block size, zero selects the default | 32 KiB |
 | `-R<size>` | Barrier work between two collections of a capability | The nursery size |
 | `-B<count>` | Collections that a survivor stays in gen1, zero for none | 1 |
+| `-qn<count>` | Workers of a collection that copies the young generations, at most 64 | 1 |
 | `-F<factor>` | Gen2 growth factor between cycles | 2 |
 | `-k<factor>` | Mark work for each byte promoted into gen2 | 2 |
 | `-M<size>` | Heap limit, as today | Off |

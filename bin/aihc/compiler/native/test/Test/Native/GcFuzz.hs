@@ -83,7 +83,8 @@ tests =
           testCase "scans the frames below a pop across chunks" (checkScript getDriver deepPopScript),
           testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
           testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript),
-          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript)
+          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript),
+          testCase "shares the scan of a wide heap among workers" (checkScript getDriver wideScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -105,6 +106,23 @@ evaluatedStaticScript =
     CFill 0,
     CCollect
   ]
+
+-- | One array names a thousand nodes, and each node names a leaf in the
+-- nursery of the second capability. The scan of the array copies more than
+-- one shared run, so the workers of the collection scan runs that other
+-- workers copied. The random scripts are too small for a shared run.
+wideScript :: [Command]
+wideScript =
+  [CMachine 0 1 65536 0, CCapabilities 2, CWorkers 4, CCurrentSrt Nothing, CPush 1 FSStop, CReserve (2 + 3 * width), CArray 2 width Nothing]
+    <> [CNew (3 + index) KNode [True] Nothing | index <- [0 .. width - 1]]
+    <> [CHeap 1, CReserve width]
+    <> [CNew (leaf index) KNode [] Nothing | index <- [0 .. width - 1]]
+    <> [CHeap 0]
+    <> concat [[CSet (3 + index) 0 (VHeap (leaf index)), CSet 2 index (VHeap (3 + index))] | index <- [0 .. width - 1]]
+    <> [CRoot 0 (VHeap 2), CCollect, CCollectGeneration 1, CCollect]
+  where
+    width = 1000
+    leaf index = 3 + width + index
 
 -- | A stack of frames across several chunks, a gen2 cycle with a small
 -- slice, and a pop into a lower chunk followed by new frames. The frames
@@ -248,6 +266,7 @@ prop_collect getDriver = withTests 500 . property $ do
           cover 5 (fromString "thunk update") (has (\case CEnter _ (Just _) -> True; _ -> False))
           cover 2 (fromString "static thunk update") (has (\case CSUpdate {} -> True; _ -> False))
           cover 2 (fromString "large array") (has (\case CArray _ count _ -> count >= largeArrayElements; _ -> False))
+          cover 10 (fromString "collection with several workers") (has (\case CWorkers _ -> True; _ -> False) && Map.size reports > 0)
           cover 10 (fromString "allocation in the nursery of another capability") (has (\case CHeap index -> index > 0; _ -> False))
           cover 5 (fromString "several threads") (has (\case CFork {} -> True; _ -> False))
           cover 2 (fromString "thread blocks on an MVar") (has (\case CTake _ -> True; CRead _ -> True; CPut {} -> True; _ -> False))
@@ -489,6 +508,8 @@ data Command
     -- or zero for the default slice.
     CMachine Int Int Int Int
   | CCapabilities Int
+  | -- | Collect the young generations with this many workers.
+    CWorkers Int
   | -- | Allocate the objects of later commands in the nursery of this
     -- capability. Runtime operations allocate in the first nursery.
     CHeap Int
@@ -540,6 +561,7 @@ renderCommand :: Command -> String
 renderCommand command = unwords $ case command of
   CMachine globals roots bytes slice -> ["machine", show globals, show roots, show bytes, show slice]
   CCapabilities count -> ["capabilities", show count]
+  CWorkers count -> ["workers", show count]
   CHeap index -> ["heap", show index]
   CSrt index objects children -> ["srt", show index, show (length objects), show (length children)] <> map (('s' :) . show) objects <> map show children
   CCurrentSrt srt -> ["current_srt", renderSrt srt]
@@ -607,6 +629,7 @@ applyCommand command model = case command of
     | slot < staticThunkCount -> model {mStaticThunkSrts = setAt slot srt (mStaticThunkSrts model)}
     | otherwise -> model {mStaticNodeSrts = setAt (slot - staticThunkCount) srt (mStaticNodeSrts model)}
   CCapabilities count -> model {mCapabilities = count}
+  CWorkers _ -> model
   CHeap _ -> model
   CFill _ -> model
   CReserve _ -> model
@@ -1483,7 +1506,8 @@ genScript = do
   -- A small mark slice spreads a gen2 cycle over several collections.
   slice <- Gen.element [0, 64, 256, 4096]
   capabilities <- Gen.element [1, 1, 2, 3, 4]
-  let setup = [CMachine globals roots (8 * spaceWords) slice] <> [CCapabilities capabilities | capabilities > 1] <> srts <> staticSrts <> [current, CPush 1 FSStop]
+  workers <- Gen.element [1, 1, 2, 3, 4]
+  let setup = [CMachine globals roots (8 * spaceWords) slice] <> [CCapabilities capabilities | capabilities > 1] <> [CWorkers workers | workers > 1] <> srts <> staticSrts <> [current, CPush 1 FSStop]
   epochCount <- Gen.int (Range.constant 1 (pEpochMax profile))
   epochs <- genEpochs profile (applyCommands setup emptyModel) epochCount
   pure (setup <> epochs)

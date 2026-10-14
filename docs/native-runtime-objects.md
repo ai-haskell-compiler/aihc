@@ -46,6 +46,10 @@ The `-R<size>` option sets the budget of barrier work between two collections of
 The write barrier counts the scan work that it adds: the size of each object that it puts in the remembered set, and one run of 128 elements for each card that it makes dirty.
 When the work reaches the budget, the heap limit goes below the nursery, and the next reservation collects instead of a block refill.
 A compiled store site loads the heap limit again after its barrier call.
+The `-qn<count>` option sets the number of workers of a collection that copies the young generations, one by default.
+Each worker is an OS thread, and a collection with one worker uses no atomic operation.
+A full collection uses one worker.
+A wasm32 host always uses one worker.
 The `-B<count>` option sets the number of collections that a survivor stays in gen1, 1 by default.
 The collection at the end of this time copies all of gen1 into gen2.
 A count of zero copies the survivors of the nursery into gen2 directly.
