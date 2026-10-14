@@ -523,12 +523,29 @@ static int is_object_start(const AihcValue *object) {
   return 0;
 }
 
+/* Whether a thunk with bit zero is evaluated: field zero is its value, not
+   its owner thread or the blackhole queue of its owner. */
+static int thunk_is_evaluated(const AihcValue *object) {
+  const AihcValue *word = (const AihcValue *)(uintptr_t)object->fields[0];
+  AihcObjectKind kind = aihc_value_info_table(word)->object_kind;
+  return kind != AIHC_OBJECT_THREAD && kind != AIHC_OBJECT_BLACKHOLE_QUEUE;
+}
+
+/* Whether an object stands for the object that field zero names: an
+   indirection, or an evaluated thunk. */
+static int is_indirection(const AihcValue *object) {
+  if (aihc_value_kind(object) == AIHC_OBJECT_BLACKHOLE) {
+    return thunk_is_evaluated(object);
+  }
+  return aihc_value_kind(object) == AIHC_OBJECT_INDIRECTION;
+}
+
 /* A pointer to a heap indirection names its target: the mutator follows
-   indirections, and the collector removes only the ones it copies away. */
+   indirections and evaluated thunks, and the collector removes only the
+   ones it copies away. */
 static const AihcValue *follow_indirections(const AihcValue *object) {
   for (int fuel = 0; fuel < 1000; ++fuel) {
-    if (!is_object_start(object) ||
-        aihc_value_kind(object) != AIHC_OBJECT_INDIRECTION) {
+    if (!is_object_start(object) || !is_indirection(object)) {
       return object;
     }
     object = (const AihcValue *)(uintptr_t)object->fields[0];
@@ -631,10 +648,14 @@ static const char *resume_kind_name(AihcResumeKind kind) {
 }
 
 /* The payload of one object. A partial constructor spends field zero on the
-   count of the slots it has filled, so its fields start one slot later. */
+   count of the slots it has filled, and a thunk spends it on its owner word,
+   so their fields start one slot later. */
 static AihcSlot *entry_fields(Entry *entry) {
   if (entry->info->object_kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
     return aihc_partial_fields(entry->address);
+  }
+  if (entry->info->object_kind == AIHC_OBJECT_THUNK) {
+    return entry->address->fields + 1;
   }
   return entry->address->fields;
 }
@@ -660,7 +681,8 @@ static void print_object(AihcValue *object) {
   AihcObjectKind kind = aihc_value_kind(object);
   if (kind == AIHC_OBJECT_MVAR_WAITER || kind == AIHC_OBJECT_BLACKHOLE_WAITER ||
       kind == AIHC_OBJECT_STABLE_NAME || kind == AIHC_OBJECT_INDIRECTION ||
-      kind == AIHC_OBJECT_BYTE_ARRAY) {
+      kind == AIHC_OBJECT_BYTE_ARRAY || kind == AIHC_OBJECT_BLACKHOLE_QUEUE ||
+      is_indirection(object)) {
     /* Runtime records without an identity of their own. The owners of the
        waiters report them, and an indirection reports only its age. */
     return;
@@ -725,8 +747,8 @@ static void print_object(AihcValue *object) {
   }
   const AihcSlot *fields = entry_fields(entry);
   printf("obj %" PRIuPTR " %s %" PRIuPTR, identity, kind_name(kind),
-         (uintptr_t)info->field_count);
-  for (uint64_t index = 0; index < info->field_count; ++index) {
+         (uintptr_t)entry->field_count);
+  for (uint64_t index = 0; index < entry->field_count; ++index) {
     if (entry->pointers[index]) {
       print_pointer(fields[index]);
     } else {
@@ -790,7 +812,8 @@ static int compare_object_addresses(const void *left, const void *right) {
 /* Record where one object of the heap starts. */
 static void record_object(AihcValue *object, void *context) {
   (void)context;
-  if ((object->header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_WAITERS) {
+  /* A forwarding header has bit one alone. */
+  if ((object->header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_CLAIMING) {
     violation("forwarding header in a live block");
     return;
   }
@@ -973,27 +996,31 @@ static void report_collection(void) {
     print_pointer((AihcSlot)(uintptr_t)name->value);
     printf("\n");
   }
-  const AihcBlackholeTable *table = capability->machine->blackholes;
-  if (table != NULL) {
-    for (size_t index = 0; index < table->capacity; ++index) {
-      const AihcBlackholeEntry *entry = &table->entries[index];
-      if (entry->object == NULL) {
-        continue;
-      }
-      if (!is_object_start(entry->object) ||
-          aihc_value_kind(entry->object) != AIHC_OBJECT_BLACKHOLE) {
-        violation("blackhole table key is not a blackhole");
-        continue;
-      }
-      printf("blackhole %" PRIuPTR,
-             aihc_value_info_table(entry->object)->identity);
+  /* A claimed thunk with waiters names its blackhole queue in field zero. */
+  for (size_t index = 0; index < entry_capacity; ++index) {
+    const Entry *thunk_entry = &entries[index];
+    const AihcValue *object = thunk_entry->address;
+    if (!thunk_entry->defined || object == NULL ||
+        thunk_entry->info->object_kind != AIHC_OBJECT_THUNK ||
+        aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE ||
+        aihc_value_info_table((const AihcValue *)(uintptr_t)object->fields[0])
+                ->object_kind != AIHC_OBJECT_BLACKHOLE_QUEUE) {
+      continue;
+    }
+    const AihcBlackholeQueue *queue =
+        (const AihcBlackholeQueue *)(uintptr_t)object->fields[0];
+    if (queue->thunk != object) {
+      violation("blackhole queue names another thunk");
+    }
+    {
+      printf("blackhole %zu", index);
       size_t count = 0;
-      for (const AihcBlackholeWaiter *waiter = entry->head; waiter != NULL;
+      for (const AihcBlackholeWaiter *waiter = queue->head; waiter != NULL;
            waiter = waiter->next) {
         ++count;
       }
       printf(" %zu", count);
-      for (const AihcBlackholeWaiter *waiter = entry->head; waiter != NULL;
+      for (const AihcBlackholeWaiter *waiter = queue->head; waiter != NULL;
            waiter = waiter->next) {
         print_pointer((AihcSlot)(uintptr_t)waiter->thread);
         print_pointer((AihcSlot)(uintptr_t)waiter->continuation);
@@ -1128,12 +1155,6 @@ static void command_machine(char **tokens, size_t count) {
        gets a fresh one. */
     while (capability->machine->stacks != NULL) {
       aihc_stack_release(capability, capability->machine->stacks);
-    }
-    if (capability->machine->blackholes != NULL) {
-      free(capability->machine->blackholes->entries);
-      free(capability->machine->blackholes->spare);
-      free(capability->machine->blackholes);
-      capability->machine->blackholes = NULL;
     }
     aihc_heap_reset(capability, 1);
     aihc_regions_release(capability->heap_start);
@@ -1296,6 +1317,14 @@ static void command_new(char **tokens, size_t count) {
   info->identity = identity;
   info->field_count = field_count;
   info->field_is_pointer = pointers;
+  if (kind == AIHC_OBJECT_THUNK) {
+    /* Field zero of a thunk is its owner word, which is not a pointer
+       until a claim. The script names the free variables after it. */
+    uint8_t *owned = checked_calloc(field_count + 1, 1);
+    memcpy(owned + 1, pointers, field_count);
+    info->field_count = field_count + 1;
+    info->field_is_pointer = owned;
+  }
   info->frame_kind = AIHC_FRAME_NONE;
   info->object_kind = kind;
   info->needs_eval =
@@ -1600,9 +1629,8 @@ static void command_push(char **tokens, size_t count) {
     values = checked_calloc(field_count, sizeof(*values));
     words = checked_calloc(field_count, 1);
     values[1] = (AihcSlot)(uintptr_t)thunk;
-    /* The thunk payload and original info table remain intact, as in
-       aihc_lir_eval. */
-    thunk->header |= AIHC_HEADER_EVALUATING;
+    /* The entry writes nothing into the thunk, as in aihc_lir_eval. A pause
+       claims it later. */
   } else if (strcmp(kind_token, "stop") == 0) {
     if (count != 3) {
       fail("push stop expects no argument");

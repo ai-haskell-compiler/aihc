@@ -818,19 +818,20 @@ The lowering keeps the control model of CPS-GRIN:
   A zero byte sends the object to its ready branch.
   Only an object that is not a value compares the byte with `@AIHC_NEEDS_EVAL_FOLLOW`.
   An indirection in a variable is followed to its target, and the check starts again.
-  Thunks and blackholes take its slow branch.
-  A thunk under evaluation keeps its thunk table, so it also takes the slow branch.
+  A thunk with bit zero alone and a field zero that is not a thread record or a blackhole queue is evaluated.
+  The check follows it to field zero in the same way.
+  Other thunks take its slow branch.
   The ready branch calls the continuation function directly with its captures and result.
   The slow branch allocates a continuation frame for the same function.
   Heap reservations stay inside their branches.
 - `aihc_lir_eval` creates an update frame only when it enters a thunk.
   It pushes a frame of three slots on the stack, with the resolved value and continuation as fields.
-  It marks the thunk with a low header bit and preserves the original info table and payload.
+  It writes nothing into the thunk. A pause claims the thunk later.
   Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
   The update frame has its own backend entry, `aihc_lir_cps_update_entry`, which reads the two fields of the frame.
-  A blackhole without waiters gets the indirection with two stores in Lir.
-  A blackhole with waiters goes to the C function `aihc_update_blackhole`, which also wakes the waiters.
+  A young thunk that no pause claimed gets the update with two stores in Lir: the result into field zero, and bit zero into the header.
+  Every other thunk goes to the C function `aihc_update_blackhole`, which also wakes the waiters of its queue.
   A result that is a value goes directly to the parent continuation, and another result goes to `aihc_lir_eval`.
   Compiler modules contain no update-frame construction or synthetic update function.
 - Evaluation and scheduler resumption use shared runtime functions.

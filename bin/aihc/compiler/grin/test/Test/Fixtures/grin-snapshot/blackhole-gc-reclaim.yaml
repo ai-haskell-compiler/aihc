@@ -32,7 +32,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 33600
-  linux-amd64: 33600
+  macos-arm64: 44800
+  linux-amd64: 44800
 status: pass
 reason: Completed thunks and waiters must become reclaimable in a small heap.

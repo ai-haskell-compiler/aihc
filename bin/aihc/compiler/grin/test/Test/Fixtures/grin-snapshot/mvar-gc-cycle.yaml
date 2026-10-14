@@ -32,7 +32,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 43200
-  linux-amd64: 43200
+  macos-arm64: 44800
+  linux-amd64: 44800
 status: pass
 reason: The collector must reclaim unreachable cycles through an MVar, its waiter, and the waiter continuation.

@@ -168,6 +168,11 @@ typedef struct {
   /* The bytes this collection copied. The mark slice at its end may do as
      much work. */
   uint64_t copied_bytes;
+  /* Set while the thunk field of an update frame is scanned. An evaluated
+     thunk is then kept, not followed to its value, because a second update
+     of the thunk must not write into the value. See "Indirections and
+     update frames" in docs/multi-threaded-rts-design.md. */
+  int keep_thunk;
 } AihcGcContext;
 
 /* The packed state of a stack chunk. */
@@ -1056,11 +1061,55 @@ void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
   }
 }
 
+void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
+  AihcSlot header = thunk->header;
+  if ((header & AIHC_HEADER_TAG_MASK) != 0) {
+    return;
+  }
+  thunk->fields[0] = (AihcSlot)(uintptr_t)owner;
+  thunk->header = header | AIHC_HEADER_EVALUATING;
+}
+
+/* The pause of the running thread: claim the thunk of each update frame
+   that no pause processed, from the top, and mark the frame. The walk stops
+   at the first marked frame, because the walk that marked it processed
+   every frame below it. A thunk that is claimed or evaluated stays as it
+   is. On one capability its owner is the thread itself: the thread entered
+   the thunk twice, and the next evaluation of the thunk reports the loop.
+   The claim stores a pointer into a thunk that can be old, so it takes the
+   write barrier. The barrier comes before the store, while the header says
+   that field zero holds no pointer. */
+static void aihc_pause(AihcCapability *capability, AihcThread *thread,
+                       AihcValue *frame) {
+  while (frame != NULL && aihc_region_kind(frame) == AIHC_REGION_STACK) {
+    const AihcInfo *info = aihc_value_info_table(frame);
+    if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
+      return;
+    }
+    if (info->frame_kind == AIHC_FRAME_UPDATE) {
+      if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
+        return;
+      }
+      AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
+      if ((thunk->header & AIHC_HEADER_TAG_MASK) == 0) {
+        aihc_write_barrier(capability, thunk);
+        aihc_thunk_claim(thunk, thread);
+      }
+      frame->header |= AIHC_FRAME_PROCESSED;
+    }
+    frame = (AihcValue *)(uintptr_t)frame->fields[0];
+  }
+}
+
 void aihc_stack_note_top(AihcValue *continuation) {
   if (continuation != NULL &&
       aihc_region_kind(continuation) == AIHC_REGION_STACK) {
     aihc_stack_chunk_of(continuation)->stack->top = continuation;
   }
+}
+
+void aihc_thread_pause(AihcCapability *capability, AihcValue *continuation) {
+  aihc_pause(capability, capability->current_thread, continuation);
 }
 
 /* The remembered set. */
@@ -1227,12 +1276,41 @@ static void aihc_gc_keep(AihcGcContext *context, AihcValue *object) {
 
 /* Copying. */
 
+/* A forwarding header has bit one alone. A thunk never has that state: a
+   claim sets bit zero first. A frame has it when a pause processed the
+   frame, but frames never move, so no forwarding test reads a frame. */
+#define AIHC_HEADER_FORWARD UINT64_C(2)
+
 static int aihc_header_is_forward(AihcSlot header) {
-  return (header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_WAITERS;
+  return (header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_FORWARD;
 }
 
 static AihcValue *aihc_header_forward(AihcSlot header) {
   return (AihcValue *)(uintptr_t)(header & ~(AihcSlot)AIHC_HEADER_TAG_MASK);
+}
+
+/* Whether a thunk with bit zero is evaluated: field zero is the value, and
+   not the owner. The owner is a thread record or a blackhole queue, and no
+   Haskell value has those kinds. A queue can have moved in this collection,
+   so its forwarding header is followed. */
+static int aihc_thunk_is_evaluated(const AihcValue *thunk) {
+  const AihcValue *word = (const AihcValue *)(uintptr_t)thunk->fields[0];
+  AihcSlot header = word->header;
+  if (aihc_header_is_forward(header)) {
+    word = aihc_header_forward(header);
+  }
+  AihcObjectKind kind = aihc_value_info_table(word)->object_kind;
+  return kind != AIHC_OBJECT_THREAD && kind != AIHC_OBJECT_BLACKHOLE_QUEUE;
+}
+
+/* Whether a reference to an object can go to the object that field zero
+   names: an indirection, or an evaluated thunk. */
+static int aihc_follows_to_field_zero(const AihcValue *value) {
+  AihcSlot header = value->header;
+  if ((header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_EVALUATING) {
+    return aihc_thunk_is_evaluated(value);
+  }
+  return aihc_value_info_table(value)->object_kind == AIHC_OBJECT_INDIRECTION;
 }
 
 /* The words of an object. The kinds that compiled code allocates are read
@@ -1275,7 +1353,7 @@ static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
   } else {
     memcpy(copy, value, bytes);
   }
-  value->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_WAITERS;
+  value->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_FORWARD;
   if (generation == 2) {
     aihc_value_worklist_push(&aihc_gen2_worklist, copy);
   }
@@ -1353,7 +1431,7 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
         /* A full collection follows a gen2 indirection as the copy follows
            one in a from-space: the indirection stays unmarked, and its
            slot is free after the collection. */
-        if (aihc_value_kind(value) == AIHC_OBJECT_INDIRECTION) {
+        if (!context->keep_thunk && aihc_follows_to_field_zero(value)) {
           value = (AihcValue *)(uintptr_t)value->fields[0];
           continue;
         }
@@ -1399,7 +1477,7 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
       *where = aihc_region_kind(forward) == AIHC_REGION_GEN1 ? 1 : 2;
       return forward;
     }
-    if (aihc_value_kind(value) == AIHC_OBJECT_INDIRECTION) {
+    if (!context->keep_thunk && aihc_follows_to_field_zero(value)) {
       value = (AihcValue *)(uintptr_t)value->fields[0];
       continue;
     }
@@ -1546,6 +1624,13 @@ static void aihc_visit_plain_fields(AihcValue *object, AihcRootVisitor visitor,
     }
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
              kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
+    if (aihc_value_kind(object) == AIHC_OBJECT_BLACKHOLE) {
+      int evaluated = aihc_thunk_is_evaluated(object);
+      object->fields[0] = visitor(object->fields[0], context);
+      if (evaluated) {
+        return;
+      }
+    }
     for (uint64_t index = 0; index < info->field_count; ++index) {
       if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
         object->fields[index] = visitor(object->fields[index], context);
@@ -1614,8 +1699,18 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
   /* The kinds that compiled code allocates are the most frequent. Their
      pointer fields are scanned here, with no indirect call for each field.
      The other kinds go through the general visitors. */
-  if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
-      kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
+  int update_frame = is_frame && info->frame_kind == AIHC_FRAME_UPDATE;
+  int evaluated =
+      kind == AIHC_OBJECT_BLACKHOLE && aihc_thunk_is_evaluated(object);
+  if (kind == AIHC_OBJECT_BLACKHOLE) {
+    /* Field zero of a claimed thunk is the owner or the value. The code and
+       the free variables of an evaluated thunk are dead. */
+    object->fields[0] = aihc_scan_slot(object->fields[0], &scan);
+  }
+  if (evaluated) {
+    /* Nothing else to scan. */
+  } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+             kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
     if (context->collected == 2) {
       aihc_walk_srt(info->srt);
     }
@@ -1623,9 +1718,11 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
     if (pointers != NULL) {
       for (uint64_t index = 0; index < info->field_count; ++index) {
         if (pointers[index]) {
+          context->keep_thunk = update_frame && index == 1;
           object->fields[index] = aihc_scan_slot(object->fields[index], &scan);
         }
       }
+      context->keep_thunk = 0;
     }
   } else if (!aihc_visit_runtime_object(object, aihc_scan_slot, &scan)) {
     if (context->collected == 2) {
@@ -1642,6 +1739,14 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
      reach through it: the entry keeps the referent alive and updated until
      then. A frame needs no entry: its chunk takes the youngest generation
      its frames refer to, and a collection of that generation scans it. */
+  if (update_frame && (object->header & AIHC_FRAME_PROCESSED) == 0) {
+    /* A collection is a pause of every thread whose frames it scans. Each
+       frame without the mark is in a young chunk, so the collection reaches
+       it. */
+    aihc_thunk_claim((AihcValue *)(uintptr_t)object->fields[1],
+                     aihc_stack_chunk_of(object)->stack->thread);
+    object->header |= AIHC_FRAME_PROCESSED;
+  }
   unsigned demand = generation == AIHC_GENERATION_STATIC ? 2 : generation;
   if (is_frame) {
     aihc_chunk_note_frame(context, aihc_stack_chunk_of(object), scan.youngest);
@@ -1815,7 +1920,7 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
         if (context->collected < 2 || aihc_gen2_marked(capability, value)) {
           return value;
         }
-        if (aihc_value_kind(value) != AIHC_OBJECT_INDIRECTION) {
+        if (!aihc_follows_to_field_zero(value)) {
           return NULL;
         }
         value = (AihcValue *)(uintptr_t)value->fields[0];
@@ -1844,7 +1949,7 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
     if (aihc_header_is_forward(header)) {
       return aihc_header_forward(header);
     }
-    if (aihc_value_kind(value) != AIHC_OBJECT_INDIRECTION) {
+    if (!aihc_follows_to_field_zero(value)) {
       return NULL;
     }
     value = (AihcValue *)(uintptr_t)value->fields[0];
@@ -1927,7 +2032,7 @@ static void aihc_sweep_stacks(AihcGcContext *context) {
    of the generations it copies. A name made on a thunk thus names the value
    after the next collection, as it did under the semispace collector. */
 static AihcValue *aihc_follow_heap_indirections(AihcValue *value) {
-  while (value != NULL && aihc_value_kind(value) == AIHC_OBJECT_INDIRECTION &&
+  while (value != NULL && aihc_follows_to_field_zero(value) &&
          aihc_region_kind(value) != AIHC_REGION_OUTSIDE) {
     value = (AihcValue *)(uintptr_t)value->fields[0];
   }
@@ -2125,6 +2230,14 @@ static int aihc_mark_plain_object(AihcCapability *capability,
   if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
       kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
     const AihcInfo *info = aihc_value_info_table(object);
+    if (kind == AIHC_OBJECT_BLACKHOLE) {
+      /* Field zero is the owner or the value. The code and the free
+         variables of an evaluated thunk are dead. */
+      aihc_mark_old(capability, (AihcValue *)(uintptr_t)object->fields[0]);
+      if (aihc_thunk_is_evaluated(object)) {
+        return 1;
+      }
+    }
     aihc_walk_srt(info->srt);
     const uint8_t *pointers = info->field_is_pointer;
     if (pointers != NULL) {
@@ -3228,13 +3341,15 @@ static void aihc_verify_value(AihcValue *value) {
   default:
     aihc_fail("verifier: a reachable address has an invalid region kind");
   }
-  if (aihc_header_is_forward(value->header)) {
+  /* A processed update frame has the bit pattern of a forwarding header, and
+     frames never move. */
+  if (aihc_region_kind(value) != AIHC_REGION_STACK &&
+      aihc_header_is_forward(value->header)) {
     aihc_fail("verifier: a reachable object has a forwarding header");
   }
   const AihcInfo *info = aihc_value_info_table(value);
   AihcObjectKind kind = info->object_kind;
-  if (kind > AIHC_OBJECT_IO_HANDLE || kind == AIHC_OBJECT_RUNTIME ||
-      kind == AIHC_OBJECT_BLACKHOLE_RECORD) {
+  if (kind > AIHC_OBJECT_IO_HANDLE || kind == AIHC_OBJECT_RUNTIME) {
     aihc_fail("verifier: a reachable object has an invalid kind");
   }
   if (aihc_region_kind(value) == AIHC_REGION_STACK &&
@@ -3386,19 +3501,6 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
        name = name->next) {
     aihc_verify_value((AihcValue *)name);
     aihc_verify_value(name->value);
-  }
-  const AihcBlackholeTable *table = capability->machine->blackholes;
-  if (table != NULL) {
-    for (size_t index = 0; index < table->capacity; ++index) {
-      AihcValue *object = table->entries[index].object;
-      if (object == NULL) {
-        continue;
-      }
-      if (aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE ||
-          (object->header & AIHC_HEADER_WAITERS) == 0) {
-        aihc_fail("verifier: a blackhole table key is not a contended thunk");
-      }
-    }
   }
   for (;;) {
     if (aihc_verify_srt_work.count != 0) {

@@ -798,10 +798,15 @@ storeSlot ty value object offset = do
 -- | Thunk headers carry evaluation and waiter bits in their low two bits.
 -- Every info table has at least four-byte alignment, including on wasm32.
 loadObjectInfo :: Operand -> LowerM Typed
-loadObjectInfo object = do
+loadObjectInfo object = snd <$> loadObjectHeader object
+
+-- | The header word of an object, with its two low bits, and its info table.
+loadObjectHeader :: Operand -> LowerM (Typed, Typed)
+loadObjectHeader object = do
   header <- loadSlot "header_word" I64 object 0
   info <- emitValue "info_word" I64 (Binary And I64 (typedOperand header) (OperandLiteral (LitInt (-4))))
-  emitValue "header" Ptr (PtrFromInt (typedOperand info))
+  table <- emitValue "header" Ptr (PtrFromInt (typedOperand info))
+  pure (header, table)
 
 -- | Byte field @index@ of an info table as an @i64@. The byte fields follow
 -- the word fields.
@@ -1506,11 +1511,14 @@ compileExpr ctx env expression =
     -- ready branch needs one load and one branch after the header. The
     -- info-table address removes the evaluation bits of the header, and a
     -- thunk under evaluation keeps its thunk table. Thus that thunk goes to
-    -- the slow branch. An updated thunk is an indirection until the next
-    -- collection. The check follows the indirections of a variable to their
-    -- target, so the ready branch gets the value and no continuation is
-    -- allocated. That test is only on the path of an object that is not a
-    -- value.
+    -- the slow branch. An evaluated thunk keeps its thunk table with bit
+    -- zero, and field zero is its value. A claimed thunk has bit zero too,
+    -- and field zero names its owner: a thread record or a blackhole queue.
+    -- A collection makes an indirection of neither, and it follows both
+    -- kinds of object. The check follows the indirections and the evaluated
+    -- thunks of a variable to their target, so the ready branch gets the
+    -- value and no continuation is allocated. That test is only on the path
+    -- of an object that is not a value.
     GrinIfWhnf value ready slow -> do
       object <- pointerValue ctx env value
       checkLabel <- freshLabel "eval_check"
@@ -1519,7 +1527,7 @@ compileExpr ctx env expression =
       current <- fresh "current"
       terminate (Jump (Target checkLabel [object]))
       beginBlock checkLabel [(current, Ptr)]
-      header <- loadObjectInfo (OperandVar current)
+      (headerWord, header) <- loadObjectHeader (OperandVar current)
       needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
       notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
       -- Only a variable can take the target. Another value keeps the slow
@@ -1534,9 +1542,23 @@ compileExpr ctx env expression =
           notValueLabel <- freshLabel "eval_not_value"
           followLabel <- freshLabel "eval_follow"
           terminate (Branch (typedOperand notValue) (Target notValueLabel []) (Target readyLabel []))
+          thunkLabel <- freshLabel "eval_thunk"
+          ownerLabel <- freshLabel "eval_owner"
           beginBlock notValueLabel []
           isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
-          terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target slowLabel []))
+          terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target thunkLabel []))
+          beginBlock thunkLabel []
+          tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
+          claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
+          terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
+          beginBlock ownerLabel []
+          word <- loadSlot "word" Ptr (OperandVar current) 8
+          wordInfo <- loadObjectInfo (typedOperand word)
+          wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
+          isThread <- emitValue "thread" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectThread)))
+          isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
+          owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
+          terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
           beginBlock followLabel []
           next <- loadSlot "next" Ptr (OperandVar current) 8
           terminate (Jump (Target checkLabel [typedOperand next]))
@@ -3694,9 +3716,11 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-runtimeObjectIndirection, runtimeObjectBlackhole :: Integer
+runtimeObjectIndirection, runtimeObjectBlackhole, runtimeObjectThread, runtimeObjectBlackholeQueue :: Integer
 runtimeObjectIndirection = 4
 runtimeObjectBlackhole = 5
+runtimeObjectThread = 7
+runtimeObjectBlackholeQueue = 15
 
 -- Program queries
 

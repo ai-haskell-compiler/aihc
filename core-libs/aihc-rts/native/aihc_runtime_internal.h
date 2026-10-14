@@ -53,10 +53,12 @@ struct AihcThread {
   uint64_t resume_count;
   AihcThread *next;
   AihcTransaction *transaction;
+  /* The blackhole queues of the thunks that this thread claimed. */
+  AihcBlackholeQueue *queues;
 };
 
 /* Match the fork# reservation in Aihc.Grin.Primitive. */
-_Static_assert(sizeof(AihcThread) <= 9 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcThread) <= 10 * sizeof(AihcSlot),
                "thread exceeds the GRIN reservation");
 
 typedef struct AihcTransactionWrite AihcTransactionWrite;
@@ -98,24 +100,25 @@ struct AihcBlackholeWaiter {
   AihcBlackholeWaiter *next;
 };
 
+/* A claimed thunk with waiters names a blackhole queue in field zero. The
+   queue names the owner thread, the thunk, and the waiters in wake order.
+   The owner keeps its queues on a list, so it can wake them when it updates
+   or abandons the thunk. */
+struct AihcBlackholeQueue {
+  AihcSlot header;
+  AihcThread *owner;
+  AihcValue *thunk;
+  AihcBlackholeWaiter *head;
+  AihcBlackholeWaiter *tail;
+  AihcBlackholeQueue *next;
+};
+
 /* Match the evaluation reservation in aihc_constants.lir. */
 _Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
                "blackhole waiter exceeds the GRIN reservation");
-
-/* Only contended thunks have table entries. The collector relocates keys
-   and waiter lists, then rebuilds the hash positions in the spare array. */
-typedef struct {
-  AihcValue *object;
-  AihcBlackholeWaiter *head;
-  AihcBlackholeWaiter *tail;
-} AihcBlackholeEntry;
-
-struct AihcBlackholeTable {
-  size_t capacity;
-  size_t count;
-  AihcBlackholeEntry *entries;
-  AihcBlackholeEntry *spare;
-};
+_Static_assert(sizeof(AihcBlackholeWaiter) + sizeof(AihcBlackholeQueue) <=
+                   10 * sizeof(AihcSlot),
+               "blackhole queue exceeds the GRIN reservation");
 
 struct AihcMVarWaiter {
   AihcSlot header;
@@ -435,6 +438,15 @@ AihcStack *aihc_stack_of(const void *frame);
    continuation. The incremental marking reads frames of a suspended thread
    only at or below this frame. */
 void aihc_stack_note_top(AihcValue *continuation);
+/* The pause of the running thread before another thread runs: claim the
+   thunk of each update frame of its stack that no pause processed. See
+   "Blackholing" in docs/multi-threaded-rts-design.md. A collection is a
+   pause too, and the collector claims the thunks of the frames it scans. */
+void aihc_thread_pause(AihcCapability *capability, AihcValue *continuation);
+/* Claim a thunk for a thread when the thunk is in the state Thunk: field
+   zero names the owner, and the header gets bit zero. The caller takes the
+   write barrier first when the thunk can be old and a mutator runs. */
+void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner);
 /* The C runtime reads the fields of a live frame it will pop: an exception
    walk or a continuation capture. The marking of the active gen2 cycle
    scans the frame and the frames below it in its chunk first. */
