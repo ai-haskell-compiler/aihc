@@ -435,7 +435,7 @@ evalScheduledExpr env expr continue =
     GrinStore node -> do
       value <- materializeNode env node >>= allocateCell . storedCell
       continue [value]
-    GrinEnsureNursery _ roots -> continue =<< mapM (materializeValue env) roots
+    GrinEnsureHeap _ roots -> continue =<< mapM (materializeValue env) roots
     GrinAllocate words' _ roots -> do
       count <- expectIntPrimitiveArgument "allocate" =<< materializeValue env words'
       bytes <- checkedByteArraySize "allocate" (count * 8)

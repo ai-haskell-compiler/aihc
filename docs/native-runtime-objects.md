@@ -673,7 +673,7 @@ Commit, abort, and expiry remove references without direct memory release.
 These records count toward managed allocation statistics and the `-M` limit.
 
 The GRIN primitive description gives fixed allocation bounds for ordinary calls and CPS calls.
-The GC stage inserts `ensure-nursery` before these calls.
+The GC stage inserts `ensure-heap` before these calls.
 The reservation protects call arguments and values needed after the call.
 The existing GC transformation gives relocated roots fresh names.
 Lir translates the explicit reservation and the call.

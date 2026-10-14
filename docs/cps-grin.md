@@ -143,7 +143,7 @@ larger closure, a `case` on a known constructor takes its alternative, and a
 `store-rec` group keeps only its cycles. When
 `--keep-grin` is used, AIHC also writes `.cps.grin` and `.gc.grin`. The latter
 is the exact program consumed by the native backend: each managed `store` is
-preceded by `ensure-nursery`, whose live pointer operands are returned under fresh
+preceded by `ensure-heap`, whose live pointer operands are returned under fresh
 SSA names, and is then represented by `store-unchecked`. A recursive store
 group receives one reservation covering the complete group.
 

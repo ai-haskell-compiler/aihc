@@ -71,7 +71,7 @@ genExpr =
     Gen.choice
     [ GrinConstant <$> smallList genValue,
       GrinStore <$> genNode,
-      GrinEnsureNursery <$> Gen.integral (Range.linearFrom 0 (-100000) 100000) <*> smallList genValue,
+      GrinEnsureHeap <$> Gen.integral (Range.linearFrom 0 (-100000) 100000) <*> smallList genValue,
       GrinAllocate <$> genValue <*> genValue <*> smallList genValue,
       GrinStoreUnchecked <$> genNode,
       GrinUpdate <$> genValue <*> genValue,

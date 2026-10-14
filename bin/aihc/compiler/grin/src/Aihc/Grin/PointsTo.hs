@@ -341,7 +341,7 @@ supportedExpr expression =
     GrinThrow {} -> True
     GrinCatch {} -> True
     GrinForeignCallExpr {} -> True
-    GrinEnsureNursery {} -> False
+    GrinEnsureHeap {} -> False
     GrinAllocate {} -> False
     GrinStoreUnchecked {} -> False
     GrinStoreRecUnchecked {} -> False
@@ -1060,7 +1060,7 @@ exprOperands expression =
     GrinConstant values -> values
     GrinStore node -> grinNodeFields node
     GrinStoreUnchecked node -> grinNodeFields node
-    GrinEnsureNursery _ roots -> roots
+    GrinEnsureHeap _ roots -> roots
     GrinAllocate requiredWords pinned roots -> requiredWords : pinned : roots
     GrinUpdate pointer value -> [pointer, value]
     GrinUpdateBlackhole pointer value -> [pointer, value]

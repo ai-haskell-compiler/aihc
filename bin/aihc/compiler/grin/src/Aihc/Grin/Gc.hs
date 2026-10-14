@@ -207,39 +207,39 @@ insertExprReservations continuations expression =
       | isFrame node ->
           GrinBind
             []
-            (GrinEnsureNursery 0 [])
+            (GrinEnsureHeap 0 [])
             (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
     GrinBind resultVars (GrinStore node) body ->
       GrinBind
         []
-        (GrinEnsureNursery (toInteger (nodeWords node)) [])
+        (GrinEnsureHeap (toInteger (nodeWords node)) [])
         (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
     GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind
             []
-            (GrinEnsureNursery (toInteger requiredWords) [])
+            (GrinEnsureHeap (toInteger requiredWords) [])
             (GrinBind resultVars call (insertExprReservations continuations body))
     call@(GrinCpsPrimitiveCall _ name _ _)
       | Just requiredWords <- primitiveHeapWords name ->
-          GrinBind [] (GrinEnsureNursery (toInteger requiredWords) []) call
+          GrinBind [] (GrinEnsureHeap (toInteger requiredWords) []) call
     GrinBind resultVars valueExpression body ->
       GrinBind resultVars (insertExprReservations continuations valueExpression) (insertExprReservations continuations body)
     GrinStore node
       | isFrame node ->
           GrinBind
             []
-            (GrinEnsureNursery 0 [])
+            (GrinEnsureHeap 0 [])
             (GrinStoreUnchecked node)
     GrinStore node ->
       GrinBind
         []
-        (GrinEnsureNursery (toInteger (nodeWords node)) [])
+        (GrinEnsureHeap (toInteger (nodeWords node)) [])
         (GrinStoreUnchecked node)
     GrinStoreRec bindings body ->
       GrinBind
         []
-        (GrinEnsureNursery (toInteger (sum (map (nodeWords . snd) bindings))) [])
+        (GrinEnsureHeap (toInteger (sum (map (nodeWords . snd) bindings))) [])
         (GrinStoreRecUnchecked bindings (insertExprReservations continuations body))
     GrinStoreRecUnchecked bindings body ->
       GrinStoreRecUnchecked bindings (insertExprReservations continuations body)
@@ -267,8 +267,8 @@ relocateExpr bound expression =
   case expression of
     GrinBind resultVars (GrinAllocate requiredWords pinned []) body ->
       relocateSafepoint bound resultVars (GrinAllocate requiredWords pinned) body
-    GrinBind [] (GrinEnsureNursery words' []) body ->
-      relocateSafepoint bound [] (GrinEnsureNursery words') body
+    GrinBind [] (GrinEnsureHeap words' []) body ->
+      relocateSafepoint bound [] (GrinEnsureHeap words') body
     GrinBind resultVars valueExpression body -> do
       valueExpression' <- relocateExpr bound valueExpression
       body' <- relocateExpr (bound <> Set.fromList resultVars) body
@@ -277,7 +277,7 @@ relocateExpr bound expression =
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM (relocateAlternative (Set.insert binder bound)) alternatives
     GrinConstant {} -> pure expression
-    GrinEnsureNursery {} -> pure expression
+    GrinEnsureHeap {} -> pure expression
     GrinAllocate {} -> pure expression
     GrinStore {} -> pure expression
     GrinStoreUnchecked {} -> pure expression
@@ -360,7 +360,7 @@ substituteExpr substitutions expression =
     GrinBind vars valueExpression body ->
       GrinBind vars (substituteExpr substitutions valueExpression) (substituteExpr (without vars substitutions) body)
     GrinStore node -> GrinStore (substituteNode substitutions node)
-    GrinEnsureNursery words' roots -> GrinEnsureNursery words' (map (substituteValue substitutions) roots)
+    GrinEnsureHeap words' roots -> GrinEnsureHeap words' (map (substituteValue substitutions) roots)
     GrinAllocate requiredWords pinned roots -> GrinAllocate (substituteValue substitutions requiredWords) (substituteValue substitutions pinned) (map (substituteValue substitutions) roots)
     GrinStoreUnchecked node -> GrinStoreUnchecked (substituteNode substitutions node)
     GrinStoreRec bindings body -> substituteStoreRec GrinStoreRec substitutions bindings body

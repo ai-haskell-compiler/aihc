@@ -1394,7 +1394,7 @@ varBase var = T.filter (\character -> character /= '"' && character /= '\\') (gr
 maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
-    GrinBind _ (GrinEnsureNursery _ roots) body -> max (length roots) (maximumRoots body)
+    GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinAllocate _ _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
@@ -1402,7 +1402,7 @@ maximumRoots expression =
     GrinStoreRecUnchecked _ body -> maximumRoots body
     GrinIfWhnf _ ready slow -> max (maximumRoots ready) (maximumRoots slow)
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
-    GrinEnsureNursery _ roots -> length roots
+    GrinEnsureHeap _ roots -> length roots
     GrinAllocate _ _ roots -> length roots
     _ -> 0
 
@@ -1571,7 +1571,7 @@ compileExpr ctx env expression =
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
-    GrinEnsureNursery {} -> unsupported "unbound nursery reservation"
+    GrinEnsureHeap {} -> unsupported "unbound nursery reservation"
     GrinAllocate {} -> unsupported "unbound dynamic allocation"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
     GrinUpdate {} -> unsupported "direct-style update after CPS"
@@ -1674,7 +1674,7 @@ compileBinding ctx env vars expression =
       object <- allocateNode ctx node
       initializeFields ctx env object node
       bindResults [object]
-    GrinEnsureNursery words' roots ->
+    GrinEnsureHeap words' roots ->
       reserve words' (OperandLiteral (LitInt words')) roots
     GrinAllocate requiredWords pinned roots -> case vars of
       memory : relocated | length relocated == length roots -> do

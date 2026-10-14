@@ -69,7 +69,7 @@ type Placement = Bool -> GrinExpr
 normalizeExpr :: GrinExpr -> (Reservation, Placement)
 normalizeExpr expression =
   case expression of
-    GrinBind [] (GrinEnsureNursery reservedWords []) body ->
+    GrinBind [] (GrinEnsureHeap reservedWords []) body ->
       let (bodyWords, body') = normalizeExpr body
        in (sequential (Reserve reservedWords) bodyWords, body')
     GrinBind vars valueExpression body ->
@@ -134,7 +134,7 @@ placeReservation requiredWords body =
     Reserve words' ->
       GrinBind
         []
-        (GrinEnsureNursery words' [])
+        (GrinEnsureHeap words' [])
         (body True)
     _ -> body False
 
@@ -144,7 +144,7 @@ placeReservation requiredWords body =
 isReservationBarrier :: GrinExpr -> Bool
 isReservationBarrier expression =
   case expression of
-    GrinEnsureNursery {} -> True
+    GrinEnsureHeap {} -> True
     GrinAllocate {} -> True
     GrinEval {} -> True
     GrinCpsEval {} -> True

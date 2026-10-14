@@ -9,7 +9,7 @@ expected: |
 
   delay (duration :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
     $cps_return$gc :: BoxedRep Lifted, final$gc :: BoxedRep Lifted, initial$gc :: BoxedRep Lifted <-
-      ensure-nursery 8 ($cps_return :: BoxedRep Lifted) (final :: BoxedRep Lifted) (initial :: BoxedRep Lifted)
+      ensure-heap 8 ($cps_return :: BoxedRep Lifted) (final :: BoxedRep Lifted) (initial :: BoxedRep Lifted)
     var :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) newDelayTVar# (duration :: IntRep) (initial$gc :: BoxedRep Lifted) (final$gc :: BoxedRep Lifted)
     continue ($cps_return$gc :: BoxedRep Lifted) (var :: BoxedRep Unlifted)

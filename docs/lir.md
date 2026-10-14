@@ -769,7 +769,7 @@ The lowering keeps the control model of CPS-GRIN:
   extern C function.
 - A case on a pointer loads the header and the `identity` field and compares
   it with the constructor tables. A case on a scalar is a `switch`.
-- `ensure-nursery` reserves words for a batch of small objects. Its size is
+- `ensure-heap` reserves words for a batch of small objects. Its size is
   a constant. The fast path compares the reservation end with `%hp_limit`.
   The slow path calls `aihc_heap_collect`, which reserves nursery space
   even when the batch exceeds the large-object threshold.
