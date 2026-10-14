@@ -1162,13 +1162,12 @@ static void aihc_enqueue_thread(AihcCapability *capability,
   AihcCapability *target =
       capability->machine->capabilities[thread->capability];
   if (target == capability) {
-    aihc_queue_append(&target->run_queue_head, &target->run_queue_tail,
-                      thread, thread);
+    aihc_queue_append(&target->run_queue_head, &target->run_queue_tail, thread,
+                      thread);
     return;
   }
   aihc_host_lock_acquire(target->inbox_lock);
-  aihc_queue_append(&target->inbox_head, &target->inbox_tail, thread,
-                    thread);
+  aihc_queue_append(&target->inbox_head, &target->inbox_tail, thread, thread);
   aihc_host_lock_release(target->inbox_lock);
   if (__atomic_load_n(&target->idle, __ATOMIC_SEQ_CST)) {
     aihc_host_wake(target);
@@ -1187,8 +1186,8 @@ static void aihc_take_inbox(AihcCapability *capability) {
   capability->inbox_tail = NULL;
   aihc_host_lock_release(capability->inbox_lock);
   if (first != NULL) {
-    aihc_queue_append(&capability->run_queue_head,
-                      &capability->run_queue_tail, first, last);
+    aihc_queue_append(&capability->run_queue_head, &capability->run_queue_tail,
+                      first, last);
   }
 }
 

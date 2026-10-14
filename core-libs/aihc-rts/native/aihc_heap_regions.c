@@ -105,8 +105,8 @@ static AihcRegionEntry *aihc_region_entry(const void *address, int create) {
     }
     size_t grown = count == 0 ? 1 : count;
     while (grown <= top) {
-      if (grown > (SIZE_MAX - sizeof(AihcRegionTop)) / 2 /
-                      sizeof(AihcRegionLeaf *)) {
+      if (grown >
+          (SIZE_MAX - sizeof(AihcRegionTop)) / 2 / sizeof(AihcRegionLeaf *)) {
         aihc_fail("region table is too large");
       }
       grown *= 2;
@@ -123,8 +123,7 @@ static AihcRegionEntry *aihc_region_entry(const void *address, int create) {
     __atomic_store_n(&aihc_region_top, larger, __ATOMIC_RELEASE);
     table = larger;
   }
-  AihcRegionLeaf *leaf =
-      __atomic_load_n(&table->leaves[top], __ATOMIC_ACQUIRE);
+  AihcRegionLeaf *leaf = __atomic_load_n(&table->leaves[top], __ATOMIC_ACQUIRE);
   if (leaf == NULL) {
     if (!create) {
       return NULL;
