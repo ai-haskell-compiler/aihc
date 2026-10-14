@@ -458,6 +458,14 @@ void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame);
    test drivers use this entry. */
 void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
+/* Promote an escaping value: copy it and the local objects it reaches into
+   gen2, and return the global value. A value that reaches a mutable object
+   runs a collection that moves every young survivor into gen2, with the
+   value as one more root, so the caller passes its roots. See "Local heaps"
+   in docs/multi-threaded-rts-design.md. */
+AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
+                        uint64_t root_count, AihcSlot *roots,
+                        const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
 /* Push one frame of the given words on the stack of the running thread.
