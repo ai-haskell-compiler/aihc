@@ -1,9 +1,12 @@
 -- | Command-line interface for @aihc-dev fuzz@.
 module Aihc.Dev.Fuzz.CLI
-  ( Command (..),
+  ( BugsOptions (..),
+    Command (..),
     Options (..),
+    ReplayOptions (..),
     Selection (..),
     commandParser,
+    defaultRepository,
     parseDuration,
   )
 where
@@ -16,12 +19,17 @@ import Text.Read (readMaybe)
 data Command
   = List Selection
   | Run Options
+  | Bugs BugsOptions
+  | Replay ReplayOptions
   deriving (Eq, Show)
 
 data Options = Options
   { optionsSelection :: Selection,
     optionsJobs :: Maybe Int,
-    optionsTimeLimit :: Maybe NominalDiffTime
+    optionsTimeLimit :: Maybe NominalDiffTime,
+    optionsRepository :: String,
+    optionsReport :: Bool,
+    optionsBugFile :: Maybe FilePath
   }
   deriving (Eq, Show)
 
@@ -30,6 +38,23 @@ data Selection = Selection
     selectionExclusions :: [String]
   }
   deriving (Eq, Show)
+
+data BugsOptions = BugsOptions
+  { bugsForget :: [String],
+    bugsClear :: Bool,
+    bugsBugFile :: Maybe FilePath
+  }
+  deriving (Eq, Show)
+
+data ReplayOptions = ReplayOptions
+  { replayProperty :: String,
+    replayArgument :: String
+  }
+  deriving (Eq, Show)
+
+-- | The repository that receives the tracking issues.
+defaultRepository :: String
+defaultRepository = "ai-haskell-compiler/aihc"
 
 commandParser :: Parser Command
 commandParser =
@@ -40,6 +65,18 @@ commandParser =
             (List <$> selectionParser <**> helper)
             (progDesc "List available Hedgehog properties")
         )
+        <> command
+          "bugs"
+          ( info
+              (Bugs <$> bugsParser <**> helper)
+              (progDesc "List, forget, or clear the known bugs")
+          )
+        <> command
+          "replay"
+          ( info
+              (Replay <$> replayParser <**> helper)
+              (progDesc "Run one recorded failure again")
+          )
     )
     <|> (Run <$> optionsParser)
 
@@ -64,6 +101,58 @@ optionsParser =
               <> help "Stop after a duration such as 30s, 10m, or 2h"
           )
       )
+    <*> strOption
+      ( long "repo"
+          <> metavar "OWNER/NAME"
+          <> value defaultRepository
+          <> showDefault
+          <> help "GitHub repository that receives the tracking issues"
+      )
+    <*> flag
+      True
+      False
+      ( long "no-report"
+          <> help "Record bugs locally and do not open GitHub issues"
+      )
+    <*> bugFileParser
+
+bugsParser :: Parser BugsOptions
+bugsParser =
+  BugsOptions
+    <$> many
+      ( strOption
+          ( long "forget"
+              <> metavar "BUG-ID"
+              <> help "Remove the bug with this id from the store (repeatable)"
+          )
+      )
+    <*> switch
+      ( long "clear"
+          <> help "Remove every known bug from the store"
+      )
+    <*> bugFileParser
+
+replayParser :: Parser ReplayOptions
+replayParser =
+  ReplayOptions
+    <$> strArgument
+      ( metavar "PROPERTY"
+          <> help "Component-qualified property name, for example \"aihc-tc.zonking idempotent\""
+      )
+    <*> strArgument
+      ( metavar "REPLAY"
+          <> help "Shrink path and seed, for example \"3:b2 Seed 1 3\", or only the seed"
+      )
+
+bugFileParser :: Parser (Maybe FilePath)
+bugFileParser =
+  optional
+    ( strOption
+        ( long "bug-file"
+            <> metavar "PATH"
+            <> help "Bug store file (default: $XDG_CACHE_HOME/aihc/fuzz/bugs.json)"
+        )
+    )
 
 selectionParser :: Parser Selection
 selectionParser =
