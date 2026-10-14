@@ -299,14 +299,31 @@ struct AihcCapability {
   /* The bytes of fixed allocations and of new young stack chunks since the
      last collection. */
   uint64_t fixed_since_gc;
+  /* The gen1 blocks of this capability: the survivors of its last
+     collections. gen1_age is the number of collections since the last one
+     that copied gen1 of this capability. See "Gen1" in
+     docs/multi-threaded-rts-design.md. */
+  AihcGeneration gen1;
+  uint64_t gen1_age;
+  /* The stores that gave an object outside the local heap a value of the
+     local heap. In the end state each one promotes the value. */
+  uint64_t escape_count;
+  /* The scan work that the write barrier added since the last collection,
+     in bytes: the size of each object it put in the remembered set, and
+     one run of elements for each card it made dirty. */
+  uint64_t barrier_work;
 };
 
 /* The process state shared by all capabilities. */
 struct AihcMachine {
-  AihcCapability *capabilities;
+  /* The capability records, which never move: compiled code finds its
+     record through the header of its stack chunk. */
+  AihcCapability **capabilities;
   uint64_t capability_count;
-  /* The machine owns the nursery arena. Each capability has one aligned
-     window of nursery_stride_bytes bytes. The runtime currently has one. */
+  /* Not zero when the machine allocated the capabilities array. */
+  uint8_t capabilities_owned;
+  /* The machine owns the nursery arena. Capability i has the aligned window
+     of nursery_stride_bytes bytes at i times the stride. */
   uint8_t *nursery_arena;
   uint64_t nursery_stride_bytes;
   AihcSlot *globals;
@@ -339,13 +356,16 @@ struct AihcMachine {
      the last collection kept: the copied objects and the pinned blocks. */
   uint64_t gc_max_pause_ns;
   uint64_t heap_live_bytes;
-  /* The generations above the nursery: index zero is gen1. */
-  AihcGeneration generations[2];
-  /* The -B count: a survivor stays in gen1 for this many collections. Zero
-     copies the survivors of the nursery into gen2 directly. gen1_age is the
-     number of collections since the last one that copied gen1. */
+  /* Gen2, which every capability shares. Only bytes is used: the bytes of
+     its occupied slots. */
+  AihcGeneration gen2;
+  /* The -B count: a survivor stays in gen1 for this many collections of its
+     capability. Zero copies the survivors of the nursery into gen2
+     directly. */
   uint64_t gen1_collections;
-  uint64_t gen1_age;
+  /* The -R budget of barrier work between two collections of a capability,
+     in bytes. */
+  uint64_t barrier_budget;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
   uint64_t gc_minor_count;
@@ -379,6 +399,18 @@ struct AihcMachine {
    A collection scans only the cards that stores touched. The barrier without
    an index marks every card of a large array. */
 void aihc_write_barrier(AihcCapability *capability, AihcValue *object);
+/* The barriers of a compiled store site. They also take the value that the
+   site stores, and they count an escape: a store of a value of the local
+   heap of the capability into an object outside it. See "Local heaps" in
+   docs/multi-threaded-rts-design.md. */
+void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                              AihcSlot value);
+void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
+                                 uint64_t index, AihcSlot value);
+/* Count an escape when the value is in the local heap of the capability and
+   the object is not. */
+void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
+                       AihcSlot value);
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index);
 void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,

@@ -16,7 +16,7 @@ design.
 The first part of build step 1 separates `AihcCapability` from `AihcMachine`.
 Compiled code reads its capability from the stack chunk header.
 The C runtime takes the capability as an explicit argument.
-The runtime still has one capability on every target.
+Programs still run with one capability on every target.
 Each capability reserves nursery space in blocks.
 The default block size is 32 KiB, and `-n<size>` selects another size.
 A refill retains the heap pointer and does not collect until the nursery budget is full.
@@ -32,6 +32,7 @@ It uses an exclusive or with the aligned base and an unsigned size compare.
 The C runtime uses the same test.
 The runtime has no global nursery bounds.
 Gen1 uses the `-B` count rule and has no byte maximum.
+Each capability has its own gen1 blocks and its own count of collections. The machine keeps gen2.
 Thread records are in gen2 from the fork and never move.
 Their resumption and transaction fields are roots of the capability, so a store into them takes no barrier.
 Each thunk has the owner word as field zero, and its free variables start at field one.
@@ -39,7 +40,9 @@ The entry writes nothing into the thunk. A pause claims the thunks of the update
 A collection claims the thunk of each update frame that it scans.
 The update keeps the state in field zero, and the inline evaluation check follows an evaluated thunk.
 Blackhole queues and the queue list of each thread replace the blackhole table.
-The claim is not yet a compare-and-swap, and the message protocol, the queue recovery, and `noDuplicate#` remain for step 3.
+The claim is a compare-and-swap, and the stores and loads of the access rules have their orders.
+The rules cover the thunk header and field zero, the pointer fields of references and boxed arrays, the card bytes, the full byte of an `MVar`, the value of a `TVar`, and the atomic primitives that compiled code does.
+The message protocol, the queue recovery, and `noDuplicate#` remain for step 3.
 The default count is one, and a count of zero promotes nursery survivors into gen2 directly.
 The runtime has no worker threads and does not enable `-N`.
 
@@ -47,7 +50,18 @@ Lir has the atomic instructions of the memory model section on every backend.
 No compiled code or runtime unit uses them yet.
 
 The rest of step 1 remains necessary before step 2.
-It includes the escape count, gen1 blocks for each capability, the access rules, and barrier safepoints.
+The write barrier counts its scan work against the `-R` budget. When the work reaches the budget, the next reservation collects.
+It includes the barrier safepoints at the store sites, the barrier bounds of the runtime operations, and the copy of an array in pieces.
+The cold path of the write barrier at a compiled store site gets the stored value and counts escapes.
+The runtime statistics report the count as `escape_count`.
+The first part of step 2 gives the machine an array of capabilities.
+The arena has one window for each capability, and each capability has its own gen1 blocks and remembered set.
+A collection on one OS thread copies the nurseries of all capabilities.
+It copies a survivor into the gen1 of the capability whose nursery held it.
+The write barrier ignores an object in the nursery of any capability.
+`aihc_machine_set_capabilities` changes the count when all nurseries are empty.
+A removed capability gives its gen1 blocks and its remembered set to the first capability.
+Only the collector fuzz driver uses more than one capability.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

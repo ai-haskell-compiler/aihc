@@ -248,6 +248,7 @@ prop_collect getDriver = withTests 500 . property $ do
           cover 5 (fromString "thunk update") (has (\case CEnter _ (Just _) -> True; _ -> False))
           cover 2 (fromString "static thunk update") (has (\case CSUpdate {} -> True; _ -> False))
           cover 2 (fromString "large array") (has (\case CArray _ count _ -> count >= largeArrayElements; _ -> False))
+          cover 10 (fromString "allocation in the nursery of another capability") (has (\case CHeap index -> index > 0; _ -> False))
           cover 5 (fromString "several threads") (has (\case CFork {} -> True; _ -> False))
           cover 2 (fromString "thread blocks on an MVar") (has (\case CTake _ -> True; CRead _ -> True; CPut {} -> True; _ -> False))
           cover 0.5 (fromString "thread blocks on a blackhole") (has (\case CBlock _ -> True; _ -> False))
@@ -363,12 +364,20 @@ data Model = Model
     -- | The update frames that a pause or a collection processed. A pause
     -- stops at the first of them.
     mProcessed :: Set Fid,
+    -- | The thunks that had an update frame. A reservation can collect and
+    -- claim the thunk of an update frame, which this model learns only
+    -- from the report, and a later pop can drop the frame. The generator
+    -- thus pushes one update frame for each thunk at most.
+    mEntered :: Set Id,
     mStaticThunks :: [StaticThunk],
     mStaticThunkSrts :: [Maybe Int],
     mStaticNodes :: [[Value]],
     mStaticNodeSrts :: [Maybe Int],
     mSrts :: Map Int ([Int], [Int]),
     mCurrentSrt :: Maybe Int,
+    -- | The number of capabilities. Each one has a nursery, and an epoch
+    -- can allocate its objects in the nursery of any of them.
+    mCapabilities :: Int,
     -- | The generation of each heap object after the last reported
     -- collection. An object the driver has not reported is in the nursery.
     mAges :: Map Id Int,
@@ -407,12 +416,14 @@ emptyModel =
       mQueue = [],
       mBlackholes = Map.empty,
       mProcessed = Set.empty,
+      mEntered = Set.empty,
       mStaticThunks = replicate staticThunkCount SThunk,
       mStaticThunkSrts = replicate staticThunkCount Nothing,
       mStaticNodes = replicate staticNodeCount (replicate staticNodeFields VNull),
       mStaticNodeSrts = replicate staticNodeCount Nothing,
       mSrts = Map.empty,
       mCurrentSrt = Nothing,
+      mCapabilities = 1,
       mAges = Map.empty,
       mSnapshotDead = Nothing,
       mFailed = False
@@ -477,6 +488,10 @@ data Command
   = -- | Globals, root slots, nursery bytes, and the bytes of one mark slice,
     -- or zero for the default slice.
     CMachine Int Int Int Int
+  | CCapabilities Int
+  | -- | Allocate the objects of later commands in the nursery of this
+    -- capability. Runtime operations allocate in the first nursery.
+    CHeap Int
   | CSrt Int [Int] [Int]
   | CCurrentSrt (Maybe Int)
   | CSSrt Int (Maybe Int)
@@ -524,6 +539,8 @@ renderBitmap pointers = map (\p -> if p then '1' else '0') pointers
 renderCommand :: Command -> String
 renderCommand command = unwords $ case command of
   CMachine globals roots bytes slice -> ["machine", show globals, show roots, show bytes, show slice]
+  CCapabilities count -> ["capabilities", show count]
+  CHeap index -> ["heap", show index]
   CSrt index objects children -> ["srt", show index, show (length objects), show (length children)] <> map (('s' :) . show) objects <> map show children
   CCurrentSrt srt -> ["current_srt", renderSrt srt]
   CSSrt slot srt -> ["ssrt", show slot, renderSrt srt]
@@ -589,6 +606,8 @@ applyCommand command model = case command of
   CSSrt slot srt
     | slot < staticThunkCount -> model {mStaticThunkSrts = setAt slot srt (mStaticThunkSrts model)}
     | otherwise -> model {mStaticNodeSrts = setAt (slot - staticThunkCount) srt (mStaticNodeSrts model)}
+  CCapabilities count -> model {mCapabilities = count}
+  CHeap _ -> model
   CFill _ -> model
   CReserve _ -> model
   CNew identity kind pointers srt ->
@@ -712,7 +731,7 @@ pushFrame fid spec model = case (spec, runningTop model) of
   (FSPrompt srt tag, Just top) -> push (Frame FPrompt [True] [tag] srt (Just top) running)
   (FSUpdate thunk, Just top) -> case Map.lookup thunk (mHeap model) of
     -- The entry writes nothing into the thunk. A pause claims it later.
-    Just (Object KThunk _ _ _ Nothing) -> push (Frame FUpdate [True] [VHeap thunk] Nothing (Just top) running)
+    Just (Object KThunk _ _ _ Nothing) -> (push (Frame FUpdate [True] [VHeap thunk] Nothing (Just top) running)) {mEntered = Set.insert thunk (mEntered model)}
     _ -> failed
   where
     running = mRunning model
@@ -1463,7 +1482,8 @@ genScript = do
   current <- CCurrentSrt <$> genSrt srtCount
   -- A small mark slice spreads a gen2 cycle over several collections.
   slice <- Gen.element [0, 64, 256, 4096]
-  let setup = [CMachine globals roots (8 * spaceWords) slice] <> srts <> staticSrts <> [current, CPush 1 FSStop]
+  capabilities <- Gen.element [1, 1, 2, 3, 4]
+  let setup = [CMachine globals roots (8 * spaceWords) slice] <> [CCapabilities capabilities | capabilities > 1] <> srts <> staticSrts <> [current, CPush 1 FSStop]
   epochCount <- Gen.int (Range.constant 1 (pEpochMax profile))
   epochs <- genEpochs profile (applyCommands setup emptyModel) epochCount
   pure (setup <> epochs)
@@ -1580,7 +1600,13 @@ genEpoch profile start = do
   collectCommand <- Gen.frequency [(1, pure CCollect), (3, CCollectGeneration <$> Gen.int (Range.constant 0 2)), (2, pure CCycle)]
   let final = if collect then applyCommand collectCommand afterOps else afterOps
       opWords = sum (map commandWords ops)
-  pure (fill <> [CReserve (blockWords + opWords)] <> newCommands <> initial <> rooting <> ops <> [collectCommand | collect], final)
+  -- The objects of the block can go to the nursery of another capability.
+  -- The operations then reserve their words in the first nursery.
+  heap <- Gen.int (Range.constant 0 (mCapabilities start - 1))
+  let allocation
+        | heap == 0 = fill <> [CReserve (blockWords + opWords)] <> newCommands
+        | otherwise = [CHeap heap] <> fill <> [CReserve blockWords, CHeap 0, CReserve opWords, CHeap heap] <> newCommands <> [CHeap 0]
+  pure (allocation <> initial <> rooting <> ops <> [collectCommand | collect], final)
   where
     newCommand identity (ShapeObject kind pointers) srt = CNew identity kind pointers srt
     newCommand identity (ShapeArray count) srt = CArray identity count srt
@@ -1729,11 +1755,7 @@ genOp profile model = do
         Just _ -> True
         Nothing -> False
       Nothing -> False
-    -- A reservation can collect, and a collection claims the thunk of each
-    -- update frame, which this model learns only from the report. Thus a
-    -- thunk with an update frame gets no second one.
-    plainThunks = [identity | identity <- poolHeap pool, not (underEvaluation identity), Just (Object KThunk _ _ _ Nothing) <- [object identity]]
-    underEvaluation identity = any (\frame -> fKind frame == FUpdate && fFields frame == [VHeap identity]) (Map.elems (mFrames model))
+    plainThunks = [identity | identity <- poolHeap pool, not (Set.member identity (mEntered model)), Just (Object KThunk _ _ _ Nothing) <- [object identity]]
     blackholed = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ (Just owner)) <- [object identity], owner /= mRunning model]
     arrays = [(identity, length elements) | identity <- poolHeap pool, Just (Array elements _) <- [object identity], not (null elements)]
     mvars = [identity | identity <- poolHeap pool, Just MVar {} <- [object identity]]

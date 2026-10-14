@@ -55,6 +55,8 @@ tests =
       runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),
       runtimeProgramTest "-B3 keeps survivors in gen1 for three collections" ["+RTS", "-B3", "-RTS"] (gen1CountSource 3),
       runtimeProgramTest "a thread record stays in gen2 at one address" [] globalThreadSource,
+      runtimeProgramTest "a store of a local value into a global object counts an escape" [] escapeCountSource,
+      runtimeProgramTest "barrier work that reaches the -R budget makes the next reservation collect" ["+RTS", "-R64", "-RTS"] barrierBudgetSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,
@@ -430,6 +432,73 @@ gen1CountSource count =
       "}"
     ]
 
+-- | An escape is a store that gives an object outside the local heap of the
+-- capability a value of the local heap. The local heap is the nursery and
+-- gen1. Two full collections move a reference into gen2.
+escapeCountSource :: String
+escapeCountSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  aihc_ensure_heap(capability, 8, 0, NULL, NULL);",
+      "  AihcSlot root = (AihcSlot)(uintptr_t)aihc_mutvar_new(capability, 0);",
+      "  aihc_gc_collect_generation(capability, 2, 1, &root, NULL);",
+      "  aihc_gc_collect_generation(capability, 2, 1, &root, NULL);",
+      "  if (aihc_region_kind((void *)(uintptr_t)root) != AIHC_REGION_GEN2) return 1;",
+      "  aihc_ensure_heap(capability, 8, 1, &root, NULL);",
+      "  AihcValue *old = (AihcValue *)(uintptr_t)root;",
+      "  AihcValue *young = aihc_mutvar_new(capability, 7);",
+      "  uint64_t before = capability->escape_count;",
+      "  aihc_write_barrier_store(capability, old, (AihcSlot)(uintptr_t)young);",
+      "  if (capability->escape_count != before + 1) return 2;",
+      "  aihc_write_barrier_store(capability, old, (AihcSlot)(uintptr_t)old);",
+      "  aihc_write_barrier_store(capability, young, (AihcSlot)(uintptr_t)young);",
+      "  aihc_write_barrier_store_at(capability, young, 0, (AihcSlot)(uintptr_t)old);",
+      "  if (capability->escape_count != before + 1) return 3;",
+      "  aihc_write_barrier_store_at(capability, old, 0, (AihcSlot)(uintptr_t)young);",
+      "  if (capability->escape_count != before + 2) return 4;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | The write barrier counts the scan work that it adds: the size of each
+-- object that it puts in the remembered set. When the work reaches the -R
+-- budget, the heap limit goes below the nursery, and the next reservation
+-- collects instead of a block refill. A reference of one element has three
+-- words, so the third entry reaches a budget of 64 bytes.
+barrierBudgetSource :: String
+barrierBudgetSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  if (capability->machine->barrier_budget != 64) return 1;",
+      "  aihc_ensure_heap(capability, 16, 0, NULL, NULL);",
+      "  AihcSlot roots[2];",
+      "  roots[0] = (AihcSlot)(uintptr_t)aihc_mutvar_new(capability, 0);",
+      "  roots[1] = (AihcSlot)(uintptr_t)aihc_mutvar_new(capability, 0);",
+      "  aihc_gc_collect_generation(capability, 2, 2, roots, NULL);",
+      "  aihc_gc_collect_generation(capability, 2, 2, roots, NULL);",
+      "  AihcValue *first = (AihcValue *)(uintptr_t)roots[0];",
+      "  AihcValue *second = (AihcValue *)(uintptr_t)roots[1];",
+      "  if (aihc_region_kind(first) != AIHC_REGION_GEN2) return 2;",
+      "  if (capability->barrier_work != 0) return 3;",
+      "  uint64_t collections = capability->machine->gc_count;",
+      "  aihc_write_barrier_store(capability, first, 0);",
+      "  aihc_write_barrier_store(capability, second, 0);",
+      "  if (capability->barrier_work != 48) return 4;",
+      "  if (capability->heap_limit < capability->heap_next) return 5;",
+      "  aihc_write_barrier_store(capability, first, 0);",
+      "  if (capability->heap_limit >= capability->heap_start) return 6;",
+      "  aihc_heap_collect(capability, 2, 2, roots, NULL);",
+      "  if (capability->machine->gc_count != collections + 1) return 7;",
+      "  if (capability->barrier_work != 0) return 8;",
+      "  return 0;",
+      "}"
+    ]
+
 -- | A thread record is in the global heap from its fork, and no collection
 -- moves it. Its resumption is a root of the capability, not a field that a
 -- write barrier records, so each collection moves the action that the
@@ -694,7 +763,7 @@ runtimeStatisticsTest name requested ending =
           assertBool "the statistics file exists" present
           decoded <- eitherDecodeFileStrict (statisticsFile directory)
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
-          assertEqual "field names" ["allocated_bytes", "gc_count", "gc_full_count", "gc_gen1_count", "gc_max_pause_ns", "gc_minor_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "schema"] (Map.keys statistics)
+          assertEqual "field names" ["allocated_bytes", "escape_count", "gc_count", "gc_full_count", "gc_gen1_count", "gc_max_pause_ns", "gc_minor_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "schema"] (Map.keys statistics)
           assertEqual "schema" (Just 3) (Map.lookup "schema" statistics)
           -- After the counter reset, one leaf and 1000 cells use 8 + 1000 * 16 bytes.
           assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)

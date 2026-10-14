@@ -78,12 +78,13 @@ optimizationPlan lto level =
     -- phase 0 copies its wrapper at those calls, and also copies the
     -- values whose INLINE pragma names phase 0, which no earlier pass may
     -- copy; a strict let that such a copy exposes gets its case from the
-    -- demand pass that follows. Call-pattern specialisation then copies
+    -- demand pass that follows. This pass also evaluates strict arguments
+    -- with local value references. Call-pattern specialisation then copies
     -- the loops whose calls give a constructor in a position that the
     -- worker/wrapper split left boxed, because the loop does not always
     -- evaluate it. Its simplifying walks copy a local function at a call
     -- that the copy of a loop gives a constructor, within the site limit
     -- of the growing policy.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassLiftConstants]
     rounds = 4

@@ -786,6 +786,18 @@ loadSlot base ty object offset = do
       word <- emitValue base I64 (Load I64 (byteAddress object offset) (byteAlignment 8))
       emitValue base ty (PtrFromInt (typedOperand word))
 
+-- | A slot load that orders each later load through its result: the
+-- header and field zero of an object that another capability can update.
+-- See "Memory model" in docs/multi-threaded-rts-design.md.
+loadSlotDependent :: Text -> Type -> Operand -> Integer -> LowerM Typed
+loadSlotDependent base ty object offset = do
+  target <- targetM
+  if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
+    then emitValue base ty (LoadDependent ty (byteAddress object offset))
+    else do
+      word <- emitValue base I64 (LoadDependent I64 (byteAddress object offset))
+      emitValue base ty (PtrFromInt (typedOperand word))
+
 storeSlot :: Type -> Operand -> Operand -> Integer -> LowerM ()
 storeSlot ty value object offset = do
   target <- targetM
@@ -802,8 +814,16 @@ loadObjectInfo object = snd <$> loadObjectHeader object
 
 -- | The header word of an object, with its two low bits, and its info table.
 loadObjectHeader :: Operand -> LowerM (Typed, Typed)
-loadObjectHeader object = do
-  header <- loadSlot "header_word" I64 object 0
+loadObjectHeader object = loadSlot "header_word" I64 object 0 >>= headerTable
+
+-- | The header word and the info table of an object that another capability
+-- can claim or update. The load orders the loads of field zero after it, as
+-- the inline evaluation check needs.
+loadObjectHeaderDependent :: Operand -> LowerM (Typed, Typed)
+loadObjectHeaderDependent object = loadSlotDependent "header_word" I64 object 0 >>= headerTable
+
+headerTable :: Typed -> LowerM (Typed, Typed)
+headerTable header = do
   info <- emitValue "info_word" I64 (Binary And I64 (typedOperand header) (OperandLiteral (LitInt (-4))))
   table <- emitValue "header" Ptr (PtrFromInt (typedOperand info))
   pure (header, table)
@@ -896,17 +916,19 @@ currentCapability = currentContext >>= capabilityOperand
 -- A store into the local nursery needs no runtime call.
 -- Its aligned base and size come from the capability of the stack chunk.
 -- The call allocates nothing and reads no context, so it needs no sync.
-emitWriteBarrier :: FunctionCtx -> Operand -> LowerM ()
+-- | The write barrier of a store into an object. The cold call also takes
+-- the value that the site stores, so the runtime can count an escape.
+emitWriteBarrier :: FunctionCtx -> Operand -> Operand -> LowerM ()
 emitWriteBarrier ctx object = emitBarrier ctx object Nothing
 
 -- | The write barrier of a store into a boxed array. The cold call takes
 -- the index of the element: a large array keeps a card for each run of
 -- elements, and the runtime marks the card of the store.
-emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> LowerM ()
+emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> Operand -> LowerM ()
 emitWriteBarrierAt ctx object index = emitBarrier ctx object (Just index)
 
-emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> LowerM ()
-emitBarrier _ object index = do
+emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> Operand -> LowerM ()
+emitBarrier _ object index value = do
   target <- targetM
   capability <- currentCapability
   objectWord <- emitValue "object_word" I64 (PtrToInt object)
@@ -917,13 +939,20 @@ emitBarrier _ object index = do
   young <- emitValue "young" I1 (Compare LtU I64 (typedOperand offset) (typedOperand bytes))
   old <- freshLabel "barrier_old"
   done <- freshLabel "barrier_done"
-  terminate (Branch (typedOperand young) (Target done []) (Target old []))
+  context <- currentContext
+  terminate (Branch (typedOperand young) (Target done [contextHeapLimit context]) (Target old []))
   beginColdBlock old []
   _ <- case index of
-    Nothing -> callRuntime "aihc_write_barrier" [Ptr, Ptr] [] [capability, object]
-    Just element -> callRuntime "aihc_write_barrier_at" [Ptr, Ptr, I64] [] [capability, object, element]
-  terminate (Jump (Target done []))
-  beginBlock done []
+    Nothing -> callRuntime "aihc_write_barrier_store" [Ptr, Ptr, I64] [] [capability, object, value]
+    Just element -> callRuntime "aihc_write_barrier_store_at" [Ptr, Ptr, I64, I64] [] [capability, object, element, value]
+  -- The cold path lowers the heap limit when the barrier work reaches its
+  -- budget, so the next reservation collects. See "Remembered set and mark
+  -- buffer" in docs/multi-threaded-rts-design.md.
+  reloaded <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
+  terminate (Jump (Target done [typedOperand reloaded]))
+  limit <- fresh "hp_limit"
+  beginBlock done [(limit, Ptr)]
+  setContext context {contextHeapLimit = OperandVar limit}
 
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])
@@ -1529,7 +1558,7 @@ compileExpr ctx env expression =
       current <- fresh "current"
       terminate (Jump (Target checkLabel [object]))
       beginBlock checkLabel [(current, Ptr)]
-      (headerWord, header) <- loadObjectHeader (OperandVar current)
+      (headerWord, header) <- loadObjectHeaderDependent (OperandVar current)
       needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
       notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
       -- Only a variable can take the target. Another value keeps the slow
@@ -1554,15 +1583,15 @@ compileExpr ctx env expression =
           claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
           terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
           beginBlock ownerLabel []
-          word <- loadSlot "word" Ptr (OperandVar current) 8
-          wordInfo <- loadObjectInfo (typedOperand word)
+          word <- loadSlotDependent "word" Ptr (OperandVar current) 8
+          (_, wordInfo) <- loadObjectHeaderDependent (typedOperand word)
           wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
           isThread <- emitValue "thread" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectThread)))
           isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
           owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
           terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
           beginBlock followLabel []
-          next <- loadSlot "next" Ptr (OperandVar current) 8
+          next <- loadSlotDependent "next" Ptr (OperandVar current) 8
           terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
       branchWith (compileExpr ctx env' ready)
@@ -2514,6 +2543,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- for the Lir runtime units, so their accessors are loads and stores
     -- rather than runtime calls. Every field is one eight-byte slot on
     -- every target.
+    -- The contents of a reference can be stored by another capability.
+    ("readMutVar#", [reference]) -> do
+      base <- pointerValue ctx env reference
+      value <- emitValue "field" I64 (LoadDependent I64 (byteAddress base mutVarContentsOffset))
+      bind [value]
     (_, [object])
       | Just (ty, offset) <- lookup name objectFieldPrimitives -> do
           base <- pointerValue ctx env object
@@ -2521,22 +2555,20 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [value]
     ("writeMutVar#", [reference, value]) -> do
       base <- pointerValue ctx env reference
-      emitWriteBarrier ctx base
       operand <- word value
-      emit [] (Store I64 operand (byteAddress base mutVarContentsOffset) (byteAlignment 8))
+      emitWriteBarrier ctx base operand
+      emit [] (StoreAtomic Release I64 operand (byteAddress base mutVarContentsOffset))
       bind []
     -- casMutVar# gives a failure flag, one when the contents differed from
-    -- the expected value, and the final contents. The runtime runs one
-    -- Haskell thread, so the swap is a plain load, compare, and store.
+    -- the expected value, and the final contents.
     ("casMutVar#", [reference, expected, replacement]) -> do
       base <- pointerValue ctx env reference
-      emitWriteBarrier ctx base
       expectedOperand <- word expected
       replacementOperand <- word replacement
-      current <- emitValue "current" I64 (Load I64 (byteAddress base mutVarContentsOffset) (byteAlignment 8))
+      emitWriteBarrier ctx base replacementOperand
+      current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress base mutVarContentsOffset))
       matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
       final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
-      emit [] (Store I64 (typedOperand final) (byteAddress base mutVarContentsOffset) (byteAlignment 8))
       unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
       bind [unchanged, final]
     ("isEmptyMVar#", [mvar]) -> do
@@ -2560,10 +2592,20 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           contents <- mvarContents mvar flag
           result <- compileRuntimeCall ctx env tryCall [mvar]
           bind [result, contents]
+    -- The atomic primitives of an Int# element are sequentially consistent.
+    ("atomicReadIntArray#", [array, index]) -> do
+      address <- byteArrayElement array index I64 ElementIndex
+      value <- emitValue "value" I64 (LoadAtomic SeqCst I64 (byteAddress address 0))
+      bind [value]
+    ("atomicWriteIntArray#", [array, index, value]) -> do
+      address <- byteArrayElement array index I64 ElementIndex
+      operand <- word value
+      emit [] (StoreAtomic SeqCst I64 operand (byteAddress address 0))
+      bind []
     (_, [array, index])
       | name `elem` arrayLoadPrimitives -> do
           slot <- arrayElement array index
-          value <- emitValue "element" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          value <- emitValue "element" I64 (LoadDependent I64 (byteAddress slot arrayElementsOffset))
           bind [value]
       | Just (ty, indexing, extension) <- lookup name byteArrayLoadPrimitives -> do
           address <- byteArrayElement array index ty indexing
@@ -2574,10 +2616,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | name `elem` arrayStorePrimitives -> do
           base <- pointerValue ctx env array
           indexOperand <- word index
-          emitWriteBarrierAt ctx base indexOperand
-          slot <- arrayElement array index
           operand <- word value
-          emit [] (Store I64 operand (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          emitWriteBarrierAt ctx base indexOperand operand
+          slot <- arrayElement array index
+          emit [] (StoreAtomic Release I64 operand (byteAddress slot arrayElementsOffset))
           bind []
       | Just (ty, indexing) <- lookup name byteArrayStorePrimitives -> do
           address <- byteArrayElement array index ty indexing
@@ -2591,14 +2633,13 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | name `elem` arrayCasPrimitives -> do
           base <- pointerValue ctx env array
           indexOperand <- word index
-          emitWriteBarrierAt ctx base indexOperand
-          slot <- arrayElement array index
           expectedOperand <- word expected
           replacementOperand <- word replacement
-          current <- emitValue "current" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          emitWriteBarrierAt ctx base indexOperand replacementOperand
+          slot <- arrayElement array index
+          current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress slot arrayElementsOffset))
           matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
           final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
-          emit [] (Store I64 (typedOperand final) (byteAddress slot arrayElementsOffset) (byteAlignment 8))
           unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
           bind [unchanged, final]
     _
@@ -2616,12 +2657,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- Whether an MVar holds a value, as a word: its flag is one byte.
     mvarFull mvar = do
       base <- pointerValue ctx env mvar
-      flag <- emitValue "full" I8 (Load I8 (byteAddress base mvarFullOffset) (byteAlignment 1))
+      flag <- emitValue "full" I8 (LoadAtomic Acquire I8 (byteAddress base mvarFullOffset))
       emitValue "full" I64 (Convert ZExt I8 (typedOperand flag) I64)
     -- The contents of an MVar when @full@ holds, and null otherwise.
     mvarContents mvar (Typed full _) = do
       base <- pointerValue ctx env mvar
-      value <- emitValue "value" I64 (Load I64 (byteAddress base mvarValueOffset) (byteAlignment 8))
+      value <- emitValue "value" I64 (LoadDependent I64 (byteAddress base mvarValueOffset))
       emitValue "contents" I64 (Select I64 full (typedOperand value) (OperandLiteral (LitInt 0)))
     checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
     -- Leave the current block for one whose entry means the bounds check
@@ -2931,8 +2972,7 @@ threadIdOffset = 8
 -- the field and its byte offset.
 objectFieldPrimitives :: [(Text, (Type, Integer))]
 objectFieldPrimitives =
-  [ ("readMutVar#", (I64, mutVarContentsOffset)),
-    ("sizeofArray#", (I64, arrayLengthOffset)),
+  [ ("sizeofArray#", (I64, arrayLengthOffset)),
     ("sizeofMutableArray#", (I64, arrayLengthOffset)),
     ("sizeofSmallArray#", (I64, arrayLengthOffset)),
     ("sizeofSmallMutableArray#", (I64, arrayLengthOffset)),
@@ -2954,8 +2994,7 @@ arrayLoadPrimitives, arrayStorePrimitives :: [Text]
 arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
 arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
 
--- | The compare and swap of one element of a boxed array. The runtime runs
--- one Haskell thread, so the swap is a plain load, compare, and store.
+-- | The compare and swap of one element of a boxed array.
 arrayCasPrimitives :: [Text]
 arrayCasPrimitives = ["casArray#", "casSmallArray#"]
 
@@ -2965,14 +3004,12 @@ data ByteArrayIndexing = ElementIndex | ByteOffset
   deriving (Eq, Show)
 
 -- | Each byte-array read gives its element width, index form, and extension.
--- Atomic reads use plain accesses because the runtime runs one Haskell thread.
 byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing, ConvertOp))]
 byteArrayLoadPrimitives =
   [ ("indexWordArray#", (I64, ElementIndex, ZExt)),
     ("readWordArray#", (I64, ElementIndex, ZExt)),
     ("indexIntArray#", (I64, ElementIndex, SExt)),
     ("readIntArray#", (I64, ElementIndex, SExt)),
-    ("atomicReadIntArray#", (I64, ElementIndex, SExt)),
     ("indexInt8Array#", (I8, ElementIndex, SExt)),
     ("readInt8Array#", (I8, ElementIndex, SExt)),
     ("indexInt16Array#", (I16, ElementIndex, SExt)),
@@ -3017,7 +3054,6 @@ byteArrayStorePrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayStorePrimitives =
   [ ("writeWordArray#", (I64, ElementIndex)),
     ("writeIntArray#", (I64, ElementIndex)),
-    ("atomicWriteIntArray#", (I64, ElementIndex)),
     ("writeInt8Array#", (I8, ElementIndex)),
     ("writeInt16Array#", (I16, ElementIndex)),
     ("writeInt32Array#", (I32, ElementIndex)),

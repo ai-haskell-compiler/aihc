@@ -400,6 +400,27 @@ static int aihc_in_nursery(const AihcCapability *capability,
          capability->nursery_bytes;
 }
 
+/* The capability whose nursery holds an address, or NULL. The window of
+   capability i is at i times the stride, and the stride is a power of two. */
+static AihcCapability *aihc_nursery_owner(const AihcMachine *machine,
+                                          const void *value) {
+  uintptr_t offset = (uintptr_t)value - (uintptr_t)machine->nursery_arena;
+  uint64_t stride = machine->nursery_stride_bytes;
+  if (machine->nursery_arena == NULL ||
+      offset >= machine->capability_count * stride) {
+    return NULL;
+  }
+  AihcCapability *owner =
+      machine->capabilities[offset >> __builtin_ctzll(stride)];
+  return aihc_in_nursery(owner, value) ? owner : NULL;
+}
+
+/* Whether an address is in the nursery of any capability. A collection
+   copies every nursery in one stop. */
+static int aihc_in_any_nursery(const AihcMachine *machine, const void *value) {
+  return aihc_nursery_owner(machine, value) != NULL;
+}
+
 /* The room between the allocation pointer and the end of the nursery. A
    caller of the runtime allocator has reserved its words against the heap
    limit, and a large object adopted since then may have moved the limit
@@ -428,7 +449,7 @@ static int aihc_outside_is_pinned(const AihcValue *object) {
 
 static AihcGeneration *aihc_generation(AihcCapability *capability,
                                        unsigned generation) {
-  return &capability->machine->generations[generation - 1];
+  return generation == 1 ? &capability->gen1 : &capability->machine->gen2;
 }
 
 /* The bytes the gen2 tests read: the segments of gen2 and the fixed blocks
@@ -437,7 +458,7 @@ static AihcGeneration *aihc_generation(AihcCapability *capability,
    waits for the -M limit. Gen1 needs no such test: the -B count copies all
    of gen1, with its fixed blocks, after a bounded number of collections. */
 static uint64_t aihc_gen2_bytes(const AihcCapability *capability) {
-  return capability->machine->generations[1].bytes +
+  return capability->machine->gen2.bytes +
          capability->machine->fixed_generation_bytes[2];
 }
 
@@ -682,7 +703,7 @@ static uint8_t *aihc_gen2_allocate(AihcCapability *capability, size_t bytes) {
         aihc_segment_take(segment, capability->machine->gen2_cycle_active != 0);
     if (slot != UINT32_MAX) {
       size_t slot_bytes = aihc_segment_slot_bytes(segment);
-      capability->machine->generations[1].bytes += slot_bytes;
+      capability->machine->gen2.bytes += slot_bytes;
       if (capability->machine->gen2_cycle_active) {
         /* The object is black: the cycle counts it and owes mark work for
            it. */
@@ -806,7 +827,7 @@ static void aihc_gen2_release(AihcCapability *capability) {
     aihc_segments_release(class->unswept);
     *class = (AihcSizeClass){0};
   }
-  capability->machine->generations[1].bytes = 0;
+  capability->machine->gen2.bytes = 0;
 }
 
 static uint8_t *aihc_generation_allocate(AihcCapability *capability,
@@ -820,14 +841,22 @@ static uint8_t *aihc_generation_allocate(AihcCapability *capability,
    it and not the nursery: a block is a whole run of regions, and a program
    with a limit far below one run still has to run. */
 static uint64_t aihc_old_bytes(const AihcCapability *capability) {
-  return aihc_generation_used(&capability->machine->generations[0]) +
-         capability->machine->generations[1].bytes +
-         capability->machine->fixed_bytes;
+  const AihcMachine *machine = capability->machine;
+  uint64_t bytes = machine->gen2.bytes + machine->fixed_bytes;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    bytes += aihc_generation_used(&machine->capabilities[index]->gen1);
+  }
+  return bytes;
 }
 
 static uint64_t aihc_occupied_bytes(const AihcCapability *capability) {
-  return (uint64_t)(capability->heap_next - capability->heap_start) +
-         aihc_old_bytes(capability);
+  const AihcMachine *machine = capability->machine;
+  uint64_t bytes = aihc_old_bytes(capability);
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    const AihcCapability *other = machine->capabilities[index];
+    bytes += (uint64_t)(other->heap_next - other->heap_start);
+  }
+  return bytes;
 }
 
 /* Cards of large boxed arrays. */
@@ -880,6 +909,33 @@ static void aihc_charge_fixed(AihcCapability *capability, size_t bytes) {
 static AihcStackChunk *aihc_stack_chunk_of(const void *address) {
   return (AihcStackChunk *)((uintptr_t)address &
                             ~(uintptr_t)(AIHC_STACK_CHUNK_BYTES - 1));
+}
+
+/* The capability that runs a stack: the stack holds its stack pointer. A
+   stopped capability without a thread has no stack pointer. */
+static const AihcCapability *aihc_running_capability(const AihcMachine *machine,
+                                                     const AihcStack *stack) {
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    const AihcCapability *capability = machine->capabilities[index];
+    if (capability->stack_next != NULL &&
+        aihc_stack_chunk_of(capability->stack_next - 1)->stack == stack) {
+      return capability;
+    }
+  }
+  return NULL;
+}
+
+/* Whether a chunk holds the stack pointer of a capability. */
+static int aihc_chunk_is_running(const AihcMachine *machine,
+                                 const AihcStackChunk *chunk) {
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    const AihcCapability *capability = machine->capabilities[index];
+    if (capability->stack_next != NULL &&
+        aihc_stack_chunk_of(capability->stack_next - 1) == chunk) {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 static uint8_t *aihc_stack_chunk_frames(AihcStackChunk *chunk) {
@@ -1062,12 +1118,24 @@ void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
 }
 
 void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
-  AihcSlot header = thunk->header;
+  AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
   if ((header & AIHC_HEADER_TAG_MASK) != 0) {
     return;
   }
-  thunk->fields[0] = (AihcSlot)(uintptr_t)owner;
-  thunk->header = header | AIHC_HEADER_EVALUATING;
+  /* The swap takes the state Claiming. A failed swap found another state,
+     which a claim leaves as it is. The owner store is a release store,
+     because a reader can see the owner under the header of an update, and
+     the owner store must publish the thread record. See "Blackholing" in
+     docs/multi-threaded-rts-design.md. */
+  if (!__atomic_compare_exchange_n(&thunk->header, &header,
+                                   header | AIHC_HEADER_TAG_MASK, 0,
+                                   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    return;
+  }
+  __atomic_store_n(&thunk->fields[0], (AihcSlot)(uintptr_t)owner,
+                   __ATOMIC_RELEASE);
+  __atomic_store_n(&thunk->header, header | AIHC_HEADER_EVALUATING,
+                   __ATOMIC_RELEASE);
 }
 
 /* The pause of the running thread: claim the thunk of each update frame
@@ -1158,12 +1226,29 @@ static void aihc_remembered_compact(AihcCapability *capability) {
   capability->remembered_count = kept;
 }
 
+/* Add the scan work of a barrier to the budget of the capability. When the
+   work reaches the budget, the heap limit goes below the nursery, so the
+   next reservation of the thread takes the slow path, which collects. See
+   "Remembered set and mark buffer" in docs/multi-threaded-rts-design.md. */
+static void aihc_barrier_charge(AihcCapability *capability, uint64_t bytes) {
+  capability->barrier_work += bytes;
+  if (capability->barrier_work >= capability->machine->barrier_budget) {
+    capability->heap_limit = (uint8_t *)((uintptr_t)capability->heap_start - 1);
+  }
+}
+
 void aihc_remember(AihcCapability *capability, AihcValue *object) {
   if (capability->remembered_count != 0 &&
       capability->remembered[capability->remembered_count - 1] == object) {
     /* A loop that stores into one object enters it once. */
     return;
   }
+  /* The next collection scans the object, or only its dirty cards when it
+     has them: the cards count on their own. */
+  aihc_barrier_charge(capability,
+                      aihc_has_cards(object)
+                          ? sizeof(AihcSlot)
+                          : sizeof(AihcSlot) * aihc_value_words(object));
   ++capability->remembered_repeatable;
   if (capability->remembered_count == capability->remembered_capacity) {
     /* Compact only when repeatable entries are half the list or more.
@@ -1201,11 +1286,24 @@ static void aihc_remember_unique(AihcCapability *capability,
   capability->remembered[capability->remembered_count++] = object;
 }
 
+/* Mark the cards from first up to end. A card byte is a relaxed atomic
+   exchange: a collection worker reads it, and the store needs no order. A
+   card that turns dirty adds the scan of its run to the barrier budget. */
+static void aihc_mark_cards(AihcCapability *capability, AihcValue *array,
+                            uint64_t first, uint64_t end) {
+  uint8_t *cards = aihc_array_cards(array);
+  for (uint64_t card = first; card < end; ++card) {
+    if (__atomic_exchange_n(&cards[card], (uint8_t)1, __ATOMIC_RELAXED) == 0) {
+      aihc_barrier_charge(capability, sizeof(AihcSlot) << AIHC_CARD_SHIFT);
+    }
+  }
+}
+
 /* The barrier of a blackhole update. The update writes the result over the
    payload, so the old referents are shaded as aihc_write_barrier does. A
    blackhole is updated once, so its entry is unique. */
 void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
-  if (object == NULL || aihc_in_nursery(capability, object)) {
+  if (object == NULL || aihc_in_any_nursery(capability->machine, object)) {
     return;
   }
   if (capability->machine->gen2_cycle_active) {
@@ -1215,21 +1313,49 @@ void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
 }
 
 void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
-  if (object == NULL || aihc_in_nursery(capability, object)) {
+  if (object == NULL || aihc_in_any_nursery(capability->machine, object)) {
     return;
   }
   if (capability->machine->gen2_cycle_active) {
     aihc_shade_fields(capability, object);
   }
   if (aihc_has_cards(object)) {
-    memset(aihc_array_cards(object), 1, aihc_array_card_count(object));
+    aihc_mark_cards(capability, object, 0, aihc_array_card_count(object));
   }
   aihc_remember(capability, object);
 }
 
+/* Whether an address is in the local heap of a capability: its nursery or
+   its gen1 blocks. */
+static int aihc_is_local(const AihcCapability *capability,
+                         const void *address) {
+  return address != NULL && (aihc_in_nursery(capability, address) ||
+                             aihc_region_kind(address) == AIHC_REGION_GEN1);
+}
+
+void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
+                       AihcSlot value) {
+  if (!aihc_is_local(capability, object) &&
+      aihc_is_local(capability, (const void *)(uintptr_t)value)) {
+    ++capability->escape_count;
+  }
+}
+
+void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                              AihcSlot value) {
+  aihc_count_escape(capability, object, value);
+  aihc_write_barrier(capability, object);
+}
+
+void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
+                                 uint64_t index, AihcSlot value) {
+  aihc_count_escape(capability, object, value);
+  aihc_write_barrier_at(capability, object, index);
+}
+
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index) {
-  if (object == NULL || aihc_in_nursery(capability, object)) {
+  if (object == NULL || aihc_in_any_nursery(capability->machine, object)) {
     return;
   }
   if (capability->machine->gen2_cycle_active) {
@@ -1238,7 +1364,7 @@ void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
   if (aihc_has_cards(object)) {
     uint64_t card = index >> AIHC_CARD_SHIFT;
     if (card < aihc_array_card_count(object)) {
-      aihc_array_cards(object)[card] = 1;
+      aihc_mark_cards(capability, object, card, card + 1);
     }
   }
   aihc_remember(capability, object);
@@ -1246,22 +1372,20 @@ void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
 
 void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
                               uint64_t offset, uint64_t count) {
-  if (object == NULL || count == 0 || aihc_in_nursery(capability, object)) {
+  if (object == NULL || count == 0 ||
+      aihc_in_any_nursery(capability->machine, object)) {
     return;
   }
   if (capability->machine->gen2_cycle_active) {
     aihc_shade_elements(capability, object, offset, offset + count);
   }
   if (aihc_has_cards(object)) {
-    uint8_t *cards = aihc_array_cards(object);
     uint64_t last = (offset + count - 1) >> AIHC_CARD_SHIFT;
     uint64_t card_count = aihc_array_card_count(object);
     if (last >= card_count) {
       last = card_count - 1;
     }
-    for (uint64_t card = offset >> AIHC_CARD_SHIFT; card <= last; ++card) {
-      cards[card] = 1;
-    }
+    aihc_mark_cards(capability, object, offset >> AIHC_CARD_SHIFT, last + 1);
   }
   aihc_remember(capability, object);
 }
@@ -1275,6 +1399,9 @@ static void aihc_gc_keep(AihcGcContext *context, AihcValue *object) {
 }
 
 /* Copying. */
+
+/* The info table of an indirection, defined by aihc_helpers.lir. */
+extern const AihcInfo aihc_indirection_info;
 
 /* A forwarding header has bit one alone. A thunk never has that state: a
    claim sets bit zero first. A frame has it when a pause processed the
@@ -1332,13 +1459,15 @@ static inline uint64_t aihc_gc_words(const AihcValue *value) {
   return aihc_value_words(value);
 }
 
+/* Copy an object into a generation. A survivor of a nursery goes to the gen1
+   blocks of the capability of that nursery, its owner. */
 static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
-                            unsigned generation) {
+                            unsigned generation, AihcCapability *owner) {
   uint64_t words = aihc_gc_words(value);
   size_t bytes = sizeof(AihcSlot) * words;
   AihcValue *copy =
       (AihcValue *)(generation == 1
-                        ? aihc_gen1_allocate(context->capability, bytes)
+                        ? aihc_gen1_allocate(owner, bytes)
                         : aihc_generation_allocate(context->capability,
                                                    generation, bytes));
   context->copied_bytes += bytes;
@@ -1413,7 +1542,8 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
       return NULL;
     }
     unsigned source;
-    if (aihc_in_nursery(capability, value)) {
+    AihcCapability *owner = aihc_nursery_owner(capability->machine, value);
+    if (owner != NULL) {
       source = 0;
     } else {
       switch (aihc_region_kind(value)) {
@@ -1489,7 +1619,9 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
       generation = 2;
     }
     *where = generation;
-    return aihc_copy(context, value, generation);
+    /* A survivor of gen1 goes to gen2, which has no owner. */
+    return aihc_copy(context, value, generation,
+                     owner != NULL ? owner : capability);
   }
 }
 
@@ -1558,10 +1690,6 @@ static void aihc_chunk_note_frame(AihcGcContext *context, AihcStackChunk *chunk,
    compiled code pushes into it without a runtime call. */
 static void aihc_age_chunks(AihcGcContext *context) {
   AihcCapability *capability = context->capability;
-  AihcStackChunk *running =
-      capability->stack_next == NULL
-          ? NULL
-          : aihc_stack_chunk_of(capability->stack_next - 1);
   for (size_t index = 0; index < context->touched_count; ++index) {
     AihcStackChunk *chunk = context->touched[index];
     unsigned youngest = (unsigned)((chunk->state & AIHC_CHUNK_YOUNGEST_MASK) >>
@@ -1573,7 +1701,7 @@ static void aihc_age_chunks(AihcGcContext *context) {
     if (generation > 2) {
       generation = 2;
     }
-    if (chunk == running) {
+    if (aihc_chunk_is_running(capability->machine, chunk)) {
       generation = 0;
     }
     aihc_chunk_set_generation(chunk, generation);
@@ -1708,6 +1836,19 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
     object->fields[0] = aihc_scan_slot(object->fields[0], &scan);
   }
   if (evaluated) {
+    /* The collector keeps an evaluated thunk here: it is old, static, or
+       named by an update frame. It becomes an indirection, which compiled
+       code follows with one compare. A claim acts only on a thunk in the
+       state Thunk, and field zero keeps the value, so the header store
+       races with no step of the protocol. The rest of the thunk becomes
+       slop, which reads as zero words, as after aihc_update. */
+    uint64_t words = aihc_gc_words(object);
+    object->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
+    for (uint64_t index = 1; index + 1 < words; ++index) {
+      object->fields[index] = 0;
+    }
+  }
+  if (evaluated) {
     /* Nothing else to scan. */
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
              kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
@@ -1775,11 +1916,15 @@ static int aihc_generation_scan_pending(AihcGeneration *generation) {
 }
 
 static void aihc_generation_scan_one(AihcGcContext *context,
-                                     unsigned generation) {
-  AihcGeneration *target = aihc_generation(context->capability, generation);
+                                     AihcCapability *owner) {
+  unsigned generation = 1;
+  AihcGeneration *target = &owner->gen1;
   AihcValue *object = (AihcValue *)target->scan;
+  /* The scan can make an indirection of an evaluated thunk, so the words
+     are read first. */
+  uint64_t words = aihc_gc_words(object);
   aihc_scan_object(context, object, generation);
-  target->scan += sizeof(AihcSlot) * aihc_gc_words(object);
+  target->scan += sizeof(AihcSlot) * words;
 }
 
 /* Copying, marking, and table walking all feed one another, so run every
@@ -1818,8 +1963,17 @@ static void aihc_trace(AihcGcContext *context) {
       aihc_scan_object(context, object, 2);
       continue;
     }
-    if (aihc_generation_scan_pending(aihc_generation(capability, 1))) {
-      aihc_generation_scan_one(context, 1);
+    int scanned = 0;
+    for (uint64_t index = 0; index < capability->machine->capability_count;
+         ++index) {
+      AihcCapability *other = capability->machine->capabilities[index];
+      if (aihc_generation_scan_pending(&other->gen1)) {
+        aihc_generation_scan_one(context, other);
+        scanned = 1;
+        break;
+      }
+    }
+    if (scanned) {
       continue;
     }
     return;
@@ -1829,8 +1983,8 @@ static void aihc_trace(AihcGcContext *context) {
 /* Scan the remembered set. An entry in a from-space is dropped: the object
    is copied and scanned if it is live. Another entry is scanned with its own
    generation as the floor of its referents. */
-static void aihc_scan_remembered(AihcGcContext *context) {
-  AihcCapability *capability = context->capability;
+static void aihc_scan_remembered_of(AihcGcContext *context,
+                                    AihcCapability *capability) {
   /* A hot object has one entry for each store since the last compaction,
      so the set is compacted before each entry costs a scan. */
   aihc_remembered_compact(capability);
@@ -1841,7 +1995,7 @@ static void aihc_scan_remembered(AihcGcContext *context) {
   capability->remembered_capacity = 0;
   for (uint64_t index = 0; index < count; ++index) {
     AihcValue *object = entries[index];
-    if (aihc_in_nursery(capability, object)) {
+    if (aihc_in_any_nursery(capability->machine, object)) {
       continue;
     }
     unsigned generation;
@@ -1888,6 +2042,14 @@ static void aihc_scan_remembered(AihcGcContext *context) {
   free(entries);
 }
 
+/* Scan the remembered set of every capability. */
+static void aihc_scan_remembered(AihcGcContext *context) {
+  AihcMachine *machine = context->capability->machine;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    aihc_scan_remembered_of(context, machine->capabilities[index]);
+  }
+}
+
 /* Whether a pinned block survives: it is older than the collected
    generations, or marked. A block of gen2 is governed by the mark of the
    gen2 cycle, a younger one by the mark of the running collection. */
@@ -1911,7 +2073,7 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
     if (value == NULL) {
       return NULL;
     }
-    if (!aihc_in_nursery(capability, value)) {
+    if (!aihc_in_any_nursery(capability->machine, value)) {
       switch (aihc_region_kind(value)) {
       case AIHC_REGION_FROM1:
         /* A from-space object: forwarded, followed, or dead, as below. */
@@ -1966,16 +2128,13 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
    threads become live. The running stack is a root. */
 static void aihc_trace_kept_stacks(AihcGcContext *context) {
   AihcCapability *capability = context->capability;
-  AihcStack *running =
-      capability->stack_next == NULL
-          ? NULL
-          : aihc_stack_chunk_of(capability->stack_next - 1)->stack;
   int scanned;
   do {
     scanned = 0;
     for (AihcStack *stack = capability->machine->stacks; stack != NULL;
          stack = stack->next) {
-      if (stack == running || stack->top == NULL ||
+      if (aihc_running_capability(capability->machine, stack) != NULL ||
+          stack->top == NULL ||
           aihc_chunk_generation(aihc_stack_chunk_of(stack->top)) >
               context->collected ||
           aihc_address_set_contains(&aihc_marked_statics, stack->top) ||
@@ -2009,20 +2168,23 @@ static void aihc_sweep_stacks(AihcGcContext *context) {
     }
     stack = next;
   }
-  if (capability->stack_next == NULL) {
-    return;
-  }
-  AihcStackChunk *spare =
-      aihc_stack_chunk_of(capability->stack_next - 1)->above;
-  if (spare == NULL) {
-    return;
-  }
-  AihcStackChunk *chunk = spare->above;
-  spare->above = NULL;
-  while (chunk != NULL) {
-    AihcStackChunk *above = chunk->above;
-    aihc_stack_chunk_free(capability, chunk);
-    chunk = above;
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    AihcCapability *other = capability->machine->capabilities[index];
+    if (other->stack_next == NULL) {
+      continue;
+    }
+    AihcStackChunk *spare = aihc_stack_chunk_of(other->stack_next - 1)->above;
+    if (spare == NULL) {
+      continue;
+    }
+    AihcStackChunk *chunk = spare->above;
+    spare->above = NULL;
+    while (chunk != NULL) {
+      AihcStackChunk *above = chunk->above;
+      aihc_stack_chunk_free(other, chunk);
+      chunk = above;
+    }
   }
 }
 
@@ -2159,12 +2321,12 @@ static int aihc_frame_is_live(const AihcCapability *capability,
   if (stack == NULL) {
     return 0;
   }
-  if (capability->stack_next != NULL) {
-    AihcStackChunk *top = aihc_stack_chunk_of(capability->stack_next - 1);
-    if (top->stack == stack) {
-      return chunk->depth < top->depth ||
-             (chunk == top && (const uint8_t *)frame < capability->stack_next);
-    }
+  const AihcCapability *running =
+      aihc_running_capability(capability->machine, stack);
+  if (running != NULL) {
+    AihcStackChunk *top = aihc_stack_chunk_of(running->stack_next - 1);
+    return chunk->depth < top->depth ||
+           (chunk == top && (const uint8_t *)frame < running->stack_next);
   }
   return stack->top != NULL && !aihc_frame_above(frame, stack->top);
 }
@@ -2175,7 +2337,7 @@ static int aihc_frame_is_live(const AihcCapability *capability,
    once with the frames below it in its chunk, when it is live and not
    scanned yet. */
 static void aihc_mark_old(AihcCapability *capability, AihcValue *value) {
-  if (value == NULL || aihc_in_nursery(capability, value)) {
+  if (value == NULL || aihc_in_any_nursery(capability->machine, value)) {
     return;
   }
   AihcRegionLocation location = aihc_region_location(value);
@@ -2465,24 +2627,33 @@ static void aihc_mark_range(AihcCapability *capability, uint8_t *start,
 static void aihc_cycle_start(AihcCapability *capability, uint64_t root_count,
                              AihcSlot *roots, const AihcSrt *srt) {
   aihc_gen2_begin_marking(capability);
-  for (const AihcHeapBlock *block = capability->machine->generations[0].first;
-       block != NULL; block = block->link) {
-    aihc_mark_range(capability, block->start, block->next);
+  AihcMachine *machine = capability->machine;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    for (const AihcHeapBlock *block = other->gen1.first; block != NULL;
+         block = block->link) {
+      aihc_mark_range(capability, block->start, block->next);
+    }
   }
   aihc_visit_roots(capability, root_count, roots, aihc_snapshot_root,
                    capability);
-  aihc_walk_srt(srt);
-  for (AihcForeignFrame *frame = capability->foreign_frames; frame != NULL;
-       frame = frame->previous) {
-    aihc_walk_srt(frame->srt);
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    if (other != capability) {
+      aihc_visit_roots(other, 0, NULL, aihc_snapshot_root, capability);
+    }
   }
-  AihcStack *running =
-      capability->stack_next == NULL
-          ? NULL
-          : aihc_stack_chunk_of(capability->stack_next - 1)->stack;
+  aihc_walk_srt(srt);
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    for (AihcForeignFrame *frame = machine->capabilities[index]->foreign_frames;
+         frame != NULL; frame = frame->previous) {
+      aihc_walk_srt(frame->srt);
+    }
+  }
   for (AihcStack *stack = capability->machine->stacks; stack != NULL;
        stack = stack->next) {
-    if (stack != running && stack->top != NULL) {
+    if (aihc_running_capability(capability->machine, stack) == NULL &&
+        stack->top != NULL) {
       aihc_mark_frames(capability, stack->top);
     }
   }
@@ -2545,8 +2716,7 @@ static void aihc_cycle_finish(AihcCapability *capability) {
   }
   aihc_clear_srt_stamps();
   capability->machine->gen2_cycle_active = 0;
-  capability->machine->generations[1].bytes =
-      capability->machine->gen2_marked_bytes;
+  capability->machine->gen2.bytes = capability->machine->gen2_marked_bytes;
   /* The factor is at most AIHC_GEN2_FACTOR_MAX, so the product fits when
      the bytes leave the top bits clear. A check against a quotient would
      become a wide multiply that the wasm32 link does not provide. The
@@ -2648,8 +2818,12 @@ void aihc_gc_record_peak(AihcCapability *capability) {
 static unsigned aihc_choose_generation(const AihcCapability *capability,
                                        uint64_t required_bytes) {
   unsigned generation = 0;
-  if (capability->machine->gen1_age >= capability->machine->gen1_collections) {
-    generation = 1;
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    if (capability->machine->capabilities[index]->gen1_age >=
+        capability->machine->gen1_collections) {
+      generation = 1;
+    }
   }
   uint64_t limit = capability->machine->gen2_limit_bytes;
   if (aihc_gen2_bytes(capability) >= limit &&
@@ -2687,9 +2861,14 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
                          int start_cycle, uint64_t root_count, AihcSlot *roots,
                          const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
+  AihcMachine *machine = capability->machine;
+  uint64_t capability_count = machine->capability_count;
   aihc_gc_record_peak(capability);
-  /* Everything the mutator took from the nursery it is about to leave. */
-  aihc_heap_account(capability);
+  /* Everything the mutators took from the nurseries they are about to
+     leave. */
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    aihc_heap_account(machine->capabilities[index]);
+  }
   if (capability->machine->gc_count == UINT64_MAX) {
     aihc_fail("collection counter overflow");
   }
@@ -2713,28 +2892,37 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
   /* After a collection that copies gen1, gen1 holds the survivors of this
      collection alone. A count of zero leaves gen1 empty. */
   uint64_t gen1_collections = capability->machine->gen1_collections;
-  if (collected >= 1) {
-    capability->machine->gen1_age = gen1_collections == 0 ? 0 : 1;
-  } else if (capability->machine->gen1_age != UINT64_MAX) {
-    ++capability->machine->gen1_age;
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    if (collected >= 1) {
+      other->gen1_age = gen1_collections == 0 ? 0 : 1;
+    } else if (other->gen1_age != UINT64_MAX) {
+      ++other->gen1_age;
+    }
   }
   AihcGcContext context = {.capability = capability,
                            .collected = collected,
                            .young_target = gen1_collections == 0 ? 2 : 1};
 
   /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
-     blocks. A full collection marks gen2 in place. */
-  AihcHeapBlock *from1 = NULL;
-  AihcGeneration *gen1 = aihc_generation(capability, 1);
-  if (collected >= 1) {
-    aihc_blocks_set_kind(gen1->first, AIHC_REGION_FROM1);
-    from1 = gen1->first;
-    gen1->first = NULL;
-    gen1->last = NULL;
-    gen1->bytes = 0;
+     blocks. A full collection marks gen2 in place. The first version copies
+     the gen1 of every capability together. */
+  AihcHeapBlock **from1 = calloc(capability_count, sizeof(*from1));
+  if (from1 == NULL) {
+    aihc_fail("out of memory");
   }
-  gen1->scan_block = gen1->last;
-  gen1->scan = gen1->last == NULL ? NULL : gen1->last->next;
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    AihcGeneration *gen1 = &machine->capabilities[index]->gen1;
+    if (collected >= 1) {
+      aihc_blocks_set_kind(gen1->first, AIHC_REGION_FROM1);
+      from1[index] = gen1->first;
+      gen1->first = NULL;
+      gen1->last = NULL;
+      gen1->bytes = 0;
+    }
+    gen1->scan_block = gen1->last;
+    gen1->scan = gen1->last == NULL ? NULL : gen1->last->next;
+  }
   if (collected == 2) {
     aihc_gen2_begin_marking(capability);
   }
@@ -2750,12 +2938,23 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
     /* The table of the code that requested the collection, or NULL when
        that code reaches no static object of its own. */
     aihc_walk_srt(srt);
-    for (AihcForeignFrame *frame = capability->foreign_frames; frame != NULL;
-         frame = frame->previous) {
-      aihc_walk_srt(frame->srt);
+    for (uint64_t index = 0; index < capability_count; ++index) {
+      for (AihcForeignFrame *frame =
+               machine->capabilities[index]->foreign_frames;
+           frame != NULL; frame = frame->previous) {
+        aihc_walk_srt(frame->srt);
+      }
     }
   }
   aihc_visit_roots(capability, root_count, roots, aihc_evacuate_root, &context);
+  /* The other capabilities are stopped. Their roots are their own records,
+     and the visit of the machine roots again finds them updated. */
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    if (other != capability) {
+      aihc_visit_roots(other, 0, NULL, aihc_evacuate_root, &context);
+    }
+  }
   aihc_scan_remembered(&context);
   aihc_trace(&context);
   aihc_trace_kept_stacks(&context);
@@ -2764,15 +2963,19 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
   aihc_sweep_pinned(&context);
   aihc_age_chunks(&context);
 
-  aihc_blocks_release(from1);
-  capability->heap_next = capability->heap_start;
-  capability->nursery_taken =
-      capability->nursery_block_bytes < capability->nursery_bytes
-          ? capability->nursery_block_bytes
-          : capability->nursery_bytes;
-  capability->heap_limit = capability->heap_start + capability->nursery_taken;
-  capability->heap_alloc_base = capability->heap_next;
-  capability->fixed_since_gc = 0;
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    aihc_blocks_release(from1[index]);
+    other->heap_next = other->heap_start;
+    other->nursery_taken = other->nursery_block_bytes < other->nursery_bytes
+                               ? other->nursery_block_bytes
+                               : other->nursery_bytes;
+    other->heap_limit = other->heap_start + other->nursery_taken;
+    other->heap_alloc_base = other->heap_next;
+    other->fixed_since_gc = 0;
+    other->barrier_work = 0;
+  }
+  free(from1);
   for (size_t index = 0; index < context.kept_count; ++index) {
     aihc_remember_unique(capability, context.kept[index]);
   }
@@ -2852,22 +3055,93 @@ static size_t aihc_nursery_size(uint64_t bytes) {
   return rounded;
 }
 
+/* Map the arena: one aligned window of the stride for each capability. Each
+   capability gets the nursery budget of the given bytes in its window. */
 static void aihc_nursery_acquire(AihcCapability *capability, size_t bytes) {
+  AihcMachine *machine = capability->machine;
   size_t stride = aihc_nursery_size(bytes);
   size_t regions = aihc_regions_for_bytes(stride);
-  capability->machine->nursery_arena =
-      aihc_regions_acquire_aligned(regions, regions, AIHC_REGION_NURSERY);
-  capability->machine->nursery_stride_bytes = stride;
-  /* The heap limit and collector tests can use a smaller allocation budget.
-     The arena window retains its power-of-two size and alignment. */
-  capability->nursery_bytes = bytes;
-  capability->heap_start = capability->machine->nursery_arena;
-  capability->heap_next = capability->heap_start;
-  capability->heap_alloc_base = capability->heap_start;
-  capability->nursery_taken = capability->nursery_block_bytes < bytes
-                                  ? capability->nursery_block_bytes
-                                  : bytes;
-  capability->heap_limit = capability->heap_start + capability->nursery_taken;
+  machine->nursery_arena = aihc_regions_acquire_aligned(
+      regions * machine->capability_count, regions, AIHC_REGION_NURSERY);
+  machine->nursery_stride_bytes = stride;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *window = machine->capabilities[index];
+    /* The heap limit and collector tests can use a smaller allocation
+       budget. The arena window retains its power-of-two size and
+       alignment. */
+    window->nursery_bytes = bytes;
+    window->heap_start = machine->nursery_arena + index * stride;
+    window->heap_next = window->heap_start;
+    window->heap_alloc_base = window->heap_start;
+    window->nursery_taken = window->nursery_block_bytes < bytes
+                                ? window->nursery_block_bytes
+                                : bytes;
+    window->heap_limit = window->heap_start + window->nursery_taken;
+  }
+}
+
+void aihc_machine_set_capabilities(AihcCapability *capability, uint64_t count) {
+  AihcMachine *machine = capability->machine;
+  if (count == 0 || count > UINT32_MAX) {
+    aihc_fail("invalid capability count");
+  }
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *each = machine->capabilities[index];
+    if (each->heap_next != each->heap_start) {
+      aihc_fail("a change of the capability count needs empty nurseries");
+    }
+  }
+  AihcCapability *first = machine->capabilities[0];
+  AihcCapability **array = malloc(count * sizeof(*array));
+  if (array == NULL) {
+    aihc_fail("out of memory");
+  }
+  for (uint64_t index = 0; index < count; ++index) {
+    if (index < machine->capability_count) {
+      array[index] = machine->capabilities[index];
+      continue;
+    }
+    AihcCapability *added = calloc(1, sizeof(*added));
+    if (added == NULL) {
+      aihc_fail("out of memory");
+    }
+    added->machine = machine;
+    added->exit_code = first->exit_code;
+    added->nursery_block_bytes = first->nursery_block_bytes;
+    array[index] = added;
+  }
+  /* A removed capability is idle. Its gen1 blocks and its remembered set go
+     to the first capability. */
+  for (uint64_t index = count; index < machine->capability_count; ++index) {
+    AihcCapability *removed = machine->capabilities[index];
+    if (removed->current_thread != NULL || removed->run_queue_head != NULL ||
+        removed->io_requests_head != NULL || removed->foreign_frames != NULL ||
+        removed->root_frames != NULL) {
+      aihc_fail("a removed capability is not idle");
+    }
+    if (removed->gen1.first != NULL) {
+      if (first->gen1.last == NULL) {
+        first->gen1.first = removed->gen1.first;
+      } else {
+        first->gen1.last->link = removed->gen1.first;
+      }
+      first->gen1.last = removed->gen1.last;
+      first->gen1.bytes += removed->gen1.bytes;
+    }
+    for (uint64_t entry = 0; entry < removed->remembered_count; ++entry) {
+      aihc_remember_unique(first, removed->remembered[entry]);
+    }
+    free(removed->remembered);
+    free(removed);
+  }
+  if (machine->capabilities_owned) {
+    free(machine->capabilities);
+  }
+  machine->capabilities = array;
+  machine->capabilities_owned = 1;
+  machine->capability_count = count;
+  aihc_regions_release(machine->nursery_arena);
+  aihc_nursery_acquire(first, first->nursery_bytes);
 }
 
 void aihc_nursery_replace(AihcCapability *capability, size_t bytes) {
@@ -2881,13 +3155,19 @@ void aihc_nursery_replace(AihcCapability *capability, size_t bytes) {
 }
 
 void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
-  AihcGeneration *gen1 = aihc_generation(capability, 1);
-  aihc_blocks_release(gen1->first);
-  gen1->first = NULL;
-  gen1->last = NULL;
-  gen1->bytes = 0;
-  gen1->scan_block = NULL;
-  gen1->scan = NULL;
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    AihcCapability *each = capability->machine->capabilities[index];
+    aihc_blocks_release(each->gen1.first);
+    each->gen1 = (AihcGeneration){0};
+    each->fixed_since_gc = 0;
+    each->barrier_work = 0;
+    free(each->remembered);
+    each->remembered = NULL;
+    each->remembered_count = 0;
+    each->remembered_capacity = 0;
+    each->remembered_repeatable = 0;
+  }
   aihc_gen2_release(capability);
   aihc_gen2_worklist.count = 0;
   aihc_mark_stack.count = 0;
@@ -2909,12 +3189,6 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
   capability->machine->fixed_bytes = 0;
   memset(capability->machine->fixed_generation_bytes, 0,
          sizeof(capability->machine->fixed_generation_bytes));
-  capability->fixed_since_gc = 0;
-  free(capability->remembered);
-  capability->remembered = NULL;
-  capability->remembered_count = 0;
-  capability->remembered_capacity = 0;
-  capability->remembered_repeatable = 0;
   aihc_nursery_replace(capability, nursery_bytes);
   capability->machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
 }
@@ -2932,6 +3206,13 @@ static void aihc_apply_block_option(AihcCapability *capability) {
   capability->nursery_block_bytes = bytes;
 }
 
+/* The barrier budget is the -R option, or the nursery size by default. */
+static void aihc_apply_barrier_budget(AihcCapability *capability) {
+  uint64_t budget = aihc_rts_barrier_budget_bytes();
+  capability->machine->barrier_budget =
+      budget != 0 ? budget : capability->nursery_bytes;
+}
+
 void aihc_gc_init(AihcCapability *capability) {
   aihc_apply_block_option(capability);
   uint64_t nursery = aihc_rts_nursery_bytes();
@@ -2944,6 +3225,7 @@ void aihc_gc_init(AihcCapability *capability) {
   capability->machine->mark_factor = AIHC_MARK_FACTOR;
   capability->machine->mark_slice_floor = AIHC_MARK_SLICE_FLOOR;
   capability->machine->mark_slice_cap = AIHC_MARK_SLICE_CAP;
+  aihc_apply_barrier_budget(capability);
 }
 
 void aihc_gc_apply_options(AihcCapability *capability) {
@@ -2969,6 +3251,7 @@ void aihc_gc_apply_options(AihcCapability *capability) {
     capability->machine->mark_factor =
         mark_factor > AIHC_GEN2_FACTOR_MAX ? AIHC_GEN2_FACTOR_MAX : mark_factor;
   }
+  aihc_apply_barrier_budget(capability);
 }
 
 void aihc_gc_apply_limit(AihcCapability *capability) {
@@ -3063,7 +3346,8 @@ void aihc_gc_collect(AihcCapability *capability, uint64_t words,
 void aihc_gc_refill(AihcCapability *capability, uint64_t words,
                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
-  if (!aihc_nursery_refill(capability, bytes)) {
+  if (capability->barrier_work >= capability->machine->barrier_budget ||
+      !aihc_nursery_refill(capability, bytes)) {
     aihc_gc_collect(capability, words, root_count, roots, srt);
   }
 }
@@ -3272,7 +3556,7 @@ static void aihc_verify_value(AihcValue *value) {
   }
   switch (aihc_region_kind(value)) {
   case AIHC_REGION_NURSERY:
-    if (aihc_in_nursery(capability, value)) {
+    if (aihc_in_any_nursery(capability->machine, value)) {
       aihc_fail("verifier: a reachable object is in the empty nursery");
     }
     aihc_fail("verifier: a reachable object is in a released nursery");
@@ -3282,13 +3566,19 @@ static void aihc_verify_value(AihcValue *value) {
   case AIHC_REGION_FREE:
     aihc_verify_fail("verifier: a reachable object is in a free region", value);
   case AIHC_REGION_GEN1: {
+    /* Gen1 blocks of every capability. */
     int inside = 0;
-    for (const AihcHeapBlock *block = capability->machine->generations[0].first;
-         block != NULL; block = block->link) {
-      if ((const uint8_t *)value >= block->start &&
-          (const uint8_t *)value < block->next) {
-        inside = 1;
-        break;
+    const AihcMachine *machine = capability->machine;
+    for (uint64_t index = 0; index < machine->capability_count && !inside;
+         ++index) {
+      for (const AihcHeapBlock *block =
+               machine->capabilities[index]->gen1.first;
+           block != NULL; block = block->link) {
+        if ((const uint8_t *)value >= block->start &&
+            (const uint8_t *)value < block->next) {
+          inside = 1;
+          break;
+        }
       }
     }
     if (!inside) {
@@ -3428,12 +3718,13 @@ static void aihc_verify_remembered(const AihcValue *object) {
    chunks of a stack grow older from its top, so the walk of a collection
    that stops at the first older chunk misses nothing. */
 static void aihc_verify_stacks(const AihcCapability *capability) {
-  AihcStackChunk *running =
-      capability->stack_next == NULL
-          ? NULL
-          : aihc_stack_chunk_of(capability->stack_next - 1);
-  if (running != NULL && running->stack == NULL) {
-    aihc_fail("verifier: the stack pointer is in a released chunk");
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    const AihcCapability *other = capability->machine->capabilities[index];
+    if (other->stack_next != NULL &&
+        aihc_stack_chunk_of(other->stack_next - 1)->stack == NULL) {
+      aihc_fail("verifier: the stack pointer is in a released chunk");
+    }
   }
   for (AihcStack *stack = capability->machine->stacks; stack != NULL;
        stack = stack->next) {
@@ -3448,8 +3739,10 @@ static void aihc_verify_stacks(const AihcCapability *capability) {
       }
     }
     AihcStackChunk *top = NULL;
-    if (running != NULL && running->stack == stack) {
-      top = running;
+    const AihcCapability *running =
+        aihc_running_capability(capability->machine, stack);
+    if (running != NULL) {
+      top = aihc_stack_chunk_of(running->stack_next - 1);
     } else if (stack->top != NULL) {
       top = aihc_stack_chunk_of(stack->top);
     }
@@ -3495,14 +3788,21 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
     aihc_fail("verifier: the fixed bytes are wrong");
   }
   aihc_verify_stacks(capability);
-  for (uint64_t index = 0; index < capability->remembered_count; ++index) {
-    aihc_verify_remembered(capability->remembered[index]);
-  }
   aihc_visit_roots(capability, root_count, roots, aihc_verify_slot, NULL);
   aihc_verify_srt(srt);
-  for (const AihcForeignFrame *frame = capability->foreign_frames;
-       frame != NULL; frame = frame->previous) {
-    aihc_verify_srt(frame->srt);
+  for (uint64_t other = 0; other < capability->machine->capability_count;
+       ++other) {
+    AihcCapability *each = capability->machine->capabilities[other];
+    for (uint64_t index = 0; index < each->remembered_count; ++index) {
+      aihc_verify_remembered(each->remembered[index]);
+    }
+    if (each != capability) {
+      aihc_visit_roots(each, 0, NULL, aihc_verify_slot, NULL);
+    }
+    for (const AihcForeignFrame *frame = each->foreign_frames; frame != NULL;
+         frame = frame->previous) {
+      aihc_verify_srt(frame->srt);
+    }
   }
   for (AihcStableName *name = capability->machine->stable_names; name != NULL;
        name = name->next) {
@@ -3570,11 +3870,14 @@ static void aihc_walk_segments(const AihcCapability *capability,
 
 void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
                           void *context) {
-  aihc_walk_range(capability->heap_start, capability->heap_next, visitor,
-                  context);
-  for (const AihcHeapBlock *block = capability->machine->generations[0].first;
-       block != NULL; block = block->link) {
-    aihc_walk_range(block->start, block->next, visitor, context);
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    const AihcCapability *each = capability->machine->capabilities[index];
+    aihc_walk_range(each->heap_start, each->heap_next, visitor, context);
+    for (const AihcHeapBlock *block = each->gen1.first; block != NULL;
+         block = block->link) {
+      aihc_walk_range(block->start, block->next, visitor, context);
+    }
   }
   for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
     const AihcSizeClass *class = &aihc_size_classes[index];

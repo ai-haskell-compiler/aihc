@@ -40,7 +40,7 @@ expected: |
     jump eval_check_12(%value_9)
 
   eval_check_12(%current_15: ptr):
-    %header_word_16 = load i64 [%current_15] align 8
+    %header_word_16 = load.dependent i64 [%current_15]
     %info_word_17 = and i64 %header_word_16, -4
     %header_18 = ptr.from_int %info_word_17
     %needs_eval_19 = load i8 [%header_18 + 44] align 1
@@ -58,8 +58,8 @@ expected: |
     br %claimed_28, eval_owner_25, eval_slow_14
 
   eval_owner_25:
-    %word_29 = load ptr [%current_15 + 8] align 8
-    %header_word_30 = load i64 [%word_29] align 8
+    %word_29 = load.dependent ptr [%current_15 + 8]
+    %header_word_30 = load.dependent i64 [%word_29]
     %info_word_31 = and i64 %header_word_30, -4
     %header_32 = ptr.from_int %info_word_31
     %word_kind_33 = load i8 [%header_32 + 43] align 1
@@ -70,7 +70,7 @@ expected: |
     br %owned_37, eval_slow_14, eval_check_12(%word_29)
 
   eval_follow_23:
-    %next_38 = load ptr [%current_15 + 8] align 8
+    %next_38 = load.dependent ptr [%current_15 + 8]
     jump eval_check_12(%next_38)
 
   eval_ready_13:
