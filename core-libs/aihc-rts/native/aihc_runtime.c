@@ -1136,7 +1136,8 @@ static void aihc_enqueue_thread(AihcCapability *capability,
   if (thread->next != NULL) {
     aihc_fail("attempted to enqueue an already queued thread");
   }
-  AihcCapability *target = capability->machine->capabilities[thread->capability];
+  AihcCapability *target =
+      capability->machine->capabilities[thread->capability];
   if (target->run_queue_tail == NULL) {
     target->run_queue_head = thread;
   } else {

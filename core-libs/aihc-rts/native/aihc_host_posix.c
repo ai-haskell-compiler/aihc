@@ -131,8 +131,8 @@ void aihc_host_workers_start(AihcCapability *capability) {
     }
     for (int end = 0; end < 2; ++end) {
       int descriptor = aihc_wake_pipes[index][end];
-      if (fcntl(descriptor, F_SETFL,
-                fcntl(descriptor, F_GETFL) | O_NONBLOCK) != 0 ||
+      if (fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK) !=
+              0 ||
           fcntl(descriptor, F_SETFD, FD_CLOEXEC) != 0) {
         aihc_fail("cannot set up a wake-up descriptor");
       }
