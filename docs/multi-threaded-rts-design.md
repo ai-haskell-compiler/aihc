@@ -32,6 +32,7 @@ It uses an exclusive or with the aligned base and an unsigned size compare.
 The C runtime uses the same test.
 The runtime has no global nursery bounds.
 Gen1 uses the `-B` count rule and has no byte maximum.
+Each capability has its own gen1 blocks and its own count of collections. The machine keeps gen2.
 Thread records are in gen2 from the fork and never move.
 Their resumption and transaction fields are roots of the capability, so a store into them takes no barrier.
 Each thunk has the owner word as field zero, and its free variables start at field one.
@@ -49,7 +50,7 @@ Lir has the atomic instructions of the memory model section on every backend.
 No compiled code or runtime unit uses them yet.
 
 The rest of step 1 remains necessary before step 2.
-It includes the escape count, gen1 blocks for each capability, and barrier safepoints.
+It includes the escape count and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 
