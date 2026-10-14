@@ -135,8 +135,12 @@ compile instead of linking against a heap with another layout.
 instead of an executable. The bundle holds a copy of every link
 input, so it is complete on its own: the module objects and the entry
 object of the executable, and the C, Lir and module objects and the archives
-of the installed packages, the runtime among them. A `link.cbor` manifest
-lists them in link order with paths relative to the bundle.
+of the installed packages, the runtime among them. A `link.args` response file
+lists the Clang arguments in link order with paths relative to the bundle.
+The `link.target` text file names the target.
+Each response file argument has double quotes.
+The response file escapes quotes and backslashes.
+WASM does not support link bundles.
 
 ```console
 aihc build Main.hs \
@@ -160,7 +164,7 @@ target, such as a Mac for `apple-arm64` objects compiled on Linux:
 aihc link-exe program-bundle --output program
 ```
 
-The manifest uses CBOR. A host without the compiler can run the
+The response file uses text. A host without the compiler can run the
 link through the C driver of the target directly. The weekly cross-compilation
 workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
 example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`

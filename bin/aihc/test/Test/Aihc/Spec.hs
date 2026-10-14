@@ -14,7 +14,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, executableLinkArguments, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
@@ -713,12 +713,12 @@ test_buildModuleLinkBundle getStore =
     decoded <- readLinkBundle (linkBundleManifestPath bundle)
     manifest <- either assertFailure pure decoded
     assertEqual "bundle target" (buildTarget options) (linkBundleTarget manifest)
-    assertBool "a program without C++ sources links no C++ standard library" (not (linkBundleCxxStdLib manifest))
-    assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
-    assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArchives manifest))
-    assertBool "bundle lists the entry object" (any ("entry.o" `isSuffixOf`) (linkBundleObjects manifest))
-    assertBool "bundle lists the runtime objects" (any ("native_aihc_runtime.o" `isSuffixOf`) (linkBundleObjects manifest))
-    forM_ (linkBundleObjects manifest <> linkBundleArchives manifest) $ \input -> do
+    assertBool "a program without C++ sources links no C++ standard library" (not (any (`elem` ["-lc++", "-lstdc++"]) (linkBundleArguments manifest)))
+    assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleArguments manifest))
+    assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArguments manifest))
+    assertBool "bundle lists the entry object" (any ("entry.o" `isSuffixOf`) (linkBundleArguments manifest))
+    assertBool "bundle lists the runtime objects" (any ("native_aihc_runtime.o" `isSuffixOf`) (linkBundleArguments manifest))
+    forM_ (filter (\argument -> ".o" `isSuffixOf` argument || ".a" `isSuffixOf` argument) (linkBundleArguments manifest)) $ \input -> do
       assertBool ("bundle input is relative: " <> input) ("inputs/" `isPrefixOf` input)
       assertFileExists (bundle </> input)
     removeDirectoryRecursive storeRoot
@@ -808,8 +808,8 @@ test_lto getStore =
     let bundles = root </> "bundles"
     _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
     bundleManifest <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "greet"))
-    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
-    assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects bundleManifest)))
+    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleArguments bundleManifest))
+    assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleArguments bundleManifest)))
     -- An install at the same level stops at System FC in the same way.
     fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
     let installOptions = InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "install-build")) False False False False False False True O2 False False False False target Nothing defaultPlanOptions
@@ -868,12 +868,12 @@ test_ltoLlvm getStore =
           | System.Info.arch /= "x86_64" = []
           | System.Info.os == "darwin" = ["-Wl,-mllvm,-enable-shrink-wrap=false"]
           | otherwise = ["-Wl,-plugin-opt=-enable-shrink-wrap=false"]
-    assertEqual "bundle records the LTO link arguments" (["-flto", "-O2"] <> shrinkWrapArguments) (linkBundleLtoArguments bundleManifest)
+    assertEqual "bundle records the LLVM link arguments" (executableLinkArguments Llvm <> ["-flto", "-O2"] <> shrinkWrapArguments <> ["-lm"]) (filter (not . ("inputs/" `isPrefixOf`)) (linkBundleArguments bundleManifest))
     -- The link reads no archive: the wrapper objects of the packages are
     -- among the objects, and the C objects were already.
-    assertEqual "bundle lists no archive" [] (linkBundleArchives bundleManifest)
-    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
-    assertBool "bundle lists a capi wrapper of aihc-base" (any (".capi.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
+    assertEqual "bundle lists no archive" [] (filter (".a" `isSuffixOf`) (linkBundleArguments bundleManifest))
+    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleArguments bundleManifest))
+    assertBool "bundle lists a capi wrapper of aihc-base" (any (".capi.o" `isSuffixOf`) (linkBundleArguments bundleManifest))
     removeDirectoryRecursive storeRoot
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "greet", linkExeOutputFile = linked}
     (status, stdout, stderr) <- readProcessWithExitCode linked [] ""
@@ -1022,9 +1022,9 @@ test_buildExecutables getStore =
       assertFileExists (linkBundleManifestPath (bundles </> name))
       decoded <- readLinkBundle (linkBundleManifestPath (bundles </> name))
       manifest <- either assertFailure pure decoded
-      assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
+      assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleArguments manifest))
     bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "greet"))
-    assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
+    assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArguments bundle))
 
 -- | Two dependencies can each hold a module of one name, as @filepath@ and
 -- @os-string@ both hold @System.OsString.Internal.Types@. The facts of both
@@ -1114,8 +1114,8 @@ test_buildCxxSources getStore = do
     bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "triangle"] bundleOutputs
     bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "triangle"))
-    assertBool "the bundle asks for the C++ standard library" (linkBundleCxxStdLib bundle)
-    assertBool "the bundle lists the C++ object" (any ("cbits_triangle.o" `isSuffixOf`) (linkBundleObjects bundle))
+    assertBool "the bundle asks for the C++ standard library" (any (`elem` ["-lc++", "-lstdc++"]) (linkBundleArguments bundle))
+    assertBool "the bundle lists the C++ object" (any ("cbits_triangle.o" `isSuffixOf`) (linkBundleArguments bundle))
     let linked = root </> "linked" </> "triangle"
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "triangle", linkExeOutputFile = linked}
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
@@ -1184,7 +1184,7 @@ test_buildExtraLibraries getStore = do
     bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "answer"] bundleOutputs
     bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "answer"))
-    assertEqual "the bundle records the link arguments" expectedArguments (linkBundleLinkArguments bundle)
+    assertEqual "the bundle records the library arguments" (expectedArguments <> ["-lm"]) (filter (\argument -> "-L" `isPrefixOf` argument || "-l" `isPrefixOf` argument) (linkBundleArguments bundle))
     let linked = root </> "linked" </> "answer"
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "answer", linkExeOutputFile = linked}
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""

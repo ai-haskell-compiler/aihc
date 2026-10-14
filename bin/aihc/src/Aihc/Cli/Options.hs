@@ -215,7 +215,7 @@ buildOptionsParser =
     <*> optimizationOption
     <*> OA.switch
       ( OA.long "no-link"
-          <> OA.help "Compile only: write the objects, archives, and a link.cbor manifest to a bundle directory instead of linking"
+          <> OA.help "Compile only: write the objects, archives, and a link.args response file to a bundle directory instead of linking"
       )
     <*> OA.switch
       ( OA.long "verbose"
@@ -305,7 +305,7 @@ linkExeOptionsParser =
   LinkExeOptions
     <$> OA.strArgument
       ( OA.metavar "BUNDLE"
-          <> OA.help "Directory holding the link.cbor manifest written by build --no-link"
+          <> OA.help "Directory holding the link.args response file written by build --no-link"
       )
     <*> OA.strOption
       ( OA.long "output"

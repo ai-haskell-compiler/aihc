@@ -5,6 +5,5 @@
   mkLirExtension,
 }: pkgs: {
   aihc-grammars = mkEditorGrammars pkgs;
-  link-bundle-python = pkgs.python3.withPackages (ps: [ps.cbor2]);
   vscode-lir = mkLirExtension pkgs;
 }
