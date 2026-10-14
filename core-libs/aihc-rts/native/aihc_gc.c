@@ -1276,6 +1276,9 @@ static void aihc_gc_keep(AihcGcContext *context, AihcValue *object) {
 
 /* Copying. */
 
+/* The info table of an indirection, defined by aihc_helpers.lir. */
+extern const AihcInfo aihc_indirection_info;
+
 /* A forwarding header has bit one alone. A thunk never has that state: a
    claim sets bit zero first. A frame has it when a pause processed the
    frame, but frames never move, so no forwarding test reads a frame. */
@@ -1708,6 +1711,19 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
     object->fields[0] = aihc_scan_slot(object->fields[0], &scan);
   }
   if (evaluated) {
+    /* The collector keeps an evaluated thunk here: it is old, static, or
+       named by an update frame. It becomes an indirection, which compiled
+       code follows with one compare. A claim acts only on a thunk in the
+       state Thunk, and field zero keeps the value, so the header store
+       races with no step of the protocol. The rest of the thunk becomes
+       slop, which reads as zero words, as after aihc_update. */
+    uint64_t words = aihc_gc_words(object);
+    object->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
+    for (uint64_t index = 1; index + 1 < words; ++index) {
+      object->fields[index] = 0;
+    }
+  }
+  if (evaluated) {
     /* Nothing else to scan. */
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
              kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
@@ -1778,8 +1794,11 @@ static void aihc_generation_scan_one(AihcGcContext *context,
                                      unsigned generation) {
   AihcGeneration *target = aihc_generation(context->capability, generation);
   AihcValue *object = (AihcValue *)target->scan;
+  /* The scan can make an indirection of an evaluated thunk, so the words
+     are read first. */
+  uint64_t words = aihc_gc_words(object);
   aihc_scan_object(context, object, generation);
-  target->scan += sizeof(AihcSlot) * aihc_gc_words(object);
+  target->scan += sizeof(AihcSlot) * words;
 }
 
 /* Copying, marking, and table walking all feed one another, so run every
