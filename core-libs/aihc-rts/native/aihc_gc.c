@@ -1580,6 +1580,7 @@ static inline uint64_t aihc_gc_words(const AihcValue *value) {
   return aihc_value_words(value);
 }
 
+#ifdef AIHC_GC_THREADS
 /* The words of an object whose header the caller loaded. Another worker can
    write a busy header into the object, so the size comes from the loaded
    header and from field zero, which a copy does not change. Only an array,
@@ -1595,6 +1596,7 @@ static uint64_t aihc_gc_words_of(const AihcValue *value, AihcSlot header) {
   }
   return aihc_gc_words((const AihcValue *)probe);
 }
+#endif
 
 /* Copy an object into a generation. A survivor of a nursery goes to the gen1
    blocks of the capability of that nursery, its owner. */
@@ -1760,6 +1762,8 @@ static void aihc_mark_frame(AihcGcContext *context, AihcValue *frame) {
     }
     return;
   }
+#else
+  (void)context;
 #endif
   aihc_mark_static(frame);
 }
