@@ -18,6 +18,24 @@ entry:
   return %header_word
 }
 
+; The header word of an object that another capability can claim or
+; update. The load orders the loads of field zero after it. See "Memory
+; model" in docs/multi-threaded-rts-design.md.
+inline func @aihc_object_header_word_dependent(%object: ptr) -> i64 {
+entry:
+  %header_word = load.dependent i64 [%object]
+  return %header_word
+}
+
+; Field zero of a thunk with bit zero: its owner or its value. The load
+; orders the load of the header of that object after it.
+inline func @aihc_thunk_field_zero(%object: ptr) -> ptr {
+entry:
+  %word_bits = load.dependent i64 [%object + 8]
+  %word = ptr.from_int %word_bits
+  return %word
+}
+
 inline func @aihc_info_table_of_header(%header_word: i64) -> ptr {
 entry:
   %info_word = and i64 %header_word, @AIHC_HEADER_INFO_MASK

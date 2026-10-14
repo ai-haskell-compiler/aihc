@@ -1062,12 +1062,24 @@ void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
 }
 
 void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
-  AihcSlot header = thunk->header;
+  AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
   if ((header & AIHC_HEADER_TAG_MASK) != 0) {
     return;
   }
-  thunk->fields[0] = (AihcSlot)(uintptr_t)owner;
-  thunk->header = header | AIHC_HEADER_EVALUATING;
+  /* The swap takes the state Claiming. A failed swap found another state,
+     which a claim leaves as it is. The owner store is a release store,
+     because a reader can see the owner under the header of an update, and
+     the owner store must publish the thread record. See "Blackholing" in
+     docs/multi-threaded-rts-design.md. */
+  if (!__atomic_compare_exchange_n(&thunk->header, &header,
+                                   header | AIHC_HEADER_TAG_MASK, 0,
+                                   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    return;
+  }
+  __atomic_store_n(&thunk->fields[0], (AihcSlot)(uintptr_t)owner,
+                   __ATOMIC_RELEASE);
+  __atomic_store_n(&thunk->header, header | AIHC_HEADER_EVALUATING,
+                   __ATOMIC_RELEASE);
 }
 
 /* The pause of the running thread: claim the thunk of each update frame
@@ -1201,6 +1213,15 @@ static void aihc_remember_unique(AihcCapability *capability,
   capability->remembered[capability->remembered_count++] = object;
 }
 
+/* Mark the cards from first up to end. A card byte is a relaxed atomic
+   store: a collection worker reads it, and the store needs no order. */
+static void aihc_mark_cards(AihcValue *array, uint64_t first, uint64_t end) {
+  uint8_t *cards = aihc_array_cards(array);
+  for (uint64_t card = first; card < end; ++card) {
+    __atomic_store_n(&cards[card], (uint8_t)1, __ATOMIC_RELAXED);
+  }
+}
+
 /* The barrier of a blackhole update. The update writes the result over the
    payload, so the old referents are shaded as aihc_write_barrier does. A
    blackhole is updated once, so its entry is unique. */
@@ -1222,7 +1243,7 @@ void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
     aihc_shade_fields(capability, object);
   }
   if (aihc_has_cards(object)) {
-    memset(aihc_array_cards(object), 1, aihc_array_card_count(object));
+    aihc_mark_cards(object, 0, aihc_array_card_count(object));
   }
   aihc_remember(capability, object);
 }
@@ -1238,7 +1259,7 @@ void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
   if (aihc_has_cards(object)) {
     uint64_t card = index >> AIHC_CARD_SHIFT;
     if (card < aihc_array_card_count(object)) {
-      aihc_array_cards(object)[card] = 1;
+      aihc_mark_cards(object, card, card + 1);
     }
   }
   aihc_remember(capability, object);
@@ -1253,15 +1274,12 @@ void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
     aihc_shade_elements(capability, object, offset, offset + count);
   }
   if (aihc_has_cards(object)) {
-    uint8_t *cards = aihc_array_cards(object);
     uint64_t last = (offset + count - 1) >> AIHC_CARD_SHIFT;
     uint64_t card_count = aihc_array_card_count(object);
     if (last >= card_count) {
       last = card_count - 1;
     }
-    for (uint64_t card = offset >> AIHC_CARD_SHIFT; card <= last; ++card) {
-      cards[card] = 1;
-    }
+    aihc_mark_cards(object, offset >> AIHC_CARD_SHIFT, last + 1);
   }
   aihc_remember(capability, object);
 }

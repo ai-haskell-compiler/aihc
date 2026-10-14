@@ -1132,7 +1132,7 @@ static AihcThread *aihc_dequeue_thread(AihcCapability *capability) {
 void aihc_set_field(AihcCapability *capability, AihcValue *value,
                     uint64_t index, AihcSlot field) {
   aihc_write_barrier(capability, value);
-  aihc_value_fields(value)[index] = field;
+  __atomic_store_n(&aihc_value_fields(value)[index], field, __ATOMIC_RELEASE);
 }
 
 void aihc_set_exit_status(AihcCapability *capability, int64_t status) {
@@ -1630,7 +1630,7 @@ void *aihc_mvar_new(AihcCapability *capability) {
   AihcMVar *mvar = (AihcMVar *)aihc_gc_allocate(
       capability, aihc_record_words(sizeof(*mvar)));
   mvar->header = (AihcSlot)(uintptr_t)&aihc_mvar_info;
-  mvar->full = 0;
+  __atomic_store_n(&mvar->full, (uint8_t)0, __ATOMIC_RELEASE);
   mvar->value = 0;
   mvar->readers_head = NULL;
   mvar->readers_tail = NULL;
@@ -1669,7 +1669,7 @@ const AihcResume *aihc_mvar_take(AihcCapability *capability, void *opaque_mvar,
   AihcMVarWaiter *putter = aihc_mvar_pop_waiter(capability, &mvar->putters_head,
                                                 &mvar->putters_tail);
   if (putter == NULL) {
-    mvar->full = 0;
+    __atomic_store_n(&mvar->full, (uint8_t)0, __ATOMIC_RELEASE);
     mvar->value = 0;
   } else {
     mvar->value = putter->value;
@@ -1698,7 +1698,7 @@ const AihcResume *aihc_mvar_put(AihcCapability *capability, void *opaque_mvar,
   AihcMVarWaiter *taker =
       aihc_mvar_pop_waiter(capability, &mvar->takers_head, &mvar->takers_tail);
   if (taker == NULL) {
-    mvar->full = 1;
+    __atomic_store_n(&mvar->full, (uint8_t)1, __ATOMIC_RELEASE);
     mvar->value = value;
   } else {
     aihc_mvar_wake(capability, taker, 1, value);
@@ -1721,7 +1721,7 @@ uint64_t aihc_mvar_try_take(AihcCapability *capability, void *opaque_mvar) {
   AihcMVarWaiter *putter = aihc_mvar_pop_waiter(capability, &mvar->putters_head,
                                                 &mvar->putters_tail);
   if (putter == NULL) {
-    mvar->full = 0;
+    __atomic_store_n(&mvar->full, (uint8_t)0, __ATOMIC_RELEASE);
     mvar->value = 0;
   } else {
     mvar->value = putter->value;
@@ -1745,7 +1745,7 @@ uint64_t aihc_mvar_try_put(AihcCapability *capability, void *opaque_mvar,
   AihcMVarWaiter *taker =
       aihc_mvar_pop_waiter(capability, &mvar->takers_head, &mvar->takers_tail);
   if (taker == NULL) {
-    mvar->full = 1;
+    __atomic_store_n(&mvar->full, (uint8_t)1, __ATOMIC_RELEASE);
     mvar->value = value;
   } else {
     aihc_mvar_wake(capability, taker, 1, value);
@@ -1810,7 +1810,9 @@ const AihcResume *aihc_await_io(AihcCapability *capability,
    that no Haskell value has. */
 static AihcThread *aihc_thunk_owner(const AihcValue *thunk,
                                     AihcBlackholeQueue **queue) {
-  AihcValue *word = (AihcValue *)(uintptr_t)thunk->fields[0];
+  /* C promotes a dependent load to an acquire load. */
+  AihcValue *word = (AihcValue *)(uintptr_t)__atomic_load_n(&thunk->fields[0],
+                                                            __ATOMIC_ACQUIRE);
   *queue = NULL;
   switch (aihc_value_info_table(word)->object_kind) {
   case AIHC_OBJECT_THREAD:
@@ -1909,7 +1911,8 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
     queue->next = owner->queues;
     owner->queues = queue;
     aihc_write_barrier(capability, value);
-    value->fields[0] = (AihcSlot)(uintptr_t)queue;
+    __atomic_store_n(&value->fields[0], (AihcSlot)(uintptr_t)queue,
+                     __ATOMIC_RELEASE);
   } else {
     aihc_write_barrier(capability, (AihcValue *)queue->tail);
     queue->tail->next = waiter;
@@ -1990,8 +1993,12 @@ void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   AihcThread *owner = (header & AIHC_HEADER_EVALUATING) != 0
                           ? aihc_thunk_owner(object, &queue)
                           : NULL;
-  object->fields[0] = (AihcSlot)(uintptr_t)value;
-  object->header = header | AIHC_HEADER_EVALUATING;
+  /* Both stores are release stores: the value is in field zero before a
+     reader can see bit zero. */
+  __atomic_store_n(&object->fields[0], (AihcSlot)(uintptr_t)value,
+                   __ATOMIC_RELEASE);
+  __atomic_store_n(&object->header, header | AIHC_HEADER_EVALUATING,
+                   __ATOMIC_RELEASE);
   if (queue == NULL) {
     return;
   }
@@ -2024,7 +2031,8 @@ static void aihc_abandon_blackhole(AihcCapability *capability,
   /* Field zero stops being a pointer, so the barrier shades the owner or
      the queue. */
   aihc_write_barrier(capability, object);
-  object->header = header & ~AIHC_HEADER_TAG_MASK;
+  __atomic_store_n(&object->header, header & ~AIHC_HEADER_TAG_MASK,
+                   __ATOMIC_RELEASE);
   if (queue != NULL) {
     aihc_unlink_queue(capability, queue);
     aihc_wake_queue(capability, queue, (AihcSlot)(uintptr_t)exception, 1);
@@ -2343,7 +2351,7 @@ uint64_t aihc_tvar_write(AihcCapability *capability, AihcValue *variable,
   aihc_write_barrier(capability, (AihcValue *)transaction);
   transaction->writes = write;
   aihc_write_barrier(capability, variable);
-  variable->fields[1] = value;
+  __atomic_store_n(&variable->fields[1], value, __ATOMIC_RELEASE);
   return 0;
 }
 
@@ -2356,7 +2364,8 @@ uint64_t aihc_stm_abort(AihcCapability *capability) {
   while (write != NULL) {
     AihcTransactionWrite *next = write->next;
     aihc_write_barrier(capability, write->variable);
-    write->variable->fields[1] = write->previous;
+    __atomic_store_n(&write->variable->fields[1], write->previous,
+                     __ATOMIC_RELEASE);
     write = next;
   }
   capability->current_thread->transaction = transaction->parent;
@@ -2413,7 +2422,8 @@ static void aihc_stm_expire_timers(AihcCapability *capability) {
     AihcTransactionTimer *timer = *link;
     if (timer->deadline <= now) {
       aihc_write_barrier(capability, timer->variable);
-      timer->variable->fields[1] = timer->final;
+      __atomic_store_n(&timer->variable->fields[1], timer->final,
+                       __ATOMIC_RELEASE);
       *link = timer->next;
     } else {
       link = &timer->next;
@@ -2426,7 +2436,7 @@ AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable) {
   if (!aihc_stm_active(capability)) {
     aihc_stm_expire_timers(capability);
   }
-  return variable->fields[1];
+  return __atomic_load_n(&variable->fields[1], __ATOMIC_ACQUIRE);
 }
 
 void *aihc_stm_wait_request(AihcCapability *capability) {
