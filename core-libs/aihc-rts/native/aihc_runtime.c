@@ -1568,10 +1568,11 @@ static const AihcResume *aihc_resume_current_value(AihcCapability *capability,
 }
 
 static AihcMVarWaiter *aihc_mvar_waiter_new(AihcCapability *capability,
+                                            const AihcMVar *mvar,
                                             AihcValue *continuation,
                                             AihcSlot value) {
-  AihcMVarWaiter *waiter = (AihcMVarWaiter *)aihc_gc_allocate(
-      capability, aihc_record_words(sizeof(*waiter)));
+  AihcMVarWaiter *waiter = (AihcMVarWaiter *)aihc_record_allocate(
+      capability, (const AihcValue *)mvar, aihc_record_words(sizeof(*waiter)));
   waiter->header = (AihcSlot)(uintptr_t)&aihc_mvar_waiter_info;
   waiter->next = NULL;
   waiter->thread = capability->current_thread;
@@ -1579,6 +1580,9 @@ static AihcMVarWaiter *aihc_mvar_waiter_new(AihcCapability *capability,
   aihc_stack_note_top(continuation);
   aihc_thread_pause(capability, continuation);
   waiter->value = value;
+  /* A global waiter names a frame, which the remembered set keeps reached
+     until its chunk is old. A young waiter takes no entry. */
+  aihc_write_barrier(capability, (AihcValue *)waiter);
   return waiter;
 }
 
@@ -1654,7 +1658,8 @@ const AihcResume *aihc_mvar_read(AihcCapability *capability, void *opaque_mvar,
   if (mvar->full) {
     return aihc_resume_current_value(capability, continuation, mvar->value);
   }
-  AihcMVarWaiter *waiter = aihc_mvar_waiter_new(capability, continuation, 0);
+  AihcMVarWaiter *waiter =
+      aihc_mvar_waiter_new(capability, mvar, continuation, 0);
   aihc_mvar_append_waiter(capability, &mvar->readers_head, &mvar->readers_tail,
                           waiter);
   return aihc_schedule(capability);
@@ -1665,7 +1670,8 @@ const AihcResume *aihc_mvar_take(AihcCapability *capability, void *opaque_mvar,
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
   aihc_write_barrier(capability, (AihcValue *)mvar);
   if (!mvar->full) {
-    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(capability, continuation, 0);
+    AihcMVarWaiter *waiter =
+        aihc_mvar_waiter_new(capability, mvar, continuation, 0);
     aihc_mvar_append_waiter(capability, &mvar->takers_head, &mvar->takers_tail,
                             waiter);
     return aihc_schedule(capability);
@@ -1684,13 +1690,24 @@ const AihcResume *aihc_mvar_take(AihcCapability *capability, void *opaque_mvar,
   return aihc_resume_current_value(capability, continuation, value);
 }
 
+/* With several capabilities, a put into a global MVar promotes the value
+   first. The promotion can collect, and a collection does not move a global
+   MVar. */
 const AihcResume *aihc_mvar_put(AihcCapability *capability, void *opaque_mvar,
                                 AihcSlot value, AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  /* With several capabilities, the put pauses the thread first. A put that
+     is an escape then copies an unclaimed thunk safely, and the pause does
+     not depend on the age of the MVar. */
+  if (capability->machine->capability_count > 1) {
+    aihc_thread_pause(capability, continuation);
+  }
+  value = aihc_escape_in_operation(capability, (const AihcValue *)mvar, value,
+                                   continuation);
   aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
     AihcMVarWaiter *waiter =
-        aihc_mvar_waiter_new(capability, continuation, value);
+        aihc_mvar_waiter_new(capability, mvar, continuation, value);
     aihc_mvar_append_waiter(capability, &mvar->putters_head,
                             &mvar->putters_tail, waiter);
     return aihc_schedule(capability);
@@ -1737,13 +1754,21 @@ uint64_t aihc_mvar_try_take(AihcCapability *capability, void *opaque_mvar) {
   return 1;
 }
 
+/* The result is two when the put is an escape whose promotion needs a
+   collection. The caller then collects at its store safepoint and tries
+   again. */
 uint64_t aihc_mvar_try_put(AihcCapability *capability, void *opaque_mvar,
                            AihcSlot value) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
+    capability->pause_top = NULL;
     return 0;
   }
+  value = aihc_escape(capability, (const AihcValue *)mvar, value);
+  if (value == AIHC_ESCAPE_COLLECT) {
+    return 2;
+  }
+  aihc_write_barrier(capability, (AihcValue *)mvar);
   AihcMVarWaiter *reader;
   while ((reader = aihc_mvar_pop_waiter(capability, &mvar->readers_head,
                                         &mvar->readers_tail)) != NULL) {
@@ -1902,15 +1927,22 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
   if (owner == current) {
     aihc_fail("blackholed thunk re-entered");
   }
-  AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_gc_allocate(
-      capability, aihc_record_words(sizeof(*waiter)));
+  /* A waiter of a global thunk is global. The words come from the
+     reservation of the eval helper. */
+  const AihcValue *container = queue == NULL ? value : (const AihcValue *)queue;
+  AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_record_allocate(
+      capability, container, aihc_record_words(sizeof(*waiter)));
   waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
   waiter->thread = current;
   waiter->continuation = continuation;
   waiter->next = NULL;
+  /* A global waiter names a frame, which the remembered set keeps reached
+     until its chunk is old. A young waiter takes no entry. */
+  aihc_write_barrier(capability, (AihcValue *)waiter);
   if (queue == NULL) {
-    queue = (AihcBlackholeQueue *)aihc_gc_allocate(
-        capability, aihc_record_words(sizeof(*queue)));
+    /* A queue of a global thunk is global. */
+    queue = (AihcBlackholeQueue *)aihc_record_allocate(
+        capability, value, aihc_record_words(sizeof(*queue)));
     queue->header = (AihcSlot)(uintptr_t)&aihc_blackhole_queue_info;
     queue->owner = owner;
     queue->thunk = value;
@@ -1918,6 +1950,9 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
     queue->tail = waiter;
     queue->next = owner->queues;
     owner->queues = queue;
+    /* A global queue can name a younger queue of its owner and the waiter,
+       so it goes into the remembered set. A young queue takes no entry. */
+    aihc_write_barrier(capability, (AihcValue *)queue);
     aihc_write_barrier(capability, value);
     __atomic_store_n(&value->fields[0], (AihcSlot)(uintptr_t)queue,
                      __ATOMIC_RELEASE);

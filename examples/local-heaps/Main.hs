@@ -1,7 +1,9 @@
 module Main (main) where
 
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryPutMVar)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import Data.List (foldl')
+import System.Mem.StableName (eqStableName, makeStableName)
 
 -- The arguments give the machine two capabilities. A store of a young value
 -- into a global object is then an escape, and the runtime promotes the
@@ -20,6 +22,8 @@ main :: IO ()
 main = do
   shared <- newIORef []
   references <- newIORef []
+  box <- newEmptyMVar
+  spare <- newEmptyMVar
   print (churn 2000000)
   -- A young list of thunks goes into an old reference. The promotion
   -- copies it into gen2.
@@ -36,3 +40,20 @@ main = do
   print (sum table)
   print (sum table)
   readIORef fresh >>= print
+  -- A put into an old MVar promotes the value in the runtime operation,
+  -- and a young reference in it makes the promotion collect.
+  counter <- newIORef (40 :: Int)
+  putMVar box [counter]
+  modifyIORef counter (+ 2)
+  takeMVar box >>= mapM readIORef >>= print
+  -- The same through the put that never blocks.
+  other <- newIORef (1 :: Int)
+  stored <- tryPutMVar spare [other]
+  modifyIORef other (+ 1)
+  takeMVar spare >>= mapM readIORef >>= print . (,) stored
+  -- Two stable names of one young object are equal, also when the first
+  -- name moves the object into gen2.
+  let value = map negate [1 .. 10 :: Int]
+  first <- makeStableName value
+  second <- makeStableName value
+  print (sum value, eqStableName first second)

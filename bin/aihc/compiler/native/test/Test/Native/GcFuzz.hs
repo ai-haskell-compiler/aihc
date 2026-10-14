@@ -480,7 +480,13 @@ deepestStack model = maximum (1 : [chunks (reverse (chainOf top)) | Thread (Thre
 -- with a stable name, because the name holds the original weakly and the
 -- original can die while its copy lives.
 promotionOf :: Model -> Id -> Maybe (Set Id, Bool, Set Id)
-promotionOf model start = go Set.empty False Set.empty [VHeap start]
+promotionOf = promotionWith False
+
+-- | 'promotionOf' after a pause of the running thread, which the runtime
+-- makes when it knows the top frame: an unclaimed thunk is then not under
+-- evaluation, and a copy takes it.
+promotionWith :: Bool -> Model -> Id -> Maybe (Set Id, Bool, Set Id)
+promotionWith copyThunks model start = go Set.empty False Set.empty [VHeap start]
   where
     young identity = Map.findWithDefault 0 identity (mAges model) < 2
     named = Set.fromList [identity | value <- mStable model, VHeap identity <- [value, resolve model value]]
@@ -497,7 +503,7 @@ promotionOf model start = go Set.empty False Set.empty [VHeap start]
               let reached'
                     | young identity = Set.insert identity reached
                     | otherwise = reached
-                  mutable = kind == KThunk || isJust owner
+                  mutable = (kind == KThunk && not copyThunks) || isJust owner
                in go reached' (collect || (young identity && mutable)) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
             Just Thread {} -> go reached collect seen rest
             Just _
@@ -511,9 +517,12 @@ promotionOf model start = go Set.empty False Set.empty [VHeap start]
 -- value. The rules of 'promotionOf' do not depend on ages, so they hold for
 -- a store into any object. Nothing when they forbid the promotion.
 escapeStore :: Bool -> Value -> Model -> Maybe Model
-escapeStore global value model = case value of
+escapeStore = escapeStoreWith False
+
+escapeStoreWith :: Bool -> Bool -> Value -> Model -> Maybe Model
+escapeStoreWith copyThunks global value model = case value of
   VHeap identity
-    | mCapabilities model > 1 -> case promotionOf model identity of
+    | mCapabilities model > 1 -> case promotionWith copyThunks model identity of
         Nothing -> Nothing
         Just (reached, collect, seen) ->
           Just
@@ -700,6 +709,14 @@ applyCommand command model = case command of
   CRoot index value -> model {mRoots = setAt index value (mRoots model)}
   -- The runtime gives one name to an object, and it looks the object up
   -- through the indirections of the names it holds.
+  -- With several capabilities, the name of a young object runs the
+  -- collection of an escape first.
+  CStable value
+    | mCapabilities model > 1,
+      VHeap identity <- value,
+      not (isGlobal model identity) ->
+        let after = applyCommand command model {mCapabilities = 1, mEscapeCollected = True}
+         in after {mCapabilities = mCapabilities model}
   CStable value
     | resolve model value `elem` map (resolve model) (mStable model) -> model
     | otherwise -> model {mStable = value : mStable model}
@@ -741,14 +758,13 @@ applyCommand command model = case command of
   CRead identity -> withMVar identity $ \mvar top -> case mvValue mvar of
     Nothing -> schedule (pause (storeMVar identity mvar {mvReaders = mvReaders mvar <> [Waiter (mRunning model) top Nothing]} model))
     Just value -> continueInto (mRunning model) top (Just value) model
-  CPut identity value -> withMVar identity $ \mvar top -> case mvValue mvar of
-    Just _ -> schedule (pause (storeMVar identity mvar {mvPutters = mvPutters mvar <> [Waiter (mRunning model) top (Just value)]} model))
-    Nothing ->
-      let woken = foldl' (\m reader -> wake reader (Just value) m) model (mvReaders mvar)
-          (mvar', afterTaker) = case mvTakers mvar of
-            [] -> (mvar {mvValue = Just value, mvReaders = []}, woken)
-            taker : rest -> (mvar {mvReaders = [], mvTakers = rest}, wake taker (Just value) woken)
-       in continueInto (mRunning model) top Nothing (storeMVar identity mvar' afterTaker)
+  -- With several capabilities, a put pauses the thread, and a put into a
+  -- global MVar promotes the value.
+  CPut identity value
+    | mCapabilities model > 1,
+      Nothing <- escapeStoreWith True (isGlobal model identity) value (pause model) ->
+        failed
+  CPut identity value -> putInto identity value (if mCapabilities model > 1 then fromMaybe model (escapeStoreWith True (isGlobal model identity) value (pause model)) else model)
   CCollect -> pause model
   CCollectGeneration generation -> staleStatics (generation == 2) (pause model)
   CCycle -> staleStatics True (pause model)
@@ -759,6 +775,16 @@ applyCommand command model = case command of
     adjustObject identity change = model {mHeap = Map.adjust change identity (mHeap model)}
     withMVar identity continue = case (Map.lookup identity (mHeap model), runningTop model) of
       (Just (MVar mvar), Just top) -> continue mvar top
+      _ -> failed
+    putInto identity value base = case (Map.lookup identity (mHeap base), runningTop base) of
+      (Just (MVar mvar), Just top) -> case mvValue mvar of
+        Just _ -> schedule (pause (storeMVar identity mvar {mvPutters = mvPutters mvar <> [Waiter (mRunning base) top (Just value)]} base))
+        Nothing ->
+          let woken = foldl' (\m reader -> wake reader (Just value) m) base (mvReaders mvar)
+              (mvar', afterTaker) = case mvTakers mvar of
+                [] -> (mvar {mvValue = Just value, mvReaders = []}, woken)
+                taker : rest -> (mvar {mvReaders = [], mvTakers = rest}, wake taker (Just value) woken)
+           in continueInto (mRunning base) top Nothing (storeMVar identity mvar' afterTaker)
       _ -> failed
 
 storeMVar :: Id -> MVarState -> Model -> Model
