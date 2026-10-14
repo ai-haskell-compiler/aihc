@@ -781,7 +781,7 @@
       cp -R --no-preserve=mode ${primStoreWith extraSetup target}/. "$out/"
       ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --lint --target ${target}
 
-      test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
+      test -n "$(find "$out" -type f -name 'package.cbor' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-rts.a' -print -quit)"
     '';

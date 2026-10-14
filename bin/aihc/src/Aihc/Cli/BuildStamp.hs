@@ -29,9 +29,9 @@ module Aihc.Cli.BuildStamp
   )
 where
 
+import Aihc.Cbor (Cbor (..), cborArray, cborText, decodeCbor, encodeCbor, expectArray, getText, (<*!>))
 import Control.Exception (IOException, try)
-import Data.Aeson ((.:), (.=))
-import Data.Aeson qualified as Aeson
+import Control.Monad ((<$!>))
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -46,18 +46,6 @@ data FileStamp = FileStamp
   }
   deriving (Eq, Show)
 
-instance Aeson.ToJSON FileStamp where
-  toJSON stamp =
-    Aeson.object
-      [ "path" .= fileStampPath stamp,
-        "size" .= fileStampSize stamp,
-        "modified" .= fileStampModified stamp
-      ]
-
-instance Aeson.FromJSON FileStamp where
-  parseJSON = Aeson.withObject "FileStamp" $ \object ->
-    FileStamp <$> object .: "path" <*> object .: "size" <*> object .: "modified"
-
 -- | What the resolve phase of a unit was built from and produced.
 data ResolveStamp = ResolveStamp
   { resolveStampInputs :: ![(Text, Text)],
@@ -66,22 +54,6 @@ data ResolveStamp = ResolveStamp
     resolveStampFiles :: ![FileStamp]
   }
   deriving (Eq, Show)
-
-instance Aeson.ToJSON ResolveStamp where
-  toJSON stamp =
-    Aeson.object
-      [ "schemaVersion" .= (1 :: Int),
-        "inputs" .= resolveStampInputs stamp,
-        "scopes" .= resolveStampScopes stamp,
-        "files" .= resolveStampFiles stamp
-      ]
-
-instance Aeson.FromJSON ResolveStamp where
-  parseJSON = Aeson.withObject "ResolveStamp" $ \object -> do
-    schemaVersion <- object .: "schemaVersion"
-    case schemaVersion :: Int of
-      1 -> ResolveStamp <$> object .: "inputs" <*> object .: "scopes" <*> object .: "files"
-      _ -> fail "unsupported resolve stamp schema"
 
 -- | What the type-check and backend phases of a unit were built from and
 -- produced.
@@ -109,42 +81,6 @@ data BackendStamp = BackendStamp
   }
   deriving (Eq, Show)
 
-instance Aeson.ToJSON BackendStamp where
-  toJSON stamp =
-    Aeson.object
-      [ "options" .= backendStampOptions stamp,
-        "files" .= backendStampFiles stamp,
-        "headers" .= backendStampHeaders stamp
-      ]
-
-instance Aeson.FromJSON BackendStamp where
-  parseJSON = Aeson.withObject "BackendStamp" $ \object ->
-    BackendStamp <$> object .: "options" <*> object .: "files" <*> object .: "headers"
-
-instance Aeson.ToJSON UnitStamp where
-  toJSON stamp =
-    Aeson.object
-      [ "schemaVersion" .= (2 :: Int),
-        "inputs" .= unitStampInputs stamp,
-        "types" .= unitStampTypes stamp,
-        "facts" .= unitStampFacts stamp,
-        "files" .= unitStampFiles stamp,
-        "backend" .= unitStampBackend stamp
-      ]
-
-instance Aeson.FromJSON UnitStamp where
-  parseJSON = Aeson.withObject "UnitStamp" $ \object -> do
-    schemaVersion <- object .: "schemaVersion"
-    case schemaVersion :: Int of
-      2 ->
-        UnitStamp
-          <$> object .: "inputs"
-          <*> object .: "types"
-          <*> object .: "facts"
-          <*> object .: "files"
-          <*> object .: "backend"
-      _ -> fail "unsupported unit stamp schema"
-
 -- | The digests of the interfaces of one module of an installed package.
 data ModuleDigests = ModuleDigests
   { moduleScopeDigest :: !Text,
@@ -159,60 +95,124 @@ data ModuleDigests = ModuleDigests
   }
   deriving (Eq, Show)
 
-instance Aeson.ToJSON ModuleDigests where
-  toJSON digests =
-    Aeson.object
-      [ "scope" .= moduleScopeDigest digests,
-        "type" .= moduleTypeDigest digests,
-        "facts" .= moduleFactsDigest digests,
-        "factsArtifact" .= moduleFactsArtifact digests
-      ]
-
-instance Aeson.FromJSON ModuleDigests where
-  parseJSON = Aeson.withObject "ModuleDigests" $ \object ->
-    ModuleDigests <$> object .: "scope" <*> object .: "type" <*> object .: "facts" <*> object .: "factsArtifact"
-
 -- | The digests of everything a consumer of an installed package reads.
 newtype PackageDigests = PackageDigests
   { packageDigestsModules :: Map.Map Text ModuleDigests
   }
   deriving (Eq, Show)
 
-instance Aeson.ToJSON PackageDigests where
-  toJSON digests =
-    Aeson.object
-      [ "schemaVersion" .= (2 :: Int),
-        "modules" .= packageDigestsModules digests
-      ]
+instance Cbor FileStamp where
+  toCbor value =
+    cborArray 4
+      <> cborText "aihc-filestamp-1"
+      <> toCbor (fileStampPath value)
+      <> toCbor (fileStampSize value)
+      <> toCbor (fileStampModified value)
+  fromCbor = do
+    expectArray 4
+    "aihc-filestamp-1" <- getText
+    FileStamp
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
 
-instance Aeson.FromJSON PackageDigests where
-  parseJSON = Aeson.withObject "PackageDigests" $ \object -> do
-    schemaVersion <- object .: "schemaVersion"
-    case schemaVersion :: Int of
-      2 -> PackageDigests <$> object .: "modules"
-      _ -> fail "unsupported package digests schema"
+instance Cbor ResolveStamp where
+  toCbor value =
+    cborArray 4
+      <> cborText "aihc-resolvestamp-1"
+      <> toCbor (resolveStampInputs value)
+      <> toCbor (resolveStampScopes value)
+      <> toCbor (resolveStampFiles value)
+  fromCbor = do
+    expectArray 4
+    "aihc-resolvestamp-1" <- getText
+    ResolveStamp
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+
+instance Cbor BackendStamp where
+  toCbor value =
+    cborArray 4
+      <> cborText "aihc-backendstamp-1"
+      <> toCbor (backendStampOptions value)
+      <> toCbor (backendStampFiles value)
+      <> toCbor (backendStampHeaders value)
+  fromCbor = do
+    expectArray 4
+    "aihc-backendstamp-1" <- getText
+    BackendStamp
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+
+instance Cbor UnitStamp where
+  toCbor value =
+    cborArray 6
+      <> cborText "aihc-unitstamp-1"
+      <> toCbor (unitStampInputs value)
+      <> toCbor (unitStampTypes value)
+      <> toCbor (unitStampFacts value)
+      <> toCbor (unitStampFiles value)
+      <> toCbor (unitStampBackend value)
+  fromCbor = do
+    expectArray 6
+    "aihc-unitstamp-1" <- getText
+    UnitStamp
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+
+instance Cbor ModuleDigests where
+  toCbor value =
+    cborArray 5
+      <> cborText "aihc-moduledigests-1"
+      <> toCbor (moduleScopeDigest value)
+      <> toCbor (moduleTypeDigest value)
+      <> toCbor (moduleFactsDigest value)
+      <> toCbor (moduleFactsArtifact value)
+  fromCbor = do
+    expectArray 5
+    "aihc-moduledigests-1" <- getText
+    ModuleDigests
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+
+instance Cbor PackageDigests where
+  toCbor value =
+    cborArray 2
+      <> cborText "aihc-packagedigests-1"
+      <> toCbor (packageDigestsModules value)
+  fromCbor = do
+    expectArray 2
+    "aihc-packagedigests-1" <- getText
+    PackageDigests <$!> fromCbor
 
 packageDigestsPath :: FilePath -> FilePath
-packageDigestsPath packageRoot = packageRoot </> "digests.json"
+packageDigestsPath packageRoot = packageRoot </> "digests.cbor"
 
 -- | Read a stamp. An absent or unreadable stamp is no stamp: the artifacts
 -- it would describe are rebuilt.
-readStamp :: (Aeson.FromJSON stamp) => FilePath -> IO (Maybe stamp)
+readStamp :: (Cbor stamp) => FilePath -> IO (Maybe stamp)
 readStamp path = do
   exists <- doesFileExist path
   if not exists
     then pure Nothing
     else do
       result <- try (BL.readFile path) :: IO (Either IOException BL.ByteString)
-      pure (either (const Nothing) (either (const Nothing) Just . Aeson.eitherDecode) result)
+      pure (either (const Nothing) (either (const Nothing) Just . decodeCbor) result)
 
 -- | Write a stamp after the artifacts it describes, so that a stamp never
 -- describes artifacts that are not there.
-writeStamp :: (Aeson.ToJSON stamp) => FilePath -> stamp -> IO ()
+writeStamp :: (Cbor stamp) => FilePath -> stamp -> IO ()
 writeStamp path stamp = do
   createDirectoryIfMissing True (takeDirectory path)
   let temporary = path <> ".tmp"
-  BL.writeFile temporary (Aeson.encode stamp)
+  BL.writeFile temporary (encodeCbor stamp)
   renameFile temporary path
 
 -- | Record the artifact files of a unit as they are now.

@@ -135,8 +135,12 @@ compile instead of linking against a heap with another layout.
 instead of an executable. The bundle holds a copy of every link
 input, so it is complete on its own: the module objects and the entry
 object of the executable, and the C, Lir and module objects and the archives
-of the installed packages, the runtime among them. A `link.json` manifest
-lists them in link order with paths relative to the bundle.
+of the installed packages, the runtime among them. A `link.args` response file
+lists the Clang arguments in link order with paths relative to the bundle.
+The `link.target` text file names the target.
+Each response file argument has double quotes.
+The response file escapes quotes and backslashes.
+WASM does not support link bundles.
 
 ```console
 aihc build Main.hs \
@@ -160,7 +164,7 @@ target, such as a Mac for `apple-arm64` objects compiled on Linux:
 aihc link-exe program-bundle --output program
 ```
 
-The manifest is plain JSON, so a host without the compiler can also run the
+The response file uses text. A host without the compiler can run the
 link through the C driver of the target directly. The weekly cross-compilation
 workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
 example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`
@@ -328,7 +332,7 @@ The inputs of a unit are its sources, the scope and type interfaces of the modul
 A later build parses the sources, walks the units in dependency order, and reuses a unit whose recorded inputs equal the current digests and whose artifacts are the recorded files.
 Everything else is rebuilt in place.
 No interface is encoded to learn its digest: source digests come from parsing, and artifact digests are taken from the bytes as they are written.
-Each package writes `digests.json` next to its manifest, from which consumers take the digests of its interfaces and find the facts artifact of each module.
+Each package writes `digests.cbor` next to its manifest, from which consumers take the digests of its interfaces and find the facts artifact of each module.
 
 `aihc build` takes a main module, a local Cabal package directory, or a Hackage package name with an optional version, as `aihc install` takes it.
 An existing file is a main module; anything else is a package.
