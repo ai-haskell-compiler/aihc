@@ -363,6 +363,11 @@ data Model = Model
     -- | The update frames that a pause or a collection processed. A pause
     -- stops at the first of them.
     mProcessed :: Set Fid,
+    -- | The thunks that had an update frame. A reservation can collect and
+    -- claim the thunk of an update frame, which this model learns only
+    -- from the report, and a later pop can drop the frame. The generator
+    -- thus pushes one update frame for each thunk at most.
+    mEntered :: Set Id,
     mStaticThunks :: [StaticThunk],
     mStaticThunkSrts :: [Maybe Int],
     mStaticNodes :: [[Value]],
@@ -407,6 +412,7 @@ emptyModel =
       mQueue = [],
       mBlackholes = Map.empty,
       mProcessed = Set.empty,
+      mEntered = Set.empty,
       mStaticThunks = replicate staticThunkCount SThunk,
       mStaticThunkSrts = replicate staticThunkCount Nothing,
       mStaticNodes = replicate staticNodeCount (replicate staticNodeFields VNull),
@@ -712,7 +718,7 @@ pushFrame fid spec model = case (spec, runningTop model) of
   (FSPrompt srt tag, Just top) -> push (Frame FPrompt [True] [tag] srt (Just top) running)
   (FSUpdate thunk, Just top) -> case Map.lookup thunk (mHeap model) of
     -- The entry writes nothing into the thunk. A pause claims it later.
-    Just (Object KThunk _ _ _ Nothing) -> push (Frame FUpdate [True] [VHeap thunk] Nothing (Just top) running)
+    Just (Object KThunk _ _ _ Nothing) -> (push (Frame FUpdate [True] [VHeap thunk] Nothing (Just top) running)) {mEntered = Set.insert thunk (mEntered model)}
     _ -> failed
   where
     running = mRunning model
@@ -1729,11 +1735,7 @@ genOp profile model = do
         Just _ -> True
         Nothing -> False
       Nothing -> False
-    -- A reservation can collect, and a collection claims the thunk of each
-    -- update frame, which this model learns only from the report. Thus a
-    -- thunk with an update frame gets no second one.
-    plainThunks = [identity | identity <- poolHeap pool, not (underEvaluation identity), Just (Object KThunk _ _ _ Nothing) <- [object identity]]
-    underEvaluation identity = any (\frame -> fKind frame == FUpdate && fFields frame == [VHeap identity]) (Map.elems (mFrames model))
+    plainThunks = [identity | identity <- poolHeap pool, not (Set.member identity (mEntered model)), Just (Object KThunk _ _ _ Nothing) <- [object identity]]
     blackholed = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ (Just owner)) <- [object identity], owner /= mRunning model]
     arrays = [(identity, length elements) | identity <- poolHeap pool, Just (Array elements _) <- [object identity], not (null elements)]
     mvars = [identity | identity <- poolHeap pool, Just MVar {} <- [object identity]]
