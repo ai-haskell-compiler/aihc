@@ -113,7 +113,9 @@ An update that finds the queue of another thread gives the value to its waiters.
 No holder of the runtime lock collects: a promotion that can collect runs before the lock.
 The top level of the region table is one published pointer to a table with its own count, so workers can read the table while another worker grows it.
 `tryTakeMVar#` and `tryReadMVar#` are runtime calls that give the value, or zero for an empty variable.
-Still open: local collections without a stop, `noDuplicate#` and its use in `unsafePerformIO`, the promotion of the values of STM timers, the capability locks of the FFI, `setNumCapabilities`, and the ticker.
+`noDuplicate#` is a scheduler call. It claims the thunks of the update frames of the thread, as a pause does. When another thread claimed one of them, or another evaluation finished it, the thread gives up the frames above the lowest such frame and gives back the claims that the walk made above it. It then waits for that thunk, or continues with its value.
+`unsafePerformIO` and `unsafeInterleaveIO` call `noDuplicate#` before their action, as in GHC.
+Still open: local collections without a stop, the promotion of the values of STM timers, the capability locks of the FFI, `setNumCapabilities`, and the ticker.
 WASM keeps one capability until WASI supports the required thread operations.
 
 ## Goals

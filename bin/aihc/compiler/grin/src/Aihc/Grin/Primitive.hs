@@ -61,7 +61,9 @@ primitiveHeapWords name =
       ("newMVar#", 9),
       ("readMVar#", 5),
       ("takeMVar#", 5),
-      ("putMVar#", 5)
+      ("putMVar#", 5),
+      -- A blackhole waiter and the queue that the first waiter makes.
+      ("noDuplicate#", 10)
     ]
 
 -- | The primitives whose lowering allocates.
@@ -145,6 +147,7 @@ concurrencyPrimitives =
     -- takes the machine, which is the rule this list must agree with.
     "myThreadId#",
     "yield#",
+    "noDuplicate#",
     "awaitIO#",
     "adoptIOHandle#",
     "submitIORead#",

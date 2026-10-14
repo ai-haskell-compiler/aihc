@@ -2264,6 +2264,10 @@ static void aihc_wake_queue(AihcCapability *capability,
    waiter and the queue before it entered the C runtime. A collection on that
    path can follow an evaluated thunk to its value, so a value continues the
    thread. */
+static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
+                               AihcThread *owner, AihcBlackholeQueue *queue,
+                               AihcValue *continuation);
+
 const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
                                           AihcValue *value,
                                           AihcValue *continuation) {
@@ -2293,8 +2297,19 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
   if (owner == current) {
     aihc_fail("blackholed thunk re-entered");
   }
-  /* A waiter of a global thunk is global. The words come from the
-     reservation of the eval helper. */
+  aihc_attach_waiter(capability, value, owner, queue, continuation);
+  aihc_object_unlock(machine);
+  return aihc_schedule(capability);
+}
+
+/* Attach the current thread to the queue of a thunk that another thread
+   claimed. The first waiter makes the queue. The caller holds the object
+   lock, and it reserved the waiter and the queue. */
+static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
+                               AihcThread *owner, AihcBlackholeQueue *queue,
+                               AihcValue *continuation) {
+  AihcThread *current = capability->current_thread;
+  /* A waiter of a global thunk is global. */
   const AihcValue *container = queue == NULL ? value : (const AihcValue *)queue;
   AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_record_allocate(
       capability, container, aihc_record_words(sizeof(*waiter)));
@@ -2328,6 +2343,85 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
     aihc_write_barrier(capability, (AihcValue *)queue);
     queue->tail = waiter;
   }
+}
+
+/* noDuplicate#: the evaluations of the thread must not run twice. The walk
+   claims the thunk of each update frame that no pause processed, from the
+   top, as a pause does. A thunk that another thread claimed, or that
+   another evaluation finished, means that this evaluation is a duplicate
+   from that frame on. The thread then gives up the frames above the lowest
+   such frame and gives back the claims that the walk made above it. It
+   waits for that thunk with the parent continuation of the frame, or it
+   continues there with the value. On one capability every suspension
+   pauses, so no duplicate exists, but the walk is the same. See
+   "noDuplicate#" in docs/multi-threaded-rts-design.md. */
+const AihcResume *aihc_no_duplicate(AihcCapability *capability,
+                                    AihcValue *continuation) {
+  AihcThread *current = capability->current_thread;
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
+  AihcValue *lowest = NULL;
+  for (AihcValue *frame = continuation;
+       frame != NULL && aihc_region_kind(frame) == AIHC_REGION_STACK;
+       frame = (AihcValue *)(uintptr_t)frame->fields[0]) {
+    const AihcInfo *info = aihc_value_info_table(frame);
+    if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
+      break;
+    }
+    if (info->frame_kind != AIHC_FRAME_UPDATE) {
+      continue;
+    }
+    if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
+      break;
+    }
+    AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
+    AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
+    if ((header & AIHC_HEADER_TAG_MASK) == 0) {
+      aihc_write_barrier(capability, thunk);
+      aihc_thunk_claim(thunk, current);
+    } else {
+      AihcBlackholeQueue *queue = NULL;
+      if (aihc_thunk_owner(thunk, &queue) != current) {
+        lowest = frame;
+      }
+    }
+    frame->header |= AIHC_FRAME_PROCESSED;
+  }
+  if (lowest == NULL) {
+    aihc_object_unlock(machine);
+    return aihc_resume_current(capability, continuation);
+  }
+  /* The claims above the lowest duplicate frame are new: this walk made
+     them, and no waiter can have come since, because the walk holds the
+     lock. They go back to the state Thunk. */
+  for (AihcValue *frame = continuation; frame != lowest;
+       frame = (AihcValue *)(uintptr_t)frame->fields[0]) {
+    if (aihc_value_info_table(frame)->frame_kind != AIHC_FRAME_UPDATE) {
+      continue;
+    }
+    AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
+    AihcBlackholeQueue *queue = NULL;
+    AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
+    if ((header & AIHC_HEADER_EVALUATING) != 0 &&
+        aihc_thunk_owner(thunk, &queue) == current && queue == NULL) {
+      aihc_write_barrier(capability, thunk);
+      __atomic_store_n(&thunk->header, header & ~AIHC_HEADER_TAG_MASK,
+                       __ATOMIC_RELEASE);
+    }
+  }
+  AihcValue *thunk = (AihcValue *)(uintptr_t)lowest->fields[1];
+  AihcValue *parent = (AihcValue *)(uintptr_t)lowest->fields[0];
+  AihcBlackholeQueue *queue = NULL;
+  AihcThread *owner = aihc_thunk_owner(thunk, &queue);
+  if (owner == NULL) {
+    /* Another evaluation finished the thunk: field zero is the value. */
+    AihcSlot value = __atomic_load_n(&thunk->fields[0], __ATOMIC_ACQUIRE);
+    aihc_object_unlock(machine);
+    aihc_suspend_continue(current, parent, 1, value);
+    return aihc_select_thread(capability, current);
+  }
+  aihc_stack_note_top(parent);
+  aihc_attach_waiter(capability, thunk, owner, queue, parent);
   aihc_object_unlock(machine);
   return aihc_schedule(capability);
 }
