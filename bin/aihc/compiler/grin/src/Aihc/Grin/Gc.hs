@@ -296,15 +296,15 @@ freshRelocated var = do
   put (unique + 1)
   pure var {grinVarName = grinVarName var <> "$gc", grinVarUnique = unique}
 
--- | One info-table pointer plus the statically known payload. A
--- zero-field thunk reserves one payload word so it can become an indirection
--- in place. The Lir lowering uses this for the heap-pointer bump of an
--- unchecked store, so the two always agree on an object's width.
+-- | One info-table pointer plus the statically known payload. A thunk
+-- spends its first payload word on its owner word, which also lets it become
+-- an indirection in place. The Lir lowering uses this for the heap-pointer
+-- bump of an unchecked store, so the two always agree on an object's width.
 nodeWords :: GrinNode -> Int
 nodeWords node =
   1
     + case grinNodeTag node of
-      GrinThunk {} -> max 1 fieldCount
+      GrinThunk {} -> 1 + fieldCount
       -- A constructor that still wants arguments spends one payload word on
       -- the count of the fields it holds, because every stage of one
       -- constructor shares a single info table.

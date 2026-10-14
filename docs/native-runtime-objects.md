@@ -529,11 +529,18 @@ Header readers mask both bits before they read the info table.
 
 ```text
 saturated constructor: [header] [fields...]
-thunk:                 [header] [environment...]
+thunk:                 [header] [owner] [environment...]
 partial application:   [header] [fields...]
 indirection:           [header] [target]
-blackhole:             [header] [environment / reserved target...]
+blackhole:             [header] [owner / reserved target] [environment...]
 ```
+
+Field zero of a thunk is its owner word.
+The free variables start at field one.
+A new thunk does not initialize the owner word, so the pointer bitmap marks it as a word that is not a pointer.
+An update writes the result into the owner word, so the free variables stay intact.
+The design of the owner word is in the blackholing section of
+[multi-threaded-rts-design.md](multi-threaded-rts-design.md).
 
 Each info table records the object's identity, populated field count, remaining
 logical arity, pointer bitmap, next application-stage table, an optional native
@@ -576,7 +583,8 @@ Primitive operations have no heap-object tag. A partially applied primitive is
 lowered to an ordinary closure whose generated entry makes the saturated
 primitive call.
 
-Every updateable object reserves at least two words. Evaluating a thunk changes
+Every updateable object reserves at least two words. A thunk has its owner
+word for this purpose. Evaluating a thunk changes
 its header to `BLACKHOLE`, executes the entry encoded by its old header, then
 changes the same object to `INDIRECTION` and writes the returned heap pointer
 into its first payload word. There is no separate cell allocation.

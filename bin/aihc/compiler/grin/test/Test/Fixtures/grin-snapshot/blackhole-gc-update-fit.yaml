@@ -21,7 +21,7 @@ return: "@0"
 heap: |
   @0 = CDone
 allocated-bytes:
-  macos-arm64: 1024
-  linux-amd64: 1024
+  macos-arm64: 1536
+  linux-amd64: 1536
 status: pass
 reason: The same nested evaluation must complete when its thunks fit within the heap limit. Its update frames are on the thread stack.

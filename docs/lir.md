@@ -345,7 +345,7 @@ or `0`. The fields are, in order:
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
 | `srt` | `ptr` | The static reference table, or null. |
-| `field_count` | `i8` | The number of payload words. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. The lowering rejects an object with more than 255 payload words. |
+| `field_count` | `i8` | The number of payload words. A thunk counts its owner word, which is field zero and is not a pointer. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. The lowering rejects an object with more than 255 payload words. |
 | `remaining_arity` | `i8` | The number of arguments the object still requires. The lowering rejects a function with more than 255 arguments. |
 | `frame_kind` | `i8` | The continuation frame kind for stack unwinding. |
 | `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
@@ -364,8 +364,9 @@ one to four has an entry, because one application supplies at most four
 groups. When every stored field and every supplied value is
 a `ptr`, with at most eight stored fields and at most four supplied values,
 the field names a shared function of the runtime unit `aihc_enter.lir`,
-which reaches the code through the `identity` field. Every other shape gets
-one generated function per enterable object.
+which reaches the code through the `identity` field. A thunk uses
+`aihc_lir_enter_thunk_S`, which loads its stored fields after the owner word.
+Every other shape gets one generated function per enterable object.
 
 A frame with `AIHC_FRAME_FORWARD` has the ordinary closure object kind.
 Its first field holds its parent, and its pointer bitmap describes all captured values.
