@@ -152,7 +152,8 @@ The collector finds a live frame through a pointer to it.
 It marks the frame as it marks a static object and scans the frame in place.
 Frames do not move, so a pointer to a frame needs no relocation.
 A stack stays while the collector retains its thread record.
-After each collection, the collector releases the stacks of the threads that it did not retain.
+After each full collection and at the end of each gen2 cycle, the collector releases the stacks of the threads that it did not retain.
+A collection of the younger generations keeps every thread record, because each record is in gen2.
 It also releases the chunks above the chunk after the running chunk.
 When a thread finishes, the runtime releases its stack immediately.
 The machine keeps up to 64 released chunks for later growth.
@@ -332,15 +333,16 @@ When the collector scans an object of generation k, it copies each referent
 that moves into generation k at least. Thus an old object points only at old
 objects after one scan. When a referent still ends younger, because an
 earlier reference copied it there, the object goes back to the remembered
-set. A thread record or a waiter that names a frame goes back as well while
+set. A waiter that names a frame goes back as well while
 the chunk of the frame can be scanned again: a chunk the collection scans
 counts as young, and another chunk counts as its own age. The chunk is
-reached only through the record, so the record must stay in the set until
-the chunk is older than every collection that could scan it.
+reached only through the waiter, so the waiter must stay in the set until
+the chunk is older than every collection that could scan it. The
+resumption of a thread record is a root, so a record needs no such entry.
 
 A record that deletes a pointer takes the write barrier first, so the
 deletion barrier of an active cycle shades the old value. The run queue
-dequeue, the selection of a thread, the pop of an MVar waiter, and the
+dequeue, the pop of an MVar waiter, and the
 completion of an IO request are such deletions. Without the barrier, a
 thread that the snapshot reached only through the queue link of a dequeued
 record is never marked, and the end of the cycle frees its record and
@@ -693,23 +695,31 @@ This transformation exists only in test code.
 Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
 
-Thread records use the managed heap, including the initial thread.
+Thread records are in the global heap, including the initial thread.
+`aihc_gc_allocate_global` puts each record in a gen2 slot when the thread starts.
+A record never moves, so a `ThreadId#` stays valid when a thread moves to another capability.
+The allocation consumes the `fork#` reservation, and the record bytes charge the nursery budget as a pinned block does.
 Machine initialization reserves the initial record after GC initialization.
 The record has the `AIHC_OBJECT_THREAD` kind.
 The collector obtains its size and pointer fields from the C structure.
-It traces the resume function, continuation, pointer value, transaction, and run queue link.
+
+The resume function, continuation, pointer value, and transaction are roots of the capability.
+They are not fields of the global object.
+Each collection and the snapshot of each gen2 cycle visit them for every thread that has a stack.
+Thus a store into these fields needs no write barrier, and the gen2 marker does not follow them.
+The object scan follows only the run queue link, which names another thread record.
 
 The machine retains the current thread and both ends of the run queue.
 MVar waiters, blackhole waiters, and pending IO requests retain their threads.
-The collector relocates each of these references.
+A gen2 cycle decides whether a thread record is live.
 An unreachable thread becomes reclaimable after it leaves these runtime queues and other live references.
+Its record and its stack stay until the end of the next gen2 cycle or the next full collection.
 Thread records count toward managed allocation statistics and the `-M` limit.
 Snapshot fixtures reset managed allocation statistics after initialization, so their totals exclude the initial thread.
 Process statistics include the initial thread.
 
 Each thread record has a unique number.
 The machine assigns number one to the initial thread and increments the number for each new thread.
-Collection preserves this number even when it changes the record address.
 The number remains at offset eight on every target.
 `aihcThreadIdNumber#` reads it with one load.
 `myThreadId#` reads the current thread from the machine.

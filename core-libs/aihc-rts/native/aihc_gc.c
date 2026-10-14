@@ -1432,7 +1432,7 @@ static AihcSlot aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   if (value != NULL && !scan->from_frame &&
       generation == AIHC_GENERATION_STATIC &&
       aihc_region_kind(value) == AIHC_REGION_STACK) {
-    /* A thread record or a waiter names a frame. The chunk of the frame is
+    /* A waiter or an IO request names a frame. The chunk of the frame is
        reached only through the record, so the record stays in the
        remembered set until the chunk is older than every collection that
        could scan it again: a chunk this collection scans is young, and
@@ -1852,8 +1852,8 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
 }
 
 /* Scan the suspended frames of every stack that the collection keeps. A
-   thread record of an older generation survives without a trace, and a
-   traced record does not name its stack. The frames of a suspended thread
+   thread record is in gen2 and survives without a trace, and a record does
+   not name its stack. The frames of a suspended thread
    are reached only through its resumption or its waiter. When that waiter
    dies, for example with the MVar the thread blocked on, the stack stays
    while its frames hold pointers into the space that the collection frees.
@@ -3048,6 +3048,26 @@ AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words) {
   memset(value, 0, bytes);
 #endif
   return value;
+}
+
+AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
+  if (words > SIZE_MAX / sizeof(AihcSlot)) {
+    aihc_fail("global allocation is too large");
+  }
+  size_t bytes = sizeof(AihcSlot) * words;
+  if (bytes > aihc_nursery_room(capability)) {
+    aihc_fail("unchecked global allocation exceeded reserved heap");
+  }
+  aihc_heap_account(capability);
+  if (bytes > UINT64_MAX - capability->heap_allocated_bytes) {
+    aihc_fail("allocated byte counter overflow");
+  }
+  /* The slot is black while a cycle is active, so the cycle keeps it. */
+  uint8_t *object = aihc_gen2_allocate(capability, bytes);
+  memset(object, 0, bytes);
+  aihc_charge_fixed(capability, bytes);
+  capability->heap_allocated_bytes += bytes;
+  return (AihcValue *)object;
 }
 
 /* Consume a prior reservation. The allocation list is not a root. */

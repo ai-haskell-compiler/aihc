@@ -1173,9 +1173,10 @@ static void command_machine(char **tokens, size_t count) {
   capability->machine->gen1_collections = UINT64_MAX;
   capability->machine->gen2_limit_bytes = UINT64_MAX;
   memset(capability->heap_start, 0, space_bytes);
-  capability->heap_next = capability->heap_start + sizeof(initial_thread);
-  capability->heap_alloc_base = capability->heap_next;
-  capability->current_thread = (AihcThread *)capability->heap_start;
+  /* The reset released gen2, which held the thread record. The new record
+     charges the nursery for the space the script added for it. */
+  capability->current_thread = (AihcThread *)aihc_gc_allocate_global(
+      capability, aihc_value_words((const AihcValue *)&initial_thread));
   *capability->current_thread = initial_thread;
   /* The stack of the initial thread names the thread by its new address. */
   for (AihcStack *stack = capability->machine->stacks; stack != NULL;
