@@ -299,6 +299,12 @@ struct AihcCapability {
   /* The bytes of fixed allocations and of new young stack chunks since the
      last collection. */
   uint64_t fixed_since_gc;
+  /* The gen1 blocks of this capability: the survivors of its last
+     collections. gen1_age is the number of collections since the last one
+     that copied gen1 of this capability. See "Gen1" in
+     docs/multi-threaded-rts-design.md. */
+  AihcGeneration gen1;
+  uint64_t gen1_age;
 };
 
 /* The process state shared by all capabilities. */
@@ -339,13 +345,13 @@ struct AihcMachine {
      the last collection kept: the copied objects and the pinned blocks. */
   uint64_t gc_max_pause_ns;
   uint64_t heap_live_bytes;
-  /* The generations above the nursery: index zero is gen1. */
-  AihcGeneration generations[2];
-  /* The -B count: a survivor stays in gen1 for this many collections. Zero
-     copies the survivors of the nursery into gen2 directly. gen1_age is the
-     number of collections since the last one that copied gen1. */
+  /* Gen2, which every capability shares. Only bytes is used: the bytes of
+     its occupied slots. */
+  AihcGeneration gen2;
+  /* The -B count: a survivor stays in gen1 for this many collections of its
+     capability. Zero copies the survivors of the nursery into gen2
+     directly. */
   uint64_t gen1_collections;
-  uint64_t gen1_age;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
   uint64_t gc_minor_count;

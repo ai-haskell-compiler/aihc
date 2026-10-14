@@ -428,7 +428,7 @@ static int aihc_outside_is_pinned(const AihcValue *object) {
 
 static AihcGeneration *aihc_generation(AihcCapability *capability,
                                        unsigned generation) {
-  return &capability->machine->generations[generation - 1];
+  return generation == 1 ? &capability->gen1 : &capability->machine->gen2;
 }
 
 /* The bytes the gen2 tests read: the segments of gen2 and the fixed blocks
@@ -437,7 +437,7 @@ static AihcGeneration *aihc_generation(AihcCapability *capability,
    waits for the -M limit. Gen1 needs no such test: the -B count copies all
    of gen1, with its fixed blocks, after a bounded number of collections. */
 static uint64_t aihc_gen2_bytes(const AihcCapability *capability) {
-  return capability->machine->generations[1].bytes +
+  return capability->machine->gen2.bytes +
          capability->machine->fixed_generation_bytes[2];
 }
 
@@ -682,7 +682,7 @@ static uint8_t *aihc_gen2_allocate(AihcCapability *capability, size_t bytes) {
         aihc_segment_take(segment, capability->machine->gen2_cycle_active != 0);
     if (slot != UINT32_MAX) {
       size_t slot_bytes = aihc_segment_slot_bytes(segment);
-      capability->machine->generations[1].bytes += slot_bytes;
+      capability->machine->gen2.bytes += slot_bytes;
       if (capability->machine->gen2_cycle_active) {
         /* The object is black: the cycle counts it and owes mark work for
            it. */
@@ -806,7 +806,7 @@ static void aihc_gen2_release(AihcCapability *capability) {
     aihc_segments_release(class->unswept);
     *class = (AihcSizeClass){0};
   }
-  capability->machine->generations[1].bytes = 0;
+  capability->machine->gen2.bytes = 0;
 }
 
 static uint8_t *aihc_generation_allocate(AihcCapability *capability,
@@ -820,9 +820,8 @@ static uint8_t *aihc_generation_allocate(AihcCapability *capability,
    it and not the nursery: a block is a whole run of regions, and a program
    with a limit far below one run still has to run. */
 static uint64_t aihc_old_bytes(const AihcCapability *capability) {
-  return aihc_generation_used(&capability->machine->generations[0]) +
-         capability->machine->generations[1].bytes +
-         capability->machine->fixed_bytes;
+  return aihc_generation_used(&capability->gen1) +
+         capability->machine->gen2.bytes + capability->machine->fixed_bytes;
 }
 
 static uint64_t aihc_occupied_bytes(const AihcCapability *capability) {
@@ -2502,8 +2501,8 @@ static void aihc_mark_range(AihcCapability *capability, uint8_t *start,
 static void aihc_cycle_start(AihcCapability *capability, uint64_t root_count,
                              AihcSlot *roots, const AihcSrt *srt) {
   aihc_gen2_begin_marking(capability);
-  for (const AihcHeapBlock *block = capability->machine->generations[0].first;
-       block != NULL; block = block->link) {
+  for (const AihcHeapBlock *block = capability->gen1.first; block != NULL;
+       block = block->link) {
     aihc_mark_range(capability, block->start, block->next);
   }
   aihc_visit_roots(capability, root_count, roots, aihc_snapshot_root,
@@ -2582,8 +2581,7 @@ static void aihc_cycle_finish(AihcCapability *capability) {
   }
   aihc_clear_srt_stamps();
   capability->machine->gen2_cycle_active = 0;
-  capability->machine->generations[1].bytes =
-      capability->machine->gen2_marked_bytes;
+  capability->machine->gen2.bytes = capability->machine->gen2_marked_bytes;
   /* The factor is at most AIHC_GEN2_FACTOR_MAX, so the product fits when
      the bytes leave the top bits clear. A check against a quotient would
      become a wide multiply that the wasm32 link does not provide. The
@@ -2685,7 +2683,7 @@ void aihc_gc_record_peak(AihcCapability *capability) {
 static unsigned aihc_choose_generation(const AihcCapability *capability,
                                        uint64_t required_bytes) {
   unsigned generation = 0;
-  if (capability->machine->gen1_age >= capability->machine->gen1_collections) {
+  if (capability->gen1_age >= capability->machine->gen1_collections) {
     generation = 1;
   }
   uint64_t limit = capability->machine->gen2_limit_bytes;
@@ -2751,9 +2749,9 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
      collection alone. A count of zero leaves gen1 empty. */
   uint64_t gen1_collections = capability->machine->gen1_collections;
   if (collected >= 1) {
-    capability->machine->gen1_age = gen1_collections == 0 ? 0 : 1;
-  } else if (capability->machine->gen1_age != UINT64_MAX) {
-    ++capability->machine->gen1_age;
+    capability->gen1_age = gen1_collections == 0 ? 0 : 1;
+  } else if (capability->gen1_age != UINT64_MAX) {
+    ++capability->gen1_age;
   }
   AihcGcContext context = {.capability = capability,
                            .collected = collected,
@@ -3313,8 +3311,8 @@ static void aihc_verify_value(AihcValue *value) {
     aihc_verify_fail("verifier: a reachable object is in a free region", value);
   case AIHC_REGION_GEN1: {
     int inside = 0;
-    for (const AihcHeapBlock *block = capability->machine->generations[0].first;
-         block != NULL; block = block->link) {
+    for (const AihcHeapBlock *block = capability->gen1.first; block != NULL;
+         block = block->link) {
       if ((const uint8_t *)value >= block->start &&
           (const uint8_t *)value < block->next) {
         inside = 1;
@@ -3602,8 +3600,8 @@ void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
                           void *context) {
   aihc_walk_range(capability->heap_start, capability->heap_next, visitor,
                   context);
-  for (const AihcHeapBlock *block = capability->machine->generations[0].first;
-       block != NULL; block = block->link) {
+  for (const AihcHeapBlock *block = capability->gen1.first; block != NULL;
+       block = block->link) {
     aihc_walk_range(block->start, block->next, visitor, context);
   }
   for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
