@@ -104,6 +104,10 @@ instruction code =
     ArmLsl destination source count -> shifted "lsl" destination source count
     ArmLsr destination source count -> shifted "lsr" destination source count
     ArmRor destination source count -> shifted "ror" destination source count
+    ArmAndShift destination left right shiftKind count -> logicalShift "and" destination left right shiftKind count
+    ArmOrrShift destination left right shiftKind count -> logicalShift "orr" destination left right shiftKind count
+    ArmEorShift destination left right shiftKind count -> logicalShift "eor" destination left right shiftKind count
+    ArmBic destination left right -> three "bic" destination left right
     ArmAndRotate destination left right count -> three "and" destination left right <> ", ror #" <> show count
     ArmOrrRotate destination left right count -> three "orr" destination left right <> ", ror #" <> show count
     ArmEorRotate destination left right count -> three "eor" destination left right <> ", ror #" <> show count
@@ -238,3 +242,11 @@ hex literal
 
 cond :: Arm64Condition -> String
 cond condition = map toLower (drop (length ("Arm" :: String)) (show condition))
+
+logicalShift :: String -> Arm64Register -> Arm64Register -> Arm64Register -> Arm64LogicalShift -> Int -> String
+logicalShift name dst left right shiftKind count = name <> " " <> reg dst <> ", " <> reg left <> ", " <> reg right <> ", " <> kind <> " #" <> show count
+  where
+    kind = case shiftKind of
+      Arm64Lsl -> "lsl"
+      Arm64Lsr -> "lsr"
+      Arm64Asr -> "asr"

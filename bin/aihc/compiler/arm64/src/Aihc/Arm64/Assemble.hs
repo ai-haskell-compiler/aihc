@@ -6,6 +6,7 @@ module Aihc.Arm64.Assemble
     Arm64Address (..),
     Arm64Value (..),
     Arm64Shift (..),
+    Arm64LogicalShift (..),
     Arm64Condition (..),
     Arm64FloatOp (..),
     Arm64AtomicOp (..),
@@ -137,6 +138,10 @@ data Arm64Value
   | Arm64ImmediateValue !Integer
   deriving (Eq, Show)
 
+-- | The constant shift on a logical operand.
+data Arm64LogicalShift = Arm64Lsl | Arm64Lsr | Arm64Asr
+  deriving (Eq, Show, Enum)
+
 data Arm64Shift
   = Arm64RegisterShift !Arm64Register
   | Arm64ImmediateShift !Word32
@@ -218,6 +223,10 @@ data Arm64Instruction
   | ArmLsl !Arm64Register !Arm64Register !Arm64Shift
   | ArmLsr !Arm64Register !Arm64Register !Arm64Shift
   | ArmRor !Arm64Register !Arm64Register !Arm64Shift
+  | ArmAndShift !Arm64Register !Arm64Register !Arm64Register !Arm64LogicalShift !Int
+  | ArmOrrShift !Arm64Register !Arm64Register !Arm64Register !Arm64LogicalShift !Int
+  | ArmEorShift !Arm64Register !Arm64Register !Arm64Register !Arm64LogicalShift !Int
+  | ArmBic !Arm64Register !Arm64Register !Arm64Register
   | ArmAndRotate !Arm64Register !Arm64Register !Arm64Register !Int
   | ArmOrrRotate !Arm64Register !Arm64Register !Arm64Register !Int
   | ArmEorRotate !Arm64Register !Arm64Register !Arm64Register !Int
@@ -416,6 +425,10 @@ encodeInstruction instruction =
     ArmLsl destination left right -> encodeShift 0x9ac02000 True destination left right
     ArmLsr destination left right -> encodeShift 0x9ac02400 False destination left right
     ArmRor destination source count -> encodeRotate destination source count
+    ArmAndShift destination left right shiftKind count -> encodeShiftedLogical 0x0a000000 destination left right shiftKind count
+    ArmOrrShift destination left right shiftKind count -> encodeShiftedLogical 0x2a000000 destination left right shiftKind count
+    ArmEorShift destination left right shiftKind count -> encodeShiftedLogical 0x4a000000 destination left right shiftKind count
+    ArmBic destination left right -> encodeLogicalRotate 0x0a200000 destination left right 0
     ArmAndRotate destination left right count -> encodeLogicalRotate 0x0ac00000 destination left right count
     ArmOrrRotate destination left right count -> encodeLogicalRotate 0x2ac00000 destination left right count
     ArmEorRotate destination left right count -> encodeLogicalRotate 0x4ac00000 destination left right count
@@ -866,3 +879,6 @@ encodeLogicalRotate base destination left right count =
       rm = registerInfo right
       width = if registerWidth rd == 64 then 0x80000000 else 0
    in words32 [width .|. base .|. registerNumber rm `shiftL` 16 .|. fromIntegral count `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+
+encodeShiftedLogical :: Word32 -> Arm64Register -> Arm64Register -> Arm64Register -> Arm64LogicalShift -> Int -> [Item]
+encodeShiftedLogical base destination left right shiftKind = encodeLogicalRotate (base .|. fromIntegral (fromEnum shiftKind) `shiftL` 22) destination left right

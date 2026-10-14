@@ -197,7 +197,7 @@ arm64Backend =
           (CConvention, [ty]) | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) 0 X0)]
           _ -> [],
       nbBinary = arm64Binary,
-      nbRotatedBinary = Just rotatedBinary,
+      nbLogicalBinary = logicalBinary,
       nbUnary = bitCount,
       nbWide = wide,
       nbQuotRemWide = Nothing,
@@ -342,6 +342,10 @@ instructionEffect instruction =
     ArmLsl destination _ _ -> writes [destination]
     ArmLsr destination _ _ -> writes [destination]
     ArmRor destination _ _ -> writes [destination]
+    ArmAndShift destination _ _ _ _ -> writes [destination]
+    ArmOrrShift destination _ _ _ _ -> writes [destination]
+    ArmEorShift destination _ _ _ _ -> writes [destination]
+    ArmBic destination _ _ -> writes [destination]
     ArmAndRotate destination _ _ _ -> writes [destination]
     ArmOrrRotate destination _ _ _ -> writes [destination]
     ArmEorRotate destination _ _ _ -> writes [destination]
@@ -1396,3 +1400,30 @@ rotatedBinary operation ty destination left right count =
       Or -> ArmOrrRotate
       Xor -> ArmEorRotate
       _ -> error "A non-logical operation reached rotated operand selection."
+
+-- | Select shifted logical operands and complement/AND operations.
+logicalBinary :: BinaryOp -> LogicalOperand -> Maybe (Type -> Arm64Register -> Arm64Register -> Arm64Register -> [Arm64Statement])
+logicalBinary op (LogicalShift RotR count) = Just (\ty dst a b -> rotatedBinary op ty dst a b count)
+logicalBinary op (LogicalShift shift count) = do
+  kind <- case shift of
+    Shl -> Just Arm64Lsl
+    ShrU -> Just Arm64Lsr
+    ShrS -> Just Arm64Asr
+    _ -> Nothing
+  instruction <- case op of
+    And -> Just ArmAndShift
+    Or -> Just ArmOrrShift
+    Xor -> Just ArmEorShift
+    _ -> Nothing
+  pure
+    ( \ty dst a b ->
+        let width = if ty == I32 then wordRegister else id
+         in [arm64Instruction (instruction (width dst) (width a) (width b) kind count)]
+    )
+logicalBinary And LogicalComplement =
+  Just
+    ( \ty dst a b ->
+        let width = if ty == I32 then wordRegister else id
+         in [arm64Instruction (ArmBic (width dst) (width a) (width b))]
+    )
+logicalBinary _ _ = Nothing

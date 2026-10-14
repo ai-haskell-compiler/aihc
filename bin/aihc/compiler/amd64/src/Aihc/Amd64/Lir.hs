@@ -205,7 +205,7 @@ amd64Backend =
           (CConvention, [F32]) -> [amd64Instruction (AmdMovdToXmm 0 EAX)]
           _ -> [],
       nbBinary = amd64Binary,
-      nbRotatedBinary = Nothing,
+      nbLogicalBinary = logicalBinary,
       nbUnary = bitCount,
       nbWide = wide,
       nbQuotRemWide = Just quotRemWide,
@@ -422,6 +422,7 @@ instructionEffect instruction =
     AmdMovdFromXmm destination _ -> writes [destination]
     AmdCvtts2si _ destination _ -> writes [destination]
     AmdBitCount _ destination _ -> writes [destination]
+    AmdAndn destination _ _ -> writes [destination]
     AmdBmi2 _ destination _ _ -> writes [destination]
     -- Each atomic operation writes its register, and @cmpxchg@ writes rax.
     AmdAtomic _ _ (Amd64Memory base _) source
@@ -1584,3 +1585,13 @@ storeMemory ty memory value =
     2 -> amd64Instruction (AmdStoreWord memory value)
     4 -> amd64Instruction (AmdStore memory (Amd64StoreRegister (dwordRegister value)))
     _ -> amd64Instruction (AmdStore memory (Amd64StoreRegister value))
+
+-- | ANDN complements its first source. LIR keeps the complemented source on the right.
+logicalBinary :: BinaryOp -> LogicalOperand -> Maybe (Type -> Amd64Register -> Amd64Register -> Amd64Register -> [Amd64Statement])
+logicalBinary And LogicalComplement =
+  Just
+    ( \ty dst a b ->
+        let width = if ty == I32 then dwordRegister else id
+         in [amd64Instruction (AmdAndn (width dst) (width b) (width a))]
+    )
+logicalBinary _ _ = Nothing

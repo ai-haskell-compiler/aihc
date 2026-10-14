@@ -46,3 +46,60 @@ entry:
   %r = rotl i64 %x, 41
   return %x, %r
 }
+; Detect separate constant shifts before logical operations.
+func @shifted64(%x: i64, %y: i64) -> (i64, i64, i64) {
+entry:
+  %l = shl i64 %y, 65
+  %a = and i64 %x, %l
+  %r = shr.u i64 %y, 7
+  %b = xor i64 %r, %x
+  %s = shr.s i64 %y, 63
+  %c = or i64 %x, %s
+  return %a, %b, %c
+}
+func @shifted32(%x: i32, %y: i32) -> (i32, i32, i32) {
+entry:
+  %l = shl i32 %y, 33
+  %a = or i32 %l, %x
+  %r = shr.u i32 %y, -1
+  %b = and i32 %x, %r
+  %s = shr.s i32 %y, 31
+  %c = xor i32 %x, %s
+  return %a, %b, %c
+}
+; Detect a separate complement before AND at both widths.
+func @complement(%x: i64, %y: i64, %a: i32, %b: i32) -> (i64, i32) {
+entry:
+  %notx = xor i64 %x, -1
+  %r = and i64 %y, %notx
+  %nota = xor i32 4294967295, %a
+  %s = and i32 %nota, %b
+  return %r, %s
+}
+; An outer match must not remove the source of an inner match.
+func @nested(%x: i64, %y: i64) -> i64 {
+entry:
+  %r = rotr i64 %x, 3
+  %n = xor i64 %r, -1
+  %a = and i64 %y, %n
+  return %a
+}
+; Keep shared shifts, variable shifts, and partial complements.
+func @shared_shift(%x: i64, %y: i64) -> (i64, i64) {
+entry:
+  %r = shr.u i64 %x, 7
+  %a = xor i64 %y, %r
+  return %r, %a
+}
+func @variable_shift(%x: i32, %y: i32, %count: i32) -> i32 {
+entry:
+  %r = shr.u i32 %x, %count
+  %a = and i32 %y, %r
+  return %a
+}
+func @partial_complement(%x: i64, %y: i64) -> i64 {
+entry:
+  %n = xor i64 %x, 4294967295
+  %a = and i64 %y, %n
+  return %a
+}

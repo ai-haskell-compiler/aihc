@@ -118,6 +118,7 @@ instruction code =
     AmdCvtts2si wide destination source ->
       (if wide then "cvttsd2si " else "cvttss2si ") <> reg destination <> ", " <> xmm source
     AmdBitCount operation destination source -> two (bitCountName operation) destination source
+    AmdAndn destination source mask -> "andn " <> reg destination <> ", " <> reg source <> ", " <> reg mask
     AmdBmi2 operation destination source mask ->
       bmi2Name operation <> " " <> reg destination <> ", " <> reg source <> ", " <> reg mask
   where

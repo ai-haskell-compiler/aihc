@@ -1134,6 +1134,9 @@ rather than as a change of some object bytes. Run the suite with
 - A 32-bit or 64-bit rotate uses `ror`. A left rotate uses the opposite count.
   A single-use constant rotate can become an operand of `and`, `orr`, or `eor`.
   The selector combines these operations before register allocation.
+- A constant 32-bit or 64-bit shift can become an operand of `and`, `orr`, or `eor`.
+  The shift must have one use in the same block.
+  A complement followed by AND uses `bic` when the complement has one use.
 - `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no
   population count of a general register, so `popcount` goes through the
   vector unit with `cnt` and `addv`, which the base architecture requires.
@@ -1207,6 +1210,8 @@ design of the AArch64 backend:
 - Rotates use `rol` or `ror`, with an immediate count or `cl`.
   A constant 32-bit or 64-bit rotate uses `rorx` when the source and destination registers differ.
   This instruction avoids a copy and preserves the flags.
+- A 32-bit or 64-bit complement followed by AND uses the BMI1 instruction `andn`.
+  The complement must have one use in the same block.
 - `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`, and
   `pdep` and `pext` are the BMI2 instructions of the same name. This backend
   targets modern hardware and assumes SSE4.2, LZCNT, BMI1, and BMI2; a host

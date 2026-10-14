@@ -268,6 +268,8 @@ data Amd64Instruction
     -- LZCNT, and BMI1; the AMD64 target is modern hardware, and a host
     -- without them uses the LLVM backend.
     AmdBitCount !Amd64BitCountOp !Amd64Register !Amd64Rm
+  | -- | ANDN complements its first source and ANDs it with its second source. It requires BMI1.
+    AmdAndn !Amd64Register !Amd64Register !Amd64Register
   | -- | @pdep@ or @pext@: the destination, the source, and the mask, all
     -- 64-bit registers or all 32-bit registers. The 32-bit form zero-extends
     -- its result. They need BMI2, which the hardware this backend targets has.
@@ -496,6 +498,7 @@ encodeInstruction instruction =
     AmdCvtsi2s double xmm source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2a] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
     AmdCvtts2si double destination xmm -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2c] (registerNumber (registerInfo destination)) (RegisterOperand (xmmRegister xmm)) False []
     AmdBitCount op destination source -> bytes [0xf3] <> encodeRegisterSource True [0x0f, bitCountOpcode op] destination source
+    AmdAndn destination source mask -> encodeVex3 0 0xf2 destination source mask
     AmdBmi2 op destination source mask -> encodeVex3 (bmi2Prefix op) 0xf5 destination source mask
     AmdAtomic op width destination source ->
       let byteForm = width == 1
@@ -507,7 +510,7 @@ encodeInstruction instruction =
        in bytes prefixes <> encodeRm (width == 8) opcode (registerNumber (registerInfo source)) (memoryOperand destination) byteForm []
     AmdMfence -> bytes [0x0f, 0xae, 0xf0]
 
--- | The @VEX.LZ.pp.0F38.W@ encoding of a three-operand BMI2 instruction:
+-- | The @VEX.LZ.pp.0F38.W@ encoding of a three-operand BMI instruction:
 -- the two-byte escape @C4@, the inverted @R@, @X@, and @B@ bits with the
 -- @0F38@ map, the width bit with the inverted second source and the prefix
 -- code, the opcode, and a register-direct ModRM.
