@@ -26,7 +26,7 @@ heap: |
   @1 = Indirection @2
   @2 = CDone
 allocated-bytes:
-  macos-arm64: 120
-  linux-amd64: 120
+  macos-arm64: 128
+  linux-amd64: 128
 status: pass
 reason: fork# must evaluate an action that is a thunk before it applies it.

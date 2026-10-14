@@ -127,8 +127,6 @@ void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
 static const AihcResume *aihc_schedule(AihcCapability *capability);
-static void aihc_visit_blackholes(AihcCapability *capability,
-                                  AihcRootVisitor visitor, void *context);
 
 /* aihc_helpers.lir defines the indirection table, because the update of a
    thunk without waiters writes it there. */
@@ -142,6 +140,9 @@ static const AihcInfo aihc_thread_info = {
 };
 static const AihcInfo aihc_blackhole_waiter_info = {
     .object_kind = AIHC_OBJECT_BLACKHOLE_WAITER,
+};
+static const AihcInfo aihc_blackhole_queue_info = {
+    .object_kind = AIHC_OBJECT_BLACKHOLE_QUEUE,
 };
 static const AihcInfo aihc_mvar_info = {
     .object_kind = AIHC_OBJECT_MVAR,
@@ -247,6 +248,8 @@ uint64_t aihc_value_words(const AihcValue *value) {
     return aihc_record_words(sizeof(AihcThread));
   case AIHC_OBJECT_BLACKHOLE_WAITER:
     return aihc_record_words(sizeof(AihcBlackholeWaiter));
+  case AIHC_OBJECT_BLACKHOLE_QUEUE:
+    return aihc_record_words(sizeof(AihcBlackholeQueue));
   case AIHC_OBJECT_MVAR:
     return aihc_record_words(sizeof(AihcMVar));
   case AIHC_OBJECT_MVAR_WAITER:
@@ -635,6 +638,15 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
     waiter->next = aihc_visit_pointer(waiter->next, visitor, context);
     return 1;
   }
+  case AIHC_OBJECT_BLACKHOLE_QUEUE: {
+    AihcBlackholeQueue *queue = (AihcBlackholeQueue *)object;
+    queue->owner = aihc_visit_pointer(queue->owner, visitor, context);
+    aihc_visit_value(&queue->thunk, visitor, context);
+    queue->head = aihc_visit_pointer(queue->head, visitor, context);
+    queue->tail = aihc_visit_pointer(queue->tail, visitor, context);
+    queue->next = aihc_visit_pointer(queue->next, visitor, context);
+    return 1;
+  }
   case AIHC_OBJECT_MVAR: {
     AihcMVar *mvar = (AihcMVar *)object;
     if (mvar->full) {
@@ -824,7 +836,8 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
    roots. */
 /* A thread record is in gen2 and never moves, but its resumption and its
    transaction name objects of the capability that runs the thread. These
-   fields are roots of the capability, not fields of a global object. Thus
+   fields and the blackhole queues are roots of the capability, not fields
+   of a global object. Thus
    a store into them needs no write barrier. Each thread with a stack is
    visited. A thread that nothing reaches keeps them until a gen2 cycle
    frees its record. A thread with a resumption is on the run queue. */
@@ -835,6 +848,7 @@ static void aihc_visit_thread_roots(AihcCapability *capability,
     AihcThread *thread = stack->thread;
     thread->transaction =
         aihc_visit_pointer(thread->transaction, visitor, context);
+    thread->queues = aihc_visit_pointer(thread->queues, visitor, context);
     aihc_visit_value(&thread->resume_function, visitor, context);
     aihc_visit_value(&thread->resume_continuation, visitor, context);
     if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
@@ -889,7 +903,6 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
       aihc_visit_pointer(capability->run_queue_head, visitor, context);
   capability->run_queue_tail =
       aihc_visit_pointer(capability->run_queue_tail, visitor, context);
-  aihc_visit_blackholes(capability, visitor, context);
   capability->io_requests_head =
       aihc_visit_pointer(capability->io_requests_head, visitor, context);
   capability->io_requests_tail =
@@ -1074,6 +1087,7 @@ static AihcThread *aihc_thread_new(AihcCapability *capability) {
   thread->resume_count = 0;
   thread->next = NULL;
   thread->transaction = NULL;
+  thread->queues = NULL;
   (void)aihc_stack_new(capability, thread);
   return thread;
 }
@@ -1113,165 +1127,6 @@ static AihcThread *aihc_dequeue_thread(AihcCapability *capability) {
   aihc_write_barrier(capability, (AihcValue *)thread);
   thread->next = NULL;
   return thread;
-}
-
-/* Hash slots contain only contended thunks. Storage is reusable collector
-   metadata, like the collector's static-object sets. Waiters stay managed. */
-static size_t aihc_blackhole_slot(AihcBlackholeEntry *entries, size_t capacity,
-                                  const AihcValue *object) {
-  uintptr_t hash = (uintptr_t)object >> 3;
-  hash ^= hash >> 17;
-  hash *= (uintptr_t)0x27d4eb2dU;
-  size_t slot = (size_t)hash & (capacity - 1);
-  while (entries[slot].object != NULL && entries[slot].object != object) {
-    slot = (slot + 1) & (capacity - 1);
-  }
-  return slot;
-}
-
-static void aihc_grow_blackholes(AihcBlackholeTable *table) {
-  size_t capacity = table->capacity == 0 ? 16 : table->capacity * 2;
-  if (capacity < table->capacity ||
-      capacity > SIZE_MAX / sizeof(AihcBlackholeEntry)) {
-    aihc_fail("blackhole waiter table is too large");
-  }
-  AihcBlackholeEntry *entries = calloc(capacity, sizeof(*entries));
-  AihcBlackholeEntry *spare = calloc(capacity, sizeof(*spare));
-  if (entries == NULL || spare == NULL) {
-    aihc_fail("out of memory");
-  }
-  for (size_t index = 0; index < table->capacity; ++index) {
-    AihcBlackholeEntry entry = table->entries[index];
-    if (entry.object != NULL) {
-      entries[aihc_blackhole_slot(entries, capacity, entry.object)] = entry;
-    }
-  }
-  free(table->entries);
-  free(table->spare);
-  table->entries = entries;
-  table->spare = spare;
-  table->capacity = capacity;
-}
-
-static void aihc_visit_blackholes(AihcCapability *capability,
-                                  AihcRootVisitor visitor, void *context) {
-  AihcBlackholeTable *table = capability->machine->blackholes;
-  if (table == NULL || table->count == 0) {
-    return;
-  }
-  memset(table->spare, 0, table->capacity * sizeof(*table->spare));
-  for (size_t index = 0; index < table->capacity; ++index) {
-    AihcBlackholeEntry entry = table->entries[index];
-    if (entry.object == NULL) {
-      continue;
-    }
-    aihc_visit_value(&entry.object, visitor, context);
-    entry.head = aihc_visit_pointer(entry.head, visitor, context);
-    entry.tail = aihc_visit_pointer(entry.tail, visitor, context);
-    size_t slot =
-        aihc_blackhole_slot(table->spare, table->capacity, entry.object);
-    table->spare[slot] = entry;
-  }
-  AihcBlackholeEntry *old = table->entries;
-  table->entries = table->spare;
-  table->spare = old;
-}
-
-/* Only the current chain can prove self-re-entry. Suspended threads do not
-   need owner records. Update frames cannot be captured by control0#. */
-static void aihc_check_blackhole_reentry(AihcValue *object,
-                                         AihcValue *continuation) {
-  while (continuation != NULL) {
-    if (aihc_value_kind(continuation) == AIHC_OBJECT_INDIRECTION) {
-      continuation = (AihcValue *)(uintptr_t)continuation->fields[0];
-      continue;
-    }
-    const AihcInfo *info = aihc_value_info_table(continuation);
-    if (info->object_kind != AIHC_OBJECT_CLOSURE ||
-        info->frame_kind == AIHC_FRAME_NONE) {
-      aihc_fail("blackhole check found an invalid continuation");
-    }
-    if (info->frame_kind == AIHC_FRAME_STOP) {
-      return;
-    }
-    if (info->frame_kind == AIHC_FRAME_UPDATE) {
-      if (info->field_count < 2) {
-        aihc_fail("update continuation has an invalid layout");
-      }
-      if ((AihcValue *)(uintptr_t)continuation->fields[1] == object) {
-        aihc_fail("blackholed thunk re-entered");
-      }
-    }
-    if (info->field_count < 1) {
-      aihc_fail("continuation has no parent");
-    }
-    continuation = (AihcValue *)(uintptr_t)continuation->fields[0];
-  }
-}
-
-static void aihc_add_blackhole_waiter(AihcCapability *capability,
-                                      AihcValue *object,
-                                      AihcValue *continuation) {
-  aihc_check_blackhole_reentry(object, continuation);
-  if (capability->machine->blackholes == NULL) {
-    capability->machine->blackholes =
-        calloc(1, sizeof(*capability->machine->blackholes));
-    if (capability->machine->blackholes == NULL) {
-      aihc_fail("out of memory");
-    }
-  }
-  AihcBlackholeTable *table = capability->machine->blackholes;
-  if (table->count >= table->capacity / 2) {
-    aihc_grow_blackholes(table);
-  }
-  size_t slot = aihc_blackhole_slot(table->entries, table->capacity, object);
-  AihcBlackholeEntry *entry = &table->entries[slot];
-  if (entry->object == NULL) {
-    entry->object = object;
-    ++table->count;
-  }
-  /* The eval helper reserved this waiter before it entered the C runtime. */
-  AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_gc_allocate(
-      capability, aihc_record_words(sizeof(*waiter)));
-  waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
-  waiter->thread = capability->current_thread;
-  waiter->continuation = continuation;
-  aihc_stack_note_top(continuation);
-  waiter->next = NULL;
-  if (entry->tail == NULL) {
-    entry->head = waiter;
-  } else {
-    aihc_write_barrier(capability, (AihcValue *)entry->tail);
-    entry->tail->next = waiter;
-  }
-  entry->tail = waiter;
-  object->header |= AIHC_HEADER_WAITERS;
-}
-
-static AihcBlackholeWaiter *
-aihc_remove_blackhole_waiters(AihcCapability *capability, AihcValue *object) {
-  AihcBlackholeTable *table = capability->machine->blackholes;
-  if (table == NULL || table->count == 0) {
-    aihc_fail("marked thunk has no waiter table entry");
-  }
-  size_t slot = aihc_blackhole_slot(table->entries, table->capacity, object);
-  AihcBlackholeWaiter *head = table->entries[slot].head;
-  if (head == NULL) {
-    aihc_fail("marked thunk has no waiters");
-  }
-  table->entries[slot] = (AihcBlackholeEntry){0};
-  --table->count;
-  /* Restore the probe chain without tombstones or further allocation. */
-  slot = (slot + 1) & (table->capacity - 1);
-  while (table->entries[slot].object != NULL) {
-    AihcBlackholeEntry entry = table->entries[slot];
-    table->entries[slot] = (AihcBlackholeEntry){0};
-    size_t target =
-        aihc_blackhole_slot(table->entries, table->capacity, entry.object);
-    table->entries[target] = entry;
-    slot = (slot + 1) & (table->capacity - 1);
-  }
-  return head;
 }
 
 void aihc_set_field(AihcCapability *capability, AihcValue *value,
@@ -1716,6 +1571,7 @@ static AihcMVarWaiter *aihc_mvar_waiter_new(AihcCapability *capability,
   waiter->thread = capability->current_thread;
   waiter->continuation = continuation;
   aihc_stack_note_top(continuation);
+  aihc_thread_pause(capability, continuation);
   waiter->value = value;
   return waiter;
 }
@@ -1938,6 +1794,7 @@ const AihcResume *aihc_await_io(AihcCapability *capability,
   request->thread = capability->current_thread;
   request->continuation = continuation;
   aihc_stack_note_top(continuation);
+  aihc_thread_pause(capability, continuation);
   if (capability->io_requests_tail == NULL) {
     capability->io_requests_head = request;
   } else {
@@ -1948,16 +1805,121 @@ const AihcResume *aihc_await_io(AihcCapability *capability,
   return aihc_schedule(capability);
 }
 
+/* Field zero of a thunk with bit zero names its owner thread, a blackhole
+   queue of its owner, or the value. A thread record and a queue have kinds
+   that no Haskell value has. */
+static AihcThread *aihc_thunk_owner(const AihcValue *thunk,
+                                    AihcBlackholeQueue **queue) {
+  AihcValue *word = (AihcValue *)(uintptr_t)thunk->fields[0];
+  *queue = NULL;
+  switch (aihc_value_info_table(word)->object_kind) {
+  case AIHC_OBJECT_THREAD:
+    return (AihcThread *)word;
+  case AIHC_OBJECT_BLACKHOLE_QUEUE:
+    *queue = (AihcBlackholeQueue *)word;
+    return (*queue)->owner;
+  default:
+    return NULL;
+  }
+}
+
+/* Remove a queue from the list of its owner. The list is a root of the
+   capability, and a link between two queues takes the write barrier. */
+static void aihc_unlink_queue(AihcCapability *capability,
+                              AihcBlackholeQueue *queue) {
+  AihcBlackholeQueue **link = &queue->owner->queues;
+  AihcBlackholeQueue *previous = NULL;
+  while (*link != NULL && *link != queue) {
+    previous = *link;
+    link = &previous->next;
+  }
+  if (*link == NULL) {
+    aihc_fail("blackhole queue is not on the list of its owner");
+  }
+  if (previous != NULL) {
+    aihc_write_barrier(capability, (AihcValue *)previous);
+  }
+  *link = queue->next;
+  aihc_write_barrier(capability, (AihcValue *)queue);
+  queue->next = NULL;
+}
+
+/* Wake the waiters of a queue with a value, or with an exception. */
+static void aihc_wake_queue(AihcCapability *capability,
+                            AihcBlackholeQueue *queue, AihcSlot value,
+                            int raise) {
+  AihcBlackholeWaiter *waiter = queue->head;
+  while (waiter != NULL) {
+    AihcBlackholeWaiter *next = waiter->next;
+    AihcValue *continuation = waiter->continuation;
+    /* As for an MVar waiter: the frame is popped later. */
+    waiter->continuation = NULL;
+    if (raise) {
+      aihc_suspend_raise(waiter->thread, (AihcValue *)(uintptr_t)value,
+                         continuation);
+    } else {
+      aihc_suspend_continue(waiter->thread, continuation, 1, value);
+    }
+    aihc_enqueue_thread(capability, waiter->thread);
+    waiter = next;
+  }
+}
+
+/* A thread finds a claimed thunk. On one capability the owner runs on this
+   capability, so the thread attaches itself to the queue of the thunk at
+   once. The first waiter makes the queue. The eval helper reserved the
+   waiter and the queue before it entered the C runtime. A collection on that
+   path can follow an evaluated thunk to its value, so a value continues the
+   thread. */
 const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
                                           AihcValue *value,
                                           AihcValue *continuation) {
-  if (value == NULL || aihc_value_kind(value) != AIHC_OBJECT_BLACKHOLE) {
-    aihc_fail("attempted to block on a value that is not blackholed");
+  AihcThread *current = capability->current_thread;
+  if (value == NULL) {
+    aihc_fail("attempted to block on null");
   }
-  aihc_add_blackhole_waiter(capability, value, continuation);
+  AihcBlackholeQueue *queue = NULL;
+  AihcThread *owner = aihc_value_kind(value) == AIHC_OBJECT_BLACKHOLE
+                          ? aihc_thunk_owner(value, &queue)
+                          : NULL;
+  if (owner == NULL) {
+    AihcSlot result = aihc_value_kind(value) == AIHC_OBJECT_BLACKHOLE
+                          ? value->fields[0]
+                          : (AihcSlot)(uintptr_t)value;
+    aihc_suspend_continue(current, continuation, 1, result);
+    return aihc_select_thread(capability, current);
+  }
+  if (owner == current) {
+    aihc_fail("blackholed thunk re-entered");
+  }
+  AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_gc_allocate(
+      capability, aihc_record_words(sizeof(*waiter)));
+  waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
+  waiter->thread = current;
+  waiter->continuation = continuation;
+  waiter->next = NULL;
+  if (queue == NULL) {
+    queue = (AihcBlackholeQueue *)aihc_gc_allocate(
+        capability, aihc_record_words(sizeof(*queue)));
+    queue->header = (AihcSlot)(uintptr_t)&aihc_blackhole_queue_info;
+    queue->owner = owner;
+    queue->thunk = value;
+    queue->head = waiter;
+    queue->tail = waiter;
+    queue->next = owner->queues;
+    owner->queues = queue;
+    aihc_write_barrier(capability, value);
+    value->fields[0] = (AihcSlot)(uintptr_t)queue;
+  } else {
+    aihc_write_barrier(capability, (AihcValue *)queue->tail);
+    queue->tail->next = waiter;
+    aihc_write_barrier(capability, (AihcValue *)queue);
+    queue->tail = waiter;
+  }
+  aihc_stack_note_top(continuation);
+  aihc_thread_pause(capability, continuation);
   return aihc_schedule(capability);
 }
-
 const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result) {
   AihcIoRequest *request = capability->io_requests_head;
   if (request == NULL) {
@@ -2006,52 +1968,68 @@ void aihc_update(AihcCapability *capability, AihcValue *object,
   }
 }
 
+/* The update of a thunk at the end of its evaluation. The value goes into
+   field zero, and the header keeps the thunk table with bit zero. A thunk
+   that no pause claimed is the usual case. A claimed thunk can have a queue
+   of this thread, whose waiters wake. The collector follows an evaluated
+   thunk to its value, as it follows an indirection. */
 void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
                            AihcValue *value) {
-  if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
-    aihc_fail("attempted to update a cell that is not blackholed");
+  if (object == NULL || value == NULL) {
+    aihc_fail("attempted to update with null");
   }
-  AihcSlot flags = object->header;
-  aihc_update(capability, object, value);
-  if ((flags & AIHC_HEADER_WAITERS) == 0) {
+  AihcSlot header = object->header;
+  if (aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK ||
+      (header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
+    aihc_fail("attempted to update a cell that is not a thunk");
+  }
+  /* The update deletes the owner or the queue in field zero and every free
+     variable, so the barrier shades them. */
+  aihc_write_barrier_update(capability, object);
+  AihcBlackholeQueue *queue = NULL;
+  AihcThread *owner = (header & AIHC_HEADER_EVALUATING) != 0
+                          ? aihc_thunk_owner(object, &queue)
+                          : NULL;
+  object->fields[0] = (AihcSlot)(uintptr_t)value;
+  object->header = header | AIHC_HEADER_EVALUATING;
+  if (queue == NULL) {
     return;
   }
-  /* No collection can occur between the update and removal of its key. */
-  AihcBlackholeWaiter *waiter =
-      aihc_remove_blackhole_waiters(capability, object);
-  while (waiter != NULL) {
-    AihcBlackholeWaiter *next = waiter->next;
-    AihcValue *continuation = waiter->continuation;
-    /* As for an MVar waiter: the frame is popped later. */
-    waiter->continuation = NULL;
-    aihc_suspend_continue(waiter->thread, continuation, 1, (AihcSlot)value);
-    aihc_enqueue_thread(capability, waiter->thread);
-    waiter = next;
+  if (owner != capability->current_thread) {
+    aihc_fail("a thunk was updated under the queue of another thread");
   }
+  aihc_unlink_queue(capability, queue);
+  aihc_wake_queue(capability, queue, (AihcSlot)(uintptr_t)value, 0);
 }
-
+/* An exception unwinds an update frame. A thunk that this thread claimed
+   goes back to the state Thunk, and its waiters get the exception. A thunk
+   that no pause claimed needs nothing: the entry wrote nothing into it, and
+   its free variables are intact. A thunk that another evaluation finished
+   keeps its value. */
 static void aihc_abandon_blackhole(AihcCapability *capability,
                                    AihcValue *object, AihcValue *exception) {
-  if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
-    aihc_fail("exception update frame does not contain a blackhole");
+  if (object == NULL ||
+      aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
+    aihc_fail("exception update frame does not contain a thunk");
   }
-  AihcSlot flags = object->header;
-  object->header &= ~AIHC_HEADER_TAG_MASK;
-  if ((flags & AIHC_HEADER_WAITERS) == 0) {
+  AihcSlot header = object->header;
+  if ((header & AIHC_HEADER_EVALUATING) == 0) {
     return;
   }
-  AihcBlackholeWaiter *waiter =
-      aihc_remove_blackhole_waiters(capability, object);
-  while (waiter != NULL) {
-    AihcBlackholeWaiter *next = waiter->next;
-    AihcValue *continuation = waiter->continuation;
-    waiter->continuation = NULL;
-    aihc_suspend_raise(waiter->thread, exception, continuation);
-    aihc_enqueue_thread(capability, waiter->thread);
-    waiter = next;
+  AihcBlackholeQueue *queue = NULL;
+  AihcThread *owner = aihc_thunk_owner(object, &queue);
+  if (owner != capability->current_thread) {
+    return;
+  }
+  /* Field zero stops being a pointer, so the barrier shades the owner or
+     the queue. */
+  aihc_write_barrier(capability, object);
+  object->header = header & ~AIHC_HEADER_TAG_MASK;
+  if (queue != NULL) {
+    aihc_unlink_queue(capability, queue);
+    aihc_wake_queue(capability, queue, (AihcSlot)(uintptr_t)exception, 1);
   }
 }
-
 const AihcResume *aihc_raise(AihcCapability *capability, AihcValue *exception,
                              AihcValue *continuation) {
   if (exception == NULL) {
@@ -2295,6 +2273,7 @@ const AihcResume *aihc_yield(AihcCapability *capability,
                              AihcValue *continuation) {
   AihcThread *current = capability->current_thread;
   aihc_suspend_continue(current, continuation, 0, 0);
+  aihc_thread_pause(capability, continuation);
   aihc_enqueue_thread(capability, current);
   return aihc_schedule(capability);
 }

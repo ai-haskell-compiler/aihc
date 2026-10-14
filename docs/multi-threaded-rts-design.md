@@ -35,8 +35,11 @@ Gen1 uses the `-B` count rule and has no byte maximum.
 Thread records are in gen2 from the fork and never move.
 Their resumption and transaction fields are roots of the capability, so a store into them takes no barrier.
 Each thunk has the owner word as field zero, and its free variables start at field one.
-The entry still sets bit zero of the header, and the blackhole table still holds the waiters.
-The lazy claims, the one-word state, and the blackhole queues remain necessary.
+The entry writes nothing into the thunk. A pause claims the thunks of the update frames with plain stores.
+A collection claims the thunk of each update frame that it scans.
+The update keeps the state in field zero, and the inline evaluation check follows an evaluated thunk.
+Blackhole queues and the queue list of each thread replace the blackhole table.
+The claim is not yet a compare-and-swap, and the message protocol, the queue recovery, and `noDuplicate#` remain for step 3.
 The default count is one, and a count of zero promotes nursery survivors into gen2 directly.
 The runtime has no worker threads and does not enable `-N`.
 
@@ -44,7 +47,7 @@ Lir has the atomic instructions of the memory model section on every backend.
 No compiled code or runtime unit uses them yet.
 
 The rest of step 1 remains necessary before step 2.
-It includes the escape count, gen1 blocks for each capability, the access rules, thunk owner state, and barrier safepoints.
+It includes the escape count, gen1 blocks for each capability, the access rules, and barrier safepoints.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 

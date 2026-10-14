@@ -271,7 +271,9 @@ data Object
         oPointers :: [Bool],
         oFields :: [Value],
         oSrt :: Maybe Int,
-        oBlackholed :: Bool
+        -- | The thread that claimed the thunk. A pause of the thread claims
+        -- the thunks of its update frames.
+        oOwner :: Maybe Id
       }
   | Array [Value] (Maybe Int)
   | Ind Value
@@ -329,6 +331,9 @@ data Model = Model
     mQueue :: [Id],
     -- | The waiters of each contended thunk, in wake order.
     mBlackholes :: Map Id [Waiter],
+    -- | The update frames that a pause or a collection processed. A pause
+    -- stops at the first of them.
+    mProcessed :: Set Fid,
     mStaticThunks :: [StaticThunk],
     mStaticThunkSrts :: [Maybe Int],
     mStaticNodes :: [[Value]],
@@ -372,6 +377,7 @@ emptyModel =
       mRunning = initialThread,
       mQueue = [],
       mBlackholes = Map.empty,
+      mProcessed = Set.empty,
       mStaticThunks = replicate staticThunkCount SThunk,
       mStaticThunkSrts = replicate staticThunkCount Nothing,
       mStaticNodes = replicate staticNodeCount (replicate staticNodeFields VNull),
@@ -385,12 +391,13 @@ emptyModel =
 
 -- | The words of an MVar and of a thread record on the 64-bit targets.
 recordWords :: Int
-recordWords = 9
+recordWords = 10
 
--- | The words of an MVar waiter, a blackhole waiter, and a stable name.
+-- | The words of an MVar waiter, a blackhole waiter with the queue that the
+-- first waiter of a thunk makes, and a stable name.
 mvarWaiterWords, blackholeWaiterWords, stableNameWords :: Int
 mvarWaiterWords = 5
-blackholeWaiterWords = 4
+blackholeWaiterWords = 10
 stableNameWords = 4
 
 -- | The words of frames one stack chunk holds.
@@ -556,11 +563,11 @@ applyCommand command model = case command of
   CFill _ -> model
   CReserve _ -> model
   CNew identity kind pointers srt ->
-    insertObject identity (Object kind pointers [if p then VNull else VWord 0 | p <- pointers] srt False)
+    insertObject identity (Object kind pointers [if p then VNull else VWord 0 | p <- pointers] srt Nothing)
   CArray identity count srt -> insertObject identity (Array (replicate count VNull) srt)
   CMVar identity -> insertObject identity (MVar (MVarState Nothing [] [] []))
   CSet identity index value -> adjustObject identity $ \case
-    Object kind pointers fields srt blackholed -> Object kind pointers (setAt index value fields) srt blackholed
+    Object kind pointers fields srt owner -> Object kind pointers (setAt index value fields) srt owner
     Array elements srt -> Array (setAt index value elements) srt
     other -> error ("set on " <> show other)
   CSUpdate slot value -> model {mStaticThunks = setAt slot (SInd value) (mStaticThunks model)}
@@ -582,40 +589,40 @@ applyCommand command model = case command of
     Just top -> raise (mRunning model) exception top model
     Nothing -> failed
   CYield -> case runningTop model of
-    Just top -> schedule (enqueue (mRunning model) (suspend (mRunning model) (RContinue top Nothing) model))
+    Just top -> schedule (enqueue (mRunning model) (suspend (mRunning model) (RContinue top Nothing) (pause model)))
     Nothing -> failed
   CFork identity fid action ->
     let thread = Thread (ThreadState (RApply action fid) (Just fid))
         frame = Frame FStop [] [] Nothing Nothing identity
      in enqueue identity (insertObject identity thread) {mFrames = Map.insert fid frame (mFrames model), mNextFid = max (mNextFid model) (fid + 1)}
   CBlock thunk -> case (Map.lookup thunk (mHeap model), runningTop model) of
-    (Just (Object KThunk _ _ _ True), Just top)
-      | evaluates (mRunning model) thunk model -> failed
+    (Just (Object KThunk _ _ _ (Just owner)), Just top)
+      | owner == mRunning model -> failed
       | otherwise ->
           let waiter = Waiter (mRunning model) top Nothing
-           in schedule model {mBlackholes = Map.insertWith (flip (<>)) thunk [waiter] (mBlackholes model)}
+           in schedule (pause model {mBlackholes = Map.insertWith (flip (<>)) thunk [waiter] (mBlackholes model)})
     _ -> failed
   CTake identity -> withMVar identity $ \mvar top -> case mvValue mvar of
-    Nothing -> schedule (storeMVar identity mvar {mvTakers = mvTakers mvar <> [Waiter (mRunning model) top Nothing]} model)
+    Nothing -> schedule (pause (storeMVar identity mvar {mvTakers = mvTakers mvar <> [Waiter (mRunning model) top Nothing]} model))
     Just value -> case mvPutters mvar of
       [] -> continueInto (mRunning model) top (Just value) (storeMVar identity mvar {mvValue = Nothing} model)
       putter : rest ->
         continueInto (mRunning model) top (Just value) $
           wake putter Nothing (storeMVar identity mvar {mvValue = wValue putter, mvPutters = rest} model)
   CRead identity -> withMVar identity $ \mvar top -> case mvValue mvar of
-    Nothing -> schedule (storeMVar identity mvar {mvReaders = mvReaders mvar <> [Waiter (mRunning model) top Nothing]} model)
+    Nothing -> schedule (pause (storeMVar identity mvar {mvReaders = mvReaders mvar <> [Waiter (mRunning model) top Nothing]} model))
     Just value -> continueInto (mRunning model) top (Just value) model
   CPut identity value -> withMVar identity $ \mvar top -> case mvValue mvar of
-    Just _ -> schedule (storeMVar identity mvar {mvPutters = mvPutters mvar <> [Waiter (mRunning model) top (Just value)]} model)
+    Just _ -> schedule (pause (storeMVar identity mvar {mvPutters = mvPutters mvar <> [Waiter (mRunning model) top (Just value)]} model))
     Nothing ->
       let woken = foldl' (\m reader -> wake reader (Just value) m) model (mvReaders mvar)
           (mvar', afterTaker) = case mvTakers mvar of
             [] -> (mvar {mvValue = Just value, mvReaders = []}, woken)
             taker : rest -> (mvar {mvReaders = [], mvTakers = rest}, wake taker (Just value) woken)
        in continueInto (mRunning model) top Nothing (storeMVar identity mvar' afterTaker)
-  CCollect -> model
-  CCollectGeneration generation -> staleStatics (generation == 2) model
-  CCycle -> staleStatics True model
+  CCollect -> pause model
+  CCollectGeneration generation -> staleStatics (generation == 2) (pause model)
+  CCycle -> staleStatics True (pause model)
   where
     failed = model {mFailed = True}
     insertObject identity object =
@@ -639,11 +646,30 @@ storeThread identity thread model = model {mHeap = Map.insert identity (Thread t
 runningTop :: Model -> Maybe Fid
 runningTop model = thTop (threadOf (mRunning model) model)
 
--- | Whether a thread has an update frame for a thunk on its stack.
-evaluates :: Id -> Id -> Model -> Bool
-evaluates thread thunk model = any updates (Map.elems (mFrames model))
+-- | The pause of the running thread: claim the thunk of each update frame
+-- that no pause processed, from the top, and stop at the first processed
+-- frame. A thunk that is claimed stays as it is. A collection is a pause of
+-- the running thread, because the other threads paused when they stopped.
+pause :: Model -> Model
+pause model = go (runningTop model) model
   where
-    updates frame = fThread frame == thread && fKind frame == FUpdate && fFields frame == [VHeap thunk]
+    running = mRunning model
+    go Nothing current = current
+    go (Just fid) current = case Map.lookup fid (mFrames current) of
+      Nothing -> current
+      Just frame -> case fKind frame of
+        FStop -> current
+        FUpdate
+          | Set.member fid (mProcessed current) -> current
+          | otherwise ->
+              let claimed = case fFields frame of
+                    [VHeap thunk] -> case Map.lookup thunk (mHeap current) of
+                      Just (Object KThunk pointers fields srt Nothing) ->
+                        current {mHeap = Map.insert thunk (Object KThunk pointers fields srt (Just running)) (mHeap current)}
+                      _ -> current
+                    _ -> current
+               in go (fParent frame) claimed {mProcessed = Set.insert fid (mProcessed claimed)}
+        _ -> go (fParent frame) current
 
 -- | Push a frame on the stack of the running thread.
 pushFrame :: Fid -> FrameSpec -> Model -> Model
@@ -656,10 +682,8 @@ pushFrame fid spec model = case (spec, runningTop model) of
   (FSCatch srt handler, Just top) -> push (Frame FCatch [True] [handler] srt (Just top) running)
   (FSPrompt srt tag, Just top) -> push (Frame FPrompt [True] [tag] srt (Just top) running)
   (FSUpdate thunk, Just top) -> case Map.lookup thunk (mHeap model) of
-    Just (Object KThunk pointers fields srt False) ->
-      pushOn
-        model {mHeap = Map.insert thunk (Object KThunk pointers fields srt True) (mHeap model)}
-        (Frame FUpdate [True] [VHeap thunk] Nothing (Just top) running)
+    -- The entry writes nothing into the thunk. A pause claims it later.
+    Just (Object KThunk _ _ _ Nothing) -> push (Frame FUpdate [True] [VHeap thunk] Nothing (Just top) running)
     _ -> failed
   where
     running = mRunning model
@@ -669,7 +693,8 @@ pushFrame fid spec model = case (spec, runningTop model) of
       let thread = threadOf running before
        in (storeThread running thread {thTop = Just fid} before)
             { mFrames = Map.insert fid frame (mFrames before),
-              mNextFid = max (mNextFid before) (fid + 1)
+              mNextFid = max (mNextFid before) (fid + 1),
+              mProcessed = Set.delete fid (mProcessed before)
             }
 
 -- | Pop the frames of a thread from its top down to a frame, inclusive.
@@ -769,13 +794,17 @@ raise thread exception = go
           _ -> model {mFailed = True}
         FStop -> model {mFailed = True}
         _ -> maybe model {mFailed = True} (`go` model) (fParent frame)
-    abandon thunk model =
-      let waiters = Map.findWithDefault [] thunk (mBlackholes model)
-          plain = case Map.lookup thunk (mHeap model) of
-            Just (Object kind pointers fields srt _) -> Object kind pointers fields srt False
-            other -> error ("abandoned thunk is " <> show other)
-          cleared = model {mHeap = Map.insert thunk plain (mHeap model), mBlackholes = Map.delete thunk (mBlackholes model)}
-       in foldl' (\m waiter -> enqueue (wThread waiter) (suspend (wThread waiter) (RRaise exception (wFrame waiter)) m)) cleared waiters
+    -- A thunk that this thread claimed goes back to the state Thunk, and
+    -- its waiters get the exception. A thunk that no pause claimed needs
+    -- nothing.
+    abandon thunk model = case Map.lookup thunk (mHeap model) of
+      Just (Object kind pointers fields srt (Just owner))
+        | owner == thread ->
+            let waiters = Map.findWithDefault [] thunk (mBlackholes model)
+                cleared = model {mHeap = Map.insert thunk (Object kind pointers fields srt Nothing) (mHeap model), mBlackholes = Map.delete thunk (mBlackholes model)}
+             in foldl' (\m waiter -> enqueue (wThread waiter) (suspend (wThread waiter) (RRaise exception (wFrame waiter)) m)) cleared waiters
+      Just Object {} -> model
+      other -> error ("abandoned thunk is " <> show other)
 
 -- | Mark the evaluated static thunks that a full collection or a gen2
 -- cycle frees the value of: the slots no live code reaches. A cycle
@@ -878,15 +907,19 @@ waiterValues waiter = [VHeap (wThread waiter), VFrame (wFrame waiter)] <> maybe 
 
 objectChildren :: Object -> [Value]
 objectChildren object = case object of
-  Object _ pointers fields _ _ -> [field | (True, field) <- zip pointers fields]
+  -- A claimed thunk names its owner in field zero.
+  Object _ pointers fields _ owner -> maybe [] (pure . VHeap) owner <> [field | (True, field) <- zip pointers fields]
   Array elements _ -> elements
   Ind target -> [target]
   MVar (MVarState value readers takers putters) -> maybe [] pure value <> concatMap waiterValues (readers <> takers <> putters)
-  Thread (ThreadState resume _) -> case resume of
-    RNone -> []
-    RApply function continuation -> [function, VFrame continuation]
-    RContinue continuation value -> VFrame continuation : maybe [] pure value
-    RRaise exception continuation -> [exception, VFrame continuation]
+  -- The collector scans the stack of each live thread record from its top.
+  -- A claim can keep the record of a blocked thread whose waiter is dead.
+  Thread (ThreadState resume top) ->
+    maybe [] (pure . VFrame) top <> case resume of
+      RNone -> []
+      RApply function continuation -> [function, VFrame continuation]
+      RContinue continuation value -> VFrame continuation : maybe [] pure value
+      RRaise exception continuation -> [exception, VFrame continuation]
 
 objectSrt :: Object -> Maybe Int
 objectSrt object = case object of
@@ -1085,7 +1118,9 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
             let -- A full collection and a cycle free the values of the
                 -- static thunks no code reaches, which the command marks
                 -- in the model before the check.
-                checked = step model
+                -- A collection is a pause of the running thread. The model
+                -- of a reservation learns of its collection only here.
+                checked = pause (step model)
                 problems = generationProblems command report <> checkReport checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
@@ -1168,7 +1203,7 @@ checkReport model report =
             then ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
             else ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
     expectedObject object = case object of
-      Object kind pointers fields _ blackholed -> RPlain (if blackholed then "blackhole" else kindName kind) (zipWith (\pointer field -> if pointer then rvalue (deep field) else rvalue field) pointers fields)
+      Object kind pointers fields _ owner -> RPlain (if isJust owner then "blackhole" else kindName kind) (zipWith (\pointer field -> if pointer then rvalue (deep field) else rvalue field) pointers fields)
       Array elements _ -> RPlain "array" (map (rvalue . deep) elements)
       MVar (MVarState value readers takers putters) -> RMVar (rvalue . deep <$> value) (map rwaiter readers) (map rwaiter takers) (map rwaiter putters)
       Thread (ThreadState resume _) -> case resume of
@@ -1204,8 +1239,9 @@ checkReport model report =
             let expected = expectedObject (mHeap model Map.! identity)
           ]
     -- Every live thread with a frame has a stack in the report, and the
-    -- frames of the stack are the frames of the model from the top down.
-    liveThreads = [(identity, thread) | identity <- Set.toList (liveHeap live), Just (Thread thread) <- [Map.lookup identity (mHeap model)]]
+    -- frames of the stack are the frames of the model from the top down. A
+    -- thread that ended has no stack, and a claim can keep its record.
+    liveThreads = [(identity, thread) | identity <- Set.toList (liveHeap live), Just (Thread thread) <- [Map.lookup identity (mHeap model)], isJust (thTop thread)]
     frameProblems =
       concat
         [ case [(top, frames) | (RHeap owner, top, frames) <- rStacks report, owner == identity] of
@@ -1422,7 +1458,7 @@ isLargeShape _ = False
 
 shapeWords :: Shape -> Int
 shapeWords (ShapeObject kind pointers)
-  | kind == KThunk = 1 + max 1 (length pointers)
+  | kind == KThunk = 2 + length pointers
   | kind == KPartial = 2 + length pointers
   | otherwise = 1 + length pointers
 shapeWords (ShapeArray count) = 2 + count
@@ -1659,8 +1695,12 @@ genOp profile model = do
         Just _ -> True
         Nothing -> False
       Nothing -> False
-    plainThunks = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ False) <- [object identity]]
-    blackholed = [identity | identity <- poolHeap pool, not (evaluates (mRunning model) identity model), Just (Object KThunk _ _ _ True) <- [object identity]]
+    -- A reservation can collect, and a collection claims the thunk of each
+    -- update frame, which this model learns only from the report. Thus a
+    -- thunk with an update frame gets no second one.
+    plainThunks = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ Nothing) <- [object identity], not (underEvaluation identity)]
+    underEvaluation identity = any (\frame -> fKind frame == FUpdate && fFields frame == [VHeap identity]) (Map.elems (mFrames model))
+    blackholed = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ (Just owner)) <- [object identity], owner /= mRunning model]
     arrays = [(identity, length elements) | identity <- poolHeap pool, Just (Array elements _) <- [object identity], not (null elements)]
     mvars = [identity | identity <- poolHeap pool, Just MVar {} <- [object identity]]
     blockedMVars = [identity | identity <- poolHeap pool, Just (MVar (MVarState Nothing readers takers _)) <- [object identity], not (null readers && null takers)]
