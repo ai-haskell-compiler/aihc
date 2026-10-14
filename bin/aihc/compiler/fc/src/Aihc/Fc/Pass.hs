@@ -51,7 +51,7 @@ data Pass
     PassSimplify !Int
   | -- | Share closed constructor expressions through private constants.
     PassLiftConstants
-  | -- | Move invariant computations outside function parameters.
+  | -- | Share closed lifted computations across function calls.
     PassFullLaziness
   | -- | Copy the body of a small local loop at each call whose literal
     -- arguments decide its recursion, until no call is left.

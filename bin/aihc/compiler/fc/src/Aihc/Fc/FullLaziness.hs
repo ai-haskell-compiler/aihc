@@ -1,20 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Move invariant computations outside function parameters.
+-- | Share closed computations across function calls.
 module Aihc.Fc.FullLaziness (fullLazinessProgram) where
 
 import Aihc.Fc.Imports (exprReferences, typeReferences)
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (collectSpine, isConstructorName, isTrivial, maxLocalUnique, substExpr)
+import Aihc.Fc.Simplify (collectSpine, isConstructorName, isTrivial, maxLocalUnique)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, lookupBinderType, reduceType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, reduceType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Resolve (PackageId)
-import Aihc.Tc.Types (Unique (..))
 import Control.Monad (guard)
 import Control.Monad.Trans.State.Strict (State, get, modify', runState)
 import Data.List qualified as List
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set (Set)
@@ -24,145 +24,92 @@ import Data.Text qualified as T
 data FloatState = FloatState
   { floatNext :: !Int,
     floatTaken :: !(Set Name),
+    floatKnown :: !(Map Expr Name),
     floatDecls :: ![Decl],
-    floatCount :: !Int,
-    floatLocals :: !(Set Name)
+    floatCount :: !Int
   }
 
 type FloatM = State FloatState
 
--- | Keep each computation lazy at its new scope.
--- Free term, type, and coercion names must remain in scope.
--- Explicit foreign effects and state-token operations prevent a move.
+-- | Move closed lifted computations under lambdas to private lazy thunks.
+-- Captured computations stay local because a new captured thunk can cost more than its saved work.
+-- A move does not insert a let between parameters, including parameters under casts.
 fullLazinessProgram :: PackageId -> Program -> (Program, Int)
 fullLazinessProgram primPackage program =
   let env = typeEnvFromProgram primPackage program
-      initial = FloatState (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) [] 0 Set.empty
+      initial = FloatState (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) Map.empty [] 0
       (decls, final) = runState (mapM (declaration env) (programDecls program)) initial
    in (tidyProgram program {programDecls = decls <> reverse (floatDecls final)}, floatCount final)
 
 declaration :: TypeEnv -> Decl -> FloatM Decl
 declaration env decl = case decl of
   DeclVal value -> do
-    body <- walk env (valBody value)
-    body' <- topFloats (valName value) body
-    pure (DeclVal value {valBody = body'})
+    body <- walk env (valName value) False (valBody value)
+    pure (DeclVal value {valBody = body})
   _ -> pure decl
 
--- | Move a closed outer let to a private top-level thunk.
--- NOINLINE keeps a later module pass from copying the computation back.
-topFloats :: Name -> Expr -> FloatM Expr
-topFloats owner expression = do
-  state <- get
-  case expression of
-    ExLet bind body
-      | nameOf bind `Set.member` floatLocals state,
-        all isTop (freeReferences (bindRhs bind) <> typeReferences (binderType (bindBinder bind))) -> do
+-- | Select maximal closed computations only below a function parameter.
+-- The root of a declaration already has a shared result.
+walk :: TypeEnv -> Name -> Bool -> Expr -> FloatM Expr
+walk env owner inside expr
+  | inside,
+    Just ty <- candidateType env expr = do
+      state <- get
+      modify' (\current -> current {floatCount = floatCount current + 1})
+      case Map.lookup expr (floatKnown state) of
+        Just name -> pure (ExVar name)
+        Nothing -> do
           name <- freshTop owner
-          let named = bindBinder bind
-              decl = DeclVal (ValDecl Private name (binderType named) (bindRhs bind) (InlineNever NeverActive))
-          modify' (\current -> current {floatDecls = decl : floatDecls current})
-          topFloats owner (substExpr (Map.singleton (binderName named) (ExVar name)) body)
-    _ -> pure expression
+          let decl = DeclVal (ValDecl Private name ty expr (InlineNever NeverActive))
+          modify' (\current -> current {floatKnown = Map.insert expr name (floatKnown current), floatDecls = decl : floatDecls current})
+          pure (ExVar name)
+  | otherwise = case expr of
+      ExLam binder body -> ExLam binder <$> walk (extendBinder env binder) owner True body
+      ExTyLam binder body -> ExTyLam binder <$> walk (extendBinder env binder) owner inside body
+      ExApp function argument -> ExApp <$> child function <*> child argument
+      ExTyApp function ty -> (`ExTyApp` ty) <$> child function
+      ExCast body proof -> (`ExCast` proof) <$> child body
+      ExAbsurd body ty -> (`ExAbsurd` ty) <$> child body
+      ExLet bind body -> do
+        rhs <- child (bindRhs bind)
+        body' <- walk (extendBinder env (bindBinder bind)) owner inside body
+        pure (ExLet bind {bindRhs = rhs} body')
+      ExRec binds body -> do
+        let inner = List.foldl' extendBinder env (map bindBinder binds)
+        binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> walk inner owner inside (bindRhs bind)) binds
+        ExRec binds' <$> walk inner owner inside body
+      ExCase scrutinee binder alternatives -> ExCase <$> child scrutinee <*> pure binder <*> mapM alternative alternatives
+        where
+          alternative alt = do
+            let inner = List.foldl' extendBinder env (foldr (:) [] binder <> altTypeBinders alt <> altBinders alt)
+            rhs <- walk inner owner inside (altRhs alt)
+            pure alt {altRhs = rhs}
+      ExForeignCall call types arguments -> ExForeignCall call types <$> mapM child arguments
+      _ -> pure expr
   where
-    nameOf = binderName . bindBinder
-    isTop name = case nameOrigin name of
-      OriginTop {} -> True
-      OriginLocal {} -> False
+    child = walk env owner inside
 
-walk :: TypeEnv -> Expr -> FloatM Expr
-walk env expr = case expr of
-  ExLam {} -> boundary expr
-  ExTyLam {} -> boundary expr
-  _ -> fst <$> children (\inner _ body -> (\value -> (value, [])) <$> walk inner body) env Set.empty expr
-  where
-    -- Keep consecutive parameters together to preserve direct-call arity.
-    boundary expression = do
-      let (parameters, body) = lambdas expression
-          inner = List.foldl' extendBinder env (map snd parameters)
-          blocked = Set.fromList (map (binderName . snd) parameters)
-      body' <- walk inner body
-      (moved, binds) <- floatOut inner blocked body'
-      pure (foldr ExLet (foldr rebuild moved parameters) binds)
-    rebuild (True, binder) = ExTyLam binder
-    rebuild (False, binder) = ExLam binder
-    lambdas expression = case expression of
-      ExLam binder body -> prepend (False, binder) (lambdas body)
-      ExTyLam binder body -> prepend (True, binder) (lambdas body)
-      _ -> ([], expression)
-    prepend parameter (parameters, body) = (parameter : parameters, body)
-
-floatOut :: TypeEnv -> Set Name -> Expr -> FloatM (Expr, [Bind])
-floatOut env blocked expr = case candidateType env blocked expr of
-  Just ty -> do
-    name <- freshLocal
-    modify' (\state -> state {floatCount = floatCount state + 1})
-    pure (ExVar name, [Bind (Binder name ty) expr])
-  Nothing -> children floatOut env blocked expr
-
--- | Extract maximal lifted computations that do not depend on this scope.
--- Functions and trivial expressions already need no computation thunk.
-candidateType :: TypeEnv -> Set Name -> Expr -> Maybe Type
-candidateType env blocked expr = do
-  guard (not (isTrivial expr) && computation expr && pureExpr env expr)
-  let refs = freeReferences expr
-  guard (Set.disjoint blocked refs)
-  guard (not (any (maybe False (stateType env) . lookupBinderType env) refs))
+-- | A shared thunk needs a lifted result and no free local names.
+-- Constructor expressions remain with the constant lift pass.
+candidateType :: TypeEnv -> Expr -> Maybe Type
+candidateType env expr = do
+  guard (not (isTrivial expr) && computation expr)
+  guard (all isTop (freeReferences expr))
+  guard (pureExpr env expr)
   ty <- exprType env expr
   guard (isLiftedType env ty && isNothing (viewFun env ty) && isNothing (viewForAll env ty))
-  guard (Set.disjoint blocked (typeReferences ty))
+  guard (all isTop (typeReferences ty))
   pure ty
   where
     computation ExLam {} = False
     computation ExTyLam {} = False
+    computation (ExCast body _) = computation body
     computation expression = case collectSpine expression of
       (ExVar name, _) | isConstructorName name -> False
       _ -> True
-
--- | Visit children with every local binder in the exclusion set.
--- A float must not escape a let, recursive group, or case field.
-children :: (TypeEnv -> Set Name -> Expr -> FloatM (Expr, [Bind])) -> TypeEnv -> Set Name -> Expr -> FloatM (Expr, [Bind])
-children visit env blocked expr = case expr of
-  ExApp function argument -> pair ExApp function argument
-  ExTyApp function ty -> unary (`ExTyApp` ty) function
-  ExCast body proof -> unary (`ExCast` proof) body
-  ExAbsurd body ty -> unary (`ExAbsurd` ty) body
-  ExLam {} -> pure (expr, [])
-  ExTyLam {} -> pure (expr, [])
-  ExLet bind body -> do
-    (rhs, first) <- visit env blocked (bindRhs bind)
-    (body', rest) <- visit (extendBinder env named) (Set.insert (binderName named) blocked) body
-    pure (ExLet bind {bindRhs = rhs} body', first <> rest)
-    where
-      named = bindBinder bind
-  ExRec binds body -> do
-    let named = map bindBinder binds
-        inner = List.foldl' extendBinder env named
-        excluded = blocked <> Set.fromList (map binderName named)
-    values <- mapM (visit inner excluded . bindRhs) binds
-    (body', rest) <- visit inner excluded body
-    pure (ExRec (zipWith (\bind (rhs, _) -> bind {bindRhs = rhs}) binds values) body', concatMap snd values <> rest)
-  ExCase scrutinee binder alternatives -> do
-    (scrutinee', first) <- visit env blocked scrutinee
-    values <- mapM alternative alternatives
-    pure (ExCase scrutinee' binder (fmap fst values), first <> foldMap snd values)
-    where
-      alternative alt = do
-        let named = foldr (:) [] binder <> altTypeBinders alt <> altBinders alt
-        (rhs, binds) <- visit (List.foldl' extendBinder env named) (blocked <> Set.fromList (map binderName named)) (altRhs alt)
-        pure (alt {altRhs = rhs}, binds)
-  ExForeignCall call types arguments -> do
-    values <- mapM (visit env blocked) arguments
-    pure (ExForeignCall call types (map fst values), concatMap snd values)
-  _ -> pure (expr, [])
-  where
-    unary constructor body = do
-      (body', binds) <- visit env blocked body
-      pure (constructor body', binds)
-    pair constructor left right = do
-      (left', first) <- visit env blocked left
-      (right', rest) <- visit env blocked right
-      pure (constructor left' right', first <> rest)
+    isTop name = case nameOrigin name of
+      OriginTop {} -> True
+      OriginLocal {} -> False
 
 -- | Remove a binder only from the expression that it scopes over.
 -- Type and coercion references also constrain the new scope.
@@ -181,7 +128,7 @@ freeReferences expr = case expr of
   _ -> exprReferences expr
   where
     alternative alt = patternReferences (altCon alt) <> scoped (altTypeBinders alt <> altBinders alt) (freeReferences (altRhs alt))
-    patternReferences pattern = case pattern of
+    patternReferences con = case con of
       AltData name -> Set.singleton name
       AltLit literal -> case literal of
         LitInt rep _ -> typeReferences rep
@@ -215,15 +162,6 @@ stateType env ty = case reduceType env ty of
   TyForAll binder body -> stateType env (binderType binder) || stateType env body
   TyEq left right -> stateType env left || stateType env right
   _ -> False
-
-freshLocal :: FloatM Name
-freshLocal = do
-  state <- get
-  let next = floatNext state
-  modify' (\current -> current {floatNext = next + 1})
-  let name = Name "$float" SortValue (OriginLocal (Unique next))
-  modify' (\current -> current {floatLocals = Set.insert name (floatLocals current)})
-  pure name
 
 freshTop :: Name -> FloatM Name
 freshTop owner = do
