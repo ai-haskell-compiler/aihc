@@ -779,10 +779,14 @@ enteredFrame fid model = case Map.lookup fid (mFrames model) of
 -- | Continue into a frame of a thread with an optional value, as the entry
 -- of the frame would: an update frame updates its thunk with the value and
 -- wakes the waiters of the thunk, a stop frame ends the thread, and every
--- other frame runs its code, which the script spells out.
+-- other frame runs its code, which the script spells out. The entry pops the
+-- frames above the entered frame, and compiled code never pops an update
+-- frame without the update of its thunk.
 continueInto :: Id -> Fid -> Maybe Value -> Model -> Model
 continueInto thread fid value model = case enteredFrame fid model of
   Nothing -> failed
+  Just target
+    | any passesUpdate (takeWhile (/= target) (chain (thTop (threadOf thread model)))) -> failed
   Just target ->
     let frame = fromMaybe (error "entered frame is not live") (Map.lookup target (mFrames model))
         popped = popThrough thread target model
@@ -796,6 +800,9 @@ continueInto thread fid value model = case enteredFrame fid model of
           _ -> popped
   where
     failed = model {mFailed = True}
+    chain Nothing = []
+    chain (Just frame) = frame : chain (fParent =<< Map.lookup frame (mFrames model))
+    passesUpdate frame = (fKind <$> Map.lookup frame (mFrames model)) == Just FUpdate
     update thunk result after =
       let waiters = Map.findWithDefault [] thunk (mBlackholes after)
           updated = after {mHeap = Map.insert thunk (Ind result) (mHeap after), mBlackholes = Map.delete thunk (mBlackholes after)}
@@ -1840,14 +1847,17 @@ genOp profile model = do
         ),
         -- A churn: a descent of several chunks, then pops below where it
         -- started. The pops cross the chunks a gen2 cycle scanned and
-        -- deferred.
+        -- deferred. An entry pops every frame above the entered frame, so
+        -- the pops stop above the first update or stop frame. Compiled code
+        -- never pops an update frame without the update of its thunk.
         ( pDescentWeight profile,
           whenever (isJust topKind) $ do
             depth <- Gen.int (Range.linear 2 8)
             payload <- Gen.int (Range.linear 100 250)
             extra <- Gen.int (Range.linear 0 (max 0 (length chain - 2)))
             let pushes = [CPush (fid + offset) (FSNormal (replicate payload False) Nothing (replicate payload (VWord (fromIntegral offset)))) | offset <- [0 .. depth - 1]]
-                pops = [CEnter (fid + offset) Nothing | offset <- reverse [0 .. depth - 1]] <> [CEnter below Nothing | (below, frame) <- take extra chain, fKind frame /= FStop, fKind frame /= FUpdate]
+                plain (_, frame) = fKind frame /= FStop && fKind frame /= FUpdate
+                pops = [CEnter (fid + offset) Nothing | offset <- reverse [0 .. depth - 1]] <> [CEnter below Nothing | (below, _) <- takeWhile plain (take extra chain)]
             pure (pushes <> pops)
         ),
         -- A collection in the middle of an epoch, so a gen2 cycle and its
