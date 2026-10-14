@@ -1,0 +1,112 @@
+extensions:
+- GADTs
+modules:
+- |
+  module Test where
+  data Equal a b where
+    Refl :: Equal a a
+  data Nat = Z | S Nat
+  data Pair a = Pair a a
+  newtype Action a = Action (a -> Pair a)
+  data Holder a = Holder (a -> Pair a)
+  count :: Nat -> Nat
+  count Z = Z
+  count (S n) = count n
+  pair :: Nat -> Nat -> Pair Nat
+  pair x y = Pair (count x) (count (S Z))
+  action :: Nat -> Action Nat
+  action x = Action (\y -> Pair (count x) (count (S Z)))
+  captured :: Nat -> Holder Nat
+  captured x = Holder (\y -> Pair (count x) y)
+  poly :: a -> Holder a
+  poly x = Holder (\y -> Pair (id x) (id y))
+  evidence :: Equal a Nat -> Nat -> Holder a
+  evidence Refl x = Holder (\y -> Pair (count x) y)
+  id :: a -> a
+  id x = x
+passes:
+- full-laziness
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tEqual (a : sType) (b : sType) :: sType {
+    pub 1.cRefl :: ∀(a : sType) (b : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (tEqual a b)
+  }
+
+  pub type 1.tNat :: sType {
+    pub 1.cZ :: tNat;
+    pub 1.cS :: tNat → tNat
+  }
+
+  pub type 1.tPair (a : sType) :: sType {
+    pub 1.cPair :: ∀(a : sType). a → a → tPair a
+  }
+
+  pub type 1.tAction (a : sType) :: sType {}
+
+  axiom 1.$ax$Action (a : sType) : tAction a ~R a → tPair a
+
+  pub type 1.tHolder (a : sType) :: sType {
+    pub 1.cHolder :: ∀(a : sType). (a → tPair a) → tHolder a
+  }
+
+  pub val 1.vcount :: tNat → tNat
+    = λ(x : tNat).
+      case x of {
+        cZ →
+          cZ;
+        cS (n : tNat) →
+          vcount n
+      }
+
+  pub val 1.vpair :: tNat → tNat → tPair tNat
+    = λ(x : tNat) (unused y : tNat).
+      cPair @tNat (vcount x) vpair$float$2
+
+  pub val 1.vaction :: tNat → tAction tNat
+    = λ(x : tNat).
+      (λ(unused y : tNat).
+        cPair @tNat (vcount x) vpair$float$2) ▷ sym (axiom-co $ax$Action @tNat)
+
+  pub val 1.vcaptured :: tNat → tHolder tNat
+    = λ(x : tNat).
+      cHolder @tNat (λ(y : tNat).
+        cPair @tNat (vcount x) y)
+
+  pub val 1.vpoly :: ∀(a : sType). a → tHolder a
+    = Λ(a : sType). λ(x : a).
+      cHolder @a (λ(y : a).
+        cPair @a (vid @a x) (vid @a y))
+
+  pub val 1.vevidence :: ∀(a : sType). tEqual a tNat → tNat → tHolder a
+    = Λ(a : sType). λ(x : tEqual a tNat) (y : tNat).
+      let! cRefl ($co : tNat ~ a) = x;
+      cHolder @a (λ(y{1} : a).
+        (cPair @tNat (vcount y) (y{1} ▷ sym ($co))) ▷ sym (tycon-co tPair (sym ($co))))
+
+  pub val 1.vid :: ∀(a : sType). a → a
+    = Λ(a : sType). λ(x : a).
+      x
+
+  val 1.vpair$float$2 noinline :: tNat
+    = vcount (cS cZ)
+status: pass
+reason: Closed calls must share one thunk, while captured term, type, and coercion names must stay local.

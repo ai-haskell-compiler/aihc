@@ -206,15 +206,13 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@ (or @worker-wrapper: late@ for the run after the growing inliner), @specialise@, @call-patterns@, @simplify@, @lift-constants@, @unroll@, @state-tokens@, @cse@, or @inline@ with a
--- policy. The policy is @shrink@, @grow@, or an object that names one of
--- the two under @policy@ and overrides its knobs: @callee-limit@,
--- @site-limit@, @discount@, @value-growth@, @value-slack@,
--- @requested-site-limit@, @reducing-site-limit@, and the @rounds@ of the
--- pass.
+-- | Select a System FC pass with its name.
+-- An @inline@ entry also selects a policy and its limits.
+-- The @demand@, @worker-wrapper@, and @simplify@ entries can select their mode or phase.
 parsePass :: Y.Value -> Y.Parser Pass
 parsePass value =
   case value of
+    Y.String "full-laziness" -> pure PassFullLaziness
     Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "unroll" -> pure PassUnroll
     Y.String "state-tokens" -> pure PassStateTokens
@@ -260,7 +258,7 @@ parsePass value =
                 phase
             )
         _ -> fail "inline must be shrink, grow, or an object with a policy"
-    _ -> fail "a pass must be eta, demand, worker-wrapper, specialise, simplify, lift-constants, or an object with inline"
+    _ -> fail "a pass must be eta, demand, worker-wrapper, specialise, simplify, full-laziness, lift-constants, or an object with inline"
   where
     defaultRounds = 4
     -- The phases of the optimization plans: the shrinking inliner is

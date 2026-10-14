@@ -24,6 +24,7 @@ import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
+import Aihc.Fc.FullLaziness (fullLazinessProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
@@ -50,6 +51,8 @@ data Pass
     PassSimplify !Int
   | -- | Share closed constructor expressions through private constants.
     PassLiftConstants
+  | -- | Share closed lifted computations across function calls.
+    PassFullLaziness
   | -- | Copy the body of a small local loop at each call whose literal
     -- arguments decide its recursion, until no call is left.
     -- @Aihc.Fc.Unroll@.
@@ -85,6 +88,7 @@ data Pass
 passPhase :: Pass -> Maybe Int
 passPhase pass =
   case pass of
+    PassFullLaziness -> Nothing
     PassLiftConstants -> Nothing
     PassUnroll -> Nothing
     PassStateTokens -> Nothing
@@ -110,6 +114,7 @@ data PassReport = PassReport
 passName :: Pass -> Text
 passName pass =
   case pass of
+    PassFullLaziness -> "full laziness"
     PassLiftConstants -> "lift constants"
     PassUnroll -> "unroll"
     PassStateTokens -> "state tokens"
@@ -129,6 +134,9 @@ passName pass =
 runPass :: PackageId -> Maybe [Name] -> Pass -> Program -> (Program, PassReport)
 runPass primPackage roots pass program =
   case pass of
+    PassFullLaziness ->
+      let (floated, sites) = fullLazinessProgram primPackage program
+       in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))
     PassLiftConstants ->
       let (lifted, constants, sites) = liftConstants primPackage program
        in ( lifted,
