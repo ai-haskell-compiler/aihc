@@ -130,13 +130,9 @@ newtype Signature = Signature {signatureDemands :: [Demand]}
 
 type Signatures = Map Name Signature
 
--- | Which rewrites the pass makes. The strict-argument rewrite turns a
--- chain of thunks into a chain of calls, and each call keeps every
--- variable that is live after it in a continuation frame. Where the
--- callee is not inlined and many variables are live, as in a block
--- function of a hash with sixty words of schedule, the frames cost more
--- than the thunks did. The plans keep it off until the inliner copies
--- such callees.
+-- | The rewrites that the pass can use. Strict arguments can need
+-- continuation frames. Closed arguments stay lazy so that their case
+-- binders do not prevent constant lifting of an outer constructor.
 data DemandRewrites
   = StrictLetsOnly
   | StrictLetsAndArguments
@@ -153,8 +149,8 @@ data DemandReport = DemandReport
   }
   deriving (Eq, Show)
 
--- | Find the signatures of every value, then evaluate every strict let and
--- every strict argument of a saturated call up front.
+-- | Find the signatures of every value.
+-- Evaluate strict lets and selected strict arguments of saturated calls.
 demandProgram :: PackageId -> DemandRewrites -> Program -> (Program, DemandReport)
 demandProgram primPackage rewrites program =
   let types = typeEnvFromProgram primPackage program
@@ -510,8 +506,9 @@ demandAlt env result alternative = do
   (rhs, strict) <- demandExpr (extendTypes env binders) result (altRhs alternative)
   pure (alternative {altRhs = rhs}, strict `Set.difference` Set.fromList (map binderName binders))
 
--- | A call. The arguments the signature of the head calls strict are
--- evaluated before the call when they are lifted and not already values.
+-- | A call with strict arguments from the signature of its head.
+-- The pass evaluates selected arguments before the call.
+-- Each selected argument is lifted, captures a local value, and needs evaluation.
 demandApplication :: Env -> Maybe Type -> (Expr, [Either Type Expr]) -> DemandM (Expr, Set Name)
 demandApplication env ty (function, arguments) = do
   (function', headStrict) <- demandExpr env (headType env function) function
@@ -538,9 +535,10 @@ demandsByArgument arguments demands =
     (Right _ : rest, demand : more) -> demand : demandsByArgument rest more
     (Right _ : rest, []) -> Lazy : demandsByArgument rest []
 
--- | Walk the arguments of a call. Each strict argument that is a lifted
--- expression, not a value, is replaced with a fresh variable and returned
--- as a wrap: the case that evaluates it around the call, outermost first.
+-- | Walk the arguments of a call. A wrap evaluates a selected argument
+-- before the call. The outermost wrap comes first.
+-- Closed arguments stay lazy. Their case binders can prevent constant
+-- lifting of an outer constructor expression.
 walkArguments :: Env -> Maybe Type -> [(Either Type Expr, Maybe Type, Demand)] -> DemandM ([Either Type Expr], [Set Name], [(Binder, Expr)])
 walkArguments env result = go
   where
@@ -557,6 +555,7 @@ walkArguments env result = go
             (demand', Just argumentTy, Just _)
               | isStrict demand',
                 envRewrites env == StrictLetsAndArguments,
+                not (Set.disjoint (Map.keysSet (teBinders (envTypes env))) (exprValueNames argument')),
                 isLiftedType (envTypes env) argumentTy,
                 not (isValueLike env argument') -> do
                   name <- freshName

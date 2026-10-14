@@ -383,19 +383,15 @@ the expression it is in down from the declared type of the value, and
 reads the types of arguments off the type of the head of a call. Where a
 type is unknown the rewrite does not happen.
 
-The plans run the pass with `StrictLetsOnly`. The strict-argument rewrite
-is measured, not switched on. It was first measured when the inliner did
-not copy `step256`: the block function of SHA-256 calls it sixty-four
-times, and each call became a non-tail call whose continuation frame held
-the remaining words of the message schedule. The reducing sites of the
-inliner (see "The policy" below) now copy `step256`, and the rewrite still
-loses. On the `sha-digest` benchmark at `-O2`, with strict lets only, the
-run takes 29 ms and allocates 59 MB, with a 2.30 MB program object. With
-strict arguments, it takes 39 ms and allocates 91 MB, with a 2.22 MB
-object. The strict arguments of the `Integer` arithmetic then become
-non-tail calls: `mod` on `Integer` gets 665 continuation functions, where
-it had none. The rewrite goes into the plans when it counts the live
-variables at the site, or when a worker takes the unboxed arguments.
+The `-O1` and `-O2` plans use `StrictLetsAndArguments` in their late
+demand pass. The early pass still uses `StrictLetsOnly`. The late pass
+keeps closed arguments lazy. A case for a closed argument adds local
+names. These names can prevent constant lifting of an outer constructor
+expression. This can increase code size and memory use. The pass
+evaluates strict arguments only when they reference a local value.
+
+Strict argument evaluation can also increase continuation frame costs.
+The native backend puts these frames on thread stacks.
 
 The report gives the number of top-level values with a strict parameter,
 the number of lets that became cases, and the number of arguments that

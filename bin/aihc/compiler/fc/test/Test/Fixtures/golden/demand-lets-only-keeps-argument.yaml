@@ -62,4 +62,4 @@ expected: |-
           vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) (vadd y x)
       }
 status: pass
-reason: The plans run the demand pass with the strict lets alone. The signature of 'loop' still calls its accumulator strict, but the call 'add acc n' stays a lazy argument, because the strict-argument rewrite is off.
+reason: This fixture selects strict lets only. The signature of 'loop' marks its accumulator as strict. The call 'add acc n' stays lazy because this mode does not rewrite strict arguments.
