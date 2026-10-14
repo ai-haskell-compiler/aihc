@@ -12,7 +12,7 @@ expected: |
 
   extern func @aihc_byte_array_words(i64, i64, i64) -> i64 cc c
 
-  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+  extern func @aihc_ensure_heap(ptr, i64, i64, ptr, ptr) cc c
 
   extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
 
@@ -34,7 +34,7 @@ expected: |
     %capability_19 = load ptr [%sp_limit_3 - 4040] align 1 word
     store ptr %hp_0, [%capability_19 + 16] align 1 word
     store ptr %sp_2, [%capability_19 + 32] align 1 word
-    call @aihc_heap_collect(%capability_19, %result_6, 1, %roots_5, null)
+    call @aihc_ensure_heap(%capability_19, %result_6, 1, %roots_5, null)
     %$cps_return$gc_20 = load ptr [%roots_5] align 8
     %hp_21 = load ptr [%capability_19 + 16] align 1 word
     %hp_limit_22 = load ptr [%capability_19 + 24] align 1 word

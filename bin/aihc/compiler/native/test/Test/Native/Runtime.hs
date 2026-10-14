@@ -49,6 +49,7 @@ tests =
         "nursery size rounds up to a power of two"
         ["+RTS", "-A96k", "-n1k", "-RTS"]
         nurseryBlockSource,
+      runtimeProgramTest "large batches reserve nursery space" [] nurseryBatchSource,
       runtimeProgramTest "gen1 copies its survivors into gen2 at each collection by default" [] (gen1CountSource 1),
       runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),
       runtimeProgramTest "-B3 keeps survivors in gen1 for three collections" ["+RTS", "-B3", "-RTS"] (gen1CountSource 3),
@@ -320,6 +321,33 @@ growthSource =
       "  if (aihc_value_info(cursor) != 2) return 1;",
       "  if (length != 1000) return 2;",
       "  if (capability->machine->gc_count == 0) return 3;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | A batch of small objects must not use the separate large-object budget.
+nurseryBatchSource :: String
+nurseryBatchSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "static const uint8_t fields[] = {0};",
+      "static const AihcInfo info = {.field_is_pointer = fields, .field_count = 1, .object_kind = AIHC_OBJECT_NODE};",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  const uint64_t words = AIHC_LARGE_OBJECT_BYTES / sizeof(AihcSlot);",
+      "  aihc_heap_collect(capability, words, 0, NULL, NULL);",
+      "  if (capability->heap_limit < capability->heap_next ||",
+      "      (uint64_t)(capability->heap_limit - capability->heap_next) < words * sizeof(AihcSlot)) return 1;",
+      "  AihcSlot root = 0;",
+      "  for (uint64_t index = 0; index < words / 2; ++index) {",
+      "    AihcValue *value = aihc_gc_allocate(capability, 2);",
+      "    value->header = (AihcSlot)(uintptr_t)&info;",
+      "    value->fields[0] = index;",
+      "    root = (AihcSlot)(uintptr_t)value;",
+      "  }",
+      "  aihc_gc_collect(capability, words, 1, &root, NULL);",
+      "  if (((AihcValue *)(uintptr_t)root)->fields[0] != words / 2 - 1) return 2;",
+      "  if ((uint64_t)(capability->heap_limit - capability->heap_next) < words * sizeof(AihcSlot)) return 3;",
       "  return 0;",
       "}"
     ]

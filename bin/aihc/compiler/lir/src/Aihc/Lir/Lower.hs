@@ -1738,7 +1738,12 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   -- behalf of a running compiled function.
   capability <- capabilityOperand context
   storeContext capability context
-  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+  -- A static reservation covers nursery objects. A dynamic reservation
+  -- covers one array, which can use a separate large-object allocation.
+  let reserve = case requiredWords of
+        GrinLitValue {} -> "aihc_heap_collect"
+        _ -> "aihc_ensure_heap"
+  _ <- callRuntime reserve [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
   relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
     loadSlot (varBase var) Ptr array (toInteger (8 * index))
   collected <- loadHeapContext capability context

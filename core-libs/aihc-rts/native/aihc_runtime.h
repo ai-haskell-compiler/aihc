@@ -474,11 +474,11 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
   return value->fields;
 }
 
-/* Reserve heap for the objects that follow. Compiled code then takes each
-   object by bumping the heap pointer itself, so the runtime exports no
-   allocator. */
+/* Reserve nursery space for a batch of objects, regardless of its total size.
+   Compiled code then advances the heap pointer for each object. */
 /* Refill or collect after the heap check fails. Compiled code uses this
-   entry point. Other callers use aihc_ensure_heap to check the available space.
+   entry point. A single array uses aihc_ensure_heap instead. That function
+   uses the separate allocation budget when the object exceeds the threshold.
 
    The table is the static reference table of the code that requests the
    collection, and the collector marks everything it names. A running function

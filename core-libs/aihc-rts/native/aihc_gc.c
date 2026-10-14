@@ -2937,27 +2937,20 @@ static int aihc_nursery_refill(AihcCapability *capability, size_t bytes) {
 void aihc_gc_collect(AihcCapability *capability, uint64_t words,
                      uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
-  if (aihc_reservation_is_large(bytes)) {
-    aihc_ensure_large(capability, bytes, root_count, roots, srt);
-    return;
-  }
   aihc_collect_for(capability, bytes, root_count, roots, srt);
   if (bytes > aihc_nursery_room(capability)) {
-    /* The nursery is empty now, so a reservation it cannot hold grows it.
-       Only a nursery far below the default, as the tests use, reaches this
-       branch: a reservation below the large object bound fits the default. */
+    /* The nursery is empty. A batch can exceed the large-object threshold,
+       but each object in the batch still uses the nursery. */
     aihc_nursery_replace(capability, bytes);
   }
   aihc_nursery_refill(capability, bytes);
 }
 
-/* Refill before a collection. Large objects retain their fixed budget. */
+/* Reserve nursery space for a batch of objects. Refill before a collection. */
 void aihc_gc_refill(AihcCapability *capability, uint64_t words,
                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
-  if (aihc_reservation_is_large(bytes)) {
-    aihc_ensure_large(capability, bytes, root_count, roots, srt);
-  } else if (!aihc_nursery_refill(capability, bytes)) {
+  if (!aihc_nursery_refill(capability, bytes)) {
     aihc_gc_collect(capability, words, root_count, roots, srt);
   }
 }
