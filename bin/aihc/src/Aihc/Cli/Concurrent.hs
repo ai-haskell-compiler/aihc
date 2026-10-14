@@ -81,8 +81,8 @@ mapConcurrently action inputs = mask $ \restore -> do
   events <- newChan
   let start input = do
         result <- newEmptyMVar
-        worker <- startWorker $ do
-          outcome <- try (action input)
+        worker <- startWorker $ mask $ \restoreAction -> do
+          outcome <- try (restoreAction (action input))
           putMVar result outcome
           writeChan events outcome
         pure (worker, result)
