@@ -5,12 +5,14 @@ module Aihc.Dev.Fuzz.Model
   ( Announcement (..),
     BugRow (..),
     Event (..),
+    FollowStatus (..),
     Outcome (..),
     PropertyRow (..),
     ReporterStatus (..),
     Snapshot (..),
     bugRows,
     bugStatus,
+    describeFollow,
     describeReporter,
     formatCount,
     formatElapsed,
@@ -43,6 +45,23 @@ data ReporterStatus
     ReporterFailed String
   deriving (Eq, Show)
 
+-- | What the follower of the selected branch does at the moment.
+data FollowStatus
+  = -- | The runner does not follow a branch.
+    FollowOff
+  | -- | The follower did not look at the branch yet.
+    FollowStarting
+  | -- | The branch has no new commit. The arguments are the branch and the
+    -- commit of the running executable.
+    FollowWatching String String
+  | -- | The commit is being built. The arguments are the branch and the commit.
+    FollowBuilding String String
+  | -- | The commit did not build. The last argument gives the reason.
+    FollowFailed String String String
+  | -- | The follower cannot read the repository, for the given reason.
+    FollowError String
+  deriving (Eq, Show)
+
 -- | A consistent view of the runner state at one time.
 data Snapshot = Snapshot
   { snapshotTime :: UTCTime,
@@ -52,18 +71,22 @@ data Snapshot = Snapshot
     snapshotBatches :: Int,
     snapshotBugs :: [Bug],
     snapshotNewBugs :: Set String,
-    snapshotReporter :: ReporterStatus
+    snapshotReporter :: ReporterStatus,
+    snapshotFollow :: FollowStatus
   }
 
 data Event
   = Tick Snapshot
   | TimeLimitEvent
   | Crashed SomeException
+  | BuildReady
 
 data Outcome
   = TimeLimitReached
   | UserQuit
   | WorkerCrashed SomeException
+  | -- | A new executable is ready to replace this one.
+    NewBuildReady
 
 -- | A message for the log in non-interactive mode.
 data Announcement
@@ -71,6 +94,7 @@ data Announcement
     FoundBug Bug Bool
   | ReportedBug Bug
   | ReporterChanged ReporterStatus
+  | FollowChanged FollowStatus
 
 data PropertyRow = PropertyRow
   { rowComponent :: String,
@@ -144,6 +168,18 @@ describeReporter status =
     ReporterBlocked reason -> "blocked, " <> reason
     ReporterSending identifier -> "reporting " <> take 12 identifier
     ReporterFailed reason -> "failed, " <> reason
+
+-- | Describe the follow state in one line, or give nothing when the
+-- runner does not follow a branch.
+describeFollow :: FollowStatus -> Maybe String
+describeFollow status =
+  case status of
+    FollowOff -> Nothing
+    FollowStarting -> Just "following the selected branch"
+    FollowWatching branch commit -> Just ("following " <> branch <> " at " <> take 9 commit)
+    FollowBuilding branch commit -> Just ("following " <> branch <> ", building " <> take 9 commit <> "…")
+    FollowFailed branch commit reason -> Just ("following " <> branch <> ", " <> take 9 commit <> " did not build: " <> reason)
+    FollowError reason -> Just ("cannot follow the branch: " <> reason)
 
 -- | Blend the latest cases-per-second sample into the smoothed rates.
 -- A property that is not in the previous sample starts from zero cases.
