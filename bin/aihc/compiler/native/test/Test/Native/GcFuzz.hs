@@ -387,6 +387,9 @@ data Model = Model
     -- original can both survive, so the age of such an object is the age
     -- of either.
     mPromoted :: Set Id,
+    -- | Whether the last command ran an escape collection: a store into a
+    -- global object whose promotion reached a mutable object.
+    mEscapeCollected :: Bool,
     -- | While a gen2 cycle is active: the gen2 objects that were dead at
     -- its snapshot. The cycle frees them when it ends.
     mSnapshotDead :: Maybe (Set Id),
@@ -432,6 +435,7 @@ emptyModel =
       mCapabilities = 1,
       mAges = Map.empty,
       mPromoted = Set.empty,
+      mEscapeCollected = False,
       mSnapshotDead = Nothing,
       mFailed = False
     }
@@ -468,13 +472,13 @@ deepestStack model = maximum (1 : [chunks (reverse (chainOf top)) | Thread (Thre
 
 -- | The young objects that a promotion of an object reaches, whether the
 -- promotion collects, and every immutable object it can reach at any age.
--- It collects when it reaches a mutable object or a claimed thunk. The
--- generator knows no ages, because only the reports give them, so the
--- result is Nothing by rules that do not depend on ages: when the reached
--- objects include a thunk under evaluation that no pause claimed, because
--- the runtime copies it and the update of the original does not reach the
--- copy, or an object with a stable name, because the name holds the
--- original weakly and the original can die while its copy lives.
+-- It collects when it reaches a mutable object or a thunk: the driver gives
+-- the runtime no top frame for the pause walk, so the runtime cannot know
+-- that a thunk is not under evaluation. The generator knows no ages,
+-- because only the reports give them, so the result is Nothing by a rule
+-- that does not depend on ages: when the reached objects include an object
+-- with a stable name, because the name holds the original weakly and the
+-- original can die while its copy lives.
 promotionOf :: Model -> Id -> Maybe (Set Id, Bool, Set Id)
 promotionOf model start = go Set.empty False Set.empty [VHeap start]
   where
@@ -489,19 +493,40 @@ promotionOf model start = go Set.empty False Set.empty [VHeap start]
             if young identity then go reached collect seen (target : rest) else go reached collect seen rest
         | Set.member identity named -> Nothing
         | otherwise -> case Map.lookup identity (mHeap model) of
-            Just (Object KThunk _ _ _ Nothing)
-              | Set.member identity (mEntered model) -> Nothing
-            Just (Object _ pointers fields _ owner) ->
+            Just (Object kind pointers fields _ owner) ->
               let reached'
                     | young identity = Set.insert identity reached
                     | otherwise = reached
-               in go reached' (collect || (young identity && isJust owner)) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
+                  mutable = kind == KThunk || isJust owner
+               in go reached' (collect || (young identity && mutable)) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
             Just Thread {} -> go reached collect seen rest
             Just _
               | young identity -> go (Set.insert identity reached) True (Set.insert identity seen) rest
               | otherwise -> go reached collect (Set.insert identity seen) rest
             Nothing -> go reached collect seen rest
       _ -> go reached collect seen rest
+
+-- | The effect of a store of a value into an object when the machine has
+-- several capabilities: when the object is global, the runtime promotes the
+-- value. The rules of 'promotionOf' do not depend on ages, so they hold for
+-- a store into any object. Nothing when they forbid the promotion.
+escapeStore :: Bool -> Value -> Model -> Maybe Model
+escapeStore global value model = case value of
+  VHeap identity
+    | mCapabilities model > 1 -> case promotionOf model identity of
+        Nothing -> Nothing
+        Just (reached, collect, seen) ->
+          Just
+            model
+              { mPromoted = Set.union seen (mPromoted model),
+                mAges = if global && not collect then foldr (`Map.insert` 2) (mAges model) (Set.toList reached) else mAges model,
+                mEscapeCollected = mEscapeCollected model || (global && collect)
+              }
+  _ -> Just model
+
+-- | Whether a heap object is global: it is in gen2.
+isGlobal :: Model -> Id -> Bool
+isGlobal model identity = Map.findWithDefault 0 identity (mAges model) >= 2
 
 -- | Follow heap indirections to the value they name.
 resolve :: Model -> Value -> Value
@@ -665,7 +690,9 @@ applyCommand command model = case command of
     Object kind pointers fields srt owner -> Object kind pointers (setAt index value fields) srt owner
     Array elements srt -> Array (setAt index value elements) srt
     other -> error ("set on " <> show other)
-  CSUpdate slot value -> model {mStaticThunks = setAt slot (SInd value) (mStaticThunks model)}
+  CSUpdate slot value -> case escapeStore True value model of
+    Just escaped -> escaped {mStaticThunks = setAt slot (SInd value) (mStaticThunks escaped)}
+    Nothing -> failed
   CSSet slot index value ->
     let node = slot - staticThunkCount
      in model {mStaticNodes = setAt node (setAt index value (mStaticNodes model !! node)) (mStaticNodes model)}
@@ -844,7 +871,13 @@ continueInto thread fid value model = case enteredFrame fid model of
           -- A thunk whose value leads back to itself is a loop, which no
           -- program reaches: the update would make an indirection cycle.
           FUpdate -> case (fFields frame, value) of
-            ([VHeap thunk], Just result) | result /= VNull && resolve model result /= VHeap thunk -> update thunk result popped
+            ([VHeap thunk], Just result)
+              | result /= VNull && resolve model result /= VHeap thunk,
+                -- With several capabilities, the update can promote the
+                -- result, and a stable name of the thunk would then lead to
+                -- the copy while the original lives.
+                mCapabilities model < 2 || VHeap thunk `notElem` mStable model ->
+                  maybe failed (update thunk result) (escapeStore (isGlobal model thunk) result popped)
             _ -> failed
           FStop -> schedule (storeThread thread (ThreadState RNone Nothing) popped)
           _ -> popped
@@ -1223,7 +1256,7 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                 -- A collection is a pause of the running thread. The model
                 -- of a reservation learns of its collection only here.
                 checked = pause (step model)
-                problems = generationProblems command report <> checkReport checked report
+                problems = generationProblems (escapeCollection model command) command report <> checkReport checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
                 -- a new cycle. A cycle marks the static thunks stale with
@@ -1255,17 +1288,24 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
     mustCollect _ (CCollectGeneration _) = True
     mustCollect _ CCycle = True
     mustCollect model (CPromote identity _) = maybe False (\(_, collect, _) -> collect) (promotionOf model identity)
+    mustCollect model command
+      | escapeCollection model command = True
     mustCollect _ _ = False
-    generationProblems command report = case command of
+    isPromote CPromote {} = True
+    isPromote _ = False
+    escapeCollection model command = mEscapeCollected (applyCommand command model {mEscapeCollected = False})
+    generationProblems escaped command report = case command of
       CCollectGeneration generation
         | rCollected report /= generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show generation]
       CCollectGeneration _ -> []
       CCycle
         | rCollected report /= 1 -> ["cycle collected generation " <> show (rCollected report) <> " instead of 1"]
       CCycle -> []
-      CPromote {}
-        | rCollected report /= 1 -> ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
-      CPromote {} -> []
+      _
+        | escaped || isPromote command,
+          rCollected report /= 1 ->
+            ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
+        | escaped || isPromote command -> []
       _
         | rCollected report /= 0 -> ["a reservation collected generation " <> show (rCollected report)]
         | otherwise -> []

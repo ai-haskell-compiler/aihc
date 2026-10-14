@@ -5,7 +5,7 @@ module Main where
 
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
-import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#, touch#)
 import GHC.Ptr (Ptr (..))
 import System.IO
   ( IOMode (..),
@@ -51,6 +51,11 @@ main = do
   stdinCount <- hGetBuf stdin stdinPointer 2
   hPutBuf stdout stdinPointer stdinCount
   hPutBuf stdout (Ptr "\n"# :: Ptr ()) 1
+  -- An address does not keep its byte array alive, so each buffer stays
+  -- alive until its last use.
+  touchPinnedByteArray inputBuffer
+  touchPinnedByteArray updatedBuffer
+  touchPinnedByteArray stdinBuffer
 
 data PinnedByteArray = PinnedByteArray (MutableByteArray# RealWorld)
 
@@ -65,3 +70,6 @@ newPinnedByteArray (I# size) =
           (# allocatedState, buffer #) ->
             (# allocatedState, PinnedByteArray buffer #)
     )
+
+touchPinnedByteArray :: PinnedByteArray -> IO ()
+touchPinnedByteArray (PinnedByteArray buffer) = IO (\state -> (# touch# buffer state, () #))

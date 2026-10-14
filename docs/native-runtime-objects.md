@@ -43,6 +43,9 @@ Zero selects the default block size.
 A block refill extends the allocation limit without a collection.
 Fixed allocations and stack charges share the nursery budget with movable objects.
 The `-R<size>` option sets the budget of barrier work between two collections of a capability, the nursery size by default.
+The `-N<count>` option gives the machine that many capabilities, at most 256, one by default.
+Every Haskell thread still runs on the first capability, but a store of a young value into a global object promotes the value.
+A wasm32 host keeps one capability.
 The write barrier counts the scan work that it adds: the size of each object that it puts in the remembered set, and one run of 128 elements for each card that it makes dirty.
 When the work reaches the budget, the heap limit goes below the nursery, and the next reservation collects instead of a block refill.
 A compiled store site loads the heap limit again after its barrier call.

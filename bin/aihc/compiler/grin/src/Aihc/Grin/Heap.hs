@@ -159,6 +159,9 @@ isReservationBarrier :: GrinExpr -> Bool
 isReservationBarrier expression =
   case expression of
     GrinEnsureHeap {} -> True
+    -- A store safepoint can collect, and a collection resets the nursery,
+    -- so a reservation does not reach across it.
+    GrinSafepoint {} -> True
     GrinEval {} -> True
     GrinCpsEval {} -> True
     GrinCall {} -> True

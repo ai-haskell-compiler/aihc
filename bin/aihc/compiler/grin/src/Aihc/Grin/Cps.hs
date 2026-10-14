@@ -213,6 +213,7 @@ transformTail parent bound resultRep continuation expression =
             _ -> slow
     GrinStore node -> continuePlaced (GrinStore node)
     GrinEnsureHeap requiredWords roots -> continuePlaced (GrinEnsureHeap requiredWords roots)
+    GrinSafepoint top roots -> continuePlaced (GrinSafepoint top roots)
     GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)

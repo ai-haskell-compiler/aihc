@@ -466,6 +466,15 @@ void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
 AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
                         uint64_t root_count, AihcSlot *roots,
                         const AihcSrt *srt);
+/* The value that a store of value into object stores. When the machine has
+   several capabilities, the object is global, and the value is young, the
+   store is an escape and the result is the global copy of the value. The
+   result is AIHC_ESCAPE_COLLECT when the promotion needs a collection. */
+AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
+                     AihcSlot value);
+/* The collection of an escape: it moves every young survivor into gen2. */
+void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
+                         AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
 /* Push one frame of the given words on the stack of the running thread.
@@ -528,6 +537,7 @@ uint64_t aihc_rts_gen1_collections_set(void);
 uint64_t aihc_rts_gen2_factor(void);
 /* The -R option, or zero for the default. */
 uint64_t aihc_rts_barrier_budget_bytes(void);
+uint64_t aihc_rts_capabilities(void);
 uint64_t aihc_rts_mark_factor(void);
 /* Apply the parsed collector options to a capability whose nursery is empty. */
 void aihc_gc_apply_options(AihcCapability *capability);
