@@ -864,12 +864,12 @@ test_ltoLlvm getStore =
         linked = root </> "linked" </> "greet"
     _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
     bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
-    -- On x86-64, the link also disables LLVM shrink-wrapping (#2566).
-    let shrinkWrapArguments
+    -- On x86-64, the link disables LLVM shrink-wrapping and FastISel.
+    let codeGenerationArguments
           | System.Info.arch /= "x86_64" = []
-          | System.Info.os == "darwin" = ["-Wl,-mllvm,-enable-shrink-wrap=false"]
-          | otherwise = ["-Wl,-plugin-opt=-enable-shrink-wrap=false"]
-    assertEqual "bundle records the LTO link arguments" (["-flto", "-O2"] <> shrinkWrapArguments) (linkBundleLtoArguments bundleManifest)
+          | System.Info.os == "darwin" = ["-Wl,-mllvm,-enable-shrink-wrap=false", "-Wl,-mllvm,-fast-isel=false"]
+          | otherwise = ["-Wl,-plugin-opt=-enable-shrink-wrap=false", "-Wl,-plugin-opt=-fast-isel=false"]
+    assertEqual "bundle records the LTO link arguments" (["-flto", "-O2"] <> codeGenerationArguments) (linkBundleLtoArguments bundleManifest)
     -- The link reads no archive: the wrapper objects of the packages are
     -- among the objects, and the C objects were already.
     assertEqual "bundle lists no archive" [] (linkBundleArchives bundleManifest)
