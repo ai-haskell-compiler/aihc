@@ -2857,9 +2857,12 @@ static unsigned aihc_choose_generation(const AihcCapability *capability,
 /* Collect the generations up to collected. A full collection also runs a
    whole gen2 cycle in this pause. With start_cycle, or when gen2 is above
    its limit, a gen1 collection starts an incremental cycle at its end. */
+/* With promote_all, every survivor goes into gen2, so the local heaps are
+   empty after the collection. A promotion that reaches a mutable object
+   uses this collection. */
 static void aihc_collect(AihcCapability *capability, unsigned collected,
-                         int start_cycle, uint64_t root_count, AihcSlot *roots,
-                         const AihcSrt *srt) {
+                         int start_cycle, int promote_all, uint64_t root_count,
+                         AihcSlot *roots, const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   AihcMachine *machine = capability->machine;
   uint64_t capability_count = machine->capability_count;
@@ -2902,7 +2905,8 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
   }
   AihcGcContext context = {.capability = capability,
                            .collected = collected,
-                           .young_target = gen1_collections == 0 ? 2 : 1};
+                           .young_target =
+                               promote_all || gen1_collections == 0 ? 2 : 1};
 
   /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
      blocks. A full collection marks gen2 in place. The first version copies
@@ -3017,12 +3021,12 @@ static void aihc_collect_for(AihcCapability *capability, size_t required_bytes,
                              uint64_t root_count, AihcSlot *roots,
                              const AihcSrt *srt) {
   unsigned collected = aihc_choose_generation(capability, required_bytes);
-  aihc_collect(capability, collected, 0, root_count, roots, srt);
+  aihc_collect(capability, collected, 0, 0, root_count, roots, srt);
   if (capability->machine->heap_limit_enabled &&
       aihc_old_bytes(capability) + required_bytes >
           capability->machine->heap_max_bytes) {
     if (collected < 2) {
-      aihc_collect(capability, 2, 0, root_count, roots, srt);
+      aihc_collect(capability, 2, 0, 0, root_count, roots, srt);
     }
     if (aihc_old_bytes(capability) + required_bytes >
         capability->machine->heap_max_bytes) {
@@ -3034,13 +3038,287 @@ static void aihc_collect_for(AihcCapability *capability, size_t required_bytes,
 void aihc_gc_collect_generation(AihcCapability *capability, unsigned generation,
                                 uint64_t root_count, AihcSlot *roots,
                                 const AihcSrt *srt) {
-  aihc_collect(capability, generation > 2 ? 2 : generation, 0, root_count,
+  aihc_collect(capability, generation > 2 ? 2 : generation, 0, 0, root_count,
                roots, srt);
 }
 
 void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt) {
-  aihc_collect(capability, 1, 1, root_count, roots, srt);
+  aihc_collect(capability, 1, 1, 0, root_count, roots, srt);
+}
+
+/* Promotion. See "Local heaps" in docs/multi-threaded-rts-design.md. An
+   escape copies a local value and the local objects it reaches into gen2,
+   so that another capability can reach the copy. Until local collection is
+   enforced, every young object counts as local: an object of a nursery, of
+   gen1, or a young pinned block. */
+
+static int aihc_promote_is_young(const AihcMachine *machine,
+                                 const AihcValue *value) {
+  if (value == NULL) {
+    return 0;
+  }
+  if (aihc_in_any_nursery(machine, value)) {
+    return 1;
+  }
+  switch (aihc_region_kind(value)) {
+  case AIHC_REGION_GEN1:
+    return 1;
+  case AIHC_REGION_LARGE:
+  case AIHC_REGION_PINNED:
+    return aihc_pinned_generation(aihc_pinned_block_of(value)) < 2;
+  case AIHC_REGION_OUTSIDE:
+    return aihc_outside_is_pinned(value) &&
+           aihc_pinned_generation(aihc_pinned_block_of(value)) < 2;
+  default:
+    return 0;
+  }
+}
+
+/* A reference to a young indirection or a young evaluated thunk goes to its
+   target. A global object is never followed: a static indirection can name
+   itself. */
+static AihcValue *aihc_promote_follow(const AihcMachine *machine,
+                                      AihcValue *value) {
+  while (aihc_promote_is_young(machine, value) &&
+         aihc_follows_to_field_zero(value)) {
+    value = (AihcValue *)(uintptr_t)value->fields[0];
+  }
+  return value;
+}
+
+/* What a promotion does with one young object. */
+typedef enum {
+  /* An immutable object: the promotion copies it and leaves the original
+     as it is. An unclaimed thunk is copied as well, and the original
+     becomes an indirection to the copy, so the evaluation is shared. */
+  AIHC_PROMOTE_COPY,
+  /* A young pinned block without pointer fields: the block moves into gen2
+     in place. */
+  AIHC_PROMOTE_IN_PLACE,
+  /* A mutable object or a claimed thunk: a write or an update through a
+     stale pointer must reach the copy, so the promotion runs a collection
+     that updates every reference. */
+  AIHC_PROMOTE_COLLECT,
+} AihcPromoteRule;
+
+static AihcPromoteRule aihc_promote_rule(const AihcValue *value) {
+  if ((value->header & AIHC_HEADER_TAG_MASK) != 0) {
+    return AIHC_PROMOTE_COLLECT;
+  }
+  AihcObjectKind kind = aihc_value_info_table(value)->object_kind;
+  switch (kind) {
+  case AIHC_OBJECT_NODE:
+  case AIHC_OBJECT_CLOSURE:
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR:
+  case AIHC_OBJECT_THUNK:
+    return AIHC_PROMOTE_COPY;
+  case AIHC_OBJECT_BYTE_ARRAY: {
+    AihcRegionKind region = aihc_region_kind(value);
+    if (region == AIHC_REGION_LARGE || region == AIHC_REGION_PINNED ||
+        (region == AIHC_REGION_OUTSIDE && aihc_outside_is_pinned(value))) {
+      return AIHC_PROMOTE_IN_PLACE;
+    }
+    return AIHC_PROMOTE_COLLECT;
+  }
+  default:
+    return AIHC_PROMOTE_COLLECT;
+  }
+}
+
+/* The state of one promotion: the copies of the originals it reached, and
+   the copies whose fields it has not promoted yet. */
+typedef struct {
+  AihcMachine *machine;
+  AihcValue **originals;
+  AihcValue **copies;
+  size_t capacity;
+  size_t count;
+  AihcValueWorklist pending;
+  /* The young objects the check reached, and the check result. */
+  AihcAddressSet seen;
+  AihcValueWorklist check;
+  int needs_collection;
+} AihcPromotion;
+
+static size_t aihc_promotion_slot(const AihcPromotion *promotion,
+                                  const AihcValue *original) {
+  return aihc_static_slot_of((uintptr_t)original, promotion->capacity);
+}
+
+static AihcValue *aihc_promotion_lookup(const AihcPromotion *promotion,
+                                        const AihcValue *original) {
+  if (promotion->capacity == 0) {
+    return NULL;
+  }
+  size_t slot = aihc_promotion_slot(promotion, original);
+  while (promotion->originals[slot] != NULL) {
+    if (promotion->originals[slot] == original) {
+      return promotion->copies[slot];
+    }
+    slot = (slot + 1) & (promotion->capacity - 1);
+  }
+  return NULL;
+}
+
+static void aihc_promotion_insert(AihcPromotion *promotion, AihcValue *original,
+                                  AihcValue *copy) {
+  if (promotion->count * 2 >= promotion->capacity) {
+    size_t old_capacity = promotion->capacity;
+    AihcValue **old_originals = promotion->originals;
+    AihcValue **old_copies = promotion->copies;
+    promotion->capacity = old_capacity == 0 ? 64 : old_capacity * 2;
+    promotion->originals =
+        calloc(promotion->capacity, sizeof(*promotion->originals));
+    promotion->copies = calloc(promotion->capacity, sizeof(*promotion->copies));
+    if (promotion->originals == NULL || promotion->copies == NULL) {
+      aihc_fail("out of memory");
+    }
+    promotion->count = 0;
+    for (size_t index = 0; index < old_capacity; ++index) {
+      if (old_originals[index] != NULL) {
+        aihc_promotion_insert(promotion, old_originals[index],
+                              old_copies[index]);
+      }
+    }
+    free(old_originals);
+    free(old_copies);
+  }
+  size_t slot = aihc_promotion_slot(promotion, original);
+  while (promotion->originals[slot] != NULL) {
+    slot = (slot + 1) & (promotion->capacity - 1);
+  }
+  promotion->originals[slot] = original;
+  promotion->copies[slot] = copy;
+  ++promotion->count;
+}
+
+/* The check: a visitor that queues each young object it has not seen. */
+static AihcSlot aihc_promote_check_slot(AihcSlot slot, void *opaque) {
+  AihcPromotion *promotion = opaque;
+  AihcValue *value =
+      aihc_promote_follow(promotion->machine, (AihcValue *)(uintptr_t)slot);
+  if (aihc_promote_is_young(promotion->machine, value) &&
+      aihc_address_set_insert(&promotion->seen, value)) {
+    aihc_value_worklist_push(&promotion->check, value);
+  }
+  return slot;
+}
+
+/* Whether the young graph of a value holds an object that a copy cannot
+   promote. */
+static int aihc_promote_needs_collection(AihcPromotion *promotion,
+                                         AihcValue *value) {
+  (void)aihc_promote_check_slot((AihcSlot)(uintptr_t)value, promotion);
+  while (promotion->check.count != 0) {
+    AihcValue *object = promotion->check.items[--promotion->check.count];
+    AihcPromoteRule rule = aihc_promote_rule(object);
+    if (rule == AIHC_PROMOTE_COLLECT) {
+      return 1;
+    }
+    if (rule == AIHC_PROMOTE_COPY) {
+      aihc_visit_plain_fields(object, aihc_promote_check_slot, promotion);
+    }
+  }
+  return 0;
+}
+
+static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque);
+
+/* Promote one young object and return its global copy. */
+static AihcValue *aihc_promote_object(AihcPromotion *promotion,
+                                      AihcValue *original) {
+  AihcValue *known = aihc_promotion_lookup(promotion, original);
+  if (known != NULL) {
+    return known;
+  }
+  AihcMachine *machine = promotion->machine;
+  if (aihc_promote_rule(original) == AIHC_PROMOTE_IN_PLACE) {
+    AihcPinnedBlock *block = aihc_pinned_block_of(original);
+    unsigned generation = aihc_pinned_generation(block);
+    machine->fixed_generation_bytes[generation] -= aihc_pinned_bytes(block);
+    machine->fixed_generation_bytes[2] += aihc_pinned_bytes(block);
+    aihc_pinned_set_generation(block, 2);
+    if (machine->gen2_cycle_active) {
+      block->bytes |= AIHC_PINNED_CYCLE_MARK;
+    }
+    aihc_promotion_insert(promotion, original, original);
+    return original;
+  }
+  uint64_t words = aihc_gc_words(original);
+  size_t bytes = sizeof(AihcSlot) * words;
+  AihcValue *copy =
+      (AihcValue *)aihc_gen2_allocate(machine->capabilities[0], bytes);
+  memcpy(copy, original, bytes);
+  aihc_promotion_insert(promotion, original, copy);
+  aihc_value_worklist_push(&promotion->pending, copy);
+  if (aihc_value_info_table(original)->object_kind == AIHC_OBJECT_THUNK) {
+    /* The original becomes an indirection to the copy. The rest of the
+       thunk becomes slop, which reads as zero words. */
+    original->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
+    original->fields[0] = (AihcSlot)(uintptr_t)copy;
+    for (uint64_t index = 1; index + 1 < words; ++index) {
+      original->fields[index] = 0;
+    }
+  }
+  return copy;
+}
+
+static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque) {
+  AihcPromotion *promotion = opaque;
+  AihcValue *value =
+      aihc_promote_follow(promotion->machine, (AihcValue *)(uintptr_t)slot);
+  if (!aihc_promote_is_young(promotion->machine, value)) {
+    return (AihcSlot)(uintptr_t)value;
+  }
+  return (AihcSlot)(uintptr_t)aihc_promote_object(promotion, value);
+}
+
+AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
+                        uint64_t root_count, AihcSlot *roots,
+                        const AihcSrt *srt) {
+  AihcMachine *machine = capability->machine;
+  value = aihc_promote_follow(machine, value);
+  if (!aihc_promote_is_young(machine, value)) {
+    return value;
+  }
+  AihcPromotion promotion = {.machine = machine};
+  int collect = aihc_promote_needs_collection(&promotion, value);
+  free(promotion.seen.slots);
+  free(promotion.check.items);
+  if (collect) {
+    /* The value is one more root of a collection that moves every young
+       survivor into gen2. */
+    if (root_count == UINT64_MAX) {
+      aihc_fail("too many roots");
+    }
+    AihcSlot *extended = malloc((root_count + 1) * sizeof(*extended));
+    if (extended == NULL) {
+      aihc_fail("out of memory");
+    }
+    if (root_count != 0) {
+      memcpy(extended, roots, root_count * sizeof(*extended));
+    }
+    extended[root_count] = (AihcSlot)(uintptr_t)value;
+    aihc_collect(capability, 1, 0, 1, root_count + 1, extended, srt);
+    if (root_count != 0) {
+      memcpy(roots, extended, root_count * sizeof(*extended));
+    }
+    AihcValue *promoted = (AihcValue *)(uintptr_t)extended[root_count];
+    free(extended);
+    return promoted;
+  }
+  AihcValue *copy = aihc_promote_object(&promotion, value);
+  while (promotion.pending.count != 0) {
+    AihcValue *object = promotion.pending.items[--promotion.pending.count];
+    aihc_visit_plain_fields(object, aihc_promote_slot, &promotion);
+  }
+  free(promotion.pending.items);
+  free(promotion.originals);
+  free(promotion.copies);
+  /* The verifier of the next collection checks the copies. The nursery is
+     not empty here, so the verifier cannot run now. */
+  return copy;
 }
 
 /* Round the nursery window without overflow on native hosts or wasm32. */

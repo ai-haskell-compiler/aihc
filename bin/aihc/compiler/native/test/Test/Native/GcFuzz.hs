@@ -248,6 +248,8 @@ prop_collect getDriver = withTests 500 . property $ do
           cover 5 (fromString "thunk update") (has (\case CEnter _ (Just _) -> True; _ -> False))
           cover 2 (fromString "static thunk update") (has (\case CSUpdate {} -> True; _ -> False))
           cover 2 (fromString "large array") (has (\case CArray _ count _ -> count >= largeArrayElements; _ -> False))
+          cover 5 (fromString "promotion by a copy") (or [Map.notMember index reports | (index, CPromote {}) <- zip [0 :: Int ..] script])
+          cover 2 (fromString "promotion by a collection") (or [Map.member index reports | (index, CPromote {}) <- zip [0 :: Int ..] script])
           cover 10 (fromString "allocation in the nursery of another capability") (has (\case CHeap index -> index > 0; _ -> False))
           cover 5 (fromString "several threads") (has (\case CFork {} -> True; _ -> False))
           cover 2 (fromString "thread blocks on an MVar") (has (\case CTake _ -> True; CRead _ -> True; CPut {} -> True; _ -> False))
@@ -381,6 +383,10 @@ data Model = Model
     -- | The generation of each heap object after the last reported
     -- collection. An object the driver has not reported is in the nursery.
     mAges :: Map Id Int,
+    -- | The objects that a promotion can have copied. A copy and its
+    -- original can both survive, so the age of such an object is the age
+    -- of either.
+    mPromoted :: Set Id,
     -- | While a gen2 cycle is active: the gen2 objects that were dead at
     -- its snapshot. The cycle frees them when it ends.
     mSnapshotDead :: Maybe (Set Id),
@@ -425,6 +431,7 @@ emptyModel =
       mCurrentSrt = Nothing,
       mCapabilities = 1,
       mAges = Map.empty,
+      mPromoted = Set.empty,
       mSnapshotDead = Nothing,
       mFailed = False
     }
@@ -458,6 +465,43 @@ deepestStack model = maximum (1 : [chunks (reverse (chainOf top)) | Thread (Thre
     go count used (fid : rest) =
       let size = 1 + length (fFields (mFrames model Map.! fid)) + (if fKind (mFrames model Map.! fid) == FStop then 0 else 1)
        in if used + size > chunkWords then go (count + 1) size rest else go count (used + size) rest
+
+-- | The young objects that a promotion of an object reaches, whether the
+-- promotion collects, and every immutable object it can reach at any age.
+-- It collects when it reaches a mutable object or a claimed thunk. The
+-- generator knows no ages, because only the reports give them, so the
+-- result is Nothing by rules that do not depend on ages: when the reached
+-- objects include a thunk under evaluation that no pause claimed, because
+-- the runtime copies it and the update of the original does not reach the
+-- copy, or an object with a stable name, because the name holds the
+-- original weakly and the original can die while its copy lives.
+promotionOf :: Model -> Id -> Maybe (Set Id, Bool, Set Id)
+promotionOf model start = go Set.empty False Set.empty [VHeap start]
+  where
+    young identity = Map.findWithDefault 0 identity (mAges model) < 2
+    named = Set.fromList [identity | value <- mStable model, VHeap identity <- [value, resolve model value]]
+    go reached collect seen [] = Just (reached, collect, seen)
+    go reached collect seen (value : rest) = case value of
+      VHeap identity
+        | Set.member identity seen -> go reached collect seen rest
+        | Just (Ind target) <- Map.lookup identity (mHeap model) ->
+            -- The runtime follows a young indirection only.
+            if young identity then go reached collect seen (target : rest) else go reached collect seen rest
+        | Set.member identity named -> Nothing
+        | otherwise -> case Map.lookup identity (mHeap model) of
+            Just (Object KThunk _ _ _ Nothing)
+              | Set.member identity (mEntered model) -> Nothing
+            Just (Object _ pointers fields _ owner) ->
+              let reached'
+                    | young identity = Set.insert identity reached
+                    | otherwise = reached
+               in go reached' (collect || (young identity && isJust owner)) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
+            Just Thread {} -> go reached collect seen rest
+            Just _
+              | young identity -> go (Set.insert identity reached) True (Set.insert identity seen) rest
+              | otherwise -> go reached collect (Set.insert identity seen) rest
+            Nothing -> go reached collect seen rest
+      _ -> go reached collect seen rest
 
 -- | Follow heap indirections to the value they name.
 resolve :: Model -> Value -> Value
@@ -506,6 +550,8 @@ data Command
   | CGlobal Int Value
   | CRoot Int Value
   | CStable Value
+  | -- | Promote an object and store the result in a global.
+    CPromote Id Int
   | CPush Fid FrameSpec
   | CEnter Fid (Maybe Value)
   | CRaise Value
@@ -555,6 +601,7 @@ renderCommand command = unwords $ case command of
   CGlobal index value -> ["global", show index, renderValue value]
   CRoot index value -> ["root", show index, renderValue value]
   CStable value -> ["stable", renderValue value]
+  CPromote identity index -> ["promote", renderValue (VHeap identity), show index]
   CPush fid spec -> ["push", show fid] <> renderSpec spec
   CEnter fid value -> ["enter", show fid] <> maybe [] (pure . renderValue) value
   CRaise value -> ["raise", renderValue value]
@@ -629,6 +676,13 @@ applyCommand command model = case command of
   CStable value
     | resolve model value `elem` map (resolve model) (mStable model) -> model
     | otherwise -> model {mStable = value : mStable model}
+  CPromote identity index -> case promotionOf model identity of
+    Nothing -> failed
+    Just (reached, collect, seen) ->
+      let stored = model {mGlobals = setAt index (VHeap identity) (mGlobals model), mPromoted = Set.union seen (mPromoted model)}
+       in if collect
+            then stored
+            else stored {mAges = foldr (`Map.insert` 2) (mAges model) (Set.toList reached)}
   CPush fid spec -> pushFrame fid spec model
   CEnter fid value -> case Map.lookup fid (mFrames model) of
     Just frame | fThread frame == mRunning model -> continueInto (mRunning model) fid value model
@@ -1166,10 +1220,10 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
     go [] _ = []
     go ((index, command) : rest) model = case Map.lookup index reports of
       Nothing
-        | mustCollect command -> ("command " <> show index <> ": the command did not report a collection") : go rest (step model)
+        | mustCollect model command -> ("command " <> show index <> ": the command did not report a collection") : go rest (step model)
         | otherwise -> go rest (step model)
       Just report
-        | collects command ->
+        | collects model command ->
             let -- A full collection and a cycle free the values of the
                 -- static thunks no code reaches, which the command marks
                 -- in the model before the check.
@@ -1202,12 +1256,13 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
         step before =
           let after = applyCommand command before
            in if mFailed after && not (mFailed before) then error ("command " <> show index <> " fails its precondition: " <> renderCommand command) else after
-    collects (CReserve _) = True
-    collects command = mustCollect command
-    mustCollect CCollect = True
-    mustCollect (CCollectGeneration _) = True
-    mustCollect CCycle = True
-    mustCollect _ = False
+    collects _ (CReserve _) = True
+    collects model command = mustCollect model command
+    mustCollect _ CCollect = True
+    mustCollect _ (CCollectGeneration _) = True
+    mustCollect _ CCycle = True
+    mustCollect model (CPromote identity _) = maybe False (\(_, collect, _) -> collect) (promotionOf model identity)
+    mustCollect _ _ = False
     generationProblems command report = case command of
       CCollectGeneration generation
         | rCollected report /= generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show generation]
@@ -1215,6 +1270,9 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
       CCycle
         | rCollected report /= 1 -> ["cycle collected generation " <> show (rCollected report) <> " instead of 1"]
       CCycle -> []
+      CPromote {}
+        | rCollected report /= 1 -> ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
+      CPromote {} -> []
       _
         | rCollected report /= 0 -> ["a reservation collected generation " <> show (rCollected report)]
         | otherwise -> []
@@ -1257,11 +1315,12 @@ checkReport model report =
     -- An object of a collected generation moves up at least one generation
     -- and at most to gen2. An older object stays where it is.
     ageProblems = concatMap ageProblem (Map.toList (rAges report))
-    ageProblem (identity, age) =
-      let before = Map.findWithDefault 0 identity (mAges model)
-       in if before <= collected
-            then ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
-            else ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
+    ageProblem (identity, age)
+      | Set.member identity (mPromoted model) = ["object " <> show identity <> " moved to generation " <> show age | age > 2]
+      | before <= collected = ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
+      | otherwise = ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
+      where
+        before = Map.findWithDefault 0 identity (mAges model)
     expectedObject object = case object of
       Object kind pointers fields _ owner -> RPlain (if isJust owner then "blackhole" else kindName kind) (zipWith (\pointer field -> if pointer then rvalue (deep field) else rvalue field) pointers fields)
       Array elements _ -> RPlain "array" (map (rvalue . deep) elements)
@@ -1544,7 +1603,10 @@ genShape profile =
       ShapeObject kind <$> replicateM count (percent (pPointerPercent profile))
 
 -- | The objects and static slots that later commands may name. Heap objects
--- are the live set, so no command resurrects garbage. Static slots exclude
+-- are the live set, so no command resurrects garbage. An object that a
+-- promotion copied is left out: the copy and the original are two objects
+-- of one identity, and a new reference to one of them could keep it alive
+-- while only the other is live in the model. Static slots exclude
 -- stale slots, because the collector reads through the invalid target of
 -- any static object that becomes live again.
 data Pool = Pool
@@ -1559,7 +1621,7 @@ poolOf model =
   let live = liveness model
       stale = taintedStatics model
       usableSrts = [index | index <- Map.keys (mSrts model), Set.null (Set.intersection stale (srtClosure model index))]
-      values = [identity | identity <- Set.toList (liveHeap live), isValue (mHeap model Map.! identity)]
+      values = [identity | identity <- Set.toList (liveHeap live), isValue (mHeap model Map.! identity), not (Set.member identity (mPromoted model))]
       isValue Thread {} = False
       isValue _ = True
    in Pool values [slot | slot <- [0 .. staticCount - 1], not (Set.member slot stale)] usableSrts
@@ -1769,7 +1831,8 @@ genOp profile model = do
     blockedMVars = [identity | identity <- poolHeap pool, Just (MVar (MVarState Nothing readers takers _)) <- [object identity], not (null readers && null takers)]
     -- A name on an object whose value another name resolves to would be
     -- the same name in the runtime, so the generator names each value once.
-    unnamed = [identity | identity <- poolHeap pool, VHeap identity `notElem` map (resolve model) (mStable model)]
+    unnamed = [identity | identity <- poolHeap pool, VHeap identity `notElem` map (resolve model) (mStable model), not (Set.member identity (mPromoted model))]
+    promotable = [identity | identity <- poolHeap pool, isJust (promotionOf model identity)]
     staticThunks = [slot | (slot, SThunk) <- zip [0 ..] (mStaticThunks model), slot `elem` poolStatics pool]
     staticNodes = [slot | slot <- [staticThunkCount .. staticRootedCount - 1], slot `elem` poolStatics pool]
     runnable = not (null (mQueue model))
@@ -1824,6 +1887,12 @@ genOp profile model = do
             pure [CRoot index value]
         ),
         (1, nonEmpty unnamed (CStable . VHeap <$> Gen.element unnamed <&> pure)),
+        ( 3,
+          nonEmpty (if null (mGlobals model) then [] else promotable) $ do
+            identity <- Gen.element promotable
+            index <- Gen.int (Range.constant 0 (length (mGlobals model) - 1))
+            pure [CPromote identity index]
+        ),
         ( 1,
           Just $ do
             srt <- elementOr Nothing (Nothing : map Just (poolSrts pool))

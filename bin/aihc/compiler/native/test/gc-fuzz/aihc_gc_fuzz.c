@@ -44,6 +44,8 @@
      global I V           write value V to global I
      root I V             write value V to root slot I
      stable ID            make a stable name for object ID
+     promote ID G         promote object ID and store the result in global G;
+                          this can collect
      push F normal BITS S v...   push a frame with pointer bitmap BITS for
                           the fields after the parent, table S, and values
      push F forward BITS S v...  the same for a frame without an entry
@@ -95,6 +97,9 @@
    TEXT and stops the process. */
 
 #include "aihc_runtime_internal.h"
+
+/* The info table of an indirection, defined by aihc_helpers.lir. */
+extern const AihcInfo aihc_indirection_info;
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -191,6 +196,9 @@ static size_t stable_count;
 #define MAX_CAPABILITIES 4
 static uint64_t reserved[MAX_CAPABILITIES];
 #define reserved_words reserved[heap_index]
+/* Whether the script promoted an object. Only a promotion makes a second
+   copy of an object. */
+static int promoted_ever;
 static size_t command_index;
 static AihcValue **object_starts;
 static size_t object_start_count;
@@ -714,10 +722,10 @@ static void print_object(AihcValue *object) {
     printf("obj %" PRIuPTR " %s 0\n", identity, kind_name(kind));
     return;
   }
-  if (entry->address != NULL) {
-    violation("two objects share one identity");
+  if (entry->address != object) {
+    /* Another object with this identity represents it. */
+    return;
   }
-  entry->address = object;
   if (info != entry->info) {
     violation("object header does not name its own info table");
   }
@@ -923,6 +931,84 @@ static void report_stack(AihcStack *stack) {
   }
 }
 
+/* Whether an object can have a second copy: a promotion copies an
+   immutable object and leaves the original as it is. */
+static int is_duplicable(const AihcValue *object) {
+  switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_NODE:
+  case AIHC_OBJECT_CLOSURE:
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR:
+  case AIHC_OBJECT_THUNK:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+/* Two copies of an object hold equal fields when each pointer field names
+   the same identity, frame, or static object, and each word is equal. */
+static int same_slot(AihcSlot left, AihcSlot right) {
+  if (left == right) {
+    return 1;
+  }
+  const AihcValue *first = follow_indirections((const void *)(uintptr_t)left);
+  const AihcValue *second = follow_indirections((const void *)(uintptr_t)right);
+  if (first == second) {
+    return 1;
+  }
+  return first != NULL && second != NULL && is_object_start(first) &&
+         is_object_start(second) &&
+         aihc_value_info_table(first)->identity ==
+             aihc_value_info_table(second)->identity;
+}
+
+static int same_fields(const Entry *entry, AihcValue *left, AihcValue *right) {
+  uint64_t offset =
+      entry->info->object_kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
+              entry->info->object_kind == AIHC_OBJECT_THUNK
+          ? 1
+          : 0;
+  for (uint64_t index = 0; index < entry->field_count; ++index) {
+    AihcSlot first = left->fields[index + offset];
+    AihcSlot second = right->fields[index + offset];
+    if (entry->pointers[index] ? !same_slot(first, second) : first != second) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* Choose the object that represents each identity. After a promotion, a
+   duplicable object can have two copies with equal fields. The copy in the
+   oldest generation represents it. */
+static void choose_representatives(void) {
+  for (size_t index = 0; index < object_start_count; ++index) {
+    AihcValue *object = object_starts[index];
+    if (is_indirection(object)) {
+      continue;
+    }
+    uintptr_t identity = aihc_value_info_table(object)->identity;
+    if (identity == 0 || identity >= entry_capacity ||
+        !entries[identity].defined || entries[identity].indirection) {
+      continue;
+    }
+    Entry *entry = &entries[identity];
+    if (entry->address == NULL) {
+      entry->address = object;
+      continue;
+    }
+    if (!promoted_ever || !is_duplicable(object) ||
+        !is_duplicable(entry->address) ||
+        !same_fields(entry, entry->address, object)) {
+      violation("two objects share one identity");
+      continue;
+    }
+    if (generation_of_address(object) > generation_of_address(entry->address)) {
+      entry->address = object;
+    }
+  }
+}
+
 static void report_collection(void) {
   unsigned collected = (unsigned)capability->machine->gc_last_generation;
   int finished = capability->machine->gc_full_count != reported_full_count;
@@ -961,6 +1047,7 @@ static void report_collection(void) {
     }
     entry->address = NULL;
   }
+  choose_representatives();
   for (size_t index = 0; index < object_start_count; ++index) {
     AihcValue *object = object_starts[index];
     print_object(object);
@@ -1196,6 +1283,7 @@ static void command_machine(char **tokens, size_t count) {
   reset_statics();
   current_srt = NULL;
   memset(reserved, 0, sizeof(reserved));
+  promoted_ever = 0;
   /* The model supplies external roots and excludes process startup objects. */
   for (uint64_t index = 0; index < 3; ++index) {
     aihc_rts_set_root(index, NULL);
@@ -1884,6 +1972,41 @@ static void command_block(char **tokens, size_t count) {
   apply_resume(resume);
 }
 
+/* Promote an object and store the result in a global, as an escape into a
+   global object does. The promotion collects when the object reaches a
+   mutable object. Afterwards the driver names each promoted thunk by its
+   copy, because the original is an indirection to it. */
+static void command_promote(char **tokens, size_t count) {
+  if (count != 3) {
+    fail("promote expects two arguments");
+  }
+  link_srts();
+  AihcValue *object = parse_object(tokens[1]);
+  uint64_t index = parse_unsigned(tokens[2]);
+  if (index >= capability->machine->global_count) {
+    fail("global index out of range");
+  }
+  uint64_t before = capability->machine->gc_count;
+  size_t total = 0;
+  AihcSlot *roots = gather_roots(&total);
+  AihcValue *promoted =
+      aihc_promote(capability, object, total, roots, current_srt);
+  scatter_roots(roots, total);
+  capability->machine->globals[index] = (AihcSlot)(uintptr_t)promoted;
+  promoted_ever = 1;
+  if (capability->machine->gc_count != before) {
+    report_collection();
+    return;
+  }
+  for (size_t identity = 1; identity < entry_capacity; ++identity) {
+    Entry *entry = &entries[identity];
+    if (entry->defined && !entry->indirection && entry->address != NULL &&
+        entry->address->header == (AihcSlot)(uintptr_t)&aihc_indirection_info) {
+      entry->address = (AihcValue *)(uintptr_t)entry->address->fields[0];
+    }
+  }
+}
+
 static void run_command(char **tokens, size_t count) {
   const char *name = tokens[0];
   if (strcmp(name, "machine") == 0) {
@@ -2000,6 +2123,8 @@ static void run_command(char **tokens, size_t count) {
       fail("global index out of range");
     }
     capability->machine->globals[index] = parse_pointer(tokens[2]);
+  } else if (strcmp(name, "promote") == 0) {
+    command_promote(tokens, count);
   } else if (strcmp(name, "root") == 0) {
     if (count != 3) {
       fail("root expects two arguments");

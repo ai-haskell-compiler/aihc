@@ -62,6 +62,11 @@ The write barrier ignores an object in the nursery of any capability.
 `aihc_machine_set_capabilities` changes the count when all nurseries are empty.
 A removed capability gives its gen1 blocks and its remembered set to the first capability.
 Only the collector fuzz driver uses more than one capability.
+`aihc_promote` copies an escaping value and the young objects it reaches into gen2.
+An immutable original stays as it is, and an unclaimed thunk becomes an indirection to its copy.
+A value that reaches a mutable object or a claimed thunk runs a collection that moves every young survivor into gen2.
+Until local collection is enforced, every young object counts as local.
+The fuzz driver plays a promotion into a global. No runtime operation and no compiled store site promotes yet.
 Native parallel execution starts at step 6, after the local collection of step 3.
 WASM keeps one capability until WASI supports the required thread operations.
 
@@ -705,12 +710,12 @@ collection:
   original and the copy both exist, and that collection copies the
   original into gen1 when a root still names it. This floating garbage is
   bounded by the escaped bytes.
-- **A thunk.** The original gets a forwarding header, so the evaluation
-  of a stale pointer reaches the copy and the work is shared. The follow
-  path of the evaluation, the update, and the attach treat the forwarding
-  pattern as an indirection. These paths dispatch on the header already,
-  so the cost is one more case on the follow path. A claimed thunk is
-  copied whole with its state, as the forwarding section gives.
+- **A thunk.** The original becomes an indirection to the copy, so the
+  evaluation of a stale pointer reaches the copy and the work is shared.
+  The follow path of the evaluation, the update, and the attach follow an
+  indirection already, so the rule adds no case to them. The rest of the
+  original becomes slop, as after an update. A claimed thunk has an owner
+  and can have waiters, so it takes the rule of a mutable object.
 - **A mutable object.** A `MutVar#`, an array, an `MVar#`, or a `TVar#`
   must not be written through a stale pointer. Its escape runs a local
   collection, in which the escaping value is promoted into gen2 and every
@@ -1968,15 +1973,14 @@ end state removes.
    in GC-GRIN, and the remaining words of a barrier safepoint. Add the
    update frame rule to the collector. Still one OS thread and `-N1` only.
    Measure the cost budget and the three entries. This step carries most
-   fixed costs, and its escape count measures the cost of step 6 before
-   step 6 exists.
+   fixed costs, and its escape count measures the cost of step 2 before
+   step 2 exists.
 2. **Several capabilities and promotion.** Give the machine an array of
    capabilities with one arena window, one gen1, and one remembered set
    for each. Add the bridge collection. Add the promotion on escape at
-   each row of the escape table, with the three promotion rules, and the
-   forwarding case of the follow path of the evaluation, the update, and
-   the attach. Still one OS thread. Only the collector fuzz driver uses
-   more than one capability, and it plays the escapes of each row.
+   each row of the escape table, with the three promotion rules. Still one
+   OS thread. Only the collector fuzz driver uses more than one
+   capability, and it plays the escapes of each row.
 3. **Local collection.** Enforce the invariant of the local heaps section.
    Make a full sub-range start a local collection of its own capability
    and nothing else. Add the invariant walk to the verifier. The fuzz
