@@ -769,21 +769,22 @@ The lowering keeps the control model of CPS-GRIN:
   extern C function.
 - A case on a pointer loads the header and the `identity` field and compares
   it with the constructor tables. A case on a scalar is a `switch`.
-- A heap reservation of a fixed size adds its bytes to `%hp` and branches on
-  whether the result is not above `%hp_limit`. A reservation of a dynamic
-  size compares the free words with the words it wants. When they fit, the
-  branch is the whole reservation, and every root and the context stay in
-  their registers. When they do not, the slow block stores the live roots in
-  a `stack.alloc` array, gives the machine the context, calls
-  `aihc_heap_collect` with the function's static reference table, and
-  reloads the relocated roots, `%hp`, and `%hp_limit`. The two paths meet at
-  a block whose parameters carry the roots, `%hp`, and `%hp_limit`, so the
-  code after a reservation names them the same way whichever path reached
-  it.
-- A reservation of a dynamic size compares the room below the heap limit
-  in words with the size, and first tests that the heap pointer is not
-  above the limit: a large allocation lowers the limit, and the stores of
-  an earlier reservation can pass it.
+- `ensure-nursery` reserves words for a batch of small objects. Its size is
+  a constant. The fast path compares the reservation end with `%hp_limit`.
+  The slow path calls `aihc_heap_collect`, which reserves nursery space
+  even when the batch exceeds the large-object threshold.
+- `ensure-heap` reserves space for one dynamic object. Its size can be a
+  constant or a computed value. The fast path compares free words with
+  the requested words. It also checks that `%hp` does not exceed `%hp_limit`.
+  The slow path calls `aihc_ensure_heap`. Large objects use separate storage.
+  This reservation cannot cover other nursery allocations.
+- Both slow paths save live roots in a `stack.alloc` array and pass the
+  function's static reference table to the runtime. They then reload the
+  relocated roots, `%hp`, and `%hp_limit`. Both paths join at a block whose
+  parameters carry the roots and heap context.
+- GC-GRIN lint checks the nursery budget for unchecked stores and fixed-size
+  primitives. It checks dynamic reservations separately. `--lint` does not
+  select a different runtime.
 - A store takes its object from that reservation itself: the object starts
   at `%hp`, and `%hp` advances by the words of the object. Then the store
   writes the header and the fields. Neither step touches memory other than

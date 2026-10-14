@@ -1083,7 +1083,7 @@ prepareExecutable shared graph slot = do
       finished compiledModules = do
         let names = map sourceName (compiledSources compiledModules)
         moduleObjects <- moduleObjectPaths (not (compileLto config)) outputRoot (compileTarget config) names
-        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileLto config) (compileLint config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
+        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileLto config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
         atomically $
           putTMVar
             (executableSlotCompiled slot)
@@ -1548,7 +1548,7 @@ finishPackageBuild config build compiled = do
     let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
     if current
       then do
-        cObjects <- compilePackageCFiles target (compileOptimization config) (compileLto config) (compileLint config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
+        cObjects <- compilePackageCFiles target (compileOptimization config) (compileLto config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
         buildLibraryArchive target (compileLto config) verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
@@ -2006,10 +2006,10 @@ buildEnvironmentIdentity target = do
 -- | The part of the configuration that changes what a package is: the
 -- compiler, the target, the optimization level, whether the package stops
 -- at System FC, and whether its array primitives check their bounds. Flags
--- that add or drop outputs, such as @--keep-core@, are recorded in the
--- manifest. The @--lint@ flag selects a runtime with heap reservation checks.
+-- that add or drop outputs, such as @--keep-core@, or that only check,
+-- such as @--lint@, are recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> ["lint" | compileLint config])
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -3408,8 +3408,8 @@ removeFileIfPresent path = do
 -- A @--lto@ build of the LLVM target compiles every object here to bitcode,
 -- so that the link optimizes the runtime and the C of the packages with the
 -- program; see 'llvmLtoArguments'.
-compilePackageCFiles :: NativeTarget -> OptimizationLevel -> Bool -> Bool -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
-compilePackageCFiles target level lto lint headerDirectory verbose packageRoot storePath info
+compilePackageCFiles :: NativeTarget -> OptimizationLevel -> Bool -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target level lto headerDirectory verbose packageRoot storePath info
   | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileCxxSources info) && null (HackageCabal.cCompileLirSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
@@ -3433,7 +3433,6 @@ compilePackageCFiles target level lto lint headerDirectory verbose packageRoot s
           ( targetArguments
               <> handwrittenCArguments level
               <> ltoArguments
-              <> ["-DAIHC_HEAP_VERIFY" | lint]
               <> HackageCabal.cCompileCcOptions info
               <> handwrittenCOverrideArguments level
               <> includeArguments

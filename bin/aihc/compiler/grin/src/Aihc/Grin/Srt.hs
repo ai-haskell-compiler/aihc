@@ -212,6 +212,7 @@ bodyReferences expression =
     GrinCase _ _ alternatives -> foldMap (bodyReferences . grinAltRhs) alternatives
     GrinConstant {} -> Set.empty
     GrinStore node -> nodeReferences node
+    GrinEnsureNursery {} -> Set.empty
     GrinEnsureHeap {} -> Set.empty
     GrinStoreUnchecked node -> nodeReferences node
     GrinUpdate {} -> Set.empty

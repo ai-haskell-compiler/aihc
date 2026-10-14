@@ -69,16 +69,12 @@ type Placement = Bool -> GrinExpr
 normalizeExpr :: GrinExpr -> (Reservation, Placement)
 normalizeExpr expression =
   case expression of
+    GrinBind [] (GrinEnsureNursery reservedWords []) body ->
+      let (bodyWords, body') = normalizeExpr body
+       in (sequential (Reserve reservedWords) bodyWords, body')
     GrinBind [] reservation@(GrinEnsureHeap _ _) body ->
-      case staticReservationWords reservation of
-        Just reservedWords ->
-          let (bodyWords, body') = normalizeExpr body
-           in (sequential (Reserve reservedWords) bodyWords, body')
-        Nothing ->
-          -- A dynamic reservation is a compare as well, so it covers the
-          -- safepoints of the body.
-          let (bodyWords, body') = normalizeExpr body
-           in (NoReservation, const (GrinBind [] reservation (placeReservation bodyWords (const (body' True)))))
+      let (bodyWords, body') = normalizeExpr body
+       in (NoReservation, const (GrinBind [] reservation (placeReservation bodyWords body')))
     GrinBind vars valueExpression body ->
       let (valueWords, valueExpression') = normalizeExpr valueExpression
           (bodyWords, body') = normalizeExpr body
@@ -141,16 +137,9 @@ placeReservation requiredWords body =
     Reserve words' ->
       GrinBind
         []
-        (GrinEnsureHeap (GrinLitValue (GrinLitInt WordRep words')) [])
+        (GrinEnsureNursery words' [])
         (body True)
     _ -> body False
-
-staticReservationWords :: GrinExpr -> Maybe Integer
-staticReservationWords expression =
-  case expression of
-    GrinEnsureHeap (GrinLitValue (GrinLitInt WordRep requiredWords)) []
-      | requiredWords >= 0 -> Just requiredWords
-    _ -> Nothing
 
 -- | Whether an operation ends the reservation that reaches it. A primitive
 -- that cannot allocate does not: the stores on either side of it share one
@@ -158,6 +147,7 @@ staticReservationWords expression =
 isReservationBarrier :: GrinExpr -> Bool
 isReservationBarrier expression =
   case expression of
+    GrinEnsureNursery {} -> True
     GrinEnsureHeap {} -> True
     GrinEval {} -> True
     GrinCpsEval {} -> True

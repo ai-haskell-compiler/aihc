@@ -9,7 +9,7 @@ expected: |
 
   stop ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
     () <-
-      ensure-heap (3 :: WordRep)
+      ensure-nursery 3
     () <-
       primitive-call @(TupleRep []) stmBegin#
     exit (0 :: IntRep)

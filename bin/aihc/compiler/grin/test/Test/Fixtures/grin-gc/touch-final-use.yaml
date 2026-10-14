@@ -13,7 +13,7 @@ expected: |
 
   roots (owner :: BoxedRep Unlifted) (dead :: BoxedRep Unlifted) ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
     $cps_return$gc :: BoxedRep Lifted, owner$gc :: BoxedRep Unlifted <-
-      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (owner :: BoxedRep Unlifted)
+      ensure-nursery 3 ($cps_return :: BoxedRep Lifted) (owner :: BoxedRep Unlifted)
     () <-
       primitive-call @(TupleRep []) stmBegin#
     () <-

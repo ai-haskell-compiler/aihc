@@ -326,6 +326,7 @@ atomicExpr =
     [ unaryValuesExpr "constant" GrinConstant,
       MP.try (unaryNodeExpr "store-unchecked" GrinStoreUnchecked),
       unaryNodeExpr "store" GrinStore,
+      ensureNurseryExpr,
       ensureHeapExpr,
       twoValuesExpr "update-blackhole" GrinUpdateBlackhole,
       twoValuesExpr "update" GrinUpdate,
@@ -371,6 +372,15 @@ unaryValueExpr expressionName constructor = do
   value <- grinValue
   lineEnd
   pure (constructor value)
+
+ensureNurseryExpr :: Parser GrinExpr
+ensureNurseryExpr = do
+  keyword "ensure-nursery"
+  horizontal1
+  words' <- signedInteger
+  roots <- grinValues
+  lineEnd
+  pure (GrinEnsureNursery words' roots)
 
 ensureHeapExpr :: Parser GrinExpr
 ensureHeapExpr = do

@@ -2,7 +2,7 @@
 
 module Test.Grin.Lint (tests) where
 
-import Aihc.Grin (GrinLintError (..), lintCpsProgram, lintProgram, toCpsGrin)
+import Aihc.Grin (GrinLintError (..), gcGrinProgram, lintCpsProgram, lintGcProgram, lintProgram, lowerGc, parseProgram, toCpsGrin)
 import Aihc.Grin.Syntax
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -13,6 +13,15 @@ tests =
   testGroup
     "lint"
     [ testGroup
+        "heap reservations"
+        [ testCase "a dynamic reservation cannot cover a nursery store" $
+            assertHeapLint nurseryProgram [GrinLintNurseryReservation 1 0] replaceNursery,
+          testCase "a nursery reservation must cover every store" $
+            assertHeapLint nurseryProgram [GrinLintNurseryReservation 1 0] removeWords,
+          testCase "a nursery reservation cannot cover a dynamic allocation" $
+            assertHeapLint dynamicProgram [GrinLintDynamicReservation "newByteArray#"] replaceDynamic
+        ],
+      testGroup
         "node arities"
         [ testCase "a direct thunk node supplies every parameter" $
             assertEqual "direct GRIN lint" [] (lintProgram (program 2)),
@@ -186,3 +195,34 @@ program fieldCount =
 
 boxed :: Text -> GrinVar
 boxed name = GrinVar name 0 liftedGrinRep
+
+-- | Replace the generated reservation, then check the GC-GRIN diagnostics.
+assertHeapLint :: Text -> [GrinLintError] -> (GrinExpr -> GrinExpr) -> IO ()
+assertHeapLint sourceText expected change = do
+  program' <- either (assertFailure . show) pure (parseProgram sourceText)
+  cps <- either (assertFailure . show) pure (toCpsGrin program')
+  let gc = lowerGc cps
+      source = gcGrinProgram gc
+      changed = source {grinFunctions = map (\function -> function {grinFunctionBody = alter (grinFunctionBody function)}) (grinFunctions source)}
+      alter expression = case expression of
+        GrinBind vars value body -> GrinBind vars (alter value) (alter body)
+        _ -> change expression
+  assertEqual "heap reservation diagnostics" expected (lintGcProgram gc {gcGrinProgram = changed})
+
+replaceNursery :: GrinExpr -> GrinExpr
+replaceNursery (GrinEnsureNursery words' roots) = GrinEnsureHeap (GrinLitValue (GrinLitInt WordRep words')) roots
+replaceNursery expression = expression
+
+removeWords :: GrinExpr -> GrinExpr
+removeWords (GrinEnsureNursery _ roots) = GrinEnsureNursery 0 roots
+removeWords expression = expression
+
+replaceDynamic :: GrinExpr -> GrinExpr
+replaceDynamic (GrinEnsureHeap _ roots) = GrinEnsureNursery 8 roots
+replaceDynamic expression = expression
+
+nurseryProgram :: Text
+nurseryProgram = "constructor Unit/0 []\n$entry -> BoxedRep Lifted =\n  store (CUnit)\n"
+
+dynamicProgram :: Text
+dynamicProgram = "primitive newByteArray# :: BoxedRep Unlifted/1\n$entry -> BoxedRep Unlifted =\n  primitive-call @(BoxedRep Unlifted) newByteArray# (8 :: IntRep)\n"

@@ -9,7 +9,8 @@ module Aihc.Grin.Lint
 where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), CpsGrinProgram, cpsContinuationFrames, cpsFunctionContinuations, cpsGrinProgram)
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcFunctionContinuations, gcGrinProgram)
+import Aihc.Grin.Gc (GcGrinProgram, dynamicReservation, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
+import Aihc.Grin.Primitive (primitiveAllocates, primitiveHeapWords)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -52,6 +53,9 @@ data GrinLintError
   | -- | A fetch names a tag whose fields the program does not declare.
     GrinLintFetchTag !GrinNodeTag
   | GrinLintFetchNonPointer !GrinRep
+  | GrinLintNurseryReservation !Integer !Integer
+  | GrinLintDynamicReservation !Text
+  | GrinLintInvalidNurseryReservation !Integer
   deriving (Eq, Show)
 
 data LintEnv = LintEnv
@@ -76,7 +80,57 @@ lintCpsProgram cps = lintProgramWith (cpsFunctionContinuations cps) (cpsContinua
 
 -- | Validate GC-GRIN. The GC phase keeps the CPS metadata unchanged.
 lintGcProgram :: GcGrinProgram -> [GrinLintError]
-lintGcProgram gc = lintProgramWith (gcFunctionContinuations gc) (gcContinuationFrames gc) (gcGrinProgram gc)
+lintGcProgram gc =
+  lintProgramWith (gcFunctionContinuations gc) (gcContinuationFrames gc) (gcGrinProgram gc)
+    <> concatMap (lintHeapReservations (gcContinuationFunctions gc) . grinFunctionBody) (grinFunctions (gcGrinProgram gc))
+
+-- | Track nursery words separately from a single dynamic allocation.
+-- A collection can invalidate either reservation. Each branch receives
+-- the same input budget. Only space available on every branch survives.
+lintHeapReservations :: Set FunctionName -> GrinExpr -> [GrinLintError]
+lintHeapReservations frames = fst . check (0, False)
+  where
+    check budget@(available, dynamic) expression = case expression of
+      GrinBind _ value body ->
+        let (valueErrors, remaining) = check budget value
+            (bodyErrors, final) = check remaining body
+         in (valueErrors <> bodyErrors, final)
+      GrinEnsureNursery words' _ ->
+        ([GrinLintInvalidNurseryReservation words' | words' < 0 || words' > (2 ^ (61 :: Int) - 1)], (max 0 words', False))
+      GrinEnsureHeap _ _ -> ([], (0, True))
+      GrinStoreUnchecked node -> consume (allocationWords node) budget
+      GrinStoreRecUnchecked bindings body ->
+        let (errors, remaining) = consume (sum (map (allocationWords . snd) bindings)) budget
+            (bodyErrors, final) = check remaining body
+         in (errors <> bodyErrors, final)
+      GrinPrimitiveCall _ name arguments -> primitive name arguments
+      GrinCpsPrimitiveCall _ name arguments _ -> primitive name arguments
+      GrinIfWhnf _ ready slow -> branches [ready, slow]
+      GrinCase _ _ alternatives -> branches (map grinAltRhs alternatives)
+      GrinCall {} -> barrier
+      GrinCpsEval {} -> barrier
+      GrinCpsApply {} -> barrier
+      GrinForeignCallExpr {} -> barrier
+      _ -> ([], budget)
+      where
+        barrier = ([], (0, False))
+        primitive name arguments
+          | Just _ <- dynamicReservation name arguments =
+              ([GrinLintDynamicReservation name | not dynamic], (0, False))
+          | Just words' <- primitiveHeapWords name =
+              let (errors, _) = consume (toInteger words') budget
+               in (errors, (0, False))
+          | primitiveAllocates name = barrier
+          | otherwise = ([], budget)
+        branches expressions =
+          let results = map (check budget) expressions
+              remaining = map snd results
+           in (concatMap fst results, (minimum (available : map fst remaining), dynamic && all snd remaining))
+    consume required (available, dynamic) =
+      ([GrinLintNurseryReservation required available | required > available], (max 0 (available - required), dynamic))
+    allocationWords node = case grinNodeTag node of
+      GrinClosure name _ | name `Set.member` frames -> 0
+      _ -> toInteger (nodeWords node)
 
 -- | The thunk and closure nodes of a direct GRIN program whose fields do
 -- not fit the parameters of their function. A thunk supplies every
@@ -203,6 +257,7 @@ lintFunctionResult env resultRep expr =
       | Map.lookup functionName (lintFunctionResults env) == Just resultRep
       ]
     GrinStore {} -> []
+    GrinEnsureNursery {} -> []
     GrinEnsureHeap {} -> []
     GrinStoreUnchecked (GrinNode (GrinClosure functionName []) _) ->
       [ GrinLintSaturatedClosure functionName
@@ -231,6 +286,7 @@ lintExpr env bound expr =
         <> lintExpr env bound valueExpr
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
+    GrinEnsureNursery _ roots -> concatMap (lintValue bound) roots
     GrinEnsureHeap requiredWords roots -> lintValue bound requiredWords <> concatMap (lintValue bound) roots
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
@@ -440,6 +496,7 @@ exprResults env expr =
     GrinConstant values -> [Placed (map grinValueRuntimeRep values)]
     GrinBind _ _ body -> exprResults env body
     GrinStore {} -> [Placed [liftedGrinRep]]
+    GrinEnsureNursery _ roots -> [Placed (map grinValueRuntimeRep roots)]
     GrinEnsureHeap _ roots -> [Placed (map grinValueRuntimeRep roots)]
     GrinStoreUnchecked {} -> [Placed [liftedGrinRep]]
     GrinStoreRec _ body -> exprResults env body

@@ -115,11 +115,5 @@ These options keep intermediate files or add run-time checks.
 | `--keep-grin` | Keep the GRIN files. |
 | `--keep-lir` | Keep the Lir files. |
 | `--keep-native` | Keep the native output files. |
-| `--lint` | Check each intermediate language and enable runtime heap reservation checks. |
+| `--lint` | Run the lint checks of each intermediate language. |
 | `--check-prim-bounds` | Check the index of each array primitive and abort on an out-of-bounds access. |
-
-With `--lint`, the runtime checks heap reservations.
-A reservation failure stops the program before it writes outside the reserved space.
-These checks run when you execute the program.
-They can increase execution time.
-The store keeps separate packages for builds with `--lint`.

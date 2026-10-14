@@ -1389,6 +1389,7 @@ varBase var = T.filter (\character -> character /= '"' && character /= '\\') (gr
 maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
+    GrinBind _ (GrinEnsureNursery _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
@@ -1396,6 +1397,7 @@ maximumRoots expression =
     GrinStoreRecUnchecked _ body -> maximumRoots body
     GrinIfWhnf _ ready slow -> max (maximumRoots ready) (maximumRoots slow)
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
+    GrinEnsureNursery _ roots -> length roots
     GrinEnsureHeap _ roots -> length roots
     _ -> 0
 
@@ -1547,6 +1549,7 @@ compileExpr ctx env expression =
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
+    GrinEnsureNursery {} -> unsupported "unbound nursery reservation"
     GrinEnsureHeap {} -> unsupported "unbound heap reservation"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
     GrinUpdate {} -> unsupported "direct-style update after CPS"
@@ -1649,17 +1652,11 @@ compileBinding ctx env vars expression =
       object <- allocateNode ctx node
       initializeFields ctx env object node
       bindResults [object]
-    GrinEnsureHeap requiredWords roots
-      | length vars == length roots -> do
-          words' <- materialize ctx env requiredWords >>= coerce I64
-          rootOperands <- mapM (pointerValue ctx env) roots
-          array <-
-            case (roots, ctxRoots ctx) of
-              ([], _) -> pure (OperandLiteral LitNull)
-              (_, Just array) -> pure array
-              _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
-          reserveHeap ctx env vars requiredWords words' roots rootOperands array
-      | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
+    GrinEnsureNursery words' roots ->
+      reserve (Just words') (OperandLiteral (LitInt words')) roots
+    GrinEnsureHeap requiredWords roots -> do
+      words' <- materialize ctx env requiredWords >>= coerce I64
+      reserve Nothing words' roots
     GrinUpdate pointer value -> update "aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" pointer value
     GrinPrimitiveCall runtimeRep name arguments -> compilePrimitive ctx env vars runtimeRep name arguments
@@ -1686,6 +1683,16 @@ compileBinding ctx env vars expression =
       let arguments = [capability, pointerOperand, valueOperand]
       _ <- callRuntime symbol (map (const Ptr) arguments) [] arguments
       bindResults [valueTyped]
+    reserve nurseryWords words' roots
+      | length vars == length roots = do
+          rootOperands <- mapM (pointerValue ctx env) roots
+          array <-
+            case (roots, ctxRoots ctx) of
+              ([], _) -> pure (OperandLiteral LitNull)
+              (_, Just array) -> pure array
+              _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
+          reserveHeap ctx env vars nurseryWords words' roots rootOperands array
+      | otherwise = failWith (LowerUnsupportedExpression "heap reservation result arity")
     bindResults = bindVars env vars
 
 -- | Take the words of a reservation from the current space. The fast path is
@@ -1701,25 +1708,24 @@ reserveHeap ::
   FunctionCtx ->
   ValueEnv ->
   [GrinVar] ->
-  GrinValue ->
+  Maybe Integer ->
   Operand ->
   [GrinValue] ->
   [Operand] ->
   Operand ->
   LowerM ValueEnv
-reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
+reserveHeap ctx env vars nurseryWords words' roots rootOperands array = do
   context <- currentContext
-  fits <- case requiredWords of
+  fits <- case nurseryWords of
     -- A reservation of zero words is the safepoint before a frame push. It
     -- fails when a stack growth put the heap limit below the heap pointer.
-    GrinLitValue (GrinLitInt _ 0) ->
+    Just 0 ->
       emitValue "heap_fits" I1 (Compare LeU Ptr (contextHeap context) (contextHeapLimit context))
-    -- A fixed size is small, so the end of the reservation cannot wrap, and
-    -- the reservation fits when that end is not above the heap limit.
-    GrinLitValue (GrinLitInt _ requested) -> do
+    -- A nursery batch has a fixed size. Compare its end with the limit.
+    Just requested -> do
       end <- emitValue "heap_end" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt (8 * requested))))
       emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) (contextHeapLimit context))
-    _ -> do
+    Nothing -> do
       nextWord <- emitValue "heap_word" I64 (PtrToInt (contextHeap context))
       limitWord <- emitValue "heap_end_word" I64 (PtrToInt (contextHeapLimit context))
       -- A large allocation lowers the heap limit, and the stores of an
@@ -1751,11 +1757,11 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   -- behalf of a running compiled function.
   capability <- capabilityOperand context
   storeContext capability context
-  -- A static reservation covers nursery objects. A dynamic reservation
+  -- A nursery reservation covers small objects. A dynamic reservation
   -- covers one array, which can use a separate large-object allocation.
-  let reserve = case requiredWords of
-        GrinLitValue {} -> "aihc_heap_collect"
-        _ -> "aihc_ensure_heap"
+  let reserve = case nurseryWords of
+        Just _ -> "aihc_heap_collect"
+        Nothing -> "aihc_ensure_heap"
   _ <- callRuntime reserve [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
   relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
     loadSlot (varBase var) Ptr array (toInteger (8 * index))

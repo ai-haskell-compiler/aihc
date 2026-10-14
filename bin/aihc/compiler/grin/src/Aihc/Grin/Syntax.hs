@@ -288,16 +288,17 @@ data GrinExpr
   = GrinConstant ![GrinValue]
   | GrinBind ![GrinVar] !GrinExpr !GrinExpr
   | GrinStore !GrinNode
-  | -- | Heap reservation whose size may be computed at runtime. Before GC
-    -- lowering the root list is empty; afterward it contains precisely the
-    -- live roots at the following allocation and returns their relocated
-    -- values in the same order.
+  | -- | Reserve nursery words for a batch of small objects.
+    -- Both reservation operations return the relocated roots in list order.
+    GrinEnsureNursery !Integer ![GrinValue]
+  | -- | Reserve space for one dynamic object. A large object uses separate
+    -- storage. This operation does not reserve nursery space for other objects.
     GrinEnsureHeap !GrinValue ![GrinValue]
-  | -- | A node allocation covered by a preceding 'GrinEnsureHeap'.
+  | -- | A node allocation covered by a preceding 'GrinEnsureNursery'.
     GrinStoreUnchecked !GrinNode
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
   | -- | A recursive allocation group covered by one preceding
-    -- 'GrinEnsureHeap'.
+    -- 'GrinEnsureNursery'.
     GrinStoreRecUnchecked ![(GrinVar, GrinNode)] !GrinExpr
   | GrinUpdate !GrinValue !GrinValue
   | -- | Enter a heap pointer until it points to a node in weak-head normal
@@ -523,6 +524,7 @@ grinProgramLiterals program =
         GrinConstant values -> concatMap valueLiterals values
         GrinBind _ valueExpression body -> exprLiterals valueExpression <> exprLiterals body
         GrinStore node -> nodeLiterals node
+        GrinEnsureNursery _ roots -> concatMap valueLiterals roots
         GrinEnsureHeap requiredWords roots -> valueLiterals requiredWords <> concatMap valueLiterals roots
         GrinStoreUnchecked node -> nodeLiterals node
         GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
@@ -578,6 +580,7 @@ grinExprGlobalReferences = exprReferences
         GrinConstant values -> valuesReferences values
         GrinBind _ valueExpression body -> exprReferences valueExpression <> exprReferences body
         GrinStore node -> nodeReferences node
+        GrinEnsureNursery _ roots -> valuesReferences roots
         GrinEnsureHeap requiredWords roots -> valueReferences requiredWords <> valuesReferences roots
         GrinStoreUnchecked node -> nodeReferences node
         GrinStoreRec bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body

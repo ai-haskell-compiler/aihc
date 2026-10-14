@@ -10,6 +10,7 @@ module Aihc.Grin.Gc
     gcGrinProgram,
     lowerGc,
     nodeWords,
+    dynamicReservation,
   )
 where
 
@@ -169,39 +170,39 @@ insertExprReservations continuations expression =
       | isFrame node ->
           GrinBind
             []
-            (GrinEnsureHeap (staticHeapWords 0) [])
+            (GrinEnsureNursery 0 [])
             (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
     GrinBind resultVars (GrinStore node) body ->
       GrinBind
         []
-        (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
+        (GrinEnsureNursery (toInteger (nodeWords node)) [])
         (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
     GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind
             []
-            (GrinEnsureHeap (staticHeapWords requiredWords) [])
+            (GrinEnsureNursery (toInteger requiredWords) [])
             (GrinBind resultVars call (insertExprReservations continuations body))
     call@(GrinCpsPrimitiveCall _ name _ _)
       | Just requiredWords <- primitiveHeapWords name ->
-          GrinBind [] (GrinEnsureHeap (staticHeapWords requiredWords) []) call
+          GrinBind [] (GrinEnsureNursery (toInteger requiredWords) []) call
     GrinBind resultVars valueExpression body ->
       GrinBind resultVars (insertExprReservations continuations valueExpression) (insertExprReservations continuations body)
     GrinStore node
       | isFrame node ->
           GrinBind
             []
-            (GrinEnsureHeap (staticHeapWords 0) [])
+            (GrinEnsureNursery 0 [])
             (GrinStoreUnchecked node)
     GrinStore node ->
       GrinBind
         []
-        (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
+        (GrinEnsureNursery (toInteger (nodeWords node)) [])
         (GrinStoreUnchecked node)
     GrinStoreRec bindings body ->
       GrinBind
         []
-        (GrinEnsureHeap (staticHeapWords (sum (map (nodeWords . snd) bindings))) [])
+        (GrinEnsureNursery (toInteger (sum (map (nodeWords . snd) bindings))) [])
         (GrinStoreRecUnchecked bindings (insertExprReservations continuations body))
     GrinStoreRecUnchecked bindings body ->
       GrinStoreRecUnchecked bindings (insertExprReservations continuations body)
@@ -228,7 +229,9 @@ relocateExpr :: Set GrinVar -> GrinExpr -> State Int GrinExpr
 relocateExpr bound expression =
   case expression of
     GrinBind [] (GrinEnsureHeap requiredWords []) body ->
-      relocateReservation bound requiredWords body
+      relocateReservation bound (GrinEnsureHeap requiredWords) body
+    GrinBind [] (GrinEnsureNursery words' []) body ->
+      relocateReservation bound (GrinEnsureNursery words') body
     GrinBind resultVars valueExpression body -> do
       valueExpression' <- relocateExpr bound valueExpression
       body' <- relocateExpr (bound <> Set.fromList resultVars) body
@@ -237,6 +240,7 @@ relocateExpr bound expression =
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM (relocateAlternative (Set.insert binder bound)) alternatives
     GrinConstant {} -> pure expression
+    GrinEnsureNursery {} -> pure expression
     GrinEnsureHeap {} -> pure expression
     GrinStore {} -> pure expression
     GrinStoreUnchecked {} -> pure expression
@@ -267,8 +271,8 @@ relocateExpr bound expression =
 -- Reservations inserted before CPS carry only their dynamic size. Once
 -- control flow is explicit, populate the reservation with every live pointer
 -- root and rewrite the following expression to use the relocated SSA names.
-relocateReservation :: Set GrinVar -> GrinValue -> GrinExpr -> State Int GrinExpr
-relocateReservation bound requiredWords body = do
+relocateReservation :: Set GrinVar -> ([GrinValue] -> GrinExpr) -> GrinExpr -> State Int GrinExpr
+relocateReservation bound reservation body = do
   let roots = livePointerRoots bound (freeExprVars body)
   relocated <- mapM freshRelocated roots
   let substitutions = Map.fromList (zip roots relocated)
@@ -277,7 +281,7 @@ relocateReservation bound requiredWords body = do
   pure
     ( GrinBind
         relocated
-        (GrinEnsureHeap requiredWords (map GrinVarValue roots))
+        (reservation (map GrinVarValue roots))
         body'
     )
 
@@ -313,9 +317,6 @@ nodeWords node =
   where
     fieldCount = length (grinNodeFields node)
 
-staticHeapWords :: Int -> GrinValue
-staticHeapWords = GrinLitValue . GrinLitInt WordRep . toInteger
-
 substituteExpr :: Map GrinVar GrinVar -> GrinExpr -> GrinExpr
 substituteExpr substitutions expression =
   case expression of
@@ -323,6 +324,7 @@ substituteExpr substitutions expression =
     GrinBind vars valueExpression body ->
       GrinBind vars (substituteExpr substitutions valueExpression) (substituteExpr (without vars substitutions) body)
     GrinStore node -> GrinStore (substituteNode substitutions node)
+    GrinEnsureNursery words' roots -> GrinEnsureNursery words' (map (substituteValue substitutions) roots)
     GrinEnsureHeap requiredWords roots -> GrinEnsureHeap (substituteValue substitutions requiredWords) (map (substituteValue substitutions) roots)
     GrinStoreUnchecked node -> GrinStoreUnchecked (substituteNode substitutions node)
     GrinStoreRec bindings body -> substituteStoreRec GrinStoreRec substitutions bindings body

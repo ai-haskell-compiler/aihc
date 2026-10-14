@@ -92,14 +92,14 @@ allReservations source = do
 reservationWords :: GrinExpr -> [Integer]
 reservationWords expression =
   case expression of
-    GrinBind _ (GrinEnsureHeap (GrinLitValue (GrinLitInt _ requiredWords)) _) body ->
+    GrinBind _ (GrinEnsureNursery requiredWords _) body ->
       requiredWords : reservationWords body
     GrinBind _ value body -> reservationWords value <> reservationWords body
     GrinStoreRec _ body -> reservationWords body
     GrinStoreRecUnchecked _ body -> reservationWords body
     GrinCase _ _ alternatives -> concatMap (reservationWords . grinAltRhs) alternatives
     GrinIfWhnf _ ready slow -> reservationWords ready <> reservationWords slow
-    GrinEnsureHeap (GrinLitValue (GrinLitInt _ requiredWords)) _ -> [requiredWords]
+    GrinEnsureNursery requiredWords _ -> [requiredWords]
     _ -> []
 
 -- | Two branches of different widths. The reservation is hoisted above the

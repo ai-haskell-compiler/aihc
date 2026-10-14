@@ -212,6 +212,7 @@ transformTail parent bound resultRep continuation expression =
                 slow
             _ -> slow
     GrinStore node -> continuePlaced (GrinStore node)
+    GrinEnsureNursery words' roots -> continuePlaced (GrinEnsureNursery words' roots)
     GrinEnsureHeap requiredWords roots -> continuePlaced (GrinEnsureHeap requiredWords roots)
     GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
