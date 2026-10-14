@@ -9,7 +9,7 @@ import Aihc.Fc.Simplify (collectSpine, isConstructorName, isTrivial, maxLocalUni
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, lookupBinderType, reduceType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad (guard)
@@ -104,8 +104,10 @@ floatOut env blocked expr = case candidateType env blocked expr of
 -- Functions and trivial expressions already need no computation thunk.
 candidateType :: TypeEnv -> Set Name -> Expr -> Maybe Type
 candidateType env blocked expr = do
-  guard (not (isTrivial expr) && computation expr && pureExpr expr)
-  guard (Set.disjoint blocked (freeReferences expr))
+  guard (not (isTrivial expr) && computation expr && pureExpr env expr)
+  let refs = freeReferences expr
+  guard (Set.disjoint blocked refs)
+  guard (not (any (maybe False (stateType env) . lookupBinderType env) refs))
   ty <- exprType env expr
   guard (isLiftedType env ty && isNothing (viewFun env ty) && isNothing (viewForAll env ty))
   guard (Set.disjoint blocked (typeReferences ty))
@@ -188,21 +190,31 @@ freeReferences expr = case expr of
       AltDefault -> Set.empty
     scoped binders refs = foldr (\binder rest -> typeReferences (binderType binder) <> Set.delete (binderName binder) rest) refs binders
 
-pureExpr :: Expr -> Bool
-pureExpr expr = case expr of
-  ExForeignCall call _ arguments -> foreignCallConvention call == Prim && not (stateType (foreignCallType call)) && all pureExpr arguments
-  ExApp function argument -> pureExpr function && pureExpr argument
-  ExTyApp function _ -> pureExpr function
-  ExLam _ body -> pureExpr body
-  ExTyLam _ body -> pureExpr body
-  ExLet bind body -> pureExpr (bindRhs bind) && pureExpr body
-  ExRec binds body -> all (pureExpr . bindRhs) binds && pureExpr body
-  ExCase scrutinee _ alternatives -> pureExpr scrutinee && all (pureExpr . altRhs) alternatives
-  ExCast body _ -> pureExpr body
-  ExAbsurd body _ -> pureExpr body
+pureExpr :: TypeEnv -> Expr -> Bool
+pureExpr env expr = case expr of
+  ExForeignCall call _ arguments -> foreignCallConvention call == Prim && not (stateType env (foreignCallType call)) && all pureChild arguments
+  ExApp function argument -> pureChild function && pureChild argument
+  ExTyApp function _ -> pureChild function
+  ExLam _ body -> pureChild body
+  ExTyLam _ body -> pureChild body
+  ExLet bind body -> pureChild (bindRhs bind) && pureChild body
+  ExRec binds body -> all (pureChild . bindRhs) binds && pureChild body
+  ExCase scrutinee _ alternatives -> pureChild scrutinee && all (pureChild . altRhs) alternatives
+  ExCast body _ -> pureChild body
+  ExAbsurd body _ -> pureChild body
   _ -> True
   where
-    stateType ty = any ((== "State#") . nameText) (typeReferences ty)
+    pureChild = pureExpr env
+
+-- | Expand type synonyms before the state-token check.
+stateType :: TypeEnv -> Type -> Bool
+stateType env ty = case reduceType env ty of
+  TyCon name -> nameText name == "State#"
+  TyApp function argument -> stateType env function || stateType env argument
+  TyFun _ _ argument result -> stateType env argument || stateType env result
+  TyForAll binder body -> stateType env (binderType binder) || stateType env body
+  TyEq left right -> stateType env left || stateType env right
+  _ -> False
 
 freshLocal :: FloatM Name
 freshLocal = do
