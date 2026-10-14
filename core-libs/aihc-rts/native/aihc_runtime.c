@@ -2169,7 +2169,7 @@ const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
      before this call copies them. */
   AihcSlot roots[2] = {(AihcSlot)(uintptr_t)function,
                        (AihcSlot)(uintptr_t)continuation};
-  aihc_ensure_heap(capability, words, 2, roots, NULL);
+  aihc_heap_collect(capability, words, 2, roots, NULL);
   function = (AihcValue *)(uintptr_t)roots[0];
 
   AihcValue *captured = aihc_place_node(capability, &aihc_continuation_info,
