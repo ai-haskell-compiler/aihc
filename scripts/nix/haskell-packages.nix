@@ -220,10 +220,10 @@ in rec {
         then
           hsLib.dontHaddock (
             hsLib.overrideCabal profilingAdjusted (_old: {
-              # Check executables use static Haskell libraries.
+              # Darwin loads shared Haskell libraries for Template Haskell.
+              # Other check executables use static Haskell libraries.
               # The checks do not use Haskell API documentation.
-              # Do not compile a second copy for shared libraries.
-              enableSharedLibraries = false;
+              enableSharedLibraries = pkgs.stdenv.hostPlatform.isDarwin;
             })
           )
         else profilingAdjusted;
