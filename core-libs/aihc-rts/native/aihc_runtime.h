@@ -326,6 +326,14 @@ struct AihcCapability {
   uint64_t idle;
   /* The threads that this capability pushed to an idle capability. */
   uint64_t push_count;
+  /* The inbox: the threads that other capabilities push or wake into this
+     capability. inbox_lock guards the inbox, and the worker moves it into
+     the run queue at each schedule. Without workers, the lock is NULL and
+     the inbox stays empty. See "Run queues" in
+     docs/multi-threaded-rts-design.md. */
+  AihcThread *inbox_head;
+  AihcThread *inbox_tail;
+  void *inbox_lock;
 };
 
 /* The process state shared by all capabilities. */

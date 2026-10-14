@@ -91,6 +91,23 @@ int aihc_host_run_lock_wanted(void) {
   return wanted;
 }
 
+void *aihc_host_lock_new(void) {
+  pthread_mutex_t *lock = malloc(sizeof(*lock));
+  if (lock == NULL) {
+    aihc_fail("out of memory");
+  }
+  aihc_posix_check(pthread_mutex_init(lock, NULL), "cannot make a lock");
+  return lock;
+}
+
+void aihc_host_lock_acquire(void *lock) {
+  aihc_posix_check(pthread_mutex_lock(lock), "lock failed");
+}
+
+void aihc_host_lock_release(void *lock) {
+  aihc_posix_check(pthread_mutex_unlock(lock), "unlock failed");
+}
+
 void aihc_host_wake(AihcCapability *capability) {
   if (capability->index >= aihc_wake_pipe_count) {
     aihc_fail("capability has no wake-up descriptor");
@@ -139,6 +156,9 @@ void aihc_host_workers_start(AihcCapability *capability) {
     }
   }
   aihc_wake_pipe_count = count;
+  for (uint64_t index = 0; index < count; ++index) {
+    machine->capabilities[index]->inbox_lock = aihc_host_lock_new();
+  }
   aihc_host_run_lock();
   pthread_attr_t attributes;
   aihc_posix_check(pthread_attr_init(&attributes), "worker setup failed");
