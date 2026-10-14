@@ -190,7 +190,7 @@ parseLinkArguments input =
     quoted _ [] = Left "incomplete response file argument"
     quoted result (character : rest) = quoted (character : result) rest
 
--- | Copy inputs into the bundle and write a Clang response file.
+-- | Each bundle has copies of its inputs and a Clang response file.
 writeLinkBundle :: NativeTarget -> FilePath -> LinkLibraries -> [FilePath] -> [FilePath] -> IO ()
 writeLinkBundle Wasm32Wasip3 _ _ _ _ = ioError (userError "AIHC does not support WASM link bundles")
 writeLinkBundle target bundle libraries objects archives = do
