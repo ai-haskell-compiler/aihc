@@ -3,13 +3,21 @@ module Test.Fuzz
   )
 where
 
-import Aihc.Dev.Fuzz (batchSize, cycleProperties, dashboardRefreshMicroseconds, isQuitKey, resolveJobCount, selectProperties)
-import Aihc.Dev.Fuzz.CLI (Command (..), Selection (..), commandParser, parseDuration)
+import Aihc.Dev.Fuzz.Bugs (Bug (..), Failure (..), IssueRef (..), bugFingerprint, commentBody, issueBody, parseIssueRef, parseReplay, recordFailure, replayCommand)
+import Aihc.Dev.Fuzz.CLI (Command (..), Options (..), Selection (..), commandParser, defaultRepository, parseDuration)
+import Aihc.Dev.Fuzz.Model (ReporterStatus (..), bugStatus, updateRates)
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
-import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
-import Data.List (isInfixOf, isPrefixOf, isSuffixOf, nub)
+import Aihc.Dev.Fuzz.Schedule (batchSize, cycleProperties, pickProperty, resolveJobCount, selectProperties)
+import Data.Aeson qualified as Aeson
+import Data.Bifunctor (bimap)
+import Data.List (isInfixOf, nub)
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
+import Data.Time.Calendar (fromGregorian)
+import Data.Time.Clock (UTCTime (..))
+import Hedgehog.Internal.Property (Skip (..), skipCompress)
+import Options.Applicative (ParserResult (CompletionInvoked, Success), defaultPrefs, execParserPure, info)
+import Options.Applicative qualified as Options
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 
@@ -19,8 +27,6 @@ fuzzTests =
     "fuzz"
     [ testCase "uses 10,000-case scheduling batches" $
         assertEqual "batch size" 10000 batchSize,
-      testCase "refreshes the dashboard ten times per second" $
-        assertEqual "refresh interval" 100000 dashboardRefreshMicroseconds,
       testCase "feeds one selected property to every worker" $
         assertEqual "assignments" (replicate 10 "only" :: [String]) (take 10 (cycleProperties [(1, "only")])),
       testCase "cycles property assignments without tracking active work" $
@@ -32,25 +38,15 @@ fuzzTests =
         let assignments = take 110 (cycleProperties [(1, "a" :: String), (0.1, "b")])
         assertEqual "weight 1" 100 (length (filter (== "a") assignments))
         assertEqual "weight 0.1" 10 (length (filter (== "b") assignments)),
-      testCase "shows one cumulative count for concurrent workers" $ do
-        let dashboard =
-              sampleDashboard
-                { dashboardActive = [(1, "gc"), (2, "gc")],
-                  dashboardPropertyCases = [("gc", 1500000), ("idle", 2000000000)]
-                }
-            frame = renderDashboard 20 90 dashboard
-            nextFrame = renderDashboard 20 90 dashboard {dashboardElapsed = 65.1}
-        assertEqual "one property row" 1 (length (filter ("gc" `isInfixOf`) frame))
-        assertBool "cumulative count" (any ("1.5M  gc  [2 jobs]" `isInfixOf`) frame)
-        assertBool "inactive count" (any ("2.0G  idle" `isInfixOf`) frame)
-        assertBool "spinner advances" (frame /= nextFrame),
+      testCase "skips a resting property when another one is ready" $ do
+        let schedule = cycle ["a", "b", "c" :: String]
+            picked resting = fmap (\(item, wait, rest) -> (item, wait, take 4 rest)) (pickProperty (`elem` resting) 3 schedule)
+        assertEqual "ready head" (Just ("a", False, ["b", "c", "a", "b"])) (picked [])
+        assertEqual "resting head" (Just ("b", False, ["a", "c", "a", "b"])) (picked ["a"])
+        assertEqual "all resting" (Just ("a", True, ["b", "c", "a", "b"])) (picked ["a", "b", "c"])
+        assertEqual "empty" Nothing (picked [] >> pickProperty (const False) 3 ([] :: [String])),
       testCase "does not cap jobs at the selected property count" $
         assertEqual "jobs" 10 (resolveJobCount 4 (Just 10)),
-      testCase "recognizes q and escape as quit keys" $ do
-        assertBool "lowercase q" (isQuitKey 'q')
-        assertBool "uppercase q" (isQuitKey 'Q')
-        assertBool "escape" (isQuitKey '\ESC')
-        assertBool "other key" (not (isQuitKey 'x')),
       testCase "parses supported time-limit units" $ do
         assertEqual "milliseconds" (Right 0.25) (parseDuration "250ms")
         assertEqual "seconds" (Right 30) (parseDuration "30s")
@@ -67,7 +63,16 @@ fuzzTests =
               "command"
               (List (Selection ["TC"] ["reflexive"]))
               command
-          Failure failure -> fail (show failure)
+          Options.Failure failure -> fail (show failure)
+          CompletionInvoked _ -> fail "unexpected shell completion",
+      testCase "parses the report options of a run" $
+        case execParserPure defaultPrefs (info commandParser mempty) ["--no-report", "--bug-file", "bugs.json"] of
+          Success (Run options) -> do
+            assertEqual "repository" defaultRepository (optionsRepository options)
+            assertBool "reporting is off" (not (optionsReport options))
+            assertEqual "bug file" (Just "bugs.json") (optionsBugFile options)
+          Success other -> fail ("unexpected command " <> show other)
+          Options.Failure failure -> fail (show failure)
           CompletionInvoked _ -> fail "unexpected shell completion",
       testCase "filters and excludes component-qualified names case-insensitively" $ do
         let selected = selectProperties (Selection ["ROUND-TRIP"] ["compat"]) fuzzProperties
@@ -83,73 +88,78 @@ fuzzTests =
           "components"
           (Set.fromList ["aihc-grin", "aihc-tc", "aihc-gc"])
           components,
-      testCase "dashboard stays within short and narrow terminals" $ do
-        let frame = renderDashboard 3 24 sampleDashboard
-        assertEqual "uses available rows" 3 (length frame)
-        assertBool "respects terminal width" (all ((<= 23) . length) frame)
-        assertBool "reports hidden properties" (any ("more properties" `isInfixOf`) frame),
-      testCase "dashboard has a useful one-row fallback" $ do
-        let frame = renderDashboard 1 18 sampleDashboard
-        assertEqual "one row" 1 (length frame)
-        assertBool "keeps identity" $ case frame of
-          line : _ -> "AIHC FUZZ" `isInfixOf` line
-          [] -> False,
-      testCase "dashboard renders progress without filling unused rows" $ do
-        let frame = renderDashboard 20 90 sampleDashboard
-        assertBool "does not pad to terminal height" (length frame < 20)
-        assertBool "shows active count" (any ("PROPERTIES  35" `isInfixOf`) frame)
-        assertBool "shows spinner" (any ('⠋' `elem`) frame)
-        assertBool "respects terminal width" (all ((<= 89) . length) frame),
-      testCase "keeps property rows fixed when active workers change" $ do
-        let dashboard =
-              sampleDashboard
-                { dashboardActive = [(1, "a")],
-                  dashboardPropertyCases = [("a", 1), ("b", 2)]
-                }
-            rows active = map (drop 13) (drop 6 (renderDashboard 20 90 dashboard {dashboardActive = active}))
-        assertEqual "property positions" (rows [(1, "a")]) (rows [(1, "b")]),
-      testCase "synchronizes all changed rows in one terminal frame" $ do
-        let update = renderFrameUpdate 10 ["old", "stale"] ["new", "fresh"]
-        assertBool "starts synchronized output" ("\ESC[?2026h" `isPrefixOf` update)
-        assertBool "ends synchronized output" ("\ESC[?2026l" `isSuffixOf` update)
-        assertEqual "unchanged frame has no output" "" (renderFrameUpdate 10 ["same"] ["same"])
-        assertEqual "zero rows have no output" "" (renderFrameUpdate 0 ["old"] ["new"]),
-      testCase "incremental renderer only updates changed rows" $ do
-        let update = renderFrameUpdate 10 ["title", "old", "same"] ["title", "new", "same"]
-        assertBool "does not erase a row before its replacement" (not ("\ESC[2K" `isInfixOf` update))
-        assertBool "clears the old row suffix after its replacement" ("new\ESC[K" `isInfixOf` update)
-        assertBool "does not clear screen" (not ("\ESC[2J" `isInfixOf` update))
-        assertBool "leaves unchanged first row alone" (not ("\ESC[1;1H" `isInfixOf` update))
-        assertBool "updates changed row" ("\ESC[2;1H" `isInfixOf` update),
-      testCase "incremental renderer clears stale rows" $
-        assertBool
-          "clears removed second row"
-          ("\ESC[2;1H\ESC[K" `isInfixOf` renderFrameUpdate 10 ["title", "stale"] ["title"])
+      testCase "fingerprints ignore the seed and keep the counterexample" $ do
+        let otherSeed = sampleFailure {failureSeed = "Seed 9 9", failureReplay = "1:a Seed 9 9", failureReport = "other report"}
+            otherValue = sampleFailure {failureValues = ["[2]"]}
+        assertEqual "same bug" (bugFingerprint sampleFailure) (bugFingerprint otherSeed)
+        assertBool "different bug" (bugFingerprint sampleFailure /= bugFingerprint otherValue)
+        assertEqual "sixteen hex digits" 16 (length (bugFingerprint sampleFailure)),
+      testCase "counts a repeated failure as a hit of the known bug" $ do
+        let (first, firstNew, afterFirst) = recordFailure (time 1) sampleFailure []
+            (second, secondNew, afterSecond) = recordFailure (time 2) sampleFailure {failureSeed = "Seed 9 9"} afterFirst
+            (third, thirdNew, afterThird) = recordFailure (time 3) sampleFailure {failureValues = ["[2]"]} afterSecond
+        assertBool "first is new" firstNew
+        assertEqual "first hit" 1 (bugHits first)
+        assertBool "second is known" (not secondNew)
+        assertEqual "second hit" 2 (bugHits second)
+        assertEqual "first seen is kept" (time 1) (bugFirstSeen second)
+        assertEqual "last seen moves" (time 2) (bugLastSeen second)
+        assertEqual "one bug" 1 (length afterSecond)
+        assertBool "third is new" thirdNew
+        assertEqual "two bugs" 2 (length afterThird)
+        assertEqual "the first failure is kept" sampleFailure (bugFailure third {bugFailure = sampleFailure}),
+      testCase "bug store round-trips through JSON" $ do
+        let (_, _, bugs) = recordFailure (time 1) sampleFailure []
+            reported = map (\bug -> bug {bugIssue = Just (IssueRef 2690 "https://github.com/o/r/issues/2690")}) bugs
+        assertEqual "pending" (Right bugs) (Aeson.eitherDecode (Aeson.encode bugs))
+        assertEqual "reported" (Right reported) (Aeson.eitherDecode (Aeson.encode reported)),
+      testCase "reads the issue reference from gh output" $ do
+        assertEqual
+          "url"
+          (Just (IssueRef 2690 "https://github.com/o/r/issues/2690"))
+          (parseIssueRef "Creating issue in o/r\n\nhttps://github.com/o/r/issues/2690\n")
+        assertEqual "no url" Nothing (parseIssueRef "error: not found"),
+      testCase "issue text carries the replay command and the report" $ do
+        let (bug, _, _) = recordFailure (time 1) sampleFailure []
+        assertBool "title in body" (replayCommand sampleFailure `isInfixOf` issueBody bug)
+        assertBool "report in body" (failureReport sampleFailure `isInfixOf` issueBody bug)
+        assertBool "replay in comment" (replayCommand sampleFailure `isInfixOf` commentBody bug)
+        assertEqual "replay command" "cabal run -v0 aihc-dev -- fuzz replay \"aihc-tc.zonking idempotent\" \"3:b2 Seed 1 3\"" (replayCommand sampleFailure),
+      testCase "parses a replay argument with and without a shrink path" $ do
+        let compressed = fmap (bimap skipCompress show)
+        assertEqual "shrink path" (Right ("3:b2", "Seed 1 3")) (compressed (parseReplay "3:b2 Seed 1 3"))
+        assertEqual "seed only" (Right (skipCompress SkipNothing, "Seed 1 3")) (compressed (parseReplay "Seed 1 3"))
+        assertBool "garbage" (isLeft (parseReplay "nonsense")),
+      testCase "describes pending bugs with the reporter state" $ do
+        let (bug, _, _) = recordFailure (time 1) sampleFailure []
+        assertEqual "idle" "pending" (bugStatus ReporterIdle bug)
+        assertEqual "blocked" "pending · gh is not installed" (bugStatus (ReporterBlocked "gh is not installed") bug)
+        assertEqual "sending" "reporting…" (bugStatus (ReporterSending (bugId bug)) bug)
+        assertEqual "sending another" "pending" (bugStatus (ReporterSending "other") bug)
+        assertEqual "reported" "#7" (bugStatus ReporterIdle bug {bugIssue = Just (IssueRef 7 "url")}),
+      testCase "blends case rates from the sample difference" $ do
+        let previous = Map.fromList [("a", 100)]
+            current = Map.fromList [("a", 300), ("b", 50)]
+            rates = updateRates 0.5 previous current (Map.fromList [("a", 1000)])
+        assertEqual "smoothed rate" (Just 880) (Map.lookup "a" rates)
+        assertEqual "new property starts from zero" (Just 100) (Map.lookup "b" rates)
+        assertEqual "no time, no change" (Map.fromList [("a", 1000)]) (updateRates 0 previous current (Map.fromList [("a", 1000)]))
     ]
 
-sampleDashboard :: Dashboard
-sampleDashboard =
-  Dashboard
-    { dashboardActive =
-        [ (1, "aihc-tc.substitution composition"),
-          (2, "aihc-tc.unification symmetry"),
-          (3, "aihc-grin.lint preservation"),
-          (4, "aihc-tc.zonking idempotent"),
-          (5, "aihc-grin.pretty-printer round-trip")
-        ],
-      dashboardPropertyCases =
-        [ ("aihc-tc.substitution composition", 1250),
-          ("aihc-tc.unification symmetry", 5000),
-          ("aihc-grin.lint preservation", 9999),
-          ("aihc-tc.zonking idempotent", 2500),
-          ("aihc-grin.pretty-printer round-trip", 7500)
-        ],
-      dashboardBatches = 42,
-      dashboardCases = 424242,
-      dashboardElapsed = 65,
-      dashboardJobs = 5,
-      dashboardProperties = 35
+sampleFailure :: Failure
+sampleFailure =
+  Failure
+    { failureProperty = "aihc-tc.zonking idempotent",
+      failureSeed = "Seed 1 3",
+      failureReplay = "3:b2 Seed 1 3",
+      failureText = "zonk changed the type",
+      failureValues = ["[1]"],
+      failureSite = Just "Fuzz.hs:12",
+      failureReport = "✗ failed after 3 tests.\n  zonk changed the type"
     }
+
+time :: Integer -> UTCTime
+time seconds = UTCTime (fromGregorian 2026 10 14) (fromIntegral seconds)
 
 isLeft :: Either left right -> Bool
 isLeft value =

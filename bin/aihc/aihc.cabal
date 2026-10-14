@@ -355,8 +355,12 @@ executable aihc-dev
     Aihc.Dev.ExtractHi.Types
     Aihc.Dev.Frontend
     Aihc.Dev.Fuzz
+    Aihc.Dev.Fuzz.Bugs
     Aihc.Dev.Fuzz.CLI
+    Aihc.Dev.Fuzz.Model
     Aihc.Dev.Fuzz.Registry
+    Aihc.Dev.Fuzz.Report
+    Aihc.Dev.Fuzz.Schedule
     Aihc.Dev.Fuzz.TUI
     Aihc.Dev.PipelineExamples
     Aihc.Grin.Fuzz
@@ -532,10 +536,11 @@ test-suite dev-spec
     Aihc.Dev.ExtractHi.ToResolveIface
     Aihc.Dev.ExtractHi.Types
     Aihc.Dev.Frontend
-    Aihc.Dev.Fuzz
+    Aihc.Dev.Fuzz.Bugs
     Aihc.Dev.Fuzz.CLI
+    Aihc.Dev.Fuzz.Model
     Aihc.Dev.Fuzz.Registry
-    Aihc.Dev.Fuzz.TUI
+    Aihc.Dev.Fuzz.Schedule
     Aihc.Grin.Fuzz
     Aihc.Testing.RuntimeArchive
     Test.ExploreDocument
