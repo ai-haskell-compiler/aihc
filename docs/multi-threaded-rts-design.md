@@ -50,7 +50,9 @@ Lir has the atomic instructions of the memory model section on every backend.
 No compiled code or runtime unit uses them yet.
 
 The rest of step 1 remains necessary before step 2.
-It includes the escape count and barrier safepoints.
+It includes the barrier budget and the barrier safepoints.
+The cold path of the write barrier at a compiled store site gets the stored value and counts escapes.
+The runtime statistics report the count as `escape_count`.
 Native parallel execution starts at step 4.
 WASM keeps one capability until WASI supports the required thread operations.
 
