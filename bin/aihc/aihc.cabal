@@ -271,7 +271,6 @@ library
     compiler/wasm/src
 
   build-depends:
-    aeson >=2.0 && <2.3,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-cpp,
     aihc-hackage,

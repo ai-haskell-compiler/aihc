@@ -12,7 +12,7 @@
 # exit status is non-zero when any example fails.
 #
 # The link goes through the C driver of the target rather than `aihc
-# link-exe`, so the host needs clang and jq but no compiler build.
+# link-exe`. The host needs clang.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -25,19 +25,9 @@ mkdir -p "$2"
 results=$(cd "$2" && pwd)
 target=$(<"$bundles/target")
 
-# These follow executableLinkArguments and cxxStandardLibraryArguments in
-# Aihc.Native, so the link is the same as the link of `aihc link-exe`.
 case "$target" in
-apple-arm64)
-	triple=arm64-apple-darwin
-	target_arguments=("-Wl,-dead_strip" "-Wl,-no_exported_symbols")
-	cxx_arguments=(-lc++)
-	;;
-linux-amd64)
-	triple=x86_64-unknown-linux-gnu
-	target_arguments=("-Wl,--gc-sections")
-	cxx_arguments=(-lstdc++)
-	;;
+apple-arm64) triple=arm64-apple-darwin ;;
+linux-amd64) triple=x86_64-unknown-linux-gnu ;;
 *)
 	echo "unsupported bundle target: $target" >&2
 	exit 2
@@ -78,23 +68,9 @@ for bundle in "$bundles"/*/; do
 	# The program is named after the example because system-environment
 	# checks getProgName.
 	executable="$result/$name"
-	# The order is that of `aihc link-exe`: the system libraries come after
-	# every archive, so the members of each archive can resolve symbols
-	# from them.
-	inputs=()
-	while IFS= read -r input; do
-		inputs+=("$link/$input")
-	done < <(jq -r '.objects[], .archives[]' "$link/link.json")
-	libraries=()
-	while IFS= read -r argument; do
-		libraries+=("$argument")
-	done < <(jq -r '.linkArguments // [] | .[]' "$link/link.json")
-	libraries+=(-lm)
-	if [[ $(jq -r '.cxxStdLib // false' "$link/link.json") == true ]]; then
-		libraries+=("${cxx_arguments[@]}")
-	fi
-	if ! clang "--target=$triple" "${target_arguments[@]}" "${inputs[@]}" "${libraries[@]}" \
-		-o "$executable" >"$result/link.log" 2>&1; then
+	# Clang reads the response file from the bundle directory.
+	if ! (cd "$link" && clang "--target=$triple" @link.args -o "$executable") \
+		>"$result/link.log" 2>&1; then
 		echo link-failed >"$result/status"
 		echo "$name: link failed"
 		failed=1

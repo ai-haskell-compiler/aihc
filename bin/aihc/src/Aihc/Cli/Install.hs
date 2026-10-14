@@ -153,7 +153,7 @@ import Aihc.PackagePlan
     planBuildContext,
     planPackages,
   )
-import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, renderHumanDiagnostic)
+import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, isCppWarning, renderHumanDiagnostic)
 import Aihc.PackagePlan.Lock (lockFileName)
 import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), moduleDepsDigest, parseInterfaceBytes)
 import Aihc.Parser.Syntax
@@ -230,8 +230,6 @@ import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMV
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (IOException, SomeException, bracket_, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
-import Data.Aeson (Value (..))
-import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
@@ -291,7 +289,7 @@ data SourceModule = SourceModule
     -- | The package qualifier and name of each import.
     sourceModuleImports :: ![(Maybe Text, Text)],
     sourceModuleExtensions :: ![Extension],
-    sourceModuleParseDiagnostics :: [Value]
+    sourceModuleParseDiagnostics :: [Diagnostic]
   }
 
 data InstalledPackage = InstalledPackage
@@ -2169,10 +2167,6 @@ parseSource headerDir root versions fileInfo = do
         sourceModuleParseDiagnostics = parseDiagnostics
       }
 
-isCppWarning :: Value -> Bool
-isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
-isCppWarning _ = False
-
 sourceModuleUnits :: [SourceModule] -> [SourceUnit]
 sourceModuleUnits sources = zipWith makeUnit [0 ..] orderedComponents
   where
@@ -2290,7 +2284,7 @@ renderResolveExcerpt sourceLines sourceSpan =
 -- | The report of a failed frontend. The excerpts load the source files
 -- again here: nothing keeps the lines of every module in memory for the
 -- rare build that needs a few of them.
-renderFrontendFailure :: (FilePath -> IO DiagnosticSourceMap) -> [Value] -> [ResolveError] -> [(Text, TcDiagnostic)] -> IO String
+renderFrontendFailure :: (FilePath -> IO DiagnosticSourceMap) -> [Diagnostic] -> [ResolveError] -> [(Text, TcDiagnostic)] -> IO String
 renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnostics = do
   sourceLines <-
     loadExcerptSources
@@ -2336,7 +2330,7 @@ excerptSourceLoader headerDir root versions files path =
   where
     fileInfos = Map.fromList [(HackageCabal.fileInfoPath fileInfo, fileInfo) | fileInfo <- files]
 
-renderParseDiagnostics :: [Value] -> String
+renderParseDiagnostics :: [Diagnostic] -> String
 renderParseDiagnostics diagnostics =
   "Parse failed:\n" <> intercalate "\n" (map (renderHumanDiagnostic "parse") diagnostics)
 
@@ -2847,10 +2841,10 @@ unitFactsPath :: SourceUnit -> FilePath
 unitFactsPath unit = unitStampBase unit <.> "cbor"
 
 unitResolveStampPath :: SourceUnit -> FilePath
-unitResolveStampPath unit = unitStampBase unit <.> "resolve.json"
+unitResolveStampPath unit = unitStampBase unit <.> "resolve.cbor"
 
 unitStampPath :: SourceUnit -> FilePath
-unitStampPath unit = unitStampBase unit <.> "unit.json"
+unitStampPath unit = unitStampBase unit <.> "unit.cbor"
 
 -- | The backend outputs of a unit, relative to the package. A @--lto@ unit
 -- writes the System FC of each module and nothing below it.
