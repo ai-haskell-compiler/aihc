@@ -160,7 +160,7 @@ transformTail parent bound resultRep continuation expression =
               alternativeBound
               resultRep
               continuation
-              (GrinBind resultVars (grinAltRhs alternative) afterCase)
+              (bindAtTail resultVars (grinAltRhs alternative) afterCase)
           pure alternative {grinAltRhs = rhs}
         shareBody = do
           joinName <- liftJoinPoint parent resultRep captures resultVars body
@@ -313,6 +313,22 @@ transformTail parent bound resultRep continuation expression =
       case resultRep of
         ResultRep runtimeRep -> continueDirect runtimeRep continuation directExpression
         ResultForwarded -> lift (Left (CpsGrinForwardedDirectResult parent))
+
+-- | Bind the result of an alternative where the alternative makes it: at the
+-- end of its bind spine. ANF does not flatten a bind into the alternatives of
+-- a case, so the alternative can itself be a bind spine. A bind whose value
+-- is a spine is not direct, and it would reify the rest of the alternative as
+-- a continuation frame. Then each iteration of a loop that has such a case
+-- would allocate a frame and return through the runtime.
+--
+-- The 'GrinVar' uniques make the scope extension of the spine binders safe,
+-- as in "Aihc.Grin.Anf".
+bindAtTail :: [GrinVar] -> GrinExpr -> GrinExpr -> GrinExpr
+bindAtTail resultVars expression body =
+  case expression of
+    GrinBind vars valueExpression rest -> GrinBind vars valueExpression (bindAtTail resultVars rest body)
+    GrinStoreRec bindings rest -> GrinStoreRec bindings (bindAtTail resultVars rest body)
+    _ -> GrinBind resultVars expression body
 
 -- | Lift the continuation of a case in bind position into one computation
 -- entry that every alternative calls.
