@@ -216,9 +216,11 @@ typedef struct {
 } AihcByteArray;
 
 /* Two metadata slots precede each pinned object on both target word sizes.
-   The second slot packs the charge of the block with its generation and
-   its mark: the low 56 bits are the bytes, bits 56 to 59 the generation,
-   and bit 63 the mark of the running collection. */
+   The second slot packs the charge of the block with its owner, its
+   generation, and its marks: the low 48 bits are the bytes, bits 48 to 55
+   the index of the capability that allocated the block, bits 56 to 59 the
+   generation, and bit 63 the mark of the running collection. A young block
+   belongs to the local heap of its owner. */
 typedef struct AihcPinnedBlock {
   union {
     struct AihcPinnedBlock *next;
@@ -228,7 +230,9 @@ typedef struct AihcPinnedBlock {
   AihcSlot object[];
 } AihcPinnedBlock;
 
-#define AIHC_PINNED_BYTES_MASK ((UINT64_C(1) << 56) - 1)
+#define AIHC_PINNED_BYTES_MASK ((UINT64_C(1) << 48) - 1)
+#define AIHC_PINNED_OWNER_SHIFT 48
+#define AIHC_PINNED_OWNER_MASK (UINT64_C(255) << AIHC_PINNED_OWNER_SHIFT)
 #define AIHC_PINNED_GENERATION_SHIFT 56
 #define AIHC_PINNED_GENERATION_MASK                                            \
   (UINT64_C(15) << AIHC_PINNED_GENERATION_SHIFT)
@@ -239,6 +243,16 @@ typedef struct AihcPinnedBlock {
 
 static inline uint64_t aihc_pinned_bytes(const AihcPinnedBlock *block) {
   return block->bytes & AIHC_PINNED_BYTES_MASK;
+}
+
+static inline uint64_t aihc_pinned_owner(const AihcPinnedBlock *block) {
+  return (block->bytes & AIHC_PINNED_OWNER_MASK) >> AIHC_PINNED_OWNER_SHIFT;
+}
+
+static inline void aihc_pinned_set_owner(AihcPinnedBlock *block,
+                                         uint64_t owner) {
+  block->bytes = (block->bytes & ~AIHC_PINNED_OWNER_MASK) |
+                 (owner << AIHC_PINNED_OWNER_SHIFT);
 }
 
 static inline unsigned aihc_pinned_generation(const AihcPinnedBlock *block) {
@@ -591,6 +605,13 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
 const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result);
 void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
+/* The two parts of aihc_visit_roots: the roots of one capability, and the
+   roots of the machine with the roots of the requester. */
+void aihc_visit_capability_roots(AihcCapability *capability,
+                                 AihcRootVisitor visitor, void *context);
+void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
+                              AihcSlot *roots, AihcRootVisitor visitor,
+                              void *context);
 /* The header every runtime object outside the managed heap carries. */
 
 void aihc_gc_init(AihcCapability *capability);

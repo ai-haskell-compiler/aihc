@@ -845,10 +845,9 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
    a store into them needs no write barrier. Each thread with a stack is
    visited. A thread that nothing reaches keeps them until a gen2 cycle
    frees its record. A thread with a resumption is on the run queue. */
-static void aihc_visit_thread_roots(AihcCapability *capability,
+static void aihc_visit_thread_roots(AihcMachine *machine,
                                     AihcRootVisitor visitor, void *context) {
-  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
-       stack = stack->next) {
+  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
     AihcThread *thread = stack->thread;
     thread->transaction =
         aihc_visit_pointer(thread->transaction, visitor, context);
@@ -863,8 +862,8 @@ static void aihc_visit_thread_roots(AihcCapability *capability,
   }
 }
 
-void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
-                      AihcSlot *roots, AihcRootVisitor visitor, void *context) {
+void aihc_visit_capability_roots(AihcCapability *capability,
+                                 AihcRootVisitor visitor, void *context) {
   for (AihcCallbackSlot *slot = aihc_callback_slots; slot != NULL;
        slot = slot->next) {
     if (slot->capability == capability) {
@@ -882,17 +881,6 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
       frame->roots[index] = visitor(frame->roots[index], context);
     }
   }
-  aihc_visit_thread_roots(capability, visitor, context);
-  aihc_visit_value(&capability->machine->global_array, visitor, context);
-  for (uint64_t index = 0; index < capability->machine->global_count; ++index) {
-    capability->machine->globals[index] =
-        visitor(capability->machine->globals[index], context);
-  }
-  for (uint64_t index = 0; index < root_count; ++index) {
-    roots[index] = visitor(roots[index], context);
-  }
-  capability->machine->transaction_timers = aihc_visit_pointer(
-      capability->machine->transaction_timers, visitor, context);
   aihc_visit_value(&capability->selected_resume.function, visitor, context);
   aihc_visit_value(&capability->selected_resume.continuation, visitor, context);
   if ((capability->selected_resume.kind == AIHC_RESUME_CONTINUE ||
@@ -912,10 +900,32 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
   capability->io_requests_tail =
       aihc_visit_pointer(capability->io_requests_tail, visitor, context);
   aihc_visit_host_roots(capability, visitor, context);
+}
+
+void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
+                              AihcSlot *roots, AihcRootVisitor visitor,
+                              void *context) {
+  aihc_visit_thread_roots(machine, visitor, context);
+  aihc_visit_value(&machine->global_array, visitor, context);
+  for (uint64_t index = 0; index < machine->global_count; ++index) {
+    machine->globals[index] = visitor(machine->globals[index], context);
+  }
+  for (uint64_t index = 0; index < root_count; ++index) {
+    roots[index] = visitor(roots[index], context);
+  }
+  machine->transaction_timers =
+      aihc_visit_pointer(machine->transaction_timers, visitor, context);
   for (uint64_t index = 0; index < 3; ++index) {
     aihc_rts_set_root(
         index, aihc_visit_pointer(aihc_rts_root(index), visitor, context));
   }
+}
+
+void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
+                      AihcSlot *roots, AihcRootVisitor visitor, void *context) {
+  aihc_visit_capability_roots(capability, visitor, context);
+  aihc_visit_machine_roots(capability->machine, root_count, roots, visitor,
+                           context);
 }
 
 void aihc_ensure_heap(AihcCapability *capability, uint64_t words,

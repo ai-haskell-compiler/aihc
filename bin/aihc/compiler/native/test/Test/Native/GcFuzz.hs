@@ -240,6 +240,15 @@ prop_collect getDriver = withTests 500 . property $ do
           let problems = replay script reports
               has predicate = any predicate script
               reportHas predicate = any predicate (Map.elems reports)
+              -- A local collection at a reservation that left a young
+              -- object of another capability in place.
+              localBeside (index, CReserve _, model) = case Map.lookup index reports of
+                Just report ->
+                  rCollected report < 2
+                    && not (rBridge report)
+                    && or [Map.findWithDefault 0 identity (mOwner model) /= mHeapIndex model | (identity, 0) <- Map.toList (rAges report)]
+                Nothing -> False
+              localBeside _ = False
           classify (fromString "several collections") (Map.size reports > 1)
           classify (fromString "gen1 collection") (reportHas ((== 1) . rCollected))
           cover 2 (fromString "full collection") (reportHas ((== 2) . rCollected))
@@ -251,6 +260,7 @@ prop_collect getDriver = withTests 500 . property $ do
           cover 5 (fromString "promotion by a copy") (or [Map.notMember index reports | (index, CPromote {}) <- zip [0 :: Int ..] script])
           cover 2 (fromString "promotion by a collection") (or [Map.member index reports | (index, CPromote {}) <- zip [0 :: Int ..] script])
           cover 10 (fromString "allocation in the nursery of another capability") (has (\case CHeap index -> index > 0; _ -> False))
+          cover 1 (fromString "local collection beside another local heap") (any localBeside (zip3 [0 ..] script (scanl (flip applyCommand) emptyModel script)))
           cover 5 (fromString "several threads") (has (\case CFork {} -> True; _ -> False))
           cover 2 (fromString "thread blocks on an MVar") (has (\case CTake _ -> True; CRead _ -> True; CPut {} -> True; _ -> False))
           cover 0.5 (fromString "thread blocks on a blackhole") (has (\case CBlock _ -> True; _ -> False))
@@ -380,6 +390,12 @@ data Model = Model
     -- | The number of capabilities. Each one has a nursery, and an epoch
     -- can allocate its objects in the nursery of any of them.
     mCapabilities :: Int,
+    -- | The capability whose nursery gets the objects of new commands.
+    mHeapIndex :: Int,
+    -- | The capability that allocated each object. A young object belongs
+    -- to the local heap of that capability, and a local collection of
+    -- another capability leaves it alone.
+    mOwner :: Map Id Int,
     -- | The generation of each heap object after the last reported
     -- collection. An object the driver has not reported is in the nursery.
     mAges :: Map Id Int,
@@ -433,6 +449,8 @@ emptyModel =
       mSrts = Map.empty,
       mCurrentSrt = Nothing,
       mCapabilities = 1,
+      mHeapIndex = 0,
+      mOwner = Map.empty,
       mAges = Map.empty,
       mPromoted = Set.empty,
       mEscapeCollected = False,
@@ -688,7 +706,7 @@ applyCommand command model = case command of
     | slot < staticThunkCount -> model {mStaticThunkSrts = setAt slot srt (mStaticThunkSrts model)}
     | otherwise -> model {mStaticNodeSrts = setAt (slot - staticThunkCount) srt (mStaticNodeSrts model)}
   CCapabilities count -> model {mCapabilities = count}
-  CHeap _ -> model
+  CHeap index -> model {mHeapIndex = index}
   CFill _ -> model
   CReserve _ -> model
   CNew identity kind pointers srt ->
@@ -771,7 +789,7 @@ applyCommand command model = case command of
   where
     failed = model {mFailed = True}
     insertObject identity object =
-      model {mHeap = Map.insert identity object (mHeap model), mNextId = max (mNextId model) (identity + 1)}
+      model {mHeap = Map.insert identity object (mHeap model), mNextId = max (mNextId model) (identity + 1), mOwner = Map.insert identity (mHeapIndex model) (mOwner model)}
     adjustObject identity change = model {mHeap = Map.adjust change identity (mHeap model)}
     withMVar identity continue = case (Map.lookup identity (mHeap model), runningTop model) of
       (Just (MVar mvar), Just top) -> continue mvar top
@@ -1135,12 +1153,15 @@ data Report = Report
     -- | A gen2 cycle took its snapshot at this collection.
     rCycleStart :: Bool,
     -- | A gen2 cycle ended at this collection.
-    rFinish :: Bool
+    rFinish :: Bool,
+    -- | A bridge collection, which collects the local heaps of all
+    -- capabilities, ran in this command.
+    rBridge :: Bool
   }
   deriving (Show)
 
 emptyReport :: Report
-emptyReport = Report 0 Map.empty Map.empty RNull [] [] [] [] [] Map.empty Map.empty [] False False
+emptyReport = Report 0 Map.empty Map.empty RNull [] [] [] [] [] Map.empty Map.empty [] False False False
 
 parseRValue :: String -> Either String RValue
 parseRValue token = case token of
@@ -1199,6 +1220,7 @@ parseReports = go Map.empty
       ["endcollection"] -> Right (report {rStacks = reverse (rStacks report)}, rest)
       ["cycle", "start"] -> block report {rCycleStart = True} rest
       ["finish"] -> block report {rFinish = True} rest
+      ["bridge"] -> block report {rBridge = True} rest
       ["age", identity, generation] -> do
         key <- readNumber identity
         age <- readNumber generation
@@ -1289,7 +1311,18 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                 -- A collection is a pause of the running thread. The model
                 -- of a reservation learns of its collection only here.
                 checked = pause (step model)
-                problems = generationProblems (escapeCollection model command) command report <> checkReport checked report
+                -- A local collection copies the local heap of one
+                -- capability: the reserving capability at a reservation,
+                -- and the running capability at an escape. An explicit or
+                -- a full collection is a bridge collection.
+                scope = case command of
+                  _ | rCollected report == 2 || rBridge report -> Nothing
+                  CReserve _ -> Just (mHeapIndex model)
+                  CCollect -> Nothing
+                  CCollectGeneration _ -> Nothing
+                  CCycle -> Nothing
+                  _ -> Just 0
+                problems = generationProblems (escapeCollection model command) command report <> checkReport scope checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
                 -- a new cycle. A cycle marks the static thunks stale with
@@ -1362,8 +1395,8 @@ checkValues what expected actual
   | otherwise = [what <> ": expected " <> show expected <> " but the driver reported " <> show actual]
 
 -- | Compare one reported collection with the model at the collection.
-checkReport :: Model -> Report -> [String]
-checkReport model report =
+checkReport :: Maybe Int -> Model -> Report -> [String]
+checkReport scope model report =
   map ("violation: " <>) (rViolations report)
     <> ageProblems
     <> objectProblems
@@ -1386,10 +1419,19 @@ checkReport model report =
     ageProblems = concatMap ageProblem (Map.toList (rAges report))
     ageProblem (identity, age)
       | Set.member identity (mPromoted model) = ["object " <> show identity <> " moved to generation " <> show age | age > 2]
+      -- A thread record is in the global heap from its start.
+      | Just only <- scope,
+        before < 2,
+        not (isThread identity),
+        Map.findWithDefault 0 identity (mOwner model) /= only =
+          ["object " <> show identity <> " of another local heap moved from generation " <> show before <> " to " <> show age | age /= before]
       | before <= collected = ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
       | otherwise = ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
       where
         before = Map.findWithDefault 0 identity (mAges model)
+        isThread object = case Map.lookup object (mHeap model) of
+          Just Thread {} -> True
+          _ -> False
     expectedObject object = case object of
       Object kind pointers fields _ owner -> RPlain (if isJust owner then "blackhole" else kindName kind) (zipWith (\pointer field -> if pointer then rvalue (deep field) else rvalue field) pointers fields)
       Array elements _ -> RPlain "array" (map (rvalue . deep) elements)
@@ -1685,6 +1727,18 @@ data Pool = Pool
   }
 
 -- | The pool of the current model state.
+-- | The pool of the objects that a capability may name. With several
+-- capabilities, an object names only objects of its own local heap, and a
+-- thread, which runs on the first capability, names only objects of that
+-- local heap. Thus no local heap is reachable from another one, as the
+-- runtime requires.
+poolOwnedBy :: Int -> Model -> Pool
+poolOwnedBy owner model
+  | mCapabilities model < 2 = pool
+  | otherwise = pool {poolHeap = [identity | identity <- poolHeap pool, Map.findWithDefault 0 identity (mOwner model) == owner]}
+  where
+    pool = poolOf model
+
 poolOf :: Model -> Pool
 poolOf model =
   let live = liveness model
@@ -1705,10 +1759,13 @@ genEpoch profile start = do
   -- The runtime gives a large array regions outside the nursery without a
   -- collection, so the reservation of the block covers the small objects
   -- alone.
+  -- The objects of the block can go to the nursery of another capability.
+  -- Their fields then name only objects of that local heap.
+  heap <- Gen.int (Range.constant 0 (mCapabilities start - 1))
   let newCommands = zipWith3 newCommand identities shapes srts
       blockWords = sum [shapeWords shape | shape <- shapes, not (isLargeShape shape)]
-      afterBlock = applyCommands newCommands start
-      pool = poolOf afterBlock
+      afterBlock = applyCommands ([CHeap heap | heap /= 0] <> newCommands <> [CHeap 0 | heap /= 0]) start
+      pool = poolOwnedBy heap afterBlock
   fill <- do
     wanted <- percent (pFillPercent profile)
     if wanted
@@ -1738,9 +1795,7 @@ genEpoch profile start = do
   collectCommand <- Gen.frequency [(1, pure CCollect), (3, CCollectGeneration <$> Gen.int (Range.constant 0 2)), (2, pure CCycle)]
   let final = if collect then applyCommand collectCommand afterOps else afterOps
       opWords = sum (map commandWords ops)
-  -- The objects of the block can go to the nursery of another capability.
-  -- The operations then reserve their words in the first nursery.
-  heap <- Gen.int (Range.constant 0 (mCapabilities start - 1))
+  -- The operations reserve their words in the first nursery.
   let allocation
         | heap == 0 = fill <> [CReserve (blockWords + opWords)] <> newCommands
         | otherwise = [CHeap heap] <> fill <> [CReserve blockWords, CHeap 0, CReserve opWords, CHeap heap] <> newCommands <> [CHeap 0]
@@ -1878,7 +1933,7 @@ genOp profile model = do
   -- rest: an operation the runtime would refuse is dropped.
   pure (if mFailed (applyCommands commands model) then [] else commands)
   where
-    pool = poolOf model
+    pool = poolOwnedBy 0 model
     object identity = Map.lookup identity (mHeap model)
     chain = runningChain model
     topKind = case chain of
