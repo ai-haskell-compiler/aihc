@@ -939,13 +939,20 @@ emitBarrier _ object index value = do
   young <- emitValue "young" I1 (Compare LtU I64 (typedOperand offset) (typedOperand bytes))
   old <- freshLabel "barrier_old"
   done <- freshLabel "barrier_done"
-  terminate (Branch (typedOperand young) (Target done []) (Target old []))
+  context <- currentContext
+  terminate (Branch (typedOperand young) (Target done [contextHeapLimit context]) (Target old []))
   beginColdBlock old []
   _ <- case index of
     Nothing -> callRuntime "aihc_write_barrier_store" [Ptr, Ptr, I64] [] [capability, object, value]
     Just element -> callRuntime "aihc_write_barrier_store_at" [Ptr, Ptr, I64, I64] [] [capability, object, element, value]
-  terminate (Jump (Target done []))
-  beginBlock done []
+  -- The cold path lowers the heap limit when the barrier work reaches its
+  -- budget, so the next reservation collects. See "Remembered set and mark
+  -- buffer" in docs/multi-threaded-rts-design.md.
+  reloaded <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
+  terminate (Jump (Target done [typedOperand reloaded]))
+  limit <- fresh "hp_limit"
+  beginBlock done [(limit, Ptr)]
+  setContext context {contextHeapLimit = OperandVar limit}
 
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])

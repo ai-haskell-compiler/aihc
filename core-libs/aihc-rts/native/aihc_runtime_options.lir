@@ -48,6 +48,9 @@ global @aihc_rts_option_heap_limit_enabled: i64
 global @aihc_rts_option_nursery_bytes: i64
 ; -n sets the nursery block size. Zero selects the default.
 global @aihc_rts_option_nursery_block_bytes: i64
+; -R sets the budget of barrier work between two collections. Zero selects
+; the nursery size.
+global @aihc_rts_option_barrier_budget_bytes: i64
 ; -B sets the number of collections that a survivor stays in gen1. Zero is a
 ; valid count, so a second global records that the option is present.
 global @aihc_rts_option_gen1_collections: i64
@@ -112,6 +115,12 @@ entry:
 export func @aihc_rts_gen1_collections_set() -> i64 cc c {
 entry:
   %value = global.get @aihc_rts_option_gen1_collections_set
+  return %value
+}
+
+export func @aihc_rts_barrier_budget_bytes() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_barrier_budget_bytes
   return %value
 }
 
@@ -312,7 +321,16 @@ nursery:
 
 block_option:
   %is_block = eq i8 %second, 'n'
-  br %is_block, block_size, gen1_option
+  br %is_block, block_size, budget_option
+
+budget_option:
+  %is_budget = eq i8 %second, 'R'
+  br %is_budget, budget, gen1_option
+
+budget:
+  %budget_bytes = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_barrier_budget_bytes, %budget_bytes
+  return
 
 block_size:
   %block_bytes = call @aihc_rts_parse_heap_size(%size_text)

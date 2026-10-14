@@ -308,6 +308,10 @@ struct AihcCapability {
   /* The stores that gave an object outside the local heap a value of the
      local heap. In the end state each one promotes the value. */
   uint64_t escape_count;
+  /* The scan work that the write barrier added since the last collection,
+     in bytes: the size of each object it put in the remembered set, and
+     one run of elements for each card it made dirty. */
+  uint64_t barrier_work;
 };
 
 /* The process state shared by all capabilities. */
@@ -355,6 +359,9 @@ struct AihcMachine {
      capability. Zero copies the survivors of the nursery into gen2
      directly. */
   uint64_t gen1_collections;
+  /* The -R budget of barrier work between two collections of a capability,
+     in bytes. */
+  uint64_t barrier_budget;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
   uint64_t gc_minor_count;

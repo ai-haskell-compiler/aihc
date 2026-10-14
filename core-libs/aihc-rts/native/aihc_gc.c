@@ -1169,12 +1169,29 @@ static void aihc_remembered_compact(AihcCapability *capability) {
   capability->remembered_count = kept;
 }
 
+/* Add the scan work of a barrier to the budget of the capability. When the
+   work reaches the budget, the heap limit goes below the nursery, so the
+   next reservation of the thread takes the slow path, which collects. See
+   "Remembered set and mark buffer" in docs/multi-threaded-rts-design.md. */
+static void aihc_barrier_charge(AihcCapability *capability, uint64_t bytes) {
+  capability->barrier_work += bytes;
+  if (capability->barrier_work >= capability->machine->barrier_budget) {
+    capability->heap_limit = (uint8_t *)((uintptr_t)capability->heap_start - 1);
+  }
+}
+
 void aihc_remember(AihcCapability *capability, AihcValue *object) {
   if (capability->remembered_count != 0 &&
       capability->remembered[capability->remembered_count - 1] == object) {
     /* A loop that stores into one object enters it once. */
     return;
   }
+  /* The next collection scans the object, or only its dirty cards when it
+     has them: the cards count on their own. */
+  aihc_barrier_charge(capability,
+                      aihc_has_cards(object)
+                          ? sizeof(AihcSlot)
+                          : sizeof(AihcSlot) * aihc_value_words(object));
   ++capability->remembered_repeatable;
   if (capability->remembered_count == capability->remembered_capacity) {
     /* Compact only when repeatable entries are half the list or more.
@@ -1213,11 +1230,15 @@ static void aihc_remember_unique(AihcCapability *capability,
 }
 
 /* Mark the cards from first up to end. A card byte is a relaxed atomic
-   store: a collection worker reads it, and the store needs no order. */
-static void aihc_mark_cards(AihcValue *array, uint64_t first, uint64_t end) {
+   exchange: a collection worker reads it, and the store needs no order. A
+   card that turns dirty adds the scan of its run to the barrier budget. */
+static void aihc_mark_cards(AihcCapability *capability, AihcValue *array,
+                            uint64_t first, uint64_t end) {
   uint8_t *cards = aihc_array_cards(array);
   for (uint64_t card = first; card < end; ++card) {
-    __atomic_store_n(&cards[card], (uint8_t)1, __ATOMIC_RELAXED);
+    if (__atomic_exchange_n(&cards[card], (uint8_t)1, __ATOMIC_RELAXED) == 0) {
+      aihc_barrier_charge(capability, sizeof(AihcSlot) << AIHC_CARD_SHIFT);
+    }
   }
 }
 
@@ -1242,7 +1263,7 @@ void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
     aihc_shade_fields(capability, object);
   }
   if (aihc_has_cards(object)) {
-    aihc_mark_cards(object, 0, aihc_array_card_count(object));
+    aihc_mark_cards(capability, object, 0, aihc_array_card_count(object));
   }
   aihc_remember(capability, object);
 }
@@ -1286,7 +1307,7 @@ void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
   if (aihc_has_cards(object)) {
     uint64_t card = index >> AIHC_CARD_SHIFT;
     if (card < aihc_array_card_count(object)) {
-      aihc_mark_cards(object, card, card + 1);
+      aihc_mark_cards(capability, object, card, card + 1);
     }
   }
   aihc_remember(capability, object);
@@ -1306,7 +1327,7 @@ void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
     if (last >= card_count) {
       last = card_count - 1;
     }
-    aihc_mark_cards(object, offset >> AIHC_CARD_SHIFT, last + 1);
+    aihc_mark_cards(capability, object, offset >> AIHC_CARD_SHIFT, last + 1);
   }
   aihc_remember(capability, object);
 }
@@ -2836,6 +2857,7 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
   capability->heap_limit = capability->heap_start + capability->nursery_taken;
   capability->heap_alloc_base = capability->heap_next;
   capability->fixed_since_gc = 0;
+  capability->barrier_work = 0;
   for (size_t index = 0; index < context.kept_count; ++index) {
     aihc_remember_unique(capability, context.kept[index]);
   }
@@ -2973,6 +2995,7 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
   memset(capability->machine->fixed_generation_bytes, 0,
          sizeof(capability->machine->fixed_generation_bytes));
   capability->fixed_since_gc = 0;
+  capability->barrier_work = 0;
   free(capability->remembered);
   capability->remembered = NULL;
   capability->remembered_count = 0;
@@ -2995,6 +3018,13 @@ static void aihc_apply_block_option(AihcCapability *capability) {
   capability->nursery_block_bytes = bytes;
 }
 
+/* The barrier budget is the -R option, or the nursery size by default. */
+static void aihc_apply_barrier_budget(AihcCapability *capability) {
+  uint64_t budget = aihc_rts_barrier_budget_bytes();
+  capability->machine->barrier_budget =
+      budget != 0 ? budget : capability->nursery_bytes;
+}
+
 void aihc_gc_init(AihcCapability *capability) {
   aihc_apply_block_option(capability);
   uint64_t nursery = aihc_rts_nursery_bytes();
@@ -3007,6 +3037,7 @@ void aihc_gc_init(AihcCapability *capability) {
   capability->machine->mark_factor = AIHC_MARK_FACTOR;
   capability->machine->mark_slice_floor = AIHC_MARK_SLICE_FLOOR;
   capability->machine->mark_slice_cap = AIHC_MARK_SLICE_CAP;
+  aihc_apply_barrier_budget(capability);
 }
 
 void aihc_gc_apply_options(AihcCapability *capability) {
@@ -3032,6 +3063,7 @@ void aihc_gc_apply_options(AihcCapability *capability) {
     capability->machine->mark_factor =
         mark_factor > AIHC_GEN2_FACTOR_MAX ? AIHC_GEN2_FACTOR_MAX : mark_factor;
   }
+  aihc_apply_barrier_budget(capability);
 }
 
 void aihc_gc_apply_limit(AihcCapability *capability) {
@@ -3133,7 +3165,8 @@ void aihc_gc_refill(AihcCapability *capability, uint64_t words,
   size_t bytes = aihc_reservation_bytes(capability, words);
   if (aihc_reservation_is_large(bytes)) {
     aihc_ensure_large(capability, bytes, root_count, roots, srt);
-  } else if (!aihc_nursery_refill(capability, bytes)) {
+  } else if (capability->barrier_work >= capability->machine->barrier_budget ||
+             !aihc_nursery_refill(capability, bytes)) {
     aihc_gc_collect(capability, words, root_count, roots, srt);
   }
 }

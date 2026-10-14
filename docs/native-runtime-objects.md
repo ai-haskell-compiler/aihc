@@ -42,6 +42,10 @@ The `-n<size>` option sets the nursery block size, 32 KiB by default.
 Zero selects the default block size.
 A block refill extends the allocation limit without a collection.
 Fixed allocations and stack charges share the nursery budget with movable objects.
+The `-R<size>` option sets the budget of barrier work between two collections of a capability, the nursery size by default.
+The write barrier counts the scan work that it adds: the size of each object that it puts in the remembered set, and one run of 128 elements for each card that it makes dirty.
+When the work reaches the budget, the heap limit goes below the nursery, and the next reservation collects instead of a block refill.
+A compiled store site loads the heap limit again after its barrier call.
 The `-B<count>` option sets the number of collections that a survivor stays in gen1, 1 by default.
 The collection at the end of this time copies all of gen1 into gen2.
 A count of zero copies the survivors of the nursery into gen2 directly.
