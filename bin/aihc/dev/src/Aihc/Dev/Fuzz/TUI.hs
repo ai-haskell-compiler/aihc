@@ -59,6 +59,7 @@ handleEvent event =
     AppEvent (Tick snapshot) -> modify (applyTick snapshot)
     AppEvent TimeLimitEvent -> finish TimeLimitReached
     AppEvent (Crashed exception) -> finish (WorkerCrashed exception)
+    AppEvent BuildReady -> finish NewBuildReady
     VtyEvent (Vty.EvKey key modifiers) ->
       case key of
         Vty.KChar 'q' -> finish UserQuit
@@ -92,6 +93,7 @@ drawModel model@Model {modelSnapshot = snapshot} =
   [ withBorderStyle unicodeRounded . borderWithLabel (withAttr titleAttr (str " aihc-dev fuzz ")) $
       vBox
         [ padLeftRight 1 (summaryWidget model),
+          followWidget model,
           hBorderWithLabel (withAttr sectionAttr (str " properties ")),
           padLeftRight 1 (propertiesWidget model),
           hBorderWithLabel (withAttr sectionAttr (str (" known bugs · " <> show (length (snapshotBugs snapshot)) <> " "))),
@@ -125,6 +127,20 @@ summaryWidget Model {modelStartedAt, modelJobs, modelProperties, modelSnapshot =
       | knownBugs == 0 = withAttr okAttr (str "no bugs")
       | newBugs == 0 = withAttr bugAttr (str (show knownBugs <> " known bugs"))
       | otherwise = withAttr newBugAttr (str (show knownBugs <> " known bugs, " <> show newBugs <> " new"))
+
+followWidget :: Model -> Widget Name
+followWidget Model {modelSnapshot = snapshot} =
+  case describeFollow status of
+    Nothing -> emptyWidget
+    Just text -> padLeftRight 1 (withAttr (followAttr status) (str text))
+  where
+    status = snapshotFollow snapshot
+    followAttr current =
+      case current of
+        FollowBuilding _ _ -> sendingAttr
+        FollowFailed {} -> blockedAttr
+        FollowError _ -> blockedAttr
+        _ -> dimAttr
 
 propertiesWidget :: Model -> Widget Name
 propertiesWidget Model {modelStartedAt, modelProperties, modelSnapshot = snapshot, modelRates} =

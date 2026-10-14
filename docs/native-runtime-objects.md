@@ -633,6 +633,16 @@ The display uses decimal prefixes: K, M, G, T, P, and E.
 It updates ten times per second.
 Press `q` or Escape to stop. Use `--time-limit 30s` to stop after 30 seconds.
 
+Use `--follow` to test each new commit of the selected branch.
+The runner looks at the branch of the current checkout once each minute.
+If the branch has an upstream branch with only new commits, the runner uses the upstream commit.
+The runner builds a new commit in the background, in a worktree under `$XDG_CACHE_HOME/aihc/fuzz/worktrees`.
+The first build in a worktree is a full build.
+The build log is in `$XDG_CACHE_HOME/aihc/fuzz`.
+When the build is ready, the runner stops and starts the new `aihc-dev` with the same arguments.
+The known bugs stay in the bug store.
+If a commit does not build, the runner continues with the old executable.
+
 The collector has a fuzz test in `Test.Native.GcFuzz`. The test generates
 random scripts that build heaps and stacks through the runtime interface,
 change them, and force collections. A C driver runs each script against the

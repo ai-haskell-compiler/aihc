@@ -29,7 +29,8 @@ data Options = Options
     optionsTimeLimit :: Maybe NominalDiffTime,
     optionsRepository :: String,
     optionsReport :: Bool,
-    optionsBugFile :: Maybe FilePath
+    optionsBugFile :: Maybe FilePath,
+    optionsFollow :: Bool
   }
   deriving (Eq, Show)
 
@@ -115,6 +116,10 @@ optionsParser =
           <> help "Record bugs locally and do not open GitHub issues"
       )
     <*> bugFileParser
+    <*> switch
+      ( long "follow"
+          <> help "Build each new commit of the selected branch in the background and restart with it"
+      )
 
 bugsParser :: Parser BugsOptions
 bugsParser =

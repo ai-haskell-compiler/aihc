@@ -8,6 +8,7 @@ where
 
 import Aihc.Dev.Fuzz.Bugs
 import Aihc.Dev.Fuzz.CLI (BugsOptions (..), Command (..), Options (..), ReplayOptions (..))
+import Aihc.Dev.Fuzz.Follow (Relaunch, followLoop, relaunch, startFollower)
 import Aihc.Dev.Fuzz.Model
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
 import Aihc.Dev.Fuzz.Report (reporterLoop)
@@ -16,11 +17,11 @@ import Aihc.Dev.Fuzz.TUI (Model (..), runDashboard)
 import Aihc.Testing.RuntimeArchive (releaseCachedRuntimeArchives)
 import Brick.BChan (newBChan, writeBChan, writeBChanNonBlocking)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (Async, async, cancel, race, waitAnyCatch)
+import Control.Concurrent.Async (Async, async, cancel, poll, race, wait, waitAnyCatch)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM
 import Control.Exception (ErrorCall (..), SomeException, displayException, finally, toException)
-import Control.Monad (forM, forM_, forever, void, when)
+import Control.Monad (forM, forM_, forever, unless, void, when)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -54,6 +55,7 @@ data Stats = Stats
     statsNewBugs :: TVar (Set String),
     statsResting :: TVar (Map String UTCTime),
     statsReporter :: TVar ReporterStatus,
+    statsFollow :: TVar FollowStatus,
     statsStoreLock :: MVar (),
     statsStorePath :: FilePath,
     statsAnnounce :: Announcement -> IO ()
@@ -63,7 +65,11 @@ runCommand :: Command -> IO ()
 runCommand command =
   case command of
     List selection -> listProperties (selectProperties selection fuzzProperties)
-    Run options -> runFuzzer options `finally` releaseCachedRuntimeArchives
+    Run options -> do
+      -- Release the archives before a relaunch, because the new process
+      -- does not run the handlers of this process.
+      next <- runFuzzer options `finally` releaseCachedRuntimeArchives
+      mapM_ relaunch next
     Bugs options -> runBugs options
     Replay options -> runReplay options `finally` releaseCachedRuntimeArchives
 
@@ -149,8 +155,10 @@ runReplay ReplayOptions {replayProperty, replayArgument} = do
       OK -> pure ()
       _ -> exitFailure
 
-runFuzzer :: Options -> IO ()
-runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit, optionsRepository, optionsReport, optionsBugFile} = do
+-- | Fuzz until the run stops. Give the new executable when a build of a
+-- newer commit stopped the run.
+runFuzzer :: Options -> IO (Maybe Relaunch)
+runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit, optionsRepository, optionsReport, optionsBugFile, optionsFollow} = do
   let selected = selectProperties optionsSelection fuzzProperties
   when (null selected) $ do
     hPutStrLn stderr "aihc-dev fuzz: no properties matched the selection"
@@ -159,6 +167,10 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit, optionsRepos
   let jobs = resolveJobCount capabilities optionsJobs
   storePath <- resolveStorePath optionsBugFile
   knownBugs <- loadStore storePath
+  follower <-
+    if optionsFollow
+      then startFollower >>= either (\reason -> hPutStrLn stderr ("aihc-dev fuzz: " <> reason) >> exitFailure) (pure . Just)
+      else pure Nothing
   interactive <- (&&) <$> hIsTerminalDevice stdin <*> hIsTerminalDevice stdout
   scheduler <- newTVarIO (cycleProperties [(fuzzPropertyWeight item, item) | item <- selected])
   stats <-
@@ -171,20 +183,26 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit, optionsRepos
       <*> newTVarIO Set.empty
       <*> newTVarIO Map.empty
       <*> newTVarIO ReporterIdle
+      <*> newTVarIO (maybe FollowOff (const FollowStarting) follower)
       <*> newMVar ()
       <*> pure storePath
       <*> (if interactive then pure (const (pure ())) else announceToLog <$> newMVar ())
+  -- Write the header before a thread can write to the log.
+  unless interactive $
+    hPutStrLn stderr ("Fuzzing " <> show (length selected) <> " properties with " <> show jobs <> " jobs (" <> formatInteger batchSize <> " cases per batch)")
   startedAt <- getCurrentTime
   workers <- forM [1 .. jobs] $ \workerId -> async (worker scheduler stats (length selected) workerId)
   reporter <-
     if optionsReport
       then Just <$> async (reporterLoop optionsRepository (statsBugs stats) (statsReporter stats) (persistBugs stats) (statsAnnounce stats . ReportedBug) (statsAnnounce stats . ReporterChanged))
       else pure Nothing
-  let stopAll = mapM_ cancel reporter >> mapM_ cancel workers
+  builder <- forM follower $ \follow ->
+    async (followLoop follow (reportFollow stats))
+  let stopAll = mapM_ cancel builder >> mapM_ cancel reporter >> mapM_ cancel workers
   outcome <-
     ( if interactive
-        then runInteractive startedAt jobs optionsTimeLimit selected stats workers
-        else runHeadless jobs optionsTimeLimit selected workers
+        then runInteractive startedAt jobs optionsTimeLimit selected stats workers builder
+        else runHeadless optionsTimeLimit workers builder
     )
       `finally` stopAll
   successfulCases <- readTVarIO (statsSuccessfulCases stats)
@@ -198,15 +216,27 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit, optionsRepos
       putStrLn ("Stopped after " <> formatInteger successfulCases <> " successful Hedgehog cases.")
     WorkerCrashed exception ->
       putStrLn ("Fuzz worker crashed after " <> formatInteger successfulCases <> " successful Hedgehog cases: " <> displayException exception)
+    NewBuildReady ->
+      putStrLn ("A new build is ready after " <> formatInteger successfulCases <> " successful Hedgehog cases.")
   printBugs reporterStatus newBugs bugs
   putStrLn ("Bug store: " <> storePath)
   let crashed = case outcome of
         WorkerCrashed _ -> True
         _ -> False
-  when (crashed || not (Set.null newBugs)) exitFailure
+  ready <- maybe (pure Nothing) poll builder
+  case (outcome, ready) of
+    (NewBuildReady, Just (Right next)) -> pure (Just next)
+    _ -> do
+      when (crashed || not (Set.null newBugs)) exitFailure
+      pure Nothing
 
-runInteractive :: UTCTime -> Int -> Maybe NominalDiffTime -> [FuzzProperty] -> Stats -> [Async ()] -> IO Outcome
-runInteractive startedAt jobs timeLimit selected stats workers = do
+reportFollow :: Stats -> FollowStatus -> IO ()
+reportFollow stats status = do
+  previous <- atomically (swapTVar (statsFollow stats) status)
+  when (previous /= status) (statsAnnounce stats (FollowChanged status))
+
+runInteractive :: UTCTime -> Int -> Maybe NominalDiffTime -> [FuzzProperty] -> Stats -> [Async ()] -> Maybe (Async Relaunch) -> IO Outcome
+runInteractive startedAt jobs timeLimit selected stats workers builder = do
   channel <- newBChan 16
   initial <- snapshot stats
   ticker <- async $ forever $ do
@@ -219,7 +249,10 @@ runInteractive startedAt jobs timeLimit selected stats workers = do
   watcher <- async $ do
     exception <- awaitCrash workers
     writeBChan channel (Crashed exception)
-  let helpers = [ticker, watcher] <> maybe [] pure limiter
+  announcer <- forM builder $ \build -> async $ do
+    _ <- wait build
+    writeBChan channel BuildReady
+  let helpers = [ticker, watcher] <> maybe [] pure limiter <> maybe [] pure announcer
   runDashboard
     channel
     Model
@@ -234,16 +267,12 @@ runInteractive startedAt jobs timeLimit selected stats workers = do
       }
     `finally` mapM_ cancel helpers
 
-runHeadless :: Int -> Maybe NominalDiffTime -> [FuzzProperty] -> [Async ()] -> IO Outcome
-runHeadless jobs timeLimit selected workers = do
-  hPutStrLn stderr ("Fuzzing " <> show (length selected) <> " properties with " <> show jobs <> " jobs (" <> formatInteger batchSize <> " cases per batch)")
-  case timeLimit of
-    Nothing -> WorkerCrashed <$> awaitCrash workers
-    Just limit -> do
-      result <- race (threadDelay (durationMicroseconds limit)) (awaitCrash workers)
-      pure $ case result of
-        Left () -> TimeLimitReached
-        Right exception -> WorkerCrashed exception
+runHeadless :: Maybe NominalDiffTime -> [Async ()] -> Maybe (Async Relaunch) -> IO Outcome
+runHeadless timeLimit workers builder =
+  foldr1 (\left right -> either id id <$> race left right) $
+    [WorkerCrashed <$> awaitCrash workers]
+      <> [TimeLimitReached <$ threadDelay (durationMicroseconds limit) | Just limit <- [timeLimit]]
+      <> [NewBuildReady <$ wait build | Just build <- [builder]]
 
 -- | Wait until a worker stops. A worker only stops with an exception.
 awaitCrash :: [Async ()] -> IO SomeException
@@ -265,6 +294,7 @@ snapshot stats = do
       <*> readTVar (statsBugs stats)
       <*> readTVar (statsNewBugs stats)
       <*> readTVar (statsReporter stats)
+      <*> readTVar (statsFollow stats)
 
 -- | Write one announcement at a time, so that workers do not mix their lines.
 announceToLog :: MVar () -> Announcement -> IO ()
@@ -280,6 +310,8 @@ announceToLog lock announcement = withMVar lock $ \() ->
       hPutStrLn stderr ("↑ reported bug " <> take 12 (bugId bug) <> " as " <> maybe "?" issueUrl (bugIssue bug))
     ReporterChanged status ->
       hPutStrLn stderr ("  reporter: " <> describeReporter status)
+    FollowChanged status ->
+      forM_ (describeFollow status) (hPutStrLn stderr . ("  " <>))
 
 durationMicroseconds :: NominalDiffTime -> Int
 durationMicroseconds duration =
