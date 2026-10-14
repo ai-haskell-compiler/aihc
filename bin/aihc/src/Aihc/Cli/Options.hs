@@ -366,7 +366,7 @@ lintOption :: OA.Parser Bool
 lintOption =
   OA.switch
     ( OA.long "lint"
-        <> OA.help "Check compiler intermediate languages and enable runtime heap checks"
+        <> OA.help "Check compiler intermediate languages and enable runtime heap reservation checks"
     )
 
 -- | Check the index of every array primitive, as GHC does under

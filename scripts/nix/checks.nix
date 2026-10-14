@@ -675,7 +675,6 @@
       test -n "$(find "$out" -type f -name 'libaihc-rts.a' -print -quit)"
     '';
 
-  primStoreWith = primStoreWithLint true;
   primStoreFor = primStoreWithLint false "";
 
   # The lto tests want both core libraries built at -O2, which implies --lto.

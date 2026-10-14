@@ -911,7 +911,7 @@ void aihc_heap_collect(AihcCapability *capability, uint64_t words,
                        uint64_t root_count, AihcSlot *roots,
                        const AihcSrt *srt) {
   aihc_gc_refill(capability, words, root_count, roots, srt);
-#ifdef AIHC_GC_VERIFY
+#if defined(AIHC_HEAP_VERIFY) || defined(AIHC_GC_VERIFY)
   if (capability->heap_next > capability->heap_limit ||
       words > (uint64_t)(capability->heap_limit - capability->heap_next) /
                   sizeof(AihcSlot)) {

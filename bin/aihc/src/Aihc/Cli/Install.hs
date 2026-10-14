@@ -2007,7 +2007,7 @@ buildEnvironmentIdentity target = do
 -- compiler, the target, the optimization level, whether the package stops
 -- at System FC, and whether its array primitives check their bounds. Flags
 -- that add or drop outputs, such as @--keep-core@, are recorded in the
--- manifest. The @--lint@ flag selects a runtime with heap checks.
+-- manifest. The @--lint@ flag selects a runtime with heap reservation checks.
 packageOptionsKey :: ModuleCompileConfig -> String
 packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> ["lint" | compileLint config])
 
@@ -3433,7 +3433,7 @@ compilePackageCFiles target level lto lint headerDirectory verbose packageRoot s
           ( targetArguments
               <> handwrittenCArguments level
               <> ltoArguments
-              <> ["-DAIHC_GC_VERIFY" | lint]
+              <> ["-DAIHC_HEAP_VERIFY" | lint]
               <> HackageCabal.cCompileCcOptions info
               <> handwrittenCOverrideArguments level
               <> includeArguments
