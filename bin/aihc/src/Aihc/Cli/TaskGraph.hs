@@ -15,20 +15,10 @@ module Aihc.Cli.TaskGraph
   )
 where
 
-import Control.Concurrent.Async (mapConcurrently_)
-import Control.Concurrent.STM
-  ( STM,
-    TVar,
-    atomically,
-    modifyTVar',
-    newTVarIO,
-    readTVar,
-    readTVarIO,
-    retry,
-    writeTVar,
-  )
-import Control.Exception (SomeException, throwIO, try)
-import Control.Monad (unless, when)
+import Aihc.Cli.Concurrent (mapConcurrently_)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, takeMVar, tryPutMVar)
+import Control.Exception (SomeException, mask_, throwIO, try)
+import Control.Monad (unless, void, when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
@@ -99,7 +89,10 @@ data ReadyTask = ReadyTask !TaskKind !Int !TaskId
   deriving (Eq, Ord, Show)
 
 data TaskState = TaskState
-  { stateReady :: !(Set ReadyTask),
+  { stateTasks :: !(Map TaskId Task),
+    stateNextId :: !Int,
+    stateWaiters :: ![MVar ()],
+    stateReady :: !(Set ReadyTask),
     stateWaitCounts :: !(Map TaskId Int),
     stateDependents :: !(Map TaskId [TaskId]),
     -- | The tasks that ran, which a task added later can depend on.
@@ -113,9 +106,7 @@ data TaskState = TaskState
 -- when every task added has run, so a task that adds tasks does so before
 -- it ends.
 data TaskGraph = TaskGraph
-  { graphTasks :: !(TVar (Map TaskId Task)),
-    graphState :: !(TVar TaskState),
-    graphNextId :: !(TVar Int),
+  { graphState :: !(MVar TaskState),
     graphTimings :: !(IORef [TaskTiming])
   }
 
@@ -128,9 +119,7 @@ runTaskGraphWith :: TaskObserver -> Int -> (TaskGraph -> IO ()) -> IO [TaskTimin
 runTaskGraphWith observer requestedWorkers seed = do
   graph <-
     TaskGraph
-      <$> newTVarIO Map.empty
-      <*> newTVarIO (TaskState Set.empty Map.empty Map.empty Set.empty 0)
-      <*> newTVarIO 0
+      <$> newMVar (TaskState Map.empty 0 [] Set.empty Map.empty Map.empty Set.empty 0)
       <*> newIORef []
   seed graph
   let workers = max 1 requestedWorkers
@@ -142,10 +131,8 @@ runTaskGraphWith observer requestedWorkers seed = do
 -- @count@ consecutive ones.
 allocateTaskIds :: TaskGraph -> Int -> IO Int
 allocateTaskIds graph count =
-  atomically $ do
-    next <- readTVar (graphNextId graph)
-    writeTVar (graphNextId graph) (next + count)
-    pure next
+  modifyMVar (graphState graph) $ \state ->
+    pure (state {stateNextId = stateNextId state + count}, stateNextId state)
 
 -- | Add tasks to the graph. Each dependency is a task of the graph, added
 -- before or in this call. A cycle among the tasks is not checked: the
@@ -153,19 +140,18 @@ allocateTaskIds graph count =
 -- acyclic, and a phase of a unit only ever waits on an earlier phase of
 -- the same unit or on a unit before it.
 addTasks :: TaskGraph -> [Task] -> IO ()
-addTasks graph tasks = do
-  known <- readTVarIO (graphTasks graph)
-  let added = Map.fromList [(taskId task, task) | task <- tasks]
-      duplicateCount = length tasks - Map.size added
-      duplicates = Map.keysSet (Map.intersection known added)
-      missingIds = Set.unions (map taskDependencies tasks) Set.\\ (Map.keysSet known <> Map.keysSet added)
-  when (duplicateCount /= 0 || not (Set.null duplicates)) $
-    ioError (userError "Task graph has duplicate task identifiers")
-  unless (Set.null missingIds) $
-    ioError (userError ("Task graph has missing dependencies: " <> show (Set.toAscList missingIds)))
-  atomically $ do
-    modifyTVar' (graphTasks graph) (Map.union added)
-    modifyTVar' (graphState graph) (\state -> foldl' addTask state tasks)
+addTasks graph tasks = mask_ $
+  modifyMVar_ (graphState graph) $ \state -> do
+    let known = stateTasks state
+        added = Map.fromList [(taskId task, task) | task <- tasks]
+        duplicateCount = length tasks - Map.size added
+        duplicates = Map.keysSet (Map.intersection known added)
+        missingIds = Set.unions (map taskDependencies tasks) Set.\\ (Map.keysSet known <> Map.keysSet added)
+    when (duplicateCount /= 0 || not (Set.null duplicates)) $
+      ioError (userError "Task graph has duplicate task identifiers")
+    unless (Set.null missingIds) $
+      ioError (userError ("Task graph has missing dependencies: " <> show (Set.toAscList missingIds)))
+    wakeWorkers (foldl' addTask state {stateTasks = Map.union added known} tasks)
   where
     addTask state task =
       let waiting = Set.size (taskDependencies task Set.\\ stateCompleted state)
@@ -188,12 +174,12 @@ readyTask task = ReadyTask (taskKind task) (taskOrder task) (taskId task)
 
 runWorker :: TaskObserver -> TaskGraph -> Int -> IO ()
 runWorker observer graph worker = do
-  next <- atomically (takeReadyTask (graphState graph))
+  next <- claimTask graph
   case next of
     Nothing -> pure ()
-    Just ready@(ReadyTask kind _ identifier) -> do
-      taskMap <- readTVarIO (graphTasks graph)
-      let task = fromMaybe (error "missing ready task") (Map.lookup identifier taskMap)
+    Just task -> do
+      let kind = taskKind task
+          identifier = taskId task
       observeTaskStart observer kind
       started <- getMonotonicTimeNSec
       result <- try (taskAction task)
@@ -203,36 +189,49 @@ runWorker observer graph worker = do
       case result of
         Left exception -> throwIO (exception :: SomeException)
         Right () -> do
-          atomically (completeTask graph ready)
+          completeTask graph identifier
           runWorker observer graph worker
 
-takeReadyTask :: TVar TaskState -> STM (Maybe ReadyTask)
-takeReadyTask stateVar = do
-  state <- readTVar stateVar
-  case Set.minView (stateReady state) of
-    Just (task, remainingReady) -> do
-      writeTVar stateVar state {stateReady = remainingReady}
-      pure (Just task)
-    Nothing
-      | stateRemaining state == 0 -> pure Nothing
-      | otherwise -> retry
+-- | Register a wake signal under the graph mutex before a worker waits.
+claimTask :: TaskGraph -> IO (Maybe Task)
+claimTask graph = do
+  decision <- modifyMVar (graphState graph) $ \state ->
+    case Set.minView (stateReady state) of
+      Just (ReadyTask _ _ identifier, remainingReady) ->
+        let task = fromMaybe (error "missing ready task") (Map.lookup identifier (stateTasks state))
+         in pure (state {stateReady = remainingReady}, Right (Just task))
+      Nothing
+        | stateRemaining state == 0 -> pure (state, Right Nothing)
+        | otherwise -> do
+            signal <- newEmptyMVar
+            pure (state {stateWaiters = signal : stateWaiters state}, Left signal)
+  case decision of
+    Right task -> pure task
+    Left signal -> takeMVar signal >> claimTask graph
 
-completeTask :: TaskGraph -> ReadyTask -> STM ()
-completeTask graph (ReadyTask _ _ identifier) = do
-  taskMap <- readTVar (graphTasks graph)
-  modifyTVar' (graphState graph) (complete taskMap)
+-- | Wake idle workers when work is ready or the graph has finished.
+wakeWorkers :: TaskState -> IO TaskState
+wakeWorkers state
+  | not (Set.null (stateReady state)) || stateRemaining state == 0 = do
+      mapM_ (\signal -> void (tryPutMVar signal ())) (stateWaiters state)
+      pure state {stateWaiters = []}
+  | otherwise = pure state
+
+completeTask :: TaskGraph -> TaskId -> IO ()
+completeTask graph identifier = mask_ $
+  modifyMVar_ (graphState graph) $ \state -> do
+    let taskMap = stateTasks state
+        dependents = Map.findWithDefault [] identifier (stateDependents state)
+        (waitCounts, newlyReady) = foldl' (unlock taskMap) (stateWaitCounts state, []) dependents
+    wakeWorkers
+      state
+        { stateReady = stateReady state <> Set.fromList newlyReady,
+          stateWaitCounts = waitCounts,
+          stateDependents = Map.delete identifier (stateDependents state),
+          stateCompleted = Set.insert identifier (stateCompleted state),
+          stateRemaining = stateRemaining state - 1
+        }
   where
-    complete taskMap state =
-      let dependents = Map.findWithDefault [] identifier (stateDependents state)
-          (waitCounts, newlyReady) = foldl' (unlock taskMap) (stateWaitCounts state, []) dependents
-       in state
-            { stateReady = stateReady state <> Set.fromList newlyReady,
-              stateWaitCounts = waitCounts,
-              stateDependents = Map.delete identifier (stateDependents state),
-              stateCompleted = Set.insert identifier (stateCompleted state),
-              stateRemaining = stateRemaining state - 1
-            }
-
     unlock taskMap (waitCounts, ready) dependent =
       let nextCount = Map.findWithDefault 0 dependent waitCounts - 1
           nextWaitCounts = Map.insert dependent nextCount waitCounts

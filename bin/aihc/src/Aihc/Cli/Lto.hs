@@ -14,12 +14,12 @@ module Aihc.Cli.Lto
 where
 
 import Aihc.Cli.ArtifactCache (hashChunks, sourceFilesHash)
+import Aihc.Cli.Concurrent (forConcurrently)
 import Aihc.Cli.Install (FcModule (..), ModuleCompileConfig (..), ModuleOutputPaths (..), backendOptionsKey, compileFcModules, moduleOutputPaths, optimizeFcProgram)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget, executableEntryParts)
 import Aihc.Resolve (PackageId (..))
 import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Exception (bracket_)
 import Control.Monad (forM_, unless, when)

@@ -15,10 +15,10 @@ module Aihc.Cli.Progress
   )
 where
 
+import Aihc.Cli.Concurrent (withWorker)
 import Aihc.Cli.TaskGraph (TaskKind (..), TaskObserver (..))
 import Aihc.Cli.Terminal (liveTerminal, terminalSize)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
 import Control.Exception (bracket)
 import Control.Monad (forever, unless)
@@ -319,7 +319,7 @@ withLiveProgress handle color action = do
           pure live {livePending = [], liveFrameLines = 0}
         hSetBuffering handle buffering
   bracket setup teardown $ \_ ->
-    withAsync (forever (threadDelay 100000 >> redrawLive handle color liveVar)) $ \_ ->
+    withWorker (forever (threadDelay 100000 >> redrawLive handle color liveVar)) $ \_ ->
       action reporter
 
 redrawLive :: Handle -> Bool -> MVar LiveState -> IO ()

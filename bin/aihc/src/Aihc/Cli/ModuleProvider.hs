@@ -23,13 +23,14 @@ module Aihc.Cli.ModuleProvider
 where
 
 import Aihc.Cli.BuildStamp (ModuleDigests (..), PackageDigests (..), packageDigestsPath, readStamp)
+import Aihc.Cli.Concurrent (Result, awaitResult, newResult, publishResult)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
 import Aihc.Tc (MergeCheck (..), TcInterface, mergeTcInterfaces)
-import Control.Concurrent.STM (TMVar, TVar, atomically, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, writeTVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (SomeException, evaluate, throwIO, try)
+import Control.Exception (SomeException, evaluate, mask, throwIO, try)
 import Control.Monad (forM, unless)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -212,25 +213,23 @@ readTypeArtifactFile path = do
 -- wait for its result, and get its exception if it has one.
 newMemo :: (Ord key) => IO (key -> IO value -> IO value)
 newMemo = do
-  table <- newTVarIO Map.empty
+  table <- newMVar Map.empty
   pure (memoize table)
 
-memoize :: (Ord key) => TVar (Map key (TMVar (Either SomeException value))) -> key -> IO value -> IO value
-memoize table key action = do
-  (slot, owner) <- atomically $ do
-    entries <- readTVar table
+memoize :: (Ord key) => MVar (Map key (Result (Either SomeException value))) -> key -> IO value -> IO value
+memoize table key action = mask $ \restore -> do
+  (slot, owner) <- modifyMVar table $ \entries ->
     case Map.lookup key entries of
-      Just slot -> pure (slot, False)
+      Just slot -> pure (entries, (slot, False))
       Nothing -> do
-        slot <- newEmptyTMVar
-        writeTVar table (Map.insert key slot entries)
-        pure (slot, True)
+        slot <- newResult
+        pure (Map.insert key slot entries, (slot, True))
   if owner
     then do
-      result <- try action
-      atomically (putTMVar slot result)
+      result <- try (restore action)
+      publishResult slot result
       either throwIO pure result
-    else atomically (readTMVar slot) >>= either throwIO pure
+    else restore (awaitResult slot) >>= either throwIO pure
 
 moduleNameDirectory :: Text -> FilePath
 moduleNameDirectory = foldl (</>) "" . map T.unpack . T.splitOn "."

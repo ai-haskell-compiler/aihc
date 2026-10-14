@@ -20,6 +20,7 @@ where
 
 import Aihc.Cabal qualified as Cabal
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
+import Aihc.Cli.Concurrent (Result, awaitResult, newResult, publishResult)
 import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install
   ( InstanceProvider,
@@ -91,7 +92,6 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (readMVar)
-import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (force, rnf)
 import Control.Exception (bracket, evaluate)
 import Control.Monad (foldM, unless, when)
@@ -341,7 +341,7 @@ packageNameAndVersion gpd =
 -- the time of the rest belongs to this phase, not to the resolver.
 parseModules :: Int -> FilePath -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO [SourceModule]
 parseModules jobs headerDirectory root versions files = do
-  results <- mapM (const newEmptyTMVarIO) files
+  results <- mapM (const newResult) files
   let task order fileInfo result =
         Task
           { taskId = TaskId order,
@@ -352,10 +352,10 @@ parseModules jobs headerDirectory root versions files = do
               source <- parseSource headerDirectory root versions fileInfo
               parsed <- readMVar (sourceModuleParsed source)
               evaluate (rnf (parsed, sourceModuleParseDiagnostics source))
-              atomically (putTMVar result source)
+              publishResult result source
           }
   _ <- runTaskGraph jobs (zipWith3 task [0 ..] files results)
-  mapM (atomically . readTMVar) results
+  mapM awaitResult results
 
 -- | Resolve every unit, each once the units it imports are resolved.
 resolveUnits :: Int -> Package -> ModuleExports -> [SourceUnit] -> IO [ResolvedSourceUnit]
@@ -378,9 +378,9 @@ resolveUnits jobs resolvePackage dependencyExports units = do
           _ <- evaluate (force exports)
           _ <- evaluate (rnf (map (moduleUnitAst . resolvedModuleUnit) (resolvedModules result)))
           _ <- evaluate (length errors)
-          atomically (putTMVar (unitResult results unit) ResolvedSourceUnit {resolvedUnit = unit, resolvedUnitExports = exports, resolvedUnitResult = result, resolvedUnitErrors = errors})
+          publishResult (unitResult results unit) ResolvedSourceUnit {resolvedUnit = unit, resolvedUnitExports = exports, resolvedUnitResult = result, resolvedUnitErrors = errors}
   _ <- runTaskGraph jobs (map task units)
-  mapM (atomically . readTMVar . unitResult results) units
+  mapM (awaitResult . unitResult results) units
 
 -- | Type check every unit, each once the units it imports are checked. The
 -- interfaces a unit sees are assembled exactly as an install assembles
@@ -438,23 +438,23 @@ typecheckUnits jobs config resolvePackage primIdentity dependencyTypes dependenc
               -- facts, then the strict maps that select and combine them.
               _ <- evaluate (force checkedInterface)
               _ <- evaluate checked
-              atomically (putTMVar (unitResult results unit) checked)
+              publishResult (unitResult results unit) checked
   _ <- runTaskGraph jobs (map task resolvedUnits)
-  mapM (atomically . readTMVar . unitResult results) units
+  mapM (awaitResult . unitResult results) units
 
 -- | One result slot per unit, by unit identity.
-unitResults :: [SourceUnit] -> IO (Map.Map UnitId (TMVar value))
-unitResults units = Map.fromList <$> mapM (\unit -> (,) (sourceUnitId unit) <$> newEmptyTMVarIO) units
+unitResults :: [SourceUnit] -> IO (Map.Map UnitId (Result value))
+unitResults units = Map.fromList <$> mapM (\unit -> (,) (sourceUnitId unit) <$> newResult) units
 
-unitResult :: Map.Map UnitId (TMVar value) -> SourceUnit -> TMVar value
+unitResult :: Map.Map UnitId (Result value) -> SourceUnit -> Result value
 unitResult results unit =
   fromMaybe (error "missing unit result") (Map.lookup (sourceUnitId unit) results)
 
 -- | The results of the units a unit imports, which the task graph has
 -- finished before the unit's own task starts.
-readBelow :: Map.Map UnitId (TMVar value) -> SourceUnit -> IO [value]
+readBelow :: Map.Map UnitId (Result value) -> SourceUnit -> IO [value]
 readBelow results unit =
-  mapM (\dependency -> atomically (readTMVar (fromMaybe (error "missing unit result") (Map.lookup dependency results)))) (sourceUnitDependencies unit)
+  mapM (\dependency -> awaitResult (fromMaybe (error "missing unit result") (Map.lookup dependency results))) (sourceUnitDependencies unit)
 
 -- | A task of one phase for one unit, waiting on the same phase of the
 -- units it imports.

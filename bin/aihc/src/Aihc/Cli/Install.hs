@@ -89,6 +89,7 @@ import Aihc.Cli.BuildStamp
   )
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
+import Aihc.Cli.Concurrent (Handoff, Result, awaitResult, inspectResult, mapConcurrently, newHandoff, newPermitPool, newResult, publishResult, receiveValue, releaseResult, sendValue, withPermit)
 import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceNonTermRootTyCons, interfaceTermTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.ModuleProvider
@@ -223,10 +224,7 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
-import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, takeMVar)
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (IOException, SomeException, bracket_, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
@@ -442,10 +440,10 @@ data UnitRuntime = UnitRuntime
     runtimeResolveTask :: !TaskId,
     runtimeTypeTask :: !TaskId,
     runtimeBackendTask :: !TaskId,
-    runtimeResolveResult :: !(TMVar ResolveUnitResult),
-    runtimeTypeInput :: !(TMVar TypeInput),
-    runtimeTypeResult :: !(TMVar TypeUnitResult),
-    runtimeBackendInput :: !(TMVar (Maybe PendingBackend))
+    runtimeResolveResult :: !(Result ResolveUnitResult),
+    runtimeTypeInput :: !(Handoff TypeInput),
+    runtimeTypeResult :: !(Result TypeUnitResult),
+    runtimeBackendInput :: !(Handoff (Maybe PendingBackend))
   }
 
 data ModuleCompileConfig = ModuleCompileConfig
@@ -831,18 +829,18 @@ data PackageSlot = PackageSlot
     slotFinishTask :: !TaskId,
     -- | The inputs of the package and the directory its configure script
     -- wrote, once its configure task ran.
-    slotConfigured :: !(TMVar (PackageInputs, Maybe FilePath)),
-    slotPrepared :: !(TMVar PreparedPackage),
+    slotConfigured :: !(Result (PackageInputs, Maybe FilePath)),
+    slotPrepared :: !(Result PreparedPackage),
     -- | The unit of each compiled module, once the package is partitioned.
     -- Empty for a package the store already holds.
-    slotUnits :: !(TMVar (Map.Map Text UnitRuntime)),
+    slotUnits :: !(Result (Map.Map Text UnitRuntime)),
     -- | The package once its finish task ran, in the directory it built in.
-    slotBuilt :: !(TMVar InstalledPackage),
+    slotBuilt :: !(Result InstalledPackage),
     -- | The package once it is published.
-    slotInstalled :: !(TMVar InstalledPackage),
+    slotInstalled :: !(Result InstalledPackage),
     -- | The packages that still read the unit results: the package itself
     -- until it finishes, and each package above it until that finishes.
-    slotReaders :: !(TVar Int)
+    slotReaders :: !(MVar Int)
   }
 
 -- | A package after its prepare task.
@@ -882,7 +880,7 @@ installPackagePlan :: ModuleCompileConfig -> InstallLocations -> PackagePlan -> 
 installPackagePlan config locations plan = do
   (roots, _) <- installGraph config locations [plan] []
   case roots of
-    [slot] -> atomically (readTMVar (slotInstalled slot))
+    [slot] -> awaitResult (slotInstalled slot)
     _ -> ioError (userError "The plan has no root")
 
 -- | Install the packages below the executables and compile the modules and
@@ -893,8 +891,8 @@ installExecutables :: ModuleCompileConfig -> InstallLocations -> [ExecutableComp
 installExecutables config locations components = do
   (_, executables) <- installGraph config locations [] components
   forM executables $ \slot -> do
-    compiled <- atomically (readTMVar (executableSlotCompiled slot))
-    packages <- mapM (atomically . readTMVar . slotInstalled) (executableSlotClosure slot)
+    compiled <- awaitResult (executableSlotCompiled slot)
+    packages <- mapM (awaitResult . slotInstalled) (executableSlotClosure slot)
     pure compiled {compiledPackages = packages}
 
 -- | Install the closure of the plans and of the executables in one task
@@ -968,13 +966,13 @@ planSlot shared graph slotsRef root plan = do
       let closure = slotsClosure dependencies
       slot <-
         PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2)) (TaskId (base + 3))
-          <$> newEmptyTMVarIO
-          <*> newEmptyTMVarIO
-          <*> newEmptyTMVarIO
-          <*> newEmptyTMVarIO
-          <*> newEmptyTMVarIO
-          <*> newTVarIO 1
-      forM_ closure $ \below -> atomically (modifyTVar' (slotReaders below) (+ 1))
+          <$> newResult
+          <*> newResult
+          <*> newResult
+          <*> newResult
+          <*> newResult
+          <*> newMVar 1
+      forM_ closure $ \below -> modifyMVar_ (slotReaders below) (pure . (+ 1))
       modifyIORef' slotsRef (Map.insert key slot)
       addTasks
         graph
@@ -1014,7 +1012,7 @@ configureSlot shared slot = do
         | otherwise = locationBuildRoot locations
   inputs <- readPackageInputs config plan
   configured <- runConfigureScript config (root </> ".configure") inputs
-  atomically (putTMVar (slotConfigured slot) (inputs, configured))
+  publishResult (slotConfigured slot) (inputs, configured)
 
 -- | Whether a package of the plan goes into the store, or builds in place
 -- under the build root.
@@ -1038,7 +1036,7 @@ data ExecutableSlot = ExecutableSlot
     executableSlotFinishTask :: !TaskId,
     -- | The executable once its finish task ran. The packages are added
     -- after the graph, when they are published.
-    executableSlotCompiled :: !(TMVar CompiledExecutable)
+    executableSlotCompiled :: !(Result CompiledExecutable)
   }
 
 -- | The slot of an executable, made after the slots of its dependencies,
@@ -1047,10 +1045,10 @@ data ExecutableSlot = ExecutableSlot
 executableSlot :: InstallShared -> TaskGraph -> Int -> (ExecutableComponent, [PackageSlot]) -> IO ExecutableSlot
 executableSlot shared graph order (component, dependencies) = do
   base <- allocateTaskIds graph 3
-  compiled <- newEmptyTMVarIO
+  compiled <- newResult
   let closure = slotsClosure dependencies
       slot = ExecutableSlot component closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2)) compiled
-  forM_ closure $ \below -> atomically (modifyTVar' (slotReaders below) (+ 1))
+  forM_ closure $ \below -> modifyMVar_ (slotReaders below) (pure . (+ 1))
   addTasks
     graph
     [ Task
@@ -1073,7 +1071,7 @@ prepareExecutable shared graph slot = do
       closure = executableSlotClosure slot
       package = componentPackage component
       outputRoot = componentOutputRoot component
-  dependencies <- mapM (fmap preparedPackage . atomically . readTMVar . slotPrepared) closure
+  dependencies <- mapM (fmap preparedPackage . awaitResult . slotPrepared) closure
   (ownFiles, ownCInfo) <- componentInputs component dependencies
   headerDirs <- dependencyIncludeDirs dependencies
   let files = map (appendIncludeDirs headerDirs) ownFiles
@@ -1082,17 +1080,16 @@ prepareExecutable shared graph slot = do
         let names = map sourceName (compiledSources compiledModules)
         moduleObjects <- moduleObjectPaths (not (compileLto config)) outputRoot (compileTarget config) names
         cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileLto config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
-        atomically $
-          putTMVar
-            (executableSlotCompiled slot)
-            CompiledExecutable
-              { compiledModuleNames = names,
-                compiledModuleObjects = moduleObjects,
-                compiledCObjects = cObjects,
-                compiledCCompileInfo = cCompileInfo,
-                compiledPackages = [],
-                compiledPrimPackage = dependencyPrimIdentity package dependencies
-              }
+        publishResult
+          (executableSlotCompiled slot)
+          CompiledExecutable
+            { compiledModuleNames = names,
+              compiledModuleObjects = moduleObjects,
+              compiledCObjects = cObjects,
+              compiledCCompileInfo = cCompileInfo,
+              compiledPackages = [],
+              compiledPrimPackage = dependencyPrimIdentity package dependencies
+            }
         releaseReaders closure
   addModuleBuild
     graph
@@ -1123,7 +1120,7 @@ prepareExecutable shared graph slot = do
 -- nothing, so that its dependents wait on the same tasks either way.
 preparePackage :: InstallShared -> TaskGraph -> PackageSlot -> IO ()
 preparePackage shared graph slot = do
-  prepared <- mapM (atomically . readTMVar . slotPrepared) (slotDependencies slot)
+  prepared <- mapM (awaitResult . slotPrepared) (slotDependencies slot)
   let config = slotConfig shared slot
       locations = sharedLocations shared
       plan = slotPlan slot
@@ -1134,7 +1131,7 @@ preparePackage shared graph slot = do
       item = planProgressItem plan
       report = progressReport (compileProgress config)
   report (ProgressPrepare item)
-  (inputs, configured) <- atomically (readTMVar (slotConfigured slot))
+  (inputs, configured) <- awaitResult (slotConfigured slot)
   (installed, build) <-
     if storeBound locations plan
       then prepareStorePackage shared config (slotRoot slot) reinstall dependencies plan inputs configured
@@ -1144,21 +1141,19 @@ preparePackage shared graph slot = do
       source = case build of
         Nothing -> StorePackage (installStorePath (installedResult installed))
         Just _ -> graphPackageSource package (slotUnits slot)
-  atomically $
-    putTMVar
-      (slotPrepared slot)
-      PreparedPackage
-        { preparedPackage = installed,
-          preparedExposedModules = packageManifestModules (installedManifest installed),
-          preparedLocator = Map.insert identity source (Map.unions (map preparedLocator prepared)),
-          preparedBuild = build
-        }
+  publishResult
+    (slotPrepared slot)
+    PreparedPackage
+      { preparedPackage = installed,
+        preparedExposedModules = packageManifestModules (installedManifest installed),
+        preparedLocator = Map.insert identity source (Map.unions (map preparedLocator prepared)),
+        preparedBuild = build
+      }
   case build of
     Nothing -> do
       report (ProgressStore item)
-      atomically $ do
-        putTMVar (slotUnits slot) Map.empty
-        putTMVar (slotBuilt slot) installed
+      publishResult (slotUnits slot) Map.empty
+      publishResult (slotBuilt slot) installed
       addTasks
         graph
         [ Task
@@ -1199,11 +1194,11 @@ packageModuleBuild shared slot installed build =
       moduleBuildPartitionAfter = map slotPartitionTask (slotDependencies slot),
       moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
       moduleBuildDependencies = mapM slotDependency (slotDependencies slot),
-      moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
+      moduleBuildPartitioned = publishResult (slotUnits slot),
       moduleBuildFinished = \compiled -> do
         built <- finishPackageBuild config build compiled
         progressReport (compileProgress config) (ProgressDone item)
-        atomically (putTMVar (slotBuilt slot) built)
+        publishResult (slotBuilt slot) built
         releaseReaders (slot : slotClosure slot)
     }
   where
@@ -1216,8 +1211,8 @@ packageModuleBuild shared slot installed build =
 -- it sees it, once the package is partitioned.
 slotDependency :: PackageSlot -> IO PreparedDependency
 slotDependency slot = do
-  prepared <- atomically (readTMVar (slotPrepared slot))
-  units <- atomically (readTMVar (slotUnits slot))
+  prepared <- awaitResult (slotPrepared slot)
+  units <- awaitResult (slotUnits slot)
   let installed = preparedPackage prepared
       identity = PackageId (packageManifestUnitId (installedManifest installed))
   pure
@@ -1237,33 +1232,30 @@ releaseReaders :: [PackageSlot] -> IO ()
 releaseReaders = mapM_ releaseReader
   where
     releaseReader reader = do
-      remaining <- atomically $ do
-        count <- readTVar (slotReaders reader)
-        writeTVar (slotReaders reader) (count - 1)
-        pure (count - 1)
+      remaining <- modifyMVar (slotReaders reader) $ \count -> pure (count - 1, count - 1)
       when (remaining == 0) $ do
-        units <- atomically (readTMVar (slotUnits reader))
+        units <- awaitResult (slotUnits reader)
         forM_ (Map.elems units) $ \runtime ->
-          atomically $ do
-            void (tryTakeTMVar (runtimeResolveResult runtime))
-            void (tryTakeTMVar (runtimeTypeResult runtime))
+          do
+            releaseResult (runtimeResolveResult runtime)
+            releaseResult (runtimeTypeResult runtime)
 
 -- | Publish a package that finished: a store package moves from its
 -- temporary root to its store entry. A package that did not finish is
 -- left as it is, and its temporary root goes with the others.
 publishSlot :: InstallShared -> PackageSlot -> IO ()
 publishSlot shared slot = do
-  prepared <- atomically (tryReadTMVar (slotPrepared slot))
-  built <- atomically (tryReadTMVar (slotBuilt slot))
+  prepared <- inspectResult (slotPrepared slot)
+  built <- inspectResult (slotBuilt slot)
   case (prepared >>= preparedBuild, built) of
     (Just build, Just package)
-      | buildImmutable build -> publishStorePackage shared build package >>= atomically . putTMVar (slotInstalled slot)
-    (_, Just package) -> atomically (putTMVar (slotInstalled slot) package)
+      | buildImmutable build -> publishStorePackage shared build package >>= publishResult (slotInstalled slot)
+    (_, Just package) -> publishResult (slotInstalled slot) package
     _ -> pure ()
 
 -- | The facts of the modules of a package that compiles in the graph,
 -- from the results of its units.
-graphPackageSource :: Package -> TMVar (Map.Map Text UnitRuntime) -> PackageSource
+graphPackageSource :: Package -> Result (Map.Map Text UnitRuntime) -> PackageSource
 graphPackageSource package unitsVar =
   GraphPackage
     { graphResolved = \name -> do
@@ -1299,10 +1291,10 @@ graphPackageSource package unitsVar =
     -- A result the unit has: a task waits on the task that writes it, so
     -- an absent result is one that was released, which is a defect.
     unitResult name var =
-      atomically (tryReadTMVar var)
+      inspectResult var
         >>= maybe (ioError (userError ("The results of the unit of the module were released: " <> T.unpack name))) pure
     unitOf name = do
-      units <- atomically (readTMVar unitsVar)
+      units <- awaitResult unitsVar
       maybe
         (ioError (userError ("The package " <> T.unpack (packageName package) <> " has no compiled module " <> T.unpack name)))
         pure
@@ -1389,8 +1381,8 @@ publishStorePackage shared build built = do
   let storePath = buildPublishPath build
       temporaryRoot = buildPath build
   when (buildReplaces build) (removeDirectoryRecursive storePath)
-  publishResult <- try (renameDirectory temporaryRoot storePath)
-  package <- case publishResult of
+  storePublishResult <- try (renameDirectory temporaryRoot storePath)
+  package <- case storePublishResult of
     Right () -> pure (setInstalledStorePath storePath built)
     Left err -> do
       published <- doesDirectoryExist storePath
@@ -1665,7 +1657,7 @@ addModuleBuild graph shared build = do
       order = moduleBuildOrder build
   compileVerbose config ("Parse " <> show (length files) <> " modules")
   progressReport (compileProgress config) (ProgressBuild (moduleBuildItem build) (length files))
-  sourceSlots <- mapM (const newEmptyTMVarIO) files
+  sourceSlots <- mapM (const newResult) files
   parseBase <- allocateTaskIds graph (length files)
   let parseTasks =
         [ Task
@@ -1681,7 +1673,7 @@ addModuleBuild graph shared build = do
                 -- reads it.
                 modu <- readMVar (sourceModuleParsed source)
                 evaluate (rnf (modu, sourceModuleParseDiagnostics source))
-                atomically (putTMVar slot source)
+                publishResult slot source
             }
         | (index, file, slot) <- zip3 [0 ..] files sourceSlots
         ]
@@ -1699,13 +1691,13 @@ addModuleBuild graph shared build = do
 -- the finish task. A unit waits on the units of its own package it
 -- imports, and on the units of the dependencies that hold the modules it
 -- imports.
-partitionModules :: TaskGraph -> InstallShared -> ModuleBuild -> [TMVar SourceModule] -> IO ()
+partitionModules :: TaskGraph -> InstallShared -> ModuleBuild -> [Result SourceModule] -> IO ()
 partitionModules graph shared build sourceSlots = do
   let config = moduleBuildConfig build
       resolvePackage = moduleBuildPackage build
       order = moduleBuildOrder build
       noCode = compileNoCode config
-  parsed <- mapM (atomically . readTMVar) sourceSlots
+  parsed <- mapM awaitResult sourceSlots
   dependencies <- moduleBuildDependencies build
   units <- evaluate (sourceModuleUnits parsed)
   -- The graph this task builds is which units there are and which units
@@ -1723,10 +1715,10 @@ partitionModules graph shared build sourceSlots = do
   runtimes <-
     forM (zip [0 ..] units) $ \(index, unit) ->
       UnitRuntime unit (TaskId (unitBase + 3 * index)) (TaskId (unitBase + 3 * index + 1)) (TaskId (unitBase + 3 * index + 2))
-        <$> newEmptyTMVarIO
-        <*> newEmptyTMVarIO
-        <*> newEmptyTMVarIO
-        <*> newEmptyTMVarIO
+        <$> newResult
+        <*> newHandoff
+        <*> newResult
+        <*> newHandoff
   let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
       context =
         PackageTaskContext
@@ -1808,8 +1800,8 @@ finishModules build runtimes parsed = do
       outputRoot = moduleBuildOutputRoot build
       packageRoot = moduleBuildPackageRoot build
       resolvePackage = moduleBuildPackage build
-  resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
+  resolveResults <- mapM (awaitResult . runtimeResolveResult) runtimes
+  typeResults <- mapM (awaitResult . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
       -- An unlocated diagnostic names the modules of its unit.
@@ -2401,9 +2393,9 @@ lookupRuntime :: Map.Map UnitId UnitRuntime -> UnitId -> UnitRuntime
 lookupRuntime runtimes identifier =
   fromMaybe (error "missing unit runtime") (Map.lookup identifier runtimes)
 
-readDependencyResults :: (UnitRuntime -> TMVar value) -> Map.Map UnitId UnitRuntime -> [UnitId] -> IO [value]
+readDependencyResults :: (UnitRuntime -> Result value) -> Map.Map UnitId UnitRuntime -> [UnitId] -> IO [value]
 readDependencyResults select runtimes =
-  mapM (atomically . readTMVar . select . lookupRuntime runtimes)
+  mapM (awaitResult . select . lookupRuntime runtimes)
 
 runResolveUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
 runResolveUnit context runtimes runtime = do
@@ -2473,9 +2465,8 @@ runResolveUnit context runtimes runtime = do
             },
           TypeInputResolved resolved
         )
-  atomically $ do
-    putTMVar (runtimeResolveResult runtime) result
-    putTMVar (runtimeTypeInput runtime) typeInput
+  publishResult (runtimeResolveResult runtime) result
+  sendValue (runtimeTypeInput runtime) typeInput
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
@@ -2506,9 +2497,9 @@ reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
 
 runTypeUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
 runTypeUnit context runtimes runtime = do
-  resolvedOutput <- atomically (readTMVar (runtimeResolveResult runtime))
+  resolvedOutput <- awaitResult (runtimeResolveResult runtime)
   -- The modules of the unit are this task's to check and then drop.
-  typeInput <- atomically (takeTMVar (runtimeTypeInput runtime))
+  typeInput <- receiveValue (runtimeTypeInput runtime)
   dependencyResults <- readDependencyResults runtimeTypeResult runtimes (sourceUnitDependencies unit)
   dependencyResolveResults <- readDependencyResults runtimeResolveResult runtimes (sourceUnitDependencies unit)
   let storePath = taskStorePath context
@@ -2620,23 +2611,22 @@ runTypeUnit context runtimes runtime = do
     Nothing
       | not resolveSuccess -> do
           verbose ("Skip type check after failed name resolution: " <> T.unpack (unitLabel unit))
-          atomically $ do
-            putTMVar
-              (runtimeTypeResult runtime)
-              TypeUnitResult
-                { typeUnitTypes = Map.empty,
-                  typeUnitHashes = Map.empty,
-                  typeUnitOwnInstanceInterface = emptyTcInterface,
-                  typeUnitFactsDigest = "",
-                  typeUnitInstanceInterface = importedInstanceInterface,
-                  typeUnitInstanceProviders = Set.empty,
-                  typeUnitDiagnostics = [],
-                  typeUnitWritten = Set.empty,
-                  typeUnitReused = Set.empty,
-                  typeUnitPendingStamp = Nothing,
-                  typeUnitSuccess = False
-                }
-            putTMVar (runtimeBackendInput runtime) Nothing
+          publishResult
+            (runtimeTypeResult runtime)
+            TypeUnitResult
+              { typeUnitTypes = Map.empty,
+                typeUnitHashes = Map.empty,
+                typeUnitOwnInstanceInterface = emptyTcInterface,
+                typeUnitFactsDigest = "",
+                typeUnitInstanceInterface = importedInstanceInterface,
+                typeUnitInstanceProviders = Set.empty,
+                typeUnitDiagnostics = [],
+                typeUnitWritten = Set.empty,
+                typeUnitReused = Set.empty,
+                typeUnitPendingStamp = Nothing,
+                typeUnitSuccess = False
+              }
+          sendValue (runtimeBackendInput runtime) Nothing
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       factsArtifact <- readTypeArtifactFile (storePath </> factsPath)
@@ -2644,23 +2634,22 @@ runTypeUnit context runtimes runtime = do
           providers = Set.fromList (concat (Map.elems (typeArtifactInstanceProviders factsArtifact)))
           interfaces = map typeArtifactInterface artifacts
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
-      atomically $ do
-        putTMVar
-          (runtimeTypeResult runtime)
-          TypeUnitResult
-            { typeUnitTypes = ownModules resolvePackage (Map.fromList (zip unitNames interfaces)),
-              typeUnitHashes = ownModules resolvePackage (unitStampTypes recorded),
-              typeUnitOwnInstanceInterface = ownFacts,
-              typeUnitFactsDigest = unitStampFacts recorded,
-              typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
-              typeUnitInstanceProviders = providers,
-              typeUnitDiagnostics = [],
-              typeUnitWritten = Set.empty,
-              typeUnitReused = Set.fromList unitNames,
-              typeUnitPendingStamp = Nothing,
-              typeUnitSuccess = True
-            }
-        putTMVar (runtimeBackendInput runtime) Nothing
+      publishResult
+        (runtimeTypeResult runtime)
+        TypeUnitResult
+          { typeUnitTypes = ownModules resolvePackage (Map.fromList (zip unitNames interfaces)),
+            typeUnitHashes = ownModules resolvePackage (unitStampTypes recorded),
+            typeUnitOwnInstanceInterface = ownFacts,
+            typeUnitFactsDigest = unitStampFacts recorded,
+            typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
+            typeUnitInstanceProviders = providers,
+            typeUnitDiagnostics = [],
+            typeUnitWritten = Set.empty,
+            typeUnitReused = Set.fromList unitNames,
+            typeUnitPendingStamp = Nothing,
+            typeUnitSuccess = True
+          }
+      sendValue (runtimeBackendInput runtime) Nothing
     Nothing -> do
       ((checkedModules, newInterface), diagnostics) <- checkUnit
       let checkedInterface = shareTcInterface newInterface
@@ -2743,9 +2732,8 @@ runTypeUnit context runtimes runtime = do
       when (compileNoCode config) $
         forM_ pendingStamp $
           \pending -> writeUnitStamp storePath pending Nothing
-      atomically $ do
-        putTMVar (runtimeTypeResult runtime) typeResult
-        putTMVar (runtimeBackendInput runtime) pendingBackend
+      publishResult (runtimeTypeResult runtime) typeResult
+      sendValue (runtimeBackendInput runtime) pendingBackend
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
@@ -2788,9 +2776,9 @@ writeUnitStamp storePath pending backend = do
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
   started <- getMonotonicTimeNSec
-  result <- atomically (readTMVar (runtimeTypeResult runtime))
+  result <- awaitResult (runtimeTypeResult runtime)
   -- The FC of the unit is this task's: once it is compiled it is gone.
-  pending <- atomically (takeTMVar (runtimeBackendInput runtime))
+  pending <- receiveValue (runtimeBackendInput runtime)
   case pending of
     Just backend | typeUnitSuccess result -> do
       let unitConfig = taskModuleCompileConfig context
@@ -2974,50 +2962,49 @@ configMergeCheck config
 desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
 desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-  do
-    let kinds = primKinds primIdentity
-        -- A module the resolver did not report on keeps every name public.
-        desugarConfig name =
-          Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
-        -- Each module is desugared against its own bindings; the rest of
-        -- the unit reaches it through the interface.
-        desugarResults =
-          [ Fc.desugarModuleFc (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
-          | (name, checked) <- zip moduleNames checkedModules
-          ]
-        desugarErrors =
-          [ T.unpack name <> ": " <> err
-          | (name, result) <- zip moduleNames desugarResults,
-            err <- dsErrors result
-          ]
-    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
-    -- The FC waits in memory for the backend, so equal names and types
-    -- are made one object each before it is kept.
-    let fcModules = zipWith FcModule moduleNames (map (Fc.shareProgram . dsProgram) desugarResults)
-    fcErrors <-
-      fmap concat $
-        forM fcModules $ \fcModule -> do
-          when lint (verbose ("Lint FC: " <> T.unpack (fcModuleName fcModule)))
-          let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram primIdentity (fcProgram fcModule)]
-          when lint (void (evaluate (length errors)))
-          pure errors
-    let fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
-    when lint $
-      unless (null fcErrors) $
-        ioError
-          ( userError
-              ( unlines
-                  ( ["FC lint failed:"]
-                      <> fcReport
-                  )
-              )
-          )
-    -- A @--lto@ build keeps the System FC of every module: it is what the
-    -- executable compiles.
-    when (keepCore || lto) (mapM_ writeFcModule fcModules)
-    -- The FC is forced here so that no thunk into the checked AST leaves
-    -- with it.
-    evaluate (force fcModules)
+  let kinds = primKinds primIdentity
+      -- A module the resolver did not report on keeps every name public.
+      desugarConfig name =
+        Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
+      -- Each module is desugared against its own bindings; the rest of
+      -- the unit reaches it through the interface.
+      desugarResults =
+        [ Fc.desugarModuleFc (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
+        | (name, checked) <- zip moduleNames checkedModules
+        ]
+      desugarErrors =
+        [ T.unpack name <> ": " <> err
+        | (name, result) <- zip moduleNames desugarResults,
+          err <- dsErrors result
+        ]
+  unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
+  -- The FC waits in memory for the backend, so equal names and types
+  -- are made one object each before it is kept.
+  let fcModules = zipWith FcModule moduleNames (map (Fc.shareProgram . dsProgram) desugarResults)
+  fcErrors <-
+    fmap concat $
+      forM fcModules $ \fcModule -> do
+        when lint (verbose ("Lint FC: " <> T.unpack (fcModuleName fcModule)))
+        let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram primIdentity (fcProgram fcModule)]
+        when lint (void (evaluate (length errors)))
+        pure errors
+  let fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
+  when lint $
+    unless (null fcErrors) $
+      ioError
+        ( userError
+            ( unlines
+                ( ["FC lint failed:"]
+                    <> fcReport
+                )
+            )
+        )
+  -- A @--lto@ build keeps the System FC of every module: it is what the
+  -- executable compiles.
+  when (keepCore || lto) (mapM_ writeFcModule fcModules)
+  -- The FC is forced here so that no thunk into the checked AST leaves
+  -- with it.
+  evaluate (force fcModules)
   where
     keepCore = compileKeepCore config
     lint = compileLint config
@@ -3660,8 +3647,8 @@ targetCCompiler target level = do
 preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
 preprocessPackage config versions root storePath configureScript headerHash cInfo files = do
   capabilities <- getNumCapabilities
-  limit <- newQSem (max 1 capabilities)
-  mapConcurrently (bracket_ (waitQSem limit) (signalQSem limit) . preprocessFile) files
+  limit <- newPermitPool capabilities
+  mapConcurrently (withPermit limit . preprocessFile) files
   where
     verbose = compileVerbose config
 
