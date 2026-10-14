@@ -1825,7 +1825,10 @@ genOp profile model = do
             payload <- Gen.int (Range.linear 100 250)
             extra <- Gen.int (Range.linear 0 (max 0 (length chain - 2)))
             let pushes = [CPush (fid + offset) (FSNormal (replicate payload False) Nothing (replicate payload (VWord (fromIntegral offset)))) | offset <- [0 .. depth - 1]]
-                pops = [CEnter (fid + offset) Nothing | offset <- reverse [0 .. depth - 1]] <> [CEnter below Nothing | (below, frame) <- take extra chain, fKind frame /= FStop, fKind frame /= FUpdate]
+                -- A plain return cannot skip an update frame or a stop frame.
+                -- Stop at the first such frame instead of a jump below it.
+                plain = takeWhile (\(_, frame) -> fKind frame `notElem` [FStop, FUpdate]) (take extra chain)
+                pops = [CEnter (fid + offset) Nothing | offset <- reverse [0 .. depth - 1]] <> [CEnter below Nothing | (below, _) <- plain]
             pure (pushes <> pops)
         ),
         -- A collection in the middle of an epoch, so a gen2 cycle and its
