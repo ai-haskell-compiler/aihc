@@ -1583,18 +1583,22 @@ static inline uint64_t aihc_gc_words(const AihcValue *value) {
 #ifdef AIHC_GC_THREADS
 /* The words of an object whose header the caller loaded. Another worker can
    write a busy header into the object, so the size comes from the loaded
-   header and from field zero, which a copy does not change. Only an array,
-   a partial constructor, and a byte array read field zero. */
+   header and from the size fields, which a copy does not change. An array
+   and a partial constructor keep a count in field zero, and a byte array
+   keeps its words in its record. Every other size follows from the info
+   table. */
 static uint64_t aihc_gc_words_of(const AihcValue *value, AihcSlot header) {
-  AihcSlot probe[2] = {header, 0};
   if ((header & AIHC_HEADER_EVALUATING) == 0) {
     AihcObjectKind kind = aihc_header_info(header)->object_kind;
-    if (kind == AIHC_OBJECT_ARRAY || kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
-        kind == AIHC_OBJECT_BYTE_ARRAY) {
-      probe[1] = value->fields[0];
+    if (kind == AIHC_OBJECT_BYTE_ARRAY) {
+      return ((const AihcByteArray *)value)->words;
+    }
+    if (kind == AIHC_OBJECT_ARRAY || kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+      return 2 + value->fields[0];
     }
   }
-  return aihc_gc_words((const AihcValue *)probe);
+  AihcSlot probe = header;
+  return aihc_gc_words((const AihcValue *)&probe);
 }
 #endif
 
