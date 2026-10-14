@@ -1060,7 +1060,7 @@ exprOperands expression =
     GrinConstant values -> values
     GrinStore node -> grinNodeFields node
     GrinStoreUnchecked node -> grinNodeFields node
-    GrinEnsureHeap _ roots -> roots
+    GrinEnsureHeap requiredWords roots -> requiredWords : roots
     GrinAllocate requiredWords pinned roots -> requiredWords : pinned : roots
     GrinUpdate pointer value -> [pointer, value]
     GrinUpdateBlackhole pointer value -> [pointer, value]

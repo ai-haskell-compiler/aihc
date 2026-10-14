@@ -212,7 +212,7 @@ assertHeapLint sourceText expected change = do
   assertEqual "heap reservation diagnostics" expected (lintGcProgram gc {gcGrinProgram = changed})
 
 removeWords :: GrinExpr -> GrinExpr
-removeWords (GrinEnsureHeap _ roots) = GrinEnsureHeap 0 roots
+removeWords (GrinEnsureHeap _ roots) = GrinEnsureHeap (GrinLitValue (GrinLitInt WordRep 0)) roots
 removeWords expression = expression
 
 nurseryProgram :: Text
@@ -228,7 +228,7 @@ missingAllocationProgram =
 
 uninitializedProgram :: Text
 uninitializedProgram =
-  "$entry -> IntRep =\n  (memory%1 :: AddrRep) <- allocate (2 :: WordRep) (0 :: WordRep)\n  () <- ensure-heap 0\n  constant (0 :: IntRep)\n"
+  "$entry -> IntRep =\n  (memory%1 :: AddrRep) <- allocate (2 :: WordRep) (0 :: WordRep)\n  () <- ensure-heap (0 :: WordRep)\n  constant (0 :: IntRep)\n"
 
 removeNursery :: GrinExpr -> GrinExpr
 removeNursery (GrinEnsureHeap _ roots) = GrinConstant roots

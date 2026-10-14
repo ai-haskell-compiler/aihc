@@ -1571,7 +1571,7 @@ compileExpr ctx env expression =
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
-    GrinEnsureHeap {} -> unsupported "unbound nursery reservation"
+    GrinEnsureHeap {} -> unsupported "unbound heap reservation"
     GrinAllocate {} -> unsupported "unbound dynamic allocation"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
     GrinUpdate {} -> unsupported "direct-style update after CPS"
@@ -1674,8 +1674,13 @@ compileBinding ctx env vars expression =
       object <- allocateNode ctx node
       initializeFields ctx env object node
       bindResults [object]
-    GrinEnsureHeap words' roots ->
-      reserve words' (OperandLiteral (LitInt words')) roots
+    GrinEnsureHeap requiredWords roots
+      | length vars == length roots -> do
+          words' <- materialize ctx env requiredWords >>= coerce I64
+          rootOperands <- mapM (pointerValue ctx env) roots
+          array <- rootArray roots
+          reserveHeap ctx env vars requiredWords words' roots rootOperands array
+      | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
     GrinAllocate requiredWords pinned roots -> case vars of
       memory : relocated | length relocated == length roots -> do
         words' <- materialize ctx env requiredWords >>= coerce I64
@@ -1724,12 +1729,6 @@ compileBinding ctx env vars expression =
       ([], _) -> pure (OperandLiteral LitNull)
       (_, Just array) -> pure array
       _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
-    reserve nurseryWords words' roots
-      | length vars == length roots = do
-          rootOperands <- mapM (pointerValue ctx env) roots
-          array <- rootArray roots
-          reserveHeap ctx env vars nurseryWords words' roots rootOperands array
-      | otherwise = failWith (LowerUnsupportedExpression "heap reservation result arity")
     bindResults = bindVars env vars
 
 -- | Take the words of a reservation from the current space. The fast path is
@@ -1745,23 +1744,38 @@ reserveHeap ::
   FunctionCtx ->
   ValueEnv ->
   [GrinVar] ->
-  Integer ->
+  GrinValue ->
   Operand ->
   [GrinValue] ->
   [Operand] ->
   Operand ->
   LowerM ValueEnv
-reserveHeap ctx env vars nurseryWords words' roots rootOperands array = do
+reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   context <- currentContext
-  fits <- case nurseryWords of
+  fits <- case requiredWords of
     -- A reservation of zero words is the safepoint before a frame push. It
     -- fails when a stack growth put the heap limit below the heap pointer.
-    0 ->
+    GrinLitValue (GrinLitInt _ 0) ->
       emitValue "heap_fits" I1 (Compare LeU Ptr (contextHeap context) (contextHeapLimit context))
-    -- A nursery batch has a fixed size. Compare its end with the limit.
-    requested -> do
+    -- A fixed size is small, so the end of the reservation cannot wrap, and
+    -- the reservation fits when that end is not above the heap limit.
+    GrinLitValue (GrinLitInt _ requested) -> do
       end <- emitValue "heap_end" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt (8 * requested))))
       emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) (contextHeapLimit context))
+    _ -> do
+      nextWord <- emitValue "heap_word" I64 (PtrToInt (contextHeap context))
+      limitWord <- emitValue "heap_end_word" I64 (PtrToInt (contextHeapLimit context))
+      -- A large allocation lowers the heap limit, and the stores of an
+      -- earlier reservation can then pass it, so the room is valid only
+      -- when the limit is not below the heap pointer.
+      below <- emitValue "heap_below_limit" I1 (Compare LeU I64 (typedOperand nextWord) (typedOperand limitWord))
+      room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
+      -- A dynamic size brings the room down to words rather than the words up
+      -- to bytes: a reservation the address space cannot hold then fails the
+      -- compare instead of wrapping past it into the unchecked store behind.
+      roomWords <- emitValue "heap_room_words" I64 (Binary ShrU I64 (typedOperand room) (OperandLiteral (LitInt 3)))
+      enough <- emitValue "heap_enough" I1 (Compare GeU I64 (typedOperand roomWords) words')
+      emitValue "heap_fits" I1 (Binary And I1 (typedOperand below) (typedOperand enough))
   collect <- freshLabel "gc_collect"
   reserved <- freshLabel "gc_reserved"
   parameters <- forM vars $ \var -> do

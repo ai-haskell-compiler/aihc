@@ -23,21 +23,21 @@ expected: |
   primitive aihcByteArrayPinned# :: WordRep/1
 
   allocate (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_words :: WordRep <-
+    $gc_byte_array_words :: WordRep <-
       primitive-call @WordRep aihcByteArrayWords# (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
     $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted <-
-      allocate ($gc_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted)
+      allocate ($gc_byte_array_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcInitByteArray# ($gc_memory :: AddrRep) (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
 
   resize (array :: BoxedRep Unlifted) (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_words :: WordRep <-
+    $gc_byte_array_words :: WordRep <-
       primitive-call @WordRep aihcResizeByteArrayWords# (array :: BoxedRep Unlifted) (size :: IntRep)
     $gc_pinned :: WordRep <-
       primitive-call @WordRep aihcByteArrayPinned# (array :: BoxedRep Unlifted)
     $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted <-
-      allocate ($gc_words :: WordRep) ($gc_pinned :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
+      allocate ($gc_byte_array_words :: WordRep) ($gc_pinned :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcInitByteArrayResize# ($gc_memory :: AddrRep) (array$gc :: BoxedRep Unlifted) (size :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)

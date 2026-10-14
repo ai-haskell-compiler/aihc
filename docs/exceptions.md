@@ -253,7 +253,7 @@ Initial safe points should be:
 - scheduler resumption before a thread re-enters generated code.
 
 This suggests an explicit CPS/GC-GRIN poll carrying `k`, rather than hiding
-delivery inside `GrinEnsureHeap` and `GrinAllocate`. The GC root set already keeps live values and
+delivery inside `GrinEnsureHeap`. The GC root set already keeps live values and
 `k` precise; the poll makes the control effect visible to lint and every
 backend. A poll where delivery is disallowed returns normally. A deliverable
 pending value abandons the current generated entry and returns the same raise

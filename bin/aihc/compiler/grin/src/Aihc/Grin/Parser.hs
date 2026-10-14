@@ -377,10 +377,10 @@ ensureHeapExpr :: Parser GrinExpr
 ensureHeapExpr = do
   keyword "ensure-heap"
   horizontal1
-  words' <- signedInteger
+  requiredWords <- grinValue
   roots <- grinValues
   lineEnd
-  pure (GrinEnsureHeap words' roots)
+  pure (GrinEnsureHeap requiredWords roots)
 
 allocateExpr :: Parser GrinExpr
 allocateExpr = do

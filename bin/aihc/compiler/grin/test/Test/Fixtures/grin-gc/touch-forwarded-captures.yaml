@@ -10,7 +10,7 @@ expected: |
 
   protect (owner :: BoxedRep Unlifted) (action :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> forwarded =
     $cps_return$gc :: BoxedRep Lifted, action$gc :: BoxedRep Lifted, owner$gc :: BoxedRep Unlifted <-
-      ensure-heap 0 ($cps_return :: BoxedRep Lifted) (action :: BoxedRep Lifted) (owner :: BoxedRep Unlifted)
+      ensure-heap (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (action :: BoxedRep Lifted) (owner :: BoxedRep Unlifted)
     $cps_continuation :: BoxedRep Lifted <-
       store-unchecked (Pprotect_cont/[[]] ($cps_return$gc :: BoxedRep Lifted) (owner$gc :: BoxedRep Unlifted))
     cps-apply @forwarded (action$gc :: BoxedRep Lifted) () -> ($cps_continuation :: BoxedRep Lifted)

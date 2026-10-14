@@ -436,12 +436,7 @@ evalScheduledExpr env expr continue =
       value <- materializeNode env node >>= allocateCell . storedCell
       continue [value]
     GrinEnsureHeap _ roots -> continue =<< mapM (materializeValue env) roots
-    GrinAllocate words' _ roots -> do
-      count <- expectIntPrimitiveArgument "allocate" =<< materializeValue env words'
-      bytes <- checkedByteArraySize "allocate" (count * 8)
-      memory <- allocateOwnedBuffer (mallocBytes (max 1 bytes))
-      values <- mapM (materializeValue env) roots
-      continue (RuntimeAddress memory : values)
+    GrinAllocate {} -> rejectCpsExpression
     GrinStoreUnchecked node -> do
       value <- materializeNode env node >>= allocateCell . storedCell
       continue [value]
@@ -1075,8 +1070,6 @@ evalPrimitive name arguments
             (GrinForeignSignature operands result GrinForeignRealWorld)
         )
         arguments
-evalPrimitive name arguments
-  | name `elem` ["aihcArrayWords#", "aihcByteArrayWords#", "aihcResizeByteArrayWords#", "aihcByteArrayPinned#", "aihcInitArray#", "aihcInitArrayClone#", "aihcInitArrayResize#", "aihcInitByteArray#", "aihcInitByteArrayResize#"] = evalAllocationPrimitive name arguments
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
 evalPrimitive "-#" [left, right] = evalIntPrimitive "-#" (-) left right
 evalPrimitive "*#" [left, right] = evalIntPrimitive "*#" (*) left right
@@ -1989,49 +1982,6 @@ evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount] = do
   liftEvalIO (pokeArray (castPtr (grinByteArrayContents byteArray `plusPtr` destinationOffset)) (BS.unpack sourceBytes))
   pure []
 evalPrimitive name arguments =
-  throwInterpret (InterpretPrimitiveArity name (length arguments))
-
--- | Execute the size and initialization primitives of GC-GRIN.
-evalAllocationPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
-evalAllocationPrimitive "aihcArrayWords#" [size] = do
-  count <- expectIntPrimitiveArgument "aihcArrayWords#" size
-  _ <- checkedArraySize "aihcArrayWords#" count
-  pure [wordRuntimeValue (count + 2)]
-evalAllocationPrimitive "aihcByteArrayWords#" [size, pinned, alignment] = do
-  count <- expectIntPrimitiveArgument "aihcByteArrayWords#" size
-  flag <- expectIntPrimitiveArgument "aihcByteArrayWords#" pinned
-  boundary <- expectIntPrimitiveArgument "aihcByteArrayWords#" alignment
-  _ <- checkedByteArraySize "aihcByteArrayWords#" count
-  _ <- checkedByteArrayAlignment "aihcByteArrayWords#" boundary
-  let overhead = 48 + if flag /= 0 then 16 + (if boundary > 8 then boundary - 1 else 0) else 0
-  pure [wordRuntimeValue ((max 1 count + overhead + 7) `div` 8)]
-evalAllocationPrimitive "aihcResizeByteArrayWords#" [value, size] = do
-  array <- expectByteArrayPrimitiveArgument "aihcResizeByteArrayWords#" value
-  evalAllocationPrimitive "aihcByteArrayWords#" [size, intRuntimeValue (if grinByteArrayPinned array then 1 else 0), intRuntimeValue (toInteger (grinByteArrayAlignment array))]
-evalAllocationPrimitive "aihcByteArrayPinned#" [value] = do
-  array <- expectByteArrayPrimitiveArgument "aihcByteArrayPinned#" value
-  pure [wordRuntimeValue (if grinByteArrayPinned array then 1 else 0)]
-evalAllocationPrimitive "aihcInitArray#" (_ : arguments) = evalPrimitive "newArray#" arguments
-evalAllocationPrimitive "aihcInitArrayClone#" (_ : arguments) = evalPrimitive "cloneArray#" arguments
-evalAllocationPrimitive "aihcInitArrayResize#" (_ : arguments) = evalPrimitive "resizeSmallMutableArray#" arguments
-evalAllocationPrimitive "aihcInitByteArray#" [memory, size, pinned, alignment] = do
-  raw <- expectAddress "aihcInitByteArray#" memory
-  count <- checkedByteArraySize "aihcInitByteArray#" =<< expectIntPrimitiveArgument "aihcInitByteArray#" size
-  flag <- expectIntPrimitiveArgument "aihcInitByteArray#" pinned
-  boundary <- checkedByteArrayAlignment "aihcInitByteArray#" =<< expectIntPrimitiveArgument "aihcInitByteArray#" alignment
-  sizeReference <- liftEvalIO (newIORef count)
-  pure [RuntimeByteArray (GrinByteArray sizeReference (alignPtr (raw `plusPtr` 48) boundary) (flag /= 0) boundary)]
-evalAllocationPrimitive "aihcInitByteArrayResize#" [memory, value, size] = do
-  array <- expectByteArrayPrimitiveArgument "aihcInitByteArrayResize#" value
-  values <- evalAllocationPrimitive "aihcInitByteArray#" [memory, size, intRuntimeValue (if grinByteArrayPinned array then 1 else 0), intRuntimeValue (toInteger (grinByteArrayAlignment array))]
-  case values of
-    [RuntimeByteArray resized] -> do
-      oldSize <- liftEvalIO (readIORef (grinByteArraySize array))
-      newSize <- liftEvalIO (readIORef (grinByteArraySize resized))
-      liftEvalIO (copyBytes (grinByteArrayContents resized) (grinByteArrayContents array) (min oldSize newSize))
-      pure values
-    _ -> throwInterpret (InterpretPrimitiveArity "aihcInitByteArrayResize#" (length values))
-evalAllocationPrimitive name arguments =
   throwInterpret (InterpretPrimitiveArity name (length arguments))
 
 -- | Register each allocation before an asynchronous exception can reach it.

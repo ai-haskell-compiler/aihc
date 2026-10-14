@@ -106,8 +106,8 @@ prettyExprWith scopes expr =
         <> hardline
         <> prettyExprWith scopes body
     GrinStore node -> "store" <+> prettyNode scopes node
-    GrinEnsureHeap words' roots ->
-      "ensure-heap" <+> pretty words' <> prettyValues scopes roots
+    GrinEnsureHeap requiredWords roots ->
+      "ensure-heap" <+> prettyValue scopes requiredWords <> prettyValues scopes roots
     GrinAllocate requiredWords pinned roots ->
       "allocate" <+> prettyValue scopes requiredWords <+> prettyValue scopes pinned <> prettyValues scopes roots
     GrinStoreUnchecked node -> "store-unchecked" <+> prettyNode scopes node

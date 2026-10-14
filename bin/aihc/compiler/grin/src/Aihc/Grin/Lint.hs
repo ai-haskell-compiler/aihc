@@ -9,7 +9,7 @@ module Aihc.Grin.Lint
 where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), CpsGrinProgram, cpsContinuationFrames, cpsFunctionContinuations, cpsGrinProgram)
-import Aihc.Grin.Gc (GcGrinProgram, dynamicAllocationSize, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
+import Aihc.Grin.Gc (GcGrinProgram, dynamicReservation, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
 import Aihc.Grin.Primitive (primitiveAllocates, primitiveHeapWords, primitiveInitializes)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
@@ -90,21 +90,22 @@ lintGcProgram gc =
 -- Initialization must consume that address before another safepoint.
 lintHeapReservations :: Set FunctionName -> GrinExpr -> [GrinLintError]
 lintHeapReservations frames expression =
-  let (errors, (_, pending)) = check (0, Set.empty) expression
+  let (errors, (_, pending)) = check (Just 0, Set.empty) expression
    in errors <> uninitialized pending
   where
     uninitialized pending = [GrinLintUninitializedAllocation | not (Set.null pending)]
     check budget@(available, pending) expr = case expr of
       GrinBind (memory : _) allocation@GrinAllocate {} body ->
         let (errors, _) = check budget allocation
-            (bodyErrors, final) = check (0, Set.singleton memory) body
+            (bodyErrors, final) = check (Just 0, Set.singleton memory) body
          in (errors <> bodyErrors, final)
       GrinBind _ value body ->
         let (valueErrors, remaining) = check budget value
             (bodyErrors, final) = check remaining body
          in (valueErrors <> bodyErrors, final)
-      GrinEnsureHeap words' _ ->
-        (uninitialized pending <> [GrinLintInvalidNurseryReservation words' | words' < 0 || words' > (2 ^ (61 :: Int) - 1)], (max 0 words', Set.empty))
+      GrinEnsureHeap (GrinLitValue (GrinLitInt _ words')) _ ->
+        (uninitialized pending <> [GrinLintInvalidNurseryReservation words' | words' < 0 || words' > (2 ^ (61 :: Int) - 1)], (Just (max 0 words'), Set.empty))
+      GrinEnsureHeap {} -> (uninitialized pending, (Nothing, Set.empty))
       GrinAllocate {} -> barrier
       GrinStoreUnchecked node -> consume (allocationWords node) budget
       GrinStoreRecUnchecked bindings body ->
@@ -121,24 +122,24 @@ lintHeapReservations frames expression =
       GrinForeignCallExpr {} -> barrier
       _ -> ([], budget)
       where
-        barrier = (uninitialized pending, (0, Set.empty))
+        barrier = (uninitialized pending, (Just 0, Set.empty))
         primitive name arguments
           | primitiveInitializes name = case arguments of
               GrinVarValue memory : _ | memory `Set.member` pending -> ([], (available, Set.delete memory pending))
               _ -> ([GrinLintInitializationWithoutAllocation name], budget)
-          | Just _ <- dynamicAllocationSize name arguments =
-              (GrinLintUnloweredAllocation name : uninitialized pending, (0, Set.empty))
+          | Just _ <- dynamicReservation name arguments =
+              (GrinLintUnloweredAllocation name : uninitialized pending, (Just 0, Set.empty))
           | Just words' <- primitiveHeapWords name =
               let (errors, _) = consume (toInteger words') budget
-               in (errors, (0, pending))
+               in (errors, (Just 0, pending))
           | primitiveAllocates name = barrier
           | otherwise = ([], budget)
         branches expressions =
           let results = map (check budget) expressions
               remaining = map snd results
-           in (concatMap fst results, (minimum (available : map fst remaining), Set.unions (map snd remaining)))
+           in (concatMap fst results, (minimum <$> sequence (available : map fst remaining), Set.unions (map snd remaining)))
     consume required (available, pending) =
-      ([GrinLintNurseryReservation required available | required > available], (max 0 (available - required), pending))
+      ([GrinLintNurseryReservation required words' | Just words' <- [available], required > words'], (fmap (max 0 . subtract required) available, pending))
     allocationWords node = case grinNodeTag node of
       GrinClosure name _ | name `Set.member` frames -> 0
       _ -> toInteger (nodeWords node)
@@ -297,7 +298,7 @@ lintExpr env bound expr =
         <> lintExpr env bound valueExpr
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
-    GrinEnsureHeap _ roots -> concatMap (lintValue bound) roots
+    GrinEnsureHeap requiredWords roots -> lintValue bound requiredWords <> concatMap (lintValue bound) roots
     GrinAllocate requiredWords pinned roots -> lintValue bound requiredWords <> lintValue bound pinned <> concatMap (lintValue bound) roots
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->

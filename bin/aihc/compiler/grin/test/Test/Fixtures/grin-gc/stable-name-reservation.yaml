@@ -8,7 +8,7 @@ expected: |
 
   name (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
     $cps_return$gc :: BoxedRep Lifted, value$gc :: BoxedRep Lifted <-
-      ensure-heap 4 ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
+      ensure-heap (4 :: WordRep) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) makeStableName# (value$gc :: BoxedRep Lifted)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)

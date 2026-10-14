@@ -113,7 +113,7 @@ forceCollection (Module items) =
   where
     collectorDeclarations = filter isCollectorDeclaration items
     isCollectorDeclaration (ItemExternFunction external) =
-      externFunctionName external `elem` [Symbol "aihc_heap_collect", Symbol "aihc_ensure_heap", Symbol "aihc_heap_allocate"]
+      externFunctionName external `elem` [Symbol "aihc_heap_collect", Symbol "aihc_heap_allocate"]
     isCollectorDeclaration _ = False
     collectorDeclaration (ItemExternFunction external) = ItemExternFunction external {externFunctionName = Symbol "aihc_gc_collect", externFunctionSignature = Signature [Ptr, I64, I64, Ptr, Ptr] [] CConvention}
     collectorDeclaration item = item
@@ -123,8 +123,7 @@ forceCollection (Module items) =
         collectors =
           [ blockLabel block
           | block <- functionBlocks function,
-            Instruction _ (Call (Symbol collector) _) <- blockInstructions block,
-            collector `elem` ["aihc_heap_collect", "aihc_ensure_heap"]
+            Instruction _ (Call (Symbol "aihc_heap_collect") _) <- blockInstructions block
           ]
         forceBlock block =
           block
@@ -138,10 +137,6 @@ forceCollection (Module items) =
     forceItem item = item
     forceInstruction (Instruction results (Call (Symbol "aihc_heap_collect") arguments)) =
       [Instruction results (Call (Symbol "aihc_gc_collect") arguments)]
-    forceInstruction instruction@(Instruction _ (Call (Symbol "aihc_ensure_heap") (capability : _ : arguments))) =
-      [ Instruction [] (Call (Symbol "aihc_gc_collect") (capability : OperandLiteral (LitInt 0) : arguments)),
-        instruction
-      ]
     forceInstruction instruction@(Instruction _ (Call (Symbol "aihc_heap_allocate") (capability : _ : _ : arguments))) =
       [ Instruction [] (Call (Symbol "aihc_gc_collect") (capability : OperandLiteral (LitInt 0) : arguments)),
         instruction

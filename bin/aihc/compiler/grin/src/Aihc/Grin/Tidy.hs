@@ -68,7 +68,8 @@ tidyExpr expression =
       GrinBind vars' <$> tidyExpr valueExpression <*> tidyExpr body
     GrinStore node -> GrinStore <$> useNode node
     GrinStoreUnchecked node -> GrinStoreUnchecked <$> useNode node
-    GrinEnsureHeap words' roots -> GrinEnsureHeap words' <$> useValues roots
+    GrinEnsureHeap requiredWords roots ->
+      GrinEnsureHeap <$> useValue requiredWords <*> useValues roots
     GrinAllocate requiredWords pinned roots ->
       GrinAllocate <$> useValue requiredWords <*> useValue pinned <*> useValues roots
     GrinStoreRec bindings body -> tidyStoreRec GrinStoreRec bindings body

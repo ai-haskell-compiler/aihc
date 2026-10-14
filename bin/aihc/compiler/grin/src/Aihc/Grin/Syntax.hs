@@ -290,7 +290,7 @@ data GrinExpr
   | GrinStore !GrinNode
   | -- | Reserve nursery words for a batch of small objects.
     -- Return the relocated roots in list order. Do not advance the heap pointer.
-    GrinEnsureHeap !Integer ![GrinValue]
+    GrinEnsureHeap !GrinValue ![GrinValue]
   | -- | Allocate one object and return its address, then the relocated roots.
     -- The operands give the charged words and the pinned flag.
     -- A nursery allocation advances the heap pointer before this operation returns.
@@ -525,7 +525,7 @@ grinProgramLiterals program =
         GrinConstant values -> concatMap valueLiterals values
         GrinBind _ valueExpression body -> exprLiterals valueExpression <> exprLiterals body
         GrinStore node -> nodeLiterals node
-        GrinEnsureHeap _ roots -> concatMap valueLiterals roots
+        GrinEnsureHeap requiredWords roots -> valueLiterals requiredWords <> concatMap valueLiterals roots
         GrinAllocate requiredWords pinned roots -> valueLiterals requiredWords <> valueLiterals pinned <> concatMap valueLiterals roots
         GrinStoreUnchecked node -> nodeLiterals node
         GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
@@ -581,7 +581,7 @@ grinExprGlobalReferences = exprReferences
         GrinConstant values -> valuesReferences values
         GrinBind _ valueExpression body -> exprReferences valueExpression <> exprReferences body
         GrinStore node -> nodeReferences node
-        GrinEnsureHeap _ roots -> valuesReferences roots
+        GrinEnsureHeap requiredWords roots -> valueReferences requiredWords <> valuesReferences roots
         GrinAllocate requiredWords pinned roots -> valueReferences requiredWords <> valueReferences pinned <> valuesReferences roots
         GrinStoreUnchecked node -> nodeReferences node
         GrinStoreRec bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body

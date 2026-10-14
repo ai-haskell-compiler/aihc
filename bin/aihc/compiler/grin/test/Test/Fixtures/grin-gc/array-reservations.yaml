@@ -27,28 +27,28 @@ expected: |
   primitive aihcInitArrayResize# :: BoxedRep Unlifted/4
 
   allocate (count :: IntRep) (initial :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_words :: WordRep <-
+    $gc_array_words :: WordRep <-
       primitive-call @WordRep aihcArrayWords# (count :: IntRep)
     $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted, initial$gc :: BoxedRep Lifted <-
-      allocate ($gc_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (initial :: BoxedRep Lifted)
+      allocate ($gc_array_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (initial :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcInitArray# ($gc_memory :: AddrRep) (count :: IntRep) (initial$gc :: BoxedRep Lifted)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
 
   clone (array :: BoxedRep Unlifted) (offset :: IntRep) (count :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_words :: WordRep <-
+    $gc_array_words :: WordRep <-
       primitive-call @WordRep aihcArrayWords# (count :: IntRep)
     $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted <-
-      allocate ($gc_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
+      allocate ($gc_array_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcInitArrayClone# ($gc_memory :: AddrRep) (array$gc :: BoxedRep Unlifted) (offset :: IntRep) (count :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
 
   resize (array :: BoxedRep Unlifted) (count :: IntRep) (initial :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
-    $gc_words :: WordRep <-
+    $gc_array_words :: WordRep <-
       primitive-call @WordRep aihcArrayWords# (count :: IntRep)
     $gc_memory :: AddrRep, $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted, initial$gc :: BoxedRep Lifted <-
-      allocate ($gc_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted) (initial :: BoxedRep Lifted)
+      allocate ($gc_array_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted) (initial :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcInitArrayResize# ($gc_memory :: AddrRep) (array$gc :: BoxedRep Unlifted) (count :: IntRep) (initial$gc :: BoxedRep Lifted)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)

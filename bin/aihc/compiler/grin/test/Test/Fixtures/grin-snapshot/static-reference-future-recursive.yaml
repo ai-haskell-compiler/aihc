@@ -13,8 +13,8 @@ program: |
 
   $entry -> BoxedRep Lifted =
     (first%1 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) global-ref caf
-    () <- ensure-heap 1048576
-    () <- ensure-heap 2097152
+    () <- ensure-heap (1048576 :: WordRep)
+    () <- ensure-heap (2097152 :: WordRep)
     store-rec
       (thunk%2 :: BoxedRep Lifted) = (F$later)
     (second%4 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (thunk%2 :: BoxedRep Lifted)
