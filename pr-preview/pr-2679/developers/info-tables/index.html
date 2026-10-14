@@ -1285,7 +1285,8 @@ count.</p>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">   </span><span class="kr">in</span><span class="w"> </span><span class="n">total</span>
 </code></pre></div>
 <p>AIHC can represent this suspended call as a GRIN thunk for the generated <code>total</code> function.
-The object stores the captured values in its payload.
+Field 0 of the object is the owner word, and the captured values follow it.
+The run-time system will keep the state of an evaluation in the owner word.
 Its table has the following logical values:</p>
 <table>
 <thead>
@@ -1301,7 +1302,7 @@ Its table has the following logical values:</p>
 </tr>
 <tr>
 <td><code>field_is_pointer</code></td>
-<td>One byte for <code>x</code> and one byte for <code>y</code>.</td>
+<td>One byte of <code>0</code> for the owner word, then one byte for <code>x</code> and one byte for <code>y</code>.</td>
 </tr>
 <tr>
 <td><code>next</code></td>
@@ -1317,7 +1318,7 @@ Its table has the following logical values:</p>
 </tr>
 <tr>
 <td><code>field_count</code></td>
-<td><code>2</code></td>
+<td><code>3</code></td>
 </tr>
 <tr>
 <td><code>remaining_arity</code></td>
@@ -1348,7 +1349,8 @@ That code reads the thunk kind and uses the backend entry to call the generated 
 During evaluation, the run-time system pushes an update frame and sets bit 0 of the header.
 The header still points to the thunk table.
 A second evaluation sees this bit and handles the object as a blackhole.
-After evaluation, the run-time system changes the thunk into an indirection to the result.</p>
+After evaluation, the run-time system changes the thunk into an indirection to the result.
+It writes the result into the owner word.</p>
 <p>Use the example below to see the thunk before, during, and after evaluation.</p>
 <div class="info-explorer" data-args="lifted lifted" data-kind="thunk">
 <p>Enable JavaScript to use the interactive example.</p>
