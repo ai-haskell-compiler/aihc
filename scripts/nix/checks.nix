@@ -258,6 +258,7 @@
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
         echo "Expected $example_name/${backend}-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        cat "$actual_stderr" >&2
         exit 1
       fi
     else
