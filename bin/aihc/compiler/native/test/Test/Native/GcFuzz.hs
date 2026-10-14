@@ -1698,7 +1698,7 @@ genOp profile model = do
     -- A reservation can collect, and a collection claims the thunk of each
     -- update frame, which this model learns only from the report. Thus a
     -- thunk with an update frame gets no second one.
-    plainThunks = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ Nothing) <- [object identity], not (underEvaluation identity)]
+    plainThunks = [identity | identity <- poolHeap pool, not (underEvaluation identity), Just (Object KThunk _ _ _ Nothing) <- [object identity]]
     underEvaluation identity = any (\frame -> fKind frame == FUpdate && fFields frame == [VHeap identity]) (Map.elems (mFrames model))
     blackholed = [identity | identity <- poolHeap pool, Just (Object KThunk _ _ _ (Just owner)) <- [object identity], owner /= mRunning model]
     arrays = [(identity, length elements) | identity <- poolHeap pool, Just (Array elements _) <- [object identity], not (null elements)]
