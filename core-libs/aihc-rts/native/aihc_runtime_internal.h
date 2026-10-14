@@ -542,6 +542,10 @@ void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
 /* Consume reserved memory without collection. The memory is not initialized
    unless DEBUG is defined. Initialize all fields before a call can collect. */
 AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words);
+/* Consume a prior reservation with an object in gen2. The object never moves
+   and reads as zero. Its bytes charge the nursery budget, as a pinned block
+   does. A thread record is the only such object. */
+AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words);
 /* Raise heap_peak_bytes to what the current space holds now. */
 void aihc_gc_record_peak(AihcCapability *capability);
 /* Fold the bytes the mutator has taken since the last account into

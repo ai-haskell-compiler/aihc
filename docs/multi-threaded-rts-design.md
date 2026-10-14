@@ -32,6 +32,8 @@ It uses an exclusive or with the aligned base and an unsigned size compare.
 The C runtime uses the same test.
 The runtime has no global nursery bounds.
 Gen1 uses the `-B` count rule and has no byte maximum.
+Thread records are in gen2 from the fork and never move.
+Their resumption and transaction fields are roots of the capability, so a store into them takes no barrier.
 The default count is one, and a count of zero promotes nursery survivors into gen2 directly.
 The runtime has no worker threads and does not enable `-N`.
 

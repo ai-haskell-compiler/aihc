@@ -621,17 +621,11 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
     /* The collector processes the referent and lookup link as weak pointers. */
     return 1;
   case AIHC_OBJECT_THREAD: {
+    /* The resumption and the transaction are roots of the capability, which
+       aihc_visit_roots visits. The link of the run queue names another
+       thread record, and every thread record is in gen2. */
     AihcThread *thread = (AihcThread *)object;
     thread->next = aihc_visit_pointer(thread->next, visitor, context);
-    thread->transaction =
-        aihc_visit_pointer(thread->transaction, visitor, context);
-    aihc_visit_value(&thread->resume_function, visitor, context);
-    aihc_visit_value(&thread->resume_continuation, visitor, context);
-    if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
-         thread->resume_kind == AIHC_RESUME_APPLY) &&
-        thread->resume_count == 1) {
-      thread->resume_value = visitor(thread->resume_value, context);
-    }
     return 1;
   }
   case AIHC_OBJECT_BLACKHOLE_WAITER: {
@@ -828,6 +822,29 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
 /* Static objects are not visited here. They never move, so a collector marks
    and scans the ones it finds reachable instead of treating all of them as
    roots. */
+/* A thread record is in gen2 and never moves, but its resumption and its
+   transaction name objects of the capability that runs the thread. These
+   fields are roots of the capability, not fields of a global object. Thus
+   a store into them needs no write barrier. Each thread with a stack is
+   visited. A thread that nothing reaches keeps them until a gen2 cycle
+   frees its record. A thread with a resumption is on the run queue. */
+static void aihc_visit_thread_roots(AihcCapability *capability,
+                                    AihcRootVisitor visitor, void *context) {
+  for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+       stack = stack->next) {
+    AihcThread *thread = stack->thread;
+    thread->transaction =
+        aihc_visit_pointer(thread->transaction, visitor, context);
+    aihc_visit_value(&thread->resume_function, visitor, context);
+    aihc_visit_value(&thread->resume_continuation, visitor, context);
+    if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
+         thread->resume_kind == AIHC_RESUME_APPLY) &&
+        thread->resume_count == 1) {
+      thread->resume_value = visitor(thread->resume_value, context);
+    }
+  }
+}
+
 void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context) {
   for (AihcCallbackSlot *slot = aihc_callback_slots; slot != NULL;
@@ -847,6 +864,7 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
       frame->roots[index] = visitor(frame->roots[index], context);
     }
   }
+  aihc_visit_thread_roots(capability, visitor, context);
   aihc_visit_value(&capability->machine->global_array, visitor, context);
   for (uint64_t index = 0; index < capability->machine->global_count; ++index) {
     capability->machine->globals[index] =
@@ -1042,8 +1060,10 @@ static AihcValue *aihc_copy_with_fields(AihcCapability *capability,
   return copy;
 }
 
+/* A thread record is in the global heap from the start: a ThreadId# can
+   move between capabilities, and the record never moves. */
 static AihcThread *aihc_thread_new(AihcCapability *capability) {
-  AihcThread *thread = (AihcThread *)aihc_gc_allocate(
+  AihcThread *thread = (AihcThread *)aihc_gc_allocate_global(
       capability, aihc_record_words(sizeof(*thread)));
   thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
   thread->id = ++capability->machine->next_thread_id;
@@ -1391,9 +1411,8 @@ AihcValue *aihc_apply_slow(AihcCapability *capability, AihcValue *function,
   }
 }
 
-static void aihc_suspend_apply(AihcCapability *capability, AihcThread *thread,
-                               AihcValue *function, AihcValue *continuation) {
-  aihc_write_barrier(capability, (AihcValue *)thread);
+static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
+                               AihcValue *continuation) {
   thread->resume_kind = AIHC_RESUME_APPLY;
   thread->resume_function = function;
   thread->resume_continuation = continuation;
@@ -1401,9 +1420,8 @@ static void aihc_suspend_apply(AihcCapability *capability, AihcThread *thread,
   thread->resume_count = 0;
 }
 
-static void aihc_suspend_raise(AihcCapability *capability, AihcThread *thread,
-                               AihcValue *exception, AihcValue *continuation) {
-  aihc_write_barrier(capability, (AihcValue *)thread);
+static void aihc_suspend_raise(AihcThread *thread, AihcValue *exception,
+                               AihcValue *continuation) {
   thread->resume_kind = AIHC_RESUME_RAISE;
   thread->resume_function = exception;
   thread->resume_continuation = continuation;
@@ -1411,13 +1429,11 @@ static void aihc_suspend_raise(AihcCapability *capability, AihcThread *thread,
   thread->resume_count = 0;
 }
 
-static void aihc_suspend_continue(AihcCapability *capability,
-                                  AihcThread *thread, AihcValue *continuation,
+static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
                                   uint64_t count, AihcSlot value) {
   if (count > 1) {
     aihc_fail("suspended continuation has too many immediate values");
   }
-  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_CONTINUE;
   thread->resume_function = continuation;
   thread->resume_continuation = NULL;
@@ -1429,10 +1445,8 @@ static void aihc_suspend_continue(AihcCapability *capability,
 static const AihcResume *aihc_select_thread(AihcCapability *capability,
                                             AihcThread *thread) {
   AihcResume *resume = &capability->selected_resume;
-  /* The resumption is deleted from the record. The barrier shades its
-     function, continuation, and value, which only the running code names
-     from now on. */
-  aihc_write_barrier(capability, (AihcValue *)thread);
+  /* The resumption moves from one root of the capability to another, so
+     it needs no barrier. */
   resume->kind = thread->resume_kind;
   resume->function = thread->resume_function;
   resume->continuation = thread->resume_continuation;
@@ -1466,7 +1480,7 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
   request->thread = NULL;
   request->continuation = NULL;
   request->next = NULL;
-  aihc_suspend_continue(capability, thread, continuation, 0, 0);
+  aihc_suspend_continue(thread, continuation, 0, 0);
   aihc_enqueue_thread(capability, thread);
 }
 
@@ -1681,16 +1695,14 @@ void *aihc_io_take_open_result(void *opaque_request) {
 
 static const AihcResume *aihc_resume_current(AihcCapability *capability,
                                              AihcValue *continuation) {
-  aihc_suspend_continue(capability, capability->current_thread, continuation, 0,
-                        0);
+  aihc_suspend_continue(capability->current_thread, continuation, 0, 0);
   return aihc_select_thread(capability, capability->current_thread);
 }
 
 static const AihcResume *aihc_resume_current_value(AihcCapability *capability,
                                                    AihcValue *continuation,
                                                    AihcSlot value) {
-  aihc_suspend_continue(capability, capability->current_thread, continuation, 1,
-                        value);
+  aihc_suspend_continue(capability->current_thread, continuation, 1, value);
   return aihc_select_thread(capability, capability->current_thread);
 }
 
@@ -1746,7 +1758,7 @@ static void aihc_mvar_wake(AihcCapability *capability, AihcMVarWaiter *waiter,
                            uint64_t count, AihcSlot value) {
   AihcValue *continuation = waiter->continuation;
   waiter->continuation = NULL;
-  aihc_suspend_continue(capability, waiter->thread, continuation, count, value);
+  aihc_suspend_continue(waiter->thread, continuation, count, value);
   aihc_enqueue_thread(capability, waiter->thread);
 }
 
@@ -2012,8 +2024,7 @@ void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
     AihcValue *continuation = waiter->continuation;
     /* As for an MVar waiter: the frame is popped later. */
     waiter->continuation = NULL;
-    aihc_suspend_continue(capability, waiter->thread, continuation, 1,
-                          (AihcSlot)value);
+    aihc_suspend_continue(waiter->thread, continuation, 1, (AihcSlot)value);
     aihc_enqueue_thread(capability, waiter->thread);
     waiter = next;
   }
@@ -2035,7 +2046,7 @@ static void aihc_abandon_blackhole(AihcCapability *capability,
     AihcBlackholeWaiter *next = waiter->next;
     AihcValue *continuation = waiter->continuation;
     waiter->continuation = NULL;
-    aihc_suspend_raise(capability, waiter->thread, exception, continuation);
+    aihc_suspend_raise(waiter->thread, exception, continuation);
     aihc_enqueue_thread(capability, waiter->thread);
     waiter = next;
   }
@@ -2275,7 +2286,7 @@ AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action) {
   /* The new stack starts with the frame that ends the thread. */
   AihcValue *done = (AihcValue *)aihc_stack_base(capability->machine->stacks);
   done->header = (AihcSlot)(uintptr_t)capability->machine->thread_done_info;
-  aihc_suspend_apply(capability, child, action, done);
+  aihc_suspend_apply(child, action, done);
   aihc_enqueue_thread(capability, child);
   return (AihcSlot)child;
 }
@@ -2283,7 +2294,7 @@ AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action) {
 const AihcResume *aihc_yield(AihcCapability *capability,
                              AihcValue *continuation) {
   AihcThread *current = capability->current_thread;
-  aihc_suspend_continue(capability, current, continuation, 0, 0);
+  aihc_suspend_continue(current, continuation, 0, 0);
   aihc_enqueue_thread(capability, current);
   return aihc_schedule(capability);
 }
@@ -2329,7 +2340,6 @@ uint64_t aihc_stm_begin(AihcCapability *capability) {
   transaction->header = (AihcSlot)(uintptr_t)&aihc_transaction_info;
   transaction->writes = NULL;
   transaction->parent = capability->current_thread->transaction;
-  aihc_write_barrier(capability, (AihcValue *)capability->current_thread);
   capability->current_thread->transaction = transaction;
   return 0;
 }
@@ -2370,7 +2380,6 @@ uint64_t aihc_stm_abort(AihcCapability *capability) {
     write->variable->fields[1] = write->previous;
     write = next;
   }
-  aihc_write_barrier(capability, (AihcValue *)capability->current_thread);
   capability->current_thread->transaction = transaction->parent;
   return 0;
 }
@@ -2391,7 +2400,6 @@ uint64_t aihc_stm_commit(AihcCapability *capability) {
     aihc_write_barrier(capability, (AihcValue *)transaction->parent);
     transaction->parent->writes = write;
   }
-  aihc_write_barrier(capability, (AihcValue *)capability->current_thread);
   capability->current_thread->transaction = transaction->parent;
   return 0;
 }

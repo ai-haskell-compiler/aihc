@@ -52,6 +52,7 @@ tests =
       runtimeProgramTest "gen1 copies its survivors into gen2 at each collection by default" [] (gen1CountSource 1),
       runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),
       runtimeProgramTest "-B3 keeps survivors in gen1 for three collections" ["+RTS", "-B3", "-RTS"] (gen1CountSource 3),
+      runtimeProgramTest "a thread record stays in gen2 at one address" [] globalThreadSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,
@@ -395,6 +396,39 @@ gen1CountSource count =
       "    value->header = (AihcSlot)(uintptr_t)&info;",
       "    value->fields[0] = index;",
       "    root = (AihcSlot)(uintptr_t)value;",
+      "  }",
+      "  return 0;",
+      "}"
+    ]
+
+-- | A thread record is in the global heap from its fork, and no collection
+-- moves it. Its resumption is a root of the capability, not a field that a
+-- write barrier records, so each collection moves the action that the
+-- resumption names out of the nursery and updates the record.
+globalThreadSource :: String
+globalThreadSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "static const uint8_t fields[] = {0};",
+      "static const AihcInfo info = {.field_is_pointer = fields, .field_count = 1, .object_kind = AIHC_OBJECT_NODE};",
+      "static const AihcInfo done_info = {.field_is_pointer = fields, .frame_kind = AIHC_FRAME_STOP, .object_kind = AIHC_OBJECT_CLOSURE, .remaining_arity = 1};",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  capability->machine->thread_done_info = &done_info;",
+      "  aihc_ensure_heap(capability, 2 + sizeof(AihcThread) / sizeof(AihcSlot) + 1, 0, NULL, NULL);",
+      "  AihcValue *action = aihc_gc_allocate(capability, 2);",
+      "  action->header = (AihcSlot)(uintptr_t)&info;",
+      "  action->fields[0] = 42;",
+      "  AihcThread *thread = (AihcThread *)(uintptr_t)aihc_fork(capability, action);",
+      "  if (aihc_region_kind(thread) != AIHC_REGION_GEN2) return 1;",
+      "  for (unsigned generation = 0; generation <= 2; ++generation) {",
+      "    aihc_gc_collect_generation(capability, generation, 0, NULL, NULL);",
+      "    if (capability->run_queue_tail != thread) return 2;",
+      "    if (aihc_region_kind(thread) != AIHC_REGION_GEN2) return 3;",
+      "    AihcValue *resumed = thread->resume_function;",
+      "    AihcRegionKind kind = aihc_region_kind(resumed);",
+      "    if (kind != AIHC_REGION_GEN1 && kind != AIHC_REGION_GEN2) return 4;",
+      "    if (resumed->fields[0] != 42) return 5;",
       "  }",
       "  return 0;",
       "}"
