@@ -479,11 +479,14 @@ promotionOf :: Model -> Id -> Maybe (Set Id, Bool, Set Id)
 promotionOf model start = go Set.empty False Set.empty [VHeap start]
   where
     young identity = Map.findWithDefault 0 identity (mAges model) < 2
-    named = Set.fromList [identity | VHeap identity <- map (resolve model) (mStable model)]
+    named = Set.fromList [identity | value <- mStable model, VHeap identity <- [value, resolve model value]]
     go reached collect seen [] = Just (reached, collect, seen)
-    go reached collect seen (value : rest) = case resolve model value of
+    go reached collect seen (value : rest) = case value of
       VHeap identity
         | Set.member identity seen -> go reached collect seen rest
+        | Just (Ind target) <- Map.lookup identity (mHeap model) ->
+            -- The runtime follows a young indirection only.
+            if young identity then go reached collect seen (target : rest) else go reached collect seen rest
         | Set.member identity named -> Nothing
         | otherwise -> case Map.lookup identity (mHeap model) of
             Just (Object KThunk _ _ _ Nothing)
