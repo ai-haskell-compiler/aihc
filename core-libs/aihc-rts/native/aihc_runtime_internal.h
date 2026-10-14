@@ -350,6 +350,8 @@ void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
 /* The host side of the region table. Map count regions at a region
    boundary, or give null when the host has no room. The content of the
    mapping is unspecified. */
+/* Give the region table the heap lock of a machine with workers. */
+void aihc_regions_set_lock(void *lock);
 uint8_t *aihc_host_map_regions(size_t count);
 /* Give a mapping back to the host. The result is zero when the memory is
    unmapped, or nonzero when the host keeps it, as linear memory does. */
@@ -653,27 +655,57 @@ _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);
 /* A monotonic clock in nanoseconds, or zero on a host without one. */
 uint64_t aihc_host_monotonic_ns(void);
-/* Workers. See "Workers" in docs/multi-threaded-rts-design.md. Until build
-   step 6, the run lock lets only one worker at a time run Haskell code or
-   the runtime. A host without threads has one capability and never starts
-   workers. */
+/* Workers. See "Workers" in docs/multi-threaded-rts-design.md. A host
+   without threads has one capability and never starts workers. */
 /* Start one worker on its own OS thread for each capability except the
-   first, which the calling thread runs. The caller then holds the run
-   lock. */
+   first, which the calling thread runs. */
 void aihc_host_workers_start(AihcCapability *capability);
-void aihc_host_run_lock(void);
-void aihc_host_run_unlock(void);
-/* Whether another worker waits for the run lock. */
-int aihc_host_run_lock_wanted(void);
 /* A lock that one worker at a time holds. */
 void *aihc_host_lock_new(void);
 void aihc_host_lock_acquire(void *lock);
 void aihc_host_lock_release(void *lock);
+/* A lock that its holder can take again. */
+void *aihc_host_recursive_lock_new(void);
+/* A condition variable: a wait releases the lock until a broadcast. */
+void *aihc_host_condition_new(void);
+void aihc_host_condition_wait(void *condition, void *lock);
+void aihc_host_condition_broadcast(void *condition);
+/* The idle wait around the blocking call of the host poll. The poll
+   allocates its buffer first, because an allocation can collect, and a
+   collection runs only on a capability that counts as running. The last
+   capability that enters the wait tests for a deadlock. */
+void aihc_idle_enter(AihcCapability *capability);
+void aihc_idle_exit(AihcCapability *capability);
 /* End the idle wait of a capability. */
 void aihc_host_wake(AihcCapability *capability);
 /* The entry of a worker: it runs the threads of its capability and does
-   not return. The caller holds the run lock. */
+   not return. */
 _Noreturn void aihc_worker_run(AihcCapability *capability);
+/* The locks of a machine with workers. Without workers they do nothing.
+   The heap lock guards the shared allocators and the gen2 marking, and its
+   holder can take it again. The object lock guards the MVars, the
+   transactions, the timers, and the claimed thunks with their queues. An
+   object lock holder can take the heap lock and an inbox lock, but no
+   holder of either lock collects. */
+void aihc_heap_lock(AihcMachine *machine);
+void aihc_heap_unlock(AihcMachine *machine);
+void aihc_object_lock(AihcMachine *machine);
+void aihc_object_unlock(AihcMachine *machine);
+/* The object lock for the Lir units, which hold a capability. */
+void aihc_capability_object_lock(AihcCapability *capability);
+void aihc_capability_object_unlock(AihcCapability *capability);
+/* A safepoint of a running capability: when another capability leads a
+   stop, this one parks until the stop ends. The roots are the live values
+   of the caller, which a collection of the leader can move. */
+void aihc_safepoint(AihcCapability *capability, uint64_t root_count,
+                    AihcSlot *roots);
+/* Lead a stop: every other capability is parked or idle when the call
+   returns, until the matching end. A stop that the caller already leads
+   only counts one more level. See "Stop-the-world synchronisation" in
+   docs/multi-threaded-rts-design.md. */
+void aihc_stop_begin(AihcCapability *capability, uint64_t root_count,
+                     AihcSlot *roots);
+void aihc_stop_end(AihcCapability *capability);
 void aihc_host_sleep_ns(uint64_t duration);
 /* Replace the file at path with the given bytes. The result is zero, or an
    errno value when the host cannot write the file. */

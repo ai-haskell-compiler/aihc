@@ -28,6 +28,8 @@ data @aihc_stable_name_info align 8 = {
 extern func @aihc_fail(ptr) cc c
 ; The address of the machine's stable-name list head.
 extern func @aihc_stable_names(ptr) -> ptr cc c
+extern func @aihc_capability_object_lock(ptr) cc c
+extern func @aihc_capability_object_unlock(ptr) cc c
 ; The next hash, after which the machine's counter advances.
 extern func @aihc_stable_name_take_hash(ptr) -> i64 cc c
 
@@ -54,7 +56,10 @@ search:
 escape:
   return null
 
+; The object lock covers the search and the link, so two workers cannot
+; give one object two names.
 lookup:
+  call @aihc_capability_object_lock(%capability)
   %head = call @aihc_stable_names(%capability)
   %first = load ptr [%head] align 8
   jump visit(%first)
@@ -73,6 +78,7 @@ advance:
   jump visit(%next)
 
 known:
+  call @aihc_capability_object_unlock(%capability)
   return %name
 
 allocate:
@@ -84,5 +90,6 @@ allocate:
   store i64 %hash, [%fresh + 16] align 8
   store ptr %first, [%fresh + 24] align 8
   store ptr %fresh, [%head] align 8
+  call @aihc_capability_object_unlock(%capability)
   return %fresh
 }

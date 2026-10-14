@@ -2645,23 +2645,17 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       full <- mvarFull mvar
       empty <- emitValue "empty" I1 (Compare Eq I64 (typedOperand full) (OperandLiteral (LitInt 0))) >>= widen
       bind [empty]
-    -- tryReadMVar# and tryTakeMVar# each give a flag and the contents. An
-    -- empty variable gives a null placeholder the caller must not look at,
-    -- because the collector may find the result in a frame slot. The take
-    -- is a runtime call, and the contents are read before it runs.
-    ("tryReadMVar#", [mvar]) -> do
-      full <- mvarFull mvar
-      flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand full) (OperandLiteral (LitInt 0)))
-      contents <- mvarContents mvar flag
-      wide <- widen flag
-      bind [wide, contents]
-    ("tryTakeMVar#", [mvar])
-      | Just tryCall <- nativeRuntimePrimitiveCall name -> do
-          full <- mvarFull mvar
-          flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand full) (OperandLiteral (LitInt 0)))
-          contents <- mvarContents mvar flag
-          result <- compileRuntimeCall ctx env tryCall [mvar]
-          bind [result, contents]
+    -- tryReadMVar# and tryTakeMVar# each give a flag and the contents. The
+    -- runtime call gives the contents, or null for an empty variable, so
+    -- both come from one state of the variable while another capability
+    -- can change it. The caller must not look at the null placeholder, but
+    -- the collector may find it in a frame slot.
+    (_, [mvar])
+      | name `elem` ["tryReadMVar#", "tryTakeMVar#"],
+        Just tryCall <- nativeRuntimePrimitiveCall name -> do
+          contents <- compileRuntimeCall ctx env tryCall [mvar]
+          flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand contents) (OperandLiteral (LitInt 0))) >>= widen
+          bind [flag, contents]
     -- The atomic primitives of an Int# element are sequentially consistent.
     ("atomicReadIntArray#", [array, index]) -> do
       address <- byteArrayElement array index I64 ElementIndex
@@ -2734,11 +2728,6 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env mvar
       flag <- emitValue "full" I8 (LoadAtomic Acquire I8 (byteAddress base mvarFullOffset))
       emitValue "full" I64 (Convert ZExt I8 (typedOperand flag) I64)
-    -- The contents of an MVar when @full@ holds, and null otherwise.
-    mvarContents mvar (Typed full _) = do
-      base <- pointerValue ctx env mvar
-      value <- emitValue "value" I64 (LoadDependent I64 (byteAddress base mvarValueOffset))
-      emitValue "contents" I64 (Select I64 full (typedOperand value) (OperandLiteral (LitInt 0)))
     checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
     -- Leave the current block for one whose entry means the bounds check
     -- passed. The other successor reports the failure and never returns.
@@ -3031,9 +3020,8 @@ byteArraySizeOffset = 8
 byteArrayContentsOffset = 16
 byteArrayPinnedOffset = 24
 
-mvarFullOffset, mvarValueOffset :: Integer
+mvarFullOffset :: Integer
 mvarFullOffset = 8
-mvarValueOffset = 16
 
 stableNameHashOffset :: Integer
 stableNameHashOffset = 16

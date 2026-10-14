@@ -78,7 +78,7 @@ Transactions are optimistic: a transaction logs its reads and its writes, and a 
 The commit checks that each read still holds, promotes each written value of a global variable, and then applies the writes.
 A commit whose reads no longer hold makes `atomically` run the transaction again, and so does an abort with such a read.
 A promotion that needs a collection makes the commit give a sentinel, and the caller collects at its store safepoint and commits again.
-Until step 6, the run lock makes each commit atomic.
+The runtime lock makes each commit atomic.
 Build step 3 enforces the invariant of the local heaps section.
 A reservation that does not fit starts a local collection of the reserving capability.
 A local collection copies the nursery and the gen1 of its capability, and it scans only the roots and the remembered set of that capability.
@@ -90,9 +90,6 @@ A nursery that grows replaces the arena, so a bridge collection empties the othe
 Under `AIHC_GC_VERIFY`, the verifier stops at a local object that names an object of another local heap.
 The end of a gen2 cycle drops the freed objects from the remembered set of each capability.
 The first part of build step 4 gives each capability a worker on its own OS thread when `-N` is above one.
-Until step 6, a ticket lock, the run lock, lets only one worker at a time run Haskell code or the runtime.
-Thus the synchronisation primitives of step 5 are not necessary yet.
-A worker gives the run lock to a waiting worker at each scheduler call.
 Each thread record names its capability, and a woken thread goes back to that capability.
 Another capability puts a pushed or woken thread into the inbox of the capability, which has its own lock.
 The worker moves its inbox into its run queue at each schedule.
@@ -100,11 +97,23 @@ At a schedule, a capability with two or more runnable threads pushes at most hal
 Before the push, a collection moves each young survivor of its local heap into gen2.
 A pushed thread gets the new capability in each chunk of its stack.
 A capability without runnable threads waits in its idle wait.
-The wait polls the pending IO requests and a wake-up pipe, and it releases the run lock.
+The wait polls the pending IO requests and a wake-up pipe.
 The machine has a deadlock when every capability waits with no runnable thread and no IO request.
 When the main thread ends on a worker, the worker ends the process.
-The capability locks, the stop protocol, `setNumCapabilities`, and the ticker remain for later parts of step 4.
-Native parallel execution starts at step 6, after the local collection of step 3.
+The workers run Haskell threads in parallel.
+This first parallel version uses coarse locks in place of some mechanisms of this design.
+Every collection stops the world: the requester leads a stop, and each running capability parks at its next safepoint with its roots in a root frame.
+The safepoints are the refill of a nursery block, the scheduler, and the start of each collection.
+A capability in the idle wait does not count as running, and it does not leave the wait during a stop.
+A parked capability counts as running, so the deadlock test does not miss its thread.
+One recursive runtime lock guards the shared state outside the collections: the allocators, the stack list, the stable names, the shading of a gen2 cycle, and the promotions.
+The same lock guards the MVars, the transactions, the timers, and the claims, the updates, and the queues of global thunks.
+Thus a thread that blocks on a thunk of another capability attaches itself under the lock, and the blackhole messages are not necessary yet.
+An update that finds the queue of another thread gives the value to its waiters.
+No holder of the runtime lock collects: a promotion that can collect runs before the lock.
+The top level of the region table is one published pointer to a table with its own count, so workers can read the table while another worker grows it.
+`tryTakeMVar#` and `tryReadMVar#` are runtime calls that give the value, or zero for an empty variable.
+Still open: local collections without a stop, `noDuplicate#` and its use in `unsafePerformIO`, the promotion of the values of STM timers, the capability locks of the FFI, `setNumCapabilities`, and the ticker.
 WASM keeps one capability until WASI supports the required thread operations.
 
 ## Goals

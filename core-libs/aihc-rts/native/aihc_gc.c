@@ -990,7 +990,7 @@ static void aihc_stack_chunk_free(AihcCapability *capability,
   ++capability->spare_chunk_count;
 }
 
-AihcStack *aihc_stack_new(AihcCapability *capability, AihcThread *thread) {
+static AihcStack *aihc_stack_new_unlocked(AihcCapability *capability, AihcThread *thread) {
   AihcStack *stack = malloc(sizeof(*stack));
   if (stack == NULL) {
     aihc_fail("out of memory for the thread stack");
@@ -1006,6 +1006,13 @@ AihcStack *aihc_stack_new(AihcCapability *capability, AihcThread *thread) {
   return stack;
 }
 
+AihcStack *aihc_stack_new(AihcCapability *capability, AihcThread *thread) {
+  aihc_heap_lock(capability->machine);
+  AihcStack * result = aihc_stack_new_unlocked(capability, thread);
+  aihc_heap_unlock(capability->machine);
+  return result;
+}
+
 uint8_t *aihc_stack_base(const AihcStack *stack) {
   return aihc_stack_chunk_frames(stack->base);
 }
@@ -1014,7 +1021,7 @@ AihcStack *aihc_stack_of(const void *frame) {
   return aihc_stack_chunk_of(frame)->stack;
 }
 
-void aihc_stack_move(AihcThread *thread, AihcCapability *capability) {
+static void aihc_stack_move_unlocked(AihcThread *thread, AihcCapability *capability) {
   for (AihcStack *stack = capability->machine->stacks; stack != NULL;
        stack = stack->next) {
     if (stack->thread != thread) {
@@ -1029,7 +1036,13 @@ void aihc_stack_move(AihcThread *thread, AihcCapability *capability) {
   aihc_fail("a pushed thread has no stack");
 }
 
-void aihc_stack_release(AihcCapability *capability, AihcStack *stack) {
+void aihc_stack_move(AihcThread *thread, AihcCapability *capability) {
+  aihc_heap_lock(capability->machine);
+  aihc_stack_move_unlocked(thread, capability);
+  aihc_heap_unlock(capability->machine);
+}
+
+static void aihc_stack_release_unlocked(AihcCapability *capability, AihcStack *stack) {
   AihcStack **link = &capability->machine->stacks;
   while (*link != stack) {
     if (*link == NULL) {
@@ -1046,6 +1059,12 @@ void aihc_stack_release(AihcCapability *capability, AihcStack *stack) {
   }
   free(stack->pending);
   free(stack);
+}
+
+void aihc_stack_release(AihcCapability *capability, AihcStack *stack) {
+  aihc_heap_lock(capability->machine);
+  aihc_stack_release_unlocked(capability, stack);
+  aihc_heap_unlock(capability->machine);
 }
 
 AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
@@ -1117,7 +1136,7 @@ static void aihc_stack_drop_pending_above(AihcStack *stack,
   stack->pending_count = kept;
 }
 
-void aihc_stack_enter_chunk(AihcCapability *capability,
+static void aihc_stack_enter_chunk_unlocked(AihcCapability *capability,
                             const AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
   chunk->capability = capability;
@@ -1131,9 +1150,32 @@ void aihc_stack_enter_chunk(AihcCapability *capability,
   }
 }
 
-void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
+void aihc_stack_enter_chunk(AihcCapability *capability,
+                            const AihcValue *frame) {
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_stack_enter_chunk_unlocked(capability, frame);
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
+}
+
+static void aihc_gc_frame_read_unlocked(AihcCapability *capability, AihcValue *frame) {
   if (capability->machine->gen2_cycle_active) {
     aihc_mark_frames(capability, frame);
+  }
+}
+
+void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_gc_frame_read_unlocked(capability, frame);
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
   }
 }
 
@@ -1167,8 +1209,20 @@ void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
    The claim stores a pointer into a thunk that can be old, so it takes the
    write barrier. The barrier comes before the store, while the header says
    that field zero holds no pointer. */
+static void aihc_pause_locked(AihcCapability *capability, AihcThread *thread,
+                              AihcValue *frame);
+
+/* With workers, the claims take the object lock, as the updates and the
+   attach of a waiter do. */
 static void aihc_pause(AihcCapability *capability, AihcThread *thread,
                        AihcValue *frame) {
+  aihc_object_lock(capability->machine);
+  aihc_pause_locked(capability, thread, frame);
+  aihc_object_unlock(capability->machine);
+}
+
+static void aihc_pause_locked(AihcCapability *capability, AihcThread *thread,
+                              AihcValue *frame) {
   while (frame != NULL && aihc_region_kind(frame) == AIHC_REGION_STACK) {
     const AihcInfo *info = aihc_value_info_table(frame);
     if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
@@ -1322,7 +1376,7 @@ static void aihc_mark_cards(AihcCapability *capability, AihcValue *array,
 /* The barrier of a blackhole update. The update writes the result over the
    payload, so the old referents are shaded as aihc_write_barrier does. A
    blackhole is updated once, so its entry is unique. */
-void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
+static void aihc_write_barrier_update_unlocked(AihcCapability *capability, AihcValue *object) {
   if (object == NULL || aihc_in_any_nursery(capability->machine, object)) {
     return;
   }
@@ -1332,7 +1386,18 @@ void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
   aihc_remember_unique(capability, object);
 }
 
-void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
+void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_write_barrier_update_unlocked(capability, object);
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
+}
+
+static void aihc_write_barrier_unlocked(AihcCapability *capability, AihcValue *object) {
   if (object == NULL || aihc_in_any_nursery(capability->machine, object)) {
     return;
   }
@@ -1343,6 +1408,17 @@ void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
     aihc_mark_cards(capability, object, 0, aihc_array_card_count(object));
   }
   aihc_remember(capability, object);
+}
+
+void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_write_barrier_unlocked(capability, object);
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
 }
 
 /* Whether an address is in the local heap of a capability: its nursery or
@@ -1384,7 +1460,7 @@ AihcSlot aihc_write_barrier_store_at(AihcCapability *capability,
   return stored;
 }
 
-void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
+static void aihc_write_barrier_at_unlocked(AihcCapability *capability, AihcValue *object,
                            uint64_t index) {
   if (object == NULL || aihc_in_any_nursery(capability->machine, object)) {
     return;
@@ -1401,7 +1477,19 @@ void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
   aihc_remember(capability, object);
 }
 
-void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
+void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
+                           uint64_t index) {
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_write_barrier_at_unlocked(capability, object, index);
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
+}
+
+static void aihc_write_barrier_range_unlocked(AihcCapability *capability, AihcValue *object,
                               uint64_t offset, uint64_t count) {
   if (object == NULL || count == 0 ||
       aihc_in_any_nursery(capability->machine, object)) {
@@ -1419,6 +1507,18 @@ void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
     aihc_mark_cards(capability, object, offset >> AIHC_CARD_SHIFT, last + 1);
   }
   aihc_remember(capability, object);
+}
+
+void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
+                              uint64_t offset, uint64_t count) {
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_write_barrier_range_unlocked(capability, object, offset, count);
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
 }
 
 static void aihc_gc_keep(AihcGcContext *context, AihcValue *object) {
@@ -2921,10 +3021,32 @@ static unsigned aihc_choose_generation(const AihcCapability *capability,
    of the capability. Every other local heap stays as it is. A full
    collection is always a bridge collection. See "Local heaps" in
    docs/multi-threaded-rts-design.md. */
+static void aihc_collect_stopped(AihcCapability *capability,
+                                 unsigned collected, int start_cycle,
+                                 int promote_all, int local,
+                                 uint64_t root_count, AihcSlot *roots,
+                                 const AihcSrt *srt);
+
+/* Every collection stops the other capabilities for now, so no mutator
+   runs while the collector moves or marks. The collector holds the heap
+   lock too, after the stop, because no parked capability holds it. */
 static void aihc_collect(AihcCapability *capability, unsigned collected,
                          int start_cycle, int promote_all, int local,
                          uint64_t root_count, AihcSlot *roots,
                          const AihcSrt *srt) {
+  aihc_stop_begin(capability, root_count, roots);
+  aihc_heap_lock(capability->machine);
+  aihc_collect_stopped(capability, collected, start_cycle, promote_all, local,
+                       root_count, roots, srt);
+  aihc_heap_unlock(capability->machine);
+  aihc_stop_end(capability);
+}
+
+static void aihc_collect_stopped(AihcCapability *capability,
+                                 unsigned collected, int start_cycle,
+                                 int promote_all, int local,
+                                 uint64_t root_count, AihcSlot *roots,
+                                 const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   AihcMachine *machine = capability->machine;
   uint64_t capability_count = machine->capability_count;
@@ -3472,7 +3594,7 @@ void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
   aihc_collect(capability, 1, 0, 1, 1, root_count, roots, srt);
 }
 
-AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
+static AihcSlot aihc_escape_unlocked(AihcCapability *capability, const AihcValue *object,
                      AihcSlot value) {
   AihcMachine *machine = capability->machine;
   if (machine->capability_count < 2 || aihc_promote_is_young(machine, object) ||
@@ -3485,10 +3607,20 @@ AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
   return copy == NULL ? AIHC_ESCAPE_COLLECT : (AihcSlot)(uintptr_t)copy;
 }
 
+AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
+                     AihcSlot value) {
+  aihc_heap_lock(capability->machine);
+  AihcSlot result = aihc_escape_unlocked(capability, object, value);
+  aihc_heap_unlock(capability->machine);
+  return result;
+}
+
 AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
                         uint64_t root_count, AihcSlot *roots,
                         const AihcSrt *srt) {
+  aihc_heap_lock(capability->machine);
   AihcValue *copy = aihc_promote_copy(capability, value);
+  aihc_heap_unlock(capability->machine);
   if (copy == NULL) {
     /* The value is one more root of a collection that moves every young
        survivor into gen2. */
@@ -3840,8 +3972,21 @@ static int aihc_other_nurseries_used(const AihcCapability *capability) {
 
 /* Collect and reserve the requested space. Startup also uses this function
    to collect temporary imports before the heap limit applies. */
+static void aihc_gc_collect_stopped(AihcCapability *capability,
+                                    uint64_t words, uint64_t root_count,
+                                    AihcSlot *roots, const AihcSrt *srt);
+
+/* The collection and a growth of the nursery arena are one stop. */
 void aihc_gc_collect(AihcCapability *capability, uint64_t words,
                      uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+  aihc_stop_begin(capability, root_count, roots);
+  aihc_gc_collect_stopped(capability, words, root_count, roots, srt);
+  aihc_stop_end(capability);
+}
+
+static void aihc_gc_collect_stopped(AihcCapability *capability,
+                                    uint64_t words, uint64_t root_count,
+                                    AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
   if (aihc_reservation_is_large(bytes)) {
     aihc_ensure_large(capability, bytes, root_count, roots, srt);
@@ -3866,6 +4011,8 @@ void aihc_gc_collect(AihcCapability *capability, uint64_t words,
 /* Refill before a collection. Large objects retain their fixed budget. */
 void aihc_gc_refill(AihcCapability *capability, uint64_t words,
                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+  /* The refill of a nursery block is a safepoint of the mutator. */
+  aihc_safepoint(capability, root_count, roots);
   size_t bytes = aihc_reservation_bytes(capability, words);
   if (aihc_reservation_is_large(bytes)) {
     aihc_ensure_large(capability, bytes, root_count, roots, srt);
@@ -3896,7 +4043,7 @@ void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
    with one compare against the heap limit and allocates it through the
    runtime, so this is the only pressure a large object below the nursery
    size puts on the collector. */
-static AihcValue *aihc_pinned_block_adopt(AihcCapability *capability,
+static AihcValue *aihc_pinned_block_adopt_unlocked(AihcCapability *capability,
                                           AihcPinnedBlock *block,
                                           size_t charge_bytes) {
   /* The cast keeps the compare meaningful on a 32-bit host. */
@@ -3917,6 +4064,15 @@ static AihcValue *aihc_pinned_block_adopt(AihcCapability *capability,
   aihc_charge_fixed(capability, charge_bytes);
   capability->heap_allocated_bytes += charge_bytes;
   return (AihcValue *)block->object;
+}
+
+static AihcValue *aihc_pinned_block_adopt(AihcCapability *capability,
+                                          AihcPinnedBlock *block,
+                                          size_t charge_bytes) {
+  aihc_heap_lock(capability->machine);
+  AihcValue * result = aihc_pinned_block_adopt_unlocked(capability, block, charge_bytes);
+  aihc_heap_unlock(capability->machine);
+  return result;
 }
 
 /* A large object or a large pinned block gets regions of its own. Its
@@ -3964,7 +4120,7 @@ AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words) {
   return value;
 }
 
-AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
+static AihcValue *aihc_gc_allocate_global_unlocked(AihcCapability *capability, uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("global allocation is too large");
   }
@@ -3982,6 +4138,13 @@ AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
   aihc_charge_fixed(capability, bytes);
   capability->heap_allocated_bytes += bytes;
   return (AihcValue *)object;
+}
+
+AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
+  aihc_heap_lock(capability->machine);
+  AihcValue * result = aihc_gc_allocate_global_unlocked(capability, words);
+  aihc_heap_unlock(capability->machine);
+  return result;
 }
 
 /* Consume a prior reservation. The allocation list is not a root. */

@@ -1113,7 +1113,8 @@ static AihcThread *aihc_thread_new(AihcCapability *capability) {
   AihcThread *thread = (AihcThread *)aihc_gc_allocate_global(
       capability, aihc_record_words(sizeof(*thread)));
   thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
-  thread->id = ++capability->machine->next_thread_id;
+  thread->id = __atomic_add_fetch(&capability->machine->next_thread_id, 1,
+                                  __ATOMIC_RELAXED);
   thread->resume_kind = AIHC_RESUME_NONE;
   thread->resume_function = NULL;
   thread->resume_continuation = NULL;
@@ -1133,15 +1134,14 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
   return capability->current_thread;
 }
 
-/* Append a list of threads to a queue. The link goes into an old thread
-   record, so it takes the barrier. */
-static void aihc_queue_append(AihcCapability *capability, AihcThread **head,
-                              AihcThread **tail, AihcThread *first,
-                              AihcThread *last) {
+/* Append a list of threads to a queue. Thread records are global, and the
+   link replaces a null link, so it needs no barrier: an append into an
+   inbox runs under the inbox lock, which a barrier must not wait under. */
+static void aihc_queue_append(AihcThread **head, AihcThread **tail,
+                              AihcThread *first, AihcThread *last) {
   if (*tail == NULL) {
-    *head = first;
+    __atomic_store_n(head, first, __ATOMIC_SEQ_CST);
   } else {
-    aihc_write_barrier(capability, (AihcValue *)*tail);
     (*tail)->next = first;
   }
   *tail = last;
@@ -1162,13 +1162,13 @@ static void aihc_enqueue_thread(AihcCapability *capability,
   AihcCapability *target =
       capability->machine->capabilities[thread->capability];
   if (target == capability) {
-    aihc_queue_append(capability, &target->run_queue_head,
-                      &target->run_queue_tail, thread, thread);
+    aihc_queue_append(&target->run_queue_head, &target->run_queue_tail,
+                      thread, thread);
     return;
   }
   aihc_host_lock_acquire(target->inbox_lock);
-  aihc_queue_append(capability, &target->inbox_head, &target->inbox_tail,
-                    thread, thread);
+  aihc_queue_append(&target->inbox_head, &target->inbox_tail, thread,
+                    thread);
   aihc_host_lock_release(target->inbox_lock);
   if (__atomic_load_n(&target->idle, __ATOMIC_SEQ_CST)) {
     aihc_host_wake(target);
@@ -1187,7 +1187,7 @@ static void aihc_take_inbox(AihcCapability *capability) {
   capability->inbox_tail = NULL;
   aihc_host_lock_release(capability->inbox_lock);
   if (first != NULL) {
-    aihc_queue_append(capability, &capability->run_queue_head,
+    aihc_queue_append(&capability->run_queue_head,
                       &capability->run_queue_tail, first, last);
   }
 }
@@ -1452,10 +1452,11 @@ static AihcThread *aihc_dequeue_last_thread(AihcCapability *capability) {
   return last;
 }
 
-/* Whether a capability waits in the idle wait with nothing to run. */
+/* Whether a capability waits in the idle wait with nothing to run. Only
+   its own worker touches its run queue, which is empty in the idle wait. */
 static int aihc_capability_available(AihcCapability *capability) {
   return __atomic_load_n(&capability->idle, __ATOMIC_SEQ_CST) &&
-         capability->run_queue_head == NULL && !aihc_inbox_used(capability);
+         !aihc_inbox_used(capability);
 }
 
 /* Push surplus threads to idle capabilities. See "Thread movement" in
@@ -1503,22 +1504,143 @@ static void aihc_push_threads(AihcCapability *capability) {
   }
 }
 
-/* The machine has a deadlock when every capability waits with nothing to
-   run and no IO request. */
-static int aihc_machine_deadlocked(const AihcCapability *capability) {
-  AihcMachine *machine = capability->machine;
-  if (__atomic_load_n(&machine->idle_count, __ATOMIC_SEQ_CST) + 1 <
-      machine->capability_count) {
-    return 0;
-  }
+/* Whether no capability has work: no IO request, no runnable thread, and
+   an empty inbox. A completed IO request puts its thread on the run queue
+   before it leaves the count, so a reader that sees no request also sees
+   the thread. */
+static int aihc_machine_without_work(AihcMachine *machine) {
   for (uint64_t index = 0; index < machine->capability_count; ++index) {
     AihcCapability *each = machine->capabilities[index];
-    if (each->run_queue_head != NULL || aihc_inbox_used(each) ||
-        each->io_request_count != 0) {
+    if (__atomic_load_n(&each->io_request_count, __ATOMIC_SEQ_CST) != 0 ||
+        __atomic_load_n(&each->run_queue_head, __ATOMIC_SEQ_CST) != NULL ||
+        aihc_inbox_used(each)) {
       return 0;
     }
   }
   return 1;
+}
+
+/* Enter the idle wait. The last running capability tests for a deadlock:
+   no capability runs, and no capability has work. */
+void aihc_idle_enter(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  aihc_host_lock_acquire(machine->stop_lock);
+  if (machine->running_count == 1 && !machine->stop_requested &&
+      aihc_machine_without_work(machine)) {
+    aihc_host_lock_release(machine->stop_lock);
+    aihc_fail("no runnable threads");
+  }
+  --machine->running_count;
+  aihc_host_condition_broadcast(machine->stop_condition);
+  aihc_host_lock_release(machine->stop_lock);
+}
+
+/* Leave the idle wait. A capability does not run during a stop. */
+void aihc_idle_exit(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  aihc_host_lock_acquire(machine->stop_lock);
+  while (machine->stop_requested) {
+    aihc_host_condition_wait(machine->stop_condition, machine->stop_lock);
+  }
+  ++machine->running_count;
+  aihc_host_lock_release(machine->stop_lock);
+}
+
+void aihc_capability_object_lock(AihcCapability *capability) {
+  aihc_object_lock(capability->machine);
+}
+
+void aihc_capability_object_unlock(AihcCapability *capability) {
+  aihc_object_unlock(capability->machine);
+}
+
+void aihc_heap_lock(AihcMachine *machine) {
+  if (machine->heap_lock != NULL) {
+    aihc_host_lock_acquire(machine->heap_lock);
+  }
+}
+
+void aihc_heap_unlock(AihcMachine *machine) {
+  if (machine->heap_lock != NULL) {
+    aihc_host_lock_release(machine->heap_lock);
+  }
+}
+
+void aihc_object_lock(AihcMachine *machine) {
+  if (machine->object_lock != NULL) {
+    aihc_host_lock_acquire(machine->object_lock);
+  }
+}
+
+void aihc_object_unlock(AihcMachine *machine) {
+  if (machine->object_lock != NULL) {
+    aihc_host_lock_release(machine->object_lock);
+  }
+}
+
+/* Park until the stop ends. The caller holds the stop lock and runs. A
+   parked capability still counts as running, because its thread is in no
+   queue, and the deadlock test must not miss it. */
+static void aihc_park(AihcMachine *machine) {
+  ++machine->parked_count;
+  aihc_host_condition_broadcast(machine->stop_condition);
+  while (machine->stop_requested) {
+    aihc_host_condition_wait(machine->stop_condition, machine->stop_lock);
+  }
+  --machine->parked_count;
+}
+
+void aihc_safepoint(AihcCapability *capability, uint64_t root_count,
+                    AihcSlot *roots) {
+  AihcMachine *machine = capability->machine;
+  if (machine->stop_lock == NULL || capability->stop_depth != 0 ||
+      !__atomic_load_n(&machine->stop_requested, __ATOMIC_ACQUIRE)) {
+    return;
+  }
+  /* A root frame publishes the roots, so the collection of the leader
+     updates them. */
+  AihcRootFrame frame;
+  aihc_roots_enter(capability, &frame, root_count, roots);
+  aihc_host_lock_acquire(machine->stop_lock);
+  if (machine->stop_requested) {
+    aihc_park(machine);
+  }
+  aihc_host_lock_release(machine->stop_lock);
+  aihc_roots_leave(capability, &frame);
+}
+
+void aihc_stop_begin(AihcCapability *capability, uint64_t root_count,
+                     AihcSlot *roots) {
+  AihcMachine *machine = capability->machine;
+  if (machine->stop_lock == NULL || capability->stop_depth++ != 0) {
+    return;
+  }
+  AihcRootFrame frame;
+  aihc_roots_enter(capability, &frame, root_count, roots);
+  aihc_host_lock_acquire(machine->stop_lock);
+  /* Another leader goes first. This capability parks, and then it leads
+     its own stop. */
+  while (machine->stop_requested) {
+    aihc_park(machine);
+  }
+  __atomic_store_n(&machine->stop_requested, 1, __ATOMIC_RELEASE);
+  /* Every running capability except the leader parks. */
+  while (machine->parked_count + 1 != machine->running_count) {
+    aihc_host_condition_wait(machine->stop_condition, machine->stop_lock);
+  }
+  aihc_host_lock_release(machine->stop_lock);
+  aihc_roots_leave(capability, &frame);
+}
+
+void aihc_stop_end(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  if (machine->stop_lock == NULL || --capability->stop_depth != 0) {
+    return;
+  }
+  aihc_host_lock_acquire(machine->stop_lock);
+  __atomic_store_n(&machine->stop_requested, 0, __ATOMIC_RELEASE);
+  aihc_host_condition_broadcast(machine->stop_condition);
+  aihc_host_lock_release(machine->stop_lock);
 }
 
 static const AihcResume *aihc_schedule(AihcCapability *capability) {
@@ -1526,12 +1648,10 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
     aihc_fail("a foreign callback cannot suspend");
   }
   AihcMachine *machine = capability->machine;
-  if (machine->workers_active && aihc_host_run_lock_wanted()) {
-    /* The ticket lock lets the workers that wait run first. */
-    aihc_host_run_unlock();
-    aihc_host_run_lock();
-  }
   for (;;) {
+    /* The scheduler is a safepoint: the roots of the capability are in its
+       records. */
+    aihc_safepoint(capability, 0, NULL);
     aihc_take_inbox(capability);
     (void)machine->io_backend->poll(capability, 0);
     if (capability->run_queue_head != NULL) {
@@ -1541,11 +1661,12 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
       return aihc_select_thread(capability, aihc_dequeue_thread(capability));
     }
     if (machine->workers_active) {
-      if (aihc_machine_deadlocked(capability)) {
-        aihc_fail("no runnable threads");
-      }
-      /* The idle wait gives the run lock to the other workers. A push into
-         the run queue, a completed IO request, or a timer ends it. */
+      /* A push into the inbox, a completed IO request, or a timer ends the
+         idle wait. */
+      /* An idle capability runs no stack. A thread that it ran can run on
+         another capability now, and the collector must not take the old
+         stack pointer for the top of that stack. */
+      capability->stack_next = NULL;
       __atomic_store_n(&capability->idle, 1, __ATOMIC_SEQ_CST);
       __atomic_add_fetch(&machine->idle_count, 1, __ATOMIC_SEQ_CST);
       if (!aihc_inbox_used(capability)) {
@@ -1852,29 +1973,41 @@ void *aihc_mvar_new(AihcCapability *capability) {
   return mvar;
 }
 
+/* The object lock guards the state and the waiters of every MVar. A
+   blocked thread schedules after the lock is free: a wake from another
+   capability before the schedule puts the thread into the inbox, and the
+   schedule takes it from there. */
 const AihcResume *aihc_mvar_read(AihcCapability *capability, void *opaque_mvar,
                                  AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
   aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
-    return aihc_resume_current_value(capability, continuation, mvar->value);
+    AihcSlot value = mvar->value;
+    aihc_object_unlock(machine);
+    return aihc_resume_current_value(capability, continuation, value);
   }
   AihcMVarWaiter *waiter =
       aihc_mvar_waiter_new(capability, mvar, continuation, 0);
   aihc_mvar_append_waiter(capability, &mvar->readers_head, &mvar->readers_tail,
                           waiter);
+  aihc_object_unlock(machine);
   return aihc_schedule(capability);
 }
 
 const AihcResume *aihc_mvar_take(AihcCapability *capability, void *opaque_mvar,
                                  AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
   aihc_write_barrier(capability, (AihcValue *)mvar);
   if (!mvar->full) {
     AihcMVarWaiter *waiter =
         aihc_mvar_waiter_new(capability, mvar, continuation, 0);
     aihc_mvar_append_waiter(capability, &mvar->takers_head, &mvar->takers_tail,
                             waiter);
+    aihc_object_unlock(machine);
     return aihc_schedule(capability);
   }
 
@@ -1888,6 +2021,7 @@ const AihcResume *aihc_mvar_take(AihcCapability *capability, void *opaque_mvar,
     mvar->value = putter->value;
     aihc_mvar_wake(capability, putter, 0, 0);
   }
+  aihc_object_unlock(machine);
   return aihc_resume_current_value(capability, continuation, value);
 }
 
@@ -1903,14 +2037,18 @@ const AihcResume *aihc_mvar_put(AihcCapability *capability, void *opaque_mvar,
   if (capability->machine->capability_count > 1) {
     aihc_thread_pause(capability, continuation);
   }
+  /* The promotion comes before the lock, because it can collect. */
   value = aihc_escape_in_operation(capability, (const AihcValue *)mvar, value,
                                    continuation);
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
   aihc_write_barrier(capability, (AihcValue *)mvar);
   if (mvar->full) {
     AihcMVarWaiter *waiter =
         aihc_mvar_waiter_new(capability, mvar, continuation, value);
     aihc_mvar_append_waiter(capability, &mvar->putters_head,
                             &mvar->putters_tail, waiter);
+    aihc_object_unlock(machine);
     return aihc_schedule(capability);
   }
 
@@ -1928,21 +2066,25 @@ const AihcResume *aihc_mvar_put(AihcCapability *capability, void *opaque_mvar,
   } else {
     aihc_mvar_wake(capability, taker, 1, value);
   }
+  aihc_object_unlock(machine);
   return aihc_resume_current(capability, continuation);
 }
 
 /* The non-blocking MVar operations. None of them suspends the caller, so each
    one is an ordinary runtime call rather than a CPS call. Compiled code
-   reads the full flag and the value itself, at the offsets asserted above:
-   isEmptyMVar#, tryReadMVar#, and the value half of tryTakeMVar# are loads,
-   which is safe because a runtime call never yields, so nothing can change
-   the variable between the load and the take. */
-uint64_t aihc_mvar_try_take(AihcCapability *capability, void *opaque_mvar) {
+   reads the full flag of isEmptyMVar# itself, at the offset asserted above.
+   The take and the read give the value, or zero for an empty variable, so
+   the flag and the value come from one state of the variable. */
+AihcSlot aihc_mvar_try_take(AihcCapability *capability, void *opaque_mvar) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
   aihc_write_barrier(capability, (AihcValue *)mvar);
   if (!mvar->full) {
+    aihc_object_unlock(machine);
     return 0;
   }
+  AihcSlot value = mvar->value;
   AihcMVarWaiter *putter = aihc_mvar_pop_waiter(capability, &mvar->putters_head,
                                                 &mvar->putters_tail);
   if (putter == NULL) {
@@ -1952,7 +2094,16 @@ uint64_t aihc_mvar_try_take(AihcCapability *capability, void *opaque_mvar) {
     mvar->value = putter->value;
     aihc_mvar_wake(capability, putter, 0, 0);
   }
-  return 1;
+  aihc_object_unlock(machine);
+  return value;
+}
+
+AihcSlot aihc_mvar_try_read(AihcCapability *capability, void *opaque_mvar) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  aihc_object_lock(capability->machine);
+  AihcSlot value = mvar->full ? mvar->value : 0;
+  aihc_object_unlock(capability->machine);
+  return value;
 }
 
 /* The result is two when the put is an escape whose promotion needs a
@@ -1969,6 +2120,12 @@ uint64_t aihc_mvar_try_put(AihcCapability *capability, void *opaque_mvar,
   if (value == AIHC_ESCAPE_COLLECT) {
     return 2;
   }
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
+  if (mvar->full) {
+    aihc_object_unlock(machine);
+    return 0;
+  }
   aihc_write_barrier(capability, (AihcValue *)mvar);
   AihcMVarWaiter *reader;
   while ((reader = aihc_mvar_pop_waiter(capability, &mvar->readers_head,
@@ -1984,6 +2141,7 @@ uint64_t aihc_mvar_try_put(AihcCapability *capability, void *opaque_mvar,
   } else {
     aihc_mvar_wake(capability, taker, 1, value);
   }
+  aihc_object_unlock(machine);
   return 1;
 }
 
@@ -2035,7 +2193,7 @@ const AihcResume *aihc_await_io(AihcCapability *capability,
     capability->io_requests_tail->next = request;
   }
   capability->io_requests_tail = request;
-  ++capability->io_request_count;
+  __atomic_add_fetch(&capability->io_request_count, 1, __ATOMIC_SEQ_CST);
   return aihc_schedule(capability);
 }
 
@@ -2114,6 +2272,13 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
   if (value == NULL) {
     aihc_fail("attempted to block on null");
   }
+  /* The pause claims the thunks of this thread before it waits. The object
+     lock covers the look at the owner and the attach, so an update on
+     another capability cannot miss the waiter. */
+  aihc_stack_note_top(continuation);
+  aihc_thread_pause(capability, continuation);
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
   AihcBlackholeQueue *queue = NULL;
   AihcThread *owner = aihc_value_kind(value) == AIHC_OBJECT_BLACKHOLE
                           ? aihc_thunk_owner(value, &queue)
@@ -2122,6 +2287,7 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
     AihcSlot result = aihc_value_kind(value) == AIHC_OBJECT_BLACKHOLE
                           ? value->fields[0]
                           : (AihcSlot)(uintptr_t)value;
+    aihc_object_unlock(machine);
     aihc_suspend_continue(current, continuation, 1, result);
     return aihc_select_thread(capability, current);
   }
@@ -2163,8 +2329,7 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
     aihc_write_barrier(capability, (AihcValue *)queue);
     queue->tail = waiter;
   }
-  aihc_stack_note_top(continuation);
-  aihc_thread_pause(capability, continuation);
+  aihc_object_unlock(machine);
   return aihc_schedule(capability);
 }
 const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result) {
@@ -2231,14 +2396,19 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
-  AihcSlot header = object->header;
-  if (aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK ||
-      (header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
+  if (aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
     aihc_fail("attempted to update a cell that is not a thunk");
   }
+  /* The promotion comes before the object lock, because it can collect. */
   AihcSlot stored = aihc_escape(capability, object, (AihcSlot)(uintptr_t)value);
   if (stored == AIHC_ESCAPE_COLLECT) {
     return NULL;
+  }
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
+  AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
+  if ((header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
+    aihc_fail("attempted to update a thunk in the state Claiming");
   }
   /* The update deletes the owner or the queue in field zero and every free
      variable, so the barrier shades them. */
@@ -2246,23 +2416,23 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   value = (AihcValue *)(uintptr_t)stored;
   aihc_write_barrier_update(capability, object);
   AihcBlackholeQueue *queue = NULL;
-  AihcThread *owner = (header & AIHC_HEADER_EVALUATING) != 0
-                          ? aihc_thunk_owner(object, &queue)
-                          : NULL;
+  if ((header & AIHC_HEADER_EVALUATING) != 0) {
+    (void)aihc_thunk_owner(object, &queue);
+  }
   /* Both stores are release stores: the value is in field zero before a
      reader can see bit zero. */
   __atomic_store_n(&object->fields[0], (AihcSlot)(uintptr_t)value,
                    __ATOMIC_RELEASE);
   __atomic_store_n(&object->header, header | AIHC_HEADER_EVALUATING,
                    __ATOMIC_RELEASE);
-  if (queue == NULL) {
-    return value;
+  if (queue != NULL) {
+    /* The queue of the owner, or the queue of another thread when this
+       evaluation is a duplicate. The value stands, and the waiters get it
+       now. */
+    aihc_unlink_queue(capability, queue);
+    aihc_wake_queue(capability, queue, (AihcSlot)(uintptr_t)value, 0);
   }
-  if (owner != capability->current_thread) {
-    aihc_fail("a thunk was updated under the queue of another thread");
-  }
-  aihc_unlink_queue(capability, queue);
-  aihc_wake_queue(capability, queue, (AihcSlot)(uintptr_t)value, 0);
+  aihc_object_unlock(machine);
   return value;
 }
 /* An exception unwinds an update frame. A thunk that this thread claimed
@@ -2270,13 +2440,25 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
    that no pause claimed needs nothing: the entry wrote nothing into it, and
    its free variables are intact. A thunk that another evaluation finished
    keeps its value. */
+static void aihc_abandon_blackhole_locked(AihcCapability *capability,
+                                          AihcValue *object,
+                                          AihcValue *exception);
+
 static void aihc_abandon_blackhole(AihcCapability *capability,
                                    AihcValue *object, AihcValue *exception) {
+  aihc_object_lock(capability->machine);
+  aihc_abandon_blackhole_locked(capability, object, exception);
+  aihc_object_unlock(capability->machine);
+}
+
+static void aihc_abandon_blackhole_locked(AihcCapability *capability,
+                                          AihcValue *object,
+                                          AihcValue *exception) {
   if (object == NULL ||
       aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
     aihc_fail("exception update frame does not contain a thunk");
   }
-  AihcSlot header = object->header;
+  AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
   if ((header & AIHC_HEADER_EVALUATING) == 0) {
     return;
   }
@@ -2589,13 +2771,20 @@ _Noreturn void aihc_worker_run(AihcCapability *capability) {
    program does not depend on the speed of the OS threads. */
 static void aihc_workers_start(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
-  aihc_host_workers_start(capability);
+  machine->heap_lock = aihc_host_recursive_lock_new();
+  aihc_regions_set_lock(machine->heap_lock);
+  /* One recursive lock serves as both: a promotion under the heap lock
+     claims thunks, and an MVar operation under the object lock allocates,
+     so two locks would need opposite orders. */
+  machine->object_lock = machine->heap_lock;
+  machine->stop_lock = aihc_host_lock_new();
+  machine->stop_condition = aihc_host_condition_new();
+  machine->running_count = machine->capability_count;
   machine->workers_active = 1;
+  aihc_host_workers_start(capability);
   while (__atomic_load_n(&machine->idle_count, __ATOMIC_SEQ_CST) + 1 <
          machine->capability_count) {
-    aihc_host_run_unlock();
     aihc_host_sleep_ns(100000);
-    aihc_host_run_lock();
   }
 }
 
@@ -2667,7 +2856,9 @@ uint64_t aihc_stm_abort(AihcCapability *capability) {
   if (transaction == NULL) {
     aihc_fail("STM abort outside a transaction");
   }
+  aihc_object_lock(capability->machine);
   int valid = aihc_transaction_valid(transaction);
+  aihc_object_unlock(capability->machine);
   capability->current_thread->transaction = transaction->parent;
   return (uint64_t)valid;
 }
@@ -2694,7 +2885,18 @@ static void aihc_log_prepend(AihcCapability *capability, AihcTransaction *owner,
    written value needs a collection. The caller then collects at its store
    safepoint and commits again. A nested commit gives its logs to its
    parent. */
+static uint64_t aihc_stm_commit_locked(AihcCapability *capability);
+
+/* The object lock makes the check of the reads and the writes one step for
+   the other capabilities. */
 uint64_t aihc_stm_commit(AihcCapability *capability) {
+  aihc_object_lock(capability->machine);
+  uint64_t result = aihc_stm_commit_locked(capability);
+  aihc_object_unlock(capability->machine);
+  return result;
+}
+
+static uint64_t aihc_stm_commit_locked(AihcCapability *capability) {
   AihcValue *top = capability->pause_top;
   capability->pause_top = NULL;
   AihcTransaction *transaction = capability->current_thread->transaction;
@@ -2773,13 +2975,20 @@ AihcValue *aihc_tvar_delay(AihcCapability *capability, int64_t delay,
     timer->deadline = (uint64_t)delay > maximum / 1000
                           ? UINT64_MAX
                           : now + (uint64_t)delay * 1000;
+    aihc_object_lock(capability->machine);
     timer->next = capability->machine->transaction_timers;
     capability->machine->transaction_timers = timer;
+    aihc_object_unlock(capability->machine);
   }
   return variable;
 }
 
 static void aihc_stm_expire_timers(AihcCapability *capability) {
+  if (__atomic_load_n(&capability->machine->transaction_timers,
+                      __ATOMIC_ACQUIRE) == NULL) {
+    return;
+  }
+  aihc_object_lock(capability->machine);
   uint64_t now = aihc_host_monotonic_ns();
   AihcTransactionTimer **link = &capability->machine->transaction_timers;
   while (*link != NULL) {
@@ -2793,6 +3002,7 @@ static void aihc_stm_expire_timers(AihcCapability *capability) {
       link = &timer->next;
     }
   }
+  aihc_object_unlock(capability->machine);
 }
 
 /* A read inside a transaction sees the newest write of the transaction and
@@ -2829,7 +3039,9 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
   AihcIoRequest *request = aihc_io_request_new(capability);
   request->kind = AIHC_IO_TIMER;
   request->state = AIHC_IO_COMPLETED;
+  aihc_object_lock(capability->machine);
   if (capability->machine->transaction_timers == NULL) {
+    aihc_object_unlock(capability->machine);
     return request;
   }
   request->deadline = UINT64_MAX;
@@ -2839,6 +3051,7 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
       request->deadline = timer->deadline;
     }
   }
+  aihc_object_unlock(capability->machine);
   request->state = AIHC_IO_SUBMITTED;
   return request;
 }

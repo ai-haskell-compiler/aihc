@@ -334,6 +334,8 @@ struct AihcCapability {
   AihcThread *inbox_head;
   AihcThread *inbox_tail;
   void *inbox_lock;
+  /* The levels of the stop that this capability leads. */
+  uint64_t stop_depth;
 };
 
 /* The process state shared by all capabilities. */
@@ -417,6 +419,18 @@ struct AihcMachine {
   uint64_t workers_active;
   /* The number of capabilities in the idle wait. */
   uint64_t idle_count;
+  /* The locks of the workers: see aihc_heap_lock and aihc_object_lock. */
+  void *heap_lock;
+  void *object_lock;
+  /* The stop protocol: stop_lock guards the three counts below, and
+     stop_condition signals a change. running_count is the number of
+     capabilities outside the idle wait, and parked_count is the number of
+     those that wait for the end of a stop. */
+  void *stop_lock;
+  void *stop_condition;
+  uint64_t stop_requested;
+  uint64_t running_count;
+  uint64_t parked_count;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the
@@ -689,7 +703,8 @@ const AihcResume *aihc_mvar_read(AihcCapability *capability, void *mvar,
                                  AihcValue *continuation);
 const AihcResume *aihc_mvar_take(AihcCapability *capability, void *mvar,
                                  AihcValue *continuation);
-uint64_t aihc_mvar_try_take(AihcCapability *capability, void *mvar);
+AihcSlot aihc_mvar_try_take(AihcCapability *capability, void *mvar);
+AihcSlot aihc_mvar_try_read(AihcCapability *capability, void *mvar);
 uint64_t aihc_mvar_try_put(AihcCapability *capability, void *mvar,
                            AihcSlot value);
 const AihcResume *aihc_mvar_put(AihcCapability *capability, void *mvar,
