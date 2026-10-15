@@ -798,18 +798,17 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       inferRhsWithLocals inferExpr rhs
-  (ty, bindCts) <-
-    case Map.lookup key sigs of
-      Just scheme -> do
-        let sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
-        -- The right-hand side must have the signature type.
-        ev <- freshEvVar
-        let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin Nothing) Nothing
-        residualCts <- solveWithSigGivens scheme (sigCt : rhsCts)
-        pure (sigTy, residualCts)
-      Nothing -> pure (rhsTy, rhsCts)
-  cts <- tiePlaceholder placeholders key ty bindCts
-  pure (rhs', ty, cts)
+  let signature = Map.lookup key sigs
+      ty = fromMaybe (maybe rhsTy typeSchemeBody signature) (Map.lookup key placeholders)
+  ev <- freshEvVar
+  -- Keep the proof from the inferred type to the binder type.
+  -- A given equality can refine the placeholder. The source expression
+  -- keeps its original type.
+  let bindCt = mkWantedCt (EqPred rhsTy ty) ev (LetOrigin Nothing) Nothing
+  cts <- case signature of
+    Just scheme -> solveWithSigGivens scheme (bindCt : rhsCts)
+    Nothing -> pure (rhsCts ++ [bindCt])
+  pure (annotateRhsCast ty ev rhs', ty, cts)
 
 tiePlaceholder :: Map Entity TcType -> Entity -> TcType -> [Ct] -> TcM [Ct]
 tiePlaceholder placeholders key ty cts =

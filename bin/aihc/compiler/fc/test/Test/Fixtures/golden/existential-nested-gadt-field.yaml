@@ -1,0 +1,13 @@
+extensions:
+  - GADTs
+modules:
+  - |
+    {-# LANGUAGE GADTs #-}
+    module Test where
+    data Tag a where
+      Tag :: Tag ()
+    data Box = forall a. Box (Tag a) a
+    inspect :: Box -> ()
+    inspect (Box Tag ()) = ()
+status: pass
+reason: A nested GADT pattern must not refine the field binders of its parent constructor.

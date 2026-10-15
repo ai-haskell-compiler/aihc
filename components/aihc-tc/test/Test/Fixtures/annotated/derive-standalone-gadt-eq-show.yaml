@@ -1,0 +1,19 @@
+extensions:
+  - GADTs
+  - StandaloneDeriving
+modules:
+  - |
+    module Test where
+    import GHC.Classes (Eq, Ord)
+    import GHC.Prim.Show (Show)
+    import GHC.Types (Int)
+    deriving instance Eq Int
+    deriving instance Ord Int
+    data Value = Value deriving (Eq, Show)
+    data Key a where
+      Number :: Key Value
+      Label :: Value -> Key (Key Value)
+    deriving instance Eq (Key a)
+    deriving instance Show (Key a)
+status: pass
+reason: Standalone Eq and Show accept constructor equality constraints with fields.

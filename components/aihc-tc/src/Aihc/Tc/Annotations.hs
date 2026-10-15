@@ -373,6 +373,8 @@ data TcDerivingPlan = TcDerivingPlan
   { tcDerivingSourceSpan :: !(Maybe SourceSpan),
     tcDerivingStrategy :: !TcDerivingStrategy,
     tcDerivingStockFallback :: !Bool,
+    -- | A standalone declaration supplies its own instance context.
+    tcDerivingStandalone :: !Bool,
     tcDerivingClassName :: !Text,
     tcDerivingClassTyCon :: !TyCon,
     tcDerivingClassOrigin :: !(Maybe (Text, Text)),
