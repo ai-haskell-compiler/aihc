@@ -53,7 +53,7 @@ data ReplayOptions = ReplayOptions
   }
   deriving (Eq, Show)
 
--- | The repository that receives the tracking issues.
+-- | The repository that receives the tracking issue.
 defaultRepository :: String
 defaultRepository = "ai-haskell-compiler/aihc"
 
@@ -107,13 +107,13 @@ optionsParser =
           <> metavar "OWNER/NAME"
           <> value defaultRepository
           <> showDefault
-          <> help "GitHub repository that receives the tracking issues"
+          <> help "GitHub repository that receives the tracking issue"
       )
     <*> flag
       True
       False
       ( long "no-report"
-          <> help "Record bugs locally and do not open GitHub issues"
+          <> help "Record bugs locally and do not report them on GitHub"
       )
     <*> bugFileParser
     <*> switch
