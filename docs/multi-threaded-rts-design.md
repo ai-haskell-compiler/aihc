@@ -74,7 +74,11 @@ When the promotion needs a collection, the store site spills its roots, collects
 A store safepoint ends a heap reservation, because the collection resets the nursery.
 A put into a global `MVar` promotes its value, and `tryPutMVar#`, `makeStableName#`, and the boxed-array copies give a sentinel that makes the caller collect at its store safepoint.
 A waiter or a blackhole queue of a global object is allocated in gen2, and a name record of a stable name is always global.
-The STM operations do not promote yet.
+Transactions are optimistic: a transaction logs its reads and its writes, and a read sees the newest write of the transaction.
+The commit checks that each read still holds, promotes each written value of a global variable, and then applies the writes.
+A commit whose reads no longer hold makes `atomically` run the transaction again, and so does an abort with such a read.
+A promotion that needs a collection makes the commit give a sentinel, and the caller collects at its store safepoint and commits again.
+Until step 6, the run lock makes each commit atomic.
 Build step 3 enforces the invariant of the local heaps section.
 A reservation that does not fit starts a local collection of the reserving capability.
 A local collection copies the nursery and the gen1 of its capability, and it scans only the roots and the remembered set of that capability.

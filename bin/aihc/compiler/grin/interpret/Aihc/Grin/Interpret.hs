@@ -1469,17 +1469,19 @@ evalPrimitive "stmAbort#" [] = do
     writes : parents -> do
       mapM_ (\(GrinMutVar reference, previous) -> liftEvalIO (writeIORef reference previous)) writes
       lift $ modify' (\machine -> machine {machineTransactions = parents})
-      pure []
+      -- The interpreter runs one thread at a time and writes in place, so
+      -- the reads of a transaction always hold.
+      pure [intRuntimeValue 1]
     [] -> throwInterpret (InterpretPrimitiveArity "stmAbort#" 0)
 evalPrimitive "stmCommit#" [] = do
   transactions <- lift (gets machineTransactions)
   case transactions of
     writes : parent : parents -> do
       lift $ modify' (\machine -> machine {machineTransactions = (writes <> parent) : parents})
-      pure []
+      pure [intRuntimeValue 1]
     [_] -> do
       lift $ modify' (\machine -> machine {machineTransactions = []})
-      pure []
+      pure [intRuntimeValue 1]
     [] -> throwInterpret (InterpretPrimitiveArity "stmCommit#" 0)
 evalPrimitive "writeTVar#" [variable, value] = do
   reference@(GrinMutVar cell) <- expectMutVarPrimitiveArgument "writeTVar#" variable

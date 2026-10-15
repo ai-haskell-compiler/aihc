@@ -12,7 +12,7 @@ program: |
   primitive yield# :: TupleRep []/0
   primitive newDelayTVar# :: BoxedRep Unlifted/3
   primitive stmBegin# :: TupleRep []/0
-  primitive stmAbort# :: TupleRep []/0
+  primitive stmAbort# :: IntRep/0
   primitive writeTVar# :: TupleRep []/2
   primitive readTVar# :: BoxedRep Lifted/1
 
@@ -23,7 +23,7 @@ program: |
     () <- primitive-call @(TupleRep []) stmBegin#
     () <- primitive-call @(TupleRep []) writeTVar# (variable :: BoxedRep Unlifted) (after :: BoxedRep Lifted)
     (received :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readMVar# (cell :: BoxedRep Unlifted)
-    () <- primitive-call @(TupleRep []) stmAbort#
+    (stm_flag_1 :: IntRep) <- primitive-call @IntRep stmAbort#
     (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (variable :: BoxedRep Unlifted)
     () <- primitive-call @(TupleRep []) putMVar# (output :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
     store (CDone)
@@ -50,7 +50,7 @@ heap: |
   @1 = CNumber 42
   @2 = CNumber 99
 allocated-bytes:
-  macos-arm64: 904
-  linux-amd64: 904
+  macos-arm64: 920
+  linux-amd64: 920
 status: pass
 reason: A live MVar waiter must retain the transaction and write log of its blocked thread.

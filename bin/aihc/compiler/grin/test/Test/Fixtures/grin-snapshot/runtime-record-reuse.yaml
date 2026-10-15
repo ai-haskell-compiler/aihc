@@ -9,7 +9,7 @@ program: |
   primitive putMVar# :: TupleRep []/2
   primitive takeMVar# :: BoxedRep Lifted/1
   primitive stmBegin# :: TupleRep []/0
-  primitive stmAbort# :: TupleRep []/0
+  primitive stmAbort# :: IntRep/0
   primitive +# :: IntRep/2
 
   $child (shared :: BoxedRep Lifted) -> BoxedRep Lifted =
@@ -33,7 +33,7 @@ program: |
         () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
         (result :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
         () <- primitive-call @(TupleRep []) stmBegin#
-        () <- primitive-call @(TupleRep []) stmAbort#
+        (stm_flag_1 :: IntRep) <- primitive-call @IntRep stmAbort#
         case (result :: BoxedRep Lifted) as box :: BoxedRep Lifted of
           data Number (number :: IntRep) ->
             case (number :: IntRep) as checked :: IntRep of
@@ -48,7 +48,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 65600
-  linux-amd64: 65600
+  macos-arm64: 67200
+  linux-amd64: 67200
 status: pass
 reason: Runtime records must initialize their fields when collections reuse heap memory for different object kinds.

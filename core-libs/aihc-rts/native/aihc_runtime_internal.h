@@ -67,10 +67,12 @@ _Static_assert(sizeof(AihcThread) <= 11 * sizeof(AihcSlot),
 
 typedef struct AihcTransactionWrite AihcTransactionWrite;
 
+/* One entry of a transaction log: a write with its new value, or a read
+   with the value that it saw. */
 struct AihcTransactionWrite {
   AihcSlot header;
   AihcValue *variable;
-  AihcSlot previous;
+  AihcSlot value;
   AihcTransactionWrite *next;
 };
 
@@ -82,15 +84,19 @@ struct AihcTransactionTimer {
   AihcTransactionTimer *next;
 };
 
+/* A transaction is optimistic: it logs its reads and its writes, and its
+   commit checks the reads and then applies the writes. Each log has its
+   newest entry first. See "STM" in docs/multi-threaded-rts-design.md. */
 struct AihcTransaction {
   AihcSlot header;
   AihcTransactionWrite *writes;
   AihcTransaction *parent;
+  AihcTransactionWrite *reads;
 };
 
 /* Match the fixed allocation bounds in Aihc.Grin.Primitive.
    Heap slots have eight bytes on both 32-bit and 64-bit targets. */
-_Static_assert(sizeof(AihcTransaction) <= 3 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcTransaction) <= 4 * sizeof(AihcSlot),
                "transaction exceeds the GRIN reservation");
 _Static_assert(sizeof(AihcTransactionWrite) <= 4 * sizeof(AihcSlot),
                "write log exceeds the GRIN reservation");
