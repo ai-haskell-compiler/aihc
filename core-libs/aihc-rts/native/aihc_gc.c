@@ -329,7 +329,16 @@ static int aihc_address_set_contains(const AihcAddressSet *set,
 
 static void aihc_address_set_clear(AihcAddressSet *set) {
   if (set->count != 0) {
-    memset(set->slots, 0, sizeof(*set->slots) * set->capacity);
+    /* A full collection can make this table large. A local collection can
+       then use few entries. Release that table before each local collection
+       clears all of its unused slots. */
+    if (set->capacity > 64 && set->count < set->capacity / 8) {
+      free(set->slots);
+      set->slots = NULL;
+      set->capacity = 0;
+    } else {
+      memset(set->slots, 0, sizeof(*set->slots) * set->capacity);
+    }
   }
   set->count = 0;
 }
