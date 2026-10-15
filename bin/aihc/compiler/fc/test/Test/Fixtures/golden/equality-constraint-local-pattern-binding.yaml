@@ -1,0 +1,12 @@
+extensions:
+  - ScopedTypeVariables
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE ScopedTypeVariables, TypeFamilies #-}
+    module Test where
+    type family F a
+    inspect :: forall a. (F a ~ ()) => a -> F a -> ()
+    inspect _ value = let local = value in local
+status: pass
+reason: A local value binding keeps evidence for a type family equality.

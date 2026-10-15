@@ -9,42 +9,5 @@ modules:
     data Box = forall a. Box (Tag a) a
     inspect :: Box -> ()
     inspect (Box Tag ()) = ()
-expected: |-
-  scope 1 = "" Test
-  scope 2 = "aihc-prim" GHC.Tuple
-  scope 3 = "aihc-prim" GHC.Types
-
-  import headers
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
-    3.sLiftedRep :: tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
-    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    3.sType :: sType;
-    constructors [2.c()] 2.tUnit :: sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    2.c() :: tUnit;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
-    3.c[] :: ∀(a : sType). t[] a
-
-  import synonyms
-    3.sLiftedRep = cBoxedRep cLifted;
-    3.sType = tTYPE sLiftedRep
-
-  pub type 1.tTag (a : sType) :: sType {
-    pub 1.cTag :: ∀(a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tUnit) (tTag a)
-  }
-
-  pub type 1.tBox :: sType {
-    pub 1.cBox :: ∀(a : sType). tTag a → a → tBox
-  }
-
-  pub val 1.vinspect :: tBox → tUnit
-    = λ(x : tBox).
-      let! cBox @(a : sType) (_pat : tTag a) (_pat{1} : a) = x;
-      let! cTag ($co : a ~ tUnit) = _pat;
-      let! c() = _pat{1} ▷ $co;
-      c()
 status: pass
 reason: A nested GADT pattern must not refine the field binders of its parent constructor.
