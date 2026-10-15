@@ -48,7 +48,7 @@ program: |
 return: "126"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 464
-  linux-amd64: 464
+  macos-arm64: 480
+  linux-amd64: 480
 status: pass
 reason: A thunk can be evaluated again after exception restoration and notification of multiple waiters.

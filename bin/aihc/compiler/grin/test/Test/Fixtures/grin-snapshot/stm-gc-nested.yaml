@@ -5,8 +5,8 @@ program: |
   constructor Result/3 [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
   primitive newDelayTVar#%1 :: BoxedRep Unlifted/3
   primitive stmBegin#%2 :: TupleRep []/0
-  primitive stmCommit#%3 :: TupleRep []/0
-  primitive stmAbort#%4 :: TupleRep []/0
+  primitive stmCommit#%3 :: IntRep/0
+  primitive stmAbort#%4 :: IntRep/0
   primitive writeTVar#%5 :: TupleRep []/2
   primitive readTVar#%6 :: BoxedRep Lifted/1
 
@@ -19,13 +19,13 @@ program: |
     () <- primitive-call @(TupleRep []) writeTVar# (var%13 :: BoxedRep Unlifted) (second%11 :: BoxedRep Lifted)
     () <- primitive-call @(TupleRep []) stmBegin#
     () <- primitive-call @(TupleRep []) writeTVar# (var%13 :: BoxedRep Unlifted) (third%12 :: BoxedRep Lifted)
-    () <- primitive-call @(TupleRep []) stmCommit#
+    (stm_flag_1 :: IntRep) <- primitive-call @IntRep stmCommit#
     () <- primitive-call @(TupleRep []) stmBegin#
     (committed%14 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%13 :: BoxedRep Unlifted)
     () <- primitive-call @(TupleRep []) writeTVar# (var%13 :: BoxedRep Unlifted) (second%11 :: BoxedRep Lifted)
-    () <- primitive-call @(TupleRep []) stmAbort#
+    (stm_flag_2 :: IntRep) <- primitive-call @IntRep stmAbort#
     (aborted%15 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%13 :: BoxedRep Unlifted)
-    () <- primitive-call @(TupleRep []) stmAbort#
+    (stm_flag_3 :: IntRep) <- primitive-call @IntRep stmAbort#
     (original%16 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%13 :: BoxedRep Unlifted)
     store (CResult (committed%14 :: BoxedRep Lifted) (aborted%15 :: BoxedRep Lifted) (original%16 :: BoxedRep Lifted))
 return: "@0"
@@ -34,7 +34,7 @@ heap: |
   @1 = CNumber 30
   @2 = CNumber 10
 allocated-bytes:
-  macos-arm64: 272
-  linux-amd64: 272
+  macos-arm64: 296
+  linux-amd64: 296
 status: pass
 reason: Collections preserve caller roots, nested write logs, and values restored by transaction abort.

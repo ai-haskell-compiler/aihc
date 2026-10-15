@@ -20,6 +20,7 @@ freeExprVars expression =
     GrinStore node -> freeNodeVars node
     GrinEnsureHeap requiredWords roots -> freeValueVars requiredWords <> foldMap freeValueVars roots
     GrinAllocate requiredWords pinned roots -> freeValueVars requiredWords <> freeValueVars pinned <> foldMap freeValueVars roots
+    GrinSafepoint top roots -> foldMap freeValueVars (maybe roots (: roots) top)
     GrinStoreUnchecked node -> freeNodeVars node
     GrinStoreRec bindings body -> freeStoreRecVars bindings body
     GrinStoreRecUnchecked bindings body -> freeStoreRecVars bindings body
@@ -94,6 +95,7 @@ maximumProgramVarUnique program =
         GrinStore node -> nodeUniques node
         GrinEnsureHeap requiredWords roots -> valueUnique requiredWords <> concatMap valueUnique roots
         GrinAllocate requiredWords pinned roots -> valueUnique requiredWords <> valueUnique pinned <> concatMap valueUnique roots
+        GrinSafepoint top roots -> concatMap valueUnique (maybe roots (: roots) top)
         GrinStoreUnchecked node -> nodeUniques node
         GrinStoreRec bindings body -> storeRecUniques bindings body
         GrinStoreRecUnchecked bindings body -> storeRecUniques bindings body

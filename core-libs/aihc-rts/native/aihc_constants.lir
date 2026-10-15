@@ -30,6 +30,7 @@ const @AIHC_CAPABILITY_HEAP_START_OFFSET = 5 words
 const @AIHC_CAPABILITY_CURRENT_THREAD_OFFSET = 6 words
 ; The size follows seven pointer fields, with 8-byte alignment on both targets.
 const @AIHC_CAPABILITY_NURSERY_BYTES_OFFSET = 6 words + 8
+const @AIHC_CAPABILITY_PAUSE_TOP_OFFSET = 6 words + 16
 
 ; Two low header bits preserve the original info-table pointer. In a thunk,
 ; bit zero alone means claimed or evaluated: field zero names the owner or

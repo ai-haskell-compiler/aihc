@@ -72,6 +72,7 @@ tidyExpr expression =
       GrinEnsureHeap <$> useValue requiredWords <*> useValues roots
     GrinAllocate requiredWords pinned roots ->
       GrinAllocate <$> useValue requiredWords <*> useValue pinned <*> useValues roots
+    GrinSafepoint top roots -> GrinSafepoint <$> traverse useValue top <*> useValues roots
     GrinStoreRec bindings body -> tidyStoreRec GrinStoreRec bindings body
     GrinStoreRecUnchecked bindings body -> tidyStoreRec GrinStoreRecUnchecked bindings body
     GrinUpdate pointer value -> GrinUpdate <$> useValue pointer <*> useValue value

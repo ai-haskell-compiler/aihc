@@ -57,7 +57,7 @@ lowerGc cps =
   GcGrinProgram
     { gcGrinProgram =
         normalizedProgram
-          { grinFunctions = evalState (mapM relocateFunction (grinFunctions normalizedProgram)) nextUnique
+          { grinFunctions = evalState (mapM (relocateFunction frames (cpsFunctionContinuations cps)) (grinFunctions normalizedProgram)) nextUnique
           },
       gcContinuationFunctions = cpsContinuationFunctions cps,
       gcContinuationFrames = cpsContinuationFrames cps,
@@ -72,6 +72,7 @@ lowerGc cps =
       | (names, helper, arity) <- reservationHelpers <> initializationHelpers,
         any (\(var, _) -> grinVarName var `elem` names) (grinPrimitives program)
       ]
+    frames = cpsContinuationFunctions cps
     normalizedProgram = normalizeHeapReservations (insertHeapReservations (cpsContinuationFunctions cps) dynamicProgram)
     nextUnique = 1 + maximumProgramVarUnique normalizedProgram
 
@@ -214,6 +215,19 @@ insertExprReservations continuations expression =
         []
         (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
         (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
+    -- A store safepoint ends a reservation, so the reservation of an
+    -- escaping primitive that allocates comes after its safepoint.
+    GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
+      | isEscapingStore call,
+        Just requiredWords <- primitiveHeapWords name ->
+          GrinBind
+            []
+            (GrinSafepoint Nothing [])
+            ( GrinBind
+                []
+                (GrinEnsureHeap (staticHeapWords requiredWords) [])
+                (GrinBind resultVars call (insertExprReservations continuations body))
+            )
     GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind
@@ -223,6 +237,11 @@ insertExprReservations continuations expression =
     call@(GrinCpsPrimitiveCall _ name _ _)
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind [] (GrinEnsureHeap (staticHeapWords requiredWords) []) call
+    GrinBind resultVars store body
+      | isEscapingStore store ->
+          GrinBind [] (GrinSafepoint Nothing []) (GrinBind resultVars store (insertExprReservations continuations body))
+    store
+      | isEscapingStore store -> GrinBind [] (GrinSafepoint Nothing []) store
     GrinBind resultVars valueExpression body ->
       GrinBind resultVars (insertExprReservations continuations valueExpression) (insertExprReservations continuations body)
     GrinStore node
@@ -253,38 +272,82 @@ insertExprReservations continuations expression =
         GrinClosure name _ -> name `Set.member` continuations
         _ -> False
 
+-- | A store that can be an escape: an update, or a pointer store into an
+-- existing object. Its barrier can promote the stored value, and a
+-- promotion that reaches a mutable object collects. Thus it gets a
+-- safepoint with its live roots. See "Local heaps" in
+-- docs/multi-threaded-rts-design.md.
+isEscapingStore :: GrinExpr -> Bool
+isEscapingStore expression =
+  case expression of
+    GrinUpdate {} -> True
+    GrinUpdateBlackhole {} -> True
+    GrinPrimitiveCall _ name _ -> name `elem` escapingStorePrimitives
+    _ -> False
+
+-- | The primitives whose pointer store into an existing object takes the
+-- write barrier: in compiled code, or in a runtime call that gives a
+-- sentinel when its promotion needs a collection. makeStableName# stores
+-- into the global list of names, and stmCommit# stores the writes of a
+-- transaction into their variables.
+escapingStorePrimitives :: [Text]
+escapingStorePrimitives =
+  [ "writeMutVar#",
+    "casMutVar#",
+    "writeArray#",
+    "writeSmallArray#",
+    "casArray#",
+    "casSmallArray#",
+    "tryPutMVar#",
+    "makeStableName#",
+    "copyArray#",
+    "copyMutableArray#",
+    "copySmallArray#",
+    "copySmallMutableArray#",
+    "stmCommit#"
+  ]
+
 insertAlternativeReservations :: Set FunctionName -> GrinAlt -> GrinAlt
 insertAlternativeReservations continuations alternative =
   alternative {grinAltRhs = insertExprReservations continuations (grinAltRhs alternative)}
 
-relocateFunction :: GrinFunction -> State Int GrinFunction
-relocateFunction function = do
-  body <- relocateExpr (Set.fromList (grinFunctionParameters function)) (grinFunctionBody function)
+-- | The relocation of a function. It also tracks the top frame of the
+-- thread: the continuation of the function, or the last frame that the
+-- function pushed. A store safepoint names it, so a promotion can run the
+-- pause walk from it.
+relocateFunction :: Set FunctionName -> Map FunctionName GrinVar -> GrinFunction -> State Int GrinFunction
+relocateFunction frames continuations function = do
+  body <- relocateExpr frames (Map.lookup (grinFunctionName function) continuations) (Set.fromList (grinFunctionParameters function)) (grinFunctionBody function)
   pure function {grinFunctionBody = body}
 
-relocateExpr :: Set GrinVar -> GrinExpr -> State Int GrinExpr
-relocateExpr bound expression =
+relocateExpr :: Set FunctionName -> Maybe GrinVar -> Set GrinVar -> GrinExpr -> State Int GrinExpr
+relocateExpr frames top bound expression =
   case expression of
     GrinBind resultVars (GrinAllocate requiredWords pinned []) body ->
-      relocateReservation bound resultVars (GrinAllocate requiredWords pinned) body
+      relocateReservation frames top bound resultVars (GrinAllocate requiredWords pinned) body
     GrinBind [] (GrinEnsureHeap words' []) body ->
-      relocateReservation bound [] (GrinEnsureHeap words') body
+      relocateReservation frames top bound [] (GrinEnsureHeap words') body
+    GrinBind [] (GrinSafepoint Nothing []) body -> relocateSafepoint frames top bound body
     GrinBind resultVars valueExpression body -> do
-      valueExpression' <- relocateExpr bound valueExpression
-      body' <- relocateExpr (bound <> Set.fromList resultVars) body
+      valueExpression' <- relocateExpr frames top bound valueExpression
+      let top' = case (resultVars, valueExpression) of
+            ([frame], GrinStoreUnchecked node) | isFrameNode frames node -> Just frame
+            _ -> top
+      body' <- relocateExpr frames top' (bound <> Set.fromList resultVars) body
       pure (GrinBind resultVars valueExpression' body')
-    GrinIfWhnf value ready slow -> GrinIfWhnf value <$> relocateExpr bound ready <*> relocateExpr bound slow
+    GrinIfWhnf value ready slow -> GrinIfWhnf value <$> relocateExpr frames top bound ready <*> relocateExpr frames top bound slow
     GrinCase scrutinee binder alternatives ->
-      GrinCase scrutinee binder <$> mapM (relocateAlternative (Set.insert binder bound)) alternatives
+      GrinCase scrutinee binder <$> mapM (relocateAlternative frames top (Set.insert binder bound)) alternatives
     GrinConstant {} -> pure expression
     GrinEnsureHeap {} -> pure expression
     GrinAllocate {} -> pure expression
+    GrinSafepoint {} -> pure expression
     GrinStore {} -> pure expression
     GrinStoreUnchecked {} -> pure expression
     GrinStoreRec {} -> pure expression
     GrinStoreRecUnchecked bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)
-      body' <- relocateExpr (bound <> recursiveVars) body
+      body' <- relocateExpr frames top (bound <> recursiveVars) body
       pure (GrinStoreRecUnchecked bindings body')
     GrinUpdate {} -> pure expression
     GrinUpdateBlackhole {} -> pure expression
@@ -305,15 +368,22 @@ relocateExpr bound expression =
     GrinCatch {} -> pure expression
     GrinForeignCallExpr {} -> pure expression
 
+-- | Whether a node is a continuation frame, which goes on the stack.
+isFrameNode :: Set FunctionName -> GrinNode -> Bool
+isFrameNode frames node =
+  case grinNodeTag node of
+    GrinClosure name _ -> name `Set.member` frames
+    _ -> False
+
 -- Give each safepoint its live pointer roots.
 -- Use the relocated SSA names after the safepoint.
-relocateReservation :: Set GrinVar -> [GrinVar] -> ([GrinValue] -> GrinExpr) -> GrinExpr -> State Int GrinExpr
-relocateReservation bound resultVars reservation body = do
+relocateReservation :: Set FunctionName -> Maybe GrinVar -> Set GrinVar -> [GrinVar] -> ([GrinValue] -> GrinExpr) -> GrinExpr -> State Int GrinExpr
+relocateReservation frames top bound resultVars reservation body = do
   let roots = livePointerRoots bound (freeExprVars body)
   relocated <- mapM freshRelocated roots
   let substitutions = Map.fromList (zip roots relocated)
       bodyWithRelocatedRoots = substituteExpr substitutions body
-  body' <- relocateExpr (bound <> Set.fromList (resultVars <> relocated)) bodyWithRelocatedRoots
+  body' <- relocateExpr frames (substituteVar substitutions <$> top) (bound <> Set.fromList (resultVars <> relocated)) bodyWithRelocatedRoots
   pure
     ( GrinBind
         (resultVars <> relocated)
@@ -321,9 +391,24 @@ relocateReservation bound resultVars reservation body = do
         body'
     )
 
-relocateAlternative :: Set GrinVar -> GrinAlt -> State Int GrinAlt
-relocateAlternative bound alternative = do
-  rhs <- relocateExpr (bound <> Set.fromList (grinAltBinders alternative)) (grinAltRhs alternative)
+-- | Give a store safepoint its live roots, as a reservation gets them, and
+-- the top frame. The store that follows uses the relocated names, so the
+-- barrier runs it again with them after a collection. A frame does not
+-- move, so the top frame needs no relocation of its own.
+relocateSafepoint :: Set FunctionName -> Maybe GrinVar -> Set GrinVar -> GrinExpr -> State Int GrinExpr
+relocateSafepoint frames top bound body = do
+  let roots = livePointerRoots bound (freeExprVars body)
+  relocated <- mapM freshRelocated roots
+  let substitutions = Map.fromList (zip roots relocated)
+  body' <- relocateExpr frames (substituteVar substitutions <$> top) (bound <> Set.fromList relocated) (substituteExpr substitutions body)
+  pure (GrinBind relocated (GrinSafepoint (GrinVarValue <$> top) (map GrinVarValue roots)) body')
+
+substituteVar :: Map GrinVar GrinVar -> GrinVar -> GrinVar
+substituteVar substitutions var = Map.findWithDefault var var substitutions
+
+relocateAlternative :: Set FunctionName -> Maybe GrinVar -> Set GrinVar -> GrinAlt -> State Int GrinAlt
+relocateAlternative frames top bound alternative = do
+  rhs <- relocateExpr frames top (bound <> Set.fromList (grinAltBinders alternative)) (grinAltRhs alternative)
   pure alternative {grinAltRhs = rhs}
 
 livePointerRoots :: Set GrinVar -> Set GrinVar -> [GrinVar]
@@ -365,6 +450,7 @@ substituteExpr substitutions expression =
     GrinStore node -> GrinStore (substituteNode substitutions node)
     GrinEnsureHeap requiredWords roots -> GrinEnsureHeap (substituteValue substitutions requiredWords) (map (substituteValue substitutions) roots)
     GrinAllocate requiredWords pinned roots -> GrinAllocate (substituteValue substitutions requiredWords) (substituteValue substitutions pinned) (map (substituteValue substitutions) roots)
+    GrinSafepoint top roots -> GrinSafepoint (substituteValue substitutions <$> top) (map (substituteValue substitutions) roots)
     GrinStoreUnchecked node -> GrinStoreUnchecked (substituteNode substitutions node)
     GrinStoreRec bindings body -> substituteStoreRec GrinStoreRec substitutions bindings body
     GrinStoreRecUnchecked bindings body -> substituteStoreRec GrinStoreRecUnchecked substitutions bindings body

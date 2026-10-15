@@ -1676,12 +1676,21 @@ data Charge
 -- with its fields in place. The call the case resolved earns the
 -- function argument discount of the policy as well: the call, the case
 -- and the boxed result all go.
+--
+-- The discount is never less than zero. When the copies of the
+-- alternatives in the tails cost more than they save, the case of the
+-- case keeps each large alternative in one join point, see 'caseOfCase'.
+-- The case of the copy is then not larger than the case of the call. A
+-- negative discount charged a copy of the alternative to each tail. In
+-- the @text@ package, the leader length of UTF-8 has four tails, and the
+-- rest of a loop body after it is large. That site got a growth of
+-- about 370 nodes and stayed a call in each loop over a text.
 resultDiscount :: Simpl -> Candidate -> [Alt] -> Int
 resultDiscount env candidate alternatives =
   case tailConstructors env (candidateBody candidate) of
     Just tails
       | guidanceTailsKnown (candidateGuidanceOf candidate) ->
-          spDiscount env + caseSize - sum [selectedSize con - size | (con, size) <- tails]
+          max 0 (spDiscount env + caseSize - sum [selectedSize con - size | (con, size) <- tails])
     _ -> 0
   where
     altSizes = [exprSize (spEnv env) (altRhs alternative) | alternative <- alternatives]

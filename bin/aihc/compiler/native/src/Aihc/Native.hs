@@ -688,6 +688,7 @@ nativeCpsPrimitiveCalls =
     resumes "takeMVar#" "aihc_mvar_take" 1,
     resumes "putMVar#" "aihc_mvar_put" 2,
     resumes "yield#" "aihc_yield" 0,
+    resumes "noDuplicate#" "aihc_no_duplicate" 0,
     resumes "awaitIO#" "aihc_await_io" 1,
     resumes "aihcControl0#" "aihc_control0" 2,
     resumes "aihcResume#" "aihc_continuation_resume" 2
@@ -708,11 +709,11 @@ nativeRuntimePrimitiveCalls =
   [ machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "newTVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "readTVar#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
-    machineCall "readTVarIO#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
+    machineCall "readTVarIO#" "aihc_tvar_read_io" [GrinForeignAddr] GrinForeignWord64,
     runtimeCall True 0 "writeTVar#" "aihc_tvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     runtimeCall True 0 "stmBegin#" "aihc_stm_begin" [] GrinForeignWord64,
-    runtimeCall True 0 "stmCommit#" "aihc_stm_commit" [] GrinForeignWord64,
-    runtimeCall True 0 "stmAbort#" "aihc_stm_abort" [] GrinForeignWord64,
+    runtimeCall True 1 "stmCommit#" "aihc_stm_commit" [] GrinForeignWord64,
+    runtimeCall True 1 "stmAbort#" "aihc_stm_abort" [] GrinForeignWord64,
     machineCall "adoptIOHandle#" "aihc_io_adopt" [GrinForeignInt64, GrinForeignInt64] GrinForeignAddr,
     call "stdinIOHandle#" "aihc_io_stdin" [] GrinForeignAddr,
     call "stdoutIOHandle#" "aihc_io_stdout" [] GrinForeignAddr,
@@ -757,10 +758,12 @@ nativeRuntimePrimitiveCalls =
     procedure "shrinkSmallMutableArray#" "aihc_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     machineCall "resizeSmallMutableArray#" "aihc_array_resize" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     -- The MVar operations that never block, so they are runtime calls rather
-    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# gives
-    -- a flag and the contents; the runtime function returns the flag, and
-    -- the lowering reads the contents before the operation runs.
+    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# and
+    -- tryReadMVar# give a flag and the contents; the runtime function
+    -- returns the contents, or zero for an empty variable, and the lowering
+    -- derives the flag.
     machineCall "tryTakeMVar#" "aihc_mvar_try_take" [GrinForeignAddr] GrinForeignWord64,
+    machineCall "tryReadMVar#" "aihc_mvar_try_read" [GrinForeignAddr] GrinForeignWord64,
     machineCall "tryPutMVar#" "aihc_mvar_try_put" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "aihcInitArray#" "aihc_array_initialize" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "aihcInitArrayClone#" "aihc_array_initialize_clone" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,

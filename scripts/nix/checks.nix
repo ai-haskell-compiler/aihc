@@ -32,6 +32,10 @@
   # the daily Hackage workflow, through the hackage-checks package.
   hackageExampleNames = builtins.filter (name: (exampleExtraHackagePackages.${name} or []) != []) exampleNames;
   gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
+  # These examples check that Haskell threads run on several OS threads. A
+  # wasm32-wasip3 program has one capability, so they do not run there.
+  threadedExampleNames = ["no-duplicate" "parallel" "workers"];
+  wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
   cTidyCompilerFlags =
@@ -781,7 +785,7 @@
       cp -R --no-preserve=mode ${primStoreWith extraSetup target}/. "$out/"
       ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --lint --target ${target}
 
-      test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
+      test -n "$(find "$out" -type f -name 'package.cbor' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-rts.a' -print -quit)"
     '';
@@ -1195,13 +1199,13 @@
       name = exampleName;
       path = mkWasip3ExampleTest exampleName;
     })
-    gateExampleNames;
+    wasip3GateExampleNames;
 
   # Every example gets one incremental WASI smoke test. Nix schedules these
   # derivations in parallel against the immutable shared library and runtime
   # artifacts. Whole-program linking has focused CLI coverage because it
   # intentionally recompiles the merged dependency bodies.
-  wasip3ExampleTest = assert gateExampleNames != [];
+  wasip3ExampleTest = assert wasip3GateExampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
   # Compile every example for one target without linking. Each example gets a
   # relocatable bundle that `aihc link-exe`, or the C driver for the target,

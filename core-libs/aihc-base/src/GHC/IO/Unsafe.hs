@@ -9,19 +9,28 @@ module GHC.IO.Unsafe
   )
 where
 
-import GHC.Prim (realWorld#)
+import GHC.Prim (noDuplicate#, realWorld#)
 import GHC.Prim.IO (IO (..))
 
+-- | An action that must not run twice claims the evaluations of its thread
+-- first. Another thread that evaluates the same thunk then waits for this
+-- one, as in GHC. The module has no composition operator, so the lambdas
+-- stay.
+
+{- HLINT ignore unsafePerformIO "Avoid lambda" -}
 unsafePerformIO :: IO a -> a
 unsafePerformIO (IO action) =
+  unsafeDupablePerformIO (IO (\state -> action (noDuplicate# state)))
+
+unsafeDupablePerformIO :: IO a -> a
+unsafeDupablePerformIO (IO action) =
   case action realWorld# of
     (# _, result #) -> result
 
-unsafeDupablePerformIO :: IO a -> a
-unsafeDupablePerformIO = unsafePerformIO
-
+{- HLINT ignore unsafeInterleaveIO "Avoid lambda" -}
 unsafeInterleaveIO :: IO a -> IO a
-unsafeInterleaveIO = unsafeDupableInterleaveIO
+unsafeInterleaveIO (IO action) =
+  unsafeDupableInterleaveIO (IO (\state -> action (noDuplicate# state)))
 
 {- HLINT ignore unsafeDupableInterleaveIO "Use tuple-section" -}
 unsafeDupableInterleaveIO :: IO a -> IO a

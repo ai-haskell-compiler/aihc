@@ -54,15 +54,68 @@ The write barrier counts its scan work against the `-R` budget. When the work re
 It includes the barrier safepoints at the store sites, the barrier bounds of the runtime operations, and the copy of an array in pieces.
 The cold path of the write barrier at a compiled store site gets the stored value and counts escapes.
 The runtime statistics report the count as `escape_count`.
-The first part of step 2 gives the machine an array of capabilities.
+The first part of build step 2 gives the machine an array of capabilities.
 The arena has one window for each capability, and each capability has its own gen1 blocks and remembered set.
-A collection on one OS thread copies the nurseries of all capabilities.
+A bridge collection on one OS thread copies the nurseries of all capabilities.
 It copies a survivor into the gen1 of the capability whose nursery held it.
 The write barrier ignores an object in the nursery of any capability.
 `aihc_machine_set_capabilities` changes the count when all nurseries are empty.
 A removed capability gives its gen1 blocks and its remembered set to the first capability.
 Only the collector fuzz driver uses more than one capability.
-Native parallel execution starts at step 4.
+`aihc_promote` copies an escaping value and the young objects it reaches into gen2.
+An immutable original stays as it is, and an unclaimed thunk becomes an indirection to its copy.
+A value that reaches a mutable object or a claimed thunk runs a collection that moves every young survivor into gen2.
+The RTS option `-N<n>` gives the machine `n` capabilities, but every Haskell thread runs on the first one until step 4.
+With more than one capability, an update and a pointer store into a global object promote a young value.
+GC-GRIN puts a store safepoint before each such store, with the live roots and the top frame of the thread.
+The barrier gives the value to store, which is the global copy for an escape.
+Before a copy, the runtime runs the pause walk from the top frame, so a thunk under evaluation is claimed and takes the collection.
+When the promotion needs a collection, the store site spills its roots, collects, and runs the store again from the safepoint.
+A store safepoint ends a heap reservation, because the collection resets the nursery.
+A put into a global `MVar` promotes its value, and `tryPutMVar#`, `makeStableName#`, and the boxed-array copies give a sentinel that makes the caller collect at its store safepoint.
+A waiter or a blackhole queue of a global object is allocated in gen2, and a name record of a stable name is always global.
+Transactions are optimistic: a transaction logs its reads and its writes, and a read sees the newest write of the transaction.
+The commit checks that each read still holds, promotes each written value of a global variable, and then applies the writes.
+A commit whose reads no longer hold makes `atomically` run the transaction again, and so does an abort with such a read.
+A promotion that needs a collection makes the commit give a sentinel, and the caller collects at its store safepoint and commits again.
+The runtime lock makes each commit atomic.
+Build step 3 enforces the invariant of the local heaps section.
+A reservation that does not fit starts a local collection of the reserving capability.
+A local collection copies the nursery and the gen1 of its capability, and it scans only the roots and the remembered set of that capability.
+It does not change the nurseries, the gen1 blocks, and the young pinned blocks of the other capabilities.
+Each pinned block records the capability that owns it.
+An escape collection is also local.
+An explicit collection, a full collection, and the start of a gen2 cycle are bridge collections.
+A nursery that grows replaces the arena, so a bridge collection empties the other nurseries first.
+Under `AIHC_GC_VERIFY`, the verifier stops at a local object that names an object of another local heap.
+The end of a gen2 cycle drops the freed objects from the remembered set of each capability.
+The first part of build step 4 gives each capability a worker on its own OS thread when `-N` is above one.
+Each thread record names its capability, and a woken thread goes back to that capability.
+Another capability puts a pushed or woken thread into the inbox of the capability, which has its own lock.
+The worker moves its inbox into its run queue at each schedule.
+At a schedule, a capability with two or more runnable threads pushes at most half of the surplus to idle capabilities.
+Before the push, a collection moves each young survivor of its local heap into gen2.
+A pushed thread gets the new capability in each chunk of its stack.
+A capability without runnable threads waits in its idle wait.
+The wait polls the pending IO requests and a wake-up pipe.
+The machine has a deadlock when every capability waits with no runnable thread and no IO request.
+When the main thread ends on a worker, the worker ends the process.
+The workers run Haskell threads in parallel.
+This first parallel version uses coarse locks in place of some mechanisms of this design.
+Every collection stops the world: the requester leads a stop, and each running capability parks at its next safepoint with its roots in a root frame.
+The safepoints are the refill of a nursery block, the scheduler, and the start of each collection.
+A capability in the idle wait does not count as running, and it does not leave the wait during a stop.
+A parked capability counts as running, so the deadlock test does not miss its thread.
+One recursive runtime lock guards the shared state outside the collections: the allocators, the stack list, the stable names, the shading of a gen2 cycle, and the promotions.
+The same lock guards the MVars, the transactions, the timers, and the claims, the updates, and the queues of global thunks.
+Thus a thread that blocks on a thunk of another capability attaches itself under the lock, and the blackhole messages are not necessary yet.
+An update that finds the queue of another thread gives the value to its waiters.
+No holder of the runtime lock collects: a promotion that can collect runs before the lock.
+The top level of the region table is one published pointer to a table with its own count, so workers can read the table while another worker grows it.
+`tryTakeMVar#` and `tryReadMVar#` are runtime calls that give the value, or zero for an empty variable.
+`noDuplicate#` is a scheduler call. It claims the thunks of the update frames of the thread, as a pause does. When another thread claimed one of them, or another evaluation finished it, the thread gives up the frames above the lowest such frame and gives back the claims that the walk made above it. It then waits for that thunk, or continues with its value.
+`unsafePerformIO` and `unsafeInterleaveIO` call `noDuplicate#` before their action, as in GHC.
+Still open: local collections without a stop, the promotion of the values of STM timers, the capability locks of the FFI, `setNumCapabilities`, and the ticker.
 WASM keeps one capability until WASI supports the required thread operations.
 
 ## Goals
@@ -83,9 +136,10 @@ WASM keeps one capability until WASI supports the required thread operations.
   end state.
 - Local heaps. In the end state, each capability collects its own nursery
   and its own gen1 alone, without a stop of any other capability. Only
-  gen2 is shared, and a concurrent marker collects it. The first version
-  collects every nursery in one stop and is a step toward this end state.
-  Refer to the garbage collection section.
+  gen2 is shared, and a concurrent marker collects it. Local collection
+  comes before parallel execution, so no version runs Haskell threads in
+  parallel with a stop-the-world young collection. Refer to the garbage
+  collection section.
 
 ## Non-goals
 
@@ -113,7 +167,7 @@ WASM keeps one capability until WASI supports the required thread operations.
 | Local heap | The nursery sub-range and the gen1 blocks of one capability. |
 | Global heap | Gen2, the large objects, the pinned blocks, and the static objects. Every capability can reach them. |
 | Escape | The first point where another capability can reach a local object. |
-| Bridge collector | The STW parallel copy of the first version. It collects every local heap in one stop. |
+| Bridge collection | A STW collection of every local heap by one thread. It promotes every survivor into gen2. It serves a change of the capability count and the degradation mode. |
 
 ## Summary of decisions
 
@@ -126,8 +180,8 @@ WASM keeps one capability until WASI supports the required thread operations.
 | Write barrier | The fast path tests whether the object is in the sub-range of this capability. The test uses the aligned nursery base and size from the capability. | A generation test through the block descriptor. |
 | Safepoints for GC | The block refill, the write barrier cold path, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
 | Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
-| Young collection, end state | Each capability collects its local heap alone, with the sequential collector and no stop. An escape promotes the local object graph into gen2. | A prototype in 2011, not merged. |
-| Young collection, first version | The bridge collector: STW parallel copy of every local heap. Every worker collects. A sequential instance without atomics serves one capability. | STW parallel copy by default. |
+| Young collection | Each capability collects its local heap alone, with the sequential collector and no stop. An escape promotes the local object graph into gen2. No space is copied by more than one thread. Local collection comes before parallel execution. | STW parallel copy by default. Local heaps were a prototype in 2011, not merged. |
+| Bridge collection | One thread copies every local heap in a stop, only for a change of the capability count and for the degradation mode under `-M`. | None |
 | Old generation | Non-moving gen2. A concurrent marker on a spare worker, with ragged barriers at the snapshot and at the termination. The mutator slice is the assist. | Optional concurrent non-moving collector. |
 | Blackholing | Lazy. A pause claims each update frame with a compare-and-swap. The state is one word: field zero names the owner, a queue, or the value. A waiter sends a message to the capability of the owner. | Lazy by default. The owner is in the thunk, and the indirectee gives the state. |
 | Thunk layout | One owner word after the header. | One padding word in each thunk. |
@@ -280,10 +334,10 @@ It needs three loads, one exclusive or, one compare, and one branch before optim
 The previous test needed two global loads, one subtraction, one compare, and one branch.
 
 A store into an object outside the sub-range takes
-the cold path. In the first version the cold path records the object in
-the remembered set when it is old, as today, and counts the store when the
-object is young and belongs to another capability. In the end state that
-count is the escape path. Refer to the garbage collection section.
+the cold path. Until step 2 of the build order the cold path records the
+object in the remembered set when it is old, as today, and counts the
+store when the object is outside the local heap. From step 2 that count is
+the escape path. Refer to the garbage collection section.
 
 The compiled allocation fast path does not change. It is a bump and a
 compare in registers. The slow path, `aihc_heap_collect`, first refills the
@@ -295,9 +349,7 @@ block of the capability from its sub-range. It collects only when:
 
 The first rule keeps the collection frequency of a single-threaded program
 as it is today. One thread fills `-A` bytes of consecutive blocks before it
-collects, so its cache behaviour does not change with `-N`. In the first
-version a full sub-range starts a collection of every sub-range, so the
-fastest capability sets the stop rate for all. In the end state a full
+collects, so its cache behaviour does not change with `-N`. A full
 sub-range starts a local collection of that capability alone, and the rule
 has no effect on any other capability.
 
@@ -442,8 +494,8 @@ scheduler therefore pushes the threads of the run queue that have not run
 first. It pushes a thread that has run only when the idle capabilities
 would stay idle otherwise, and it pushes at most one such thread for each
 schedule. The promotion runs under a host root frame, so it can collect at
-a host safepoint. The first version counts the pushes of each kind and the
-bytes that an end state push would promote.
+a host safepoint. The statistics count the pushes of each kind and the
+bytes that each push promotes.
 
 ### Idle capabilities
 
@@ -468,16 +520,14 @@ number of workers can therefore be above `n`.
 
 ### Requests
 
-In the first version a capability requests a stop for a collection of the
-young generations or for a change of the capability count. In the end
-state a young collection stops nobody, and a stop remains for four cases:
-a change of the capability count, the full collection of the degradation
-mode, the oversized commit of the STM section, and the collector fallback
-`-qg`. The gen2 snapshot and the mark termination use a ragged barrier and
-no stop. Refer to the garbage collection section.
+A young collection stops nobody, because local collection comes before
+parallel execution in the build order. A stop remains for three cases: a
+change of the capability count, the full collection of the degradation
+mode, and the oversized commit of the STM section. The gen2 snapshot and
+the mark termination use a ragged barrier and no stop. Refer to the
+garbage collection section.
 
-A capability requests a stop for a collection or a change
-of the capability count. Every request comes from a safepoint of the
+A capability requests a stop for one of these cases. Every request comes from a safepoint of the
 requester: `aihc_heap_collect` with its spilled roots, a scheduler call
 with its continuation, or the idle wait. The requester holds no lock at
 that point.
@@ -557,9 +607,8 @@ or wake-up for each. Its cost grows with `-N`, not with the live data.
 The pause bound of [gc-design.md](gc-design.md) is a hard requirement. No
 term of a pause may depend on the live data in gen2. No term may depend on
 the depth of a stack or on the size of a large object. This document adds
-one requirement for the end state: no term may depend on the number of
-capabilities. This section gives the end state, the first version that is
-a step toward it, and the path between them.
+one requirement: no term of a young collection may depend on the number of
+capabilities. This section gives the design and the path to it.
 
 ### The principle
 
@@ -579,15 +628,16 @@ word of that sentence.
 
 A design that keeps all three words scales only through the parallel
 efficiency of a stop-the-world copy. That efficiency depends on the shape
-of the live graph, and the GHC experience with it is poor. We do not accept
-it as the end state.
+of the live graph, and the GHC experience with it is poor. We do not
+accept it. No space is copied by more than one thread.
 
 ### Options
 
 1. **STW, one collector.** The requester collects alone. The other
    capabilities park. A collection copies the live young objects of every
    capability on one worker, so the pause grows with the number of busy
-   capabilities. We rejected it.
+   capabilities. We rejected it for young collections. It remains as the
+   bridge collection for rare stops.
 2. **STW, parallel copy.** Every worker takes part in the collection. Each
    worker copies the roots of its capability and the objects it reaches.
    The workers steal scan work from each other. The work grows with the
@@ -598,7 +648,9 @@ it as the end state.
    more threads and added `-qn` and `-qg1` because of this. OCaml 5 gets a
    near-linear speed-up to about 24 domains, because each domain reaches
    mostly its own data. The result depends on the workload. This is the
-   GHC default and our first version, the bridge collector.
+   GHC default. We rejected it: no space is copied by more than one
+   thread, and the work distribution, the forwarding races, and the
+   worker wake-ups are a cost that local heaps make unnecessary.
 3. **Local heaps with promotion on escape.** Each capability collects its
    own nursery and its own gen1 alone, with the sequential collector and
    no stop. An invariant keeps every pointer into a local heap inside the
@@ -628,21 +680,19 @@ it as the end state.
 
 ### Decision
 
-The end state is option 3. The first version is option 2, the bridge
-collector, for these reasons: it is correct at every level of sharing, it
-is cheap to build, and every part of it is a part of the end state. The
-sub-ranges, the local gen1 blocks of each capability, the worker that
-scans the roots of its own capability into its own blocks, and the escape
-count of the cold path all stay. The bridge collector remains in the end
-state for a change of the capability count, for the full collection of the
-degradation mode, and as the fallback `-qg`.
+We use option 3. The build order brings local collection before parallel
+execution, so no version of the runtime runs Haskell threads in parallel
+with a stop-the-world young collection. Each capability copies its own
+local heap with the sequential collector, which uses no atomic operation.
+Two capabilities can collect at the same time, but each one copies only
+its own space.
 
-The collector keeps a sequential path for one worker. The copy loop is one
-function that a macro parameter instantiates twice. The sequential instance
-uses no atomic operation, so a program with `-N1` pays nothing, and a local
-collection of the end state uses it. The RTS option `-qn<k>` limits the
-number of workers of a bridge collection, and `-qg` selects the sequential
-instance.
+The bridge collection is option 1 for three rare cases: a change of the
+capability count, the full collection of the degradation mode under `-M`,
+and the collections before step 3 of the build order, when only the
+collector fuzz driver has more than one capability. It runs on the thread
+that requests it, and it promotes every survivor into gen2, so every local
+heap is empty after it and the invariant holds without a check.
 
 ### Local heaps
 
@@ -708,12 +758,12 @@ collection:
   original and the copy both exist, and that collection copies the
   original into gen1 when a root still names it. This floating garbage is
   bounded by the escaped bytes.
-- **A thunk.** The original gets a forwarding header, so the evaluation
-  of a stale pointer reaches the copy and the work is shared. The follow
-  path of the evaluation, the update, and the attach treat the forwarding
-  pattern as an indirection. These paths dispatch on the header already,
-  so the cost is one more case on the follow path. A claimed thunk is
-  copied whole with its state, as the forwarding section gives.
+- **A thunk.** The original becomes an indirection to the copy, so the
+  evaluation of a stale pointer reaches the copy and the work is shared.
+  The follow path of the evaluation, the update, and the attach follow an
+  indirection already, so the rule adds no case to them. The rest of the
+  original becomes slop, as after an update. A claimed thunk has an owner
+  and can have waiters, so it takes the rule of a mutable object.
 - **A mutable object.** A `MutVar#`, an array, an `MVar#`, or a `TVar#`
   must not be written through a stale pointer. Its escape runs a local
   collection, in which the escaping value is promoted into gen2 and every
@@ -725,8 +775,8 @@ Promotion adds no copy work. Every promoted object is live, so the next
 local collection would have copied it. The work moves from a stop onto the
 timeline of the thread that shares the data. What promotion adds is
 floating garbage in gen2: an escaped object that dies soon after lives in
-gen2 until the next cycle. The statistics report the escaped bytes, and
-the first version counts them before the end state pays them.
+gen2 until the next cycle. The statistics report the escaped bytes. Step 1
+counts the escapes before step 2 pays them.
 
 **Verification.** Under `AIHC_GC_VERIFY` a walk after each collection
 checks the invariant: no object of the global heap and no object of
@@ -758,67 +808,27 @@ which is `-B` times `-A` bytes of own allocation. Neither moves with the
 capability count. With a concurrent marker the trade of gen1 changes too:
 aging buys less marker work and less floating garbage, and it pays with
 copy work in a pause. A count of zero promotes nursery survivors into gen2
-directly and is allowed. The step 2 measurement decides the default.
+directly and is allowed. The step 6 measurement decides the default.
 
-### Work distribution
+### Bridge collection
 
-The bridge collector divides the work of a stop-the-world collection
-among the workers as follows. The sequential instance and a local
-collection of the end state have one worker and skip the stealing. In the
-end state a bridge collection promotes every survivor into gen2, so every
-local heap is empty after it and the invariant holds without a check.
-
-Each worker owns its allocation and its scan work:
-
-- **To-space blocks.** Each worker fills gen1 blocks of its own and one gen2
-  segment for each size class of its own. No two workers write the same
-  block. A worker scans the blocks it filled with a Cheney cursor, one
-  block at a time.
-- **Stealing.** A full block that its owner has not scanned yet is a unit
-  of work. Each worker keeps its full unscanned blocks on a list with a
-  lock. A worker without local work takes a block from another worker.
-- **Roots.** The leader divides the capabilities among the workers of the
-  collection before it starts: capability `i` goes to worker `i` modulo
-  `k`. A worker scans the roots of each capability it got: the current
-  thread, the run queue, the inbox, the selected resumption, the foreign
-  frames, the suspended foreign frames, the spilled roots of its parked
-  safepoint, the remembered set, and the mark buffer. The global roots are
-  divided among the workers in fixed shares. With one worker, that worker
-  gets every capability. Thus the root coverage does not depend on `-qn`
-  or on `-qg`.
-- **Stacks.** A stack is reached through its thread record. The worker that
-  claims the thread record scans the stack and sets the ages of its chunks.
-  Thus one worker scans each stack, and a thread record is a unit of work.
-- **Termination.** A worker without local work and without a block to
-  steal increments the idle count and waits. The collection ends when every
-  worker is idle. A worker that frees work wakes the idle workers.
+The bridge collection runs on one thread while every other capability is
+stopped. It visits the roots of every capability, scans the remembered set
+of every capability, and copies the live objects of every local heap. A
+survivor goes into gen2. The collection is the sequential collector with
+the roots of all capabilities, so it needs no lock, no stealing, and no
+atomic forwarding.
 
 ### Forwarding
 
 A copied object keeps its new address in its old header with the low two
-bits set to two, as today. With several workers, the install of this
-forwarding header is a compare-and-swap:
-
-- An immutable object is copied first. Then the worker installs the
-  forwarding header with a compare-and-swap against the header it loaded.
-  When the swap fails, another worker copied the object first. The loser
-  takes the address from the winner and leaves its copy as slop. The slop
-  reads as zero words, which no header is, as the slop of an update does
-  today.
-- A mutable object, a thread record, and every runtime record is claimed
-  first. The worker swaps the header with a claim pattern, copies the
-  object, and installs the forwarding header with a release store. A worker
-  that reads the claim pattern waits for the forwarding header. Two copies
-  of a mutable object cannot exist.
-- A large object and a pinned block keep their mark in their block header.
-  The mark is set with an atomic or. The worker whose atomic or set the
-  mark sets the generation and moves the charge.
-- A static object is marked in an address set, as today. The set becomes a
-  table with compare-and-swap insert. A collection only inserts, and the
-  table is resized between collections.
-- A gen2 object is marked in the segment bitmap with an atomic or on its
-  word. The worker whose atomic or set the bit queues the object for a
-  scan.
+bits set to two, as today. Only one thread copies a space: the owner of a
+local heap in a local collection or a promotion, or the requester of a
+bridge collection. Thus the install of the forwarding header is a plain
+store. The marker does not copy. It marks a gen2 object in the segment
+bitmap with an atomic or on its word, and the thread whose atomic or set
+the bit queues the object for a scan. A large object and a pinned block
+keep their mark in their block header, set the same way.
 
 ### Indirections and update frames
 
@@ -1027,9 +1037,6 @@ are:
   top chunk of each of its stacks as roots, as the snapshot does today.
   Its lower chunks go to the pending frames. An idle capability is at a
   safepoint, and the marker takes its capability lock and scans for it.
-  In the first version there is no local collection, so the flip and the
-  root scans happen inside the bridge collection that starts the cycle,
-  as today, and the next rule does not apply.
 - **A pending snapshot scan adds an insertion barrier on the cold path.**
   Until a capability has done its snapshot scan, its stores into objects
   outside its local heap shade the stored value as well as the old value.
@@ -1056,8 +1063,8 @@ are:
   slows itself down, and no capability waits for another.
 
 The mark stack is a set of segments, and a full segment is a unit of work
-that a second marker worker can steal when `-qn` allows one. Each slice
-marks at most the slice cap.
+for a second marker worker of step 9. Each slice marks at most the slice
+cap.
 
 **Degradation.** When gen2 doubles since the snapshot while a cycle is
 active, the collector has two choices and the user picks one. Without a
@@ -1070,7 +1077,7 @@ marking. The default is the pause bound.
 
 ### Pause bound
 
-**End state.** A local collection stops one capability. Its work is the
+A local collection stops one capability. Its work is the
 sum of these terms, and its time is that work on one worker:
 
 | Term | Bound |
@@ -1090,70 +1097,19 @@ object costs one local collection. The stops that remain, the flip of a
 cycle, a change of the capability count, and the oversized commit, do no
 copy work except the full collection of the degradation mode under `-M`.
 
-**First version.** The bridge collector has two parts: the work of a
-collection, and the time that the workers need for it. The work has a hard
-bound. The time has the bound of the work divided by the workers only under
-an assumption about the live graph. This section gives both, and the
-measured limits that decide the defaults.
+The bridge collection is not under this bound. Its work is the sum of the
+terms above over every capability, so it grows with `-N`. It happens only
+at a change of the capability count and in the degradation mode under
+`-M`.
 
-**Work.** A bridge collection costs the sum of these terms over all workers:
-
-| Term | Bound |
-| --- | --- |
-| Copy of live young objects | `-N` times the `-A` budget |
-| Copy of gen1 | `-N` times `-B` survivor sets |
-| Root scan | The runnable threads and messages of every capability, plus the global roots |
-| Stack scan | One chunk for each live thread plus the young chunks, which the `-A` budgets bound |
-| Remembered set and dirty cards | `-N` times the barrier budget, plus the reserve of the runtime operations and the pause walk allowance for each capability. The allowance is the number of update frames in the young stack chunks, which the `-A` budget bounds. |
-| Mark slice | `-N` times the slice cap |
-
-The barrier budget is new. The current collector scans every remembered
-object and every dirty card at a minor collection. A program can dirty
-every card of a large old array without one more nursery of allocation.
-That work depends on the size of the array and on the mutation, not on
-`-A`. The budget bounds it: each capability counts the barrier work it
-adds since the last collection, and the barrier call of a capability above
-the budget runs a collection at once. Refer to the write barrier section.
-
-No term depends on the live data in gen2, on the depth of a stack, or on
-the size of a large object. The sum grows with `-N`. This is the term that
-the end state removes.
-
-**Time.** The time bound has an assumption: the live young graph has at
-least `k` independent parts of similar size, for `k` workers. Under it, the
-pause is the work divided by `k` plus the imbalance. Stealing moves full
-blocks. A worker that runs out of work waits for the block that another
-worker still fills. Thus the imbalance is at most one block of copy work
-for each such worker.
-
-The stop count does not grow with `-N`. One collection empties every
-sub-range and resets every budget, so the count is the rate of the fastest
-capability divided by `-A`, not the sum of the rates. What grows with `-N`
-is the work, which the workers divide, and the rendezvous, which `-A`
-amortizes. The fraction of time in collections is therefore the survivor
-copy of one capability divided by the parallel efficiency, plus the
-rendezvous divided by the period. The efficiency is the one number that
-the bridge collector cannot promise, and the step 2 measurement measures
-it directly: the pause with `k` workers against the pause with one worker.
-
-This assumption can fail. A linked chain through the young data is a serial
-dependency: a worker reaches object `i + 1` only when it scans object `i`.
-One worker then copies the chain while the others idle. The worst case is
-a chain through the young data of every capability, and its time is the
-whole work bound on one worker. This is the same as option 1. GHC has the
-same limit. No parallel copying collector removes it.
-
-The root scan has unequal shares too. A capability with many threads has
-more thread records to claim. A thread record is a unit of work, so the
-imbalance is at most one stack scan.
-
-**Measured limits.** Step 2 of the build order measures the pause and the
-parallel efficiency against `-N` on four shapes of young data: independent
-trees, one chain, many short lists from one producer, and many threads with
-small stacks. It also measures the stop count, the rendezvous time, and
-the escape counts of step 1 on the same shapes. The measurements decide
-the default of `-qn`, the default of `-A`, and the default of `-B`. They
-decide when step 6 comes, not whether.
+The barrier budget bounds the remembered set and dirty card term. The
+collector before step 1 scanned every remembered object and every dirty
+card at a minor collection. A program can dirty every card of a large old
+array without one more nursery of allocation. That work depends on the
+size of the array and on the mutation, not on `-A`. The budget bounds it:
+each capability counts the barrier work it adds since the last collection,
+and the barrier call of a capability above the budget runs a collection at
+once. Refer to the write barrier section.
 
 **Stop latency.** The time before a collection is the stop latency of the
 previous section. It is a separate bound, in allocation and not in time,
@@ -1163,8 +1119,8 @@ and the statistics file reports it separately from the collection time.
 
 The region table, the gen1 blocks, the gen2 segments, the large object
 allocator, the pinned list, and the stack regions get one lock each. A
-collection worker takes the region lock only when it needs a new gen1 block
-or gen2 segment. The mutator reaches these locks only for a large or pinned
+local collection takes the region lock only when it needs a new gen1 block
+or gen2 segment. Two capabilities can collect at the same time. The mutator reaches these locks only for a large or pinned
 allocation and for a stack region, which are rare. In the end state a
 promotion reaches the gen2 segment lock too. Each capability fills one
 segment for each size class of its own, so a promotion takes the lock once
@@ -1936,7 +1892,7 @@ the scheduler hands the capability to it.
   capability count, the number of workers, the stop latency, and the
   collection time as separate fields. It also gains the fields that the
   garbage collection section names: the stop count, the rendezvous time,
-  the parallel efficiency, the escape counts and bytes, the pushes of each
+  the escape counts and bytes, the pushes of each
   kind, and the occupied bytes against the segment bytes of each gen2 size
   class.
 
@@ -1950,8 +1906,6 @@ the scheduler hands the capability to it.
 | `-n<size>` | The nursery block size. | 32 KiB |
 | `-C<time>` | The context switch interval. | 20 ms |
 | `-R<size>` | The barrier budget of a capability between two collections. | The nursery size |
-| `-qn<k>` | The maximum number of workers in a collection. | `-N` |
-| `-qg` | The sequential collector instance also with many capabilities. | Off |
 
 `getNumCapabilities` returns `n`. `threadCapability#` returns the capability
 of the thread and whether it is pinned. `forkOn#` pins the thread to
@@ -2005,10 +1959,9 @@ Haskell thread, against the RTS before step 1:
 | A program that forks one thread that waits on an `MVar` for the whole run | The ticker and the context switch flag |
 | `unsafePerformIO` in a loop | The pause walk of `noDuplicate#` |
 
-The frequent collection test is the one that decides whether idle workers
-join a collection. A wake-up of a parked worker costs several microseconds.
-With `-A256k` and one busy thread, a collection runs every few hundred
-microseconds, so `-qn` may need a default below `-N` for this case.
+The frequent collection test checks that idle capabilities add no cost to
+the collections of a busy one. A local collection wakes no other
+capability.
 
 ## Comparison with GHC
 
@@ -2024,7 +1977,7 @@ microseconds, so `-qn` may need a default below `-N` for this case.
 | Gen1 | Gen0 to-space, emptied at every collection. | Local blocks, emptied every `-B` collections of the own capability, one by default. |
 | Write barrier | Generation test through the block descriptor, `mut_list` for each capability. | An exclusive or with the local nursery base and a size compare, remembered set for each capability. |
 | Local heaps | A prototype in 2011, not merged. | The end state. Promotion on escape at the cold paths. |
-| Minor collection | STW, parallel copy, work stealing. | First version: STW, parallel copy, work stealing, sequential instance for one worker. End state: a local sequential copy for each capability, no stop. |
+| Minor collection | STW, parallel copy, work stealing. | A local sequential copy for each capability, no stop. No parallel copy. |
 | Old generation | Copying by default, concurrent non-moving optional. | Non-moving mark and sweep with a concurrent marker. One stop for the flip, ragged root scans and termination. |
 | Thunk header | Two words. | Two words. |
 | Blackholing | Lazy by default, claims at `threadPaused` with a compare-and-swap, owner in the thunk. | Lazy, claims at a pause with a compare-and-swap, owner in the thunk. |
@@ -2047,9 +2000,9 @@ microseconds, so `-qn` may need a default below `-N` for this case.
 
 The GHC threaded RTS costs a few percent on single-threaded programs. The
 parallel collector can cost much more on them, because its idle workers
-spin, so users set `-qg` or `-qn`. This design uses the sequential instance
-for `-N1`, parks idle workers without a spin, and keeps the per-capability
-`-A` budget, so that effect stays small.
+spin, so users set `-qg` or `-qn`. This design has no parallel collector:
+a capability collects its own local heap, and idle capabilities take no
+part.
 
 ## Build order
 
@@ -2068,53 +2021,55 @@ end state removes.
    in GC-GRIN, and the remaining words of a barrier safepoint. Add the
    update frame rule to the collector. Still one OS thread and `-N1` only.
    Measure the cost budget and the three entries. This step carries most
-   fixed costs, and its escape count measures the cost of step 6 before
-   step 6 exists.
-2. **Workers, the bridge collector, and the concurrent marker.** Add the
-   workers, the capability locks, the sync protocol, the lock order, and
-   `setNumCapabilities`. Add the inboxes, the push of threads with the push
-   counts, the idle wait, the wake-up descriptors, and the ticker. Add the
-   locks of the shared allocators. Add the bridge collector: the parallel
-   copy with the sequential instance and the work stealing. Add the marker
-   worker with the flip, the ragged root scans, the insertion barrier of a
-   pending scan, the buffer swap, the ragged termination, and the assist.
-   The RTS refuses `-N` above one, and only the collector fuzz driver and
-   the pause measurements use more than one capability. This step measures
-   the pause, the parallel efficiency, the stop count, and the rendezvous
-   against `-N`.
-3. **Synchronisation primitives.** Add the `MVar` lock. Add the blackhole
+   fixed costs, and its escape count measures the cost of step 2 before
+   step 2 exists.
+2. **Several capabilities and promotion.** Give the machine an array of
+   capabilities with one arena window, one gen1, and one remembered set
+   for each. Add the bridge collection. Add the promotion on escape at
+   each row of the escape table, with the three promotion rules. Still one
+   OS thread. Only the collector fuzz driver uses more than one
+   capability, and it plays the escapes of each row.
+3. **Local collection.** Enforce the invariant of the local heaps section.
+   Make a full sub-range start a local collection of its own capability
+   and nothing else. Add the invariant walk to the verifier. The fuzz
+   driver collects one capability while the others keep their local
+   heaps. This step removes the stop from the young side before any
+   Haskell thread runs in parallel.
+4. **Workers and the scheduler.** Add the workers on OS threads, the
+   capability locks, the sync protocol, the lock order, and
+   `setNumCapabilities`. Add the inboxes, the push of threads with the
+   promotion of a pushed stack, the push counts, the idle wait, the
+   wake-up descriptors, and the ticker. Add the locks of the shared
+   allocators. The RTS refuses `-N` above one.
+5. **Synchronisation primitives.** Add the `MVar` lock. Add the blackhole
    message protocol, the queue recovery, `noDuplicate#`, and the base
    library change. Add the optimistic STM with the commit lock and the
    validation rules. Add the real atomic primitives. Add the race tests and
-   the STM tests. Every shared runtime record follows the escape table, so
-   the step adds no path that step 6 must change.
-4. **Parallel execution.** Accept `-N` above one. Run the scheduler stress
+   the STM tests. Every shared runtime record follows the escape table.
+6. **Parallel execution.** Accept `-N` above one. Run the scheduler stress
    suite and the performance tests. This is the first version that runs
-   Haskell threads in parallel. It runs with the bridge collector.
-5. **FFI.** Add `safe` calls that release the capability, the suspended
+   Haskell threads in parallel. Each capability collects its own local
+   heap.
+7. **Concurrent marker.** Add the marker worker with the flip, the ragged
+   root scans, the insertion barrier of a pending scan, the buffer swap,
+   the ragged termination, and the assist. Until this step the mutator
+   slices mark gen2, as today.
+8. **FFI.** Add `safe` calls that release the capability, the suspended
    frame lists, the worker pool, the deadlock rule, and callbacks from
    foreign OS threads.
-6. **Local collection.** Enforce the invariant of the local heaps section.
-   Add the promotion on escape at each row of the escape table, with the
-   three promotion rules. Add the forwarding case to the follow path of the
-   evaluation, the update, and the attach. Make a full sub-range start a
-   local collection of its own capability and nothing else. Keep the bridge
-   collector for a change of the capability count, for the degradation
-   mode under `-M`, and for `-qg`. Add the invariant walk to the verifier
-   and the escape races to the fuzz driver. This step removes the global
-   stop from the young side. The step 2 measurements decide when it comes,
-   not whether.
-7. **Later.** Bound threads, blocking callbacks, sparks, a second marker
+9. **Later.** Bound threads, blocking callbacks, sparks, a second marker
    worker, and the bounded evacuation of sparse gen2 segments.
 
 Each step leaves the compiler shippable and is its own PR series. Steps 2
-and 3 do not expose parallel execution, so no intermediate version runs
-Haskell threads in parallel without the protocols that they need.
+to 5 do not expose parallel execution, so no intermediate version runs
+Haskell threads in parallel without the protocols that they need or with
+a stop-the-world young collection.
 
 ## Tests
 
 - The collector fuzz driver plays compiled code for several threads today.
-  It gains several capabilities and OS workers, the thunk states of the
+  It gains several capabilities, the escapes of each row of the escape
+  table, local collections of one capability, the thunk states of the
   blackholing section, and the race tests of that section. It runs under
   the thread sanitizer when the C compiler supports it.
 - A scheduler stress suite under `examples/concurrency-*`. The programs
@@ -2126,8 +2081,8 @@ Haskell threads in parallel without the protocols that they need.
   section.
 - The GRIN `gc-stress` fixtures and the verifier under `AIHC_GC_VERIFY`
   run with `-N2` as well. From step 1 the verifier reports the local heap
-  invariant, and from step 6 it enforces it.
-- The escape tests of step 6: a producer that sends a lazy list through an
+  invariant, and from step 3 it enforces it.
+- The escape tests of step 2: a producer that sends a lazy list through an
   `MVar`, two threads that share one `IORef`, a thread pushed after it has
   run, `makeStableName#` on a local object before and after its escape, and
   a thunk that escapes while it is under evaluation. Each runs under the
@@ -2142,15 +2097,10 @@ Haskell threads in parallel without the protocols that they need.
   the fallback.
 - The owner word. Step 1 measures it against the budget. There is no
   fallback: a cheaper protocol needs a new design review.
-- The number of collection workers when few capabilities are busy. The
-  frequent collection test decides whether `-qn` gets a default below
-  `-N`, and the pause measurements decide whether `-A` shrinks with `-N`.
-  Both apply to the bridge collector only.
 - The nursery size pulls two ways. A small nursery fits L2 and bounds the
   memory bandwidth of many capabilities. A large nursery lowers the
-  survival rate, amortizes the rendezvous of the bridge collector, and
-  gives longer aging under the `-B` count rule. The step 2 measurement
-  weighs both.
+  survival rate and gives longer aging under the `-B` count rule. The
+  step 6 measurement weighs both.
 - The default of `-B`. One is the GHC aging. Zero promotes into gen2
   directly and moves work from the pause to the marker. The step 2
   measurement decides.

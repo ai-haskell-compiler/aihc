@@ -21,6 +21,7 @@ include "aihc_constants.lir"
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
 extern func @aihc_write_barrier_range(ptr, ptr, i64, i64) cc c
+extern func @aihc_array_copy_escaping(ptr, ptr, i64, ptr, i64, i64) -> i64 cc c
 extern func @aihc_array_length(ptr) -> i64 cc c
 extern func @aihc_array_words(i64) -> i64 cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
@@ -134,9 +135,27 @@ run:
 
 ; Copy %count elements from one array to another. Each run is checked once
 ; against its own array, and the move is one memmove, which leaves the
-; overlap intact when the source and the target are the same array.
+; overlap intact when the source and the target are the same array. With
+; several capabilities, a copy into a global array is an escape, and the
+; runtime copies with the promotion of each element. The result is then one
+; when a promotion needs a collection: the caller collects at its store
+; safepoint and copies again.
 export func @aihc_array_copy(%capability: ptr, %source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %count: i64) -> i64 cc c {
 entry:
+  %escaping = call @aihc_array_copy_escaping(%capability, %source, %source_offset, %target, %target_offset, %count)
+  switch i64 %escaping {
+    0 -> plain
+    1 -> done
+    default -> collect
+  }
+
+done:
+  return 0
+
+collect:
+  return 1
+
+plain:
   ; The copy stores pointers into the target, which can be old. The run
   ; tells the runtime which cards of a large target the copy touches.
   call @aihc_write_barrier_range(%capability, %target, %target_offset, %count)

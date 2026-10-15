@@ -99,7 +99,7 @@ import Data.Foldable (for_)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, maybeToList)
+import Data.Maybe (fromMaybe, isJust, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -405,7 +405,20 @@ data LowerState = LowerState
     stateBlocksRev :: ![Block],
     stateOpen :: !(Maybe OpenBlock),
     -- | The context of the code under construction, when it has one.
-    stateContext :: !(Maybe Context)
+    stateContext :: !(Maybe Context),
+    -- | The store safepoint whose store comes next. See 'beginSafepoint'.
+    stateSafepoint :: !(Maybe Safepoint)
+  }
+
+-- | The block at a store safepoint and the roots it binds. When the barrier
+-- of the store asks for a collection, the cold path spills the roots,
+-- collects, and jumps back to the block with the relocated roots, so the
+-- store runs again.
+data Safepoint = Safepoint
+  { safepointLabel :: !Label,
+    safepointRoots :: ![Operand],
+    -- | The top frame of the thread, when GC lowering knows it.
+    safepointTop :: !(Maybe Operand)
   }
 
 -- | The heap and stack context of the running thread. Every function of the
@@ -469,7 +482,8 @@ initialLowerState options gcProgram =
       stateItemsRev = [],
       stateBlocksRev = [],
       stateOpen = Nothing,
-      stateContext = Nothing
+      stateContext = Nothing,
+      stateSafepoint = Nothing
     }
 
 externItems :: LowerState -> [Item]
@@ -882,6 +896,11 @@ capabilityHeapLimitOffset target = capabilityHeapNextOffset target + toInteger (
 capabilityStackNextOffset :: LowerTarget -> Integer
 capabilityStackNextOffset target = capabilityHeapLimitOffset target + toInteger (lowerWordSize target)
 
+-- | The top frame of a promotion, after the nursery size. See
+-- 'storePauseTop'.
+capabilityPauseTopOffset :: LowerTarget -> Integer
+capabilityPauseTopOffset target = 6 * toInteger (lowerWordSize target) + 16
+
 -- | The nursery base follows the stack pointer.
 capabilityHeapStartOffset :: LowerTarget -> Integer
 capabilityHeapStartOffset target = 5 * toInteger (lowerWordSize target)
@@ -918,17 +937,21 @@ currentCapability = currentContext >>= capabilityOperand
 -- The call allocates nothing and reads no context, so it needs no sync.
 -- | The write barrier of a store into an object. The cold call also takes
 -- the value that the site stores, so the runtime can count an escape.
-emitWriteBarrier :: FunctionCtx -> Operand -> Operand -> LowerM ()
+emitWriteBarrier :: FunctionCtx -> Operand -> Operand -> LowerM Operand
 emitWriteBarrier ctx object = emitBarrier ctx object Nothing
 
 -- | The write barrier of a store into a boxed array. The cold call takes
 -- the index of the element: a large array keeps a card for each run of
 -- elements, and the runtime marks the card of the store.
-emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> Operand -> LowerM ()
+emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> Operand -> LowerM Operand
 emitWriteBarrierAt ctx object index = emitBarrier ctx object (Just index)
 
-emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> Operand -> LowerM ()
-emitBarrier _ object index value = do
+-- | The result is the value to store: the value, or its global copy when
+-- the store is an escape. When the promotion of the value needs a
+-- collection, the cold path collects at the safepoint of the store and
+-- runs the store again.
+emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> Operand -> LowerM Operand
+emitBarrier ctx object index value = do
   target <- targetM
   capability <- currentCapability
   objectWord <- emitValue "object_word" I64 (PtrToInt object)
@@ -940,19 +963,80 @@ emitBarrier _ object index value = do
   old <- freshLabel "barrier_old"
   done <- freshLabel "barrier_done"
   context <- currentContext
-  terminate (Branch (typedOperand young) (Target done [contextHeapLimit context]) (Target old []))
+  terminate (Branch (typedOperand young) (Target done [value, contextHeapLimit context]) (Target old []))
   beginColdBlock old []
-  _ <- case index of
-    Nothing -> callRuntime "aihc_write_barrier_store" [Ptr, Ptr, I64] [] [capability, object, value]
-    Just element -> callRuntime "aihc_write_barrier_store_at" [Ptr, Ptr, I64, I64] [] [capability, object, element, value]
+  storePauseTop capability
+  stored <- case index of
+    Nothing -> callRuntime "aihc_write_barrier_store" [Ptr, Ptr, I64] [I64] [capability, object, value]
+    Just element -> callRuntime "aihc_write_barrier_store_at" [Ptr, Ptr, I64, I64] [I64] [capability, object, element, value]
+  collect <- emitValue "barrier_escape" I1 (Compare Eq I64 stored (OperandLiteral (LitInt 1)))
+  escapeCollectWhen ctx collect
   -- The cold path lowers the heap limit when the barrier work reaches its
   -- budget, so the next reservation collects. See "Remembered set and mark
   -- buffer" in docs/multi-threaded-rts-design.md.
   reloaded <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
-  terminate (Jump (Target done [typedOperand reloaded]))
+  terminate (Jump (Target done [stored, typedOperand reloaded]))
+  storedVar <- fresh "stored"
   limit <- fresh "hp_limit"
-  beginBlock done [(limit, Ptr)]
+  beginBlock done [(storedVar, I64), (limit, Ptr)]
   setContext context {contextHeapLimit = OperandVar limit}
+  pure (OperandVar storedVar)
+
+-- | The block of a store safepoint. Its parameters are the live roots and
+-- the heap context, and the store follows it. See 'Safepoint'.
+beginSafepoint :: FunctionCtx -> ValueEnv -> [GrinVar] -> Maybe GrinValue -> [GrinValue] -> LowerM ValueEnv
+beginSafepoint ctx env vars top roots = do
+  rootOperands <- mapM (pointerValue ctx env) roots
+  -- A frame does not move, so the operand stays valid after a collection.
+  topOperand <- traverse (pointerValue ctx env) top
+  context <- currentContext
+  label <- freshLabel "safepoint"
+  parameters <- mapM (fresh . varBase) vars
+  heap <- fresh "hp"
+  heapLimit <- fresh "hp_limit"
+  terminate (Jump (Target label (rootOperands <> [contextHeap context, contextHeapLimit context])))
+  beginBlock label ([(parameter, Ptr) | parameter <- parameters] <> [(heap, Ptr), (heapLimit, Ptr)])
+  setContext context {contextHeap = OperandVar heap, contextHeapLimit = OperandVar heapLimit}
+  modify' (\state -> state {stateSafepoint = Just (Safepoint label (map OperandVar parameters) topOperand)})
+  pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- zip vars parameters] `Map.union` env)
+
+-- | Give the capability the top frame of the thread before a call whose
+-- promotion runs the pause walk from it. A null top frame makes the
+-- promotion collect for a young thunk.
+storePauseTop :: Operand -> LowerM ()
+storePauseTop capability = do
+  target <- targetM
+  top <- gets (maybe Nothing safepointTop . stateSafepoint)
+  emit [] (Store Ptr (fromMaybe (OperandLiteral LitNull) top) (byteAddress capability (capabilityPauseTopOffset target)) (wordAlignment 1))
+
+-- | When the flag is set, collect at the safepoint of the store: spill its
+-- roots, run the collection that moves every young survivor into gen2,
+-- and run the store again from the safepoint with the relocated roots.
+escapeCollectWhen :: FunctionCtx -> Typed -> LowerM ()
+escapeCollectWhen ctx flag = do
+  safepoint <- gets stateSafepoint >>= maybe (failWith (LowerUnsupportedExpression "internal: an escaping store without a safepoint")) pure
+  context <- currentContext
+  collect <- freshLabel "escape_collect"
+  continue <- freshLabel "escape_done"
+  terminate (Branch (typedOperand flag) (Target collect []) (Target continue []))
+  beginColdBlock collect []
+  let roots = safepointRoots safepoint
+  array <-
+    case (roots, ctxRoots ctx) of
+      ([], _) -> pure (OperandLiteral LitNull)
+      (_, Just array) -> pure array
+      _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
+  forM_ (zip [0 :: Int ..] roots) $ \(index, root) ->
+    storeSlot Ptr root array (toInteger (8 * index))
+  capability <- capabilityOperand context
+  storeContext capability context
+  _ <- callRuntime "aihc_escape_collect" [Ptr, I64, Ptr, Ptr] [] [capability, OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+  relocated <- forM (zip [0 :: Int ..] roots) $ \(index, _) ->
+    loadSlot "root" Ptr array (toInteger (8 * index))
+  collected <- loadHeapContext capability context
+  terminate (Jump (Target (safepointLabel safepoint) (map typedOperand relocated <> [contextHeap collected, contextHeapLimit collected])))
+  beginBlock continue []
+  modify' (\state -> state {stateSafepoint = Nothing})
 
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])
@@ -1425,6 +1509,7 @@ maximumRoots expression =
   case expression of
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinAllocate _ _ roots) body -> max (length roots) (maximumRoots body)
+    GrinBind _ (GrinSafepoint _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
     GrinStoreRec _ body -> maximumRoots body
@@ -1602,6 +1687,7 @@ compileExpr ctx env expression =
     GrinStore {} -> unsupported "direct-style store return after CPS"
     GrinEnsureHeap {} -> unsupported "unbound heap reservation"
     GrinAllocate {} -> unsupported "unbound dynamic allocation"
+    GrinSafepoint {} -> unsupported "unbound store safepoint"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
     GrinUpdate {} -> unsupported "direct-style update after CPS"
     GrinUpdateBlackhole {} -> unsupported "unbound blackhole update"
@@ -1685,6 +1771,7 @@ cpsCallSignature name =
     "readMVar#" -> ([Ptr], Ptr)
     "takeMVar#" -> ([Ptr], Ptr)
     "yield#" -> ([], Ptr)
+    "noDuplicate#" -> ([], Ptr)
     "aihcControl0#" -> ([Ptr, Ptr], Ptr)
     "aihcResume#" -> ([Ptr, Ptr], Ptr)
     _ -> ([Ptr], Ptr)
@@ -1728,6 +1815,9 @@ compileBinding ctx env vars expression =
         setContext collected
         pure (Map.fromList ((memory, Typed address Ptr) : moved) `Map.union` env)
       _ -> failWith (LowerUnsupportedExpression "dynamic allocation result arity")
+    GrinSafepoint top roots
+      | length vars == length roots -> beginSafepoint ctx env vars top roots
+      | otherwise -> failWith (LowerUnsupportedExpression "store safepoint result arity")
     GrinUpdate pointer value -> update "aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" pointer value
     GrinPrimitiveCall runtimeRep name arguments -> compilePrimitive ctx env vars runtimeRep name arguments
@@ -1745,14 +1835,18 @@ compileBinding ctx env vars expression =
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
     -- An update neither allocates nor reads the stack pointer, so the
-    -- capability does not need the context for it.
+    -- capability does not need the context for it. The update gives null
+    -- when it is an escape whose promotion needs a collection.
     update symbol pointer value = do
       capability <- currentCapability
       pointerOperand <- pointerValue ctx env pointer
       valueTyped <- materialize ctx env value
       valueOperand <- coerce Ptr valueTyped
       let arguments = [capability, pointerOperand, valueOperand]
-      _ <- callRuntime symbol (map (const Ptr) arguments) [] arguments
+      storePauseTop capability
+      stored <- callRuntime symbol (map (const Ptr) arguments) [Ptr] arguments
+      failed <- emitValue "update_escape" I1 (Compare Eq Ptr stored (OperandLiteral LitNull))
+      escapeCollectWhen ctx failed
       bindResults [valueTyped]
     rootArray roots = case (roots, ctxRoots ctx) of
       ([], _) -> pure (OperandLiteral LitNull)
@@ -2466,10 +2560,6 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- No runtime instruction is necessary.
     ("touch#", [_])
       | null vars -> pure env
-    -- A computation is never duplicated, so noDuplicate# has nothing to
-    -- guard against; the state token it threads carries no runtime value.
-    ("noDuplicate#", [])
-      | null vars -> pure env
     ("float2Double#", [value]) -> do
       operand <- floatOperand F32 value
       result <- emitValue "result" F64 (Convert FpExt F32 operand F64)
@@ -2555,8 +2645,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [value]
     ("writeMutVar#", [reference, value]) -> do
       base <- pointerValue ctx env reference
-      operand <- word value
-      emitWriteBarrier ctx base operand
+      operand <- word value >>= emitWriteBarrier ctx base
       emit [] (StoreAtomic Release I64 operand (byteAddress base mutVarContentsOffset))
       bind []
     -- casMutVar# gives a failure flag, one when the contents differed from
@@ -2564,8 +2653,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     ("casMutVar#", [reference, expected, replacement]) -> do
       base <- pointerValue ctx env reference
       expectedOperand <- word expected
-      replacementOperand <- word replacement
-      emitWriteBarrier ctx base replacementOperand
+      replacementOperand <- word replacement >>= emitWriteBarrier ctx base
       current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress base mutVarContentsOffset))
       matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
       final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
@@ -2575,23 +2663,17 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       full <- mvarFull mvar
       empty <- emitValue "empty" I1 (Compare Eq I64 (typedOperand full) (OperandLiteral (LitInt 0))) >>= widen
       bind [empty]
-    -- tryReadMVar# and tryTakeMVar# each give a flag and the contents. An
-    -- empty variable gives a null placeholder the caller must not look at,
-    -- because the collector may find the result in a frame slot. The take
-    -- is a runtime call, and the contents are read before it runs.
-    ("tryReadMVar#", [mvar]) -> do
-      full <- mvarFull mvar
-      flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand full) (OperandLiteral (LitInt 0)))
-      contents <- mvarContents mvar flag
-      wide <- widen flag
-      bind [wide, contents]
-    ("tryTakeMVar#", [mvar])
-      | Just tryCall <- nativeRuntimePrimitiveCall name -> do
-          full <- mvarFull mvar
-          flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand full) (OperandLiteral (LitInt 0)))
-          contents <- mvarContents mvar flag
-          result <- compileRuntimeCall ctx env tryCall [mvar]
-          bind [result, contents]
+    -- tryReadMVar# and tryTakeMVar# each give a flag and the contents. The
+    -- runtime call gives the contents, or null for an empty variable, so
+    -- both come from one state of the variable while another capability
+    -- can change it. The caller must not look at the null placeholder, but
+    -- the collector may find it in a frame slot.
+    (_, [mvar])
+      | name `elem` ["tryReadMVar#", "tryTakeMVar#"],
+        Just tryCall <- nativeRuntimePrimitiveCall name -> do
+          contents <- compileRuntimeCall ctx env tryCall [mvar]
+          flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand contents) (OperandLiteral (LitInt 0))) >>= widen
+          bind [flag, contents]
     -- The atomic primitives of an Int# element are sequentially consistent.
     ("atomicReadIntArray#", [array, index]) -> do
       address <- byteArrayElement array index I64 ElementIndex
@@ -2616,8 +2698,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | name `elem` arrayStorePrimitives -> do
           base <- pointerValue ctx env array
           indexOperand <- word index
-          operand <- word value
-          emitWriteBarrierAt ctx base indexOperand operand
+          operand <- word value >>= emitWriteBarrierAt ctx base indexOperand
           slot <- arrayElement array index
           emit [] (StoreAtomic Release I64 operand (byteAddress slot arrayElementsOffset))
           bind []
@@ -2634,8 +2715,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           base <- pointerValue ctx env array
           indexOperand <- word index
           expectedOperand <- word expected
-          replacementOperand <- word replacement
-          emitWriteBarrierAt ctx base indexOperand replacementOperand
+          replacementOperand <- word replacement >>= emitWriteBarrierAt ctx base indexOperand
           slot <- arrayElement array index
           current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress slot arrayElementsOffset))
           matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
@@ -2644,7 +2724,14 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [unchanged, final]
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
+          let sentinel = lookup name escapingRuntimeSentinels
+          forM_ sentinel $ \_ -> currentCapability >>= storePauseTop
           result <- compileRuntimeCall ctx env runtimeCall arguments
+          -- A runtime call that can be an escape gives a sentinel when its
+          -- promotion needs a collection, and it stored nothing then.
+          forM_ sentinel $ \value -> do
+            flag <- emitValue "runtime_escape" I1 (Compare Eq (typedType result) (typedOperand result) value)
+            escapeCollectWhen ctx flag
           case nativeRuntimeCallResultCount runtimeCall of
             0 | null vars -> pure env
             1 -> bind [result]
@@ -2659,11 +2746,6 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env mvar
       flag <- emitValue "full" I8 (LoadAtomic Acquire I8 (byteAddress base mvarFullOffset))
       emitValue "full" I64 (Convert ZExt I8 (typedOperand flag) I64)
-    -- The contents of an MVar when @full@ holds, and null otherwise.
-    mvarContents mvar (Typed full _) = do
-      base <- pointerValue ctx env mvar
-      value <- emitValue "value" I64 (LoadDependent I64 (byteAddress base mvarValueOffset))
-      emitValue "contents" I64 (Select I64 full (typedOperand value) (OperandLiteral (LitInt 0)))
     checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
     -- Leave the current block for one whose entry means the bounds check
     -- passed. The other successor reports the failure and never returns.
@@ -2956,9 +3038,8 @@ byteArraySizeOffset = 8
 byteArrayContentsOffset = 16
 byteArrayPinnedOffset = 24
 
-mvarFullOffset, mvarValueOffset :: Integer
+mvarFullOffset :: Integer
 mvarFullOffset = 8
-mvarValueOffset = 16
 
 stableNameHashOffset :: Integer
 stableNameHashOffset = 16
@@ -2993,6 +3074,20 @@ objectFieldPrimitives =
 arrayLoadPrimitives, arrayStorePrimitives :: [Text]
 arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
 arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
+
+-- | The runtime calls that can be an escape, and the result each gives when
+-- its promotion needs a collection. GC-GRIN puts a store safepoint before
+-- each of them.
+escapingRuntimeSentinels :: [(Text, Operand)]
+escapingRuntimeSentinels =
+  [ ("tryPutMVar#", OperandLiteral (LitInt 2)),
+    ("makeStableName#", OperandLiteral LitNull),
+    ("copyArray#", OperandLiteral (LitInt 1)),
+    ("copyMutableArray#", OperandLiteral (LitInt 1)),
+    ("copySmallArray#", OperandLiteral (LitInt 1)),
+    ("copySmallMutableArray#", OperandLiteral (LitInt 1)),
+    ("stmCommit#", OperandLiteral (LitInt 2))
+  ]
 
 -- | The compare and swap of one element of a boxed array.
 arrayCasPrimitives :: [Text]

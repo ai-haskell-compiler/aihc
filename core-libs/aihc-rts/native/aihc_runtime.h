@@ -262,6 +262,14 @@ struct AihcCapability {
   AihcThread *current_thread;
   /* Compiled barriers read this size at six pointer words plus eight bytes. */
   uint64_t nursery_bytes;
+  /* The top frame of the running thread, which compiled code stores before
+     a store that can be an escape, at six pointer words plus sixteen bytes.
+     The promotion of the escape runs the pause walk from it first, so a
+     thunk under evaluation is claimed and is not copied. NULL when the
+     caller does not know the top frame: a promotion then takes the
+     collection for a young thunk. See "Local heaps" in
+     docs/multi-threaded-rts-design.md. */
+  AihcValue *pause_top;
   /* The block cursor counts reserved bytes, including fixed allocation and
      stack charges. A refill extends the limit without a gap in the heap. */
   uint64_t nursery_taken;
@@ -312,6 +320,22 @@ struct AihcCapability {
      in bytes: the size of each object it put in the remembered set, and
      one run of elements for each card it made dirty. */
   uint64_t barrier_work;
+  /* The position of the capability in the array of the machine. */
+  uint64_t index;
+  /* Not zero while the worker of the capability waits in its idle wait. */
+  uint64_t idle;
+  /* The threads that this capability pushed to an idle capability. */
+  uint64_t push_count;
+  /* The inbox: the threads that other capabilities push or wake into this
+     capability. inbox_lock guards the inbox, and the worker moves it into
+     the run queue at each schedule. Without workers, the lock is NULL and
+     the inbox stays empty. See "Run queues" in
+     docs/multi-threaded-rts-design.md. */
+  AihcThread *inbox_head;
+  AihcThread *inbox_tail;
+  void *inbox_lock;
+  /* The levels of the stop that this capability leads. */
+  uint64_t stop_depth;
 };
 
 /* The process state shared by all capabilities. */
@@ -390,6 +414,23 @@ struct AihcMachine {
      sum is fixed_bytes. The gen1 and gen2 tests add the count of their
      generation, so dead old fixed blocks start a collection. */
   uint64_t fixed_generation_bytes[3];
+  /* Not zero when each capability has a worker on its own OS thread. See
+     "Workers" in docs/multi-threaded-rts-design.md. */
+  uint64_t workers_active;
+  /* The number of capabilities in the idle wait. */
+  uint64_t idle_count;
+  /* The locks of the workers: see aihc_heap_lock and aihc_object_lock. */
+  void *heap_lock;
+  void *object_lock;
+  /* The stop protocol: stop_lock guards the three counts below, and
+     stop_condition signals a change. running_count is the number of
+     capabilities outside the idle wait, and parked_count is the number of
+     those that wait for the end of a stop. */
+  void *stop_lock;
+  void *stop_condition;
+  uint64_t stop_requested;
+  uint64_t running_count;
+  uint64_t parked_count;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the
@@ -403,10 +444,17 @@ void aihc_write_barrier(AihcCapability *capability, AihcValue *object);
    site stores, and they count an escape: a store of a value of the local
    heap of the capability into an object outside it. See "Local heaps" in
    docs/multi-threaded-rts-design.md. */
-void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
-                              AihcSlot value);
-void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
-                                 uint64_t index, AihcSlot value);
+/* The barrier of a pointer store into an object. The result is the value to
+   store: the value, or its global copy when the store is an escape. A
+   result of AIHC_ESCAPE_COLLECT asks the caller to run
+   aihc_escape_collect with its roots and to try the store again. The
+   barrier records nothing then. */
+#define AIHC_ESCAPE_COLLECT ((AihcSlot)1)
+AihcSlot aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                                  AihcSlot value);
+AihcSlot aihc_write_barrier_store_at(AihcCapability *capability,
+                                     AihcValue *object, uint64_t index,
+                                     AihcSlot value);
 /* Count an escape when the value is in the local heap of the capability and
    the object is not. */
 void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
@@ -598,6 +646,8 @@ AihcValue *aihc_array_new(AihcCapability *capability, int64_t count,
 AihcValue *aihc_tvar_delay(AihcCapability *capability, int64_t delay,
                            AihcSlot initial, AihcSlot final);
 AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable);
+/* The read of readTVarIO#, outside a transaction. It allocates nothing. */
+AihcSlot aihc_tvar_read_io(AihcCapability *capability, AihcValue *variable);
 void *aihc_stm_wait_request(AihcCapability *capability);
 int64_t aihc_stm_wait_result(AihcCapability *capability, void *request);
 uint64_t aihc_stm_begin(AihcCapability *capability);
@@ -627,10 +677,13 @@ AihcValue *aihc_apply_slow(AihcCapability *capability, AihcValue *function,
 const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
                                           AihcValue *value,
                                           AihcValue *continuation);
-void aihc_update(AihcCapability *capability, AihcValue *object,
-                 AihcValue *value);
-void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
-                           AihcValue *value);
+/* The updates give the stored value, or NULL when the update is an escape
+   whose promotion needs a collection. The caller then runs
+   aihc_escape_collect with its roots and updates again. */
+AihcValue *aihc_update(AihcCapability *capability, AihcValue *object,
+                       AihcValue *value);
+AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
+                                 AihcValue *value);
 /* Delimited continuations. See "Delimited continuations" in
    docs/exceptions.md. A prompt tag is a heap node without fields, compared
    by address. control0# walks the continuation to the nearest prompt frame
@@ -657,11 +710,16 @@ const AihcResume *aihc_mvar_read(AihcCapability *capability, void *mvar,
                                  AihcValue *continuation);
 const AihcResume *aihc_mvar_take(AihcCapability *capability, void *mvar,
                                  AihcValue *continuation);
-uint64_t aihc_mvar_try_take(AihcCapability *capability, void *mvar);
+AihcSlot aihc_mvar_try_take(AihcCapability *capability, void *mvar);
+AihcSlot aihc_mvar_try_read(AihcCapability *capability, void *mvar);
 uint64_t aihc_mvar_try_put(AihcCapability *capability, void *mvar,
                            AihcSlot value);
 const AihcResume *aihc_mvar_put(AihcCapability *capability, void *mvar,
                                 AihcSlot value, AihcValue *continuation);
+/* noDuplicate#: claim the thunks of the thread, and give up a duplicate
+   evaluation. */
+const AihcResume *aihc_no_duplicate(AihcCapability *capability,
+                                    AihcValue *continuation);
 const AihcResume *aihc_yield(AihcCapability *capability,
                              AihcValue *continuation);
 const AihcResume *aihc_await_io(AihcCapability *capability, void *request,

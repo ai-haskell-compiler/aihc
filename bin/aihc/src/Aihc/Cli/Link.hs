@@ -5,6 +5,7 @@
 module Aihc.Cli.Link
   ( LinkBundle (..),
     linkBundleManifestPath,
+    readLinkBundle,
     linkCompiledExecutable,
     runLinkExe,
   )
@@ -27,24 +28,24 @@ import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
 import Control.Monad (filterM, forM, forM_, unless, when)
-import Data.Aeson ((.:), (.=))
-import Data.Aeson qualified as Aeson
-import Data.ByteString.Lazy qualified as BL
+import Data.Char (isSpace)
 import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import System.Directory
   ( copyFile,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
     listDirectory,
+    makeAbsolute,
   )
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode, readProcessWithExitCode)
 
 -- | Turn a compiled executable and the packages below it into the
 -- executable, or into a link bundle when the link is deferred. The runtime
@@ -141,86 +142,57 @@ validatePackageNames packages =
         | package <- packages
         ]
 
--- | Everything the final link of an executable consumes, with paths relative
--- to the bundle directory. The bundle is self-contained, so a machine that
--- cannot run the compiler, or that lacks the linker for the target the
--- compiler ran on, can still produce the executable with @link-exe@.
---
--- Schema 5 adds the arguments of a link-time optimized link, whose inputs
--- are bitcode. Schema 4 adds the arguments that link the system libraries
--- of the packages. Schema 3 adds whether the link needs the C++ standard
--- library. Schema 2 lists objects and archives only. Schema 1 also named an
--- entry and a runtime archive, which are now an object among the objects
--- and the archive and C objects of the @aihc-rts@ package.
+-- | The target and Clang arguments for a native link.
+-- Input paths are relative to the bundle directory.
 data LinkBundle = LinkBundle
   { linkBundleTarget :: !NativeTarget,
-    -- | An input was compiled from @cxx-sources@, so the link adds the
-    -- C++ standard library of the target.
-    linkBundleCxxStdLib :: !Bool,
-    -- | The arguments that link the system libraries the packages name.
-    linkBundleLinkArguments :: ![String],
-    -- | The arguments of a link whose inputs are bitcode; see
-    -- 'Aihc.Native.llvmLtoLinkArguments'. Empty for every other link.
-    linkBundleLtoArguments :: ![String],
-    linkBundleObjects :: ![FilePath],
-    linkBundleArchives :: ![FilePath]
+    linkBundleArguments :: ![String]
   }
   deriving (Eq, Show)
 
-instance Aeson.ToJSON LinkBundle where
-  toJSON bundle =
-    Aeson.object
-      [ "schemaVersion" .= (5 :: Int),
-        "target" .= renderNativeTarget (linkBundleTarget bundle),
-        "cxxStdLib" .= linkBundleCxxStdLib bundle,
-        "linkArguments" .= linkBundleLinkArguments bundle,
-        "ltoArguments" .= linkBundleLtoArguments bundle,
-        "objects" .= linkBundleObjects bundle,
-        "archives" .= linkBundleArchives bundle
-      ]
-
-instance Aeson.FromJSON LinkBundle where
-  parseJSON = Aeson.withObject "LinkBundle" $ \object -> do
-    schemaVersion <- object .: "schemaVersion"
-    case schemaVersion :: Int of
-      2 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target False [] []
-          <$> object .: "objects"
-          <*> object .: "archives"
-      3 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "cxxStdLib"
-          <*> pure []
-          <*> pure []
-          <*> object .: "objects"
-          <*> object .: "archives"
-      4 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "cxxStdLib"
-          <*> object .: "linkArguments"
-          <*> pure []
-          <*> object .: "objects"
-          <*> object .: "archives"
-      5 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "cxxStdLib"
-          <*> object .: "linkArguments"
-          <*> object .: "ltoArguments"
-          <*> object .: "objects"
-          <*> object .: "archives"
-      _ -> fail "unsupported link bundle schema"
-
 linkBundleManifestPath :: FilePath -> FilePath
-linkBundleManifestPath bundle = bundle </> "link.json"
+linkBundleManifestPath bundle = bundle </> "link.args"
 
--- | Copy the link inputs into the bundle directory and describe them in the
--- manifest. Each copy carries its position in the link order as a prefix, so
--- inputs from different packages that share a file name never collide.
+linkBundleTargetPath :: FilePath -> FilePath
+linkBundleTargetPath bundle = bundle </> "link.target"
+
+readLinkBundle :: FilePath -> IO (Either String LinkBundle)
+readLinkBundle path = do
+  target <- TIO.readFile (linkBundleTargetPath (takeDirectory path))
+  arguments <- TIO.readFile path
+  pure $ LinkBundle <$> parseNativeTarget (T.unpack (T.strip target)) <*> parseLinkArguments (T.unpack arguments)
+
+-- | Each argument has double quotes. Escape quotes and backslashes.
+renderLinkArguments :: [String] -> T.Text
+renderLinkArguments = T.pack . unlines . map quote
+  where
+    quote argument = "\"" <> concatMap escape argument <> "\""
+    escape character
+      | character `elem` ['\"', '\\'] = ['\\', character]
+      | otherwise = [character]
+
+-- | Read the quoted arguments that the bundle writer produces.
+parseLinkArguments :: String -> Either String [String]
+parseLinkArguments input =
+  case dropWhile isSpace input of
+    [] -> Right []
+    '"' : rest -> do
+      (argument, remaining) <- quoted [] rest
+      case remaining of
+        character : _ | not (isSpace character) -> Left "invalid response file separator"
+        _ -> (argument :) <$> parseLinkArguments remaining
+    _ -> Left "expected a quoted response file argument"
+  where
+    quoted result ('"' : rest) = Right (reverse result, rest)
+    quoted result ('\\' : character : rest)
+      | character `elem` ['"', '\\'] = quoted (character : result) rest
+    quoted _ ('\\' : _) = Left "invalid response file escape"
+    quoted _ [] = Left "incomplete response file argument"
+    quoted result (character : rest) = quoted (character : result) rest
+
+-- | Each bundle has copies of its inputs and a Clang response file.
 writeLinkBundle :: NativeTarget -> FilePath -> LinkLibraries -> [FilePath] -> [FilePath] -> IO ()
+writeLinkBundle Wasm32Wasip3 _ _ _ _ = ioError (userError "AIHC does not support WASM link bundles")
 writeLinkBundle target bundle libraries objects archives = do
   let inputs = bundle </> "inputs"
   createDirectoryIfMissing True inputs
@@ -228,39 +200,27 @@ writeLinkBundle target bundle libraries objects archives = do
     let name = padIndex index <> "-" <> takeFileName source
     copyFile source (inputs </> name)
     pure ("inputs" </> name)
-  let (copiedObjects, copiedArchives) = splitAt (length objects) copied
-  BL.writeFile
-    (linkBundleManifestPath bundle)
-    ( Aeson.encode
-        LinkBundle
-          { linkBundleTarget = target,
-            linkBundleCxxStdLib = linkCxxStdLib libraries,
-            linkBundleLinkArguments = linkArguments libraries,
-            linkBundleLtoArguments = linkLtoArguments libraries,
-            linkBundleObjects = copiedObjects,
-            linkBundleArchives = copiedArchives
-          }
-    )
+  arguments <- either (ioError . userError) pure (nativeLinkArguments target libraries copied)
+  TIO.writeFile (linkBundleManifestPath bundle) (renderLinkArguments arguments)
+  TIO.writeFile (linkBundleTargetPath bundle) (T.pack (renderNativeTarget target <> "\n"))
   where
     padIndex index = replicate (4 - length (show index)) '0' <> show index
 
 runLinkExe :: LinkExeOptions -> IO ()
 runLinkExe options = do
-  let bundle = linkExeBundle options
-      manifest = linkBundleManifestPath bundle
-      output = linkExeOutputFile options
+  bundle <- makeAbsolute (linkExeBundle options)
+  output <- makeAbsolute (linkExeOutputFile options)
+  let manifest = linkBundleManifestPath bundle
   exists <- doesFileExist manifest
-  unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
-  decoded <- Aeson.eitherDecode <$> BL.readFile manifest
-  LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleLinkArguments, linkBundleLtoArguments, linkBundleObjects, linkBundleArchives} <-
-    either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
+  unless exists (ioError (userError ("No link response file at " <> manifest)))
+  decoded <- readLinkBundle manifest
+  LinkBundle {linkBundleTarget} <-
+    either (ioError . userError . (("Invalid link bundle " <> manifest <> ": ") <>)) pure decoded
+  when (linkBundleTarget == Wasm32Wasip3) (ioError (userError "AIHC does not support WASM link bundles"))
   createDirectoryIfMissing True (takeDirectory output)
-  linkExecutable
-    linkBundleTarget
-    output
-    LinkLibraries {linkCxxStdLib = linkBundleCxxStdLib, linkArguments = linkBundleLinkArguments, linkLtoArguments = linkBundleLtoArguments}
-    (map (bundle </>) linkBundleObjects)
-    (map (bundle </>) linkBundleArchives)
+  (compiler, hostArguments) <- backendCompiler linkBundleTarget
+  result <- readCreateProcessWithExitCode (proc compiler (hostArguments <> ["@link.args", "-o", output])) {cwd = Just bundle} ""
+  checkToolResult compiler result
 
 -- | Put a package before the packages it depends on.
 -- GNU ld searches each archive once, so a later archive cannot satisfy an
@@ -370,13 +330,16 @@ linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} 
         <> ["-o", output]
     )
   runTool "wasm-tools" ["validate", output]
-linkExecutable target output LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments} objects archives = do
-  (compiler, arguments) <- backendCompiler target
-  cxxArguments <- if linkCxxStdLib then either (ioError . userError) pure (cxxStandardLibraryArguments target) else pure []
-  -- The runtime takes the functions of the Floating class from libm. Recent
-  -- platforms carry it inside libc, and -lm is how the older ones that keep
-  -- it apart still resolve them.
-  runTool compiler (arguments <> executableLinkArguments target <> linkLtoArguments <> objects <> archives <> linkArguments <> ["-lm"] <> cxxArguments <> ["-o", output])
+linkExecutable target output libraries objects archives = do
+  (compiler, hostArguments) <- backendCompiler target
+  arguments <- either (ioError . userError) pure (nativeLinkArguments target libraries (objects <> archives))
+  runTool compiler (hostArguments <> arguments <> ["-o", output])
+
+-- | Keep input order. System libraries follow all objects and archives.
+nativeLinkArguments :: NativeTarget -> LinkLibraries -> [FilePath] -> Either String [String]
+nativeLinkArguments target LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments} inputs = do
+  cxxArguments <- if linkCxxStdLib then cxxStandardLibraryArguments target else pure []
+  pure (executableLinkArguments target <> linkLtoArguments <> inputs <> linkArguments <> ["-lm", "-lpthread"] <> cxxArguments)
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do
@@ -384,6 +347,10 @@ runTool tool arguments = do
     if tool == "clang" && any ("--target=wasm32" `isPrefixOf`) arguments
       then readWasmClangProcessWithExitCode tool arguments
       else readProcessWithExitCode tool arguments ""
+  checkToolResult tool result
+
+checkToolResult :: FilePath -> (ExitCode, String, String) -> IO ()
+checkToolResult tool result =
   case result of
     (ExitSuccess, _, _) -> pure ()
     (exitCode, stdout, stderr) -> ioError (userError (tool <> " failed (" <> show exitCode <> "): " <> if null stderr then stdout else stderr))

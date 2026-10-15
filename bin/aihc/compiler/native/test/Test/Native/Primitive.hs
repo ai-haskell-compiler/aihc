@@ -202,7 +202,9 @@ mutVarRuntimeSymbols =
 -- | Accesses of runtime objects that the Lir lowering gives as Lir
 -- operations: identity tests, field reads, and element accesses of boxed
 -- arrays, mutable references, byte arrays, MVars, and stable names. None
--- has an entry in the runtime ABI.
+-- has an entry in the runtime ABI. tryReadMVar# is a runtime call, because
+-- its flag and its value must come from one state of the variable while
+-- another capability can change it.
 objectInlineNames :: [Text]
 objectInlineNames =
   [ "sameMutableArray#",
@@ -228,7 +230,6 @@ objectInlineNames =
     "getSizeofSmallMutableArray#",
     "sameMVar#",
     "isEmptyMVar#",
-    "tryReadMVar#",
     "isMutableByteArrayPinned#",
     "isByteArrayPinned#",
     "byteArrayContents#",

@@ -107,6 +107,7 @@ lintHeapReservations frames expression =
         (uninitialized pending <> [GrinLintInvalidNurseryReservation words' | words' < 0 || words' > (2 ^ (61 :: Int) - 1)], (Just (max 0 words'), Set.empty))
       GrinEnsureHeap {} -> (uninitialized pending, (Nothing, Set.empty))
       GrinAllocate {} -> barrier
+      GrinSafepoint {} -> barrier
       GrinStoreUnchecked node -> consume (allocationWords node) budget
       GrinStoreRecUnchecked bindings body ->
         let (errors, remaining) = consume (sum (map (allocationWords . snd) bindings)) budget
@@ -271,6 +272,7 @@ lintFunctionResult env resultRep expr =
     GrinStore {} -> []
     GrinEnsureHeap {} -> []
     GrinAllocate {} -> []
+    GrinSafepoint {} -> []
     GrinStoreUnchecked (GrinNode (GrinClosure functionName []) _) ->
       [ GrinLintSaturatedClosure functionName
       | Map.lookup functionName (lintFunctionResults env) == Just resultRep
@@ -300,6 +302,7 @@ lintExpr env bound expr =
     GrinStore node -> lintNode env bound node
     GrinEnsureHeap requiredWords roots -> lintValue bound requiredWords <> concatMap (lintValue bound) roots
     GrinAllocate requiredWords pinned roots -> lintValue bound requiredWords <> lintValue bound pinned <> concatMap (lintValue bound) roots
+    GrinSafepoint top roots -> concatMap (lintValue bound) (maybe roots (: roots) top)
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
       let recursiveBound = Set.fromList (map fst bindings) <> bound
@@ -510,6 +513,7 @@ exprResults env expr =
     GrinStore {} -> [Placed [liftedGrinRep]]
     GrinEnsureHeap _ roots -> [Placed (map grinValueRuntimeRep roots)]
     GrinAllocate _ _ roots -> [Placed (AddrRep : map grinValueRuntimeRep roots)]
+    GrinSafepoint _ roots -> [Placed (map grinValueRuntimeRep roots)]
     GrinStoreUnchecked {} -> [Placed [liftedGrinRep]]
     GrinStoreRec _ body -> exprResults env body
     GrinStoreRecUnchecked _ body -> exprResults env body

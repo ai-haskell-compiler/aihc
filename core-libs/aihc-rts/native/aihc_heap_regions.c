@@ -51,10 +51,34 @@ typedef struct AihcRegionFreeRun {
   struct AihcRegionFreeRun *next;
 } AihcRegionFreeRun;
 
-static AihcRegionLeaf **aihc_region_top;
-static size_t aihc_region_top_count;
+/* The top level holds its own count. A worker can read the table while
+   another worker grows it, so a larger table replaces the top level with
+   one release store, and the old table stays allocated. Leaves are never
+   freed. The changes take the region lock. */
+typedef struct {
+  size_t count;
+  AihcRegionLeaf *leaves[];
+} AihcRegionTop;
+
+static AihcRegionTop *aihc_region_top;
 static AihcRegionFreeRun *aihc_region_free_runs;
 static size_t aihc_region_free_count;
+/* The heap lock of a machine with workers, or null. */
+static void *aihc_region_lock;
+
+void aihc_regions_set_lock(void *lock) { aihc_region_lock = lock; }
+
+static void aihc_regions_lock(void) {
+  if (aihc_region_lock != NULL) {
+    aihc_host_lock_acquire(aihc_region_lock);
+  }
+}
+
+static void aihc_regions_unlock(void) {
+  if (aihc_region_lock != NULL) {
+    aihc_host_lock_release(aihc_region_lock);
+  }
+}
 
 /* The two shifts of sixteen keep the top index defined on a 32-bit host,
    where one shift of thirty-two would be undefined. */
@@ -73,27 +97,33 @@ static size_t aihc_region_leaf_index(const void *address) {
    leaf gives null. */
 static AihcRegionEntry *aihc_region_entry(const void *address, int create) {
   size_t top = aihc_region_top_index(address);
-  if (top >= aihc_region_top_count) {
+  AihcRegionTop *table = __atomic_load_n(&aihc_region_top, __ATOMIC_ACQUIRE);
+  size_t count = table == NULL ? 0 : table->count;
+  if (top >= count) {
     if (!create) {
       return NULL;
     }
-    size_t grown = aihc_region_top_count == 0 ? 1 : aihc_region_top_count;
+    size_t grown = count == 0 ? 1 : count;
     while (grown <= top) {
-      if (grown > SIZE_MAX / 2 / sizeof(*aihc_region_top)) {
+      if (grown >
+          (SIZE_MAX - sizeof(AihcRegionTop)) / 2 / sizeof(AihcRegionLeaf *)) {
         aihc_fail("region table is too large");
       }
       grown *= 2;
     }
-    AihcRegionLeaf **table = realloc(aihc_region_top, grown * sizeof(*table));
-    if (table == NULL) {
+    AihcRegionTop *larger =
+        calloc(1, sizeof(AihcRegionTop) + grown * sizeof(AihcRegionLeaf *));
+    if (larger == NULL) {
       aihc_fail("out of memory for the region table");
     }
-    memset(table + aihc_region_top_count, 0,
-           (grown - aihc_region_top_count) * sizeof(*table));
-    aihc_region_top = table;
-    aihc_region_top_count = grown;
+    larger->count = grown;
+    if (count != 0) {
+      memcpy(larger->leaves, table->leaves, count * sizeof(AihcRegionLeaf *));
+    }
+    __atomic_store_n(&aihc_region_top, larger, __ATOMIC_RELEASE);
+    table = larger;
   }
-  AihcRegionLeaf *leaf = aihc_region_top[top];
+  AihcRegionLeaf *leaf = __atomic_load_n(&table->leaves[top], __ATOMIC_ACQUIRE);
   if (leaf == NULL) {
     if (!create) {
       return NULL;
@@ -102,7 +132,7 @@ static AihcRegionEntry *aihc_region_entry(const void *address, int create) {
     if (leaf == NULL) {
       aihc_fail("out of memory for the region table");
     }
-    aihc_region_top[top] = leaf;
+    __atomic_store_n(&table->leaves[top], leaf, __ATOMIC_RELEASE);
   }
   return &leaf->entries[aihc_region_leaf_index(address)];
 }
@@ -218,8 +248,19 @@ void *aihc_regions_acquire(size_t count, AihcRegionKind kind) {
   return aihc_regions_acquire_aligned(count, 1, kind);
 }
 
+static void *aihc_regions_acquire_locked(size_t count, size_t alignment,
+                                         AihcRegionKind kind);
+
 void *aihc_regions_acquire_aligned(size_t count, size_t alignment,
                                    AihcRegionKind kind) {
+  aihc_regions_lock();
+  void *base = aihc_regions_acquire_locked(count, alignment, kind);
+  aihc_regions_unlock();
+  return base;
+}
+
+static void *aihc_regions_acquire_locked(size_t count, size_t alignment,
+                                         AihcRegionKind kind) {
   if (count == 0 || count > UINT32_MAX || alignment == 0 ||
       alignment > UINT32_MAX || (alignment & (alignment - 1)) != 0 ||
       kind == AIHC_REGION_OUTSIDE || kind == AIHC_REGION_FREE) {
@@ -274,7 +315,15 @@ static void aihc_mapping_unmap(AihcRegionMapping *mapping) {
   free(mapping);
 }
 
+static void aihc_regions_release_locked(void *base);
+
 void aihc_regions_release(void *base) {
+  aihc_regions_lock();
+  aihc_regions_release_locked(base);
+  aihc_regions_unlock();
+}
+
+static void aihc_regions_release_locked(void *base) {
   AihcRegionEntry *entry = aihc_region_entry(base, 0);
   if (entry == NULL || entry->mapping == NULL || entry->run == 0 ||
       entry->kind == AIHC_REGION_FREE ||
@@ -293,12 +342,14 @@ void aihc_regions_release(void *base) {
 }
 
 void aihc_regions_set_kind(void *base, AihcRegionKind kind) {
+  aihc_regions_lock();
   AihcRegionEntry *entry = aihc_region_entry(base, 0);
   if (entry == NULL || entry->mapping == NULL || entry->run == 0 ||
       kind == AIHC_REGION_OUTSIDE || kind == AIHC_REGION_FREE) {
     aihc_fail("relabeled memory is not an acquired run");
   }
   aihc_regions_mark(base, entry->run, entry->mapping, kind, entry->run);
+  aihc_regions_unlock();
 }
 
 AihcRegionKind aihc_region_kind(const void *address) {

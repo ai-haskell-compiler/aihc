@@ -179,6 +179,7 @@ mapExprValues f expression =
     GrinStore node -> GrinStore (node' node)
     GrinEnsureHeap requiredWords roots -> GrinEnsureHeap (f requiredWords) (map f roots)
     GrinAllocate requiredWords pinned roots -> GrinAllocate (f requiredWords) (f pinned) (map f roots)
+    GrinSafepoint top roots -> GrinSafepoint (fmap f top) (map f roots)
     GrinStoreUnchecked node -> GrinStoreUnchecked (node' node)
     GrinStoreRec bindings body -> GrinStoreRec (nodes bindings) body
     GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked (nodes bindings) body

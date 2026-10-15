@@ -55,18 +55,24 @@ struct AihcThread {
   AihcTransaction *transaction;
   /* The blackhole queues of the thunks that this thread claimed. */
   AihcBlackholeQueue *queues;
+  /* The index of the capability whose run queue holds the thread, or that
+     runs it or will wake it. Only that capability changes the field, when
+     it pushes the thread to another capability. */
+  uint64_t capability;
 };
 
 /* Match the fork# reservation in Aihc.Grin.Primitive. */
-_Static_assert(sizeof(AihcThread) <= 10 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcThread) <= 11 * sizeof(AihcSlot),
                "thread exceeds the GRIN reservation");
 
 typedef struct AihcTransactionWrite AihcTransactionWrite;
 
+/* One entry of a transaction log: a write with its new value, or a read
+   with the value that it saw. */
 struct AihcTransactionWrite {
   AihcSlot header;
   AihcValue *variable;
-  AihcSlot previous;
+  AihcSlot value;
   AihcTransactionWrite *next;
 };
 
@@ -78,15 +84,19 @@ struct AihcTransactionTimer {
   AihcTransactionTimer *next;
 };
 
+/* A transaction is optimistic: it logs its reads and its writes, and its
+   commit checks the reads and then applies the writes. Each log has its
+   newest entry first. See "STM" in docs/multi-threaded-rts-design.md. */
 struct AihcTransaction {
   AihcSlot header;
   AihcTransactionWrite *writes;
   AihcTransaction *parent;
+  AihcTransactionWrite *reads;
 };
 
 /* Match the fixed allocation bounds in Aihc.Grin.Primitive.
    Heap slots have eight bytes on both 32-bit and 64-bit targets. */
-_Static_assert(sizeof(AihcTransaction) <= 3 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcTransaction) <= 4 * sizeof(AihcSlot),
                "transaction exceeds the GRIN reservation");
 _Static_assert(sizeof(AihcTransactionWrite) <= 4 * sizeof(AihcSlot),
                "write log exceeds the GRIN reservation");
@@ -216,9 +226,11 @@ typedef struct {
 } AihcByteArray;
 
 /* Two metadata slots precede each pinned object on both target word sizes.
-   The second slot packs the charge of the block with its generation and
-   its mark: the low 56 bits are the bytes, bits 56 to 59 the generation,
-   and bit 63 the mark of the running collection. */
+   The second slot packs the charge of the block with its owner, its
+   generation, and its marks: the low 48 bits are the bytes, bits 48 to 55
+   the index of the capability that allocated the block, bits 56 to 59 the
+   generation, and bit 63 the mark of the running collection. A young block
+   belongs to the local heap of its owner. */
 typedef struct AihcPinnedBlock {
   union {
     struct AihcPinnedBlock *next;
@@ -228,7 +240,9 @@ typedef struct AihcPinnedBlock {
   AihcSlot object[];
 } AihcPinnedBlock;
 
-#define AIHC_PINNED_BYTES_MASK ((UINT64_C(1) << 56) - 1)
+#define AIHC_PINNED_BYTES_MASK ((UINT64_C(1) << 48) - 1)
+#define AIHC_PINNED_OWNER_SHIFT 48
+#define AIHC_PINNED_OWNER_MASK (UINT64_C(255) << AIHC_PINNED_OWNER_SHIFT)
 #define AIHC_PINNED_GENERATION_SHIFT 56
 #define AIHC_PINNED_GENERATION_MASK                                            \
   (UINT64_C(15) << AIHC_PINNED_GENERATION_SHIFT)
@@ -239,6 +253,16 @@ typedef struct AihcPinnedBlock {
 
 static inline uint64_t aihc_pinned_bytes(const AihcPinnedBlock *block) {
   return block->bytes & AIHC_PINNED_BYTES_MASK;
+}
+
+static inline uint64_t aihc_pinned_owner(const AihcPinnedBlock *block) {
+  return (block->bytes & AIHC_PINNED_OWNER_MASK) >> AIHC_PINNED_OWNER_SHIFT;
+}
+
+static inline void aihc_pinned_set_owner(AihcPinnedBlock *block,
+                                         uint64_t owner) {
+  block->bytes = (block->bytes & ~AIHC_PINNED_OWNER_MASK) |
+                 (owner << AIHC_PINNED_OWNER_SHIFT);
 }
 
 static inline unsigned aihc_pinned_generation(const AihcPinnedBlock *block) {
@@ -326,6 +350,8 @@ void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
 /* The host side of the region table. Map count regions at a region
    boundary, or give null when the host has no room. The content of the
    mapping is unspecified. */
+/* Give the region table the heap lock of a machine with workers. */
+void aihc_regions_set_lock(void *lock);
 uint8_t *aihc_host_map_regions(size_t count);
 /* Give a mapping back to the host. The result is zero when the memory is
    unmapped, or nonzero when the host keeps it, as linear memory does. */
@@ -458,8 +484,55 @@ void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame);
    test drivers use this entry. */
 void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
+/* Promote an escaping value: copy it and the local objects it reaches into
+   gen2, and return the global value. A value that reaches a mutable object
+   runs a collection that moves every young survivor into gen2, with the
+   value as one more root, so the caller passes its roots. See "Local heaps"
+   in docs/multi-threaded-rts-design.md. */
+AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
+                        uint64_t root_count, AihcSlot *roots,
+                        const AihcSrt *srt);
+/* The value that a store of value into object stores. When the machine has
+   several capabilities, the object is global, and the value is young, the
+   store is an escape and the result is the global copy of the value. The
+   result is AIHC_ESCAPE_COLLECT when the promotion needs a collection. */
+AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
+                     AihcSlot value);
+/* Whether a value is young: in a nursery, in gen1, or a young pinned block.
+   Until local collection is enforced, every young object counts as
+   local. */
+int aihc_value_is_young(const AihcMachine *machine, const void *value);
+/* Allocate a runtime record that a runtime operation links into the given
+   object. With several capabilities and a global object, the record goes
+   into gen2, so no global object names a local record. The words come from
+   the reservation of the caller in both cases. */
+AihcValue *aihc_record_allocate(AihcCapability *capability,
+                                const AihcValue *container, uint64_t words);
+/* The value that a scheduler operation stores into an object, promoted when
+   the store is an escape. A scheduler operation has its live values in its
+   continuation, so the promotion can collect. The continuation is also the
+   top frame of the pause walk. */
+AihcSlot aihc_escape_in_operation(AihcCapability *capability,
+                                  const AihcValue *object, AihcSlot value,
+                                  AihcValue *continuation);
+/* Whether makeStableName# of a value must collect first: the machine has
+   several capabilities, and the value is young. */
+int64_t aihc_stable_name_escapes(AihcCapability *capability,
+                                 const AihcValue *value);
+/* The copy of a run into a global array with several capabilities: zero when
+   the copy is not an escape, one when this function copied, and two when a
+   promotion needs a collection and nothing was stored. */
+int64_t aihc_array_copy_escaping(AihcCapability *capability, AihcValue *source,
+                                 uint64_t source_offset, AihcValue *target,
+                                 uint64_t target_offset, uint64_t count);
+/* The collection of an escape: it moves every young survivor into gen2. */
+void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
+                         AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
+/* Give each chunk of the stack of a thread to another capability, which
+   runs the thread from now on. */
+void aihc_stack_move(AihcThread *thread, AihcCapability *capability);
 /* Push one frame of the given words on the stack of the running thread.
    The caller writes the header and every field. */
 AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words);
@@ -520,6 +593,7 @@ uint64_t aihc_rts_gen1_collections_set(void);
 uint64_t aihc_rts_gen2_factor(void);
 /* The -R option, or zero for the default. */
 uint64_t aihc_rts_barrier_budget_bytes(void);
+uint64_t aihc_rts_capabilities(void);
 uint64_t aihc_rts_mark_factor(void);
 /* Apply the parsed collector options to a capability whose nursery is empty. */
 void aihc_gc_apply_options(AihcCapability *capability);
@@ -546,6 +620,13 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
 const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result);
 void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
+/* The two parts of aihc_visit_roots: the roots of one capability, and the
+   roots of the machine with the roots of the requester. */
+void aihc_visit_capability_roots(AihcCapability *capability,
+                                 AihcRootVisitor visitor, void *context);
+void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
+                              AihcSlot *roots, AihcRootVisitor visitor,
+                              void *context);
 /* The header every runtime object outside the managed heap carries. */
 
 void aihc_gc_init(AihcCapability *capability);
@@ -574,6 +655,57 @@ _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);
 /* A monotonic clock in nanoseconds, or zero on a host without one. */
 uint64_t aihc_host_monotonic_ns(void);
+/* Workers. See "Workers" in docs/multi-threaded-rts-design.md. A host
+   without threads has one capability and never starts workers. */
+/* Start one worker on its own OS thread for each capability except the
+   first, which the calling thread runs. */
+void aihc_host_workers_start(AihcCapability *capability);
+/* A lock that one worker at a time holds. */
+void *aihc_host_lock_new(void);
+void aihc_host_lock_acquire(void *lock);
+void aihc_host_lock_release(void *lock);
+/* A lock that its holder can take again. */
+void *aihc_host_recursive_lock_new(void);
+/* A condition variable: a wait releases the lock until a broadcast. */
+void *aihc_host_condition_new(void);
+void aihc_host_condition_wait(void *condition, void *lock);
+void aihc_host_condition_broadcast(void *condition);
+/* The idle wait around the blocking call of the host poll. The poll
+   allocates its buffer first, because an allocation can collect, and a
+   collection runs only on a capability that counts as running. The last
+   capability that enters the wait tests for a deadlock. */
+void aihc_idle_enter(AihcCapability *capability);
+void aihc_idle_exit(AihcCapability *capability);
+/* End the idle wait of a capability. */
+void aihc_host_wake(AihcCapability *capability);
+/* The entry of a worker: it runs the threads of its capability and does
+   not return. */
+_Noreturn void aihc_worker_run(AihcCapability *capability);
+/* The locks of a machine with workers. Without workers they do nothing.
+   The heap lock guards the shared allocators and the gen2 marking, and its
+   holder can take it again. The object lock guards the MVars, the
+   transactions, the timers, and the claimed thunks with their queues. An
+   object lock holder can take the heap lock and an inbox lock, but no
+   holder of either lock collects. */
+void aihc_heap_lock(AihcMachine *machine);
+void aihc_heap_unlock(AihcMachine *machine);
+void aihc_object_lock(AihcMachine *machine);
+void aihc_object_unlock(AihcMachine *machine);
+/* The object lock for the Lir units, which hold a capability. */
+void aihc_capability_object_lock(AihcCapability *capability);
+void aihc_capability_object_unlock(AihcCapability *capability);
+/* A safepoint of a running capability: when another capability leads a
+   stop, this one parks until the stop ends. The roots are the live values
+   of the caller, which a collection of the leader can move. */
+void aihc_safepoint(AihcCapability *capability, uint64_t root_count,
+                    AihcSlot *roots);
+/* Lead a stop: every other capability is parked or idle when the call
+   returns, until the matching end. A stop that the caller already leads
+   only counts one more level. See "Stop-the-world synchronisation" in
+   docs/multi-threaded-rts-design.md. */
+void aihc_stop_begin(AihcCapability *capability, uint64_t root_count,
+                     AihcSlot *roots);
+void aihc_stop_end(AihcCapability *capability);
 void aihc_host_sleep_ns(uint64_t duration);
 /* Replace the file at path with the given bytes. The result is zero, or an
    errno value when the host cannot write the file. */

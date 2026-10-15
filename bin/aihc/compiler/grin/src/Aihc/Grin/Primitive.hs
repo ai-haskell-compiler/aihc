@@ -51,17 +51,20 @@ primitiveHeapWords name =
       ("submitIOWrite#", 16),
       ("submitIOOpen#", 21),
       ("adoptIOHandle#", 5),
-      ("stmBegin#", 3),
+      ("stmBegin#", 4),
+      ("readTVar#", 4),
       ("writeTVar#", 4),
       ("newDelayTVar#", 8),
       ("newPromptTag#", 1),
       ("makeStableName#", 4),
       ("newMutVar#", 3),
-      ("fork#", 10),
+      ("fork#", 11),
       ("newMVar#", 9),
       ("readMVar#", 5),
       ("takeMVar#", 5),
-      ("putMVar#", 5)
+      ("putMVar#", 5),
+      -- A blackhole waiter and the queue that the first waiter makes.
+      ("noDuplicate#", 10)
     ]
 
 -- | The primitives whose lowering allocates.
@@ -145,6 +148,7 @@ concurrencyPrimitives =
     -- takes the machine, which is the rule this list must agree with.
     "myThreadId#",
     "yield#",
+    "noDuplicate#",
     "awaitIO#",
     "adoptIOHandle#",
     "submitIORead#",
@@ -155,6 +159,7 @@ concurrencyPrimitives =
     "takeMVar#",
     "putMVar#",
     "tryTakeMVar#",
+    "tryReadMVar#",
     "tryPutMVar#",
     -- The delimited-continuation runtime calls. A prompt tag is a heap
     -- object, a capture allocates the record of the captured frames, and a

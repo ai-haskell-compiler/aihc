@@ -110,6 +110,8 @@ prettyExprWith scopes expr =
       "ensure-heap" <+> prettyValue scopes requiredWords <> prettyValues scopes roots
     GrinAllocate requiredWords pinned roots ->
       "allocate" <+> prettyValue scopes requiredWords <+> prettyValue scopes pinned <> prettyValues scopes roots
+    GrinSafepoint top roots ->
+      "safepoint" <> maybe mempty (\value -> " pause" <+> prettyValue scopes value) top <> prettyValues scopes roots
     GrinStoreUnchecked node -> "store-unchecked" <+> prettyNode scopes node
     GrinStoreRec bindings body ->
       prettyStoreRec scopes "store-rec" bindings body

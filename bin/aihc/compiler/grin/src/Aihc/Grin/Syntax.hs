@@ -295,6 +295,16 @@ data GrinExpr
     -- The operands give the charged words and the pinned flag.
     -- A nursery allocation advances the heap pointer before this operation returns.
     GrinAllocate !GrinValue !GrinValue ![GrinValue]
+  | -- | The safepoint of a store that can be an escape: an update, or a
+    -- pointer store into an existing object. Before GC lowering the root
+    -- list is empty; afterward it holds the live roots, as the one of
+    -- 'GrinEnsureHeap' does, and the expression returns their relocated
+    -- values. The store comes next. Its barrier can collect and then runs
+    -- the store again from the safepoint. The first value, when GC
+    -- lowering knows it, is the top frame of the thread: a promotion runs
+    -- the pause walk from it. See "Local heaps" in
+    -- docs/multi-threaded-rts-design.md.
+    GrinSafepoint !(Maybe GrinValue) ![GrinValue]
   | -- | A node allocation covered by a preceding 'GrinEnsureHeap'.
     GrinStoreUnchecked !GrinNode
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
@@ -527,6 +537,7 @@ grinProgramLiterals program =
         GrinStore node -> nodeLiterals node
         GrinEnsureHeap requiredWords roots -> valueLiterals requiredWords <> concatMap valueLiterals roots
         GrinAllocate requiredWords pinned roots -> valueLiterals requiredWords <> valueLiterals pinned <> concatMap valueLiterals roots
+        GrinSafepoint top roots -> concatMap valueLiterals (maybe roots (: roots) top)
         GrinStoreUnchecked node -> nodeLiterals node
         GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
         GrinStoreRecUnchecked bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
@@ -583,6 +594,7 @@ grinExprGlobalReferences = exprReferences
         GrinStore node -> nodeReferences node
         GrinEnsureHeap requiredWords roots -> valueReferences requiredWords <> valuesReferences roots
         GrinAllocate requiredWords pinned roots -> valueReferences requiredWords <> valueReferences pinned <> valuesReferences roots
+        GrinSafepoint top roots -> valuesReferences (maybe roots (: roots) top)
         GrinStoreUnchecked node -> nodeReferences node
         GrinStoreRec bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
         GrinStoreRecUnchecked bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body

@@ -328,6 +328,7 @@ atomicExpr =
       unaryNodeExpr "store" GrinStore,
       ensureHeapExpr,
       allocateExpr,
+      safepointExpr,
       twoValuesExpr "update-blackhole" GrinUpdateBlackhole,
       twoValuesExpr "update" GrinUpdate,
       MP.try (runtimeRepValueExpr "eval-once" (GrinEval EvalSingleEntry)),
@@ -372,6 +373,14 @@ unaryValueExpr expressionName constructor = do
   value <- grinValue
   lineEnd
   pure (constructor value)
+
+safepointExpr :: Parser GrinExpr
+safepointExpr = do
+  keyword "safepoint"
+  top <- MP.optional (MP.try (horizontal1 *> keyword "pause" *> horizontal1 *> grinValue))
+  roots <- grinValues
+  lineEnd
+  pure (GrinSafepoint top roots)
 
 ensureHeapExpr :: Parser GrinExpr
 ensureHeapExpr = do

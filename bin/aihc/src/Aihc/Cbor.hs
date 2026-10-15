@@ -4,7 +4,11 @@
 -- byte strings, unsigned integers, negative integers, and big integers.
 -- This module holds one copy of that subset for each artifact module.
 module Aihc.Cbor
-  ( cborArray,
+  ( Cbor (..),
+    encodeCbor,
+    decodeCbor,
+    expectArray,
+    cborArray,
     cborText,
     cborBytes,
     cborWord,
@@ -22,12 +26,16 @@ module Aihc.Cbor
   )
 where
 
-import Control.Monad (unless, (<$!>))
+import Control.Monad (replicateM, unless, (<$!>))
 import Data.Binary.Get qualified as Get
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as BL
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word64, Word8)
 
@@ -84,7 +92,8 @@ getText :: Get.Get Text
 getText = do
   length' <- getMajor 3
   -- Decoded here, so the text does not keep the artifact bytes alive.
-  TE.decodeUtf8 <$!> Get.getByteString (fromIntegral length')
+  bytes <- Get.getByteString (fromIntegral length')
+  either (fail . show) pure (TE.decodeUtf8' bytes)
 
 -- | Apply a decoded function to a decoded value and evaluate the result.
 -- 'Get' builds every '<$>' and '<*>' result lazily, so a decoder written
@@ -145,3 +154,71 @@ getMajor expected = do
     26 -> fromIntegral <$!> Get.getWord32be
     27 -> Get.getWord64be
     _ -> fail "unsupported CBOR length"
+
+-- | A value with a CBOR representation.
+class Cbor a where
+  toCbor :: a -> Builder.Builder
+  fromCbor :: Get.Get a
+
+encodeCbor :: (Cbor a) => a -> BL.ByteString
+encodeCbor = Builder.toLazyByteString . toCbor
+
+decodeCbor :: (Cbor a) => BL.ByteString -> Either String a
+decodeCbor bytes =
+  case Get.runGetOrFail fromCbor bytes of
+    Left (_, _, message) -> Left message
+    Right (remaining, _, value)
+      | BL.null remaining -> Right value
+      | otherwise -> Left "invalid trailing data"
+
+expectArray :: Int -> Get.Get ()
+expectArray expected = do
+  actual <- getArrayLength
+  unless (actual == expected) (fail "unexpected CBOR array length")
+
+instance Cbor Text where
+  toCbor = cborText
+  fromCbor = getText
+
+instance Cbor Int where
+  toCbor = cborInt
+  fromCbor = getInt
+
+instance Cbor Integer where
+  toCbor = cborInteger
+  fromCbor = getInteger
+
+instance Cbor Bool where
+  toCbor value = Builder.word8 (if value then 245 else 244)
+  fromCbor = do
+    value <- Get.getWord8
+    case value of
+      244 -> pure False
+      245 -> pure True
+      _ -> fail "unexpected CBOR boolean"
+
+instance {-# OVERLAPPING #-} Cbor String where
+  toCbor = cborText . T.pack
+  fromCbor = T.unpack <$!> getText
+
+instance {-# OVERLAPPABLE #-} (Cbor a) => Cbor [a] where
+  toCbor values = cborArray (length values) <> foldMap toCbor values
+  fromCbor = getArrayLength >>= (`replicateM` fromCbor)
+
+instance (Cbor a, Cbor b) => Cbor (a, b) where
+  toCbor (left, right) = cborArray 2 <> toCbor left <> toCbor right
+  fromCbor = expectArray 2 >> ((,) <$!> fromCbor <*!> fromCbor)
+
+instance (Cbor a) => Cbor (Maybe a) where
+  toCbor Nothing = cborArray 0
+  toCbor (Just value) = cborArray 1 <> toCbor value
+  fromCbor = do
+    count <- getArrayLength
+    case count of
+      0 -> pure Nothing
+      1 -> Just <$!> fromCbor
+      _ -> fail "unexpected CBOR optional value"
+
+instance (Ord key, Cbor key, Cbor value) => Cbor (Map key value) where
+  toCbor = toCbor . Map.toAscList
+  fromCbor = Map.fromList <$!> fromCbor

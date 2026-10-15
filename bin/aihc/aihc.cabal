@@ -178,6 +178,7 @@ library
     Aihc.Fc.Equivalence
     Aihc.Fc.Facts
     Aihc.Fc.Fold
+    Aihc.Fc.FullLaziness
     Aihc.Fc.Imports
     Aihc.Fc.Inline
     Aihc.Fc.Lint
@@ -271,7 +272,6 @@ library
     compiler/wasm/src
 
   build-depends:
-    aeson >=2.0 && <2.3,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-cpp,
     aihc-hackage,
@@ -357,6 +357,7 @@ executable aihc-dev
     Aihc.Dev.Fuzz
     Aihc.Dev.Fuzz.Bugs
     Aihc.Dev.Fuzz.CLI
+    Aihc.Dev.Fuzz.Follow
     Aihc.Dev.Fuzz.Model
     Aihc.Dev.Fuzz.Registry
     Aihc.Dev.Fuzz.Report

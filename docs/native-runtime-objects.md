@@ -43,6 +43,12 @@ Zero selects the default block size.
 A block refill extends the allocation limit without a collection.
 Fixed allocations and stack charges share the nursery budget with movable objects.
 The `-R<size>` option sets the budget of barrier work between two collections of a capability, the nursery size by default.
+The `-N<count>` option gives the machine that many capabilities, at most 256, one by default.
+With more than one capability, each capability has a worker on its own OS thread.
+A capability with surplus threads pushes threads to an idle capability.
+The workers run Haskell threads in parallel, and every collection stops the other workers.
+A store of a young value into a global object promotes the value.
+A wasm32 host keeps one capability.
 The write barrier counts the scan work that it adds: the size of each object that it puts in the remembered set, and one run of 128 elements for each card that it makes dirty.
 When the work reaches the budget, the heap limit goes below the nursery, and the next reservation collects instead of a block refill.
 A compiled store site loads the heap limit again after its barrier call.
@@ -452,7 +458,7 @@ runtime statistics of a program. When the program exits normally, the runtime
 writes one JSON object to that file:
 
 ```json
-{"schema": 3, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0, "escape_count": 0}
+{"schema": 3, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0, "escape_count": 0, "push_count": 0}
 ```
 
 A normal exit is a return from `main` or an `exitWith` call. A runtime failure
@@ -460,7 +466,7 @@ writes no file. An empty value counts as an unset variable.
 
 - `peak_heap_bytes` records the maximum occupied space for movable objects and pinned blocks.
   The runtime samples this count before collection and at exit.
-- `allocated_bytes` counts actual movable allocations and complete pinned block charges.
+- `allocated_bytes` counts actual movable allocations and complete pinned block charges of all capabilities.
   Unused reservations and collector copies do not increase this count.
   Host buffers use the same count and heap budget.
 - `gc_count` is the number of collections.
@@ -477,7 +483,9 @@ writes no file. An empty value counts as an unset variable.
   references and boxed arrays, the update of a thunk, `MVar` puts, `TVar`
   writes, and `aihc_set_field`. In the end state of
   [multi-threaded-rts-design.md](multi-threaded-rts-design.md) each such
-  store promotes its value.
+  store promotes its value. The count adds the stores of all capabilities.
+- `push_count` counts the threads that a capability pushed to an idle
+  capability.
 
 ### Allocation profile
 
@@ -632,6 +640,16 @@ Counts include completed tests from all workers and all batches for each propert
 The display uses decimal prefixes: K, M, G, T, P, and E.
 It updates ten times per second.
 Press `q` or Escape to stop. Use `--time-limit 30s` to stop after 30 seconds.
+
+Use `--follow` to test each new commit of the selected branch.
+The runner looks at the branch of the current checkout once each minute.
+If the branch has an upstream branch with only new commits, the runner uses the upstream commit.
+The runner builds a new commit in the background, in a worktree under `$XDG_CACHE_HOME/aihc/fuzz/worktrees`.
+The first build in a worktree is a full build.
+The build log is in `$XDG_CACHE_HOME/aihc/fuzz`.
+When the build is ready, the runner stops and starts the new `aihc-dev` with the same arguments.
+The known bugs stay in the bug store.
+If a commit does not build, the runner continues with the old executable.
 
 The collector has a fuzz test in `Test.Native.GcFuzz`. The test generates
 random scripts that build heaps and stacks through the runtime interface,

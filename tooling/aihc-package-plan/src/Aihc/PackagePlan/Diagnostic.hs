@@ -8,7 +8,9 @@
 -- resolving and type checking a package as GHC-style messages with a source
 -- excerpt.
 module Aihc.PackagePlan.Diagnostic
-  ( renderHumanDiagnostic,
+  ( Diagnostic,
+    isCppWarning,
+    renderHumanDiagnostic,
     DiagnosticSourceMap,
     diagnosticSourceMap,
     parseDiagnosticValue,
@@ -20,6 +22,7 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Parser.Syntax (SourceSpan, pattern SourceSpan)
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData (..))
 import Data.Aeson (object, (.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -32,8 +35,18 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Text.Read (readMaybe)
 
-renderHumanDiagnostic :: String -> Aeson.Value -> String
-renderHumanDiagnostic phase diagnostic =
+-- | A diagnostic from the parser or preprocessor.
+newtype Diagnostic = Diagnostic Aeson.Value
+  deriving (Eq, Show)
+
+instance NFData Diagnostic where
+  rnf (Diagnostic value) = rnf value
+
+isCppWarning :: Diagnostic -> Bool
+isCppWarning (Diagnostic value) = stringField "severity" value == Just "Warning"
+
+renderHumanDiagnostic :: String -> Diagnostic -> String
+renderHumanDiagnostic phase (Diagnostic diagnostic) =
   unlines $
     T.unpack (locationPrefix <> severityText <> ": " <> modulePrefix <> messageText)
       : renderHumanDiagnosticExcerpt diagnostic
@@ -243,22 +256,24 @@ parseLineDirective line = do
               Just (T.unpack file)
         _ -> Nothing
 
-parseDiagnosticValue :: FilePath -> (SourceSpan, Text) -> Aeson.Value
+parseDiagnosticValue :: FilePath -> (SourceSpan, Text) -> Diagnostic
 parseDiagnosticValue path (span', message) =
-  object
-    [ "file" .= path,
-      "span" .= sourceSpanValue span',
-      "message" .= message
-    ]
+  Diagnostic $
+    object
+      [ "file" .= path,
+        "span" .= sourceSpanValue span',
+        "message" .= message
+      ]
 
-cppDiagnosticValue :: Cpp.Diagnostic -> Aeson.Value
+cppDiagnosticValue :: Cpp.Diagnostic -> Diagnostic
 cppDiagnosticValue diag =
-  object
-    [ "file" .= Cpp.diagFile diag,
-      "line" .= Cpp.diagLine diag,
-      "severity" .= show (Cpp.diagSeverity diag),
-      "message" .= Cpp.diagMessage diag
-    ]
+  Diagnostic $
+    object
+      [ "file" .= Cpp.diagFile diag,
+        "line" .= Cpp.diagLine diag,
+        "severity" .= show (Cpp.diagSeverity diag),
+        "message" .= Cpp.diagMessage diag
+      ]
 
 sourceSpanValue :: SourceSpan -> Aeson.Value
 sourceSpanValue (SourceSpan file startLine startCol endLine endCol startOffset endOffset) =

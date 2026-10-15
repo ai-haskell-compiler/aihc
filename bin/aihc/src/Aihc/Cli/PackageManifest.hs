@@ -8,12 +8,11 @@ module Aihc.Cli.PackageManifest
   )
 where
 
+import Aihc.Cbor (Cbor (..), cborArray, cborText, decodeCbor, encodeCbor, expectArray, getText, (<*!>))
 import Control.DeepSeq (NFData)
-import Data.Aeson ((.:), (.=))
-import Data.Aeson qualified as Aeson
+import Control.Monad ((<$!>))
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import System.FilePath ((</>))
@@ -48,124 +47,42 @@ data PackageManifest = PackageManifest
 
 instance NFData PackageManifest
 
-instance Aeson.ToJSON PackageManifest where
-  toJSON manifest =
-    Aeson.object
-      [ "schemaVersion" .= (8 :: Int),
-        "name" .= packageManifestName manifest,
-        "version" .= packageManifestVersion manifest,
-        "identity" .= packageManifestIdentity manifest,
-        "unitId" .= packageManifestUnitId manifest,
-        "dependencies" .= packageManifestDependencies manifest,
-        "modules" .= packageManifestModules manifest,
-        "compiledModules" .= packageManifestCompiledModules manifest,
-        "flags" .= packageManifestFlags manifest,
-        "cxxStdLib" .= packageManifestCxxStdLib manifest,
-        "linkArguments" .= packageManifestLinkArguments manifest,
-        "cabalFlags" .= packageManifestCabalFlags manifest
-      ]
-
-instance Aeson.FromJSON PackageManifest where
-  parseJSON = Aeson.withObject "PackageManifest" $ \object -> do
-    schemaVersion <- object .: "schemaVersion"
-    case schemaVersion :: Int of
-      2 -> do
-        name <- object .: "name"
-        version <- object .: "version"
-        identity <- object .: "identity"
-        PackageManifest name version identity identity
-          <$> object .: "dependencies"
-          <*> object .: "modules"
-          <*> pure []
-          <*> pure []
-          <*> pure False
-          <*> pure []
-          <*> pure Map.empty
-      3 ->
-        PackageManifest
-          <$> object .: "name"
-          <*> object .: "version"
-          <*> object .: "identity"
-          <*> object .: "unitId"
-          <*> object .: "dependencies"
-          <*> object .: "modules"
-          <*> pure []
-          <*> pure []
-          <*> pure False
-          <*> pure []
-          <*> pure Map.empty
-      4 ->
-        PackageManifest
-          <$> object .: "name"
-          <*> object .: "version"
-          <*> object .: "identity"
-          <*> object .: "unitId"
-          <*> object .: "dependencies"
-          <*> object .: "modules"
-          <*> pure []
-          <*> object .: "flags"
-          <*> pure False
-          <*> pure []
-          <*> pure Map.empty
-      5 ->
-        PackageManifest
-          <$> object .: "name"
-          <*> object .: "version"
-          <*> object .: "identity"
-          <*> object .: "unitId"
-          <*> object .: "dependencies"
-          <*> object .: "modules"
-          <*> object .: "compiledModules"
-          <*> object .: "flags"
-          <*> pure False
-          <*> pure []
-          <*> pure Map.empty
-      6 ->
-        PackageManifest
-          <$> object .: "name"
-          <*> object .: "version"
-          <*> object .: "identity"
-          <*> object .: "unitId"
-          <*> object .: "dependencies"
-          <*> object .: "modules"
-          <*> object .: "compiledModules"
-          <*> object .: "flags"
-          <*> object .: "cxxStdLib"
-          <*> pure []
-          <*> pure Map.empty
-      7 ->
-        PackageManifest
-          <$> object .: "name"
-          <*> object .: "version"
-          <*> object .: "identity"
-          <*> object .: "unitId"
-          <*> object .: "dependencies"
-          <*> object .: "modules"
-          <*> object .: "compiledModules"
-          <*> object .: "flags"
-          <*> object .: "cxxStdLib"
-          <*> pure []
-          <*> object .: "cabalFlags"
-      8 ->
-        PackageManifest
-          <$> object .: "name"
-          <*> object .: "version"
-          <*> object .: "identity"
-          <*> object .: "unitId"
-          <*> object .: "dependencies"
-          <*> object .: "modules"
-          <*> object .: "compiledModules"
-          <*> object .: "flags"
-          <*> object .: "cxxStdLib"
-          <*> object .: "linkArguments"
-          <*> object .: "cabalFlags"
-      _ -> fail "unsupported package manifest schema"
+instance Cbor PackageManifest where
+  toCbor value =
+    cborArray 12
+      <> cborText "aihc-packagemanifest-1"
+      <> toCbor (packageManifestName value)
+      <> toCbor (packageManifestVersion value)
+      <> toCbor (packageManifestIdentity value)
+      <> toCbor (packageManifestUnitId value)
+      <> toCbor (packageManifestDependencies value)
+      <> toCbor (packageManifestModules value)
+      <> toCbor (packageManifestCompiledModules value)
+      <> toCbor (packageManifestFlags value)
+      <> toCbor (packageManifestCxxStdLib value)
+      <> toCbor (packageManifestLinkArguments value)
+      <> toCbor (packageManifestCabalFlags value)
+  fromCbor = do
+    expectArray 12
+    "aihc-packagemanifest-1" <- getText
+    PackageManifest
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
 
 packageManifestPath :: FilePath -> FilePath
-packageManifestPath packageRoot = packageRoot </> "package.json"
+packageManifestPath packageRoot = packageRoot </> "package.cbor"
 
 readPackageManifest :: FilePath -> IO (Either String PackageManifest)
-readPackageManifest path = Aeson.eitherDecode <$> BL.readFile path
+readPackageManifest path = decodeCbor <$> BL.readFile path
 
 writePackageManifest :: FilePath -> PackageManifest -> IO ()
-writePackageManifest path = BL.writeFile path . Aeson.encode
+writePackageManifest path = BL.writeFile path . encodeCbor

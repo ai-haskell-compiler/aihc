@@ -41,6 +41,46 @@ void aihc_program_environment_initialize(void) {}
 
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
+/* WASM keeps one capability, so it has no workers and no locks. The
+   runtime reaches the functions below that fail only with workers. */
+void aihc_host_workers_start(AihcCapability *capability) {
+  (void)capability;
+  aihc_fail("this host has one capability");
+}
+
+void aihc_host_sleep_ns(uint64_t duration) {
+  (void)duration;
+  aihc_fail("this host has one capability");
+}
+
+_Noreturn void aihc_exit_process(int64_t status) {
+  (void)status;
+  aihc_fail("this host has one capability");
+}
+
+void aihc_host_wake(AihcCapability *capability) { (void)capability; }
+
+void *aihc_host_lock_new(void) { aihc_fail("this host has one capability"); }
+
+void aihc_host_lock_acquire(void *lock) { (void)lock; }
+
+void aihc_host_lock_release(void *lock) { (void)lock; }
+
+void *aihc_host_recursive_lock_new(void) {
+  aihc_fail("this host has one capability");
+}
+
+void *aihc_host_condition_new(void) {
+  aihc_fail("this host has one capability");
+}
+
+void aihc_host_condition_wait(void *condition, void *lock) {
+  (void)condition;
+  (void)lock;
+}
+
+void aihc_host_condition_broadcast(void *condition) { (void)condition; }
+
 /* A region is one WebAssembly page, so a run of regions is a growth of the
    linear memory by that many pages, and the previous page count is the
    address of the run. Linear memory never shrinks. */

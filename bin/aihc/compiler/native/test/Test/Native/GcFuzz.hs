@@ -83,7 +83,8 @@ tests =
           testCase "scans the frames below a pop across chunks" (checkScript getDriver deepPopScript),
           testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
           testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript),
-          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript)
+          testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript),
+          testCase "drops a freed object from the remembered set of another capability" (checkScript getDriver remotePurgeScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -104,6 +105,36 @@ evaluatedStaticScript =
     CSUpdate 0 (VHeap 2),
     CFill 0,
     CCollect
+  ]
+
+-- | The second capability stores into a gen2 object, which then dies. A
+-- gen2 cycle that starts and ends in a local collection of the first
+-- capability frees the object. The next local collection of the second
+-- capability must not scan it from its remembered set.
+remotePurgeScript :: [Command]
+remotePurgeScript =
+  [ CMachine 0 1 512 0,
+    CCapabilities 2,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CReserve 2,
+    CNew 2 KNode [True] Nothing,
+    CRoot 0 (VHeap 2),
+    CCollectGeneration 2,
+    CCollectGeneration 2,
+    CHeap 1,
+    CSet 2 0 (VStatic 0),
+    CHeap 0,
+    CRoot 0 VNull,
+    CGen2Limit 0,
+    CFill 0,
+    CReserve 1,
+    CFill 0,
+    CReserve 1,
+    CHeap 1,
+    CFill 0,
+    CReserve 1,
+    CHeap 0
   ]
 
 -- | A stack of frames across several chunks, a gen2 cycle with a small
@@ -240,6 +271,15 @@ prop_collect getDriver = withTests 500 . property $ do
           let problems = replay script reports
               has predicate = any predicate script
               reportHas predicate = any predicate (Map.elems reports)
+              -- A local collection at a reservation that left a young
+              -- object of another capability in place.
+              localBeside (index, CReserve _, model) = case Map.lookup index reports of
+                Just report ->
+                  rCollected report < 2
+                    && not (rBridge report)
+                    && or [Map.findWithDefault 0 identity (mOwner model) /= mHeapIndex model | (identity, 0) <- Map.toList (rAges report)]
+                Nothing -> False
+              localBeside _ = False
           classify (fromString "several collections") (Map.size reports > 1)
           classify (fromString "gen1 collection") (reportHas ((== 1) . rCollected))
           cover 2 (fromString "full collection") (reportHas ((== 2) . rCollected))
@@ -248,7 +288,10 @@ prop_collect getDriver = withTests 500 . property $ do
           cover 5 (fromString "thunk update") (has (\case CEnter _ (Just _) -> True; _ -> False))
           cover 2 (fromString "static thunk update") (has (\case CSUpdate {} -> True; _ -> False))
           cover 2 (fromString "large array") (has (\case CArray _ count _ -> count >= largeArrayElements; _ -> False))
+          cover 5 (fromString "promotion by a copy") (or [Map.notMember index reports | (index, CPromote {}) <- zip [0 :: Int ..] script])
+          cover 2 (fromString "promotion by a collection") (or [Map.member index reports | (index, CPromote {}) <- zip [0 :: Int ..] script])
           cover 10 (fromString "allocation in the nursery of another capability") (has (\case CHeap index -> index > 0; _ -> False))
+          cover 1 (fromString "local collection beside another local heap") (any localBeside (zip3 [0 ..] script (scanl (flip applyCommand) emptyModel script)))
           cover 5 (fromString "several threads") (has (\case CFork {} -> True; _ -> False))
           cover 2 (fromString "thread blocks on an MVar") (has (\case CTake _ -> True; CRead _ -> True; CPut {} -> True; _ -> False))
           cover 0.5 (fromString "thread blocks on a blackhole") (has (\case CBlock _ -> True; _ -> False))
@@ -378,9 +421,25 @@ data Model = Model
     -- | The number of capabilities. Each one has a nursery, and an epoch
     -- can allocate its objects in the nursery of any of them.
     mCapabilities :: Int,
+    -- | The capability whose nursery gets the objects of new commands.
+    mHeapIndex :: Int,
+    -- | A script set the gen2 limit. A reservation can then collect gen1
+    -- and start a gen2 cycle.
+    mGen2Limit :: Bool,
+    -- | The capability that allocated each object. A young object belongs
+    -- to the local heap of that capability, and a local collection of
+    -- another capability leaves it alone.
+    mOwner :: Map Id Int,
     -- | The generation of each heap object after the last reported
     -- collection. An object the driver has not reported is in the nursery.
     mAges :: Map Id Int,
+    -- | The objects that a promotion can have copied. A copy and its
+    -- original can both survive, so the age of such an object is the age
+    -- of either.
+    mPromoted :: Set Id,
+    -- | Whether the last command ran an escape collection: a store into a
+    -- global object whose promotion reached a mutable object.
+    mEscapeCollected :: Bool,
     -- | While a gen2 cycle is active: the gen2 objects that were dead at
     -- its snapshot. The cycle frees them when it ends.
     mSnapshotDead :: Maybe (Set Id),
@@ -424,14 +483,19 @@ emptyModel =
       mSrts = Map.empty,
       mCurrentSrt = Nothing,
       mCapabilities = 1,
+      mHeapIndex = 0,
+      mGen2Limit = False,
+      mOwner = Map.empty,
       mAges = Map.empty,
+      mPromoted = Set.empty,
+      mEscapeCollected = False,
       mSnapshotDead = Nothing,
       mFailed = False
     }
 
 -- | The words of an MVar and of a thread record on the 64-bit targets.
 recordWords :: Int
-recordWords = 10
+recordWords = 11
 
 -- | The words of an MVar waiter, a blackhole waiter with the queue that the
 -- first waiter of a thunk makes, and a stable name.
@@ -458,6 +522,73 @@ deepestStack model = maximum (1 : [chunks (reverse (chainOf top)) | Thread (Thre
     go count used (fid : rest) =
       let size = 1 + length (fFields (mFrames model Map.! fid)) + (if fKind (mFrames model Map.! fid) == FStop then 0 else 1)
        in if used + size > chunkWords then go (count + 1) size rest else go count (used + size) rest
+
+-- | The young objects that a promotion of an object reaches, whether the
+-- promotion collects, and every immutable object it can reach at any age.
+-- It collects when it reaches a mutable object or a thunk: the driver gives
+-- the runtime no top frame for the pause walk, so the runtime cannot know
+-- that a thunk is not under evaluation. The generator knows no ages,
+-- because only the reports give them, so the result is Nothing by a rule
+-- that does not depend on ages: when the reached objects include an object
+-- with a stable name, because the name holds the original weakly and the
+-- original can die while its copy lives.
+promotionOf :: Model -> Id -> Maybe (Set Id, Bool, Set Id)
+promotionOf = promotionWith False
+
+-- | 'promotionOf' after a pause of the running thread, which the runtime
+-- makes when it knows the top frame: an unclaimed thunk is then not under
+-- evaluation, and a copy takes it.
+promotionWith :: Bool -> Model -> Id -> Maybe (Set Id, Bool, Set Id)
+promotionWith copyThunks model start = go Set.empty False Set.empty [VHeap start]
+  where
+    young identity = Map.findWithDefault 0 identity (mAges model) < 2
+    named = Set.fromList [identity | value <- mStable model, VHeap identity <- [value, resolve model value]]
+    go reached collect seen [] = Just (reached, collect, seen)
+    go reached collect seen (value : rest) = case value of
+      VHeap identity
+        | Set.member identity seen -> go reached collect seen rest
+        | Just (Ind target) <- Map.lookup identity (mHeap model) ->
+            -- The runtime follows a young indirection only.
+            if young identity then go reached collect seen (target : rest) else go reached collect seen rest
+        | Set.member identity named -> Nothing
+        | otherwise -> case Map.lookup identity (mHeap model) of
+            Just (Object kind pointers fields _ owner) ->
+              let reached'
+                    | young identity = Set.insert identity reached
+                    | otherwise = reached
+                  mutable = (kind == KThunk && not copyThunks) || isJust owner
+               in go reached' (collect || (young identity && mutable)) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
+            Just Thread {} -> go reached collect seen rest
+            Just _
+              | young identity -> go (Set.insert identity reached) True (Set.insert identity seen) rest
+              | otherwise -> go reached collect (Set.insert identity seen) rest
+            Nothing -> go reached collect seen rest
+      _ -> go reached collect seen rest
+
+-- | The effect of a store of a value into an object when the machine has
+-- several capabilities: when the object is global, the runtime promotes the
+-- value. The rules of 'promotionOf' do not depend on ages, so they hold for
+-- a store into any object. Nothing when they forbid the promotion.
+escapeStore :: Bool -> Value -> Model -> Maybe Model
+escapeStore = escapeStoreWith False
+
+escapeStoreWith :: Bool -> Bool -> Value -> Model -> Maybe Model
+escapeStoreWith copyThunks global value model = case value of
+  VHeap identity
+    | mCapabilities model > 1 -> case promotionWith copyThunks model identity of
+        Nothing -> Nothing
+        Just (reached, collect, seen) ->
+          Just
+            model
+              { mPromoted = Set.union seen (mPromoted model),
+                mAges = if global && not collect then foldr (`Map.insert` 2) (mAges model) (Set.toList reached) else mAges model,
+                mEscapeCollected = mEscapeCollected model || (global && collect)
+              }
+  _ -> Just model
+
+-- | Whether a heap object is global: it is in gen2.
+isGlobal :: Model -> Id -> Bool
+isGlobal model identity = Map.findWithDefault 0 identity (mAges model) >= 2
 
 -- | Follow heap indirections to the value they name.
 resolve :: Model -> Value -> Value
@@ -489,6 +620,9 @@ data Command
     -- or zero for the default slice.
     CMachine Int Int Int Int
   | CCapabilities Int
+  | -- | Start a gen2 cycle at the next collection of gen1 when gen2 has
+    -- this many bytes or more.
+    CGen2Limit Int
   | -- | Allocate the objects of later commands in the nursery of this
     -- capability. Runtime operations allocate in the first nursery.
     CHeap Int
@@ -506,6 +640,8 @@ data Command
   | CGlobal Int Value
   | CRoot Int Value
   | CStable Value
+  | -- | Promote an object and store the result in a global.
+    CPromote Id Int
   | CPush Fid FrameSpec
   | CEnter Fid (Maybe Value)
   | CRaise Value
@@ -540,6 +676,7 @@ renderCommand :: Command -> String
 renderCommand command = unwords $ case command of
   CMachine globals roots bytes slice -> ["machine", show globals, show roots, show bytes, show slice]
   CCapabilities count -> ["capabilities", show count]
+  CGen2Limit bytes -> ["gen2limit", show bytes]
   CHeap index -> ["heap", show index]
   CSrt index objects children -> ["srt", show index, show (length objects), show (length children)] <> map (('s' :) . show) objects <> map show children
   CCurrentSrt srt -> ["current_srt", renderSrt srt]
@@ -555,6 +692,7 @@ renderCommand command = unwords $ case command of
   CGlobal index value -> ["global", show index, renderValue value]
   CRoot index value -> ["root", show index, renderValue value]
   CStable value -> ["stable", renderValue value]
+  CPromote identity index -> ["promote", renderValue (VHeap identity), show index]
   CPush fid spec -> ["push", show fid] <> renderSpec spec
   CEnter fid value -> ["enter", show fid] <> maybe [] (pure . renderValue) value
   CRaise value -> ["raise", renderValue value]
@@ -607,7 +745,8 @@ applyCommand command model = case command of
     | slot < staticThunkCount -> model {mStaticThunkSrts = setAt slot srt (mStaticThunkSrts model)}
     | otherwise -> model {mStaticNodeSrts = setAt (slot - staticThunkCount) srt (mStaticNodeSrts model)}
   CCapabilities count -> model {mCapabilities = count}
-  CHeap _ -> model
+  CGen2Limit _ -> model {mGen2Limit = True}
+  CHeap index -> model {mHeapIndex = index}
   CFill _ -> model
   CReserve _ -> model
   CNew identity kind pointers srt ->
@@ -618,7 +757,9 @@ applyCommand command model = case command of
     Object kind pointers fields srt owner -> Object kind pointers (setAt index value fields) srt owner
     Array elements srt -> Array (setAt index value elements) srt
     other -> error ("set on " <> show other)
-  CSUpdate slot value -> model {mStaticThunks = setAt slot (SInd value) (mStaticThunks model)}
+  CSUpdate slot value -> case escapeStore True value model of
+    Just escaped -> escaped {mStaticThunks = setAt slot (SInd value) (mStaticThunks escaped)}
+    Nothing -> failed
   CSSet slot index value ->
     let node = slot - staticThunkCount
      in model {mStaticNodes = setAt node (setAt index value (mStaticNodes model !! node)) (mStaticNodes model)}
@@ -626,9 +767,24 @@ applyCommand command model = case command of
   CRoot index value -> model {mRoots = setAt index value (mRoots model)}
   -- The runtime gives one name to an object, and it looks the object up
   -- through the indirections of the names it holds.
+  -- With several capabilities, the name of a young object runs the
+  -- collection of an escape first.
+  CStable value
+    | mCapabilities model > 1,
+      VHeap identity <- value,
+      not (isGlobal model identity) ->
+        let after = applyCommand command model {mCapabilities = 1, mEscapeCollected = True}
+         in after {mCapabilities = mCapabilities model}
   CStable value
     | resolve model value `elem` map (resolve model) (mStable model) -> model
     | otherwise -> model {mStable = value : mStable model}
+  CPromote identity index -> case promotionOf model identity of
+    Nothing -> failed
+    Just (reached, collect, seen) ->
+      let stored = model {mGlobals = setAt index (VHeap identity) (mGlobals model), mPromoted = Set.union seen (mPromoted model)}
+       in if collect
+            then stored
+            else stored {mAges = foldr (`Map.insert` 2) (mAges model) (Set.toList reached)}
   CPush fid spec -> pushFrame fid spec model
   CEnter fid value -> case Map.lookup fid (mFrames model) of
     Just frame | fThread frame == mRunning model -> continueInto (mRunning model) fid value model
@@ -660,24 +816,33 @@ applyCommand command model = case command of
   CRead identity -> withMVar identity $ \mvar top -> case mvValue mvar of
     Nothing -> schedule (pause (storeMVar identity mvar {mvReaders = mvReaders mvar <> [Waiter (mRunning model) top Nothing]} model))
     Just value -> continueInto (mRunning model) top (Just value) model
-  CPut identity value -> withMVar identity $ \mvar top -> case mvValue mvar of
-    Just _ -> schedule (pause (storeMVar identity mvar {mvPutters = mvPutters mvar <> [Waiter (mRunning model) top (Just value)]} model))
-    Nothing ->
-      let woken = foldl' (\m reader -> wake reader (Just value) m) model (mvReaders mvar)
-          (mvar', afterTaker) = case mvTakers mvar of
-            [] -> (mvar {mvValue = Just value, mvReaders = []}, woken)
-            taker : rest -> (mvar {mvReaders = [], mvTakers = rest}, wake taker (Just value) woken)
-       in continueInto (mRunning model) top Nothing (storeMVar identity mvar' afterTaker)
+  -- With several capabilities, a put pauses the thread, and a put into a
+  -- global MVar promotes the value.
+  CPut identity value
+    | mCapabilities model > 1,
+      Nothing <- escapeStoreWith True (isGlobal model identity) value (pause model) ->
+        failed
+  CPut identity value -> putInto identity value (if mCapabilities model > 1 then fromMaybe model (escapeStoreWith True (isGlobal model identity) value (pause model)) else model)
   CCollect -> pause model
   CCollectGeneration generation -> staleStatics (generation == 2) (pause model)
   CCycle -> staleStatics True (pause model)
   where
     failed = model {mFailed = True}
     insertObject identity object =
-      model {mHeap = Map.insert identity object (mHeap model), mNextId = max (mNextId model) (identity + 1)}
+      model {mHeap = Map.insert identity object (mHeap model), mNextId = max (mNextId model) (identity + 1), mOwner = Map.insert identity (mHeapIndex model) (mOwner model)}
     adjustObject identity change = model {mHeap = Map.adjust change identity (mHeap model)}
     withMVar identity continue = case (Map.lookup identity (mHeap model), runningTop model) of
       (Just (MVar mvar), Just top) -> continue mvar top
+      _ -> failed
+    putInto identity value base = case (Map.lookup identity (mHeap base), runningTop base) of
+      (Just (MVar mvar), Just top) -> case mvValue mvar of
+        Just _ -> schedule (pause (storeMVar identity mvar {mvPutters = mvPutters mvar <> [Waiter (mRunning base) top (Just value)]} base))
+        Nothing ->
+          let woken = foldl' (\m reader -> wake reader (Just value) m) base (mvReaders mvar)
+              (mvar', afterTaker) = case mvTakers mvar of
+                [] -> (mvar {mvValue = Just value, mvReaders = []}, woken)
+                taker : rest -> (mvar {mvReaders = [], mvTakers = rest}, wake taker (Just value) woken)
+           in continueInto (mRunning base) top Nothing (storeMVar identity mvar' afterTaker)
       _ -> failed
 
 storeMVar :: Id -> MVarState -> Model -> Model
@@ -779,10 +944,14 @@ enteredFrame fid model = case Map.lookup fid (mFrames model) of
 -- | Continue into a frame of a thread with an optional value, as the entry
 -- of the frame would: an update frame updates its thunk with the value and
 -- wakes the waiters of the thunk, a stop frame ends the thread, and every
--- other frame runs its code, which the script spells out.
+-- other frame runs its code, which the script spells out. The entry pops the
+-- frames above the entered frame, and compiled code never pops an update
+-- frame without the update of its thunk.
 continueInto :: Id -> Fid -> Maybe Value -> Model -> Model
 continueInto thread fid value model = case enteredFrame fid model of
   Nothing -> failed
+  Just target
+    | any passesUpdate (takeWhile (/= target) (chain (thTop (threadOf thread model)))) -> failed
   Just target ->
     let frame = fromMaybe (error "entered frame is not live") (Map.lookup target (mFrames model))
         popped = popThrough thread target model
@@ -790,12 +959,21 @@ continueInto thread fid value model = case enteredFrame fid model of
           -- A thunk whose value leads back to itself is a loop, which no
           -- program reaches: the update would make an indirection cycle.
           FUpdate -> case (fFields frame, value) of
-            ([VHeap thunk], Just result) | result /= VNull && resolve model result /= VHeap thunk -> update thunk result popped
+            ([VHeap thunk], Just result)
+              | result /= VNull && resolve model result /= VHeap thunk,
+                -- With several capabilities, the update can promote the
+                -- result, and a stable name of the thunk would then lead to
+                -- the copy while the original lives.
+                mCapabilities model < 2 || VHeap thunk `notElem` mStable model ->
+                  maybe failed (update thunk result) (escapeStore (isGlobal model thunk) result popped)
             _ -> failed
           FStop -> schedule (storeThread thread (ThreadState RNone Nothing) popped)
           _ -> popped
   where
     failed = model {mFailed = True}
+    chain Nothing = []
+    chain (Just frame) = frame : chain (fParent =<< Map.lookup frame (mFrames model))
+    passesUpdate frame = (fKind <$> Map.lookup frame (mFrames model)) == Just FUpdate
     update thunk result after =
       let waiters = Map.findWithDefault [] thunk (mBlackholes after)
           updated = after {mHeap = Map.insert thunk (Ind result) (mHeap after), mBlackholes = Map.delete thunk (mBlackholes after)}
@@ -1015,12 +1193,15 @@ data Report = Report
     -- | A gen2 cycle took its snapshot at this collection.
     rCycleStart :: Bool,
     -- | A gen2 cycle ended at this collection.
-    rFinish :: Bool
+    rFinish :: Bool,
+    -- | A bridge collection, which collects the local heaps of all
+    -- capabilities, ran in this command.
+    rBridge :: Bool
   }
   deriving (Show)
 
 emptyReport :: Report
-emptyReport = Report 0 Map.empty Map.empty RNull [] [] [] [] [] Map.empty Map.empty [] False False
+emptyReport = Report 0 Map.empty Map.empty RNull [] [] [] [] [] Map.empty Map.empty [] False False False
 
 parseRValue :: String -> Either String RValue
 parseRValue token = case token of
@@ -1079,6 +1260,7 @@ parseReports = go Map.empty
       ["endcollection"] -> Right (report {rStacks = reverse (rStacks report)}, rest)
       ["cycle", "start"] -> block report {rCycleStart = True} rest
       ["finish"] -> block report {rFinish = True} rest
+      ["bridge"] -> block report {rBridge = True} rest
       ["age", identity, generation] -> do
         key <- readNumber identity
         age <- readNumber generation
@@ -1159,17 +1341,33 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
     go [] _ = []
     go ((index, command) : rest) model = case Map.lookup index reports of
       Nothing
-        | mustCollect command -> ("command " <> show index <> ": the command did not report a collection") : go rest (step model)
+        | mustCollect model command -> ("command " <> show index <> ": the command did not report a collection") : go rest (step model)
         | otherwise -> go rest (step model)
       Just report
-        | collects command ->
+        | collects model command ->
             let -- A full collection and a cycle free the values of the
                 -- static thunks no code reaches, which the command marks
                 -- in the model before the check.
                 -- A collection is a pause of the running thread. The model
                 -- of a reservation learns of its collection only here.
                 checked = pause (step model)
-                problems = generationProblems command report <> checkReport checked report
+                -- A local collection copies the local heap of one
+                -- capability: the reserving capability at a reservation,
+                -- and the running capability at an escape. An explicit or
+                -- a full collection is a bridge collection.
+                scope = case command of
+                  _ | rCollected report == 2 || rBridge report -> Nothing
+                  CReserve _ -> Just (mHeapIndex model)
+                  CCollect -> Nothing
+                  CCollectGeneration _ -> Nothing
+                  CCycle -> Nothing
+                  _ -> Just 0
+                -- Under a gen2 limit, a reservation chooses its generation
+                -- from the bytes of gen2 too.
+                generations = case command of
+                  CReserve _ | mGen2Limit model -> []
+                  _ -> generationProblems (escapeCollection model command) command report
+                problems = generations <> checkReport scope checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
                 -- a new cycle. A cycle marks the static thunks stale with
@@ -1195,19 +1393,33 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
         step before =
           let after = applyCommand command before
            in if mFailed after && not (mFailed before) then error ("command " <> show index <> " fails its precondition: " <> renderCommand command) else after
-    collects (CReserve _) = True
-    collects command = mustCollect command
-    mustCollect CCollect = True
-    mustCollect (CCollectGeneration _) = True
-    mustCollect CCycle = True
-    mustCollect _ = False
-    generationProblems command report = case command of
+    collects _ (CReserve _) = True
+    collects model command = mustCollect model command
+    mustCollect _ CCollect = True
+    mustCollect _ (CCollectGeneration _) = True
+    mustCollect _ CCycle = True
+    mustCollect model (CPromote identity _) = maybe False (\(_, collect, _) -> collect) (promotionOf model identity)
+    mustCollect model command
+      | escapeCollection model command = True
+    mustCollect _ _ = False
+    isPromote CPromote {} = True
+    isPromote _ = False
+    escapeCollection model command = mEscapeCollected (applyCommand command model {mEscapeCollected = False})
+    generationProblems escaped command report = case command of
       CCollectGeneration generation
         | rCollected report /= generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show generation]
       CCollectGeneration _ -> []
       CCycle
         | rCollected report /= 1 -> ["cycle collected generation " <> show (rCollected report) <> " instead of 1"]
       CCycle -> []
+      CPromote {}
+        | rCollected report /= 1 -> ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
+      CPromote {} -> []
+      _
+        | escaped || isPromote command,
+          rCollected report /= 1 ->
+            ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
+        | escaped || isPromote command -> []
       _
         | rCollected report /= 0 -> ["a reservation collected generation " <> show (rCollected report)]
         | otherwise -> []
@@ -1228,8 +1440,8 @@ checkValues what expected actual
   | otherwise = [what <> ": expected " <> show expected <> " but the driver reported " <> show actual]
 
 -- | Compare one reported collection with the model at the collection.
-checkReport :: Model -> Report -> [String]
-checkReport model report =
+checkReport :: Maybe Int -> Model -> Report -> [String]
+checkReport scope model report =
   map ("violation: " <>) (rViolations report)
     <> ageProblems
     <> objectProblems
@@ -1250,11 +1462,21 @@ checkReport model report =
     -- An object of a collected generation moves up at least one generation
     -- and at most to gen2. An older object stays where it is.
     ageProblems = concatMap ageProblem (Map.toList (rAges report))
-    ageProblem (identity, age) =
-      let before = Map.findWithDefault 0 identity (mAges model)
-       in if before <= collected
-            then ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
-            else ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
+    ageProblem (identity, age)
+      | Set.member identity (mPromoted model) = ["object " <> show identity <> " moved to generation " <> show age | age > 2]
+      -- A thread record is in the global heap from its start.
+      | Just only <- scope,
+        before < 2,
+        not (isThread identity),
+        Map.findWithDefault 0 identity (mOwner model) /= only =
+          ["object " <> show identity <> " of another local heap moved from generation " <> show before <> " to " <> show age | age /= before]
+      | before <= collected = ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
+      | otherwise = ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
+      where
+        before = Map.findWithDefault 0 identity (mAges model)
+        isThread object = case Map.lookup object (mHeap model) of
+          Just Thread {} -> True
+          _ -> False
     expectedObject object = case object of
       Object kind pointers fields _ owner -> RPlain (if isJust owner then "blackhole" else kindName kind) (zipWith (\pointer field -> if pointer then rvalue (deep field) else rvalue field) pointers fields)
       Array elements _ -> RPlain "array" (map (rvalue . deep) elements)
@@ -1537,7 +1759,10 @@ genShape profile =
       ShapeObject kind <$> replicateM count (percent (pPointerPercent profile))
 
 -- | The objects and static slots that later commands may name. Heap objects
--- are the live set, so no command resurrects garbage. Static slots exclude
+-- are the live set, so no command resurrects garbage. An object that a
+-- promotion copied is left out: the copy and the original are two objects
+-- of one identity, and a new reference to one of them could keep it alive
+-- while only the other is live in the model. Static slots exclude
 -- stale slots, because the collector reads through the invalid target of
 -- any static object that becomes live again.
 data Pool = Pool
@@ -1547,12 +1772,24 @@ data Pool = Pool
   }
 
 -- | The pool of the current model state.
+-- | The pool of the objects that a capability may name. With several
+-- capabilities, an object names only objects of its own local heap, and a
+-- thread, which runs on the first capability, names only objects of that
+-- local heap. Thus no local heap is reachable from another one, as the
+-- runtime requires.
+poolOwnedBy :: Int -> Model -> Pool
+poolOwnedBy owner model
+  | mCapabilities model < 2 = pool
+  | otherwise = pool {poolHeap = [identity | identity <- poolHeap pool, Map.findWithDefault 0 identity (mOwner model) == owner]}
+  where
+    pool = poolOf model
+
 poolOf :: Model -> Pool
 poolOf model =
   let live = liveness model
       stale = taintedStatics model
       usableSrts = [index | index <- Map.keys (mSrts model), Set.null (Set.intersection stale (srtClosure model index))]
-      values = [identity | identity <- Set.toList (liveHeap live), isValue (mHeap model Map.! identity)]
+      values = [identity | identity <- Set.toList (liveHeap live), isValue (mHeap model Map.! identity), not (Set.member identity (mPromoted model))]
       isValue Thread {} = False
       isValue _ = True
    in Pool values [slot | slot <- [0 .. staticCount - 1], not (Set.member slot stale)] usableSrts
@@ -1567,10 +1804,13 @@ genEpoch profile start = do
   -- The runtime gives a large array regions outside the nursery without a
   -- collection, so the reservation of the block covers the small objects
   -- alone.
+  -- The objects of the block can go to the nursery of another capability.
+  -- Their fields then name only objects of that local heap.
+  heap <- Gen.int (Range.constant 0 (mCapabilities start - 1))
   let newCommands = zipWith3 newCommand identities shapes srts
       blockWords = sum [shapeWords shape | shape <- shapes, not (isLargeShape shape)]
-      afterBlock = applyCommands newCommands start
-      pool = poolOf afterBlock
+      afterBlock = applyCommands ([CHeap heap | heap /= 0] <> newCommands <> [CHeap 0 | heap /= 0]) start
+      pool = poolOwnedBy heap afterBlock
   fill <- do
     wanted <- percent (pFillPercent profile)
     if wanted
@@ -1600,9 +1840,7 @@ genEpoch profile start = do
   collectCommand <- Gen.frequency [(1, pure CCollect), (3, CCollectGeneration <$> Gen.int (Range.constant 0 2)), (2, pure CCycle)]
   let final = if collect then applyCommand collectCommand afterOps else afterOps
       opWords = sum (map commandWords ops)
-  -- The objects of the block can go to the nursery of another capability.
-  -- The operations then reserve their words in the first nursery.
-  heap <- Gen.int (Range.constant 0 (mCapabilities start - 1))
+  -- The operations reserve their words in the first nursery.
   let allocation
         | heap == 0 = fill <> [CReserve (blockWords + opWords)] <> newCommands
         | otherwise = [CHeap heap] <> fill <> [CReserve blockWords, CHeap 0, CReserve opWords, CHeap heap] <> newCommands <> [CHeap 0]
@@ -1740,7 +1978,7 @@ genOp profile model = do
   -- rest: an operation the runtime would refuse is dropped.
   pure (if mFailed (applyCommands commands model) then [] else commands)
   where
-    pool = poolOf model
+    pool = poolOwnedBy 0 model
     object identity = Map.lookup identity (mHeap model)
     chain = runningChain model
     topKind = case chain of
@@ -1762,7 +2000,8 @@ genOp profile model = do
     blockedMVars = [identity | identity <- poolHeap pool, Just (MVar (MVarState Nothing readers takers _)) <- [object identity], not (null readers && null takers)]
     -- A name on an object whose value another name resolves to would be
     -- the same name in the runtime, so the generator names each value once.
-    unnamed = [identity | identity <- poolHeap pool, VHeap identity `notElem` map (resolve model) (mStable model)]
+    unnamed = [identity | identity <- poolHeap pool, VHeap identity `notElem` map (resolve model) (mStable model), not (Set.member identity (mPromoted model))]
+    promotable = [identity | identity <- poolHeap pool, isJust (promotionOf model identity)]
     staticThunks = [slot | (slot, SThunk) <- zip [0 ..] (mStaticThunks model), slot `elem` poolStatics pool]
     staticNodes = [slot | slot <- [staticThunkCount .. staticRootedCount - 1], slot `elem` poolStatics pool]
     runnable = not (null (mQueue model))
@@ -1817,6 +2056,12 @@ genOp profile model = do
             pure [CRoot index value]
         ),
         (1, nonEmpty unnamed (CStable . VHeap <$> Gen.element unnamed <&> pure)),
+        ( 3,
+          nonEmpty (if null (mGlobals model) then [] else promotable) $ do
+            identity <- Gen.element promotable
+            index <- Gen.int (Range.constant 0 (length (mGlobals model) - 1))
+            pure [CPromote identity index]
+        ),
         ( 1,
           Just $ do
             srt <- elementOr Nothing (Nothing : map Just (poolSrts pool))
@@ -1840,17 +2085,17 @@ genOp profile model = do
         ),
         -- A churn: a descent of several chunks, then pops below where it
         -- started. The pops cross the chunks a gen2 cycle scanned and
-        -- deferred.
+        -- deferred. An entry pops every frame above the entered frame, so
+        -- the pops stop above the first update or stop frame. Compiled code
+        -- never pops an update frame without the update of its thunk.
         ( pDescentWeight profile,
           whenever (isJust topKind) $ do
             depth <- Gen.int (Range.linear 2 8)
             payload <- Gen.int (Range.linear 100 250)
             extra <- Gen.int (Range.linear 0 (max 0 (length chain - 2)))
             let pushes = [CPush (fid + offset) (FSNormal (replicate payload False) Nothing (replicate payload (VWord (fromIntegral offset)))) | offset <- [0 .. depth - 1]]
-                -- A plain return cannot skip an update frame or a stop frame.
-                -- Stop at the first such frame instead of a jump below it.
-                plain = takeWhile (\(_, frame) -> fKind frame `notElem` [FStop, FUpdate]) (take extra chain)
-                pops = [CEnter (fid + offset) Nothing | offset <- reverse [0 .. depth - 1]] <> [CEnter below Nothing | (below, _) <- plain]
+                plain (_, frame) = fKind frame /= FStop && fKind frame /= FUpdate
+                pops = [CEnter (fid + offset) Nothing | offset <- reverse [0 .. depth - 1]] <> [CEnter below Nothing | (below, _) <- takeWhile plain (take extra chain)]
             pure (pushes <> pops)
         ),
         -- A collection in the middle of an epoch, so a gen2 cycle and its
@@ -1982,7 +2227,7 @@ compileDriver = do
                 extra
                   <> base
                   <> concatMap (\include -> ["-I", include]) (runtimeBuildIncludeDirectories build)
-                  <> [source, runtimeBuildArchive build, "-lm", "-o", executable]
+                  <> [source, runtimeBuildArchive build, "-lm", "-lpthread", "-o", executable]
           readProcessWithExitCode compiler arguments ""
         pure $ case attempt of
           Left err -> Left (show err)

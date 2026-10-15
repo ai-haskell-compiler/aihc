@@ -25,6 +25,8 @@
      machine G R S [L]    new machine with G globals, R root slots, a
                           nursery of S bytes, and a mark slice of L bytes
      capabilities C       give the machine C capabilities
+     gen2limit B          start a gen2 cycle at the next collection of
+                          gen1 when gen2 has B bytes or more
      heap K               allocate the objects of later commands in the
                           nursery of capability K
      srt I O C e...       reference table I names O static objects and C
@@ -44,6 +46,8 @@
      global I V           write value V to global I
      root I V             write value V to root slot I
      stable ID            make a stable name for object ID
+     promote ID G         promote object ID and store the result in global G;
+                          this can collect
      push F normal BITS S v...   push a frame with pointer bitmap BITS for
                           the fields after the parent, table S, and values
      push F forward BITS S v...  the same for a frame without an entry
@@ -95,6 +99,9 @@
    TEXT and stops the process. */
 
 #include "aihc_runtime_internal.h"
+
+/* The info table of an indirection, defined by aihc_helpers.lir. */
+extern const AihcInfo aihc_indirection_info;
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -191,6 +198,9 @@ static size_t stable_count;
 #define MAX_CAPABILITIES 4
 static uint64_t reserved[MAX_CAPABILITIES];
 #define reserved_words reserved[heap_index]
+/* Whether the script promoted an object. Only a promotion makes a second
+   copy of an object. */
+static int promoted_ever;
 static size_t command_index;
 static AihcValue **object_starts;
 static size_t object_start_count;
@@ -200,6 +210,9 @@ static uint64_t running;
 /* The collection counters at the last report, so the next report can say
    which generation a collection copied. */
 static uint64_t reported_full_count;
+/* Whether the collections of the current command include a bridge
+   collection that a local collection does not show. */
+static int bridge;
 static uint64_t reported_cycle_active;
 static int srts_linked;
 
@@ -695,6 +708,24 @@ static void print_waiters(const AihcMVarWaiter *waiter, int with_value) {
   }
 }
 
+/* The identity of a filler piece. No entry has it. */
+#define FILLER_IDENTITY UINTPTR_MAX
+
+/* Whether an object is in the allocated part of a nursery. A local
+   collection resets only its own nursery, so a nursery of another
+   capability keeps its garbage. */
+static int in_some_nursery(const AihcValue *object) {
+  const AihcMachine *machine = capability->machine;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    const AihcCapability *each = machine->capabilities[index];
+    if ((const uint8_t *)object >= each->heap_start &&
+        (const uint8_t *)object < each->heap_next) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static void print_object(AihcValue *object) {
   AihcObjectKind kind = aihc_value_kind(object);
   if (kind == AIHC_OBJECT_MVAR_WAITER || kind == AIHC_OBJECT_BLACKHOLE_WAITER ||
@@ -707,6 +738,10 @@ static void print_object(AihcValue *object) {
   }
   const AihcInfo *info = aihc_value_info_table(object);
   uintptr_t identity = info->identity;
+  if (identity == FILLER_IDENTITY && in_some_nursery(object)) {
+    /* A filler piece of a nursery that this collection did not copy. */
+    return;
+  }
   Entry *entry =
       identity == 0 || identity >= entry_capacity ? NULL : &entries[identity];
   if (entry == NULL || !entry->defined) {
@@ -714,10 +749,10 @@ static void print_object(AihcValue *object) {
     printf("obj %" PRIuPTR " %s 0\n", identity, kind_name(kind));
     return;
   }
-  if (entry->address != NULL) {
-    violation("two objects share one identity");
+  if (entry->address != object) {
+    /* Another object with this identity represents it. */
+    return;
   }
-  entry->address = object;
   if (info != entry->info) {
     violation("object header does not name its own info table");
   }
@@ -923,6 +958,84 @@ static void report_stack(AihcStack *stack) {
   }
 }
 
+/* Whether an object can have a second copy: a promotion copies an
+   immutable object and leaves the original as it is. */
+static int is_duplicable(const AihcValue *object) {
+  switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_NODE:
+  case AIHC_OBJECT_CLOSURE:
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR:
+  case AIHC_OBJECT_THUNK:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+/* Two copies of an object hold equal fields when each pointer field names
+   the same identity, frame, or static object, and each word is equal. */
+static int same_slot(AihcSlot left, AihcSlot right) {
+  if (left == right) {
+    return 1;
+  }
+  const AihcValue *first = follow_indirections((const void *)(uintptr_t)left);
+  const AihcValue *second = follow_indirections((const void *)(uintptr_t)right);
+  if (first == second) {
+    return 1;
+  }
+  return first != NULL && second != NULL && is_object_start(first) &&
+         is_object_start(second) &&
+         aihc_value_info_table(first)->identity ==
+             aihc_value_info_table(second)->identity;
+}
+
+static int same_fields(const Entry *entry, AihcValue *left, AihcValue *right) {
+  uint64_t offset =
+      entry->info->object_kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
+              entry->info->object_kind == AIHC_OBJECT_THUNK
+          ? 1
+          : 0;
+  for (uint64_t index = 0; index < entry->field_count; ++index) {
+    AihcSlot first = left->fields[index + offset];
+    AihcSlot second = right->fields[index + offset];
+    if (entry->pointers[index] ? !same_slot(first, second) : first != second) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* Choose the object that represents each identity. After a promotion, a
+   duplicable object can have two copies with equal fields. The copy in the
+   oldest generation represents it. */
+static void choose_representatives(void) {
+  for (size_t index = 0; index < object_start_count; ++index) {
+    AihcValue *object = object_starts[index];
+    if (is_indirection(object)) {
+      continue;
+    }
+    uintptr_t identity = aihc_value_info_table(object)->identity;
+    if (identity == 0 || identity >= entry_capacity ||
+        !entries[identity].defined || entries[identity].indirection) {
+      continue;
+    }
+    Entry *entry = &entries[identity];
+    if (entry->address == NULL) {
+      entry->address = object;
+      continue;
+    }
+    if (!promoted_ever || !is_duplicable(object) ||
+        !is_duplicable(entry->address) ||
+        !same_fields(entry, entry->address, object)) {
+      violation("two objects share one identity");
+      continue;
+    }
+    if (generation_of_address(object) > generation_of_address(entry->address)) {
+      entry->address = object;
+    }
+  }
+}
+
 static void report_collection(void) {
   unsigned collected = (unsigned)capability->machine->gc_last_generation;
   int finished = capability->machine->gc_full_count != reported_full_count;
@@ -939,6 +1052,9 @@ static void report_collection(void) {
   }
   if (finished) {
     printf("finish\n");
+  }
+  if (bridge) {
+    printf("bridge\n");
   }
 
   object_start_count = 0;
@@ -961,6 +1077,7 @@ static void report_collection(void) {
     }
     entry->address = NULL;
   }
+  choose_representatives();
   for (size_t index = 0; index < object_start_count; ++index) {
     AihcValue *object = object_starts[index];
     print_object(object);
@@ -1101,13 +1218,18 @@ static void scatter_roots(AihcSlot *roots, size_t total) {
    collection when one ran. */
 static void ensure(uint64_t words) {
   uint64_t before = capability->machine->gc_count;
+  uint64_t nursery_bytes = heap->nursery_bytes;
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
   aihc_ensure_heap(heap, words, total, roots, current_srt);
   scatter_roots(roots, total);
+  /* A larger nursery comes from a new arena, which replaces all
+     nurseries, so a bridge collection emptied them first. */
+  bridge = heap->nursery_bytes != nursery_bytes;
   if (capability->machine->gc_count != before) {
     report_collection();
   }
+  bridge = 0;
 }
 
 /* Collect the generations up to the given one and report. */
@@ -1196,6 +1318,7 @@ static void command_machine(char **tokens, size_t count) {
   reset_statics();
   current_srt = NULL;
   memset(reserved, 0, sizeof(reserved));
+  promoted_ever = 0;
   /* The model supplies external roots and excludes process startup objects. */
   for (uint64_t index = 0; index < 3; ++index) {
     aihc_rts_set_root(index, NULL);
@@ -1477,6 +1600,36 @@ static AihcMVar *parse_mvar(const char *token) {
   return (AihcMVar *)entry->address;
 }
 
+/* The capability that writes an object. A young object belongs to the
+   local heap of one capability, and only that capability writes it. Thus
+   its remembered entry goes to the set that the local collection of that
+   capability scans. Any capability writes a global object, and the
+   driver writes it through the capability of the current nursery. */
+static AihcCapability *writer_of(const AihcValue *object) {
+  AihcMachine *machine = capability->machine;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *each = machine->capabilities[index];
+    if ((const uint8_t *)object >= each->heap_start &&
+        (const uint8_t *)object < each->heap_next) {
+      return each;
+    }
+    for (const AihcHeapBlock *block = each->gen1.first; block != NULL;
+         block = block->link) {
+      if ((const uint8_t *)object >= block->start &&
+          (const uint8_t *)object < block->next) {
+        return each;
+      }
+    }
+  }
+  if (aihc_region_kind(object) == AIHC_REGION_LARGE) {
+    const AihcPinnedBlock *block = aihc_pinned_block_of(object);
+    if (aihc_pinned_generation(block) < 2) {
+      return machine->capabilities[aihc_pinned_owner(block)];
+    }
+  }
+  return heap;
+}
+
 static void command_set(char **tokens, size_t count) {
   if (count != 4) {
     fail("set expects three arguments");
@@ -1500,11 +1653,11 @@ static void command_set(char **tokens, size_t count) {
      object, so the driver does the same for its direct stores. A store into
      an array gives the index, as the compiled array stores do. */
   if (entry->info->object_kind == AIHC_OBJECT_ARRAY) {
-    aihc_write_barrier_at(capability, entry->address, index);
+    aihc_write_barrier_at(writer_of(entry->address), entry->address, index);
     aihc_array_elements(entry->address)[index] = value;
     return;
   }
-  aihc_write_barrier(capability, entry->address);
+  aihc_write_barrier(writer_of(entry->address), entry->address);
   entry_fields(entry)[index] = value;
   if (is_word) {
     entry->shadow[index] = value;
@@ -1538,6 +1691,7 @@ static void command_fill(char **tokens, size_t count) {
     }
     AihcInfo *info = checked_calloc(1, sizeof(*info));
     info->field_count = piece - 1;
+    info->identity = FILLER_IDENTITY;
     info->frame_kind = AIHC_FRAME_NONE;
     info->object_kind = AIHC_OBJECT_NODE;
     AihcValue *object = aihc_gc_allocate(heap, piece);
@@ -1750,6 +1904,39 @@ static void set_stack_pointer(Frame *target) {
 
 static void apply_resume(const AihcResume *resume);
 
+typedef AihcValue *(*Update)(AihcCapability *, AihcValue *, AihcValue *);
+
+/* Run an update as compiled code does. With several capabilities, the
+   update of a global thunk promotes the value. When the promotion needs a
+   collection, the update gives null, and the driver collects with its roots,
+   the thunk, and the value, and runs the update again. The report of the
+   collection follows the update, so it shows the state after the
+   command. */
+static void escaping_update(Update update, AihcValue *thunk, AihcValue *value) {
+  int collected = 0;
+  if (capability->machine->capability_count > 1) {
+    promoted_ever = 1;
+  }
+  while (update(capability, thunk, value) == NULL) {
+    size_t total = 0;
+    AihcSlot *roots = gather_roots(&total);
+    AihcSlot *extended = checked_calloc(total + 2, sizeof(*extended));
+    memcpy(extended, roots, total * sizeof(*extended));
+    extended[total] = (AihcSlot)(uintptr_t)thunk;
+    extended[total + 1] = (AihcSlot)(uintptr_t)value;
+    aihc_escape_collect(capability, total + 2, extended, current_srt);
+    memcpy(roots, extended, total * sizeof(*extended));
+    thunk = (AihcValue *)(uintptr_t)extended[total];
+    value = (AihcValue *)(uintptr_t)extended[total + 1];
+    free(extended);
+    scatter_roots(roots, total);
+    collected = 1;
+  }
+  if (collected) {
+    report_collection();
+  }
+}
+
 /* Continue into a frame of the running thread with an optional value, as
    the entry of the frame would: an update frame updates its thunk with the
    value and wakes the waiters of the thunk, a stop frame ends the thread,
@@ -1768,7 +1955,7 @@ static void continue_into(Frame *frame, AihcValue *value, int has_value) {
     uintptr_t identity = aihc_value_info_table(thunk)->identity;
     set_stack_pointer(target);
     pop_to(thread, target->info->identity, 1);
-    aihc_update_blackhole(capability, thunk, value);
+    escaping_update(aihc_update_blackhole, thunk, value);
     if (identity != 0 && identity < entry_capacity) {
       entries[identity].indirection = 1;
     }
@@ -1884,6 +2071,41 @@ static void command_block(char **tokens, size_t count) {
   apply_resume(resume);
 }
 
+/* Promote an object and store the result in a global, as an escape into a
+   global object does. The promotion collects when the object reaches a
+   mutable object. Afterwards the driver names each promoted thunk by its
+   copy, because the original is an indirection to it. */
+static void command_promote(char **tokens, size_t count) {
+  if (count != 3) {
+    fail("promote expects two arguments");
+  }
+  link_srts();
+  AihcValue *object = parse_object(tokens[1]);
+  uint64_t index = parse_unsigned(tokens[2]);
+  if (index >= capability->machine->global_count) {
+    fail("global index out of range");
+  }
+  uint64_t before = capability->machine->gc_count;
+  size_t total = 0;
+  AihcSlot *roots = gather_roots(&total);
+  AihcValue *promoted =
+      aihc_promote(capability, object, total, roots, current_srt);
+  scatter_roots(roots, total);
+  capability->machine->globals[index] = (AihcSlot)(uintptr_t)promoted;
+  promoted_ever = 1;
+  if (capability->machine->gc_count != before) {
+    report_collection();
+    return;
+  }
+  for (size_t identity = 1; identity < entry_capacity; ++identity) {
+    Entry *entry = &entries[identity];
+    if (entry->defined && !entry->indirection && entry->address != NULL &&
+        entry->address->header == (AihcSlot)(uintptr_t)&aihc_indirection_info) {
+      entry->address = (AihcValue *)(uintptr_t)entry->address->fields[0];
+    }
+  }
+}
+
 static void run_command(char **tokens, size_t count) {
   const char *name = tokens[0];
   if (strcmp(name, "machine") == 0) {
@@ -1901,6 +2123,11 @@ static void run_command(char **tokens, size_t count) {
     }
     link_srts();
     current_srt = srt_of(parse_signed(tokens[1]));
+  } else if (strcmp(name, "gen2limit") == 0) {
+    if (count != 2) {
+      fail("gen2limit expects one argument");
+    }
+    capability->machine->gen2_limit_bytes = parse_unsigned(tokens[1]);
   } else if (strcmp(name, "capabilities") == 0) {
     if (count != 2) {
       fail("capabilities expects one argument");
@@ -1912,6 +2139,11 @@ static void run_command(char **tokens, size_t count) {
     aihc_machine_set_capabilities(capability, total);
     heap = capability;
     heap_index = 0;
+    /* With several capabilities, every store into a global object can
+       promote, and a promotion can copy. */
+    if (total > 1) {
+      promoted_ever = 1;
+    }
   } else if (strcmp(name, "heap") == 0) {
     if (count != 2) {
       fail("heap expects one argument");
@@ -1950,8 +2182,8 @@ static void run_command(char **tokens, size_t count) {
     if (slot >= STATIC_THUNKS) {
       fail("supdate expects a static thunk");
     }
-    aihc_update(capability, (AihcValue *)&static_thunks[slot],
-                parse_object(tokens[2]));
+    escaping_update(aihc_update, (AihcValue *)&static_thunks[slot],
+                    parse_object(tokens[2]));
   } else if (strcmp(name, "sset") == 0) {
     if (count != 4) {
       fail("sset expects three arguments");
@@ -2000,6 +2232,8 @@ static void run_command(char **tokens, size_t count) {
       fail("global index out of range");
     }
     capability->machine->globals[index] = parse_pointer(tokens[2]);
+  } else if (strcmp(name, "promote") == 0) {
+    command_promote(tokens, count);
   } else if (strcmp(name, "root") == 0) {
     if (count != 3) {
       fail("root expects two arguments");
@@ -2016,25 +2250,50 @@ static void run_command(char **tokens, size_t count) {
     AihcValue *object = parse_object(tokens[1]);
     const uint8_t *before = capability->heap_next;
     AihcStableName *stable = aihc_stable_name_make(capability, object);
+    int collected = 0;
+    while (stable == NULL) {
+      /* With several capabilities, the name of a young object asks for the
+         collection of an escape first, as a store safepoint gives it. */
+      size_t total = 0;
+      AihcSlot *roots = gather_roots(&total);
+      AihcSlot *extended = checked_calloc(total + 1, sizeof(*extended));
+      memcpy(extended, roots, total * sizeof(*extended));
+      extended[total] = (AihcSlot)(uintptr_t)object;
+      aihc_escape_collect(capability, total + 1, extended, current_srt);
+      memcpy(roots, extended, total * sizeof(*extended));
+      object = (AihcValue *)(uintptr_t)extended[total];
+      free(extended);
+      scatter_roots(roots, total);
+      before = capability->heap_next;
+      stable = aihc_stable_name_make(capability, object);
+      collected = 1;
+    }
     consume_reservation(before);
+    int known = 0;
     for (size_t index = 0; index < stable_count; ++index) {
       if (stable_names[index] == stable) {
-        return;
+        known = 1;
       }
     }
-    if (stable_count >= SIZE_MAX / sizeof(*stable_names) - 1) {
-      fail("too many stable names");
+    if (!known) {
+      if (stable_count >= SIZE_MAX / sizeof(*stable_names) - 1) {
+        fail("too many stable names");
+      }
+      AihcStableName **grown =
+          realloc(stable_names, (stable_count + 1) * sizeof(*grown));
+      if (grown == NULL) {
+        fail("out of memory");
+      }
+      stable_names = grown;
+      memmove(stable_names + 1, stable_names,
+              stable_count * sizeof(*stable_names));
+      stable_names[0] = stable;
+      ++stable_count;
     }
-    AihcStableName **grown =
-        realloc(stable_names, (stable_count + 1) * sizeof(*grown));
-    if (grown == NULL) {
-      fail("out of memory");
+    /* The report shows the state after the command. */
+    if (collected) {
+      report_collection();
     }
-    stable_names = grown;
-    memmove(stable_names + 1, stable_names,
-            stable_count * sizeof(*stable_names));
-    stable_names[0] = stable;
-    ++stable_count;
   } else if (strcmp(name, "push") == 0) {
     link_srts();
     command_push(tokens, count);
@@ -2075,11 +2334,30 @@ static void run_command(char **tokens, size_t count) {
     AihcValue *continuation = running_continuation();
     AihcMVar *mvar = parse_mvar(tokens[1]);
     AihcSlot value = parse_pointer(tokens[2]);
+    /* With several capabilities, a put into a global MVar can collect for
+       its promotion. The roots of the driver go into a host root frame for
+       the call, so that collection updates them. */
+    uint64_t collections = capability->machine->gc_count;
+    size_t total = 0;
+    AihcSlot *roots = gather_roots(&total);
+    AihcRootFrame frame;
+    aihc_roots_enter(capability, &frame, total, roots);
     const uint8_t *before = capability->heap_next;
     const AihcResume *resume =
         aihc_mvar_put(capability, mvar, value, continuation);
-    consume_reservation(before);
+    aihc_roots_leave(capability, &frame);
+    scatter_roots(roots, total);
+    if (capability->machine->gc_count == collections) {
+      consume_reservation(before);
+    } else {
+      /* The collection emptied the nursery, so the operation took its words
+         from the start of the nursery. */
+      consume_reservation(capability->heap_start);
+    }
     apply_resume(resume);
+    if (capability->machine->gc_count != collections) {
+      report_collection();
+    }
   } else if (strcmp(name, "cycle") == 0) {
     if (count != 1) {
       fail("cycle expects no argument");

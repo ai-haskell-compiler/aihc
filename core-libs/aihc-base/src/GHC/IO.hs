@@ -39,7 +39,7 @@ where
 import GHC.Base (Maybe (..), Monad (..), String, id)
 import GHC.Exception.Type (Exception (..), SomeException (..))
 import GHC.IO.Unsafe (unsafeDupableInterleaveIO, unsafeDupablePerformIO, unsafeInterleaveIO, unsafePerformIO)
-import GHC.Prim (RealWorld, State#, catch#, raiseIO#, seq, unsafeCoerce#)
+import GHC.Prim (RealWorld, State#, catch#, noDuplicate#, raiseIO#, seq, unsafeCoerce#)
 import GHC.Prim.IO
 
 type FilePath = String
@@ -67,9 +67,10 @@ unsafeSTToIO (ST action) =
         (# next, value #) -> (# unsafeCoerce# next, value #)
     )
 
--- | Thunks are never entered twice in this runtime.
+-- | Claim the evaluations of the thread, and give up an evaluation that
+-- another thread does already. See 'noDuplicate#'.
 noDuplicate :: IO ()
-noDuplicate = return ()
+noDuplicate = IO (\state -> (# noDuplicate# state, () #))
 
 -- | Raise an exception in the @IO@ thread. 'raiseIO#' takes the state
 -- token, so each effect before the raise stays before it.

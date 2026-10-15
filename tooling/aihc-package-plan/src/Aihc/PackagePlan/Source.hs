@@ -18,7 +18,7 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
-import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
+import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
@@ -32,7 +32,6 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Crypto.Hash.SHA256 qualified as SHA256
-import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.List (nub, sort)
@@ -56,8 +55,8 @@ data ParsedInterfaceFile = ParsedInterfaceFile
     -- | The lines of the file by the path and line a span names. Lazy: a
     -- consumer that renders no excerpt never builds it.
     parsedFileSourceLines :: DiagnosticSourceMap,
-    parsedFileParseDiagnostics :: [Aeson.Value],
-    parsedFileCppDiagnostics :: [Aeson.Value],
+    parsedFileParseDiagnostics :: [Diagnostic],
+    parsedFileCppDiagnostics :: [Diagnostic],
     parsedFileExtensions :: [Extension],
     parsedFileSource :: !Text,
     parsedFileDeps :: !ModuleDeps
@@ -183,7 +182,7 @@ parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
 
 -- | Preprocess one module and report, besides the output and the
 -- diagnostics, every package header it included.
-preprocessInterfaceSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value], Map FilePath Text)
+preprocessInterfaceSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Diagnostic], Map FilePath Text)
 preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
   drive M.empty (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
   where
