@@ -131,7 +131,10 @@ occurrences name = go
         ExForeignCall _ _ arguments -> foldMap go arguments
     repeated (Occurrences count _) = Occurrences count (count > 0)
 
--- | Replace every occurrence of a name by an expression.
+-- | Replace every occurrence of a name by an expression. A call of a
+-- replacement lambda with a variable becomes the body of the lambda, with
+-- the variable in place of the parameter. A shared match failure is such
+-- a lambda.
 substExpr :: Name -> Expr -> Expr -> Expr
 substExpr name replacement = go
   where
@@ -140,6 +143,10 @@ substExpr name replacement = go
         ExVar var
           | var == name -> replacement
           | otherwise -> expr
+        ExApp (ExVar var) argument@(ExVar _)
+          | var == name,
+            ExLam parameter body <- replacement ->
+              substExpr (binderName parameter) argument body
         ExLit {} -> expr
         ExApp function argument -> ExApp (go function) (go argument)
         ExTyApp function argument -> ExTyApp (go function) argument

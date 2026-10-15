@@ -51,18 +51,19 @@ expected: |-
   pub val 1.vpick :: ∀(a : sType) (b : sType). t$Dict$Eq b → t$Dict$Num b → t$Dict$Eq a → t$Dict$Num a → a → b → tFlag
     = Λ(a : sType) (b : sType). λ($dEq : t$Dict$Eq b) ($dNum : t$Dict$Num b) ($dEq{1} : t$Dict$Eq a)
     ($dNum{1} : t$Dict$Num a) (x : a) (y : b).
-      let _fail : tFlag =
-        vother @a x;
+      let _fail : a → tFlag =
+        λ(x{1} : a).
+          vother @a x{1};
       case v== @a $dEq{1} x (vfromInteger @a $dNum{1} (cIS lit (0#cIntRep) :: tInt#)) of {
         cTrue →
           case v== @b $dEq y (vfromInteger @b $dNum (cIS lit (0#cIntRep) :: tInt#)) of {
             cTrue →
               cOn;
             cFalse →
-              _fail
+              _fail x
           };
         cFalse →
-          _fail
+          _fail x
       }
 status: pass
 reason: Every literal test of a row names one failure binding.

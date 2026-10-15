@@ -1,0 +1,81 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (pick) where
+
+  import GHC.Prim ((+#))
+  import GHC.Types (Bool (..), Int (..))
+
+  double :: Int -> Int
+  double n = case n of
+    I# i -> I# (i +# i)
+
+  plus :: Int -> Int -> Int
+  plus a b = case a of
+    I# i -> case b of
+      I# j -> I# (i +# j)
+
+  pick :: Bool -> Int -> Int -> Int
+  pick b m n =
+    let r = double n
+        k u = plus r u
+     in case b of
+          True -> k m
+          False -> k n
+passes:
+- demand
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  val 1.vdouble :: tInt → tInt
+    = λ(x : tInt).
+      let! cI# (i : tInt#) = x;
+      cI# (prim +# i i)
+
+  val 1.vplus :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (i : tInt#) = x;
+      let! cI# (j : tInt#) = y;
+      cI# (prim +# i j)
+
+  pub val 1.vpick :: tBool → tInt → tInt → tInt
+    = λ(x : tBool) (y : tInt) (z : tInt).
+      let! _ as (r : tInt) = vdouble z;
+      let k : tInt → tInt =
+        λ(x{1} : tInt).
+          vplus r x{1};
+      case x of {
+        cTrue →
+          k y;
+        cFalse →
+          k z
+      }
+status: pass
+reason: Each path of the body of 'pick' calls the local function 'k' with all its arguments, and the body of 'k' evaluates 'r'. Thus the body of 'pick' evaluates 'r' on every path, and the let that binds 'r' becomes a case.

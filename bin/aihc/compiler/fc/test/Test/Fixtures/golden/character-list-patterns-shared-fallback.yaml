@@ -45,8 +45,9 @@ expected: |-
 
   pub val 1.vreadColour :: t[] tChar → tColour
     = λ(x : t[] tChar).
-      let _fail : tColour =
-        cUnknown x;
+      let _fail : t[] tChar → tColour =
+        λ(x{1} : t[] tChar).
+          cUnknown x{1};
       case x of {
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
           let! cC# (_pat{2} : tChar#) = _pat;
@@ -66,19 +67,19 @@ expected: |-
                                 c[] →
                                   cRed;
                                 _ →
-                                  _fail
+                                  _fail x
                               };
                             _ →
-                              _fail
+                              _fail x
                           };
                         _ →
-                          _fail
+                          _fail x
                       };
                     _ →
-                      _fail
+                      _fail x
                   };
                 _ →
-                  _fail
+                  _fail x
               };
             'g'#cWordRep →
               case _pat{1} of {
@@ -105,37 +106,37 @@ expected: |-
                                                 c[] →
                                                   cGreen;
                                                 _ →
-                                                  _fail
+                                                  _fail x
                                               };
                                             _ →
-                                              _fail
+                                              _fail x
                                           };
                                         _ →
-                                          _fail
+                                          _fail x
                                       };
                                     _ →
-                                      _fail
+                                      _fail x
                                   };
                                 _ →
-                                  _fail
+                                  _fail x
                               };
                             _ →
-                              _fail
+                              _fail x
                           };
                         _ →
-                          _fail
+                          _fail x
                       };
                     _ →
-                      _fail
+                      _fail x
                   };
                 _ →
-                  _fail
+                  _fail x
               };
             _ →
-              _fail
+              _fail x
           };
         _ →
-          _fail
+          _fail x
       }
 status: pass
-reason: The final variable equation after character list equations is compiled once, bound as the shared failure, and each default alternative names it.
+reason: The final variable equation after character list equations is compiled once, bound as the shared failure, and each default alternative calls it. The failure is a join point of the match argument and not a lazy let, so a call of 'readColour' allocates no thunk for it.
