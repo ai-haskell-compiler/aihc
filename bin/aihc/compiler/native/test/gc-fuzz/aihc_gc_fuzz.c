@@ -25,6 +25,8 @@
      machine G R S [L]    new machine with G globals, R root slots, a
                           nursery of S bytes, and a mark slice of L bytes
      capabilities C       give the machine C capabilities
+     gen2limit B          start a gen2 cycle at the next collection of
+                          gen1 when gen2 has B bytes or more
      heap K               allocate the objects of later commands in the
                           nursery of capability K
      srt I O C e...       reference table I names O static objects and C
@@ -1601,7 +1603,8 @@ static AihcMVar *parse_mvar(const char *token) {
 /* The capability that writes an object. A young object belongs to the
    local heap of one capability, and only that capability writes it. Thus
    its remembered entry goes to the set that the local collection of that
-   capability scans. Any capability writes a global object. */
+   capability scans. Any capability writes a global object, and the
+   driver writes it through the capability of the current nursery. */
 static AihcCapability *writer_of(const AihcValue *object) {
   AihcMachine *machine = capability->machine;
   for (uint64_t index = 0; index < machine->capability_count; ++index) {
@@ -1624,7 +1627,7 @@ static AihcCapability *writer_of(const AihcValue *object) {
       return machine->capabilities[aihc_pinned_owner(block)];
     }
   }
-  return capability;
+  return heap;
 }
 
 static void command_set(char **tokens, size_t count) {
@@ -2120,6 +2123,11 @@ static void run_command(char **tokens, size_t count) {
     }
     link_srts();
     current_srt = srt_of(parse_signed(tokens[1]));
+  } else if (strcmp(name, "gen2limit") == 0) {
+    if (count != 2) {
+      fail("gen2limit expects one argument");
+    }
+    capability->machine->gen2_limit_bytes = parse_unsigned(tokens[1]);
   } else if (strcmp(name, "capabilities") == 0) {
     if (count != 2) {
       fail("capabilities expects one argument");

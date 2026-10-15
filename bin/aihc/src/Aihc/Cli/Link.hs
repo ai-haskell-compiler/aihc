@@ -339,7 +339,7 @@ linkExecutable target output libraries objects archives = do
 nativeLinkArguments :: NativeTarget -> LinkLibraries -> [FilePath] -> Either String [String]
 nativeLinkArguments target LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments} inputs = do
   cxxArguments <- if linkCxxStdLib then cxxStandardLibraryArguments target else pure []
-  pure (executableLinkArguments target <> linkLtoArguments <> inputs <> linkArguments <> ["-lm"] <> cxxArguments)
+  pure (executableLinkArguments target <> linkLtoArguments <> inputs <> linkArguments <> ["-lm", "-lpthread"] <> cxxArguments)
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do

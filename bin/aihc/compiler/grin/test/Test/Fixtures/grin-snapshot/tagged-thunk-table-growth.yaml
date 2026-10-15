@@ -62,7 +62,7 @@ program: |
 return: "2688"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 14144
-  linux-amd64: 14144
+  macos-arm64: 14656
+  linux-amd64: 14656
 status: pass
 reason: Concurrent thunk waiters survive table growth, moving collection, and removal after owners blocked on MVars resume.

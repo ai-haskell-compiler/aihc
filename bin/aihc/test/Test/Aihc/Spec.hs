@@ -868,7 +868,7 @@ test_ltoLlvm getStore =
           | System.Info.arch /= "x86_64" = []
           | System.Info.os == "darwin" = ["-Wl,-mllvm,-enable-shrink-wrap=false"]
           | otherwise = ["-Wl,-plugin-opt=-enable-shrink-wrap=false"]
-    assertEqual "bundle records the LLVM link arguments" (executableLinkArguments Llvm <> ["-flto", "-O2"] <> shrinkWrapArguments <> ["-lm"]) (filter (not . ("inputs/" `isPrefixOf`)) (linkBundleArguments bundleManifest))
+    assertEqual "bundle records the LLVM link arguments" (executableLinkArguments Llvm <> ["-flto", "-O2"] <> shrinkWrapArguments <> ["-lm", "-lpthread"]) (filter (not . ("inputs/" `isPrefixOf`)) (linkBundleArguments bundleManifest))
     -- The link reads no archive: the wrapper objects of the packages are
     -- among the objects, and the C objects were already.
     assertEqual "bundle lists no archive" [] (filter (".a" `isSuffixOf`) (linkBundleArguments bundleManifest))
@@ -1184,7 +1184,7 @@ test_buildExtraLibraries getStore = do
     bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "answer"] bundleOutputs
     bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "answer"))
-    assertEqual "the bundle records the library arguments" (expectedArguments <> ["-lm"]) (filter (\argument -> "-L" `isPrefixOf` argument || "-l" `isPrefixOf` argument) (linkBundleArguments bundle))
+    assertEqual "the bundle records the library arguments" (expectedArguments <> ["-lm", "-lpthread"]) (filter (\argument -> "-L" `isPrefixOf` argument || "-l" `isPrefixOf` argument) (linkBundleArguments bundle))
     let linked = root </> "linked" </> "answer"
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "answer", linkExeOutputFile = linked}
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""

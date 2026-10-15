@@ -295,6 +295,15 @@ invalid:
   trap "invalid scheduler resumption"
 }
 
+; The entry of a worker on its own OS thread: a C function that resumes the
+; thread the scheduler selected. It returns only when the capability
+; suspends, which a host with workers never does.
+export func @aihc_lir_worker_enter(%capability: ptr, %resume: ptr) cc c {
+entry:
+  call @aihc_lir_resume(%capability, %resume)
+  return
+}
+
 ; A C function, so that a caller keeps its values in the registers a C
 ; call preserves.
 export func @aihc_lir_cstring_length(%address: ptr) -> i64 cc c {

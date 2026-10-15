@@ -322,6 +322,10 @@ struct AihcCapability {
   uint64_t barrier_work;
   /* The position of the capability in the array of the machine. */
   uint64_t index;
+  /* Not zero while the worker of the capability waits in its idle wait. */
+  uint64_t idle;
+  /* The threads that this capability pushed to an idle capability. */
+  uint64_t push_count;
 };
 
 /* The process state shared by all capabilities. */
@@ -400,6 +404,11 @@ struct AihcMachine {
      sum is fixed_bytes. The gen1 and gen2 tests add the count of their
      generation, so dead old fixed blocks start a collection. */
   uint64_t fixed_generation_bytes[3];
+  /* Not zero when each capability has a worker on its own OS thread. See
+     "Workers" in docs/multi-threaded-rts-design.md. */
+  uint64_t workers_active;
+  /* The number of capabilities in the idle wait. */
+  uint64_t idle_count;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the

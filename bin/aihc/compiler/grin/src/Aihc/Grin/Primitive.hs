@@ -56,7 +56,7 @@ primitiveHeapWords name =
       ("newPromptTag#", 1),
       ("makeStableName#", 4),
       ("newMutVar#", 3),
-      ("fork#", 10),
+      ("fork#", 11),
       ("newMVar#", 9),
       ("readMVar#", 5),
       ("takeMVar#", 5),

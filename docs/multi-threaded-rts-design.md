@@ -84,6 +84,20 @@ An escape collection is also local.
 An explicit collection, a full collection, and the start of a gen2 cycle are bridge collections.
 A nursery that grows replaces the arena, so a bridge collection empties the other nurseries first.
 Under `AIHC_GC_VERIFY`, the verifier stops at a local object that names an object of another local heap.
+The end of a gen2 cycle drops the freed objects from the remembered set of each capability.
+The first part of build step 4 gives each capability a worker on its own OS thread when `-N` is above one.
+Until step 6, a ticket lock, the run lock, lets only one worker at a time run Haskell code or the runtime.
+Thus the synchronisation primitives of step 5 are not necessary yet.
+A worker gives the run lock to a waiting worker at each scheduler call.
+Each thread record names its capability, and a woken thread goes back to the run queue of that capability.
+At a schedule, a capability with two or more runnable threads pushes at most half of the surplus to idle capabilities.
+Before the push, a collection moves each young survivor of its local heap into gen2.
+A pushed thread gets the new capability in each chunk of its stack.
+A capability without runnable threads waits in its idle wait.
+The wait polls the pending IO requests and a wake-up pipe, and it releases the run lock.
+The machine has a deadlock when every capability waits with no runnable thread and no IO request.
+When the main thread ends on a worker, the worker ends the process.
+The capability locks, the stop protocol, `setNumCapabilities`, the inboxes, and the ticker remain for later parts of step 4.
 Native parallel execution starts at step 6, after the local collection of step 3.
 WASM keeps one capability until WASI supports the required thread operations.
 

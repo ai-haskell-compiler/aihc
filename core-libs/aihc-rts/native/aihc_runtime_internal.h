@@ -55,10 +55,14 @@ struct AihcThread {
   AihcTransaction *transaction;
   /* The blackhole queues of the thunks that this thread claimed. */
   AihcBlackholeQueue *queues;
+  /* The index of the capability whose run queue holds the thread, or that
+     runs it or will wake it. Only that capability changes the field, when
+     it pushes the thread to another capability. */
+  uint64_t capability;
 };
 
 /* Match the fork# reservation in Aihc.Grin.Primitive. */
-_Static_assert(sizeof(AihcThread) <= 10 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcThread) <= 11 * sizeof(AihcSlot),
                "thread exceeds the GRIN reservation");
 
 typedef struct AihcTransactionWrite AihcTransactionWrite;
@@ -518,6 +522,9 @@ void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
+/* Give each chunk of the stack of a thread to another capability, which
+   runs the thread from now on. */
+void aihc_stack_move(AihcThread *thread, AihcCapability *capability);
 /* Push one frame of the given words on the stack of the running thread.
    The caller writes the header and every field. */
 AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words);
@@ -640,6 +647,23 @@ _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);
 /* A monotonic clock in nanoseconds, or zero on a host without one. */
 uint64_t aihc_host_monotonic_ns(void);
+/* Workers. See "Workers" in docs/multi-threaded-rts-design.md. Until build
+   step 6, the run lock lets only one worker at a time run Haskell code or
+   the runtime. A host without threads has one capability and never starts
+   workers. */
+/* Start one worker on its own OS thread for each capability except the
+   first, which the calling thread runs. The caller then holds the run
+   lock. */
+void aihc_host_workers_start(AihcCapability *capability);
+void aihc_host_run_lock(void);
+void aihc_host_run_unlock(void);
+/* Whether another worker waits for the run lock. */
+int aihc_host_run_lock_wanted(void);
+/* End the idle wait of a capability. */
+void aihc_host_wake(AihcCapability *capability);
+/* The entry of a worker: it runs the threads of its capability and does
+   not return. The caller holds the run lock. */
+_Noreturn void aihc_worker_run(AihcCapability *capability);
 void aihc_host_sleep_ns(uint64_t duration);
 /* Replace the file at path with the given bytes. The result is zero, or an
    errno value when the host cannot write the file. */
