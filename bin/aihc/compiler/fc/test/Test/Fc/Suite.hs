@@ -8,7 +8,7 @@ module Test.Fc.Suite
   )
 where
 
-import Aihc.Fc (LintError (..), Program, decodeProgram, encodeProgram, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader, writeProgramFile)
+import Aihc.Fc (Decl (..), LintError (..), Program (..), ValDecl (..), Vis (..), decodeProgram, encodeProgram, lintProgram, loadScopeClosure, parseProgram, pruneProgram, renderParseError, renderProgram, storeModuleLoader, writeProgramFile)
 import Aihc.Resolve (PackageId (..))
 import Control.Exception (IOException, try)
 import Data.ByteString.Lazy qualified as BL
@@ -71,7 +71,20 @@ fcLintTests = do
   pass <- lintFileTests "pass" True (root </> "pass")
   failCases <- lintFileTests "fail" False (root </> "fail")
   mutual <- mutualLintTests (root </> "mutual")
-  pure (testGroup "SystemFC lint" [pass, failCases, mutual])
+  pruned <- prunedLintTests (root </> "prune")
+  pure (testGroup "SystemFC lint" [pass, failCases, mutual, pruned])
+
+-- | Each program must pass the lint after a prune to its public values.
+prunedLintTests :: FilePath -> IO TestTree
+prunedLintTests dir = do
+  files <- listFcFiles dir
+  pure (testGroup "prune" (map prunedLintTest files))
+
+prunedLintTest :: FilePath -> TestTree
+prunedLintTest path = testCase path $ do
+  program <- loadFcProgram path
+  let roots = [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub]
+  assertEqual (path <> " lint errors after the prune") [] (lintProgram primPackage (pruneProgram roots program))
 
 lintFileTests :: String -> Bool -> FilePath -> IO TestTree
 lintFileTests label expectPass dir = do
