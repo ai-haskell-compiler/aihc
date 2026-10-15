@@ -84,7 +84,9 @@ tests =
           testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
           testCase "scans the frames of a kept thread whose MVar dies" (checkScript getDriver deadMVarScript),
           testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript),
-          testCase "drops a freed object from the remembered set of another capability" (checkScript getDriver remotePurgeScript)
+          testCase "drops a freed object from the remembered set of another capability" (checkScript getDriver remotePurgeScript),
+          testCase "promotes a global object that names a young thunk without a collection" (checkScript getDriver globalPromotionScript),
+          testCase "grows the nursery after a local collection beside a young large array" (checkScript getDriver localGrowthScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -105,6 +107,42 @@ evaluatedStaticScript =
     CSUpdate 0 (VHeap 2),
     CFill 0,
     CCollect
+  ]
+
+-- | A global object names a young thunk. A promotion goes through young
+-- objects only, so a promotion of the global object does not reach the
+-- thunk and does not collect.
+globalPromotionScript :: [Command]
+globalPromotionScript =
+  [ CMachine 1 0 64 0,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CReserve 2,
+    CNew 2 KNode [True] Nothing,
+    CPromote 2 0,
+    CCollect,
+    CReserve 2,
+    CNew 3 KThunk [] Nothing,
+    CSet 2 0 (VHeap 3),
+    CPromote 2 0,
+    CCollect
+  ]
+
+-- | The second capability allocates a large array, and its nursery stays
+-- empty. A reservation of the first capability does not fit its nursery,
+-- so it collects its local heap and grows the nursery. No other nursery
+-- holds objects, so no bridge collection runs, and the array stays young.
+localGrowthScript :: [Command]
+localGrowthScript =
+  [ CMachine 0 1 128 0,
+    CCapabilities 2,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CHeap 1,
+    CArray 2 4094 Nothing,
+    CHeap 0,
+    CRoot 0 (VHeap 2),
+    CReserve 33
   ]
 
 -- | The second capability stores into a gen2 object, which then dies. A
@@ -524,14 +562,18 @@ deepestStack model = maximum (1 : [chunks (reverse (chainOf top)) | Thread (Thre
        in if used + size > chunkWords then go (count + 1) size rest else go count (used + size) rest
 
 -- | The young objects that a promotion of an object reaches, whether the
--- promotion collects, and every immutable object it can reach at any age.
+-- promotion collects, and every object it reaches. The promotion goes
+-- through young objects only. A global object is promoted already, so the
+-- promotion stops at it, also when it names a young object.
 -- It collects when it reaches a mutable object or a thunk: the driver gives
 -- the runtime no top frame for the pause walk, so the runtime cannot know
--- that a thunk is not under evaluation. The generator knows no ages,
--- because only the reports give them, so the result is Nothing by a rule
--- that does not depend on ages: when the reached objects include an object
--- with a stable name, because the name holds the original weakly and the
--- original can die while its copy lives.
+-- that a thunk is not under evaluation. The generator knows only the ages
+-- that its promotions give, because only the reports give the others. An
+-- object is never younger at the replay, so the replay reaches a part of
+-- what the generator reaches. The result is Nothing by a rule that holds
+-- for each part: when the reached objects include an object with a stable
+-- name, because the name holds the original weakly and the original can
+-- die while its copy lives.
 promotionOf :: Model -> Id -> Maybe (Set Id, Bool, Set Id)
 promotionOf = promotionWith False
 
@@ -550,25 +592,21 @@ promotionWith copyThunks model start = go Set.empty False Set.empty [VHeap start
         | Just (Ind target) <- Map.lookup identity (mHeap model) ->
             -- The runtime follows a young indirection only.
             if young identity then go reached collect seen (target : rest) else go reached collect seen rest
+        | not (young identity) -> go reached collect (Set.insert identity seen) rest
         | Set.member identity named -> Nothing
         | otherwise -> case Map.lookup identity (mHeap model) of
             Just (Object kind pointers fields _ owner) ->
-              let reached'
-                    | young identity = Set.insert identity reached
-                    | otherwise = reached
-                  mutable = (kind == KThunk && not copyThunks) || isJust owner
-               in go reached' (collect || (young identity && mutable)) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
+              let mutable = (kind == KThunk && not copyThunks) || isJust owner
+               in go (Set.insert identity reached) (collect || mutable) (Set.insert identity seen) ([field | (True, field) <- zip pointers fields] <> rest)
             Just Thread {} -> go reached collect seen rest
-            Just _
-              | young identity -> go (Set.insert identity reached) True (Set.insert identity seen) rest
-              | otherwise -> go reached collect (Set.insert identity seen) rest
+            Just _ -> go (Set.insert identity reached) True (Set.insert identity seen) rest
             Nothing -> go reached collect seen rest
       _ -> go reached collect seen rest
 
 -- | The effect of a store of a value into an object when the machine has
 -- several capabilities: when the object is global, the runtime promotes the
--- value. The rules of 'promotionOf' do not depend on ages, so they hold for
--- a store into any object. Nothing when they forbid the promotion.
+-- value. The rules of 'promotionOf' hold for a store into any object.
+-- Nothing when they forbid the promotion.
 escapeStore :: Bool -> Value -> Model -> Maybe Model
 escapeStore = escapeStoreWith False
 
