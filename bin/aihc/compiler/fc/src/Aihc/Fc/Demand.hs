@@ -155,7 +155,7 @@ demandProgram :: PackageId -> DemandRewrites -> Program -> (Program, DemandRepor
 demandProgram primPackage rewrites program =
   let types = typeEnvFromProgram primPackage program
       signatures = topLevelSignatures types (programDecls program)
-      env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False}
+      env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False, envEvaluates = Map.empty}
       supply = maxLocalUnique program + 1
       (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
       strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
@@ -172,7 +172,12 @@ data Env = Env
     envSignatures :: !Signatures,
     envRewrites :: !DemandRewrites,
     -- | If True, skip lambda bodies when the traversal computes strictness facts.
-    envAnalysisOnly :: !Bool
+    envAnalysisOnly :: !Bool,
+    -- | The free variables that the body of each local function in scope
+    -- evaluates, with the number of its parameters. A saturated call
+    -- evaluates the body, thus it evaluates these variables too. A join
+    -- point that shares the failure of a match is such a function.
+    envEvaluates :: !(Map Name (Int, Set Name))
   }
 
 extendType :: Env -> Binder -> Env
@@ -195,22 +200,27 @@ topLevelSignatures types decls = List.foldl' addComponent Map.empty (stronglyCon
     addComponent current component =
       case component of
         AcyclicSCC declaration ->
-          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly False) (valBody declaration)) current
+          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly False Map.empty) (valBody declaration)) current
         CyclicSCC members ->
-          fixSignatures (Env types current StrictLetsOnly False) [(valName declaration, valBody declaration) | declaration <- members]
+          fixSignatures (Env types current StrictLetsOnly False Map.empty) [(valName declaration, valBody declaration) | declaration <- members]
 
 -- | The signature of a local function, with the signatures in scope.
 functionSignature :: TypeEnv -> Signatures -> Expr -> Signature
-functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly False)
+functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly False Map.empty)
 
 -- | The signatures in scope under a local recursive group: those of the
 -- members added to those given.
 recursiveSignatures :: TypeEnv -> Signatures -> [(Name, Expr)] -> Signatures
-recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly False)
+recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly False Map.empty)
 
 -- | The signature of a function body: one demand per lambda it exposes.
 lambdaSignature :: Env -> Expr -> Signature
-lambdaSignature env expr =
+lambdaSignature env = fst . lambdaStrictness env
+
+-- | The signature of a function, and the free variables that its body
+-- evaluates.
+lambdaStrictness :: Env -> Expr -> (Signature, Set Name)
+lambdaStrictness env expr =
   let (binders, body) = collectLambdas expr
       strict = strictIn (extendTypes env binders) body
       -- The kinds of the type variables give the representation of a
@@ -222,7 +232,7 @@ lambdaSignature env expr =
           takenApart inner (binderName binder) con body =
             StrictProduct
         | otherwise = Strict
-   in Signature (map demand binders)
+   in (Signature (map demand binders), strict `Set.difference` Set.fromList (map binderName binders))
 
 -- | The type binders of a function, through lambdas and casts.
 lambdaTypeBinders :: Expr -> [Binder]
@@ -399,11 +409,19 @@ fixSignatures env members = loop (0 :: Int) optimistic
     strictOnly = Map.map (\(Signature demands) -> Signature [if isStrict demand then Strict else Lazy | demand <- demands])
 
 -- | The signatures in scope under a let: a right-hand side that is a
--- function adds one.
+-- function adds one, and the free variables that its body evaluates.
 bindSignature :: Env -> Binder -> Expr -> Env
 bindSignature env binder rhs
-  | null (fst (collectLambdas rhs)) = env
-  | otherwise = env {envSignatures = Map.insert (binderName binder) (lambdaSignature env rhs) (envSignatures env)}
+  | null binders = env
+  | otherwise =
+      env
+        { envSignatures = Map.insert name signature (envSignatures env),
+          envEvaluates = Map.insert name (length binders, evaluates) (envEvaluates env)
+        }
+  where
+    name = binderName binder
+    binders = fst (collectLambdas rhs)
+    (signature, evaluates) = lambdaStrictness env rhs
 
 -- | The signatures in scope under a recursive group.
 bindRecursiveSignatures :: Env -> [Bind] -> Env
@@ -521,10 +539,19 @@ demandApplication env ty (function, arguments) = do
               signatureDemands signature <> repeat Lazy
         _ -> repeat Lazy
       result = computedResult <|> ty
+      -- The free variables that a saturated call of a local function
+      -- evaluates. The FC has no shadowed binder, thus each name is the
+      -- variable that the function body names.
+      bodyStrict = case fst (castedSpine function) of
+        ExVar name
+          | Just (arity, evaluates) <- Map.lookup name (envEvaluates env),
+            length values >= arity ->
+              evaluates
+        _ -> Set.empty
   (arguments', strictSets, wraps) <- walkArguments env result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
   let application = List.foldl' applyArgument function' arguments'
       wrapped = foldr (\(binder, scrutinee) body -> caseFromList scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
-  pure (wrapped, headStrict <> mconcat strictSets)
+  pure (wrapped, headStrict <> bodyStrict <> mconcat strictSets)
 
 -- | The demand of each argument, with a type argument taking no demand.
 demandsByArgument :: [Either Type Expr] -> [Demand] -> [Demand]

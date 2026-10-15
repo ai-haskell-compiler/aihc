@@ -110,7 +110,7 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mapAndUnzipM, mfilter, unless, when, zipWithM)
+import Control.Monad (filterM, foldM, mapAndUnzipM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
@@ -156,7 +156,10 @@ data ValueState = ValueState
     -- | The method names of each class in scope, in the order of the
     -- fields of its dictionary. A dictionary match names its binders
     -- after them.
-    vsClassMethods :: !(Map GlobalName [Text])
+    vsClassMethods :: !(Map GlobalName [Text]),
+    -- | A match argument that is in scope everywhere in the current match.
+    -- A shared failure takes it as the parameter of its join point.
+    vsJoinArgument :: !(Maybe (Binder, TcType))
   }
 
 data PreparedValueInterface = PreparedValueInterface
@@ -341,7 +344,8 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsPatSyns = preparedPatSyns interface,
             vsForeignImports = preparedForeignImports interface,
             vsTagDataTypes = preparedTagDataTypes interface,
-            vsClassMethods = preparedClassMethods interface
+            vsClassMethods = preparedClassMethods interface,
+            vsJoinArgument = Nothing
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -1835,7 +1839,7 @@ withTypeVariables variables action = do
 -- when given, runs when no row matches. Without a fallback, an empty case
 -- reports the failure.
 desugarMatchArguments :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarMatchArguments resultType fallback binders argumentTypes works = do
+desugarMatchArguments resultType fallback binders argumentTypes works = withJoinArgument (zip binders argumentTypes) $ do
   -- A lazy pattern never fails, so it must not reach the match compiler.
   -- Expand it first: its variables become selector thunks and the column
   -- itself becomes a wildcard.
@@ -1972,17 +1976,44 @@ shareFailure resultType failure body =
     Nothing -> body Nothing
     Just expression -> shareExpr resultType expression (body . Just)
 
+-- | Run an action with a join argument. The first argument with a fixed
+-- representation becomes the join argument, unless an enclosing match
+-- already gave one. An enclosing argument is in scope here too.
+withJoinArgument :: [(Binder, TcType)] -> ValueM a -> ValueM a
+withJoinArgument candidates action = do
+  previous <- gets vsJoinArgument
+  case previous of
+    Just _ -> action
+    Nothing -> do
+      fixed <- filterM (hasFixedRuntimeRep . snd) candidates
+      case fixed of
+        [] -> action
+        argument : _ -> do
+          modify' (\state -> state {vsJoinArgument = Just argument})
+          result <- action
+          modify' (\state -> state {vsJoinArgument = previous})
+          pure result
+
 -- | Bind an expression to a name so that the body can name it more than once.
 --
 -- The body gets a fresh variable. The binding stays only when the body names
 -- it more than once, so a single use keeps the expression where it is and an
 -- unused expression disappears. The binding is lazy, so the shared expression
 -- does no work until the body needs it.
+--
+-- When each use is in a tail of the body, the binding is a join point: a
+-- function of the join argument that each use calls. A lazy binding would
+-- allocate a thunk each time the code runs, also when no use needs it. The
+-- calls of a join point are in tail position, thus GRIN lowering compiles
+-- each call to a direct call and allocates no closure. The body names the
+-- parameter in place of the join argument, thus the simplifier can copy
+-- the join point where a case gives the argument a known constructor.
 shareExpr :: TcType -> Expr -> (Expr -> ValueM Expr) -> ValueM Expr
-shareExpr resultType expression body =
-  case expression of
-    ExVar _ -> body expression
-    _ -> do
+shareExpr resultType expression body
+  -- An atom costs nothing at each use, and a copy keeps it visible to
+  -- the simplifier.
+  | isAtom expression = body expression
+  | otherwise = do
       fixed <- hasFixedRuntimeRep resultType
       -- A value whose representation is still a variable cannot be bound,
       -- so it is repeated at each use instead. Only the body of a
@@ -1992,12 +2023,44 @@ shareExpr resultType expression body =
         then body expression
         else do
           binder <- freshBinder "_fail" resultType
+          joinArgument <- gets vsJoinArgument
           let name = binderName binder
           result <- body (ExVar name)
-          pure $ case countUses name result of
-            0 -> result
-            1 -> substituteVar name expression result
-            _ -> ExLet (Bind binder expression) result
+          case countUses name result of
+            0 -> pure result
+            1 -> pure (substituteVar name expression result)
+            _
+              | Just (argument, argumentType) <- joinArgument,
+                onlyTailUses name result -> do
+                  joinType <- convertCheckedType (TcFunTy argumentType resultType)
+                  parameter <- freshBinderFromType (nameText (binderName argument)) (binderType argument)
+                  let call = ExApp (ExVar name) (ExVar (binderName argument))
+                      joinBody = substituteVar (binderName argument) (ExVar (binderName parameter)) expression
+                  pure (ExLet (Bind binder {binderType = joinType} (ExLam parameter joinBody)) (substituteVar name call result))
+              | otherwise -> pure (ExLet (Bind binder expression) result)
+
+-- | Whether an expression is a variable or a literal, with type arguments.
+isAtom :: Expr -> Bool
+isAtom expression =
+  case expression of
+    ExVar _ -> True
+    ExLit _ _ -> True
+    ExTyApp inner _ -> isAtom inner
+    _ -> False
+
+-- | Whether each use of a variable is the whole of a tail of an expression.
+-- A cast does not change the position of a use.
+onlyTailUses :: Name -> Expr -> Bool
+onlyTailUses name = go
+  where
+    go expression =
+      case expression of
+        ExVar _ -> True
+        ExLet binding inner -> countUses name (bindRhs binding) == 0 && go inner
+        ExRec bindings inner -> all ((== 0) . countUses name . bindRhs) bindings && go inner
+        ExCase scrutinee _ alternatives -> countUses name scrutinee == 0 && all (go . altRhs) alternatives
+        ExCast inner _ -> go inner
+        _ -> countUses name expression == 0
 
 -- | Whether the code generator can lay out a value of this type. It cannot
 -- when the representation is still a type variable, which is how the result

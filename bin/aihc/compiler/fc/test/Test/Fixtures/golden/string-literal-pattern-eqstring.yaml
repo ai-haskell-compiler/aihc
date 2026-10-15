@@ -64,8 +64,9 @@ expected: |-
             cTrue →
               cGreen;
             cFalse →
-              let _fail : tColour =
-                cUnknown x;
+              let _fail : t[] tChar → tColour =
+                λ(x{1} : t[] tChar).
+                  cUnknown x{1};
               case x of {
                 c: (_pat : tChar) (_pat{1} : t[] tChar) →
                   let! cC# (_pat{2} : tChar#) = _pat;
@@ -75,13 +76,13 @@ expected: |-
                         c[] →
                           cShort;
                         _ →
-                          _fail
+                          _fail x
                       };
                     _ →
-                      _fail
+                      _fail x
                   };
                 _ →
-                  _fail
+                  _fail x
               }
           }
       }
