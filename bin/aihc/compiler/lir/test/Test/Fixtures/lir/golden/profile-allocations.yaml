@@ -38,8 +38,8 @@ expected: |
     %words_20 = add i64 %words_19, 2
     store i64 %words_20, [@aihc_allocation_profile_counts + 8] align 8
     %hp_21 = ptr.add %hp_11, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8
-    store i64 1, [%hp_11 + 8] align 8
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
+    store i64 1, [%hp_11 + 8] align 8 region heap
     %objects_22 = load i64 [@aihc_allocation_profile_counts] align 8
     %objects_23 = add i64 %objects_22, 1
     store i64 %objects_23, [@aihc_allocation_profile_counts] align 8
@@ -47,8 +47,8 @@ expected: |
     %words_25 = add i64 %words_24, 2
     store i64 %words_25, [@aihc_allocation_profile_counts + 8] align 8
     %hp_26 = ptr.add %hp_21, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_21] align 8
-    store i64 2, [%hp_21 + 8] align 8
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_21] align 8 region heap
+    store i64 2, [%hp_21 + 8] align 8 region heap
     %objects_27 = load i64 [@aihc_allocation_profile_counts + 16] align 8
     %objects_28 = add i64 %objects_27, 1
     store i64 %objects_28, [@aihc_allocation_profile_counts + 16] align 8
@@ -56,9 +56,9 @@ expected: |
     %words_30 = add i64 %words_29, 3
     store i64 %words_30, [@aihc_allocation_profile_counts + 24] align 8
     %hp_31 = ptr.add %hp_26, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_26] align 8
-    store ptr %hp_11, [%hp_26 + 8] align 8
-    store ptr %hp_21, [%hp_26 + 16] align 8
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_26] align 8 region heap
+    store ptr %hp_11, [%hp_26 + 8] align 8 region heap
+    store ptr %hp_21, [%hp_26 + 16] align 8 region heap
     tailcall @aihc_lir_continue_p(%hp_31, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_26)
   }
 

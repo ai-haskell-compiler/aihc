@@ -41,8 +41,8 @@ expected: |
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
     %hp_17 = ptr.add %hp_11, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8
-    store i64 1, [%hp_11 + 8] align 8
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
+    store i64 1, [%hp_11 + 8] align 8 region heap
     %result_18 = add i64 2, 3
     %result_19 = mul i64 %result_18, %result_18
     %flag_20 = lt.s i64 %result_19, 30
@@ -73,12 +73,12 @@ expected: |
 
   gc_reserved_30(%$cps_return$gc$gc_31: ptr, %cell$gc_32: ptr, %hp_33: ptr, %hp_limit_34: ptr):
     %hp_40 = ptr.add %hp_33, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_33] align 8
-    store i64 %wide_21, [%hp_33 + 8] align 8
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_33] align 8 region heap
+    store i64 %wide_21, [%hp_33 + 8] align 8 region heap
     %hp_41 = ptr.add %hp_40, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_40] align 8
-    store ptr %hp_33, [%hp_40 + 8] align 8
-    store ptr %cell$gc_32, [%hp_40 + 16] align 8
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_40] align 8 region heap
+    store ptr %hp_33, [%hp_40 + 8] align 8 region heap
+    store ptr %cell$gc_32, [%hp_40 + 16] align 8 region heap
     tailcall @aihc_lir_continue_p(%hp_41, %hp_limit_34, %sp_2, %sp_limit_3, %$cps_return$gc$gc_31, %hp_40)
   }
 

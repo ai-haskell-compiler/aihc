@@ -29,7 +29,7 @@ expected: |
     %hp_10 = load ptr [%capability_7 + 16] align 1 word
     %hp_limit_11 = load ptr [%capability_7 + 24] align 1 word
     %result_12 = call @aihc_byte_array_initialize(%result_8, 8, 0, 8)
-    %size_13 = load i64 [%result_12 + 8] align 8
+    %size_13 = load i64 [%result_12 + 8] align 8 region heap
     %limit_14 = div.u i64 %size_13, 8
     %invalid_15 = ge.u i64 4, %limit_14
     br %invalid_15, out_of_bounds_16, inside_17
@@ -40,7 +40,7 @@ expected: |
 
   inside_17:
     %offset_18 = mul i64 4, 8
-    %contents_19 = load ptr [%result_12 + 16] align 8
+    %contents_19 = load ptr [%result_12 + 16] align 8 region heap
     %address_20 = ptr.add %contents_19, %offset_18
     %value_21 = load i64 [%address_20] align 1
     tailcall @aihc_lir_continue_i(%hp_10, %hp_limit_11, %sp_2, %sp_limit_3, %$cps_return$gc_9, %value_21)
