@@ -66,7 +66,14 @@ Only the collector fuzz driver uses more than one capability.
 An immutable original stays as it is, and an unclaimed thunk becomes an indirection to its copy.
 A value that reaches a mutable object or a claimed thunk runs a collection that moves every young survivor into gen2.
 Until local collection is enforced, every young object counts as local.
-The fuzz driver plays a promotion into a global. No runtime operation and no compiled store site promotes yet.
+The RTS option `-N<n>` gives the machine `n` capabilities, but every Haskell thread runs on the first one until step 4.
+With more than one capability, an update and a pointer store into a global object promote a young value.
+GC-GRIN puts a store safepoint before each such store, with the live roots and the top frame of the thread.
+The barrier gives the value to store, which is the global copy for an escape.
+Before a copy, the runtime runs the pause walk from the top frame, so a thunk under evaluation is claimed and takes the collection.
+When the promotion needs a collection, the store site spills its roots, collects, and runs the store again from the safepoint.
+A store safepoint ends a heap reservation, because the collection resets the nursery.
+The runtime operations that store, such as `putMVar#`, do not promote yet.
 Native parallel execution starts at step 6, after the local collection of step 3.
 WASM keeps one capability until WASI supports the required thread operations.
 

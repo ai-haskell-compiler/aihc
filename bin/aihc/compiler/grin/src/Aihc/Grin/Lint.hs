@@ -204,6 +204,7 @@ lintFunctionResult env resultRep expr =
       ]
     GrinStore {} -> []
     GrinEnsureHeap {} -> []
+    GrinSafepoint {} -> []
     GrinStoreUnchecked (GrinNode (GrinClosure functionName []) _) ->
       [ GrinLintSaturatedClosure functionName
       | Map.lookup functionName (lintFunctionResults env) == Just resultRep
@@ -232,6 +233,7 @@ lintExpr env bound expr =
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
     GrinEnsureHeap requiredWords roots -> lintValue bound requiredWords <> concatMap (lintValue bound) roots
+    GrinSafepoint top roots -> concatMap (lintValue bound) (maybe roots (: roots) top)
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
       let recursiveBound = Set.fromList (map fst bindings) <> bound
@@ -441,6 +443,7 @@ exprResults env expr =
     GrinBind _ _ body -> exprResults env body
     GrinStore {} -> [Placed [liftedGrinRep]]
     GrinEnsureHeap _ roots -> [Placed (map grinValueRuntimeRep roots)]
+    GrinSafepoint _ roots -> [Placed (map grinValueRuntimeRep roots)]
     GrinStoreUnchecked {} -> [Placed [liftedGrinRep]]
     GrinStoreRec _ body -> exprResults env body
     GrinStoreRecUnchecked _ body -> exprResults env body

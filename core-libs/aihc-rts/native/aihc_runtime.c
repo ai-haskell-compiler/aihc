@@ -24,6 +24,8 @@ _Static_assert(offsetof(AihcCapability, current_thread) == 6 * sizeof(void *),
 _Static_assert(offsetof(AihcCapability, nursery_bytes) ==
                    6 * sizeof(void *) + 8,
                "capability nursery_bytes ABI");
+_Static_assert(offsetof(AihcCapability, pause_top) == 6 * sizeof(void *) + 16,
+               "capability pause_top ABI");
 
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
@@ -1958,11 +1960,16 @@ const AihcResume *aihc_complete_io(AihcCapability *capability, int64_t result) {
   return aihc_schedule(capability);
 }
 
-void aihc_update(AihcCapability *capability, AihcValue *object,
-                 AihcValue *value) {
+AihcValue *aihc_update(AihcCapability *capability, AihcValue *object,
+                       AihcValue *value) {
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
+  AihcSlot stored = aihc_escape(capability, object, (AihcSlot)(uintptr_t)value);
+  if (stored == AIHC_ESCAPE_COLLECT) {
+    return NULL;
+  }
+  value = (AihcValue *)(uintptr_t)stored;
   aihc_write_barrier_update(capability, object);
   /* An indirection has two words, and the rest of the thunk is slop. The
      collector never walks it: it follows an indirection of a generation it
@@ -1975,6 +1982,7 @@ void aihc_update(AihcCapability *capability, AihcValue *object,
   for (uint64_t index = 1; index < words - 1; ++index) {
     object->fields[index] = 0;
   }
+  return value;
 }
 
 /* The update of a thunk at the end of its evaluation. The value goes into
@@ -1982,8 +1990,8 @@ void aihc_update(AihcCapability *capability, AihcValue *object,
    that no pause claimed is the usual case. A claimed thunk can have a queue
    of this thread, whose waiters wake. The collector follows an evaluated
    thunk to its value, as it follows an indirection. */
-void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
-                           AihcValue *value) {
+AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
+                                 AihcValue *value) {
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
@@ -1992,9 +2000,14 @@ void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
       (header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
     aihc_fail("attempted to update a cell that is not a thunk");
   }
+  AihcSlot stored = aihc_escape(capability, object, (AihcSlot)(uintptr_t)value);
+  if (stored == AIHC_ESCAPE_COLLECT) {
+    return NULL;
+  }
   /* The update deletes the owner or the queue in field zero and every free
      variable, so the barrier shades them. */
   aihc_count_escape(capability, object, (AihcSlot)(uintptr_t)value);
+  value = (AihcValue *)(uintptr_t)stored;
   aihc_write_barrier_update(capability, object);
   AihcBlackholeQueue *queue = NULL;
   AihcThread *owner = (header & AIHC_HEADER_EVALUATING) != 0
@@ -2007,13 +2020,14 @@ void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   __atomic_store_n(&object->header, header | AIHC_HEADER_EVALUATING,
                    __ATOMIC_RELEASE);
   if (queue == NULL) {
-    return;
+    return value;
   }
   if (owner != capability->current_thread) {
     aihc_fail("a thunk was updated under the queue of another thread");
   }
   aihc_unlink_queue(capability, queue);
   aihc_wake_queue(capability, queue, (AihcSlot)(uintptr_t)value, 0);
+  return value;
 }
 /* An exception unwinds an update frame. A thunk that this thread claimed
    goes back to the state Thunk, and its waiters get the exception. A thunk

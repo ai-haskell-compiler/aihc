@@ -262,6 +262,14 @@ struct AihcCapability {
   AihcThread *current_thread;
   /* Compiled barriers read this size at six pointer words plus eight bytes. */
   uint64_t nursery_bytes;
+  /* The top frame of the running thread, which compiled code stores before
+     a store that can be an escape, at six pointer words plus sixteen bytes.
+     The promotion of the escape runs the pause walk from it first, so a
+     thunk under evaluation is claimed and is not copied. NULL when the
+     caller does not know the top frame: a promotion then takes the
+     collection for a young thunk. See "Local heaps" in
+     docs/multi-threaded-rts-design.md. */
+  AihcValue *pause_top;
   /* The block cursor counts reserved bytes, including fixed allocation and
      stack charges. A refill extends the limit without a gap in the heap. */
   uint64_t nursery_taken;
@@ -403,10 +411,17 @@ void aihc_write_barrier(AihcCapability *capability, AihcValue *object);
    site stores, and they count an escape: a store of a value of the local
    heap of the capability into an object outside it. See "Local heaps" in
    docs/multi-threaded-rts-design.md. */
-void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
-                              AihcSlot value);
-void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
-                                 uint64_t index, AihcSlot value);
+/* The barrier of a pointer store into an object. The result is the value to
+   store: the value, or its global copy when the store is an escape. A
+   result of AIHC_ESCAPE_COLLECT asks the caller to run
+   aihc_escape_collect with its roots and to try the store again. The
+   barrier records nothing then. */
+#define AIHC_ESCAPE_COLLECT ((AihcSlot)1)
+AihcSlot aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                                  AihcSlot value);
+AihcSlot aihc_write_barrier_store_at(AihcCapability *capability,
+                                     AihcValue *object, uint64_t index,
+                                     AihcSlot value);
 /* Count an escape when the value is in the local heap of the capability and
    the object is not. */
 void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
@@ -620,10 +635,13 @@ AihcValue *aihc_apply_slow(AihcCapability *capability, AihcValue *function,
 const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
                                           AihcValue *value,
                                           AihcValue *continuation);
-void aihc_update(AihcCapability *capability, AihcValue *object,
-                 AihcValue *value);
-void aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
-                           AihcValue *value);
+/* The updates give the stored value, or NULL when the update is an escape
+   whose promotion needs a collection. The caller then runs
+   aihc_escape_collect with its roots and updates again. */
+AihcValue *aihc_update(AihcCapability *capability, AihcValue *object,
+                       AihcValue *value);
+AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
+                                 AihcValue *value);
 /* Delimited continuations. See "Delimited continuations" in
    docs/exceptions.md. A prompt tag is a heap node without fields, compared
    by address. control0# walks the continuation to the nearest prompt frame

@@ -1341,16 +1341,27 @@ void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
   }
 }
 
-void aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
-                              AihcSlot value) {
+AihcSlot aihc_write_barrier_store(AihcCapability *capability, AihcValue *object,
+                                  AihcSlot value) {
+  AihcSlot stored = aihc_escape(capability, object, value);
+  if (stored == AIHC_ESCAPE_COLLECT) {
+    return stored;
+  }
   aihc_count_escape(capability, object, value);
   aihc_write_barrier(capability, object);
+  return stored;
 }
 
-void aihc_write_barrier_store_at(AihcCapability *capability, AihcValue *object,
-                                 uint64_t index, AihcSlot value) {
+AihcSlot aihc_write_barrier_store_at(AihcCapability *capability,
+                                     AihcValue *object, uint64_t index,
+                                     AihcSlot value) {
+  AihcSlot stored = aihc_escape(capability, object, value);
+  if (stored == AIHC_ESCAPE_COLLECT) {
+    return stored;
+  }
   aihc_count_escape(capability, object, value);
   aihc_write_barrier_at(capability, object, index);
+  return stored;
 }
 
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
@@ -3102,7 +3113,10 @@ typedef enum {
   AIHC_PROMOTE_COLLECT,
 } AihcPromoteRule;
 
-static AihcPromoteRule aihc_promote_rule(const AihcValue *value) {
+/* An unclaimed thunk is copied only after the pause walk: otherwise it can
+   be under evaluation, and its update would not reach the copy. */
+static AihcPromoteRule aihc_promote_rule(const AihcValue *value,
+                                         int copy_thunks) {
   if ((value->header & AIHC_HEADER_TAG_MASK) != 0) {
     return AIHC_PROMOTE_COLLECT;
   }
@@ -3111,8 +3125,9 @@ static AihcPromoteRule aihc_promote_rule(const AihcValue *value) {
   case AIHC_OBJECT_NODE:
   case AIHC_OBJECT_CLOSURE:
   case AIHC_OBJECT_PARTIAL_CONSTRUCTOR:
-  case AIHC_OBJECT_THUNK:
     return AIHC_PROMOTE_COPY;
+  case AIHC_OBJECT_THUNK:
+    return copy_thunks ? AIHC_PROMOTE_COPY : AIHC_PROMOTE_COLLECT;
   case AIHC_OBJECT_BYTE_ARRAY: {
     AihcRegionKind region = aihc_region_kind(value);
     if (region == AIHC_REGION_LARGE || region == AIHC_REGION_PINNED ||
@@ -3138,7 +3153,9 @@ typedef struct {
   /* The young objects the check reached, and the check result. */
   AihcAddressSet seen;
   AihcValueWorklist check;
-  int needs_collection;
+  /* Whether the pause walk ran, so an unclaimed thunk is not under
+     evaluation. */
+  int copy_thunks;
 } AihcPromotion;
 
 static size_t aihc_promotion_slot(const AihcPromotion *promotion,
@@ -3212,7 +3229,7 @@ static int aihc_promote_needs_collection(AihcPromotion *promotion,
   (void)aihc_promote_check_slot((AihcSlot)(uintptr_t)value, promotion);
   while (promotion->check.count != 0) {
     AihcValue *object = promotion->check.items[--promotion->check.count];
-    AihcPromoteRule rule = aihc_promote_rule(object);
+    AihcPromoteRule rule = aihc_promote_rule(object, promotion->copy_thunks);
     if (rule == AIHC_PROMOTE_COLLECT) {
       return 1;
     }
@@ -3233,7 +3250,7 @@ static AihcValue *aihc_promote_object(AihcPromotion *promotion,
     return known;
   }
   AihcMachine *machine = promotion->machine;
-  if (aihc_promote_rule(original) == AIHC_PROMOTE_IN_PLACE) {
+  if (aihc_promote_rule(original, 1) == AIHC_PROMOTE_IN_PLACE) {
     AihcPinnedBlock *block = aihc_pinned_block_of(original);
     unsigned generation = aihc_pinned_generation(block);
     machine->fixed_generation_bytes[generation] -= aihc_pinned_bytes(block);
@@ -3274,39 +3291,28 @@ static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque) {
   return (AihcSlot)(uintptr_t)aihc_promote_object(promotion, value);
 }
 
-AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
-                        uint64_t root_count, AihcSlot *roots,
-                        const AihcSrt *srt) {
+/* Promote a value by a copy, or give NULL when the promotion needs a
+   collection. */
+static AihcValue *aihc_promote_copy(AihcCapability *capability,
+                                    AihcValue *value) {
   AihcMachine *machine = capability->machine;
+  AihcValue *top = capability->pause_top;
+  capability->pause_top = NULL;
   value = aihc_promote_follow(machine, value);
   if (!aihc_promote_is_young(machine, value)) {
     return value;
   }
-  AihcPromotion promotion = {.machine = machine};
+  /* The pause walk claims each thunk under evaluation, so the check finds
+     it claimed. */
+  if (top != NULL) {
+    aihc_pause(capability, capability->current_thread, top);
+  }
+  AihcPromotion promotion = {.machine = machine, .copy_thunks = top != NULL};
   int collect = aihc_promote_needs_collection(&promotion, value);
   free(promotion.seen.slots);
   free(promotion.check.items);
   if (collect) {
-    /* The value is one more root of a collection that moves every young
-       survivor into gen2. */
-    if (root_count == UINT64_MAX) {
-      aihc_fail("too many roots");
-    }
-    AihcSlot *extended = malloc((root_count + 1) * sizeof(*extended));
-    if (extended == NULL) {
-      aihc_fail("out of memory");
-    }
-    if (root_count != 0) {
-      memcpy(extended, roots, root_count * sizeof(*extended));
-    }
-    extended[root_count] = (AihcSlot)(uintptr_t)value;
-    aihc_collect(capability, 1, 0, 1, root_count + 1, extended, srt);
-    if (root_count != 0) {
-      memcpy(roots, extended, root_count * sizeof(*extended));
-    }
-    AihcValue *promoted = (AihcValue *)(uintptr_t)extended[root_count];
-    free(extended);
-    return promoted;
+    return NULL;
   }
   AihcValue *copy = aihc_promote_object(&promotion, value);
   while (promotion.pending.count != 0) {
@@ -3321,6 +3327,53 @@ AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
   return copy;
 }
 
+void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
+                         AihcSlot *roots, const AihcSrt *srt) {
+  aihc_collect(capability, 1, 0, 1, root_count, roots, srt);
+}
+
+AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
+                     AihcSlot value) {
+  AihcMachine *machine = capability->machine;
+  if (machine->capability_count < 2 || aihc_promote_is_young(machine, object) ||
+      !aihc_promote_is_young(machine, (const AihcValue *)(uintptr_t)value)) {
+    capability->pause_top = NULL;
+    return value;
+  }
+  AihcValue *copy =
+      aihc_promote_copy(capability, (AihcValue *)(uintptr_t)value);
+  return copy == NULL ? AIHC_ESCAPE_COLLECT : (AihcSlot)(uintptr_t)copy;
+}
+
+AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
+                        uint64_t root_count, AihcSlot *roots,
+                        const AihcSrt *srt) {
+  AihcValue *copy = aihc_promote_copy(capability, value);
+  if (copy == NULL) {
+    /* The value is one more root of a collection that moves every young
+       survivor into gen2. */
+    if (root_count == UINT64_MAX) {
+      aihc_fail("too many roots");
+    }
+    AihcSlot *extended = malloc((root_count + 1) * sizeof(*extended));
+    if (extended == NULL) {
+      aihc_fail("out of memory");
+    }
+    if (root_count != 0) {
+      memcpy(extended, roots, root_count * sizeof(*extended));
+    }
+    extended[root_count] = (AihcSlot)(uintptr_t)value;
+    aihc_escape_collect(capability, root_count + 1, extended, srt);
+    if (root_count != 0) {
+      memcpy(roots, extended, root_count * sizeof(*extended));
+    }
+    AihcValue *promoted = (AihcValue *)(uintptr_t)extended[root_count];
+    free(extended);
+    return promoted;
+  }
+  return copy;
+}
+
 /* Round the nursery window without overflow on native hosts or wasm32. */
 static size_t aihc_nursery_size(uint64_t bytes) {
   size_t rounded = 1;
@@ -3332,6 +3385,9 @@ static size_t aihc_nursery_size(uint64_t bytes) {
   }
   return rounded;
 }
+
+/* The largest -N count. */
+#define AIHC_CAPABILITY_MAX UINT64_C(256)
 
 /* Map the arena: one aligned window of the stride for each capability. Each
    capability gets the nursery budget of the given bytes in its window. */
@@ -3530,6 +3586,22 @@ void aihc_gc_apply_options(AihcCapability *capability) {
         mark_factor > AIHC_GEN2_FACTOR_MAX ? AIHC_GEN2_FACTOR_MAX : mark_factor;
   }
   aihc_apply_barrier_budget(capability);
+  /* The -N count. Every Haskell thread runs on the first capability until
+     the workers of step 4 exist, but the stores between the local heaps of
+     the capabilities already promote. See "Build order" in
+     docs/multi-threaded-rts-design.md. A host without threads keeps one
+     capability. */
+  uint64_t capabilities = aihc_rts_capabilities();
+#if defined(__wasm__)
+  capabilities = 1;
+#endif
+  if (capabilities > AIHC_CAPABILITY_MAX) {
+    capabilities = AIHC_CAPABILITY_MAX;
+  }
+  if (capabilities > 1 &&
+      capabilities != capability->machine->capability_count) {
+    aihc_machine_set_capabilities(capability, capabilities);
+  }
 }
 
 void aihc_gc_apply_limit(AihcCapability *capability) {

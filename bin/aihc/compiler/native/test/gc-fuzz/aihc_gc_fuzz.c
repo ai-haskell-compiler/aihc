@@ -1838,6 +1838,39 @@ static void set_stack_pointer(Frame *target) {
 
 static void apply_resume(const AihcResume *resume);
 
+typedef AihcValue *(*Update)(AihcCapability *, AihcValue *, AihcValue *);
+
+/* Run an update as compiled code does. With several capabilities, the
+   update of a global thunk promotes the value. When the promotion needs a
+   collection, the update gives null, and the driver collects with its roots,
+   the thunk, and the value, and runs the update again. The report of the
+   collection follows the update, so it shows the state after the
+   command. */
+static void escaping_update(Update update, AihcValue *thunk, AihcValue *value) {
+  int collected = 0;
+  if (capability->machine->capability_count > 1) {
+    promoted_ever = 1;
+  }
+  while (update(capability, thunk, value) == NULL) {
+    size_t total = 0;
+    AihcSlot *roots = gather_roots(&total);
+    AihcSlot *extended = checked_calloc(total + 2, sizeof(*extended));
+    memcpy(extended, roots, total * sizeof(*extended));
+    extended[total] = (AihcSlot)(uintptr_t)thunk;
+    extended[total + 1] = (AihcSlot)(uintptr_t)value;
+    aihc_escape_collect(capability, total + 2, extended, current_srt);
+    memcpy(roots, extended, total * sizeof(*extended));
+    thunk = (AihcValue *)(uintptr_t)extended[total];
+    value = (AihcValue *)(uintptr_t)extended[total + 1];
+    free(extended);
+    scatter_roots(roots, total);
+    collected = 1;
+  }
+  if (collected) {
+    report_collection();
+  }
+}
+
 /* Continue into a frame of the running thread with an optional value, as
    the entry of the frame would: an update frame updates its thunk with the
    value and wakes the waiters of the thunk, a stop frame ends the thread,
@@ -1856,7 +1889,7 @@ static void continue_into(Frame *frame, AihcValue *value, int has_value) {
     uintptr_t identity = aihc_value_info_table(thunk)->identity;
     set_stack_pointer(target);
     pop_to(thread, target->info->identity, 1);
-    aihc_update_blackhole(capability, thunk, value);
+    escaping_update(aihc_update_blackhole, thunk, value);
     if (identity != 0 && identity < entry_capacity) {
       entries[identity].indirection = 1;
     }
@@ -2073,8 +2106,8 @@ static void run_command(char **tokens, size_t count) {
     if (slot >= STATIC_THUNKS) {
       fail("supdate expects a static thunk");
     }
-    aihc_update(capability, (AihcValue *)&static_thunks[slot],
-                parse_object(tokens[2]));
+    escaping_update(aihc_update, (AihcValue *)&static_thunks[slot],
+                    parse_object(tokens[2]));
   } else if (strcmp(name, "sset") == 0) {
     if (count != 4) {
       fail("sset expects three arguments");
