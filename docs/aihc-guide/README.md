@@ -13,9 +13,12 @@ people who read manuals. This guide is for the others.
   and an output pane.
 - `src/play/host.js`: the browser host of the playground helper. It gives
   the helper standard input and output and nothing else.
-- `src/play/prim/`, `src/play/prelude/`, `src/play/helper/`: the support
-  sources and the WebAssembly helper. A build copies them here. They are
-  not in git.
+- `src/play/helper/`: the WebAssembly helper and the bundle of the core
+  libraries, `core.bundle.gz`. A build writes them here. They are not in
+  git.
+- `src/play/prim/`, `src/play/prelude/`: the support sources of the
+  fallback, for a build without a bundle. A build copies them here. They
+  are not in git.
 
 ## The helper
 
@@ -24,17 +27,30 @@ request protocol, compiled by aihc to `wasm32-wasip3` and transpiled by
 jco. `scripts/build-lazy-reader-helper.sh` builds it, and the deploy
 workflow runs that script as `nix run .#build-lazy-reader-helper`.
 
-The helper compiles the primitive package of aihc and the small Prelude
-of `bin/aihc-play/prelude` in the browser when a page opens. The
-unboxed sums of `GHC.Types` are left out, because they take most of the
-time. The page then sends each edit to the helper and shows the answer.
+The helper does not compile the core libraries. The build compiles them
+once, for the helper itself, and `aihc-dev play-bundle` writes their
+naming facts and type facts from the store as one bundle. The page
+fetches the bundle and sends it to the helper with the `load-bundle`
+request. The helper decodes the exports of every module at once, and
+decodes each type fact the first time the type checker looks it up. The
+format is in `bin/aihc/src/Aihc/Cli/PlayBundle.hs`.
+
+Without a bundle, the page sends the primitive modules of aihc and the
+small Prelude of `bin/aihc-play/prelude` with the `load` request, and the
+helper compiles them in the browser. That takes a few seconds.
+
+The page then sends each edit to the helper and shows the answer.
 
 The playground needs JavaScript Promise Integration, which Chrome 137,
 Firefox 139 and Safari 27 have.
 
 ## Local work
 
-`just guide` builds the helper, copies the support sources, and serves
-the site at <http://127.0.0.1:8000/>. The first helper build compiles
-the dependencies of aihc-play for wasm and takes some minutes. Later
-builds reuse the store under `.aihc-target/lazy-reader-store`.
+`just guide` builds the helper and the bundle, copies the support
+sources, and serves the site at <http://127.0.0.1:8000/>. The first
+helper build compiles the dependencies of aihc-play for wasm and takes
+some minutes. Later builds reuse the store under
+`.aihc-target/lazy-reader-store`.
+
+`aihc-play --bundle FILE` runs the helper natively over a bundle, for a
+check outside the browser.

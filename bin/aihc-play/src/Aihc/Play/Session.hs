@@ -1,13 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The compiler front end over one module, against a small Prelude.
+-- | The compiler front end over one module, against the core libraries.
 --
--- The session holds the names and the types of the primitive package of
--- aihc and of the small Prelude of the guide. The three commands of the
--- helper parse, resolve, and type check one module against it.
+-- The session holds the names and the types the module of the reader can
+-- see. They come from a bundle of the core libraries, written by
+-- @aihc-dev play-bundle@ from a store, or from the primitive modules of
+-- aihc and the small Prelude of the guide, compiled in the session. The
+-- three commands of the helper parse, resolve, and type check one module
+-- against it.
 module Aihc.Play.Session
   ( Session,
     buildSession,
+    bundleSession,
+    sessionBundleStats,
     supportModulePaths,
     Problem (..),
     problemJson,
@@ -18,6 +23,7 @@ module Aihc.Play.Session
   )
 where
 
+import Aihc.Cli.PlayBundle (BundleStats, LoadedBundle (..), loadBundle)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
@@ -42,7 +48,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Play.Json (Json (..))
-import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
+import Aihc.Prim.Wiring (builtinFunctionModules, primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
     Package (..),
@@ -57,14 +63,12 @@ import Aihc.Resolve
     resolveUnit,
   )
 import Aihc.Tc
-  ( MergeCheck (..),
-    TcDiagnostic (..),
+  ( TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface,
     TcSeverity (..),
     TcWiring,
     emptyTcInterface,
-    mergeTcInterfaces,
     renderFunDepNames,
     renderPred,
     renderTcType,
@@ -73,13 +77,19 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
+import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
 data Session = Session
   { sessionExports :: !ModuleExports,
-    sessionInterface :: !TcInterface
+    sessionInterface :: !TcInterface,
+    -- | The identity of the primitive package the facts name.
+    sessionPrim :: !PackageId,
+    -- | The modules whose exports the syntax reaches without an import.
+    sessionBuiltinModules :: ![Text],
+    sessionBundleStats :: !(Maybe BundleStats)
   }
 
 -- | One problem of one phase.
@@ -115,8 +125,8 @@ primPackage = Package "aihc-prim" primPackageId
 userPackage :: Package
 userPackage = Package "" (PackageId "")
 
-sessionWiring :: TcWiring
-sessionWiring = primTcWiring primPackageId
+sessionWiring :: Session -> TcWiring
+sessionWiring = primTcWiring . sessionPrim
 
 -- | The modules that the session needs, relative to the source root of
 -- aihc-prim and to the prelude directory of the helper.
@@ -126,10 +136,26 @@ supportModulePaths =
     ["GHC/Classes.hs", "GHC/Num.hs", "GHC/Prim/Base.hs", "Prelude.hs"]
   )
 
--- | The modules whose exports the syntax reaches without an import: the
--- literal and @do@ desugaring names, and the class names of deriving.
+-- | The modules whose exports the syntax reaches without an import, in
+-- the small Prelude of the guide: the literal and @do@ desugaring names,
+-- and the class names of deriving.
 builtinModules :: [Text]
 builtinModules = ["GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Base", "GHC.Types"]
+
+-- | A session over a bundle of the core libraries. The header of the
+-- bundle is decoded now. Each type fact is decoded when the type checker
+-- first looks it up.
+bundleSession :: ByteString -> Either String Session
+bundleSession bytes = do
+  loaded <- loadBundle bytes
+  pure
+    Session
+      { sessionExports = loadedExports loaded,
+        sessionInterface = loadedInterface loaded,
+        sessionPrim = loadedPrim loaded,
+        sessionBuiltinModules = builtinFunctionModules,
+        sessionBundleStats = Just (loadedStats loaded)
+      }
 
 -- | Parse, resolve and type check the support modules as one unit of the
 -- primitive package. The primitive modules and the small Prelude compile
@@ -147,7 +173,7 @@ buildSession sources = do
       Left failure -> Left ("support modules do not resolve: " <> show (failureErrors failure))
   let (checked, interface) = typecheckModuleSccWithInterface (primTcConfig primPackageId) emptyTcInterface resolved
   if all tcModuleSuccess checked
-    then Right (Session exports interface)
+    then Right (Session exports interface primPackageId builtinModules Nothing)
     else
       Left
         ( "support modules do not type check: "
@@ -232,7 +258,7 @@ resolveUserModule session modu extensions =
   where
     units = modulesInPackage userPackage [(modu, extensions)]
     visible = collectModuleExportsWithDeps (sessionExports session) units <> sessionExports session
-    scope = builtins userPackage visible builtinModules
+    scope = builtins userPackage visible (sessionBuiltinModules session)
 
 resolveProblem :: ResolveError -> Problem
 resolveProblem failure =
@@ -243,8 +269,7 @@ typecheckUserModule :: Session -> [ResolvedModule] -> ([Problem], [Module])
 typecheckUserModule session resolved =
   (concatMap (map tcProblem . filter isError . tcModuleDiagnostics) checked, checked)
   where
-    interface = mergeTcInterfaces CheckMergedFacts [sessionInterface session]
-    (checked, _) = typecheckModulesWithInterface (primTcConfig primPackageId) interface resolved
+    (checked, _) = typecheckModulesWithInterface (primTcConfig (sessionPrim session)) (sessionInterface session) resolved
     isError diagnostic = diagSeverity diagnostic == TcError
 
 tcProblem :: TcDiagnostic -> Problem

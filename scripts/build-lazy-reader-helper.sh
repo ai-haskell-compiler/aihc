@@ -8,8 +8,12 @@
 # Usage: scripts/build-lazy-reader-helper.sh --output DIR [--store DIR]
 #        [--optimization LEVEL] [--jco PATH]
 #
-# AIHC names the compiler. The default is the cabal build of exe:aihc.
-# The output directory gets aihc-play.js and aihc-play.core.wasm.
+# AIHC names the compiler and AIHC_DEV the developer tool. The defaults
+# are the cabal builds of exe:aihc and exe:aihc-dev. The output directory
+# gets aihc-play.js, aihc-play.core.wasm, and core.bundle.gz: the naming
+# and type facts of the core libraries, which the helper loads instead of
+# compiling them. The bundle comes from the wasm32-wasip3 entries of the
+# store, which the helper build installs anyway.
 set -euo pipefail
 
 output=""
@@ -32,6 +36,7 @@ fi
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 aihc="${AIHC:-$(cd "$root" && cabal list-bin aihc:exe:aihc)}"
+aihc_dev="${AIHC_DEV:-$(cd "$root" && cabal list-bin aihc:exe:aihc-dev)}"
 # The wasm link reads the WIT world and the runtime sources from the data
 # directory of the compiler. A cabal build has them in the repository.
 export aihc_datadir="${aihc_datadir:-$root/bin/aihc}"
@@ -60,14 +65,20 @@ fi
   -i "$root/bin/aihc-play/app" \
   -i "$root/bin/aihc-play/src" \
   -i "$root/bin/aihc/prim-wiring" \
+  -i "$root/bin/aihc/src" \
   -p aihc-parser -p aihc-resolve -p aihc-tc \
-  -p base -p bytestring -p containers -p filepath -p text \
+  -p array -p base -p binary -p bytestring -p containers -p filepath -p text -p transformers \
   --workspace "$work/workspace" \
   --target wasm32-wasip3 \
   --store "$store" \
   --build-root "$work/build" \
   -O "$optimization" \
   --output "$work/aihc-play.wasm"
+
+echo "=== Writing the bundle of the core libraries ==="
+mkdir -p "$output"
+"$aihc_dev" play-bundle --store "$store/wasm32-wasip3" --output "$work/core.bundle"
+gzip -9 -n -c "$work/core.bundle" > "$output/core.bundle.gz"
 
 if [[ -z "$jco" ]]; then
   # The pinned jco release. npx downloads it when it is not installed.

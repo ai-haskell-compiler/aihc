@@ -32,19 +32,26 @@ function setHelperState(state, reason = "") {
   for (const listener of helper.listeners) listener(state, reason);
 }
 
-// The helper reads its input in pieces of at most this many bytes. A
-// larger piece than the read buffer of the helper loses its tail in the
-// stream of the host.
+// The helper reads its input through a buffer of 8192 bytes, in pieces
+// of at most this many bytes. A larger piece than the read of the helper
+// loses its tail in the stream of the host.
 const INPUT_CHUNK = 4096;
+
+// A request body of at least the buffer size is read by the helper in
+// one read of the whole body, so the host hands it over in one piece.
+const DIRECT_READ = 8192;
+
+function pushPiece(piece) {
+  if (helper.waiters.length > 0) {
+    helper.waiters.shift()(piece);
+  } else {
+    helper.inputs.push(piece);
+  }
+}
 
 function pushInput(bytes) {
   for (let offset = 0; offset < bytes.length; offset += INPUT_CHUNK) {
-    const piece = bytes.subarray(offset, offset + INPUT_CHUNK);
-    if (helper.waiters.length > 0) {
-      helper.waiters.shift()(piece);
-    } else {
-      helper.inputs.push(piece);
-    }
+    pushPiece(bytes.subarray(offset, offset + INPUT_CHUNK));
   }
 }
 
@@ -75,12 +82,20 @@ function onStderr(bytes) {
   console.warn("aihc-play:", helper.decoder.decode(bytes));
 }
 
-function frame(command, body) {
+// Hand a request to the helper: the header line, then the body. A large
+// body goes in one piece after the header, so the helper reads it in one
+// read; a small one goes with the header in pieces the buffer holds.
+function sendFrame(command, body) {
   const header = helper.encoder.encode(command + " " + body.length + "\n");
+  if (body.length >= DIRECT_READ) {
+    pushPiece(header);
+    pushPiece(body);
+    return;
+  }
   const bytes = new Uint8Array(header.length + body.length);
   bytes.set(header, 0);
   bytes.set(body, header.length);
-  return bytes;
+  pushInput(bytes);
 }
 
 // One request at a time. The helper answers in order, so a queue keeps
@@ -89,7 +104,7 @@ function send(command, body) {
   const run = () =>
     new Promise((resolve, reject) => {
       helper.pending = { resolve, reject };
-      pushInput(frame(command, body));
+      sendFrame(command, body);
     });
   const result = helper.queue.then(run, run);
   helper.queue = result.catch(() => {});
@@ -103,7 +118,7 @@ async function fetchText(path) {
 }
 
 // The support modules: the primitive package of aihc and the small Prelude
-// of the guide. The helper compiles them once at the start.
+// of the guide. Without a bundle, the helper compiles them at the start.
 const SUPPORT_FILES = [
   "prim/GHC/Types.hs",
   "prim/GHC/Prim.hs",
@@ -134,6 +149,17 @@ async function loadSupport() {
   return body;
 }
 
+// The bundle of the core libraries: the naming and type facts of
+// aihc-prim and aihc-base, written by the helper build. The helper loads
+// it instead of compiling the libraries. The file is gzip, inflated here,
+// so the size on the wire does not depend on the server.
+async function loadBundle() {
+  const response = await fetch(new URL("helper/core.bundle.gz", PLAY_ROOT));
+  if (!response.ok) return null;
+  const inflated = response.body.pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(inflated).arrayBuffer());
+}
+
 let startPromise = null;
 
 function startHelper() {
@@ -150,17 +176,38 @@ function startHelper() {
     const started = performance.now();
     try {
       globalThis.lazyReaderHost = { nextInput, write: onStdout, writeErr: onStderr };
-      const [module, support] = await Promise.all([import(new URL("helper/aihc-play.js", PLAY_ROOT)), loadSupport()]);
+      const [module, bundle] = await Promise.all([import(new URL("helper/aihc-play.js", PLAY_ROOT)), loadBundle()]);
+      const fetched = performance.now();
       // The helper runs until the page goes away. Its promise settles only
       // on a failure.
       module.run
         .run()
         .then(() => setHelperState("stopped", "The compiler stopped."))
         .catch((error) => setHelperState("failed", "The compiler failed: " + error));
-      setHelperState("loading", "Compiling the Prelude. This takes a few seconds.");
-      const answer = await send("load", support);
+      let answer;
+      if (bundle) {
+        setHelperState("loading", "Loading the core libraries.");
+        answer = await send("load-bundle", bundle);
+      } else {
+        // Without a bundle, the helper compiles the primitive modules and
+        // the small Prelude of the guide instead.
+        setHelperState("loading", "Compiling the Prelude. This takes a few seconds.");
+        answer = await send("load", await loadSupport());
+      }
       if (!answer.ok) throw new Error(answer.message);
-      console.info("The Lazy Reader: the compiler is ready after " + Math.round(performance.now() - started) + " ms");
+      const ready = performance.now();
+      helper.timing = { fetched: Math.round(fetched - started), ready: Math.round(ready - fetched) };
+      console.info(
+        "The Lazy Reader: the compiler is ready " +
+          Math.round(ready - started) +
+          " ms after the start (" +
+          helper.timing.fetched +
+          " ms to fetch, " +
+          helper.timing.ready +
+          " ms to load" +
+          (bundle ? ", " + answer.facts + " facts in " + answer.typeBytes + " bytes" : "") +
+          ")",
+      );
       setHelperState("ready");
     } catch (error) {
       setHelperState("failed", "The compiler did not start: " + error);
@@ -352,7 +399,7 @@ function describeTarget(occurrence, binders) {
         const binder = binders.get(targetKey(target));
         return binder ? "defined on line " + binder.line : "defined in this module";
       }
-      return "from the Prelude (" + target.module + ")";
+      return "from " + target.module;
     case "syntax":
       return "built-in syntax";
     default:

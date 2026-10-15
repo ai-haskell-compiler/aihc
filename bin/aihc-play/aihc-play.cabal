@@ -15,6 +15,8 @@ description:
 
 library
   exposed-modules:
+    Aihc.Cli.PlayBundle
+    Aihc.Cli.PlayBundleStore
     Aihc.Play
     Aihc.Play.Json
     Aihc.Play.Names
@@ -23,23 +25,42 @@ library
     Aihc.Play.Tree
     Aihc.Play.Types
 
+  -- The bundle codec, the bundle writer, and the artifact codecs they
+  -- use are source modules of the compiler package, compiled here in
+  -- place as the wiring is, so the helper does not depend on the whole
+  -- compiler library. The browser build of the helper never reaches the
+  -- writer, so it does not need the directory package.
   other-modules:
+    Aihc.Cbor
+    Aihc.Cli.InterfaceParts
+    Aihc.Cli.InterfaceTyCons
+    Aihc.Cli.PackageManifest
+    Aihc.Cli.ResolveArtifact
+    Aihc.Cli.TypeArtifact
     Aihc.Prim.Wiring
 
   hs-source-dirs:
     src
     ../aihc/prim-wiring
+    ../aihc/src
 
   build-depends:
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    array,
     base >=4.16 && <5,
+    binary,
     bytestring,
     containers,
+    deepseq,
+    directory,
     filepath,
     text >=1.2,
+    transformers,
 
+  -- The compiler package compiles its modules with OverloadedStrings.
+  default-extensions: OverloadedStrings
   ghc-options: -Wall
   default-language: GHC2021
 
@@ -49,6 +70,7 @@ executable aihc-play
   build-depends:
     aihc-play,
     base >=4.16 && <5,
+    bytestring,
     text,
 
   ghc-options: -Wall
@@ -61,11 +83,14 @@ test-suite spec
   build-depends:
     aihc-play,
     base >=4.16 && <5,
+    bytestring,
+    directory,
     filepath,
     tasty,
     tasty-hunit,
     text,
 
+  default-extensions: OverloadedStrings
   ghc-options:
     -Wall
     -threaded

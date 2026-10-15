@@ -10,6 +10,8 @@ module Aihc.Play
     loadSupportSources,
     Session,
     buildSession,
+    bundleSession,
+    sessionBundleStats,
   )
 where
 
@@ -77,7 +79,7 @@ runCommand session command source =
                     then result [("source", JString source), ("signatures", JArray [])] resolveProblems
                     else
                       let (problems, checked) = typecheckUserModule session resolved
-                          signatures = concatMap (inferredSignatures sessionWiring) checked
+                          signatures = concatMap (inferredSignatures (sessionWiring session)) checked
                        in result
                             [ ("source", JString (withSignatures source signatures)),
                               ("signatures", JArray (map signatureJson signatures))

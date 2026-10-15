@@ -25,6 +25,7 @@ module Aihc.Prim.Wiring
     constraintTupleTyConName,
     unboxedSumTyConName,
     unboxedSumDataConName,
+    builtinFunctionModules,
   )
 where
 
@@ -340,3 +341,9 @@ coreRecognizedClasses =
     ("Type.Reflection.Internal", "Typeable"),
     ("GHC.Generics", "Generic1")
   ]
+
+-- | The modules whose exports desugaring reaches without an import: the
+-- literal and @do@ desugaring names, the list syntax, and the classes of
+-- deriving. The resolver reads them as the built-in scope of a module.
+builtinFunctionModules :: [Text]
+builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]

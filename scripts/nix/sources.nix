@@ -268,9 +268,12 @@ in rec {
 
   # The helper of The Lazy Reader compiles the core library wiring of the
   # compiler in place, as the aihc-tc suites do.
+  # The helper compiles the artifact codecs of the compiler in place, so
+  # its source set holds the compiler source directory too.
   playSrc = mkRootSubsetSrc [
     "bin/aihc-play/"
     "bin/aihc/prim-wiring/"
+    "bin/aihc/src/"
   ] [".hs" ".cabal"];
 
   # The guide, without the site that a local build writes.

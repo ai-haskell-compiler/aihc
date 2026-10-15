@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Aihc.Cli.ResolveArtifact
   ( ResolveArtifact (..),
     decodeResolveArtifact,

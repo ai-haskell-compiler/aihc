@@ -1,9 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Aihc.Cli.TypeArtifact
   ( TypeArtifact (..),
     decodeTypeArtifact,
     encodeTypeArtifact,
     encodeTypeArtifactParts,
     encodeTypeInterface,
+    decodeTypeInterface,
+    putTermKey,
+    getTermKey,
   )
 where
 
@@ -108,6 +113,18 @@ encodeTypeInterface interface =
             <> encodeList (putPart index) parts
             <> putInterface index interface
         )
+
+-- | The inverse of 'encodeTypeInterface': an interface on its own, with
+-- its type constructor table and its parts.
+decodeTypeInterface :: BL.ByteString -> Either String TcInterface
+decodeTypeInterface bytes =
+  case Get.runGetOrFail getTyConTable bytes of
+    Left (_, _, message) -> Left message
+    Right (remaining, _, tyConTable) -> runInterface tyConTable remaining
+  where
+    getTyConTable = do
+      tyCons <- getList getTyConDefinition
+      pure (listArray (0, length tyCons - 1) tyCons)
 
 decodeTypeArtifact :: BL.ByteString -> Either String TypeArtifact
 decodeTypeArtifact bytes =

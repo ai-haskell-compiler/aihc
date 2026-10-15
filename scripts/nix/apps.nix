@@ -224,6 +224,7 @@ in {
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC="''${AIHC:-${aihcExe}}"
+      export AIHC_DEV="''${AIHC_DEV:-${aihcDevExe}}"
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
