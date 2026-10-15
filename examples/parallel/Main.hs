@@ -2,11 +2,11 @@
 
 module Main (main) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, getNumCapabilities)
 import Control.Concurrent.MVar (MVar, isEmptyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Control.Monad (forM, forM_, replicateM_)
 import Data.List (foldl')
-import GHC.Conc (atomically, newTVarIO, readTVar, readTVarIO, writeTVar)
+import GHC.Conc (atomically, newTVarIO, numCapabilities, readTVar, readTVarIO, writeTVar)
 
 -- The arguments give the machine four capabilities, and Haskell threads run
 -- on them at the same time. See "Workers" in
@@ -32,6 +32,8 @@ primes = sieve [2 ..]
 
 main :: IO ()
 main = do
+  capabilities <- getNumCapabilities
+  print (capabilities, numCapabilities)
   signal <- newEmptyMVar
   answer <- newEmptyMVar
   _ <- forkIO (waitFull signal 20000000 >>= putMVar answer)

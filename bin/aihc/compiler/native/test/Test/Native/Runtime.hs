@@ -50,6 +50,9 @@ tests =
         ["+RTS", "-A96k", "-n1k", "-RTS"]
         nurseryBlockSource,
       runtimeProgramTest "dynamic allocation owns memory before it returns" [] dynamicAllocationSource,
+      runtimeProgramTest "IO skips an object before its header is initialized" [] uninitializedIoSource,
+      runtimeProgramTest "STM retries while another capability can change a TVar" [] stmWaitSource,
+      runtimeProgramTest "a duplicate update accepts a collected thunk" [] duplicateUpdateSource,
       runtimeProgramTest "large batches reserve nursery space" [] nurseryBatchSource,
       runtimeProgramTest "gen1 copies its survivors into gen2 at each collection by default" [] (gen1CountSource 1),
       runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),
@@ -121,6 +124,77 @@ mutVarSource =
       "  aihc_array_copy(capability, mutvar, 0, array, 1, 1);",
       "  if (aihc_array_elements(array)[1] != 7) return 5;",
       "  if (aihc_array_elements(array)[0] != 9) return 6;",
+      "  return 0;",
+      "}"
+    ]
+
+uninitializedIoSource :: String
+uninitializedIoSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "#include <errno.h>",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  aihc_ensure_heap(capability, 64, 0, NULL, NULL);",
+      "  void *array = aihc_byte_array_new_pinned(capability, 1);",
+      "  (void)aihc_gc_allocate_pinned(capability, 1);",
+      "  void *request = aihc_io_submit_write(capability, aihc_io_stdout(),",
+      "                                      aihc_byte_array_contents(array), 0, 2);",
+      "  return aihc_io_take_result(request) == -EINVAL - 1 ? 0 : 1;",
+      "}"
+    ]
+
+stmWaitSource :: String
+stmWaitSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "static const AihcInfo stop = {.frame_kind = AIHC_FRAME_STOP,",
+      "                              .object_kind = AIHC_OBJECT_CLOSURE};",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  aihc_machine_set_capabilities(capability, 2);",
+      "  aihc_ensure_heap(capability, 24, 0, NULL, NULL);",
+      "  AihcValue *continuation = aihc_gc_allocate(capability, 1);",
+      "  continuation->header = (AihcSlot)(uintptr_t)&stop;",
+      "  void *request = aihc_stm_wait_request(capability);",
+      "  (void)aihc_await_io(capability, request, continuation);",
+      "  return aihc_stm_wait_result(capability, request) == 1 ? 0 : 1;",
+      "}"
+    ]
+
+duplicateUpdateSource :: String
+duplicateUpdateSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "static const uint8_t pointers[] = {1,1};",
+      "static const AihcInfo thunk_info = {.field_count = 1, .object_kind = AIHC_OBJECT_THUNK};",
+      "static const AihcInfo node_info = {.object_kind = AIHC_OBJECT_NODE};",
+      "static const AihcInfo stop_info = {.frame_kind = AIHC_FRAME_STOP, .object_kind = AIHC_OBJECT_CLOSURE};",
+      "static const AihcInfo update_info = {.field_count = 2, .field_is_pointer = pointers, .frame_kind = AIHC_FRAME_UPDATE, .object_kind = AIHC_OBJECT_CLOSURE};",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  aihc_ensure_heap(capability, 16, 0, NULL, NULL);",
+      "  AihcValue *thunk = aihc_gc_allocate(capability, 2);",
+      "  thunk->header = (AihcSlot)(uintptr_t)&thunk_info;",
+      "  AihcValue *value = aihc_gc_allocate(capability, 1);",
+      "  value->header = (AihcSlot)(uintptr_t)&node_info;",
+      "  AihcValue *stop = aihc_stack_push(capability, 1);",
+      "  stop->header = (AihcSlot)(uintptr_t)&stop_info;",
+      "  AihcValue *frame = aihc_stack_push(capability, 3);",
+      "  frame->header = (AihcSlot)(uintptr_t)&update_info;",
+      "  frame->fields[0] = (AihcSlot)(uintptr_t)stop;",
+      "  frame->fields[1] = (AihcSlot)(uintptr_t)thunk;",
+      "  aihc_stack_note_top(frame);",
+      "  (void)aihc_update_blackhole(capability, thunk, value);",
+      "  AihcSlot roots[] = {(AihcSlot)(uintptr_t)frame};",
+      "  aihc_gc_collect(capability, 0, 1, roots, NULL);",
+      "  frame = (AihcValue *)(uintptr_t)roots[0];",
+      "  thunk = (AihcValue *)(uintptr_t)frame->fields[1];",
+      "  value = (AihcValue *)(uintptr_t)thunk->fields[0];",
+      "  (void)aihc_update_blackhole(capability, thunk, value);",
       "  return 0;",
       "}"
     ]

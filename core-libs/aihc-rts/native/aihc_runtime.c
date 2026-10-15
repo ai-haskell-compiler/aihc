@@ -1251,6 +1251,10 @@ AihcCapability *aihc_machine_initialize(void) {
   return &aihc_initial_capability;
 }
 
+uint64_t aihc_get_num_capabilities(void) {
+  return aihc_machine_initialize()->machine->capability_count;
+}
+
 /* Host imports need fixed addresses. Retained process data can move after
  * import. */
 static void aihc_finish_imports(AihcCapability *capability) {
@@ -1707,8 +1711,9 @@ AihcIoHandle *aihc_io_handle_new(AihcCapability *capability) {
 
 /* Retain a pinned owner when the address names its payload.
    External buffers remain the caller's responsibility. */
-static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
-                                  size_t offset, size_t length) {
+static int aihc_io_request_buffer_unlocked(AihcIoRequest *request,
+                                           uint8_t *buffer, size_t offset,
+                                           size_t length) {
   AihcCapability *capability = request->capability;
   uintptr_t address = (uintptr_t)buffer;
   /* A buffer in a region that moves is rejected. A large byte array never
@@ -1724,6 +1729,13 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   }
   for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
        block != NULL; block = block->next) {
+    /* Another worker can publish a block before it initializes the object.
+       Read its header only when the buffer address names that block. */
+    uintptr_t object_start = (uintptr_t)block->object;
+    if (address < object_start ||
+        address - object_start > aihc_pinned_bytes(block)) {
+      continue;
+    }
     AihcValue *object = (AihcValue *)block->object;
     if (aihc_value_kind(object) != AIHC_OBJECT_BYTE_ARRAY) {
       continue;
@@ -1744,6 +1756,15 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   request->offset = offset;
   request->length = length;
   return 1;
+}
+
+static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
+                                  size_t offset, size_t length) {
+  AihcMachine *machine = request->capability->machine;
+  aihc_heap_lock(machine);
+  int result = aihc_io_request_buffer_unlocked(request, buffer, offset, length);
+  aihc_heap_unlock(machine);
+  return result;
 }
 
 static AihcIoRequest *aihc_io_submit(AihcCapability *capability,
@@ -2379,7 +2400,9 @@ const AihcResume *aihc_no_duplicate(AihcCapability *capability,
     }
     AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
     AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
-    if ((header & AIHC_HEADER_TAG_MASK) == 0) {
+    if (aihc_value_info_table(thunk)->object_kind == AIHC_OBJECT_INDIRECTION) {
+      lowest = frame;
+    } else if ((header & AIHC_HEADER_TAG_MASK) == 0) {
       aihc_write_barrier(capability, thunk);
       aihc_thunk_claim(thunk, current);
     } else {
@@ -2492,7 +2515,14 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
-  if (aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
+  AihcObjectKind kind = aihc_value_info_table(object)->object_kind;
+  if (kind == AIHC_OBJECT_INDIRECTION) {
+    /* Another evaluation finished, and a collection converted the thunk.
+       This duplicate result needs no store. */
+    capability->pause_top = NULL;
+    return value;
+  }
+  if (kind != AIHC_OBJECT_THUNK) {
     aihc_fail("attempted to update a cell that is not a thunk");
   }
   /* The promotion comes before the object lock, because it can collect. */
@@ -2550,6 +2580,10 @@ static void aihc_abandon_blackhole(AihcCapability *capability,
 static void aihc_abandon_blackhole_locked(AihcCapability *capability,
                                           AihcValue *object,
                                           AihcValue *exception) {
+  if (object != NULL &&
+      aihc_value_info_table(object)->object_kind == AIHC_OBJECT_INDIRECTION) {
+    return;
+  }
   if (object == NULL ||
       aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
     aihc_fail("exception update frame does not contain a thunk");
@@ -3136,11 +3170,21 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
   request->kind = AIHC_IO_TIMER;
   request->state = AIHC_IO_COMPLETED;
   aihc_object_lock(capability->machine);
-  if (capability->machine->transaction_timers == NULL) {
+  /* Another capability or a suspended IO operation can change a TVar.
+     A short timer yields the capability before the transaction tries again.
+     The absence of a registerDelay timer does not prove a deadlock. */
+  int may_change = capability->machine->capability_count > 1 ||
+                   capability->run_queue_head != NULL ||
+                   capability->io_request_count != 0 ||
+                   aihc_inbox_used(capability);
+  if (!may_change && capability->machine->transaction_timers == NULL) {
     aihc_object_unlock(capability->machine);
     return request;
   }
-  request->deadline = UINT64_MAX;
+  uint64_t now = aihc_host_monotonic_ns();
+  request->deadline = may_change && now <= UINT64_MAX - UINT64_C(1000000)
+                          ? now + UINT64_C(1000000)
+                          : UINT64_MAX;
   for (AihcTransactionTimer *timer = capability->machine->transaction_timers;
        timer != NULL; timer = timer->next) {
     if (timer->deadline < request->deadline) {

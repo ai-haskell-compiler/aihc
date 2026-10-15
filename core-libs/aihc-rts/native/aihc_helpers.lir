@@ -690,8 +690,8 @@ entry:
 ; thunks are young, and no pause claimed them, so the two stores do the
 ; update here. An old thunk goes to the C update, which records it in the
 ; remembered set. A claimed thunk goes there as well, and the C update wakes
-; the waiters of its queue. An object that is not a thunk also goes to the C
-; update, which stops the program.
+; the waiters of its queue. An indirection goes to the C update, which
+; keeps the result of the evaluation that finished first.
 inline func @aihc_update_blackhole_inline(%sp_limit: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) -> i1 {
 entry:
   %header_word = call @aihc_object_header_word(%blackhole)
@@ -699,7 +699,11 @@ entry:
   %unclaimed = eq i64 %tag, 0
   %capability = call @aihc_stack_capability(%sp_limit)
   %young = call @aihc_object_is_young(%capability, %blackhole)
-  %plain = and i1 %unclaimed, %young
+  %info = call @aihc_info_table(%blackhole)
+  %kind = load i8 [%info + @AIHC_INFO_KIND_OFFSET] align 1
+  %is_thunk = eq i8 %kind, @AIHC_OBJECT_THUNK
+  %local_unclaimed = and i1 %unclaimed, %young
+  %plain = and i1 %local_unclaimed, %is_thunk
   br %plain, plain, waiters
 
 ; Both stores are release stores. The value is in field zero before a

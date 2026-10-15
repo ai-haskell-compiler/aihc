@@ -16,6 +16,8 @@ Usage: scripts/self-compile-stage.sh --work-dir DIR --output FILE [OPTION]...
   --list FILE     Read the package table from FILE
                   (default: docs/self-hosting-packages.md)
   --target TARGET Compile for TARGET (default: linux-amd64)
+  --capabilities COUNT
+                  Use COUNT RTS capabilities (default: AIHC_CAPABILITIES or 1)
   -O LEVEL        Compile at optimization level LEVEL: 0, 1, 2 or s
                   (default: 2)
   --timeout SECONDS
@@ -34,6 +36,7 @@ list_file=""
 target="linux-amd64"
 level="2"
 build_timeout="18000"
+capabilities="${AIHC_CAPABILITIES:-1}"
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -51,6 +54,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--target)
 		target="${2:?--target needs a target}"
+		shift 2
+		;;
+	--capabilities)
+		capabilities="${2:?--capabilities needs a count}"
 		shift 2
 		;;
 	-O)
@@ -75,6 +82,11 @@ while [ "$#" -gt 0 ]; do
 		;;
 	esac
 done
+
+if [[ ! "$capabilities" =~ ^[1-9][0-9]*$ ]]; then
+	echo "The capability count must be a positive integer." >&2
+	exit 2
+fi
 
 if [ -z "$work_directory" ] || [ -z "$output" ]; then
 	usage >&2
@@ -195,7 +207,7 @@ run_with_timeout() {
 # The level is part of the identity of an installed package, so aihc-base is
 # installed at the level of the build.
 echo "Installing aihc-base for $target at -O$level"
-if ! "$aihc" install core-libs/aihc-base \
+if ! "$aihc" +RTS -N"$capabilities" -RTS install core-libs/aihc-base \
 	--store "$work_directory/store" --immutable --target "$target" -O "$level" \
 	>"$log_dir/aihc-base.log" 2>&1; then
 	tail -n 40 "$log_dir/aihc-base.log" >&2
@@ -204,7 +216,7 @@ fi
 
 echo "Building the aihc executable of $root_name for $target at -O$level"
 status=0
-run_with_timeout "$aihc" build "$workspace/$root_name" --executable aihc \
+run_with_timeout "$aihc" +RTS -N"$capabilities" -RTS build "$workspace/$root_name" --executable aihc \
 	--constraint "aihc -hackage -pretty-ui" \
 	--store "$work_directory/store" --build-root "$work_directory/build" \
 	--target "$target" -O "$level" -o "$work_directory/bin" \

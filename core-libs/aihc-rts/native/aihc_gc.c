@@ -1185,7 +1185,8 @@ void aihc_gc_frame_read(AihcCapability *capability, AihcValue *frame) {
 
 void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
   AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
-  if ((header & AIHC_HEADER_TAG_MASK) != 0) {
+  if ((header & AIHC_HEADER_TAG_MASK) != 0 ||
+      aihc_value_info_table(thunk)->object_kind != AIHC_OBJECT_THUNK) {
     return;
   }
   /* The swap takes the state Claiming. A failed swap found another state,

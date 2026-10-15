@@ -585,6 +585,7 @@ AihcValue *aihc_heap_allocate(AihcCapability *capability, uint64_t words,
 /* Initialize the process and return its initial capability. */
 AihcCapability *aihc_machine_initialize(void);
 AihcCapability *aihc_machine_new(uint64_t global_count);
+uint64_t aihc_get_num_capabilities(void);
 uint64_t aihc_allocation_count(const AihcCapability *capability);
 void aihc_reset_allocation_count(AihcCapability *capability);
 /* The bytes compiled code has taken from the managed heap. Compiled code

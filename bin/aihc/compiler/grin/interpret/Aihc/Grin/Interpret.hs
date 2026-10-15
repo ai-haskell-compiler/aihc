@@ -2492,6 +2492,9 @@ callForeign foreignCall arguments
     [] <- arguments = do
       now <- liftEvalIO Host.getMonotonicTimeNSec
       pure [RuntimeLit (GrinLitInt Word64Rep (toInteger now))]
+  | symbol == "aihc_get_num_capabilities",
+    [] <- arguments =
+      pure [RuntimeLit (GrinLitInt Word64Rep 1)]
   | symbol == "aihc_errno_get",
     [] <- arguments = do
       Errno current <- liftEvalIO getErrno
