@@ -1,0 +1,34 @@
+program: |
+  primitive +# :: IntRep/2
+
+  step (flag :: IntRep) (left :: IntRep) (right :: IntRep) -> IntRep =
+    (chosen :: IntRep) <-
+      case (flag :: IntRep) as choice :: IntRep of
+        0 ->
+          (sum :: IntRep) <- primitive-call @IntRep +# (left :: IntRep) (right :: IntRep)
+          constant (sum :: IntRep)
+        _ ->
+          constant (right :: IntRep)
+    (next :: IntRep) <- primitive-call @IntRep +# (chosen :: IntRep) (1 :: IntRep)
+    constant (next :: IntRep)
+expected: |
+  primitive +# :: IntRep/2
+
+  step (flag :: IntRep) (left :: IntRep) (right :: IntRep) ($cps_return :: BoxedRep Lifted) -> IntRep =
+    case (flag :: IntRep) as choice :: IntRep of
+      (0 :: IntRep) ->
+        sum :: IntRep <-
+          primitive-call @IntRep +# (left :: IntRep) (right :: IntRep)
+        chosen :: IntRep <-
+          constant (sum :: IntRep)
+        next :: IntRep <-
+          primitive-call @IntRep +# (chosen :: IntRep) (1 :: IntRep)
+        continue ($cps_return :: BoxedRep Lifted) (next :: IntRep)
+      _ ->
+        chosen%1 :: IntRep <-
+          constant (right :: IntRep)
+        next%1 :: IntRep <-
+          primitive-call @IntRep +# (chosen%1 :: IntRep) (1 :: IntRep)
+        continue ($cps_return :: BoxedRep Lifted) (next%1 :: IntRep)
+status: pass
+reason: An alternative of the bound case is a bind spine. The result is bound at the end of that spine, so the bind stays direct. The alternative makes no continuation frame and does not return through the runtime.
