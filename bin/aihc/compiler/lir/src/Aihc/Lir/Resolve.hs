@@ -232,6 +232,7 @@ resolveConstants wordBytes (Module items) = Module [resolveItem item | item <- i
         PtrFromInt value -> PtrFromInt (operand value)
         Select ty condition whenTrue whenFalse -> Select ty (operand condition) (operand whenTrue) (operand whenFalse)
         Load ty address align -> Load ty (resolveAddress address) align
+        LoadInvariant ty address align -> LoadInvariant ty (resolveAddress address) align
         Store ty value address align -> Store ty (operand value) (resolveAddress address) align
         LoadAtomic order ty address -> LoadAtomic order ty (resolveAddress address)
         StoreAtomic order ty value address -> StoreAtomic order ty (operand value) (resolveAddress address)

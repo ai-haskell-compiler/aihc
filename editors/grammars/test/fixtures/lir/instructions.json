@@ -91,5 +91,6 @@
   {"line":90,"text":"fence","scope":"keyword.operator.instruction.lir"},
   {"line":91,"text":"cas","scope":"keyword.operator.instruction.lir"},
   {"line":91,"text":"acq_rel","scope":"keyword.control.lir"},
-  {"line":92,"text":"seq_cst","scope":"keyword.control.lir"}
+  {"line":92,"text":"seq_cst","scope":"keyword.control.lir"},
+  {"line":93,"text":"load.invariant","scope":"keyword.operator.instruction.lir"}
 ]

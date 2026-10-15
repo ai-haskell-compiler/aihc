@@ -374,6 +374,7 @@ operations =
              ("ptr.from_int", PtrFromInt <$> operand),
              ("select", Select <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
              ("load", Load <$> typeParser <*> address <*> alignment),
+             ("load.invariant", LoadInvariant <$> typeParser <*> address <*> alignment),
              ("store", Store <$> typeParser <*> operand <* token "," <*> address <*> alignment),
              ("load.atomic", LoadAtomic <$> memoryOrder <*> typeParser <*> address),
              ("store.atomic", StoreAtomic <$> memoryOrder <*> typeParser <*> operand <* token "," <*> address),

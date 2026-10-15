@@ -458,6 +458,11 @@ execOperation program locals operation =
     -- access at the natural alignment of its type.
     LoadAtomic _ ty address -> naturalLoad ty address
     LoadDependent ty address -> naturalLoad ty address
+    -- The interpreter reads the location each time, which is the same value.
+    LoadInvariant ty address alignment -> do
+      target <- effectiveAddress address alignment
+      bytes <- readBytes target (typeBytes ty)
+      pure [decodeValue ty bytes]
     StoreAtomic _ ty value address -> do
       stored <- operand ty value
       target <- naturalAddress ty address

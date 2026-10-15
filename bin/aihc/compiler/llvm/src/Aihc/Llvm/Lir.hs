@@ -33,7 +33,7 @@ import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Either (fromRight)
-import Data.List (partition)
+import Data.List (partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -77,7 +77,7 @@ compileLirModule lirModule =
                 <> concat functions
                 <> concatMap (uncurry renderCallShim) (Map.toAscList shims)
                 <> attributeGroups
-                <> ["!" <> tshow index <> " = " <> body | (body, index) <- Map.toAscList metadata]
+                <> ["!" <> tshow index <> " = " <> body | (body, index) <- sortOn snd (Map.toList metadata)]
             )
         )
     Left errors -> Left (LlvmLirLintErrors errors)
@@ -837,6 +837,17 @@ compileInstruction ctx (Instruction results operation) =
           emit (byte <> " = load i8, ptr " <> pointer <> ", align " <> tshow alignBytes)
           single ("trunc i8 " <> byte <> " to i1")
         _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
+    LoadInvariant ty address alignment -> do
+      let alignBytes = alignmentInBytes wordBytes alignment
+      pointer <- effectiveAddress address
+      invariant <- metadataNode "!{}"
+      let suffix = ", align " <> tshow alignBytes <> ", !invariant.load " <> invariant
+      case ty of
+        I1 -> do
+          byte <- fresh
+          emit (byte <> " = load i8, ptr " <> pointer <> suffix)
+          single ("trunc i8 " <> byte <> " to i1")
+        _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> suffix)
     Store ty value address alignment -> do
       let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address

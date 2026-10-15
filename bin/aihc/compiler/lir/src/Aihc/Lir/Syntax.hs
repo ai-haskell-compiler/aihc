@@ -256,6 +256,11 @@ data Operation
   | PtrFromInt !Operand
   | Select !Type !Operand !Operand !Operand
   | Load !Type !Address !Alignment
+  | -- | A load of a location whose contents never change while the program
+    -- runs, such as a field of an info table. A backend can treat the load
+    -- as a pure function of its address. The header word of a heap object
+    -- is not such a location, since an update rewrites it.
+    LoadInvariant !Type !Address !Alignment
   | Store !Type !Operand !Address !Alignment
   | -- | An atomic load. The location has the natural alignment of the type.
     LoadAtomic !MemoryOrder !Type !Address
@@ -481,6 +486,7 @@ forOperationOperands act operation =
     PtrFromInt value -> act value
     Select _ condition left right -> act condition *> act left *> act right
     Load _ address _ -> act (addressBase address)
+    LoadInvariant _ address _ -> act (addressBase address)
     Store _ value address _ -> act value *> act (addressBase address)
     LoadAtomic _ _ address -> act (addressBase address)
     StoreAtomic _ _ value address -> act value *> act (addressBase address)

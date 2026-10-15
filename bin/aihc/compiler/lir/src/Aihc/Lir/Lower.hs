@@ -843,12 +843,14 @@ headerTable header = do
   pure (header, table)
 
 -- | Byte field @index@ of an info table as an @i64@. The byte fields follow
--- the word fields.
+-- the word fields. An info table never changes, so the loads of its fields
+-- are invariant loads. The header word of the object is not: an update
+-- rewrites it.
 loadInfoByte :: Text -> Operand -> Int -> LowerM Typed
 loadInfoByte base header index = do
   target <- targetM
   let offset = toInteger (lowerWordSize target * infoWordFieldCount + index)
-  value <- emitValue base I8 (Load I8 (byteAddress header offset) (byteAlignment 1))
+  value <- emitValue base I8 (LoadInvariant I8 (byteAddress header offset) (byteAlignment 1))
   emitValue base I64 (Convert ZExt I8 (typedOperand value) I64)
 
 -- | A @code@ field of an info table.
@@ -856,14 +858,14 @@ loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
 loadInfoCode base header index = do
   target <- targetM
   let width = lowerWordSize target
-  emitValue base Code (Load Code (byteAddress header (toInteger (width * index))) (wordAlignment 1))
+  emitValue base Code (LoadInvariant Code (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
 -- | A @ptr@ field of an info table.
 loadInfoPointer :: Text -> Operand -> Int -> LowerM Typed
 loadInfoPointer base header index = do
   target <- targetM
   let width = lowerWordSize target
-  emitValue base Ptr (Load Ptr (byteAddress header (toInteger (width * index))) (wordAlignment 1))
+  emitValue base Ptr (LoadInvariant Ptr (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
 -- | A word-sized integer field of a data object.
 wordField :: LowerTarget -> Integer -> DataField

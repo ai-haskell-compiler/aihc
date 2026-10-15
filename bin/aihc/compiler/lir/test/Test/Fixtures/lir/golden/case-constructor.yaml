@@ -18,7 +18,7 @@ expected: |
     %header_word_9 = load i64 [%value_4] align 8
     %info_word_10 = and i64 %header_word_9, -4
     %header_11 = ptr.from_int %info_word_10
-    %identity_12 = load ptr [%header_11] align 1 word
+    %identity_12 = load.invariant ptr [%header_11] align 1 word
     %matches_13 = eq ptr %identity_12, @aihc_c_aihc_entry_Nothing_0
     br %matches_13, alt_6, check_14
 

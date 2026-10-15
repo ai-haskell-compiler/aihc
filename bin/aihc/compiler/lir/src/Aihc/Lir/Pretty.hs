@@ -198,6 +198,7 @@ prettyOperation operation =
     PtrFromInt operand -> "ptr.from_int" <+> prettyOperand operand
     Select ty condition left right -> "select" <+> prettyType ty <+> prettyOperands [condition, left, right]
     Load ty address alignment -> "load" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment
+    LoadInvariant ty address alignment -> "load.invariant" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment
     Store ty value address alignment -> "store" <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address <+> prettyAlign alignment
     LoadAtomic order ty address -> "load.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyAddress address
     StoreAtomic order ty value address -> "store.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address

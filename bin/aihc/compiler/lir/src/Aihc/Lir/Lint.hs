@@ -367,6 +367,7 @@ operationResultTypes symbols operation =
     PtrFromInt _ -> Just [Ptr]
     Select ty _ _ _ -> Just [ty]
     Load ty _ _ -> Just [ty]
+    LoadInvariant ty _ _ -> Just [ty]
     Store {} -> Just []
     LoadAtomic _ ty _ -> Just [ty]
     StoreAtomic {} -> Just []
@@ -473,6 +474,7 @@ lintInstruction env blockIndex position instruction =
         PtrFromInt value -> check I64 value
         Select ty condition left right -> check I1 condition <> check ty left <> check ty right
         Load _ address alignment -> addressErrors address <> alignmentErrors alignment
+        LoadInvariant _ address alignment -> addressErrors address <> alignmentErrors alignment
         Store ty value address alignment -> check ty value <> addressErrors address <> alignmentErrors alignment
         LoadAtomic order ty address ->
           atomicTypeErrors ty <> orderErrors [Relaxed, Acquire, SeqCst] order <> addressErrors address
@@ -700,6 +702,7 @@ operationKeyword operation =
     PtrFromInt _ -> "ptr.from_int"
     Select {} -> "select"
     Load {} -> "load"
+    LoadInvariant {} -> "load.invariant"
     Store {} -> "store"
     LoadAtomic {} -> "load.atomic"
     StoreAtomic {} -> "store.atomic"

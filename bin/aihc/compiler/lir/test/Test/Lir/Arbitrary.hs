@@ -88,6 +88,7 @@ genOperation =
       PtrFromInt <$> genOperand,
       Select <$> genType <*> genOperand <*> genOperand <*> genOperand,
       Load <$> genType <*> genAddress <*> genAlignment,
+      LoadInvariant <$> genType <*> genAddress <*> genAlignment,
       Store <$> genType <*> genOperand <*> genAddress <*> genAlignment,
       LoadAtomic <$> Gen.enumBounded <*> genType <*> genAddress,
       StoreAtomic <$> Gen.enumBounded <*> genType <*> genOperand <*> genAddress,
