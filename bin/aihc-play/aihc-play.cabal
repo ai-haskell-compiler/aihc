@@ -66,5 +66,10 @@ test-suite spec
     tasty-hunit,
     text,
 
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021

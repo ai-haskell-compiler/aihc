@@ -30,7 +30,7 @@
       for module in GHC/Types.hs GHC/Prim.hs Aihc/Prim/IO.hs GHC/Tuple.hs GHC/CString.hs; do
         cp ${primSrc}/src/$module guide/src/play/prim/$module
       done
-      cp -R --no-preserve=mode ${playSrc}/prelude guide/src/play/prelude
+      cp -R --no-preserve=mode ${playSrc}/bin/aihc-play/prelude guide/src/play/prelude
       cd guide
       mkdocs build \
         --strict \

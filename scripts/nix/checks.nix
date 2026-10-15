@@ -518,6 +518,7 @@
   playTests = mkTestRunner {
     drv = hsPkgs.aihc-play;
     src = sources.playSrc pkgs;
+    directory = "bin/aihc-play";
     setup = ''
       export AIHC_PRIM_SRC=${sources.primSrc pkgs}
     '';
