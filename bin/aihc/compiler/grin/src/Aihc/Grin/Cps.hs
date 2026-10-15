@@ -616,4 +616,4 @@ varsRuntimeRep vars =
 
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
-  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "prompt#", "aihcControl0#", "aihcResume#"]
+  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "noDuplicate#", "prompt#", "aihcControl0#", "aihcResume#"]

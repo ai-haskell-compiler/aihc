@@ -709,6 +709,10 @@ uint64_t aihc_mvar_try_put(AihcCapability *capability, void *mvar,
                            AihcSlot value);
 const AihcResume *aihc_mvar_put(AihcCapability *capability, void *mvar,
                                 AihcSlot value, AihcValue *continuation);
+/* noDuplicate#: claim the thunks of the thread, and give up a duplicate
+   evaluation. */
+const AihcResume *aihc_no_duplicate(AihcCapability *capability,
+                                    AihcValue *continuation);
 const AihcResume *aihc_yield(AihcCapability *capability,
                              AihcValue *continuation);
 const AihcResume *aihc_await_io(AihcCapability *capability, void *request,

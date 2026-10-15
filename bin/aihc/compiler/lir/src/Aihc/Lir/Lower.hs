@@ -1768,6 +1768,7 @@ cpsCallSignature name =
     "readMVar#" -> ([Ptr], Ptr)
     "takeMVar#" -> ([Ptr], Ptr)
     "yield#" -> ([], Ptr)
+    "noDuplicate#" -> ([], Ptr)
     "aihcControl0#" -> ([Ptr, Ptr], Ptr)
     "aihcResume#" -> ([Ptr, Ptr], Ptr)
     _ -> ([Ptr], Ptr)
@@ -2537,10 +2538,6 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- GRIN GC used this operand to preserve its lifetime.
     -- No runtime instruction is necessary.
     ("touch#", [_])
-      | null vars -> pure env
-    -- A computation is never duplicated, so noDuplicate# has nothing to
-    -- guard against; the state token it threads carries no runtime value.
-    ("noDuplicate#", [])
       | null vars -> pure env
     ("float2Double#", [value]) -> do
       operand <- floatOperand F32 value

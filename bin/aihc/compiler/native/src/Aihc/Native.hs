@@ -688,6 +688,7 @@ nativeCpsPrimitiveCalls =
     resumes "takeMVar#" "aihc_mvar_take" 1,
     resumes "putMVar#" "aihc_mvar_put" 2,
     resumes "yield#" "aihc_yield" 0,
+    resumes "noDuplicate#" "aihc_no_duplicate" 0,
     resumes "awaitIO#" "aihc_await_io" 1,
     resumes "aihcControl0#" "aihc_control0" 2,
     resumes "aihcResume#" "aihc_continuation_resume" 2
