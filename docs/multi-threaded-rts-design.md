@@ -56,7 +56,7 @@ The cold path of the write barrier at a compiled store site gets the stored valu
 The runtime statistics report the count as `escape_count`.
 The first part of build step 2 gives the machine an array of capabilities.
 The arena has one window for each capability, and each capability has its own gen1 blocks and remembered set.
-A collection on one OS thread copies the nurseries of all capabilities.
+A bridge collection on one OS thread copies the nurseries of all capabilities.
 It copies a survivor into the gen1 of the capability whose nursery held it.
 The write barrier ignores an object in the nursery of any capability.
 `aihc_machine_set_capabilities` changes the count when all nurseries are empty.
@@ -65,7 +65,6 @@ Only the collector fuzz driver uses more than one capability.
 `aihc_promote` copies an escaping value and the young objects it reaches into gen2.
 An immutable original stays as it is, and an unclaimed thunk becomes an indirection to its copy.
 A value that reaches a mutable object or a claimed thunk runs a collection that moves every young survivor into gen2.
-Until local collection is enforced, every young object counts as local.
 The RTS option `-N<n>` gives the machine `n` capabilities, but every Haskell thread runs on the first one until step 4.
 With more than one capability, an update and a pointer store into a global object promote a young value.
 GC-GRIN puts a store safepoint before each such store, with the live roots and the top frame of the thread.
@@ -76,6 +75,15 @@ A store safepoint ends a heap reservation, because the collection resets the nur
 A put into a global `MVar` promotes its value, and `tryPutMVar#`, `makeStableName#`, and the boxed-array copies give a sentinel that makes the caller collect at its store safepoint.
 A waiter or a blackhole queue of a global object is allocated in gen2, and a name record of a stable name is always global.
 The STM operations do not promote yet.
+Build step 3 enforces the invariant of the local heaps section.
+A reservation that does not fit starts a local collection of the reserving capability.
+A local collection copies the nursery and the gen1 of its capability, and it scans only the roots and the remembered set of that capability.
+It does not change the nurseries, the gen1 blocks, and the young pinned blocks of the other capabilities.
+Each pinned block records the capability that owns it.
+An escape collection is also local.
+An explicit collection, a full collection, and the start of a gen2 cycle are bridge collections.
+A nursery that grows replaces the arena, so a bridge collection empties the other nurseries first.
+Under `AIHC_GC_VERIFY`, the verifier stops at a local object that names an object of another local heap.
 Native parallel execution starts at step 6, after the local collection of step 3.
 WASM keeps one capability until WASI supports the required thread operations.
 

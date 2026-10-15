@@ -320,6 +320,8 @@ struct AihcCapability {
      in bytes: the size of each object it put in the remembered set, and
      one run of elements for each card it made dirty. */
   uint64_t barrier_work;
+  /* The position of the capability in the array of the machine. */
+  uint64_t index;
 };
 
 /* The process state shared by all capabilities. */

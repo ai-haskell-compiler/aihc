@@ -208,6 +208,9 @@ static uint64_t running;
 /* The collection counters at the last report, so the next report can say
    which generation a collection copied. */
 static uint64_t reported_full_count;
+/* Whether the collections of the current command include a bridge
+   collection that a local collection does not show. */
+static int bridge;
 static uint64_t reported_cycle_active;
 static int srts_linked;
 
@@ -703,6 +706,24 @@ static void print_waiters(const AihcMVarWaiter *waiter, int with_value) {
   }
 }
 
+/* The identity of a filler piece. No entry has it. */
+#define FILLER_IDENTITY UINTPTR_MAX
+
+/* Whether an object is in the allocated part of a nursery. A local
+   collection resets only its own nursery, so a nursery of another
+   capability keeps its garbage. */
+static int in_some_nursery(const AihcValue *object) {
+  const AihcMachine *machine = capability->machine;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    const AihcCapability *each = machine->capabilities[index];
+    if ((const uint8_t *)object >= each->heap_start &&
+        (const uint8_t *)object < each->heap_next) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static void print_object(AihcValue *object) {
   AihcObjectKind kind = aihc_value_kind(object);
   if (kind == AIHC_OBJECT_MVAR_WAITER || kind == AIHC_OBJECT_BLACKHOLE_WAITER ||
@@ -715,6 +736,10 @@ static void print_object(AihcValue *object) {
   }
   const AihcInfo *info = aihc_value_info_table(object);
   uintptr_t identity = info->identity;
+  if (identity == FILLER_IDENTITY && in_some_nursery(object)) {
+    /* A filler piece of a nursery that this collection did not copy. */
+    return;
+  }
   Entry *entry =
       identity == 0 || identity >= entry_capacity ? NULL : &entries[identity];
   if (entry == NULL || !entry->defined) {
@@ -1026,6 +1051,9 @@ static void report_collection(void) {
   if (finished) {
     printf("finish\n");
   }
+  if (bridge) {
+    printf("bridge\n");
+  }
 
   object_start_count = 0;
   aihc_gc_walk_objects(capability, record_object, NULL);
@@ -1188,13 +1216,18 @@ static void scatter_roots(AihcSlot *roots, size_t total) {
    collection when one ran. */
 static void ensure(uint64_t words) {
   uint64_t before = capability->machine->gc_count;
+  uint64_t nursery_bytes = heap->nursery_bytes;
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
   aihc_ensure_heap(heap, words, total, roots, current_srt);
   scatter_roots(roots, total);
+  /* A larger nursery comes from a new arena, which replaces all
+     nurseries, so a bridge collection emptied them first. */
+  bridge = heap->nursery_bytes != nursery_bytes;
   if (capability->machine->gc_count != before) {
     report_collection();
   }
+  bridge = 0;
 }
 
 /* Collect the generations up to the given one and report. */
@@ -1565,6 +1598,35 @@ static AihcMVar *parse_mvar(const char *token) {
   return (AihcMVar *)entry->address;
 }
 
+/* The capability that writes an object. A young object belongs to the
+   local heap of one capability, and only that capability writes it. Thus
+   its remembered entry goes to the set that the local collection of that
+   capability scans. Any capability writes a global object. */
+static AihcCapability *writer_of(const AihcValue *object) {
+  AihcMachine *machine = capability->machine;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *each = machine->capabilities[index];
+    if ((const uint8_t *)object >= each->heap_start &&
+        (const uint8_t *)object < each->heap_next) {
+      return each;
+    }
+    for (const AihcHeapBlock *block = each->gen1.first; block != NULL;
+         block = block->link) {
+      if ((const uint8_t *)object >= block->start &&
+          (const uint8_t *)object < block->next) {
+        return each;
+      }
+    }
+  }
+  if (aihc_region_kind(object) == AIHC_REGION_LARGE) {
+    const AihcPinnedBlock *block = aihc_pinned_block_of(object);
+    if (aihc_pinned_generation(block) < 2) {
+      return machine->capabilities[aihc_pinned_owner(block)];
+    }
+  }
+  return capability;
+}
+
 static void command_set(char **tokens, size_t count) {
   if (count != 4) {
     fail("set expects three arguments");
@@ -1588,11 +1650,11 @@ static void command_set(char **tokens, size_t count) {
      object, so the driver does the same for its direct stores. A store into
      an array gives the index, as the compiled array stores do. */
   if (entry->info->object_kind == AIHC_OBJECT_ARRAY) {
-    aihc_write_barrier_at(capability, entry->address, index);
+    aihc_write_barrier_at(writer_of(entry->address), entry->address, index);
     aihc_array_elements(entry->address)[index] = value;
     return;
   }
-  aihc_write_barrier(capability, entry->address);
+  aihc_write_barrier(writer_of(entry->address), entry->address);
   entry_fields(entry)[index] = value;
   if (is_word) {
     entry->shadow[index] = value;
@@ -1626,6 +1688,7 @@ static void command_fill(char **tokens, size_t count) {
     }
     AihcInfo *info = checked_calloc(1, sizeof(*info));
     info->field_count = piece - 1;
+    info->identity = FILLER_IDENTITY;
     info->frame_kind = AIHC_FRAME_NONE;
     info->object_kind = AIHC_OBJECT_NODE;
     AihcValue *object = aihc_gc_allocate(heap, piece);
