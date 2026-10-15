@@ -915,10 +915,12 @@ generalizeDeclarationKinds polyKindOrigins keys = do
   state <- lift get
   let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
   generalized <- traverse generalizeDataKindInfo constructors
-  let updateClass info = case Map.lookup (tyConKey (ciTyCon info)) generalized of
-        Just constructor -> info {ciKindTyVars = case tciKindScheme constructor of ForAll variables _ _ -> variables}
-        Nothing -> info
-  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current, tcsClasses = Map.map updateClass (tcsClasses current)})
+  -- Only the classes among the generalized constructors change. A map
+  -- over every class would read every imported class, and an imported
+  -- interface can hold them as facts that decode on demand.
+  let updateClass constructor info = info {ciKindTyVars = case tciKindScheme constructor of ForAll variables _ _ -> variables}
+      updateClasses classes = Map.foldrWithKey (\key constructor -> Map.adjust (updateClass constructor) key) classes generalized
+  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current, tcsClasses = updateClasses (tcsClasses current)})
 
 generalizeDataKindInfo :: TyConInfo -> TcM TyConInfo
 generalizeDataKindInfo info = do
