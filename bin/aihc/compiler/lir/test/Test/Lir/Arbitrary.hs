@@ -125,7 +125,7 @@ genAlignment = Gen.choice [byteAlignment <$> genPowerOfTwo, wordAlignment <$> ge
     genPowerOfTwo = Gen.element [1, 2, 4, 8, 16]
 
 genAddress :: Gen Address
-genAddress = Address <$> genOperand <*> genInteger <*> genInteger <*> pure []
+genAddress = Address <$> genOperand <*> genInteger <*> genInteger <*> pure [] <*> Gen.enumBounded
 
 genData :: Gen DataItem
 genData =

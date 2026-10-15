@@ -197,16 +197,16 @@ prettyOperation operation =
     PtrToInt operand -> "ptr.to_int" <+> prettyOperand operand
     PtrFromInt operand -> "ptr.from_int" <+> prettyOperand operand
     Select ty condition left right -> "select" <+> prettyType ty <+> prettyOperands [condition, left, right]
-    Load ty address alignment -> "load" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment
-    LoadInvariant ty address alignment -> "load.invariant" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment
-    Store ty value address alignment -> "store" <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address <+> prettyAlign alignment
-    LoadAtomic order ty address -> "load.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyAddress address
-    StoreAtomic order ty value address -> "store.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address
-    LoadDependent ty address -> "load.dependent" <+> prettyType ty <+> prettyAddress address
+    Load ty address alignment -> "load" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment <> prettyRegion address
+    LoadInvariant ty address alignment -> "load.invariant" <+> prettyType ty <+> prettyAddress address <+> prettyAlign alignment <> prettyRegion address
+    Store ty value address alignment -> "store" <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address <+> prettyAlign alignment <> prettyRegion address
+    LoadAtomic order ty address -> "load.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyAddress address <> prettyRegion address
+    StoreAtomic order ty value address -> "store.atomic" <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address <> prettyRegion address
+    LoadDependent ty address -> "load.dependent" <+> prettyType ty <+> prettyAddress address <> prettyRegion address
     CompareSwap order ty expected replacement address ->
-      "cas" <+> prettyOrder order <+> prettyType ty <+> prettyOperands [expected, replacement] <> "," <+> prettyAddress address
+      "cas" <+> prettyOrder order <+> prettyType ty <+> prettyOperands [expected, replacement] <> "," <+> prettyAddress address <> prettyRegion address
     AtomicRmw op order ty value address ->
-      pretty (atomicOpName op) <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address
+      pretty (atomicOpName op) <+> prettyOrder order <+> prettyType ty <+> prettyOperand value <> "," <+> prettyAddress address <> prettyRegion address
     Fence order -> "fence" <+> prettyOrder order
     PtrAdd base offset -> "ptr.add" <+> prettyOperands [base, offset]
     StackAlloc size alignment -> "stack.alloc" <+> pretty size <+> prettyAlign alignment
@@ -226,13 +226,20 @@ prettyAlign alignment =
     AlignWords count -> "align" <+> pretty count <+> (if count == 1 then "word" else "words")
 
 prettyAddress :: Address -> Doc ann
-prettyAddress (Address base offset wordOffset constants) =
+prettyAddress (Address base offset wordOffset constants _) =
   "[" <> prettyOperand base <> prettyWordAddend wordOffset <> prettyAddend offset <> foldMap prettyConstant constants <> "]"
   where
     prettyConstant constant =
       (if addressConstantNegative constant then " -" else " +")
         <+> prettySymbol (addressConstantName constant)
         <> (if addressConstantInWords constant then " words" else mempty)
+
+-- | The region of an address, after the operation. No region prints nothing.
+prettyRegion :: Address -> Doc ann
+prettyRegion address =
+  case addressRegion address of
+    AnyRegion -> mempty
+    region -> " region" <+> pretty (regionName region)
 
 -- | A word-scaled addend keeps the keyword, so an address round-trips.
 prettyWordAddend :: Integer -> Doc ann

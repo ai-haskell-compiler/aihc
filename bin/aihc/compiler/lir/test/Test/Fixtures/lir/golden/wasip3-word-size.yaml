@@ -32,8 +32,8 @@ expected: |
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
     %hp_19 = ptr.add %hp_11, 16
     %slot_20 = ptr.to_int @aihc_c_aihc_entry_Box_0
-    store i64 %slot_20, [%hp_11] align 8
-    store i64 1, [%hp_11 + 8] align 8
+    store i64 %slot_20, [%hp_11] align 8 region heap
+    store i64 1, [%hp_11 + 8] align 8 region heap
     tailcall @aihc_lir_continue_p(%hp_19, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
   }
 

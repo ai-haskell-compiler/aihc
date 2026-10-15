@@ -367,19 +367,19 @@ operations =
         <> [(compareOpName op, binary (Compare op)) | op <- [minBound .. maxBound]]
         <> [(floatBinaryOpName op, binary (FloatBinary op)) | op <- [minBound .. maxBound]]
         <> [(floatUnaryOpName op, FloatUnary op <$> typeParser <*> operand) | op <- [minBound .. maxBound]]
-        <> [(atomicOpName op, AtomicRmw op <$> memoryOrder <*> typeParser <*> operand <* token "," <*> address) | op <- [minBound .. maxBound]]
+        <> [(atomicOpName op, AtomicRmw op <$> memoryOrder <*> typeParser <*> operand <* token "," <*> regionAddress) | op <- [minBound .. maxBound]]
         <> [(convertOpName op, Convert op <$> typeParser <*> operand <* keyword "to" <*> typeParser) | op <- [minBound .. maxBound]]
         <> [ ("quotrem.wide.u", QuotRemWide <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
              ("ptr.to_int", PtrToInt <$> operand),
              ("ptr.from_int", PtrFromInt <$> operand),
              ("select", Select <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
-             ("load", Load <$> typeParser <*> address <*> alignment),
-             ("load.invariant", LoadInvariant <$> typeParser <*> address <*> alignment),
-             ("store", Store <$> typeParser <*> operand <* token "," <*> address <*> alignment),
-             ("load.atomic", LoadAtomic <$> memoryOrder <*> typeParser <*> address),
-             ("store.atomic", StoreAtomic <$> memoryOrder <*> typeParser <*> operand <* token "," <*> address),
-             ("load.dependent", LoadDependent <$> typeParser <*> address),
-             ("cas", CompareSwap <$> memoryOrder <*> typeParser <*> operand <* token "," <*> operand <* token "," <*> address),
+             ("load", (\ty (location, align) -> Load ty location align) <$> typeParser <*> alignedAddress),
+             ("load.invariant", (\ty (location, align) -> LoadInvariant ty location align) <$> typeParser <*> alignedAddress),
+             ("store", (\ty value (location, align) -> Store ty value location align) <$> typeParser <*> operand <* token "," <*> alignedAddress),
+             ("load.atomic", LoadAtomic <$> memoryOrder <*> typeParser <*> regionAddress),
+             ("store.atomic", StoreAtomic <$> memoryOrder <*> typeParser <*> operand <* token "," <*> regionAddress),
+             ("load.dependent", LoadDependent <$> typeParser <*> regionAddress),
+             ("cas", CompareSwap <$> memoryOrder <*> typeParser <*> operand <* token "," <*> operand <* token "," <*> regionAddress),
              ("fence", Fence <$> memoryOrder),
              ("ptr.add", PtrAdd <$> operand <* token "," <*> operand),
              ("stack.alloc", StackAlloc <$> natural <*> alignment),
@@ -413,7 +413,21 @@ addressTerm = do
 addressTerms :: Operand -> [Either (Integer, Integer) AddressConstant] -> Address
 addressTerms base terms =
   let (numbers, constants) = partitionEithers terms
-   in Address base (sum (map fst numbers)) (sum (map snd numbers)) constants
+   in Address base (sum (map fst numbers)) (sum (map snd numbers)) constants AnyRegion
+
+-- | The region of an address, after the address and its alignment. No
+-- keyword names any region.
+region :: Parser Region
+region = MP.option AnyRegion (keyword "region" *> MP.choice [regionKeyword <$ keyword (regionName regionKeyword) | regionKeyword <- [HeapRegion, StackRegion]])
+
+-- | An address with its alignment and its region, as @ and @
+-- write them.
+alignedAddress :: Parser (Address, Alignment)
+alignedAddress = (\location align regionKeyword -> (inRegion regionKeyword location, align)) <$> address <*> alignment <*> region
+
+-- | An address with its region, as the atomic operations write it.
+regionAddress :: Parser Address
+regionAddress = flip inRegion <$> address <*> region
 
 alignment :: Parser Alignment
 alignment = keyword "align" *> (scaled <$> natural <*> MP.option False (True <$ (keyword "words" <|> keyword "word")))

@@ -15,7 +15,7 @@ expected: |
 
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: ptr, %$cps_return_5: ptr) {
   entry:
-    %header_word_9 = load i64 [%value_4] align 8
+    %header_word_9 = load i64 [%value_4] align 8 region heap
     %info_word_10 = and i64 %header_word_9, -4
     %header_11 = ptr.from_int %info_word_10
     %identity_12 = load.invariant ptr [%header_11] align 1 word
@@ -34,7 +34,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
 
   alt_7:
-    %payload_16 = load i64 [%value_4 + 8] align 8
+    %payload_16 = load i64 [%value_4 + 8] align 8 region heap
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_16)
   }
 

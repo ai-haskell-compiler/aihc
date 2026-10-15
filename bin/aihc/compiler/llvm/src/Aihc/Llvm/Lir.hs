@@ -14,6 +14,8 @@
 -- that make it unlikely, and the trap calls are cold calls. No function
 -- unwinds: an exception is a tail call to the runtime, so every function
 -- is @nounwind@.
+-- An access to an address in a region carries type-based alias metadata,
+-- so LLVM moves a stack load past a heap store. See 'regionMetadata'.
 module Aihc.Llvm.Lir
   ( LlvmLirError (..),
     compileLirModule,
@@ -231,6 +233,22 @@ functionAttributes = "#0"
 -- | The attribute group of a call in a trap block.
 coldCallAttributes :: Text
 coldCallAttributes = "#1"
+
+-- | The type-based alias metadata of an access in a region: the suffix
+-- of the instruction, or nothing for an access in no region. The heap and
+-- the stack are two scalar types under one root, so LLVM treats an access
+-- to one as no alias of an access to the other, and an access without a
+-- tag as a possible alias of both. The root differs from the root Clang
+-- gives C code, so a C access may alias either region.
+regionMetadata :: Address -> M Text
+regionMetadata address =
+  case addressRegion address of
+    AnyRegion -> pure ""
+    region -> do
+      root <- metadataNode "!{!\"aihc memory\"}"
+      scalar <- metadataNode ("!{!\"aihc " <> regionName region <> "\", " <> root <> ", i64 0}")
+      tag <- metadataNode ("!{" <> scalar <> ", " <> scalar <> ", i64 0}")
+      pure (", !tbaa " <> tag)
 
 -- | The weight of a likely edge against the weight one of an unlikely edge.
 -- The ratio is the one Clang gives @__builtin_expect@.
@@ -831,17 +849,20 @@ compileInstruction ctx (Instruction results operation) =
     Load ty address alignment -> do
       let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address
+      region <- regionMetadata address
+      let suffix = ", align " <> tshow alignBytes <> region
       case ty of
         I1 -> do
           byte <- fresh
-          emit (byte <> " = load i8, ptr " <> pointer <> ", align " <> tshow alignBytes)
+          emit (byte <> " = load i8, ptr " <> pointer <> suffix)
           single ("trunc i8 " <> byte <> " to i1")
-        _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
+        _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> suffix)
     LoadInvariant ty address alignment -> do
       let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address
       invariant <- metadataNode "!{}"
-      let suffix = ", align " <> tshow alignBytes <> ", !invariant.load " <> invariant
+      region <- regionMetadata address
+      let suffix = ", align " <> tshow alignBytes <> ", !invariant.load " <> invariant <> region
       case ty of
         I1 -> do
           byte <- fresh
@@ -851,23 +872,28 @@ compileInstruction ctx (Instruction results operation) =
     Store ty value address alignment -> do
       let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address
+      region <- regionMetadata address
+      let suffix = ", align " <> tshow alignBytes <> region
       case ty of
         I1 -> do
           byte <- fresh
           emit (byte <> " = zext i1 " <> renderOperand I1 value <> " to i8")
-          emit ("store i8 " <> byte <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
-        _ -> emit ("store " <> typed ty value <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
+          emit ("store i8 " <> byte <> ", ptr " <> pointer <> suffix)
+        _ -> emit ("store " <> typed ty value <> ", ptr " <> pointer <> suffix)
     LoadAtomic order ty address -> do
       pointer <- effectiveAddress address
-      single ("load atomic " <> renderType ty <> ", ptr " <> pointer <> " " <> llvmOrder order <> ", align " <> naturalAlign ty)
+      region <- regionMetadata address
+      single ("load atomic " <> renderType ty <> ", ptr " <> pointer <> " " <> llvmOrder order <> ", align " <> naturalAlign ty <> region)
     -- LLVM orders no load by an address dependency, so a dependent load is
     -- an acquire load.
     LoadDependent ty address -> do
       pointer <- effectiveAddress address
-      single ("load atomic " <> renderType ty <> ", ptr " <> pointer <> " acquire, align " <> naturalAlign ty)
+      region <- regionMetadata address
+      single ("load atomic " <> renderType ty <> ", ptr " <> pointer <> " acquire, align " <> naturalAlign ty <> region)
     StoreAtomic order ty value address -> do
       pointer <- effectiveAddress address
-      emit ("store atomic " <> typed ty value <> ", ptr " <> pointer <> " " <> llvmOrder order <> ", align " <> naturalAlign ty)
+      region <- regionMetadata address
+      emit ("store atomic " <> typed ty value <> ", ptr " <> pointer <> " " <> llvmOrder order <> ", align " <> naturalAlign ty <> region)
     CompareSwap order ty expected replacement address -> do
       pointer <- effectiveAddress address
       pair <- fresh

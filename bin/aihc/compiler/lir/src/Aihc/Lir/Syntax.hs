@@ -39,6 +39,9 @@ module Aihc.Lir.Syntax
     MemoryOrder (..),
     AtomicOp (..),
     Address (..),
+    Region (..),
+    regionName,
+    inRegion,
     AddressConstant (..),
     byteAddress,
     addressByteOffset,
@@ -373,9 +376,35 @@ data Address = Address
   { addressBase :: !Operand,
     addressOffset :: !Integer,
     addressWordOffset :: !Integer,
-    addressConstants :: ![AddressConstant]
+    addressConstants :: ![AddressConstant],
+    addressRegion :: !Region
   }
   deriving (Eq, Show)
+
+-- | The region of memory an address points into. A location is in one
+-- region for the whole life of the program, so an access to one region
+-- never aliases an access to a different region. A continuation frame lives
+-- in a stack chunk, which is a heap object, but no frame slot is a field of
+-- a heap object that compiled code reads or writes. Thus a backend can move
+-- a stack load before a heap store, and the reverse. An access with no
+-- region may alias any access.
+data Region
+  = -- | Any memory.
+    AnyRegion
+  | -- | A field of a heap object: a node, a mutable variable, an array, or
+    -- a byte array.
+    HeapRegion
+  | -- | A slot of a continuation frame on the stack of a thread.
+    StackRegion
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | The keyword of a region. The empty text names no region.
+regionName :: Region -> Text
+regionName region =
+  case region of
+    AnyRegion -> ""
+    HeapRegion -> "heap"
+    StackRegion -> "stack"
 
 -- | A named address term. Resolution adds its signed value to the byte
 -- offset or the target word offset before a backend receives the address.
@@ -411,7 +440,11 @@ alignmentInBytes wordBytes alignment =
 
 -- | An address with a byte offset and no word offset.
 byteAddress :: Operand -> Integer -> Address
-byteAddress base offset = Address base offset 0 []
+byteAddress base offset = Address base offset 0 [] AnyRegion
+
+-- | The same address in the given region.
+inRegion :: Region -> Address -> Address
+inRegion region address = address {addressRegion = region}
 
 -- | The offset of an address in bytes, given the size of a target word.
 addressByteOffset :: Integer -> Address -> Integer

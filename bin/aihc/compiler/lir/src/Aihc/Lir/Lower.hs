@@ -788,53 +788,65 @@ targetM = stateTarget <$> get
 wordType :: LowerTarget -> Type
 wordType target = if lowerWordSize target == 8 then I64 else I32
 
--- | A heap slot is 8 bytes on every target. A pointer that lives in a slot
+-- | A slot is 8 bytes on every target. A pointer that lives in a slot
 -- travels through @i64@ on a 32-bit target, so the high bytes of the slot
--- are always zero.
-loadSlot :: Text -> Type -> Operand -> Integer -> LowerM Typed
-loadSlot base ty object offset = do
+-- are always zero. The region says whether the slot is a field of a heap
+-- object or a slot of a frame on the stack of a thread. A slot that can be
+-- either, such as the stored field an enter stub of a shared shape loads,
+-- is in no region.
+loadSlot :: Region -> Text -> Type -> Operand -> Integer -> LowerM Typed
+loadSlot region base ty object offset = do
   target <- targetM
   if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
-    then emitValue base ty (Load ty (byteAddress object offset) (byteAlignment 8))
+    then emitValue base ty (Load ty (slotAddress region object offset) (byteAlignment 8))
     else do
-      word <- emitValue base I64 (Load I64 (byteAddress object offset) (byteAlignment 8))
+      word <- emitValue base I64 (Load I64 (slotAddress region object offset) (byteAlignment 8))
       emitValue base ty (PtrFromInt (typedOperand word))
 
 -- | A slot load that orders each later load through its result: the
 -- header and field zero of an object that another capability can update.
 -- See "Memory model" in docs/multi-threaded-rts-design.md.
-loadSlotDependent :: Text -> Type -> Operand -> Integer -> LowerM Typed
-loadSlotDependent base ty object offset = do
+loadSlotDependent :: Region -> Text -> Type -> Operand -> Integer -> LowerM Typed
+loadSlotDependent region base ty object offset = do
   target <- targetM
   if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
-    then emitValue base ty (LoadDependent ty (byteAddress object offset))
+    then emitValue base ty (LoadDependent ty (slotAddress region object offset))
     else do
-      word <- emitValue base I64 (LoadDependent I64 (byteAddress object offset))
+      word <- emitValue base I64 (LoadDependent I64 (slotAddress region object offset))
       emitValue base ty (PtrFromInt (typedOperand word))
 
-storeSlot :: Type -> Operand -> Operand -> Integer -> LowerM ()
-storeSlot ty value object offset = do
+storeSlot :: Region -> Type -> Operand -> Operand -> Integer -> LowerM ()
+storeSlot region ty value object offset = do
   target <- targetM
   if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
-    then emit [] (Store ty value (byteAddress object offset) (byteAlignment 8))
+    then emit [] (Store ty value (slotAddress region object offset) (byteAlignment 8))
     else do
       word <- emitValue "slot" I64 (PtrToInt value)
-      emit [] (Store I64 (typedOperand word) (byteAddress object offset) (byteAlignment 8))
+      emit [] (Store I64 (typedOperand word) (slotAddress region object offset) (byteAlignment 8))
+
+-- | The address of a slot in the given region.
+slotAddress :: Region -> Operand -> Integer -> Address
+slotAddress region object offset = inRegion region (byteAddress object offset)
+
+-- | The address of a field of a heap object.
+heapAddress :: Operand -> Integer -> Address
+heapAddress = slotAddress HeapRegion
 
 -- | Thunk headers carry evaluation and waiter bits in their low two bits.
 -- Every info table has at least four-byte alignment, including on wasm32.
-loadObjectInfo :: Operand -> LowerM Typed
-loadObjectInfo object = snd <$> loadObjectHeader object
+loadObjectInfo :: Region -> Operand -> LowerM Typed
+loadObjectInfo region object = snd <$> loadObjectHeader region object
 
 -- | The header word of an object, with its two low bits, and its info table.
-loadObjectHeader :: Operand -> LowerM (Typed, Typed)
-loadObjectHeader object = loadSlot "header_word" I64 object 0 >>= headerTable
+-- The region is the one of the object: a frame is on the stack.
+loadObjectHeader :: Region -> Operand -> LowerM (Typed, Typed)
+loadObjectHeader region object = loadSlot region "header_word" I64 object 0 >>= headerTable
 
 -- | The header word and the info table of an object that another capability
 -- can claim or update. The load orders the loads of field zero after it, as
 -- the inline evaluation check needs.
-loadObjectHeaderDependent :: Operand -> LowerM (Typed, Typed)
-loadObjectHeaderDependent object = loadSlotDependent "header_word" I64 object 0 >>= headerTable
+loadObjectHeaderDependent :: Region -> Operand -> LowerM (Typed, Typed)
+loadObjectHeaderDependent region object = loadSlotDependent region "header_word" I64 object 0 >>= headerTable
 
 headerTable :: Typed -> LowerM (Typed, Typed)
 headerTable header = do
@@ -1029,12 +1041,12 @@ escapeCollectWhen ctx flag = do
       (_, Just array) -> pure array
       _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
   forM_ (zip [0 :: Int ..] roots) $ \(index, root) ->
-    storeSlot Ptr root array (toInteger (8 * index))
+    storeSlot AnyRegion Ptr root array (toInteger (8 * index))
   capability <- capabilityOperand context
   storeContext capability context
   _ <- callRuntime "aihc_escape_collect" [Ptr, I64, Ptr, Ptr] [] [capability, OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
   relocated <- forM (zip [0 :: Int ..] roots) $ \(index, _) ->
-    loadSlot "root" Ptr array (toInteger (8 * index))
+    loadSlot AnyRegion "root" Ptr array (toInteger (8 * index))
   collected <- loadHeapContext capability context
   terminate (Jump (Target (safepointLabel safepoint) (map typedOperand relocated <> [contextHeap collected, contextHeapLimit collected])))
   beginBlock continue []
@@ -1315,7 +1327,7 @@ lowerEnterStub stub enter = do
   supplied <- forM (enterSupplied enter) $ \ty -> (,ty) <$> fresh "supplied"
   beginBlock (Label "entry") []
   stored <- forM (zip [0 :: Int ..] (enterStored enter)) $ \(index, ty) ->
-    loadSlot "stored" ty (OperandVar object) (toInteger (8 * (index + 1 + enterStoredOffset enter)))
+    loadSlot AnyRegion "stored" ty (OperandVar object) (toInteger (8 * (index + 1 + enterStoredOffset enter)))
   let values = stored <> [Typed (OperandVar var) ty | (var, ty) <- supplied] <> [Typed (OperandVar continuation) Ptr | enterPassesContinuation enter]
       parameters = enterTargetParameters enter
   when (length parameters /= length values) $
@@ -1645,7 +1657,7 @@ compileExpr ctx env expression =
       current <- fresh "current"
       terminate (Jump (Target checkLabel [object]))
       beginBlock checkLabel [(current, Ptr)]
-      (headerWord, header) <- loadObjectHeaderDependent (OperandVar current)
+      (headerWord, header) <- loadObjectHeaderDependent HeapRegion (OperandVar current)
       needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
       notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
       -- Only a variable can take the target. Another value keeps the slow
@@ -1670,15 +1682,15 @@ compileExpr ctx env expression =
           claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
           terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
           beginBlock ownerLabel []
-          word <- loadSlotDependent "word" Ptr (OperandVar current) 8
-          (_, wordInfo) <- loadObjectHeaderDependent (typedOperand word)
+          word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
+          (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
           wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
           isThread <- emitValue "thread" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectThread)))
           isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
           owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
           terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
           beginBlock followLabel []
-          next <- loadSlotDependent "next" Ptr (OperandVar current) 8
+          next <- loadSlotDependent HeapRegion "next" Ptr (OperandVar current) 8
           terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
       branchWith (compileExpr ctx env' ready)
@@ -1806,13 +1818,13 @@ compileBinding ctx env vars expression =
         rootOperands <- mapM (pointerValue ctx env) roots
         array <- rootArray roots
         forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-          storeSlot Ptr root array (toInteger (8 * index))
+          storeSlot AnyRegion Ptr root array (toInteger (8 * index))
         context <- currentContext
         capability <- capabilityOperand context
         storeContext capability context
         address <- callRuntime "aihc_heap_allocate" [Ptr, I64, I64, I64, Ptr, Ptr] [Ptr] [capability, words', pinned', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
         moved <- forM (zip [0 :: Int ..] relocated) $ \(index, var) ->
-          (var,) <$> loadSlot (varBase var) Ptr array (toInteger (8 * index))
+          (var,) <$> loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
         collected <- loadHeapContext capability context
         setContext collected
         pure (Map.fromList ((memory, Typed address Ptr) : moved) `Map.union` env)
@@ -1831,7 +1843,7 @@ compileBinding ctx env vars expression =
       -- The fields start where 'initializeFields' writes them.
       let payloadShift = nodePayloadShift (GrinNode tag [])
       fields <- forM (zip [0 :: Int ..] vars) $ \(index, var) -> do
-        typed <- loadSlot (varBase var) (repType (grinVarRuntimeRep var)) object (toInteger (8 * (index + 1 + payloadShift)))
+        typed <- loadSlot (nodeRegion (ctxEnv ctx) (GrinNode tag [])) (varBase var) (repType (grinVarRuntimeRep var)) object (toInteger (8 * (index + 1 + payloadShift)))
         pure (var, typed)
       pure (Map.fromList fields `Map.union` env)
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
@@ -1912,7 +1924,7 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
   beginColdBlock collect []
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-    storeSlot Ptr root array (toInteger (8 * index))
+    storeSlot AnyRegion Ptr root array (toInteger (8 * index))
   -- The compare above is the reservation, so this is the collector rather
   -- than a second reservation that would repeat it. The function's table
   -- travels as an argument: this is the only place a collection runs on
@@ -1921,7 +1933,7 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   storeContext capability context
   _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
   relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
-    loadSlot (varBase var) Ptr array (toInteger (8 * index))
+    loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
   collected <- loadHeapContext capability context
   terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
   beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr), (heapLimit, Ptr)])
@@ -1945,6 +1957,7 @@ bindVars env vars values
 allocateNode :: FunctionCtx -> GrinNode -> LowerM Typed
 allocateNode ctx node = do
   info <- nodeInfoSymbol (ctxEnv ctx) node
+  let region = nodeRegion (ctxEnv ctx) node
   object <-
     if isFrameNode (ctxEnv ctx) node
       then pushFrame (nodeWords node)
@@ -1952,11 +1965,11 @@ allocateNode ctx node = do
         profiling <- gets stateProfileAllocations
         when profiling (countAllocation info (grinNodeTag node) (nodeWords node))
         bumpAllocate (nodeWords node)
-  storeSlot Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
+  storeSlot region Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
   -- The shared info table of an unsaturated constructor does not say how wide
   -- this stage is, so the object records the count itself.
   when (isPartialConstructorNode node) $
-    storeSlot I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
+    storeSlot region I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
   pure object
 
 -- | Add one object of the given words to the allocation counter of an info
@@ -1973,12 +1986,12 @@ countAllocation info tag words' = do
       pure index
   let counters = OperandLiteral (LitSymbol allocationCountsSymbol)
       offset = toInteger (16 * index)
-  objects <- loadSlot "objects" I64 counters offset
+  objects <- loadSlot AnyRegion "objects" I64 counters offset
   objects' <- emitValue "objects" I64 (Binary Add I64 (typedOperand objects) (OperandLiteral (LitInt 1)))
-  storeSlot I64 (typedOperand objects') counters offset
-  allocated <- loadSlot "words" I64 counters (offset + 8)
+  storeSlot AnyRegion I64 (typedOperand objects') counters offset
+  allocated <- loadSlot AnyRegion "words" I64 counters (offset + 8)
   allocated' <- emitValue "words" I64 (Binary Add I64 (typedOperand allocated) (OperandLiteral (LitInt (toInteger words'))))
-  storeSlot I64 (typedOperand allocated') counters (offset + 8)
+  storeSlot AnyRegion I64 (typedOperand allocated') counters (offset + 8)
   where
     -- A linked name separates its package, module and name with control
     -- characters, which a C string cannot hold.
@@ -2028,6 +2041,11 @@ isFrameNode env node =
   case grinNodeTag node of
     GrinClosure name _ -> name `Set.member` envContinuationFunctions env
     _ -> False
+
+-- | The region of the slots of a node: a continuation frame is on the
+-- stack of the thread, and every other node is a heap object.
+nodeRegion :: LowerEnv -> GrinNode -> Region
+nodeRegion env node = if isFrameNode env node then StackRegion else HeapRegion
 
 -- | Push the given words on the stack of the running thread and give back
 -- the frame. The frame fits in the current chunk when the new stack pointer
@@ -2112,7 +2130,7 @@ initializeFields :: FunctionCtx -> ValueEnv -> Typed -> GrinNode -> LowerM ()
 initializeFields ctx env object node =
   forM_ (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     typed <- materialize ctx env field
-    storeSlot (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1 + payloadShift)))
+    storeSlot (nodeRegion (ctxEnv ctx) node) (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1 + payloadShift)))
   where
     payloadShift = nodePayloadShift node
 
@@ -2198,7 +2216,7 @@ protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
       ([], _) -> pure (OperandLiteral LitNull)
       (_, Just array) -> pure array
       _ -> failWith (LowerUnsupportedExpression "foreign call has no root array")
-    mapM_ (\(index, (_, value)) -> storeSlot Ptr (typedOperand value) array (8 * index)) (zip [0 ..] roots)
+    mapM_ (\(index, (_, value)) -> storeSlot AnyRegion Ptr (typedOperand value) array (8 * index)) (zip [0 ..] roots)
     frame <- maybe (failWith (LowerUnsupportedExpression "foreign call has no stack frame")) pure (ctxForeignFrame ctx)
     -- A callback runs Haskell code on the stack of this thread, above the
     -- stack pointer, and it can allocate and collect. It gives the stack
@@ -2214,7 +2232,7 @@ protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
     results <- compileForeignCall ctx env call arguments
     _ <- callRuntime "aihc_foreign_leave" [Ptr, Ptr] [] [capability, frame]
     reloadHeap capability
-    relocated <- mapM (\(index, (var, _)) -> (var,) <$> loadSlot "foreign_root" Ptr array (8 * index)) (zip [0 ..] roots)
+    relocated <- mapM (\(index, (var, _)) -> (var,) <$> loadSlot AnyRegion "foreign_root" Ptr array (8 * index)) (zip [0 ..] roots)
     pure (results, Map.fromList relocated `Map.union` env)
 
 -- | Code and data pointers have the same ABI width, but distinct Lir types.
@@ -2638,17 +2656,17 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- The contents of a reference can be stored by another capability.
     ("readMutVar#", [reference]) -> do
       base <- pointerValue ctx env reference
-      value <- emitValue "field" I64 (LoadDependent I64 (byteAddress base mutVarContentsOffset))
+      value <- emitValue "field" I64 (LoadDependent I64 (heapAddress base mutVarContentsOffset))
       bind [value]
     (_, [object])
       | Just (ty, offset) <- lookup name objectFieldPrimitives -> do
           base <- pointerValue ctx env object
-          value <- emitValue "field" ty (Load ty (byteAddress base offset) (byteAlignment 8))
+          value <- emitValue "field" ty (Load ty (heapAddress base offset) (byteAlignment 8))
           bind [value]
     ("writeMutVar#", [reference, value]) -> do
       base <- pointerValue ctx env reference
       operand <- word value >>= emitWriteBarrier ctx base
-      emit [] (StoreAtomic Release I64 operand (byteAddress base mutVarContentsOffset))
+      emit [] (StoreAtomic Release I64 operand (heapAddress base mutVarContentsOffset))
       bind []
     -- casMutVar# gives a failure flag, one when the contents differed from
     -- the expected value, and the final contents.
@@ -2656,7 +2674,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env reference
       expectedOperand <- word expected
       replacementOperand <- word replacement >>= emitWriteBarrier ctx base
-      current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress base mutVarContentsOffset))
+      current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (heapAddress base mutVarContentsOffset))
       matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
       final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
       unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
@@ -2689,7 +2707,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [array, index])
       | name `elem` arrayLoadPrimitives -> do
           slot <- arrayElement array index
-          value <- emitValue "element" I64 (LoadDependent I64 (byteAddress slot arrayElementsOffset))
+          value <- emitValue "element" I64 (LoadDependent I64 (heapAddress slot arrayElementsOffset))
           bind [value]
       | Just (ty, indexing, extension) <- lookup name byteArrayLoadPrimitives -> do
           address <- byteArrayElement array index ty indexing
@@ -2702,7 +2720,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           indexOperand <- word index
           operand <- word value >>= emitWriteBarrierAt ctx base indexOperand
           slot <- arrayElement array index
-          emit [] (StoreAtomic Release I64 operand (byteAddress slot arrayElementsOffset))
+          emit [] (StoreAtomic Release I64 operand (heapAddress slot arrayElementsOffset))
           bind []
       | Just (ty, indexing) <- lookup name byteArrayStorePrimitives -> do
           address <- byteArrayElement array index ty indexing
@@ -2719,7 +2737,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           expectedOperand <- word expected
           replacementOperand <- word replacement >>= emitWriteBarrierAt ctx base indexOperand
           slot <- arrayElement array index
-          current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (byteAddress slot arrayElementsOffset))
+          current <- emitValue "current" I64 (CompareSwap SeqCst I64 expectedOperand replacementOperand (heapAddress slot arrayElementsOffset))
           matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
           final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
           unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
@@ -2746,7 +2764,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- Whether an MVar holds a value, as a word: its flag is one byte.
     mvarFull mvar = do
       base <- pointerValue ctx env mvar
-      flag <- emitValue "full" I8 (LoadAtomic Acquire I8 (byteAddress base mvarFullOffset))
+      flag <- emitValue "full" I8 (LoadAtomic Acquire I8 (heapAddress base mvarFullOffset))
       emitValue "full" I64 (Convert ZExt I8 (typedOperand flag) I64)
     checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
     -- Leave the current block for one whose entry means the bounds check
@@ -2767,7 +2785,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env array
       offset <- word index
       when checkPrimBounds $ do
-        count <- emitValue "count" I64 (Load I64 (byteAddress base arrayLengthOffset) (byteAlignment 8))
+        count <- emitValue "count" I64 (Load I64 (heapAddress base arrayLengthOffset) (byteAlignment 8))
         invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand count))
         boundsCheck (typedOperand invalid) "aihc_array_bounds_fail" "boxed-array index is out of bounds"
       scaled <- emitValue "offset" I64 (Binary Mul I64 offset (OperandLiteral (LitInt 8)))
@@ -2785,7 +2803,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       let width = typeWidth ty
           literal = OperandLiteral . LitInt
       when checkPrimBounds $ do
-        size <- emitValue "size" I64 (Load I64 (byteAddress base byteArraySizeOffset) (byteAlignment 8))
+        size <- emitValue "size" I64 (Load I64 (heapAddress base byteArraySizeOffset) (byteAlignment 8))
         invalid <-
           case indexing of
             ElementIndex
@@ -2805,7 +2823,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
         if indexing == ByteOffset || width == 1
           then pure offset
           else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (literal width))
-      contents <- emitValue "contents" Ptr (Load Ptr (byteAddress base byteArrayContentsOffset) (byteAlignment 8))
+      contents <- emitValue "contents" Ptr (Load Ptr (heapAddress base byteArrayContentsOffset) (byteAlignment 8))
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) byteOffset)
     -- The address of element @index@ of the given width. Every access uses
     -- alignment one, because the source can give an unaligned address.
@@ -3398,7 +3416,7 @@ compileCase ctx env scrutinee binder alternatives = do
       [] -> freshLabel "no_match"
   if isPointer
     then do
-      header <- loadObjectInfo (typedOperand typed)
+      header <- loadObjectInfo HeapRegion (typedOperand typed)
       identity <- loadInfoPointer "identity" (typedOperand header) 0
       checks <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
         case grinAltCon alternative of
@@ -3449,7 +3467,7 @@ compileCase ctx env scrutinee binder alternatives = do
           let live = freeExprVars (grinAltRhs alternative)
           bound <- forM [(index, field) | (index, field) <- zip [0 :: Int ..] (grinAltBinders alternative), field `Set.member` live] $ \(index, field) -> do
             let ty = repType (grinVarRuntimeRep field)
-            value <- loadSlot (varBase field) ty (typedOperand typed) (toInteger (8 * (index + 1)))
+            value <- loadSlot HeapRegion (varBase field) ty (typedOperand typed) (toInteger (8 * (index + 1)))
             pure (field, value)
           pure (Map.fromList bound `Map.union` env')
         GrinLitAlt _ -> pure env'
@@ -3570,7 +3588,7 @@ startMachine = do
   capability <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
   final <- allocateContinuation capability finalInfo 1
   top <- allocateContinuation capability topInfo 2
-  storeSlot Ptr final top 8
+  storeSlot StackRegion Ptr final top 8
   threadDone <- allocateContinuation capability threadDoneInfo 1
   _ <- callRuntime "aihc_set_thread_done_continuation" [Ptr, Ptr] [] [capability, threadDone]
   -- The halt path returns through the exit function to the caller.
@@ -3588,7 +3606,7 @@ startMachine = do
 allocateContinuation :: Operand -> Symbol -> Int -> LowerM Operand
 allocateContinuation capability info words' = do
   object <- callRuntime "aihc_stack_push" [Ptr, I64] [Ptr] [capability, OperandLiteral (LitInt (toInteger words'))]
-  storeSlot Ptr (OperandLiteral (LitSymbol info)) object 0
+  storeSlot StackRegion Ptr (OperandLiteral (LitSymbol info)) object 0
   pure object
 
 -- | The continuation that a finished thread enters. Exported for harnesses
@@ -3636,7 +3654,7 @@ generateHelper env helper =
       terminate (Jump (Target (Label "loop") [OperandVar continuation]))
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
-      header <- loadHeader (OperandVar current)
+      header <- loadHeader StackRegion (OperandVar current)
       -- A continuation is never an indirection, because frames live on
       -- thread stacks and only a thunk is updated. The one frame without an
       -- entry is a forward frame, which passes the values to its parent,
@@ -3649,7 +3667,7 @@ generateHelper env helper =
       isForwardFrame <- emitValue "forward_frame" I1 (Compare Eq I64 (typedOperand frame) (OperandLiteral (LitInt (toInteger (continuationFrameKindCode (Just ContinuationFrameForward))))))
       terminate (Branch (typedOperand isForwardFrame) (Target (Label "parent") []) (Target (Label "invalid") []))
       beginColdBlock (Label "parent") []
-      parent <- loadSlot "parent" Ptr (OperandVar current) 8
+      parent <- loadSlot StackRegion "parent" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand parent]))
       beginColdBlock (Label "invalid") []
       terminate (Trap "continuation has no entry")
@@ -3692,12 +3710,12 @@ generateHelper env helper =
       terminate (Jump (Target (Label "loop") [OperandVar function]))
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
-      header <- loadHeader (OperandVar current)
+      header <- loadHeader HeapRegion (OperandVar current)
       kind <- loadInfoByte "kind" header infoObjectKindByte
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
       terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "apply") []))
       beginBlock (Label "indirection") []
-      next <- loadSlot "next" Ptr (OperandVar current) 8
+      next <- loadSlot HeapRegion "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "apply") []
       arity <- loadInfoByte "arity" header infoRemainingArityByte
@@ -3715,7 +3733,7 @@ generateHelper env helper =
         )
       beginBlock (Label "slow") []
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
-        storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
+        storeSlot AnyRegion ty (OperandVar var) arguments (toInteger (8 * index))
       capability <- capabilityOperand context
       applySlow capability context current continuation continuationSlot arguments 1 (length shape)
       finishFunction symbol Internal (contextParameters <> ((function, Ptr) : (continuation, Ptr) : values)) [] AihcConvention
@@ -3740,12 +3758,12 @@ generateHelper env helper =
       terminate (Jump (Target (Label "loop") [OperandVar function]))
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
-      header <- loadHeader (OperandVar current)
+      header <- loadHeader HeapRegion (OperandVar current)
       kind <- loadInfoByte "kind" header infoObjectKindByte
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
       terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "apply") []))
       beginBlock (Label "indirection") []
-      next <- loadSlot "next" Ptr (OperandVar current) 8
+      next <- loadSlot HeapRegion "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "apply") []
       isClosure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
@@ -3775,7 +3793,7 @@ generateHelper env helper =
         applyOverSaturated context (OperandVar current) (OperandVar continuation) header supplied held
       beginBlock (Label "slow") []
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
-        storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
+        storeSlot AnyRegion ty (OperandVar var) arguments (toInteger (8 * index))
       capability <- capabilityOperand context
       applySlow capability context current continuation continuationSlot arguments count (length values)
       finishFunction symbol Internal (contextParameters <> ((function, Ptr) : (continuation, Ptr) : values)) [] AihcConvention
@@ -3794,7 +3812,7 @@ generateHelper env helper =
     _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
     symbol = helperSymbol helper
-    loadHeader object = typedOperand <$> loadObjectInfo object
+    loadHeader region object = typedOperand <$> loadObjectInfo region object
     overLabel taken = Label ("over_" <> T.pack (show taken))
 
 -- | The slow path of an apply helper: the runtime applies the function to
@@ -3822,10 +3840,10 @@ applyOverSaturated context function continuation header supplied held = do
       heldValues = concat held
   _ <- requireHelper (HelperApplyFrame heldTypes)
   (frame, pushed) <- pushStackFrame context (2 + length heldValues)
-  storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) frame 0
-  storeSlot Ptr continuation frame 8
+  storeSlot StackRegion Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) frame 0
+  storeSlot StackRegion Ptr continuation frame 8
   forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
-    storeSlot ty (OperandVar var) frame (toInteger (8 * (index + 2)))
+    storeSlot StackRegion ty (OperandVar var) frame (toInteger (8 * (index + 2)))
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
   terminate
     ( TailCallIndirect

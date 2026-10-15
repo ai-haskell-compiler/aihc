@@ -75,7 +75,7 @@ lowerObservedProgram target gcStress entryName gcProgram = do
       buffer <- fresh "buffer"
       emit [buffer] (StackAlloc (toInteger (8 * max 1 (length resultTypes))) (byteAlignment 8))
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
-        storeSlot ty (OperandVar var) (OperandVar buffer) (toInteger (8 * index))
+        storeSlot AnyRegion ty (OperandVar var) (OperandVar buffer) (toInteger (8 * index))
       requireExtern (Symbol "aihc_snapshot_dump_result") [I64, Ptr, Ptr] []
       emit [] (Call (Symbol "aihc_snapshot_dump_result") [OperandLiteral (LitInt (toInteger (length resultTypes))), OperandVar buffer, machine])
       terminate (Return [])

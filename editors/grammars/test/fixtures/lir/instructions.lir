@@ -91,3 +91,4 @@ fence
 %old = cas acq_rel i64 %a, %b, [%p]
 fence seq_cst
 load.invariant
+%v = load i64 [%frame + 8] align 8 region stack

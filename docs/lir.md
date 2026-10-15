@@ -518,6 +518,7 @@ This algorithm removes the previous 64-step loop.
 ```text
 address ::= "[" value (("+" | "-") (integer | symbol) ("word" | "words")?)* "]"
 align ::= "align" integer ("word" | "words")?
+region ::= "region" ("heap" | "stack")
 ```
 
 The base of an address is a `ptr` value. The offset is a constant. A term
@@ -546,11 +547,23 @@ at all, so the wasm backend emits no alignment and an unaligned access there
 is defined and merely slower. A module that overstates an alignment is
 therefore wrong wherever it runs, and caught only by the interpreter.
 
+A region names the memory an address points into. A `heap` address is a
+field of a heap object: a node, a mutable variable, an array, or a byte
+array. A `stack` address is a slot of a continuation frame on the stack of a
+thread. A location is in one region for the whole life of the program. A
+stack chunk is a heap object, but no frame slot is a field that compiled
+code reads or writes as a heap object. Thus an access to one region never
+aliases an access to the other region, and a backend can move a stack load
+before a heap store, or a heap load before a stack store. An access without
+a region may alias any access. A region is a statement, not a check: no
+consumer enforces it. The region follows the alignment of a `load` or a
+`store`, and the address of an atomic operation.
+
 | Operation | Result | Semantics |
 | --- | --- | --- |
-| `load T address align A` | `T` | Read a `T` from the address. Traps when the address is not mapped. Traps when the address is not a multiple of `A`. |
-| `load.invariant T address align A` | `T` | A `load` of a location whose contents never change while the program runs, such as a field of an info table. A backend can read the location once for all loads of the same address. The header word of a heap object is not such a location. |
-| `store T %v, address align A` | none | Write `%v` to the address. Traps when the address is not mapped, is read-only, or is not a multiple of `A`. |
+| `load T address align A region?` | `T` | Read a `T` from the address. Traps when the address is not mapped. Traps when the address is not a multiple of `A`. |
+| `load.invariant T address align A region?` | `T` | A `load` of a location whose contents never change while the program runs, such as a field of an info table. A backend can read the location once for all loads of the same address. The header word of a heap object is not such a location. |
+| `store T %v, address align A region?` | none | Write `%v` to the address. Traps when the address is not mapped, is read-only, or is not a multiple of `A`. |
 | `ptr.add %p, %i` | `ptr` | Add an `i64` to a pointer. The addition wraps at the target word size. |
 | `stack.alloc N align A` | `ptr` | Reserve `N` bytes of stack memory. The contents are undefined until the function writes them. The memory lives until the function returns. Only the entry block may contain this operation. |
 
@@ -574,9 +587,9 @@ that select an operation and an order.
 
 | Operation | Result | Semantics |
 | --- | --- | --- |
-| `load.atomic O T address` | `T` | Read a `T`. `O` is `relaxed`, `acquire`, or `seq_cst`. |
-| `store.atomic O T %v, address` | none | Write `%v`. `O` is `relaxed`, `release`, or `seq_cst`. |
-| `load.dependent T address` | `T` | Read a `T`. Each later load through the result occurs after this load. |
+| `load.atomic O T address region?` | `T` | Read a `T`. `O` is `relaxed`, `acquire`, or `seq_cst`. |
+| `store.atomic O T %v, address region?` | none | Write `%v`. `O` is `relaxed`, `release`, or `seq_cst`. |
+| `load.dependent T address region?` | `T` | Read a `T`. Each later load through the result occurs after this load. |
 | `cas O T %expected, %new, address` | `T` | Write `%new` when the location holds `%expected`. The result is the old value. |
 | `xchg O T %v, address` | `T` | Write `%v`. The result is the old value. |
 | `atomic.add O T %v, address` | `T` | Add `%v` with wrapping. The result is the old value. `T` is not `ptr`. |
@@ -1248,6 +1261,11 @@ design of the AArch64 backend:
 - The atomic operations are `load atomic`, `store atomic`, `cmpxchg`,
   `atomicrmw`, and `fence`. A relaxed order is `monotonic`. LLVM gives no
   order for an address dependency, so `load.dependent` is an acquire load.
+- An access with a region carries type-based alias metadata. The `heap`
+  and `stack` regions are two scalar types under one root, so LLVM treats
+  a load from one region as no alias of a store to the other. An access
+  without a region may alias both. The root is not the root Clang gives C
+  code, so a C access may alias either region.
 
 ### WebAssembly
 
