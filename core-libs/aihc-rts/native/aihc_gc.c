@@ -334,8 +334,8 @@ static void aihc_address_set_clear(AihcAddressSet *set) {
   set->count = 0;
 }
 
-static void *aihc_worklist_grow(void *items, size_t *capacity,
-                                size_t item_bytes) {
+static __attribute__((noinline)) void *
+aihc_worklist_grow(void *items, size_t *capacity, size_t item_bytes) {
   size_t next = *capacity == 0 ? 16 : *capacity * 2;
   if (next > SIZE_MAX / item_bytes) {
     aihc_fail("collector worklist is too large");
@@ -348,8 +348,8 @@ static void *aihc_worklist_grow(void *items, size_t *capacity,
   return grown;
 }
 
-static void aihc_value_worklist_push(AihcValueWorklist *list,
-                                     AihcValue *object) {
+static inline __attribute__((always_inline)) void
+aihc_value_worklist_push(AihcValueWorklist *list, AihcValue *object) {
   if (list->count == list->capacity) {
     list->items =
         aihc_worklist_grow(list->items, &list->capacity, sizeof(*list->items));
@@ -693,6 +693,20 @@ static AihcSegment *aihc_class_next_segment(AihcCapability *capability,
   }
 }
 
+/* Count a gen2 slot that the allocator took. */
+static inline void aihc_gen2_account(AihcMachine *machine, size_t slot_bytes) {
+  machine->gen2.bytes += slot_bytes;
+  if (machine->gen2_cycle_active) {
+    /* The object is black: the cycle counts it and owes mark work for
+       it. */
+    machine->gen2_marked_bytes += slot_bytes;
+    uint64_t owed = (uint64_t)slot_bytes * machine->mark_factor;
+    machine->mark_debt = owed > UINT64_MAX - machine->mark_debt
+                             ? UINT64_MAX
+                             : machine->mark_debt + owed;
+  }
+}
+
 /* Allocate a slot for a copied object in gen2. The slot is occupied from
    now on: in a full collection the object is live by construction. */
 static uint8_t *aihc_gen2_allocate(AihcCapability *capability, size_t bytes) {
@@ -708,23 +722,40 @@ static uint8_t *aihc_gen2_allocate(AihcCapability *capability, size_t bytes) {
         aihc_segment_take(segment, capability->machine->gen2_cycle_active != 0);
     if (slot != UINT32_MAX) {
       size_t slot_bytes = aihc_segment_slot_bytes(segment);
-      capability->machine->gen2.bytes += slot_bytes;
-      if (capability->machine->gen2_cycle_active) {
-        /* The object is black: the cycle counts it and owes mark work for
-           it. */
-        capability->machine->gen2_marked_bytes += slot_bytes;
-        uint64_t owed = (uint64_t)slot_bytes * capability->machine->mark_factor;
-        capability->machine->mark_debt =
-            owed > UINT64_MAX - capability->machine->mark_debt
-                ? UINT64_MAX
-                : capability->machine->mark_debt + owed;
-      }
+      aihc_gen2_account(capability->machine, slot_bytes);
       return aihc_segment_slots(segment) + (size_t)slot * slot_bytes;
     }
     segment->link = class->filled;
     class->filled = segment;
     class->current = NULL;
   }
+}
+
+/* Allocate a gen2 slot for a small copied object. Most copies take the slot
+   at the cursor of the current segment of their class, which is free in a
+   new segment. This path takes that slot without a call. Every other case
+   goes to aihc_gen2_allocate. */
+static inline __attribute__((always_inline)) uint8_t *
+aihc_gen2_allocate_small(AihcCapability *capability, uint64_t words) {
+  unsigned size_class = words < AIHC_SLOT_MIN_WORDS ? 0 : (unsigned)words - 2;
+  AihcSegment *segment = aihc_size_classes[size_class].current;
+  if (segment != NULL) {
+    uint32_t slot = segment->cursor;
+    uint64_t bit = UINT64_C(1) << (slot & 63U);
+    if (slot < segment->slot_count &&
+        (segment->occupied[slot >> 6] & bit) == 0) {
+      AihcMachine *machine = capability->machine;
+      segment->occupied[slot >> 6] |= bit;
+      if (machine->gen2_cycle_active) {
+        segment->bitmap[slot >> 6] |= bit;
+      }
+      segment->cursor = slot + 1U;
+      size_t slot_bytes = aihc_segment_slot_bytes(segment);
+      aihc_gen2_account(machine, slot_bytes);
+      return aihc_segment_slots(segment) + (size_t)slot * slot_bytes;
+    }
+  }
+  return aihc_gen2_allocate(capability, words * sizeof(AihcSlot));
 }
 
 /* Set the mark of a gen2 object in the active cycle. Returns whether the
@@ -833,12 +864,6 @@ static void aihc_gen2_release(AihcCapability *capability) {
     *class = (AihcSizeClass){0};
   }
   capability->machine->gen2.bytes = 0;
-}
-
-static uint8_t *aihc_generation_allocate(AihcCapability *capability,
-                                         unsigned generation, size_t bytes) {
-  return generation == 1 ? aihc_gen1_allocate(capability, bytes)
-                         : aihc_gen2_allocate(capability, bytes);
 }
 
 /* The bytes the objects of the old generations and the pinned list take.
@@ -1545,13 +1570,23 @@ extern const AihcInfo aihc_indirection_info;
    claim sets bit zero first. A frame has it when a pause processed the
    frame, but frames never move, so no forwarding test reads a frame. */
 #define AIHC_HEADER_FORWARD UINT64_C(2)
+/* A forwarding header also gives the generation of the copy in bit two,
+   which is free because every object is word aligned. Set means gen2.
+   Thus a later reference to the object needs no region lookup. */
+#define AIHC_HEADER_FORWARD_GEN2 UINT64_C(4)
+#define AIHC_HEADER_FORWARD_MASK UINT64_C(7)
 
 static int aihc_header_is_forward(AihcSlot header) {
   return (header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_FORWARD;
 }
 
 static AihcValue *aihc_header_forward(AihcSlot header) {
-  return (AihcValue *)(uintptr_t)(header & ~(AihcSlot)AIHC_HEADER_TAG_MASK);
+  return (AihcValue *)(uintptr_t)(header & ~(AihcSlot)AIHC_HEADER_FORWARD_MASK);
+}
+
+/* The generation of the copy that a forwarding header names. */
+static unsigned aihc_header_forward_generation(AihcSlot header) {
+  return (header & AIHC_HEADER_FORWARD_GEN2) != 0 ? 2 : 1;
 }
 
 /* Whether a thunk with bit zero is evaluated: field zero is the value, and
@@ -1599,15 +1634,16 @@ static inline uint64_t aihc_gc_words(const AihcValue *value) {
 
 /* Copy an object into a generation. A survivor of a nursery goes to the gen1
    blocks of the capability of that nursery, its owner. */
-static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
-                            unsigned generation, AihcCapability *owner) {
+static inline __attribute__((always_inline)) AihcValue *
+aihc_copy(AihcGcContext *context, AihcValue *value, unsigned generation,
+          AihcCapability *owner) {
   uint64_t words = aihc_gc_words(value);
   size_t bytes = sizeof(AihcSlot) * words;
   AihcValue *copy =
-      (AihcValue *)(generation == 1
-                        ? aihc_gen1_allocate(owner, bytes)
-                        : aihc_generation_allocate(context->capability,
-                                                   generation, bytes));
+      (AihcValue *)(generation == 1 ? aihc_gen1_allocate(owner, bytes)
+                    : words <= 8
+                        ? aihc_gen2_allocate_small(context->capability, words)
+                        : aihc_gen2_allocate(context->capability, bytes));
   context->copied_bytes += bytes;
   /* Most objects have a few words, and a call of memcpy costs more than
      the copy. */
@@ -1620,7 +1656,8 @@ static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
   } else {
     memcpy(copy, value, bytes);
   }
-  value->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_FORWARD;
+  value->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_FORWARD |
+                  (generation == 2 ? AIHC_HEADER_FORWARD_GEN2 : 0);
   if (generation == 2) {
     aihc_value_worklist_push(&aihc_gen2_worklist, copy);
   }
@@ -1679,9 +1716,11 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
    the generation that holds the object after this collection: a frame, a
    static object, and a null pointer are older than every generation. The
    evacuation knows it from the region it looked up or from the copy, so
-   the scan of the referrer does not look it up again. */
-static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
-                                   unsigned target, unsigned *where) {
+   the scan of the referrer does not look it up again. This is the general
+   path. aihc_evacuate_at below does the most frequent cases inline. */
+static __attribute__((noinline)) AihcValue *
+aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
+                   unsigned *where) {
   AihcCapability *capability = context->capability;
   for (;;) {
     if (value == NULL) {
@@ -1756,9 +1795,8 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
     AihcSlot header = value->header;
     if (aihc_header_is_forward(header)) {
       /* An earlier reference copied the object into gen1 or gen2. */
-      AihcValue *forward = aihc_header_forward(header);
-      *where = aihc_region_kind(forward) == AIHC_REGION_GEN1 ? 1 : 2;
-      return forward;
+      *where = aihc_header_forward_generation(header);
+      return aihc_header_forward(header);
     }
     if (!context->keep_thunk && aihc_follows_to_field_zero(value)) {
       value = (AihcValue *)(uintptr_t)value->fields[0];
@@ -1778,13 +1816,47 @@ static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
   }
 }
 
+/* The evacuation of the most frequent referents, inline in the scan: a
+   nursery object that is forwarded or that is copied. A forwarded object
+   gives its generation in its header. A thunk that a thread claimed, an
+   indirection, and every object outside the nurseries take the general
+   path. */
+static inline __attribute__((always_inline)) AihcValue *
+aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
+                 unsigned *where) {
+  if (value != NULL) {
+    AihcCapability *owner =
+        aihc_nursery_owner(context->capability->machine, value);
+    if (owner != NULL && (context->local == NULL || owner == context->local)) {
+      AihcSlot header = value->header;
+      if (aihc_header_is_forward(header)) {
+        *where = aihc_header_forward_generation(header);
+        return aihc_header_forward(header);
+      }
+      if ((header & AIHC_HEADER_TAG_MASK) == 0 &&
+          aihc_value_info_table(value)->object_kind !=
+              AIHC_OBJECT_INDIRECTION) {
+        unsigned generation =
+            context->young_target < target ? target : context->young_target;
+        if (generation > 2) {
+          generation = 2;
+        }
+        *where = generation;
+        return aihc_copy(context, value, generation, owner);
+      }
+    }
+  }
+  return aihc_evacuate_slow(context, value, target, where);
+}
+
 static AihcSlot aihc_evacuate_root(AihcSlot root, void *opaque_context) {
   unsigned where;
   return (AihcSlot)(uintptr_t)aihc_evacuate_at(
       opaque_context, (AihcValue *)(uintptr_t)root, 0, &where);
 }
 
-static AihcSlot aihc_scan_slot(AihcSlot slot, void *opaque_context) {
+static inline __attribute__((always_inline)) AihcSlot
+aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   AihcScanContext *scan = opaque_context;
   unsigned generation;
   AihcValue *value = aihc_evacuate_at(scan->gc, (AihcValue *)(uintptr_t)slot,
