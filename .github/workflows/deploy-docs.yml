@@ -76,6 +76,8 @@ jobs:
           # app outside the Nix sandbox and lands beside the site.
           echo "=== Building the playground helper ==="
           nix run .#build-lazy-reader-helper -- --output docs/aihc-guide/site/play/helper
+          # The script leaves the component beside the output directory.
+          rm -f docs/aihc-guide/site/play/aihc-play.wasm
 
           echo "=== Site structure ==="
           find docs/aihc-guide/site -type f -not -path "*/assets/*" | head -60

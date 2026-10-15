@@ -109,7 +109,8 @@ else
   echo "wasm-opt is not on the PATH; the core module stays unoptimized" >&2
 fi
 cp "$work/out/aihc-play.js" "$work/out/aihc-play.core.wasm" "$output/"
-# The component itself, for a check under wasmtime:
-#   wasmtime run -S cli -S http aihc-play.wasm < requests
-cp "$work/aihc-play.wasm" "$output/"
 ls -la "$output"
+# The component itself goes beside the output directory, for a check under
+# wasmtime: wasmtime run -S cli -S http aihc-play.wasm < requests. It is
+# not part of the site: Workers rejects an asset above 25 MiB.
+cp "$work/aihc-play.wasm" "$(dirname "$output")/aihc-play.wasm"
