@@ -3,7 +3,7 @@ module Test.Fuzz
   )
 where
 
-import Aihc.Dev.Fuzz.Bugs (Bug (..), Failure (..), IssueRef (..), bugFingerprint, commentBody, issueBody, parseIssueRef, parseReplay, recordFailure, replayCommand)
+import Aihc.Dev.Fuzz.Bugs (Bug (..), Failure (..), IssueRef (..), bugFingerprint, commentBody, parseIssueRef, parseReplay, parseTrackingIssue, recordFailure, replayCommand)
 import Aihc.Dev.Fuzz.CLI (Command (..), Options (..), Selection (..), commandParser, defaultRepository, parseDuration)
 import Aihc.Dev.Fuzz.Model (ReporterStatus (..), bugStatus, updateRates)
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
@@ -119,12 +119,17 @@ fuzzTests =
           (Just (IssueRef 2690 "https://github.com/o/r/issues/2690"))
           (parseIssueRef "Creating issue in o/r\n\nhttps://github.com/o/r/issues/2690\n")
         assertEqual "no url" Nothing (parseIssueRef "error: not found"),
-      testCase "issue text carries the replay command and the report" $ do
+      testCase "a comment gives only the property and the seed" $ do
         let (bug, _, _) = recordFailure (time 1) sampleFailure []
-        assertBool "title in body" (replayCommand sampleFailure `isInfixOf` issueBody bug)
-        assertBool "report in body" (failureReport sampleFailure `isInfixOf` issueBody bug)
-        assertBool "replay in comment" (replayCommand sampleFailure `isInfixOf` commentBody bug)
+        assertEqual "comment" "`aihc-tc.zonking idempotent`: `3:b2 Seed 1 3`\n" (commentBody bug)
         assertEqual "replay command" "cabal run -v0 aihc-dev -- fuzz replay \"aihc-tc.zonking idempotent\" \"3:b2 Seed 1 3\"" (replayCommand sampleFailure),
+      testCase "finds the tracking issue only by its exact title" $ do
+        let listed =
+              "[{\"number\":5,\"title\":\"fuzz: property failures in the GC\",\"url\":\"u5\"},"
+                <> "{\"number\":9,\"title\":\"fuzz: property failures\",\"url\":\"u9\"}]"
+        assertEqual "exact title" (Right (Just (IssueRef 9 "u9"))) (parseTrackingIssue listed)
+        assertEqual "no issue" (Right Nothing) (parseTrackingIssue "[]")
+        assertBool "garbage" (isLeft (parseTrackingIssue "nonsense")),
       testCase "parses a replay argument with and without a shrink path" $ do
         let compressed = fmap (bimap skipCompress show)
         assertEqual "shrink path" (Right ("3:b2", "Seed 1 3")) (compressed (parseReplay "3:b2 Seed 1 3"))

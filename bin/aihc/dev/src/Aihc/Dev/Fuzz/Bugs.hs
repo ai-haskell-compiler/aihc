@@ -10,14 +10,15 @@ module Aihc.Dev.Fuzz.Bugs
     bugStorePath,
     commentBody,
     formatSeen,
-    issueBody,
-    issueTitle,
     loadBugs,
     parseIssueRef,
+    parseTrackingIssue,
     parseReplay,
     recordFailure,
     replayCommand,
     saveBugs,
+    trackingIssueBody,
+    trackingIssueTitle,
   )
 where
 
@@ -30,6 +31,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Char (ord)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Encoding qualified as TLE
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Word (Word64)
@@ -209,45 +212,41 @@ replayCommand Failure {failureProperty, failureReplay} =
   where
     quote text = "\"" <> text <> "\""
 
-issueTitle :: Bug -> String
-issueTitle bug = "fuzz: " <> bugProperty bug <> " fails"
+-- | The title of the one issue that tracks all property failures.
+trackingIssueTitle :: String
+trackingIssueTitle = "fuzz: property failures"
 
--- | The body of a new tracking issue.
-issueBody :: Bug -> String
-issueBody bug =
-  unlines $
-    [ "`aihc-dev fuzz` found a failure in the Hedgehog property `" <> bugProperty bug <> "`.",
-      ""
+-- | The body of the tracking issue.
+trackingIssueBody :: String
+trackingIssueBody =
+  unlines
+    [ "`aihc-dev fuzz` adds one comment to this issue for each new property failure.",
+      "Each comment gives the property and the seed.",
+      "",
+      "```bash",
+      "cabal run -v0 aihc-dev -- fuzz replay \"<property>\" \"<seed>\"",
+      "```"
     ]
-      <> failureSection bug
 
--- | The body of a comment on the tracking issue of the same property.
+-- | The comment for one bug on the tracking issue: the property and the seed only.
 commentBody :: Bug -> String
-commentBody bug =
-  unlines $
-    [ "`aihc-dev fuzz` found a different failure of the property `" <> bugProperty bug <> "`.",
-      ""
-    ]
-      <> failureSection bug
+commentBody Bug {bugProperty, bugFailure} =
+  "`" <> bugProperty <> "`: `" <> failureReplay bugFailure <> "`\n"
 
-failureSection :: Bug -> [String]
-failureSection Bug {bugId, bugFirstSeen, bugFailure} =
-  [ "- Bug id: `" <> bugId <> "`",
-    "- First seen: " <> formatSeen bugFirstSeen <> " UTC",
-    "- Seed: `" <> failureSeed bugFailure <> "`",
-    "",
-    "## Replay",
-    "",
-    "```bash",
-    replayCommand bugFailure,
-    "```",
-    "",
-    "## Hedgehog report",
-    "",
-    "```text"
-  ]
-    <> lines (failureReport bugFailure)
-    <> ["```"]
+-- | Find the open tracking issue in the JSON output of
+-- @gh issue list --json number,title,url@. The title must match exactly.
+parseTrackingIssue :: String -> Either String (Maybe IssueRef)
+parseTrackingIssue output = do
+  issues <- Aeson.eitherDecode (TLE.encodeUtf8 (TL.pack output))
+  pure $ case [IssueRef number url | ListedIssue number title url <- issues, title == trackingIssueTitle] of
+    issue : _ -> Just issue
+    [] -> Nothing
+
+data ListedIssue = ListedIssue Int String String
+
+instance Aeson.FromJSON ListedIssue where
+  parseJSON = Aeson.withObject "ListedIssue" $ \object ->
+    ListedIssue <$> object .: "number" <*> object .: "title" <*> object .: "url"
 
 formatSeen :: UTCTime -> String
 formatSeen = formatTime defaultTimeLocale "%Y-%m-%d %H:%M"

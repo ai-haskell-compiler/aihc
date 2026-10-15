@@ -8,14 +8,14 @@ module Aihc.Dev.Fuzz.Report
   )
 where
 
-import Aihc.Dev.Fuzz.Bugs (Bug (..), IssueRef (..), commentBody, issueBody, issueTitle, parseIssueRef)
+import Aihc.Dev.Fuzz.Bugs (Bug (..), IssueRef (..), commentBody, parseIssueRef, parseTrackingIssue, trackingIssueBody, trackingIssueTitle)
 import Aihc.Dev.Fuzz.Model (ReporterStatus (..))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (IOException, displayException, try)
 import Control.Monad (forever, void, when)
 import Data.Char (isSpace)
-import Data.Maybe (isNothing, listToMaybe)
+import Data.Maybe (isNothing)
 import System.Directory (findExecutable)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
@@ -47,12 +47,18 @@ runGh arguments input = do
     Right (ExitSuccess, out, _) -> Right out
     Right (ExitFailure code, out, err) -> Left ("gh exited with " <> show code <> ": " <> firstLine (err <> out))
 
-createIssue :: String -> Bug -> IO (Either String IssueRef)
-createIssue repository bug = do
-  result <- runGh ["issue", "create", "--repo", repository, "--title", issueTitle bug, "--label", "bug", "--body-file", "-"] (issueBody bug)
-  pure $ do
-    output <- result
-    maybe (Left ("cannot read the issue URL from: " <> firstLine output)) Right (parseIssueRef output)
+-- | Find the open tracking issue, or open it when it does not exist.
+trackingIssue :: String -> IO (Either String IssueRef)
+trackingIssue repository = do
+  listed <- runGh ["issue", "list", "--repo", repository, "--state", "open", "--search", "\"" <> trackingIssueTitle <> "\" in:title", "--json", "number,title,url"] ""
+  case listed >>= parseTrackingIssue of
+    Left reason -> pure (Left reason)
+    Right (Just issue) -> pure (Right issue)
+    Right Nothing -> do
+      created <- runGh ["issue", "create", "--repo", repository, "--title", trackingIssueTitle, "--label", "bug", "--body-file", "-"] trackingIssueBody
+      pure $ do
+        output <- created
+        maybe (Left ("cannot read the issue URL from: " <> firstLine output)) Right (parseIssueRef output)
 
 commentIssue :: String -> IssueRef -> Bug -> IO (Either String ())
 commentIssue repository issue bug =
@@ -60,8 +66,8 @@ commentIssue repository issue bug =
 
 -- | Report each bug without an issue, oldest first, until the thread is cancelled.
 -- The last callback runs on each change of the reporter status.
--- The first bug of a property opens an issue. A later bug of the same
--- property becomes a comment on that issue. When @gh@ is not usable, the
+-- Each bug becomes one comment on the tracking issue. When the tracking
+-- issue does not exist, the loop opens it. When @gh@ is not usable, the
 -- loop tries again later.
 reporterLoop :: String -> TVar [Bug] -> TVar ReporterStatus -> IO () -> (Bug -> IO ()) -> (ReporterStatus -> IO ()) -> IO ()
 reporterLoop repository bugsVar statusVar persist announce announceStatus = forever $ do
@@ -74,7 +80,10 @@ reporterLoop repository bugsVar statusVar persist announce announceStatus = fore
         GhMissing -> setStatus (ReporterBlocked "gh is not installed") >> threadDelay retryMicroseconds
         GhUnauthorized reason -> setStatus (ReporterBlocked ("gh is not authorized: " <> reason)) >> threadDelay retryMicroseconds
         GhReady -> do
-          done <- reportAll pending
+          tracking <- trackingIssue repository
+          done <- case tracking of
+            Left reason -> setStatus (ReporterFailed reason) >> pure False
+            Right issue -> reportAll issue pending
           if done then setStatus ReporterIdle else threadDelay retryMicroseconds
   where
     pollMicroseconds = 2000000
@@ -85,21 +94,17 @@ reporterLoop repository bugsVar statusVar persist announce announceStatus = fore
         when (current /= status) (writeTVar statusVar status)
         pure (current /= status)
       when changed (announceStatus status)
-    reportAll [] = pure True
-    reportAll (bug : rest) = do
+    reportAll _ [] = pure True
+    reportAll issue (bug : rest) = do
       setStatus (ReporterSending (bugId bug))
-      bugs <- readTVarIO bugsVar
-      let existing = listToMaybe [issue | other <- bugs, bugProperty other == bugProperty bug, Just issue <- [bugIssue other]]
-      result <- case existing of
-        Just issue -> fmap (const issue) <$> commentIssue repository issue bug
-        Nothing -> createIssue repository bug
+      result <- commentIssue repository issue bug
       case result of
         Left reason -> setStatus (ReporterFailed reason) >> pure False
-        Right issue -> do
+        Right () -> do
           atomically $ modifyTVar' bugsVar (map (\other -> if bugId other == bugId bug then other {bugIssue = Just issue} else other))
           persist
           announce bug {bugIssue = Just issue}
-          reportAll rest
+          reportAll issue rest
 
 -- | The first line that says something: @gh@ marks its errors with @X@.
 firstLine :: String -> String
