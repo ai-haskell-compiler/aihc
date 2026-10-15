@@ -253,7 +253,6 @@ in {
       set -euo pipefail
       ${repoRootGuard}
       export GHCRTS=-N
-      export AIHC_CAPABILITIES="''${AIHC_CAPABILITIES:-$(nproc)}"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC="''${AIHC:-${aihcExe}}"
