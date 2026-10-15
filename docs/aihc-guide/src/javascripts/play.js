@@ -103,7 +103,14 @@ function sendFrame(command, body) {
 function send(command, body) {
   const run = () =>
     new Promise((resolve, reject) => {
-      helper.pending = { resolve, reject };
+      const started = performance.now();
+      helper.pending = {
+        resolve: (answer) => {
+          console.debug("The Lazy Reader: " + command + " answered in " + Math.round(performance.now() - started) + " ms");
+          resolve(answer);
+        },
+        reject,
+      };
       sendFrame(command, body);
     });
   const result = helper.queue.then(run, run);
