@@ -2712,7 +2712,14 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [unchanged, final]
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
+          let sentinel = lookup name escapingRuntimeSentinels
+          forM_ sentinel $ \_ -> currentCapability >>= storePauseTop
           result <- compileRuntimeCall ctx env runtimeCall arguments
+          -- A runtime call that can be an escape gives a sentinel when its
+          -- promotion needs a collection, and it stored nothing then.
+          forM_ sentinel $ \value -> do
+            flag <- emitValue "runtime_escape" I1 (Compare Eq (typedType result) (typedOperand result) value)
+            escapeCollectWhen ctx flag
           case nativeRuntimeCallResultCount runtimeCall of
             0 | null vars -> pure env
             1 -> bind [result]
@@ -3061,6 +3068,19 @@ objectFieldPrimitives =
 arrayLoadPrimitives, arrayStorePrimitives :: [Text]
 arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
 arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
+
+-- | The runtime calls that can be an escape, and the result each gives when
+-- its promotion needs a collection. GC-GRIN puts a store safepoint before
+-- each of them.
+escapingRuntimeSentinels :: [(Text, Operand)]
+escapingRuntimeSentinels =
+  [ ("tryPutMVar#", OperandLiteral (LitInt 2)),
+    ("makeStableName#", OperandLiteral LitNull),
+    ("copyArray#", OperandLiteral (LitInt 1)),
+    ("copyMutableArray#", OperandLiteral (LitInt 1)),
+    ("copySmallArray#", OperandLiteral (LitInt 1)),
+    ("copySmallMutableArray#", OperandLiteral (LitInt 1))
+  ]
 
 -- | The compare and swap of one element of a boxed array.
 arrayCasPrimitives :: [Text]

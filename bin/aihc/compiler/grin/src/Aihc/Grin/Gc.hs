@@ -177,6 +177,19 @@ insertExprReservations continuations expression =
         []
         (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
         (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
+    -- A store safepoint ends a reservation, so the reservation of an
+    -- escaping primitive that allocates comes after its safepoint.
+    GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
+      | isEscapingStore call,
+        Just requiredWords <- primitiveHeapWords name ->
+          GrinBind
+            []
+            (GrinSafepoint Nothing [])
+            ( GrinBind
+                []
+                (GrinEnsureHeap (staticHeapWords requiredWords) [])
+                (GrinBind resultVars call (insertExprReservations continuations body))
+            )
     GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind
@@ -235,7 +248,9 @@ isEscapingStore expression =
     _ -> False
 
 -- | The primitives whose pointer store into an existing object takes the
--- write barrier in compiled code.
+-- write barrier: in compiled code, or in a runtime call that gives a
+-- sentinel when its promotion needs a collection. makeStableName# stores
+-- into the global list of names.
 escapingStorePrimitives :: [Text]
 escapingStorePrimitives =
   [ "writeMutVar#",
@@ -243,7 +258,13 @@ escapingStorePrimitives =
     "writeArray#",
     "writeSmallArray#",
     "casArray#",
-    "casSmallArray#"
+    "casSmallArray#",
+    "tryPutMVar#",
+    "makeStableName#",
+    "copyArray#",
+    "copyMutableArray#",
+    "copySmallArray#",
+    "copySmallMutableArray#"
   ]
 
 insertAlternativeReservations :: Set FunctionName -> GrinAlt -> GrinAlt

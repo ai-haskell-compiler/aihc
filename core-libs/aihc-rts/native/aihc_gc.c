@@ -3086,6 +3086,79 @@ static int aihc_promote_is_young(const AihcMachine *machine,
   }
 }
 
+int aihc_value_is_young(const AihcMachine *machine, const void *value) {
+  return aihc_promote_is_young(machine, value);
+}
+
+AihcValue *aihc_record_allocate(AihcCapability *capability,
+                                const AihcValue *container, uint64_t words) {
+  if (capability->machine->capability_count > 1 &&
+      !aihc_promote_is_young(capability->machine, container)) {
+    return aihc_gc_allocate_global(capability, words);
+  }
+  return aihc_gc_allocate(capability, words);
+}
+
+int64_t aihc_stable_name_escapes(AihcCapability *capability,
+                                 const AihcValue *value) {
+  int64_t escapes = capability->machine->capability_count > 1 &&
+                    aihc_promote_is_young(capability->machine, value);
+  capability->pause_top = NULL;
+  return escapes;
+}
+
+/* A copy into a global array with several capabilities promotes each
+   element. The first pass promotes into a buffer and stores nothing, so a
+   promotion that needs a collection leaves the target as it was, and the
+   copy runs again after the collection. The second pass stores. */
+int64_t aihc_array_copy_escaping(AihcCapability *capability, AihcValue *source,
+                                 uint64_t source_offset, AihcValue *target,
+                                 uint64_t target_offset, uint64_t count) {
+  AihcValue *top = capability->pause_top;
+  capability->pause_top = NULL;
+  if (capability->machine->capability_count < 2 ||
+      aihc_promote_is_young(capability->machine, target) || count == 0) {
+    return 0;
+  }
+  if (source_offset > aihc_array_length(source) ||
+      count > aihc_array_length(source) - source_offset ||
+      target_offset > aihc_array_length(target) ||
+      count > aihc_array_length(target) - target_offset) {
+    aihc_fail("boxed-array copy range is invalid");
+  }
+  AihcSlot *buffer = malloc(count * sizeof(*buffer));
+  if (buffer == NULL) {
+    aihc_fail("out of memory");
+  }
+  const AihcSlot *from = aihc_array_elements(source) + source_offset;
+  for (uint64_t index = 0; index < count; ++index) {
+    capability->pause_top = top;
+    buffer[index] = aihc_escape(capability, target, from[index]);
+    if (buffer[index] == AIHC_ESCAPE_COLLECT) {
+      free(buffer);
+      return 2;
+    }
+  }
+  aihc_write_barrier_range(capability, target, target_offset, count);
+  memcpy(aihc_array_elements(target) + target_offset, buffer,
+         count * sizeof(*buffer));
+  free(buffer);
+  return 1;
+}
+
+AihcSlot aihc_escape_in_operation(AihcCapability *capability,
+                                  const AihcValue *object, AihcSlot value,
+                                  AihcValue *continuation) {
+  capability->pause_top = continuation;
+  AihcSlot stored = aihc_escape(capability, object, value);
+  if (stored != AIHC_ESCAPE_COLLECT) {
+    return stored;
+  }
+  AihcSlot roots[2] = {value, (AihcSlot)(uintptr_t)continuation};
+  aihc_escape_collect(capability, 2, roots, NULL);
+  return roots[0];
+}
+
 /* A reference to a young indirection or a young evaluated thunk goes to its
    target. A global object is never followed: a static indirection can name
    itself. */

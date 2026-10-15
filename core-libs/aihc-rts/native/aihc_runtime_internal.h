@@ -472,6 +472,33 @@ AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
    result is AIHC_ESCAPE_COLLECT when the promotion needs a collection. */
 AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
                      AihcSlot value);
+/* Whether a value is young: in a nursery, in gen1, or a young pinned block.
+   Until local collection is enforced, every young object counts as
+   local. */
+int aihc_value_is_young(const AihcMachine *machine, const void *value);
+/* Allocate a runtime record that a runtime operation links into the given
+   object. With several capabilities and a global object, the record goes
+   into gen2, so no global object names a local record. The words come from
+   the reservation of the caller in both cases. */
+AihcValue *aihc_record_allocate(AihcCapability *capability,
+                                const AihcValue *container, uint64_t words);
+/* The value that a scheduler operation stores into an object, promoted when
+   the store is an escape. A scheduler operation has its live values in its
+   continuation, so the promotion can collect. The continuation is also the
+   top frame of the pause walk. */
+AihcSlot aihc_escape_in_operation(AihcCapability *capability,
+                                  const AihcValue *object, AihcSlot value,
+                                  AihcValue *continuation);
+/* Whether makeStableName# of a value must collect first: the machine has
+   several capabilities, and the value is young. */
+int64_t aihc_stable_name_escapes(AihcCapability *capability,
+                                 const AihcValue *value);
+/* The copy of a run into a global array with several capabilities: zero when
+   the copy is not an escape, one when this function copied, and two when a
+   promotion needs a collection and nothing was stored. */
+int64_t aihc_array_copy_escaping(AihcCapability *capability, AihcValue *source,
+                                 uint64_t source_offset, AihcValue *target,
+                                 uint64_t target_offset, uint64_t count);
 /* The collection of an escape: it moves every young survivor into gen2. */
 void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);

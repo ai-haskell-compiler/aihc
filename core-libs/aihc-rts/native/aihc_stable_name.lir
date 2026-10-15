@@ -1,11 +1,16 @@
 ; A stable name has four slots on every target: header, referent, hash, and link.
-; The caller reserves four slots. This operation must not collect.
+; The caller reserves four slots. This operation must not collect. With
+; several capabilities, the name of a young referent gives null: the caller
+; collects at its store safepoint, which moves the referent into gen2, and
+; makes the name again. Two names of one object are then equal. The list of
+; names is global, so the name record is global as well.
 ; The collector treats the referent and lookup link as weak pointers.
 ; A live name preserves its hash after its referent dies.
 
 include "aihc_constants.lir"
 
-extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
+extern func @aihc_record_allocate(ptr, ptr, i64) -> ptr cc c
+extern func @aihc_stable_name_escapes(ptr, ptr) -> i64 cc c
 
 data @aihc_stable_name_info align 8 = {
   ptr null,
@@ -42,6 +47,14 @@ invalid:
   trap "stable-name primitive received null"
 
 search:
+  %escapes = call @aihc_stable_name_escapes(%capability, %value)
+  %collect = ne i64 %escapes, 0
+  br %collect, escape, lookup
+
+escape:
+  return null
+
+lookup:
   %head = call @aihc_stable_names(%capability)
   %first = load ptr [%head] align 8
   jump visit(%first)
@@ -63,7 +76,7 @@ known:
   return %name
 
 allocate:
-  %fresh = call @aihc_gc_allocate(%capability, 4)
+  %fresh = call @aihc_record_allocate(%capability, null, 4)
   %hash = call @aihc_stable_name_take_hash(%capability)
   %info = ptr.to_int @aihc_stable_name_info
   store i64 %info, [%fresh] align 8

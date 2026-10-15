@@ -2068,6 +2068,11 @@ static void run_command(char **tokens, size_t count) {
     aihc_machine_set_capabilities(capability, total);
     heap = capability;
     heap_index = 0;
+    /* With several capabilities, every store into a global object can
+       promote, and a promotion can copy. */
+    if (total > 1) {
+      promoted_ever = 1;
+    }
   } else if (strcmp(name, "heap") == 0) {
     if (count != 2) {
       fail("heap expects one argument");
@@ -2174,25 +2179,50 @@ static void run_command(char **tokens, size_t count) {
     AihcValue *object = parse_object(tokens[1]);
     const uint8_t *before = capability->heap_next;
     AihcStableName *stable = aihc_stable_name_make(capability, object);
+    int collected = 0;
+    while (stable == NULL) {
+      /* With several capabilities, the name of a young object asks for the
+         collection of an escape first, as a store safepoint gives it. */
+      size_t total = 0;
+      AihcSlot *roots = gather_roots(&total);
+      AihcSlot *extended = checked_calloc(total + 1, sizeof(*extended));
+      memcpy(extended, roots, total * sizeof(*extended));
+      extended[total] = (AihcSlot)(uintptr_t)object;
+      aihc_escape_collect(capability, total + 1, extended, current_srt);
+      memcpy(roots, extended, total * sizeof(*extended));
+      object = (AihcValue *)(uintptr_t)extended[total];
+      free(extended);
+      scatter_roots(roots, total);
+      before = capability->heap_next;
+      stable = aihc_stable_name_make(capability, object);
+      collected = 1;
+    }
     consume_reservation(before);
+    int known = 0;
     for (size_t index = 0; index < stable_count; ++index) {
       if (stable_names[index] == stable) {
-        return;
+        known = 1;
       }
     }
-    if (stable_count >= SIZE_MAX / sizeof(*stable_names) - 1) {
-      fail("too many stable names");
+    if (!known) {
+      if (stable_count >= SIZE_MAX / sizeof(*stable_names) - 1) {
+        fail("too many stable names");
+      }
+      AihcStableName **grown =
+          realloc(stable_names, (stable_count + 1) * sizeof(*grown));
+      if (grown == NULL) {
+        fail("out of memory");
+      }
+      stable_names = grown;
+      memmove(stable_names + 1, stable_names,
+              stable_count * sizeof(*stable_names));
+      stable_names[0] = stable;
+      ++stable_count;
     }
-    AihcStableName **grown =
-        realloc(stable_names, (stable_count + 1) * sizeof(*grown));
-    if (grown == NULL) {
-      fail("out of memory");
+    /* The report shows the state after the command. */
+    if (collected) {
+      report_collection();
     }
-    stable_names = grown;
-    memmove(stable_names + 1, stable_names,
-            stable_count * sizeof(*stable_names));
-    stable_names[0] = stable;
-    ++stable_count;
   } else if (strcmp(name, "push") == 0) {
     link_srts();
     command_push(tokens, count);
@@ -2233,11 +2263,30 @@ static void run_command(char **tokens, size_t count) {
     AihcValue *continuation = running_continuation();
     AihcMVar *mvar = parse_mvar(tokens[1]);
     AihcSlot value = parse_pointer(tokens[2]);
+    /* With several capabilities, a put into a global MVar can collect for
+       its promotion. The roots of the driver go into a host root frame for
+       the call, so that collection updates them. */
+    uint64_t collections = capability->machine->gc_count;
+    size_t total = 0;
+    AihcSlot *roots = gather_roots(&total);
+    AihcRootFrame frame;
+    aihc_roots_enter(capability, &frame, total, roots);
     const uint8_t *before = capability->heap_next;
     const AihcResume *resume =
         aihc_mvar_put(capability, mvar, value, continuation);
-    consume_reservation(before);
+    aihc_roots_leave(capability, &frame);
+    scatter_roots(roots, total);
+    if (capability->machine->gc_count == collections) {
+      consume_reservation(before);
+    } else {
+      /* The collection emptied the nursery, so the operation took its words
+         from the start of the nursery. */
+      consume_reservation(capability->heap_start);
+    }
     apply_resume(resume);
+    if (capability->machine->gc_count != collections) {
+      report_collection();
+    }
   } else if (strcmp(name, "cycle") == 0) {
     if (count != 1) {
       fail("cycle expects no argument");

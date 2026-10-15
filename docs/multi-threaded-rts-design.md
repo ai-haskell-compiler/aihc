@@ -73,7 +73,9 @@ The barrier gives the value to store, which is the global copy for an escape.
 Before a copy, the runtime runs the pause walk from the top frame, so a thunk under evaluation is claimed and takes the collection.
 When the promotion needs a collection, the store site spills its roots, collects, and runs the store again from the safepoint.
 A store safepoint ends a heap reservation, because the collection resets the nursery.
-The runtime operations that store, such as `putMVar#`, do not promote yet.
+A put into a global `MVar` promotes its value, and `tryPutMVar#`, `makeStableName#`, and the boxed-array copies give a sentinel that makes the caller collect at its store safepoint.
+A waiter or a blackhole queue of a global object is allocated in gen2, and a name record of a stable name is always global.
+The STM operations do not promote yet.
 Native parallel execution starts at step 6, after the local collection of step 3.
 WASM keeps one capability until WASI supports the required thread operations.
 
