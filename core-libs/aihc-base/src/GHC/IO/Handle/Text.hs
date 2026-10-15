@@ -24,7 +24,7 @@ import Data.Bool (Bool (..), not, (&&), (||))
 import Data.Maybe (Maybe (..), maybe)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Storable (Storable (..))
-import GHC.Base (Monad (..), String, ord, ($), (++), (.))
+import GHC.Base (Monad (..), String, ord, otherwise, ($), (++), (.))
 import GHC.Char (chr)
 import GHC.IO (IO)
 import GHC.IO.Buffer
@@ -65,7 +65,7 @@ import GHC.Internal.IO.Types
     ioException,
   )
 import GHC.Internal.IO.Types qualified as Buffered (fillReadBuffer, flushWriteBuffer)
-import GHC.Internal.IO.Types qualified as RawIO (write)
+import GHC.Internal.IO.Types qualified as RawIO (read, write)
 import GHC.Num (Num (..))
 import GHC.Ptr (Ptr, castPtr, plusPtr)
 import GHC.Real (Integral (..), fromIntegral)
@@ -148,7 +148,6 @@ encodeUtf8 pointer offset code
       byte (offset + 3) (0x80 + rem code 64)
       return (offset + 4)
   where
-    otherwise = True
     byte :: Int -> Int -> IO ()
     byte index value = pokeByteOff pointer index (fromIntegral value :: Word8)
 
@@ -262,8 +261,6 @@ hGetBuf handle pointer count
         case isEmptyBuffer buffer of
           True -> bufReadEmpty handle_ buffer (castPtr pointer) 0 count
           False -> bufReadNonEmpty handle_ buffer (castPtr pointer) 0 count
-  where
-    otherwise = True
 
 bufReadNonEmpty :: Handle__ -> Buffer Word8 -> Ptr Word8 -> Int -> Int -> IO Int
 bufReadNonEmpty handle_@Handle__ {haByteBuffer} buffer@Buffer {bufRaw, bufR, bufL} pointer soFar count = do
@@ -285,13 +282,26 @@ bufReadNonEmpty handle_@Handle__ {haByteBuffer} buffer@Buffer {bufRaw, bufR, buf
         False -> bufReadEmpty handle_ buffer' pointer' soFar' remaining
 
 bufReadEmpty :: Handle__ -> Buffer Word8 -> Ptr Word8 -> Int -> Int -> IO Int
-bufReadEmpty handle_@Handle__ {haByteBuffer, haDevice} buffer pointer soFar count = do
-  (transferred, buffer') <- Buffered.fillReadBuffer haDevice buffer
-  case transferred == 0 of
-    True -> return soFar
-    False -> do
-      writeIORef haByteBuffer buffer'
-      bufReadNonEmpty handle_ buffer' pointer soFar count
+bufReadEmpty handle_@Handle__ {haByteBuffer, haDevice} buffer pointer soFar count
+  -- A read of at least the size of the buffer goes to the device
+  -- directly, as GHC does it. The device fills as much of the request as
+  -- it can in one read; the loop asks again for the rest until the
+  -- request is complete or the input ends.
+  | count >= bufSize buffer = do
+      transferred <- RawIO.read haDevice pointer 0 count
+      case transferred == 0 of
+        True -> return soFar
+        False ->
+          case transferred == count of
+            True -> return (soFar + count)
+            False -> bufReadEmpty handle_ buffer (pointer `plusPtr` transferred) (soFar + transferred) (count - transferred)
+  | otherwise = do
+      (transferred, buffer') <- Buffered.fillReadBuffer haDevice buffer
+      case transferred == 0 of
+        True -> return soFar
+        False -> do
+          writeIORef haByteBuffer buffer'
+          bufReadNonEmpty handle_ buffer' pointer soFar count
 
 hGetBufSome :: Handle -> Ptr a -> Int -> IO Int
 hGetBufSome handle pointer count
@@ -310,8 +320,6 @@ hGetBufSome handle pointer count
                 writeIORef haByteBuffer buffer'
                 bufReadNBNonEmpty handle_ buffer' (castPtr pointer) 0 count
           False -> bufReadNBNonEmpty handle_ buffer (castPtr pointer) 0 count
-  where
-    otherwise = True
 
 -- | The runtime has no non-blocking reads, so this is 'hGetBufSome'.
 hGetBufNonBlocking :: Handle -> Ptr a -> Int -> IO Int
@@ -363,8 +371,6 @@ hPutBuf' handle pointer count canBlock
           BlockBuffering _ -> return ()
           _ -> flushWriteBuffer handle_
         return written
-  where
-    otherwise = True
 
 bufWrite :: Handle__ -> Ptr Word8 -> Int -> Bool -> IO Int
 bufWrite handle_@Handle__ {haByteBuffer, haDevice} pointer count canBlock = do
