@@ -1218,12 +1218,12 @@ lowerLazy env0 hint expression0 continuation = do
         | hasValueGlobal env name ->
             valueGlobalName env name >>= continuation . GrinGlobalValue
       Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
-      Fc.ExLet binding body -> do
-        representation <- binderRep env (Fc.bindBinder binding)
-        if isLiftedRuntimeRep representation
-          then lowerLetBinding env binding (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
-          else suspend
-      Fc.ExRec bindings body -> lowerRecBindings env bindings (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
+      -- The bindings float out only when the body has a lazy form without
+      -- code. If the body is suspended, the bindings go into the thunk too.
+      -- Then nothing is allocated before the thunk is forced, and a
+      -- let-bound join point becomes a direct call in the thunk.
+      Fc.ExLet {} -> bindingsOrSuspend
+      Fc.ExRec {} -> bindingsOrSuspend
       _ -> do
         shape <- lazyNodeShape env expression
         case shape of
@@ -1236,10 +1236,52 @@ lowerLazy env0 hint expression0 continuation = do
 
     (env, expression) = stripLazyWrappers env0 expression0
     suspend = makeThunk env hint expression >>= storeNode
+    bindingsOrSuspend = do
+      suspends <- lazyFormSuspends env expression
+      if suspends then suspend else floatBindings env expression
+    floatBindings bindingEnv0 bindingExpression =
+      case stripLazyWrappers bindingEnv0 bindingExpression of
+        (bindingEnv, Fc.ExLet binding body) -> lowerLetBinding bindingEnv binding (`floatBindings` body)
+        (bindingEnv, Fc.ExRec bindings body) -> lowerRecBindings bindingEnv bindings (`floatBindings` body)
+        (bindingEnv, body) -> lowerLazy bindingEnv hint body continuation
     storeNode node = do
       pointer <- freshVar hint liftedGrinRep
       rest <- continuation (GrinVarValue pointer)
       pure (GrinBind [pointer] (GrinStore node) rest)
+
+-- | Whether 'lowerLazy' suspends an expression with 'makeThunk'. A let
+-- counts as suspended when its body is suspended or when it binds an
+-- unlifted value. The check emits no code.
+lazyFormSuspends :: LowerEnv -> Fc.Expr -> LowerM Bool
+lazyFormSuspends env0 expression0 = do
+  transparent <- unliftedCoercionSource env expression
+  case transparent of
+    Just inner -> lazyFormSuspends env inner
+    Nothing -> case expression of
+      Fc.ExVar name
+        | Map.member name (lowerLocals env) || hasValueGlobal env name -> pure False
+      Fc.ExLam {} -> pure False
+      Fc.ExLet binding body -> do
+        let binder = Fc.bindBinder binding
+        representation <- binderRep env binder
+        if isLiftedRuntimeRep representation
+          then lazyFormSuspends (bindPlaceholder env (binder, representation)) body
+          else pure True
+      Fc.ExRec bindings body -> do
+        let binders = map Fc.bindBinder bindings
+        representations <- mapM (binderRep env) binders
+        lazyFormSuspends (foldl bindPlaceholder env (zip binders representations)) body
+      _ -> do
+        shape <- lazyNodeShape env expression
+        case shape of
+          Just (_, operands) -> isNothing . sequence <$> mapM (classifyOperand env) operands
+          Nothing -> pure True
+  where
+    (env, expression) = stripLazyWrappers env0 expression0
+    -- The check only asks whether a name is local, so the variables are
+    -- placeholders that no code uses.
+    bindPlaceholder current (binder, representation) =
+      bindLocal current binder (map (GrinVar (Fc.nameText (Fc.binderName binder)) 0) (runtimeRepComponents representation))
 
 -- | The operand of an @unsafeCoerce#@ that turns an unlifted box into a
 -- lifted one. Such a coercion has no runtime work of its own: the operand
