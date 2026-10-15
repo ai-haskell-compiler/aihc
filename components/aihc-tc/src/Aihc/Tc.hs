@@ -138,6 +138,7 @@ import Aihc.Tc.Unpack (unpackableConstructor)
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics)
 import Data.List qualified as List
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
@@ -192,7 +193,10 @@ initialTcState :: TcInterface -> TcState
 initialTcState imported =
   initTcState
     { tcsNextUnique = tcInterfaceUniqueBound imported,
-      tcsGlobalTerms = Map.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
+      -- A lazy map: an imported scheme is read when a lookup reaches it,
+      -- so an interface that decodes its facts on demand decodes only the
+      -- terms the module uses.
+      tcsGlobalTerms = LazyMap.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons = tcInterfaceTyConMap imported <> tcsGlobalTyCons initTcState,
       tcsDataTypes = tcInterfaceDataTypeMap imported,
       tcsClasses = tcInterfaceClassMap imported,

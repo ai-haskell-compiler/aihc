@@ -314,7 +314,9 @@ runCommand (PlayBundle store output) = do
   headerDone <- getMonotonicTime
   _ <- evaluate (force (loadedInterface loaded))
   factsDone <- getMonotonicTime
-  TIO.hPutStrLn stderr ("naming section: " <> T.pack (show (statsNamingBytes stats)) <> " bytes, type section: " <> T.pack (show (statsTypeBytes stats)) <> " bytes, " <> T.pack (show (statsFacts stats)) <> " facts")
+  TIO.hPutStrLn stderr ("naming section: " <> T.pack (show (statsNamingBytes stats)) <> " bytes, " <> T.pack (show (statsTyCons stats)) <> " type constructors, type section: " <> T.pack (show (statsTypeBytes stats)) <> " bytes, " <> T.pack (show (statsFacts stats)) <> " facts")
+  let interface = loadedInterface loaded
+  TIO.hPutStrLn stderr ("terms " <> T.pack (show (Map.size (tcInterfaceTermMap interface))) <> ", tycons " <> T.pack (show (Map.size (tcInterfaceTyConMap interface))) <> ", data types " <> T.pack (show (Map.size (tcInterfaceDataTypeMap interface))) <> ", classes " <> T.pack (show (Map.size (tcInterfaceClassMap interface))) <> ", instances " <> T.pack (show (Map.size (tcInterfaceInstanceMap interface))) <> ", data family instances " <> T.pack (show (Map.size (tcInterfaceDataFamilyInstanceMap interface))) <> ", type family instances " <> T.pack (show (Map.size (tcInterfaceTypeFamilyInstanceMap interface))) <> ", pattern synonyms " <> T.pack (show (Map.size (tcInterfacePatSynMap interface))) <> ", foreign imports " <> T.pack (show (Map.size (tcInterfaceForeignImportMap interface))))
   TIO.hPutStrLn stderr ("header and naming decoded in " <> T.pack (show (round ((headerDone - started) * 1000) :: Int)) <> " ms, every fact decoded in " <> T.pack (show (round ((factsDone - headerDone) * 1000) :: Int)) <> " ms")
 runCommand (Explore input level target) = do
   resolved <- case target <|> hostNativeTarget of

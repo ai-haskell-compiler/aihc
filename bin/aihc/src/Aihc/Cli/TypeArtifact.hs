@@ -6,7 +6,12 @@ module Aihc.Cli.TypeArtifact
     encodeTypeArtifact,
     encodeTypeArtifactParts,
     encodeTypeInterface,
-    decodeTypeInterface,
+    encodeTypeInterfaceBody,
+    decodeTypeInterfaceBody,
+    putTyConDefinition,
+    getTyConDefinition,
+    putTyConFlavor,
+    getTyConFlavor,
     putTermKey,
     getTermKey,
   )
@@ -107,24 +112,23 @@ encodeTypeInterface :: TcInterface -> BL.ByteString
 encodeTypeInterface interface =
   let tyCons = Set.toAscList (interfaceTyCons interface)
       tyConTable = Map.fromList (zip tyCons [0 ..])
-      (parts, index) = interfaceParts tyConTable interface
    in Builder.toLazyByteString
         ( encodeList putTyConDefinition tyCons
-            <> encodeList (putPart index) parts
-            <> putInterface index interface
+            <> encodeTypeInterfaceBody tyConTable interface
         )
 
--- | The inverse of 'encodeTypeInterface': an interface on its own, with
--- its type constructor table and its parts.
-decodeTypeInterface :: BL.ByteString -> Either String TcInterface
-decodeTypeInterface bytes =
-  case Get.runGetOrFail getTyConTable bytes of
-    Left (_, _, message) -> Left message
-    Right (remaining, _, tyConTable) -> runInterface tyConTable remaining
-  where
-    getTyConTable = do
-      tyCons <- getList getTyConDefinition
-      pure (listArray (0, length tyCons - 1) tyCons)
+-- | The parts and the facts of an interface, against a table of type
+-- constructors the caller writes on its own. Every type constructor of
+-- the interface must be in the table.
+encodeTypeInterfaceBody :: Map TyCon Word64 -> TcInterface -> Builder.Builder
+encodeTypeInterfaceBody tyConTable interface =
+  let (parts, index) = interfaceParts tyConTable interface
+   in encodeList (putPart index) parts <> putInterface index interface
+
+-- | The inverse of 'encodeTypeInterfaceBody', against the type
+-- constructor table of the caller.
+decodeTypeInterfaceBody :: Array Int TyCon -> BL.ByteString -> Either String TcInterface
+decodeTypeInterfaceBody = runInterface
 
 decodeTypeArtifact :: BL.ByteString -> Either String TypeArtifact
 decodeTypeArtifact bytes =

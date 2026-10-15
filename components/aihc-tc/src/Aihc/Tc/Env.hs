@@ -87,18 +87,24 @@ data TyConFlavor
 
 instance NFData TyConFlavor
 
+-- | The kind scheme, the synonym, and the injectivity are lazy on
+-- purpose. A consumer that reads type facts on demand, such as the
+-- playground of The Lazy Reader, builds the record from an index and
+-- decodes those fields when a lookup reaches them. The name, the arity,
+-- the type constructor, and the flavor are what a scan of all the type
+-- constructors reads, so they stay strict.
 data TyConInfo = TyConInfo
   { tciName :: !Text,
     tciArity :: !Int,
     tciTyCon :: !TyCon,
-    tciKindScheme :: !TypeScheme,
+    tciKindScheme :: TypeScheme,
     tciFlavor :: !TyConFlavor,
-    tciTypeSynonym :: !(Maybe TypeSynonymInfo),
+    tciTypeSynonym :: Maybe TypeSynonymInfo,
     -- | The injectivity annotation of a type family, when it declares one:
     -- the argument positions that the result determines. @type family F a b
     -- = r | r -> a@ records @Just [0]@. @Nothing@ means the family declares
     -- no injectivity, and every other flavor of type constructor uses it.
-    tciInjectivity :: !(Maybe [Int])
+    tciInjectivity :: Maybe [Int]
   }
   deriving (Eq, Show, Read, Generic)
 
@@ -439,6 +445,10 @@ classInfoKey :: ClassInfo -> GlobalName
 classInfoKey = tyConKey . ciTyCon
 
 -- | Information about a class instance.
+-- | The dictionary type, the type variables, the context, and the head
+-- are lazy on purpose, as the kind scheme of 'TyConInfo' is: the instance
+-- environment reads the class of every instance at the start, and a
+-- consumer that reads type facts on demand decodes the rest on a lookup.
 data InstanceInfo = InstanceInfo
   { -- | The class of the instance. Its key identifies the class, because two
     -- modules can each declare a class with the same source name.
@@ -447,13 +457,13 @@ data InstanceInfo = InstanceInfo
     iiDictName :: !Text,
     -- | Package and module that define the dictionary binding.
     iiDictOrigin :: !(Text, Text),
-    iiDictType :: !TcType,
+    iiDictType :: TcType,
     -- | Type variables quantified over.
-    iiTyVars :: ![TyVarId],
+    iiTyVars :: [TyVarId],
     -- | Instance context (prerequisites).
-    iiContext :: ![Pred],
+    iiContext :: [Pred],
     -- | Instance head types.
-    iiHead :: ![TcType]
+    iiHead :: [TcType]
   }
   deriving (Eq, Show, Read, Generic)
 
