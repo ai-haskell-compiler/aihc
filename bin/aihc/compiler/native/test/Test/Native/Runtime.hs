@@ -50,9 +50,9 @@ tests =
         ["+RTS", "-A96k", "-n1k", "-RTS"]
         nurseryBlockSource,
       runtimeProgramTest "dynamic allocation owns memory before it returns" [] dynamicAllocationSource,
-      runtimeProgramTest "IO skips an object before its header is initialized" [] uninitializedIoSource,
+      runtimeProgramTest "IO skips an object before its owner sets the header" [] uninitializedIoSource,
       runtimeProgramTest "STM retries while another capability can change a TVar" [] stmWaitSource,
-      runtimeProgramTest "a duplicate update accepts a collected thunk" [] duplicateUpdateSource,
+      runtimeProgramTest "a duplicate update accepts a thunk after collection" [] duplicateUpdateSource,
       runtimeProgramTest "large batches reserve nursery space" [] nurseryBatchSource,
       runtimeProgramTest "gen1 copies its survivors into gen2 at each collection by default" [] (gen1CountSource 1),
       runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),

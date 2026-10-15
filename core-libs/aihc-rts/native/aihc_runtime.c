@@ -1736,6 +1736,13 @@ static int aihc_io_request_buffer_unlocked(AihcIoRequest *request,
         address - object_start > aihc_pinned_bytes(block)) {
       continue;
     }
+    uint64_t payload_bytes = aihc_pinned_bytes(block);
+    if (aihc_region_kind(block) != AIHC_REGION_LARGE) {
+      payload_bytes -= sizeof(AihcPinnedBlock);
+    }
+    if (address - object_start > payload_bytes) {
+      continue;
+    }
     AihcValue *object = (AihcValue *)block->object;
     if (aihc_value_kind(object) != AIHC_OBJECT_BYTE_ARRAY) {
       continue;
@@ -2400,7 +2407,9 @@ const AihcResume *aihc_no_duplicate(AihcCapability *capability,
     }
     AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
     AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
-    if (aihc_value_info_table(thunk)->object_kind == AIHC_OBJECT_INDIRECTION) {
+    const AihcInfo *thunk_info =
+        (const AihcInfo *)(uintptr_t)(header & ~AIHC_HEADER_TAG_MASK);
+    if (thunk_info->object_kind == AIHC_OBJECT_INDIRECTION) {
       lowest = frame;
     } else if ((header & AIHC_HEADER_TAG_MASK) == 0) {
       aihc_write_barrier(capability, thunk);
@@ -2515,7 +2524,10 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
-  AihcObjectKind kind = aihc_value_info_table(object)->object_kind;
+  AihcSlot observed = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
+  const AihcInfo *info =
+      (const AihcInfo *)(uintptr_t)(observed & ~AIHC_HEADER_TAG_MASK);
+  AihcObjectKind kind = info->object_kind;
   if (kind == AIHC_OBJECT_INDIRECTION) {
     /* Another evaluation finished, and a collection converted the thunk.
        This duplicate result needs no store. */
@@ -3182,8 +3194,10 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
     return request;
   }
   uint64_t now = aihc_host_monotonic_ns();
-  request->deadline = may_change && now <= UINT64_MAX - UINT64_C(1000000)
-                          ? now + UINT64_C(1000000)
+  request->deadline = capability->machine->transaction_timers == NULL &&
+                              may_change &&
+                              now <= UINT64_MAX - UINT64_C(10000000)
+                          ? now + UINT64_C(10000000)
                           : UINT64_MAX;
   for (AihcTransactionTimer *timer = capability->machine->transaction_timers;
        timer != NULL; timer = timer->next) {
