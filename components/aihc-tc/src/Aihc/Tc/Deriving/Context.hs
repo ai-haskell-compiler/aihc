@@ -536,7 +536,7 @@ targetTypeArguments mechanism dataType plan =
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
 -- | Standalone Eq and Show methods use constructor evidence through the
--- ordinary instance checker. Other plans retain the constructor restrictions.
+-- ordinary instance checker. Other plans keep the constructor restrictions.
 validateStockDataType :: TcDerivingPlan -> DataTypeInfo -> Either String ()
 validateStockDataType plan dataType
   | dtiFlavor dataType `notElem` [DataTyCon, NewtypeTyCon] =

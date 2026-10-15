@@ -309,7 +309,7 @@ checkTcAnnotatedCase tc =
         Right modules ->
           let support
                 | Just "GHC.Prim.Show" `notElem` map moduleName modules,
-                  any ((== "GHC.Prim.Show") . importDeclModule) (concatMap moduleImports modules) =
+                  any (any ((== "GHC.Prim.Show") . importDeclModule) . moduleImports) modules =
                     primitiveShowSupport
                 | otherwise = primitiveSupport
               visibleExports =

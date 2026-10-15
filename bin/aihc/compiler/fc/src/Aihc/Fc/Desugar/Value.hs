@@ -2855,6 +2855,15 @@ patternFieldTypes parent children
   | Syn.PLit literal <- peelPattern parent,
     isBoxedCharacterLiteral literal =
       (: []) <$> boxedCharFieldType
+  -- A nested GADT pattern can refine a child annotation. The parent
+  -- alternative must bind the fields before that refinement takes effect.
+  -- Its checked constructor type supplies the unrefined field types.
+  | Just annotation <- patternAnnotation parent,
+    let (_, body) = peelForAlls (tcAnnType annotation)
+        (_, constructorType) = peelConstraints body
+        (fields, _) = splitFunctionType constructorType,
+    length fields == length children =
+      pure fields
   | otherwise = mapM requiredPatternType children
 
 freshPatternBinder :: Syn.Pattern -> TcType -> ValueM Binder

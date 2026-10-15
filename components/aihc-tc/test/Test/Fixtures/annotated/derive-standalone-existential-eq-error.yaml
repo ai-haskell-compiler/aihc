@@ -19,4 +19,4 @@ annotated:
     │                 └─ error: couldn't match a with a
     └─ deriving plans: stock Eq Some [context: ()] [methods: ==, /=]
 status: pass
-reason: Separate constructor patterns have distinct existential types.
+reason: Two constructor patterns have different existential types.
