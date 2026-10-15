@@ -757,10 +757,12 @@ nativeRuntimePrimitiveCalls =
     procedure "shrinkSmallMutableArray#" "aihc_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     machineCall "resizeSmallMutableArray#" "aihc_array_resize" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     -- The MVar operations that never block, so they are runtime calls rather
-    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# gives
-    -- a flag and the contents; the runtime function returns the flag, and
-    -- the lowering reads the contents before the operation runs.
+    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# and
+    -- tryReadMVar# give a flag and the contents; the runtime function
+    -- returns the contents, or zero for an empty variable, and the lowering
+    -- derives the flag.
     machineCall "tryTakeMVar#" "aihc_mvar_try_take" [GrinForeignAddr] GrinForeignWord64,
+    machineCall "tryReadMVar#" "aihc_mvar_try_read" [GrinForeignAddr] GrinForeignWord64,
     machineCall "tryPutMVar#" "aihc_mvar_try_put" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "aihcArrayWords#" "aihc_array_words" [GrinForeignWord64] GrinForeignWord64,
     call "aihcByteArrayWords#" "aihc_byte_array_words" [GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,

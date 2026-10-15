@@ -155,6 +155,7 @@ concurrencyPrimitives =
     "takeMVar#",
     "putMVar#",
     "tryTakeMVar#",
+    "tryReadMVar#",
     "tryPutMVar#",
     -- The delimited-continuation runtime calls. A prompt tag is a heap
     -- object, a capture allocates the record of the captured frames, and a

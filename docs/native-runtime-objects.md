@@ -46,7 +46,7 @@ The `-R<size>` option sets the budget of barrier work between two collections of
 The `-N<count>` option gives the machine that many capabilities, at most 256, one by default.
 With more than one capability, each capability has a worker on its own OS thread.
 A capability with surplus threads pushes threads to an idle capability.
-Until build step 6 of the multi-threaded design, a run lock lets only one worker at a time run Haskell code.
+The workers run Haskell threads in parallel, and every collection stops the other workers.
 A store of a young value into a global object promotes the value.
 A wasm32 host keeps one capability.
 The write barrier counts the scan work that it adds: the size of each object that it puts in the remembered set, and one run of 128 elements for each card that it makes dirty.
