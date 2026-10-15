@@ -909,6 +909,10 @@ void aihc_visit_capability_roots(AihcCapability *capability,
       aihc_visit_pointer(capability->run_queue_head, visitor, context);
   capability->run_queue_tail =
       aihc_visit_pointer(capability->run_queue_tail, visitor, context);
+  capability->inbox_head =
+      aihc_visit_pointer(capability->inbox_head, visitor, context);
+  capability->inbox_tail =
+      aihc_visit_pointer(capability->inbox_tail, visitor, context);
   capability->io_requests_head =
       aihc_visit_pointer(capability->io_requests_head, visitor, context);
   capability->io_requests_tail =
@@ -1127,10 +1131,27 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
   return capability->current_thread;
 }
 
+/* Append a list of threads to a queue. The link goes into an old thread
+   record, so it takes the barrier. */
+static void aihc_queue_append(AihcCapability *capability, AihcThread **head,
+                              AihcThread **tail, AihcThread *first,
+                              AihcThread *last) {
+  if (*tail == NULL) {
+    *head = first;
+  } else {
+    aihc_write_barrier(capability, (AihcValue *)*tail);
+    (*tail)->next = first;
+  }
+  *tail = last;
+}
+
 /* Put a thread on the run queue of its own capability. A woken thread goes
    back to the capability that ran it, because its stack can name objects of
-   the local heap of that capability. The capability in the idle wait gets
-   a wake-up. */
+   the local heap of that capability. Another capability gets the thread in
+   its inbox, and a wake-up when it is in the idle wait. The idle wait sets
+   its flag before it looks at the inbox for the last time, and the flag and
+   the inbox are in this order here. Thus either the wait finds the thread,
+   or this function finds the flag. */
 static void aihc_enqueue_thread(AihcCapability *capability,
                                 AihcThread *thread) {
   if (thread->next != NULL) {
@@ -1138,16 +1159,46 @@ static void aihc_enqueue_thread(AihcCapability *capability,
   }
   AihcCapability *target =
       capability->machine->capabilities[thread->capability];
-  if (target->run_queue_tail == NULL) {
-    target->run_queue_head = thread;
-  } else {
-    aihc_write_barrier(capability, (AihcValue *)target->run_queue_tail);
-    target->run_queue_tail->next = thread;
+  if (target == capability) {
+    aihc_queue_append(capability, &target->run_queue_head,
+                      &target->run_queue_tail, thread, thread);
+    return;
   }
-  target->run_queue_tail = thread;
-  if (target != capability && target->idle) {
+  aihc_host_lock_acquire(target->inbox_lock);
+  aihc_queue_append(capability, &target->inbox_head, &target->inbox_tail,
+                    thread, thread);
+  aihc_host_lock_release(target->inbox_lock);
+  if (__atomic_load_n(&target->idle, __ATOMIC_SEQ_CST)) {
     aihc_host_wake(target);
   }
+}
+
+/* Move the inbox of a capability into its run queue. */
+static void aihc_take_inbox(AihcCapability *capability) {
+  if (capability->inbox_lock == NULL) {
+    return;
+  }
+  aihc_host_lock_acquire(capability->inbox_lock);
+  AihcThread *first = capability->inbox_head;
+  AihcThread *last = capability->inbox_tail;
+  capability->inbox_head = NULL;
+  capability->inbox_tail = NULL;
+  aihc_host_lock_release(capability->inbox_lock);
+  if (first != NULL) {
+    aihc_queue_append(capability, &capability->run_queue_head,
+                      &capability->run_queue_tail, first, last);
+  }
+}
+
+/* Whether the inbox of a capability holds a thread. */
+static int aihc_inbox_used(AihcCapability *capability) {
+  if (capability->inbox_lock == NULL) {
+    return 0;
+  }
+  aihc_host_lock_acquire(capability->inbox_lock);
+  int used = capability->inbox_head != NULL;
+  aihc_host_lock_release(capability->inbox_lock);
+  return used;
 }
 
 static AihcThread *aihc_dequeue_thread(AihcCapability *capability) {
@@ -1400,8 +1451,9 @@ static AihcThread *aihc_dequeue_last_thread(AihcCapability *capability) {
 }
 
 /* Whether a capability waits in the idle wait with nothing to run. */
-static int aihc_capability_available(const AihcCapability *capability) {
-  return capability->idle && capability->run_queue_head == NULL;
+static int aihc_capability_available(AihcCapability *capability) {
+  return __atomic_load_n(&capability->idle, __ATOMIC_SEQ_CST) &&
+         capability->run_queue_head == NULL && !aihc_inbox_used(capability);
 }
 
 /* Push surplus threads to idle capabilities. See "Thread movement" in
@@ -1412,7 +1464,8 @@ static int aihc_capability_available(const AihcCapability *capability) {
    queue and pushes at most half of the others. */
 static void aihc_push_threads(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
-  if (machine->idle_count == 0 || capability->run_queue_head == NULL ||
+  if (__atomic_load_n(&machine->idle_count, __ATOMIC_SEQ_CST) == 0 ||
+      capability->run_queue_head == NULL ||
       capability->run_queue_head->next == NULL) {
     return;
   }
@@ -1451,13 +1504,15 @@ static void aihc_push_threads(AihcCapability *capability) {
 /* The machine has a deadlock when every capability waits with nothing to
    run and no IO request. */
 static int aihc_machine_deadlocked(const AihcCapability *capability) {
-  const AihcMachine *machine = capability->machine;
-  if (machine->idle_count + 1 < machine->capability_count) {
+  AihcMachine *machine = capability->machine;
+  if (__atomic_load_n(&machine->idle_count, __ATOMIC_SEQ_CST) + 1 <
+      machine->capability_count) {
     return 0;
   }
   for (uint64_t index = 0; index < machine->capability_count; ++index) {
-    const AihcCapability *each = machine->capabilities[index];
-    if (each->run_queue_head != NULL || each->io_request_count != 0) {
+    AihcCapability *each = machine->capabilities[index];
+    if (each->run_queue_head != NULL || aihc_inbox_used(each) ||
+        each->io_request_count != 0) {
       return 0;
     }
   }
@@ -1475,6 +1530,7 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
     aihc_host_run_lock();
   }
   for (;;) {
+    aihc_take_inbox(capability);
     (void)machine->io_backend->poll(capability, 0);
     if (capability->run_queue_head != NULL) {
       if (machine->workers_active) {
@@ -1488,11 +1544,13 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
       }
       /* The idle wait gives the run lock to the other workers. A push into
          the run queue, a completed IO request, or a timer ends it. */
-      capability->idle = 1;
-      ++machine->idle_count;
-      (void)machine->io_backend->poll(capability, 1);
-      capability->idle = 0;
-      --machine->idle_count;
+      __atomic_store_n(&capability->idle, 1, __ATOMIC_SEQ_CST);
+      __atomic_add_fetch(&machine->idle_count, 1, __ATOMIC_SEQ_CST);
+      if (!aihc_inbox_used(capability)) {
+        (void)machine->io_backend->poll(capability, 1);
+      }
+      __atomic_store_n(&capability->idle, 0, __ATOMIC_SEQ_CST);
+      __atomic_sub_fetch(&machine->idle_count, 1, __ATOMIC_SEQ_CST);
       continue;
     }
     if (capability->io_request_count != 0) {
@@ -2531,7 +2589,8 @@ static void aihc_workers_start(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
   aihc_host_workers_start(capability);
   machine->workers_active = 1;
-  while (machine->idle_count + 1 < machine->capability_count) {
+  while (__atomic_load_n(&machine->idle_count, __ATOMIC_SEQ_CST) + 1 <
+         machine->capability_count) {
     aihc_host_run_unlock();
     aihc_host_sleep_ns(100000);
     aihc_host_run_lock();

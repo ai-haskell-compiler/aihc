@@ -659,6 +659,10 @@ void aihc_host_run_lock(void);
 void aihc_host_run_unlock(void);
 /* Whether another worker waits for the run lock. */
 int aihc_host_run_lock_wanted(void);
+/* A lock that one worker at a time holds. */
+void *aihc_host_lock_new(void);
+void aihc_host_lock_acquire(void *lock);
+void aihc_host_lock_release(void *lock);
 /* End the idle wait of a capability. */
 void aihc_host_wake(AihcCapability *capability);
 /* The entry of a worker: it runs the threads of its capability and does

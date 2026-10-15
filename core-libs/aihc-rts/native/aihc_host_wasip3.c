@@ -66,6 +66,12 @@ int aihc_host_run_lock_wanted(void) { return 0; }
 
 void aihc_host_wake(AihcCapability *capability) { (void)capability; }
 
+void *aihc_host_lock_new(void) { aihc_fail("this host has one capability"); }
+
+void aihc_host_lock_acquire(void *lock) { (void)lock; }
+
+void aihc_host_lock_release(void *lock) { (void)lock; }
+
 /* A region is one WebAssembly page, so a run of regions is a growth of the
    linear memory by that many pages, and the previous page count is the
    address of the run. Linear memory never shrinks. */
