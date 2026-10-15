@@ -16,6 +16,27 @@
         --config-file mkdocs.yml \
         --site-dir "$out"
     '';
+
+  # The Lazy Reader. The playground of the guide compiles the primitive
+  # modules of aihc and the small Prelude of aihc-play in the browser, so
+  # the site carries their sources under play/. The helper itself is not
+  # part of this derivation.
+  mkGuide = pkgs: guideSrc: primSrc: playSrc:
+    pkgs.runCommand "aihc-lazy-reader" {
+      nativeBuildInputs = [pkgs.python3Packages.mkdocs-material];
+    } ''
+      cp -R --no-preserve=mode ${guideSrc} guide
+      mkdir -p guide/src/play/prim/GHC guide/src/play/prim/Aihc/Prim
+      for module in GHC/Types.hs GHC/Prim.hs Aihc/Prim/IO.hs GHC/Tuple.hs GHC/CString.hs; do
+        cp ${primSrc}/src/$module guide/src/play/prim/$module
+      done
+      cp -R --no-preserve=mode ${playSrc}/prelude guide/src/play/prelude
+      cd guide
+      mkdocs build \
+        --strict \
+        --config-file mkdocs.yml \
+        --site-dir "$out"
+    '';
 in {
-  inherit mkManual;
+  inherit mkManual mkGuide;
 }

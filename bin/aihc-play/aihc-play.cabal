@@ -1,0 +1,70 @@
+cabal-version: 3.8
+name: aihc-play
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: The playground helper of The Lazy Reader, the illustrated guide to aihc
+description:
+  A small program that runs the front end of aihc over one module and
+  answers with JSON. The guide compiles it to WebAssembly and runs it in
+  the browser of the reader.
+
+library
+  exposed-modules:
+    Aihc.Play
+    Aihc.Play.Json
+    Aihc.Play.Names
+    Aihc.Play.Protocol
+    Aihc.Play.Session
+    Aihc.Play.Tree
+    Aihc.Play.Types
+
+  other-modules:
+    Aihc.Prim.Wiring
+
+  hs-source-dirs:
+    src
+    ../aihc/prim-wiring
+
+  build-depends:
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    filepath,
+    text >=1.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+executable aihc-play
+  hs-source-dirs: app
+  main-is: Main.hs
+  build-depends:
+    aihc-play,
+    base >=4.16 && <5,
+    text,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  build-depends:
+    aihc-play,
+    base >=4.16 && <5,
+    filepath,
+    tasty,
+    tasty-hunit,
+    text,
+
+  ghc-options: -Wall
+  default-language: GHC2021

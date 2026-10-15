@@ -6,6 +6,7 @@
     "aihc"
     "aihc-fmt"
     "aihc-haddock"
+    "aihc-play"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
@@ -111,6 +112,13 @@
     };
     aihc-haddock = {
       src = sources.haddockSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
+    aihc-play = {
+      src = sources.playSrc;
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
@@ -264,6 +272,9 @@ in rec {
               + ''
                 export AIHC_EVAL_FIXTURES="$TMPDIR/empty-eval-fixtures"
                 mkdir -p "$AIHC_EVAL_FIXTURES"
+                # The aihc-play suite compiles the primitive package before
+                # it builds its test tree.
+                export AIHC_PRIM_SRC=${sources.primSrc pkgs}
               '';
           })
         else hsLib.dontCheck intermediatesAdjusted;

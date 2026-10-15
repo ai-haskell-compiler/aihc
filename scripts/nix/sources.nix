@@ -266,6 +266,21 @@ in rec {
     ".yml"
   ];
 
+  playSrc = mkComponentSrc "/bin/aihc-play" [
+    ".hs"
+    ".cabal"
+  ];
+
+  # The guide, without the site that a local build writes.
+  guideSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root + "/docs/aihc-guide";
+      filter = path: _type: let
+        relPath = pkgs.lib.removePrefix ((toString root) + "/docs/aihc-guide/") (toString path);
+      in
+        !(pkgs.lib.hasPrefix "site" relPath || pkgs.lib.hasPrefix "src/play/prim" relPath || pkgs.lib.hasPrefix "src/play/prelude" relPath || pkgs.lib.hasPrefix "src/play/helper" relPath);
+    };
+
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:
     pkgs.lib.cleanSourceWith {
