@@ -379,17 +379,22 @@ static int64_t aihc_wasi_progress_cli_write(void) {
       return aihc_wasi_block(aihc_wasi_io.stream,
                              AIHC_WASI_PENDING_STREAM_WRITE);
     }
-    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED) {
+    int dropped = COMMAND_WAITABLE_STATE(status) == COMMAND_WAITABLE_DROPPED;
+    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED &&
+        !dropped) {
       return aihc_wasi_finish(aihc_wasi_error(EPIPE));
     }
+    /* A DROPPED event also carries the count of the bytes that the reader
+       accepted before it dropped the stream. */
     uint32_t transferred = COMMAND_WAITABLE_COUNT(status);
-    if (transferred == 0 && aihc_wasi_io.offset != aihc_wasi_io.length) {
-      return aihc_wasi_finish(aihc_wasi_error(EIO));
-    }
     aihc_wasi_io.offset += transferred;
     if (aihc_wasi_io.offset == aihc_wasi_io.length) {
       wasi_cli_stdin_stream_u8_drop_writable(aihc_wasi_io.stream);
       aihc_wasi_io.stream_closed = 1;
+    } else if (dropped) {
+      return aihc_wasi_finish(aihc_wasi_error(EPIPE));
+    } else if (transferred == 0) {
+      return aihc_wasi_finish(aihc_wasi_error(EIO));
     }
   }
 
@@ -449,11 +454,14 @@ static int64_t aihc_wasi_progress_read(void) {
       return aihc_wasi_block(aihc_wasi_io.stream,
                              AIHC_WASI_PENDING_STREAM_READ);
     }
-    if (COMMAND_WAITABLE_STATE(status) == COMMAND_WAITABLE_COMPLETED) {
-      aihc_wasi_io.offset = COMMAND_WAITABLE_COUNT(status);
-    } else if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_DROPPED) {
+    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED &&
+        COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_DROPPED) {
       return aihc_wasi_finish(aihc_wasi_error(EIO));
     }
+    /* A DROPPED event also carries the count of the bytes that the host
+       gave before it dropped the stream. jco sends one DROPPED(n) event for a
+       synchronous source. Wasmtime sends COMPLETED(n) and then DROPPED(0). */
+    aihc_wasi_io.offset = COMMAND_WAITABLE_COUNT(status);
     if (aihc_wasi_io.kind == AIHC_WASI_IO_STDIN_READ) {
       wasi_cli_stdin_stream_u8_drop_readable(aihc_wasi_io.stream);
     } else {
@@ -514,17 +522,22 @@ static int64_t aihc_wasi_progress_file_write(void) {
       return aihc_wasi_block(aihc_wasi_io.stream,
                              AIHC_WASI_PENDING_STREAM_WRITE);
     }
-    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED) {
+    int dropped = COMMAND_WAITABLE_STATE(status) == COMMAND_WAITABLE_DROPPED;
+    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED &&
+        !dropped) {
       return aihc_wasi_finish(aihc_wasi_error(EPIPE));
     }
+    /* A DROPPED event also carries the count of the bytes that the reader
+       accepted before it dropped the stream. */
     uint32_t transferred = COMMAND_WAITABLE_COUNT(status);
-    if (transferred == 0 && aihc_wasi_io.offset != aihc_wasi_io.length) {
-      return aihc_wasi_finish(aihc_wasi_error(EIO));
-    }
     aihc_wasi_io.offset += transferred;
     if (aihc_wasi_io.offset == aihc_wasi_io.length) {
       wasi_filesystem_types_stream_u8_drop_writable(aihc_wasi_io.stream);
       aihc_wasi_io.stream_closed = 1;
+    } else if (dropped) {
+      return aihc_wasi_finish(aihc_wasi_error(EPIPE));
+    } else if (transferred == 0) {
+      return aihc_wasi_finish(aihc_wasi_error(EIO));
     }
   }
 
@@ -643,6 +656,12 @@ static int64_t aihc_wasi_progress_http_read(void) {
     command_waitable_join(body->stream, 0);
     wasi_http_types_stream_u8_drop_readable(body->stream);
     body->stream_open = 0;
+    /* A DROPPED event also carries a count. The next read then finds the
+       stream closed and reads the trailers. */
+    uint32_t dropped = COMMAND_WAITABLE_COUNT(status);
+    if (dropped != 0) {
+      return aihc_wasi_finish((int64_t)dropped);
+    }
   }
   if (body->trailers_open) {
     command_waitable_status_t status;
