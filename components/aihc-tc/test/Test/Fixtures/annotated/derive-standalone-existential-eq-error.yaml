@@ -1,0 +1,22 @@
+extensions:
+  - ExistentialQuantification
+  - StandaloneDeriving
+modules:
+  - |
+    module Test where
+    import GHC.Classes (Eq)
+    data Some = forall a. Eq a => Some a
+    deriving instance Eq Some
+annotated:
+  - |-
+    module Test where
+    import GHC.Classes (Eq)
+    data Some = forall a. Eq a => Some a
+         │      └─ type: ∀ a. (GHC.Classes.Eq a) ⇒ a → Some
+         └─ type: Type
+    deriving instance Eq Some
+    │                 └─ $fEqSome ∷ () ⇒ Eq Some
+    │                 └─ error: couldn't match a with a
+    └─ deriving plans: stock Eq Some [context: ()] [methods: ==, /=]
+status: pass
+reason: Separate constructor patterns have distinct existential types.

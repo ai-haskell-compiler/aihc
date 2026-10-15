@@ -429,7 +429,7 @@ stockFunctorialFields plan = do
       Right
       (tcDerivingDataType plan)
   targetArguments <- targetTypeArguments mechanism dataType plan
-  validateStockDataType mechanism dataType
+  validateStockDataType plan dataType
   parameter <-
     case drop (length targetArguments) (dtiTyVars dataType) of
       [parameter] -> Right parameter
@@ -460,7 +460,7 @@ stockFieldTypes plan = do
   targetArguments <- targetTypeArguments mechanism dataType plan
   -- An empty datatype has a Generic representation, @V1@, as in GHC.
   unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods) $
-    validateStockDataType mechanism dataType
+    validateStockDataType plan dataType
   let substitution =
         Map.fromList
           [ (tvUnique tyVar, argument)
@@ -535,20 +535,29 @@ targetTypeArguments mechanism dataType plan =
           Right arguments
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
-validateStockDataType :: String -> DataTypeInfo -> Either String ()
-validateStockDataType mechanism dataType
+-- | Standalone Eq and Show methods use constructor evidence through the
+-- ordinary instance checker. Other plans retain the constructor restrictions.
+validateStockDataType :: TcDerivingPlan -> DataTypeInfo -> Either String ()
+validateStockDataType plan dataType
   | dtiFlavor dataType `notElem` [DataTyCon, NewtypeTyCon] =
       Left (mechanism <> " requires a data or newtype declaration")
   | null constructors =
       Left (mechanism <> " does not yet support empty data declarations")
-  | not (all (null . dciExTyVars) constructors) =
+  | not checksConstructorEvidence,
+    not (all (null . dciExTyVars) constructors) =
       Left (mechanism <> " does not yet support existential constructors")
-  | not (all (\constructor -> null (dciTheta constructor) || null (dciFields constructor)) constructors) =
+  | not checksConstructorEvidence,
+    not (all (\constructor -> null (dciTheta constructor) || null (dciFields constructor)) constructors) =
       Left (mechanism <> " does not yet support constrained constructors")
-  | any (isNothing . (\constructor -> matchTypes [dciResTy constructor] [expectedResult])) constructors =
+  | not checksConstructorEvidence,
+    any (isNothing . (\constructor -> matchTypes [dciResTy constructor] [expectedResult])) constructors =
       Left (mechanism <> " does not yet support refined GADT result types")
   | otherwise = Right ()
   where
+    mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
+    checksConstructorEvidence =
+      tcDerivingStandalone plan
+        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockShowMethods]
     constructors = dtiConstructors dataType
     expectedResult = TcTyCon (dtiTyCon dataType) (map TcTyVar (dtiTyVars dataType))
 

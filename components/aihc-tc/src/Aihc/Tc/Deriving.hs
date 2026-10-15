@@ -277,7 +277,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               strategy <- defaultDerivingStrategyKinds checkedStrategy
               methods <- derivingClassMethods classInfo
               dataType <- standaloneTargetDataType headTypes
-              pure (Just ((mkDerivingPlan kinds classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods) {tcDerivingStockFallback = fallback}))
+              pure (Just ((mkDerivingPlan kinds classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods) {tcDerivingStockFallback = fallback, tcDerivingStandalone = True}))
   where
     implicitParam name = do
       rawTyVar <- freshSkolemTv name
@@ -291,6 +291,7 @@ mkDerivingPlan kinds sourceSpan strategy classInfo tyVars headTypes dataType con
     { tcDerivingSourceSpan = sourceSpan,
       tcDerivingStrategy = strategy,
       tcDerivingStockFallback = False,
+      tcDerivingStandalone = False,
       tcDerivingClassName = className,
       tcDerivingClassTyCon = ciTyCon classInfo,
       tcDerivingClassOrigin = ciOrigin classInfo,
