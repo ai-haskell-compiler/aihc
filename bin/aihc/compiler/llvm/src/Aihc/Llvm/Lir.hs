@@ -11,7 +11,9 @@
 -- predecessor still has one @phi@ entry per edge. The operations that trap
 -- check their operands and branch to a block that reports the message.
 -- An edge to a cold Lir block or to a trap block carries branch weights
--- that make it unlikely, and the trap calls are cold calls.
+-- that make it unlikely, and the trap calls are cold calls. No function
+-- unwinds: an exception is a tail call to the runtime, so every function
+-- is @nounwind@.
 module Aihc.Llvm.Lir
   ( LlvmLirError (..),
     compileLirModule,
@@ -110,30 +112,33 @@ preamble externSymbols =
        | (symbol, declaration) <- trapFunctionDeclarations,
          Symbol symbol `notElem` externSymbols
        ]
-    <> [ "declare float @llvm.fabs.f32(float)",
-         "declare double @llvm.fabs.f64(double)",
-         "declare float @llvm.sqrt.f32(float)",
-         "declare double @llvm.sqrt.f64(double)"
-       ]
-    <> concat
-      [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
-          "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
-          -- The second argument states whether a zero operand is undefined.
-          -- Lir defines it as the width, so it is always false.
-          "declare " <> ty <> " @llvm.ctlz." <> ty <> "(" <> ty <> ", i1)",
-          "declare " <> ty <> " @llvm.cttz." <> ty <> "(" <> ty <> ", i1)",
-          "declare " <> ty <> " @llvm.ctpop." <> ty <> "(" <> ty <> ")"
+    <> map
+      (<> " " <> functionAttributes)
+      ( [ "declare float @llvm.fabs.f32(float)",
+          "declare double @llvm.fabs.f64(double)",
+          "declare float @llvm.sqrt.f32(float)",
+          "declare double @llvm.sqrt.f64(double)"
         ]
-      | ty <- ["i8", "i16", "i32", "i64"]
-      ]
-    <> ["declare " <> ty <> " @llvm." <> op <> "." <> ty <> "(" <> ty <> ", " <> ty <> ", " <> ty <> ")" | ty <- ["i1", "i8", "i16", "i32", "i64"], op <- ["fshl", "fshr"]]
+          <> concat
+            [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
+                "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
+                -- The second argument states whether a zero operand is undefined.
+                -- Lir defines it as the width, so it is always false.
+                "declare " <> ty <> " @llvm.ctlz." <> ty <> "(" <> ty <> ", i1)",
+                "declare " <> ty <> " @llvm.cttz." <> ty <> "(" <> ty <> ", i1)",
+                "declare " <> ty <> " @llvm.ctpop." <> ty <> "(" <> ty <> ")"
+              ]
+            | ty <- ["i8", "i16", "i32", "i64"]
+            ]
+          <> ["declare " <> ty <> " @llvm." <> op <> "." <> ty <> "(" <> ty <> ", " <> ty <> ", " <> ty <> ")" | ty <- ["i1", "i8", "i16", "i32", "i64"], op <- ["fshl", "fshr"]]
+      )
     <> bitScatterHelpers
 
 -- | The C functions that the trap blocks call, with their declarations.
 trapFunctionDeclarations :: [(Text, Text)]
 trapFunctionDeclarations =
-  [ ("write", "declare i64 @write(i32, ptr, i64)"),
-    ("_exit", "declare void @_exit(i32) noreturn")
+  [ ("write", "declare i64 @write(i32, ptr, i64) " <> functionAttributes),
+    ("_exit", "declare void @_exit(i32) noreturn " <> functionAttributes)
   ]
 
 -- | The parallel bit deposit and extract of 64-bit values as loops over
@@ -143,7 +148,7 @@ trapFunctionDeclarations =
 -- bit and shifts each source bit into the result from the low end.
 bitScatterHelpers :: [Text]
 bitScatterHelpers =
-  [ "define internal i64 @aihc_lir_pdep64(i64 %a, i64 %b) {",
+  [ "define internal i64 @aihc_lir_pdep64(i64 %a, i64 %b) " <> functionAttributes <> " {",
     "entry:",
     "  br label %loop",
     "loop:",
@@ -165,7 +170,7 @@ bitScatterHelpers =
     "exit:",
     "  ret i64 %result",
     "}",
-    "define internal i64 @aihc_lir_pext64(i64 %a, i64 %b) {",
+    "define internal i64 @aihc_lir_pext64(i64 %a, i64 %b) " <> functionAttributes <> " {",
     "entry:",
     "  br label %loop",
     "loop:",
@@ -198,7 +203,8 @@ declareExtern external =
       <> renderSymbol (externFunctionName external)
       <> "("
       <> T.intercalate ", " (map renderType (signatureParameters signature))
-      <> ")"
+      <> ") "
+      <> functionAttributes
   ]
   where
     signature = externFunctionSignature external
@@ -207,10 +213,20 @@ declareExtern external =
 trapMessageName :: Int -> Text
 trapMessageName index = ".Llir_trap_" <> tshow index
 
--- | The attribute groups of the module. The trap blocks call @write@ and
--- @_exit@ through 'coldCallAttributes'.
+-- | The attribute groups of the module. Every function definition and
+-- declaration carries 'functionAttributes', and the trap blocks call
+-- @write@ and @_exit@ through 'coldCallAttributes'.
 attributeGroups :: [Text]
-attributeGroups = ["attributes " <> coldCallAttributes <> " = { cold }"]
+attributeGroups =
+  [ "attributes " <> functionAttributes <> " = { nounwind }",
+    "attributes " <> coldCallAttributes <> " = { cold }"
+  ]
+
+-- | The attribute group of every function. The program never unwinds
+-- through a frame: an exception is a tail call to @aihc_raise@, and the
+-- C functions the module calls do not throw.
+functionAttributes :: Text
+functionAttributes = "#0"
 
 -- | The attribute group of a call in a trap block.
 coldCallAttributes :: Text
@@ -515,7 +531,7 @@ callShimName index = "@" <> quote (".Llir_call_" <> tshow index)
 -- inlining. Remove the shim when the supported LLVM versions are correct.
 renderCallShim :: Signature -> Int -> [Text]
 renderCallShim signature index =
-  [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline {",
+  [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline " <> functionAttributes <> " {",
     "  " <> (if null (signatureResults signature) then "" else "%result = ") <> "call " <> renderConvention (signatureConvention signature) <> results <> " %callee(" <> T.intercalate ", " (zipWith typed' (signatureParameters signature) arguments) <> ")",
     "  " <> (if null (signatureResults signature) then "ret void" else "ret " <> results <> " %result"),
     "}",
@@ -597,7 +613,9 @@ compileFunction ctx input = do
           <> renderSymbol (functionName function)
           <> "("
           <> T.intercalate ", " [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
-          <> ") {"
+          <> ") "
+          <> functionAttributes
+          <> " {"
       ]
         <> rendered
         <> edgeBlocks
