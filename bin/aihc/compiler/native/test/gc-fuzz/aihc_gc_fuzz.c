@@ -1219,13 +1219,24 @@ static void scatter_roots(AihcSlot *roots, size_t total) {
 static void ensure(uint64_t words) {
   uint64_t before = capability->machine->gc_count;
   uint64_t nursery_bytes = heap->nursery_bytes;
+  /* The local collection of the reservation does not change the other
+     nurseries. */
+  int others_used = 0;
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    AihcCapability *other = capability->machine->capabilities[index];
+    if (other != heap && other->heap_next != other->heap_start) {
+      others_used = 1;
+    }
+  }
   size_t total = 0;
   AihcSlot *roots = gather_roots(&total);
   aihc_ensure_heap(heap, words, total, roots, current_srt);
   scatter_roots(roots, total);
   /* A larger nursery comes from a new arena, which replaces all
-     nurseries, so a bridge collection emptied them first. */
-  bridge = heap->nursery_bytes != nursery_bytes;
+     nurseries. When another nursery holds objects, a bridge collection
+     empties it first. Otherwise only the local collection ran. */
+  bridge = heap->nursery_bytes != nursery_bytes && others_used;
   if (capability->machine->gc_count != before) {
     report_collection();
   }
