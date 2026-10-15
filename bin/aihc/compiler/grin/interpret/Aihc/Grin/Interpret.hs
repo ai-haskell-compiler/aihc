@@ -436,6 +436,7 @@ evalScheduledExpr env expr continue =
       value <- materializeNode env node >>= allocateCell . storedCell
       continue [value]
     GrinEnsureHeap _ roots -> continue =<< mapM (materializeValue env) roots
+    GrinAllocate {} -> rejectCpsExpression
     GrinSafepoint _ roots -> continue =<< mapM (materializeValue env) roots
     GrinStoreUnchecked node -> do
       value <- materializeNode env node >>= allocateCell . storedCell

@@ -108,8 +108,15 @@ lowerObservedProgram target gcStress entryName gcProgram = do
 -- reservation and call the explicit collector. A block refill is insufficient.
 -- Identify collector blocks by their call, not their label.
 forceCollection :: Module -> Module
-forceCollection (Module items) = Module (map forceItem items)
+forceCollection (Module items) =
+  Module (map collectorDeclaration (take 1 collectorDeclarations) <> map forceItem items)
   where
+    collectorDeclarations = filter isCollectorDeclaration items
+    isCollectorDeclaration (ItemExternFunction external) =
+      externFunctionName external `elem` [Symbol "aihc_heap_collect", Symbol "aihc_heap_allocate"]
+    isCollectorDeclaration _ = False
+    collectorDeclaration (ItemExternFunction external) = ItemExternFunction external {externFunctionName = Symbol "aihc_gc_collect", externFunctionSignature = Signature [Ptr, I64, I64, Ptr, Ptr] [] CConvention}
+    collectorDeclaration item = item
     forceItem (ItemFunction function) =
       ItemFunction function {functionBlocks = map forceBlock (functionBlocks function)}
       where
@@ -120,17 +127,18 @@ forceCollection (Module items) = Module (map forceItem items)
           ]
         forceBlock block =
           block
-            { blockInstructions = map forceInstruction (blockInstructions block),
+            { blockInstructions = concatMap forceInstruction (blockInstructions block),
               blockTerminator = case blockTerminator block of
                 Branch _ whenTrue whenFalse
                   | targetLabel whenFalse `elem` collectors -> Jump whenFalse
                   | targetLabel whenTrue `elem` collectors -> Jump whenTrue
                 terminator -> terminator
             }
-    forceItem (ItemExternFunction external)
-      | externFunctionName external == Symbol "aihc_heap_collect" =
-          ItemExternFunction external {externFunctionName = Symbol "aihc_gc_collect"}
     forceItem item = item
     forceInstruction (Instruction results (Call (Symbol "aihc_heap_collect") arguments)) =
-      Instruction results (Call (Symbol "aihc_gc_collect") arguments)
-    forceInstruction instruction = instruction
+      [Instruction results (Call (Symbol "aihc_gc_collect") arguments)]
+    forceInstruction instruction@(Instruction _ (Call (Symbol "aihc_heap_allocate") (capability : _ : _ : arguments))) =
+      [ Instruction [] (Call (Symbol "aihc_gc_collect") (capability : OperandLiteral (LitInt 0) : arguments)),
+        instruction
+      ]
+    forceInstruction instruction = [instruction]

@@ -1508,6 +1508,7 @@ maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
+    GrinBind _ (GrinAllocate _ _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinSafepoint _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
@@ -1516,6 +1517,7 @@ maximumRoots expression =
     GrinIfWhnf _ ready slow -> max (maximumRoots ready) (maximumRoots slow)
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
     GrinEnsureHeap _ roots -> length roots
+    GrinAllocate _ _ roots -> length roots
     _ -> 0
 
 -- | A function pointer passes through a stack slot between a data pointer
@@ -1684,6 +1686,7 @@ compileExpr ctx env expression =
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
     GrinEnsureHeap {} -> unsupported "unbound heap reservation"
+    GrinAllocate {} -> unsupported "unbound dynamic allocation"
     GrinSafepoint {} -> unsupported "unbound store safepoint"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
     GrinUpdate {} -> unsupported "direct-style update after CPS"
@@ -1791,13 +1794,27 @@ compileBinding ctx env vars expression =
       | length vars == length roots -> do
           words' <- materialize ctx env requiredWords >>= coerce I64
           rootOperands <- mapM (pointerValue ctx env) roots
-          array <-
-            case (roots, ctxRoots ctx) of
-              ([], _) -> pure (OperandLiteral LitNull)
-              (_, Just array) -> pure array
-              _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
+          array <- rootArray roots
           reserveHeap ctx env vars requiredWords words' roots rootOperands array
       | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
+    GrinAllocate requiredWords pinned roots -> case vars of
+      memory : relocated | length relocated == length roots -> do
+        words' <- materialize ctx env requiredWords >>= coerce I64
+        pinned' <- materialize ctx env pinned >>= coerce I64
+        rootOperands <- mapM (pointerValue ctx env) roots
+        array <- rootArray roots
+        forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
+          storeSlot Ptr root array (toInteger (8 * index))
+        context <- currentContext
+        capability <- capabilityOperand context
+        storeContext capability context
+        address <- callRuntime "aihc_heap_allocate" [Ptr, I64, I64, I64, Ptr, Ptr] [Ptr] [capability, words', pinned', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+        moved <- forM (zip [0 :: Int ..] relocated) $ \(index, var) ->
+          (var,) <$> loadSlot (varBase var) Ptr array (toInteger (8 * index))
+        collected <- loadHeapContext capability context
+        setContext collected
+        pure (Map.fromList ((memory, Typed address Ptr) : moved) `Map.union` env)
+      _ -> failWith (LowerUnsupportedExpression "dynamic allocation result arity")
     GrinSafepoint top roots
       | length vars == length roots -> beginSafepoint ctx env vars top roots
       | otherwise -> failWith (LowerUnsupportedExpression "store safepoint result arity")
@@ -1831,6 +1848,10 @@ compileBinding ctx env vars expression =
       failed <- emitValue "update_escape" I1 (Compare Eq Ptr stored (OperandLiteral LitNull))
       escapeCollectWhen ctx failed
       bindResults [valueTyped]
+    rootArray roots = case (roots, ctxRoots ctx) of
+      ([], _) -> pure (OperandLiteral LitNull)
+      (_, Just array) -> pure array
+      _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
     bindResults = bindVars env vars
 
 -- | Take the words of a reservation from the current space. The fast path is

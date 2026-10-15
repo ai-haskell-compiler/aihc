@@ -23,6 +23,7 @@ extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
 extern func @aihc_write_barrier_range(ptr, ptr, i64, i64) cc c
 extern func @aihc_array_copy_escaping(ptr, ptr, i64, ptr, i64, i64) -> i64 cc c
 extern func @aihc_array_length(ptr) -> i64 cc c
+extern func @aihc_array_words(i64) -> i64 cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
 
 ; The info table of every array. The collector reaches an array's elements
@@ -68,6 +69,13 @@ invalid_size:
 allocate:
   %words = add i64 %count, 2
   %array = call @aihc_gc_allocate(%capability, %words)
+  %initialized = call @aihc_array_initialize(%array, %count, %initial)
+  return %initialized
+}
+
+; Initialize memory already owned by this array. This does not advance the heap pointer.
+export func @aihc_array_initialize(%array: ptr, %count: i64, %initial: i64) -> ptr cc c {
+entry:
   %header = ptr.to_int @aihc_array_info
   store i64 %header, [%array] align 8
   store i64 %count, [%array + 8] align 8
@@ -163,11 +171,9 @@ plain:
 ; the type their caller gives the result.
 export func @aihc_array_clone(%capability: ptr, %source: ptr, %offset: i64, %count: i64) -> ptr cc c {
 entry:
-  ; A null slot is a valid non-pointer to the collector, and nothing between
-  ; the allocation and the copy allocates, so the fresh array is never
-  ; scanned while it still holds the placeholder.
-  %clone = call @aihc_array_new(%capability, %count, 0)
-  %ignored = call @aihc_array_copy(%capability, %source, %offset, %clone, 0, %count)
+  %words = call @aihc_array_words(%count)
+  %memory = call @aihc_gc_allocate(%capability, %words)
+  %clone = call @aihc_array_initialize_clone(%capability, %memory, %source, %offset, %count)
   return %clone
 }
 
@@ -195,10 +201,27 @@ shrink:
 ; with %initial in any slot beyond the old length.
 export func @aihc_array_resize(%capability: ptr, %array: ptr, %count: i64, %initial: i64) -> ptr cc c {
 entry:
+  %words = call @aihc_array_words(%count)
+  %memory = call @aihc_gc_allocate(%capability, %words)
+  %resized = call @aihc_array_initialize_resize(%capability, %memory, %array, %count, %initial)
+  return %resized
+}
+
+; Initialize a clone in memory returned by dynamic allocation.
+export func @aihc_array_initialize_clone(%capability: ptr, %memory: ptr, %source: ptr, %offset: i64, %count: i64) -> ptr cc c {
+entry:
+  %clone = call @aihc_array_initialize(%memory, %count, 0)
+  %ignored = call @aihc_array_copy(%capability, %source, %offset, %clone, 0, %count)
+  return %clone
+}
+
+; Initialize a resized array without a second allocation.
+export func @aihc_array_initialize_resize(%capability: ptr, %memory: ptr, %array: ptr, %count: i64, %initial: i64) -> ptr cc c {
+entry:
   %length = call @aihc_array_length(%array)
   %shorter = lt.u i64 %count, %length
   %kept = select i64 %shorter, %count, %length
-  %resized = call @aihc_array_new(%capability, %count, %initial)
+  %resized = call @aihc_array_initialize(%memory, %count, %initial)
   %ignored = call @aihc_array_copy(%capability, %array, 0, %resized, 0, %kept)
   return %resized
 }

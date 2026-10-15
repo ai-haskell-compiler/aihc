@@ -3993,18 +3993,12 @@ static void aihc_gc_collect_stopped(AihcCapability *capability, uint64_t words,
                                     uint64_t root_count, AihcSlot *roots,
                                     const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
-  if (aihc_reservation_is_large(bytes)) {
-    aihc_ensure_large(capability, bytes, root_count, roots, srt);
-    return;
-  }
   aihc_collect_for(capability, bytes, root_count, roots, srt);
   if (bytes > aihc_nursery_room(capability)) {
-    /* The nursery is empty now, so a reservation it cannot hold grows it.
-       Only a nursery far below the default, as the tests use, reaches this
-       branch: a reservation below the large object bound fits the default.
-       The new arena replaces the nurseries of all capabilities, and a local
-       collection empties only its own. Thus a bridge collection empties the
-       others first. */
+    /* The nursery is empty. A batch can exceed the large-object threshold,
+       but each object in the batch still uses the nursery. */
+    /* Arena replacement affects every capability. Empty the other nurseries
+     * first. */
     if (aihc_other_nurseries_used(capability)) {
       aihc_collect(capability, 0, 0, 0, 0, root_count, roots, srt);
     }
@@ -4013,16 +4007,14 @@ static void aihc_gc_collect_stopped(AihcCapability *capability, uint64_t words,
   aihc_nursery_refill(capability, bytes);
 }
 
-/* Refill before a collection. Large objects retain their fixed budget. */
+/* Reserve nursery space for a batch of objects. Refill before a collection. */
 void aihc_gc_refill(AihcCapability *capability, uint64_t words,
                     uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
   /* The refill of a nursery block is a safepoint of the mutator. */
   aihc_safepoint(capability, root_count, roots);
   size_t bytes = aihc_reservation_bytes(capability, words);
-  if (aihc_reservation_is_large(bytes)) {
-    aihc_ensure_large(capability, bytes, root_count, roots, srt);
-  } else if (capability->barrier_work >= capability->machine->barrier_budget ||
-             !aihc_nursery_refill(capability, bytes)) {
+  if (capability->barrier_work >= capability->machine->barrier_budget ||
+      !aihc_nursery_refill(capability, bytes)) {
     aihc_gc_collect(capability, words, root_count, roots, srt);
   }
 }
@@ -4124,6 +4116,20 @@ AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words) {
   memset(value, 0, bytes);
 #endif
   return value;
+}
+
+/* Allocate one object. The returned address owns its space immediately.
+   The caller must initialize the object before another collection. */
+AihcValue *aihc_heap_allocate(AihcCapability *capability, uint64_t words,
+                              uint64_t pinned, uint64_t root_count,
+                              AihcSlot *roots, const AihcSrt *srt) {
+  uint64_t overhead = pinned ? sizeof(AihcPinnedBlock) / sizeof(AihcSlot) : 0;
+  if (words < overhead) {
+    aihc_fail("invalid pinned allocation size");
+  }
+  aihc_gc_ensure(capability, words, root_count, roots, srt);
+  return pinned ? aihc_gc_allocate_pinned(capability, words - overhead)
+                : aihc_gc_allocate(capability, words);
 }
 
 static AihcValue *aihc_gc_allocate_global_unlocked(AihcCapability *capability,

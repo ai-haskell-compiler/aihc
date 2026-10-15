@@ -4,7 +4,7 @@ module Aihc.Grin.Heap
   )
 where
 
-import Aihc.Grin.Primitive (primitiveAllocates)
+import Aihc.Grin.Primitive (primitiveAllocates, primitiveInitializes)
 import Aihc.Grin.Syntax
 
 normalizeHeapReservations :: GrinProgram -> GrinProgram
@@ -75,10 +75,8 @@ normalizeExpr expression =
           let (bodyWords, body') = normalizeExpr body
            in (sequential (Reserve reservedWords) bodyWords, body')
         Nothing ->
-          -- A dynamic reservation is a compare as well, so it covers the
-          -- safepoints of the body.
           let (bodyWords, body') = normalizeExpr body
-           in (NoReservation, const (GrinBind [] reservation (placeReservation bodyWords (const (body' True)))))
+           in (NoReservation, const (GrinBind [] reservation (placeReservation bodyWords body')))
     GrinBind vars valueExpression body ->
       let (valueWords, valueExpression') = normalizeExpr valueExpression
           (bodyWords, body') = normalizeExpr body
@@ -159,13 +157,14 @@ isReservationBarrier :: GrinExpr -> Bool
 isReservationBarrier expression =
   case expression of
     GrinEnsureHeap {} -> True
+    GrinAllocate {} -> True
     -- A store safepoint can collect, and a collection resets the nursery,
     -- so a reservation does not reach across it.
     GrinSafepoint {} -> True
     GrinEval {} -> True
     GrinCpsEval {} -> True
     GrinCall {} -> True
-    GrinPrimitiveCall _ name _ -> primitiveAllocates name
+    GrinPrimitiveCall _ name _ -> primitiveAllocates name || primitiveInitializes name
     GrinCpsPrimitiveCall {} -> True
     GrinApply {} -> True
     GrinForward -> False

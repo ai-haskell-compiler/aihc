@@ -787,7 +787,14 @@ The lowering keeps the control model of CPS-GRIN:
 - A store takes its object from that reservation itself: the object starts
   at `%hp`, and `%hp` advances by the words of the object. Then the store
   writes the header and the fields. Neither step touches memory other than
-  the object. The runtime exports no allocator.
+  the object. `GrinEnsureHeap` always reserves nursery space, even for a large batch.
+- `GrinAllocate` calls `aihc_heap_allocate` for one dynamic object and returns its address.
+  A nursery allocation advances `%hp` immediately. Large and pinned allocations use separate storage.
+  Array initialization writes into this address without allocation or a heap pointer change.
+  Initialization must finish before the next safepoint.
+- GC-GRIN lint checks nursery budgets and initialization before safepoints.
+  Dynamic allocations cannot supply nursery space for later stores.
+  `--lint` does not select a different runtime.
 - A pointer store into an existing object, through `writeArray#`,
   `writeMutVar#`, or a compare-and-swap primitive, starts with the write
   barrier. It reads the capability from the stack chunk header.
