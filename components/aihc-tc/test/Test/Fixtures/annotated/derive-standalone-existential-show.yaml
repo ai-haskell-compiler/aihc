@@ -1,0 +1,17 @@
+extensions:
+  - ExistentialQuantification
+  - StandaloneDeriving
+modules:
+  - |
+    module Test where
+    import GHC.Classes (Eq, Ord)
+    import GHC.Prim.Show (Show)
+    import GHC.Types (Int)
+    deriving instance Eq Int
+    deriving instance Ord Int
+    data Key a = Key
+    deriving instance Show (Key a)
+    data Elem k = forall a. Show a => Elem (k a) a
+    deriving instance Show (Elem Key)
+status: pass
+reason: Standalone Show uses constructor dictionaries for existential fields.

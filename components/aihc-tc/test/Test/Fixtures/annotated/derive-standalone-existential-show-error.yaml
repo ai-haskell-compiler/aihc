@@ -1,0 +1,27 @@
+extensions:
+  - ExistentialQuantification
+  - FlexibleContexts
+  - StandaloneDeriving
+modules:
+  - |
+    module Test where
+    import GHC.Classes (Ord)
+    import GHC.Prim.Show (Show)
+    import GHC.Types (Int)
+    data Some = forall a. Ord Int => Some a
+    deriving instance Show Some
+annotated:
+  - |-
+    module Test where
+    import GHC.Classes (Ord)
+    import GHC.Prim.Show (Show)
+    import GHC.Types (Int)
+    data Some = forall a. Ord Int => Some a
+         │      └─ type: ∀ a. (GHC.Classes.Ord GHC.Types.Int) ⇒ a → Some
+         └─ type: Type
+    deriving instance Show Some
+    │                 └─ $fShowSome ∷ () ⇒ Show Some
+    │                 └─ error: unsolved constraint Show a
+    └─ deriving plans: stock Show Some [context: ()] [methods: showsPrec, show, showList]
+status: pass
+reason: Standalone Show requires constructor evidence for an existential field.

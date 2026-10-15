@@ -150,6 +150,17 @@ primitiveSupport = unsafePerformIO $ do
     Right support -> pure support
 {-# NOINLINE primitiveSupport #-}
 
+-- | Load the core Show class only when a fixture imports it. Other fixtures
+-- keep their primitive scope and evidence identifiers.
+primitiveShowSupport :: PrimitiveSupport
+primitiveShowSupport = unsafePerformIO $ do
+  modules <- loadPrimitiveModules
+  sourceRoot <- findPrimitiveSourceRoot
+  let path = sourceRoot </> "GHC/Prim/Show.hs"
+  source <- TIO.readFile path
+  either fail pure (preparePrimitiveSupport (modules <> [(path, source)]))
+{-# NOINLINE primitiveShowSupport #-}
+
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
@@ -296,12 +307,17 @@ checkTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          let visibleExports =
-                collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureUnits modules)
-                  <> supportScopes primitiveSupport
+          let support
+                | Just "GHC.Prim.Show" `notElem` map moduleName modules,
+                  any (any ((== "GHC.Prim.Show") . importDeclModule) . moduleImports) modules =
+                    primitiveShowSupport
+                | otherwise = primitiveSupport
+              visibleExports =
+                collectModuleExportsWithDeps (supportScopes support) (fixtureUnits modules)
+                  <> supportScopes support
            in case resolveUnit (fixtureBuiltinScope visibleExports) visibleExports (fixtureUnits modules) of
                 Right ResolvedUnit {resolvedModules} ->
-                  typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) resolvedModules
+                  typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface support) resolvedModules
                 Left failure ->
                   Left ("resolve error: " <> show (failureErrors failure))
   where

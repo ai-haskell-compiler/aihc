@@ -5,7 +5,7 @@ module Aihc.Fc.Prune
   )
 where
 
-import Aihc.Fc.Imports (axiomReferences, declReferences, referencesFromImports, typeReferences)
+import Aihc.Fc.Imports (axiomReferences, declReferences, typeReferences)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (typeHead)
@@ -31,14 +31,21 @@ import Data.Set qualified as Set
 -- equation of the family, because 'Aihc.Fc.TypeOf.reduceType' finds an
 -- equation by matching the head of its left side and never by name.
 --
--- The imports are roots as well. They are not pruned here, and an import
--- whose type mentions a declaration of this program has to keep it.
+-- The imports are pruned the same way. An import is kept only when a kept
+-- declaration or a kept import reaches it, and a kept import keeps each
+-- declaration that its type mentions. An import that only a dropped
+-- declaration used goes with that declaration, so the lint finds no unused
+-- import in the result.
 pruneProgram :: [Name] -> Program -> Program
 pruneProgram roots program =
-  program {programDecls = concatMap keep (programDecls program)}
+  program
+    { programImports = pruneImportEntries reaches imports,
+      programDecls = concatMap keep (programDecls program)
+    }
   where
     decls = programDecls program
-    reachable = close Set.empty (roots <> Set.toList (referencesFromImports (programImports program)))
+    imports = programImports program
+    reachable = close Set.empty roots
     keep decl =
       case decl of
         DeclType declaration ->
@@ -69,7 +76,7 @@ pruneProgram roots program =
     -- references, and a whole program usually reaches a small part of the
     -- core libraries.
     declaredReferences :: Map Name (Set Name)
-    declaredReferences = Map.fromListWith (<>) (concatMap declaredEntries decls)
+    declaredReferences = Map.fromListWith (<>) (concatMap declaredEntries decls <> importEntries imports)
     declaredEntries decl =
       case decl of
         DeclType declaration ->
@@ -93,15 +100,40 @@ pruneProgram roots program =
         -- kept rule keeps its right-hand side alive.
         DeclRule declaration -> [(headName, declReferences decl) | Just headName <- [ruleHead declaration]]
     -- The equations of each type family, under the name of the family.
+    -- An imported equation is an equation of its family too.
     familyEquations :: Map Name (Set Name)
     familyEquations =
       Map.fromListWith
         (<>)
-        [ (family, Set.singleton (axiomName declaration))
-        | DeclAxiom declaration <- decls,
+        [ (family, Set.singleton name)
+        | (name, declaration) <- [(axiomName declaration, declaration) | DeclAxiom declaration <- decls] <> Map.toList (importAxioms imports),
           axiomRole declaration == Nominal,
           Just family <- [typeHead (axiomLeft declaration)]
         ]
+
+-- | What each imported name refers to.
+importEntries :: Imports -> [(Name, Set Name)]
+importEntries imports =
+  [(name, typeReferences ty) | (name, ty) <- Map.toList (importHeaders imports)]
+    <> [(name, typeReferences ty) | (name, ty) <- Map.toList (importSynonyms imports)]
+    <> [(name, axiomReferences declaration) | (name, declaration) <- Map.toList (importAxioms imports)]
+    <> [(name, typeReferences ty) | (name, ty) <- Map.toList (importBinders imports)]
+
+-- | Keep the imports whose names are reachable.
+pruneImportEntries :: (Name -> Bool) -> Imports -> Imports
+pruneImportEntries reaches imports =
+  Imports
+    { importHeaders = kept (importHeaders imports),
+      importSynonyms = kept (importSynonyms imports),
+      importAxioms = kept (importAxioms imports),
+      importBinders = kept (importBinders imports),
+      importConRepresentations = kept (importConRepresentations imports),
+      importConStrictFields = kept (importConStrictFields imports),
+      importDataCons = kept (importDataCons imports)
+    }
+  where
+    kept :: Map Name a -> Map Name a
+    kept = Map.filterWithKey (\name _ -> reaches name)
 
 -- | Remove every rewrite rule from a program.
 --
