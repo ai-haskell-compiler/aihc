@@ -507,6 +507,7 @@ resultTypes ctx (Instruction results operation) =
     LoadAtomic _ ty _ -> [ty]
     StoreAtomic {} -> []
     LoadDependent ty _ -> [ty]
+    LoadInvariant ty _ _ -> [ty]
     CompareSwap _ ty _ _ _ -> [ty]
     AtomicRmw _ _ ty _ _ -> [ty]
     Fence _ -> []
@@ -963,6 +964,7 @@ compileInstruction fn (Instruction results operation) =
     -- operation is a plain access.
     LoadAtomic _ ty address -> plainLoad ty address
     LoadDependent ty address -> plainLoad ty address
+    LoadInvariant ty address _ -> plainLoad ty address
     StoreAtomic _ ty value address -> do
       offset <- effectiveAddress address
       push fn ty value

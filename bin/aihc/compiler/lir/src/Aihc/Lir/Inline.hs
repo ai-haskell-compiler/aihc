@@ -348,6 +348,7 @@ mapOperation operand operation =
     PtrFromInt value -> PtrFromInt (operand value)
     Select ty condition whenTrue whenFalse -> Select ty (operand condition) (operand whenTrue) (operand whenFalse)
     Load ty address align -> Load ty (mapAddress operand address) align
+    LoadInvariant ty address align -> LoadInvariant ty (mapAddress operand address) align
     Store ty value address align -> Store ty (operand value) (mapAddress operand address) align
     LoadAtomic order ty address -> LoadAtomic order ty (mapAddress operand address)
     StoreAtomic order ty value address -> StoreAtomic order ty (operand value) (mapAddress operand address)

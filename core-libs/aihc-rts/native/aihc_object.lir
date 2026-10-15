@@ -63,28 +63,28 @@ entry:
 ; is what a comparison against an object kind or a frame kind wants.
 inline func @aihc_info_kind(%header: ptr) -> i64 {
 entry:
-  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind_byte = load.invariant i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
   %kind = zext i8 %kind_byte to i64
   return %kind
 }
 
 inline func @aihc_info_frame(%header: ptr) -> i64 {
 entry:
-  %frame_byte = load i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
+  %frame_byte = load.invariant i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
   %frame = zext i8 %frame_byte to i64
   return %frame
 }
 
 inline func @aihc_info_arity(%header: ptr) -> i64 {
 entry:
-  %arity_byte = load i8 [%header + @AIHC_INFO_ARITY_OFFSET] align 1
+  %arity_byte = load.invariant i8 [%header + @AIHC_INFO_ARITY_OFFSET] align 1
   %arity = zext i8 %arity_byte to i64
   return %arity
 }
 
 inline func @aihc_info_count(%header: ptr) -> i64 {
 entry:
-  %count_byte = load i8 [%header + @AIHC_INFO_COUNT_OFFSET] align 1
+  %count_byte = load.invariant i8 [%header + @AIHC_INFO_COUNT_OFFSET] align 1
   %count = zext i8 %count_byte to i64
   return %count
 }
@@ -97,25 +97,25 @@ entry:
 ; the object, and the continuation.
 inline func @aihc_info_identity(%header: ptr) -> code {
 entry:
-  %identity = load code [%header] align 1 word
+  %identity = load.invariant code [%header] align 1 word
   return %identity
 }
 
 inline func @aihc_info_entry(%header: ptr) -> code {
 entry:
-  %entry_code = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
+  %entry_code = load.invariant code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   return %entry_code
 }
 
 inline func @aihc_info_bitmap(%header: ptr) -> ptr {
 entry:
-  %bitmap = load ptr [%header + @AIHC_INFO_BITMAP_OFFSET] align 1 word
+  %bitmap = load.invariant ptr [%header + @AIHC_INFO_BITMAP_OFFSET] align 1 word
   return %bitmap
 }
 
 inline func @aihc_info_next(%header: ptr) -> ptr {
 entry:
-  %next_info = load ptr [%header + @AIHC_INFO_NEXT_OFFSET] align 1 word
+  %next_info = load.invariant ptr [%header + @AIHC_INFO_NEXT_OFFSET] align 1 word
   return %next_info
 }
 

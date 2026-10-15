@@ -10,6 +10,10 @@
 -- goes through its own block, so a target reached twice from one
 -- predecessor still has one @phi@ entry per edge. The operations that trap
 -- check their operands and branch to a block that reports the message.
+-- An edge to a cold Lir block or to a trap block carries branch weights
+-- that make it unlikely, and the trap calls are cold calls. No function
+-- unwinds: an exception is a tail call to the runtime, so every function
+-- is @nounwind@.
 module Aihc.Llvm.Lir
   ( LlvmLirError (..),
     compileLirModule,
@@ -29,9 +33,11 @@ import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Either (fromRight)
-import Data.List (partition)
+import Data.List (partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
@@ -55,7 +61,7 @@ compileLirModule :: Module -> Either LlvmLirError Text
 compileLirModule lirModule =
   case prepared of
     Right _ -> do
-      (functions, ModuleState traps shims) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty Map.empty)
+      (functions, ModuleState traps shims metadata) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty Map.empty Map.empty)
       pure
         ( T.unlines
             ( preamble externSymbols
@@ -70,6 +76,8 @@ compileLirModule lirModule =
                 <> [""]
                 <> concat functions
                 <> concatMap (uncurry renderCallShim) (Map.toAscList shims)
+                <> attributeGroups
+                <> ["!" <> tshow index <> " = " <> body | (body, index) <- sortOn snd (Map.toList metadata)]
             )
         )
     Left errors -> Left (LlvmLirLintErrors errors)
@@ -104,30 +112,33 @@ preamble externSymbols =
        | (symbol, declaration) <- trapFunctionDeclarations,
          Symbol symbol `notElem` externSymbols
        ]
-    <> [ "declare float @llvm.fabs.f32(float)",
-         "declare double @llvm.fabs.f64(double)",
-         "declare float @llvm.sqrt.f32(float)",
-         "declare double @llvm.sqrt.f64(double)"
-       ]
-    <> concat
-      [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
-          "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
-          -- The second argument states whether a zero operand is undefined.
-          -- Lir defines it as the width, so it is always false.
-          "declare " <> ty <> " @llvm.ctlz." <> ty <> "(" <> ty <> ", i1)",
-          "declare " <> ty <> " @llvm.cttz." <> ty <> "(" <> ty <> ", i1)",
-          "declare " <> ty <> " @llvm.ctpop." <> ty <> "(" <> ty <> ")"
+    <> map
+      (<> " " <> functionAttributes)
+      ( [ "declare float @llvm.fabs.f32(float)",
+          "declare double @llvm.fabs.f64(double)",
+          "declare float @llvm.sqrt.f32(float)",
+          "declare double @llvm.sqrt.f64(double)"
         ]
-      | ty <- ["i8", "i16", "i32", "i64"]
-      ]
-    <> ["declare " <> ty <> " @llvm." <> op <> "." <> ty <> "(" <> ty <> ", " <> ty <> ", " <> ty <> ")" | ty <- ["i1", "i8", "i16", "i32", "i64"], op <- ["fshl", "fshr"]]
+          <> concat
+            [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
+                "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
+                -- The second argument states whether a zero operand is undefined.
+                -- Lir defines it as the width, so it is always false.
+                "declare " <> ty <> " @llvm.ctlz." <> ty <> "(" <> ty <> ", i1)",
+                "declare " <> ty <> " @llvm.cttz." <> ty <> "(" <> ty <> ", i1)",
+                "declare " <> ty <> " @llvm.ctpop." <> ty <> "(" <> ty <> ")"
+              ]
+            | ty <- ["i8", "i16", "i32", "i64"]
+            ]
+          <> ["declare " <> ty <> " @llvm." <> op <> "." <> ty <> "(" <> ty <> ", " <> ty <> ", " <> ty <> ")" | ty <- ["i1", "i8", "i16", "i32", "i64"], op <- ["fshl", "fshr"]]
+      )
     <> bitScatterHelpers
 
 -- | The C functions that the trap blocks call, with their declarations.
 trapFunctionDeclarations :: [(Text, Text)]
 trapFunctionDeclarations =
-  [ ("write", "declare i64 @write(i32, ptr, i64)"),
-    ("_exit", "declare void @_exit(i32) noreturn")
+  [ ("write", "declare i64 @write(i32, ptr, i64) " <> functionAttributes),
+    ("_exit", "declare void @_exit(i32) noreturn " <> functionAttributes)
   ]
 
 -- | The parallel bit deposit and extract of 64-bit values as loops over
@@ -137,7 +148,7 @@ trapFunctionDeclarations =
 -- bit and shifts each source bit into the result from the low end.
 bitScatterHelpers :: [Text]
 bitScatterHelpers =
-  [ "define internal i64 @aihc_lir_pdep64(i64 %a, i64 %b) {",
+  [ "define internal i64 @aihc_lir_pdep64(i64 %a, i64 %b) " <> functionAttributes <> " {",
     "entry:",
     "  br label %loop",
     "loop:",
@@ -159,7 +170,7 @@ bitScatterHelpers =
     "exit:",
     "  ret i64 %result",
     "}",
-    "define internal i64 @aihc_lir_pext64(i64 %a, i64 %b) {",
+    "define internal i64 @aihc_lir_pext64(i64 %a, i64 %b) " <> functionAttributes <> " {",
     "entry:",
     "  br label %loop",
     "loop:",
@@ -192,7 +203,8 @@ declareExtern external =
       <> renderSymbol (externFunctionName external)
       <> "("
       <> T.intercalate ", " (map renderType (signatureParameters signature))
-      <> ")"
+      <> ") "
+      <> functionAttributes
   ]
   where
     signature = externFunctionSignature external
@@ -200,6 +212,30 @@ declareExtern external =
 -- | The name of the constant that holds one trap message.
 trapMessageName :: Int -> Text
 trapMessageName index = ".Llir_trap_" <> tshow index
+
+-- | The attribute groups of the module. Every function definition and
+-- declaration carries 'functionAttributes', and the trap blocks call
+-- @write@ and @_exit@ through 'coldCallAttributes'.
+attributeGroups :: [Text]
+attributeGroups =
+  [ "attributes " <> functionAttributes <> " = { nounwind }",
+    "attributes " <> coldCallAttributes <> " = { cold }"
+  ]
+
+-- | The attribute group of every function. The program never unwinds
+-- through a frame: an exception is a tail call to @aihc_raise@, and the
+-- C functions the module calls do not throw.
+functionAttributes :: Text
+functionAttributes = "#0"
+
+-- | The attribute group of a call in a trap block.
+coldCallAttributes :: Text
+coldCallAttributes = "#1"
+
+-- | The weight of a likely edge against the weight one of an unlikely edge.
+-- The ratio is the one Clang gives @__builtin_expect@.
+likelyWeight :: Integer
+likelyWeight = 2000
 
 -- Data
 
@@ -365,11 +401,18 @@ type Traps = Map Text Int
 -- | The call shims of the module, each with its index. See 'renderCallShim'.
 type CallShims = Map Signature Int
 
-data ModuleState = ModuleState !Traps !CallShims
+-- | The metadata nodes of the module, each with its index. The key is the
+-- rendered node.
+type Metadata = Map Text Int
+
+data ModuleState = ModuleState !Traps !CallShims !Metadata
 
 data FunctionState = FunctionState
   { stateTraps :: !Traps,
     stateCallShims :: !CallShims,
+    stateMetadata :: !Metadata,
+    -- | The labels of the cold blocks of the function.
+    stateColdLabels :: !(Set Label),
     -- | The trap blocks this function branches to.
     stateFunctionTraps :: !(Map Text Int),
     stateNextTemp :: !Int,
@@ -422,6 +465,37 @@ trapBlock message = do
 trapBlockName :: Int -> Text
 trapBlockName index = quote ("trap." <> tshow index)
 
+-- | The reference to a metadata node, which the module defines once.
+metadataNode :: Text -> M Text
+metadataNode body = do
+  state <- get
+  index <-
+    case Map.lookup body (stateMetadata state) of
+      Just index -> pure index
+      Nothing -> do
+        let index = Map.size (stateMetadata state)
+        put state {stateMetadata = Map.insert body index (stateMetadata state)}
+        pure index
+  pure ("!" <> tshow index)
+
+-- | The branch weight metadata of a terminator whose edges are each likely
+-- or unlikely, in the order the terminator names them. A terminator whose
+-- edges are all alike gets no weights.
+branchWeights :: [Bool] -> M Text
+branchWeights unlikely
+  | and unlikely || not (or unlikely) = pure ""
+  | otherwise = do
+      node <- metadataNode ("!{!\"branch_weights\", " <> T.intercalate ", " ["i32 " <> tshow (if cold then 1 else likelyWeight) | cold <- unlikely] <> "}")
+      pure (", !prof " <> node)
+
+-- | The weights of a two-way branch whose first edge is the unlikely one.
+unlikelyFirst :: M Text
+unlikelyFirst = branchWeights [True, False]
+
+-- | Whether a jump target is a cold block.
+isColdTarget :: Target -> M Bool
+isColdTarget target = Set.member (targetLabel target) . stateColdLabels <$> get
+
 -- | The shim that makes a call that is not a tail call to a function of the
 -- @aihc@ convention.
 callShim :: Signature -> M Text
@@ -457,7 +531,7 @@ callShimName index = "@" <> quote (".Llir_call_" <> tshow index)
 -- inlining. Remove the shim when the supported LLVM versions are correct.
 renderCallShim :: Signature -> Int -> [Text]
 renderCallShim signature index =
-  [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline {",
+  [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline " <> functionAttributes <> " {",
     "  " <> (if null (signatureResults signature) then "" else "%result = ") <> "call " <> renderConvention (signatureConvention signature) <> results <> " %callee(" <> T.intercalate ", " (zipWith typed' (signatureParameters signature) arguments) <> ")",
     "  " <> (if null (signatureResults signature) then "ret void" else "ret " <> results <> " %result"),
     "}",
@@ -486,11 +560,13 @@ edgeTo parameters (Target label arguments)
 compileFunction :: Ctx -> Function -> StateT ModuleState (Either LlvmLirError) [Text]
 compileFunction ctx input = do
   let function = lowerWideDivision True input
-  ModuleState traps shims <- get
+  ModuleState traps shims metadata <- get
   let initial =
         FunctionState
           { stateTraps = traps,
             stateCallShims = shims,
+            stateMetadata = metadata,
+            stateColdLabels = Set.fromList [blockLabel block | block <- functionBlocks function, blockCold block],
             stateFunctionTraps = Map.empty,
             stateNextTemp = 0,
             stateBlocksRev = [],
@@ -500,7 +576,7 @@ compileFunction ctx input = do
           }
       parameters = Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function]
   (bodies, final) <- lift (runStateT (mapM (compileBlock ctx function parameters) (functionBlocks function)) initial)
-  put (ModuleState (stateTraps final) (stateCallShims final))
+  put (ModuleState (stateTraps final) (stateCallShims final) (stateMetadata final))
   let edges = stateEdges final
       -- The phi instructions of a block are known only after every edge is
       -- compiled, so the blocks are rendered from their bodies here.
@@ -522,8 +598,8 @@ compileFunction ctx input = do
       trapBlocks =
         concat
           [ [ trapBlockName index <> ":",
-              "  call i64 @write(i32 2, ptr @" <> quote (trapMessageName index) <> ", i64 " <> tshow (BS.length (Text.encodeUtf8 (message <> "\n"))) <> ")",
-              "  call void @_exit(i32 1)",
+              "  call i64 @write(i32 2, ptr @" <> quote (trapMessageName index) <> ", i64 " <> tshow (BS.length (Text.encodeUtf8 (message <> "\n"))) <> ") " <> coldCallAttributes,
+              "  call void @_exit(i32 1) " <> coldCallAttributes,
               "  unreachable"
             ]
           | (message, index) <- Map.toAscList (stateFunctionTraps final)
@@ -537,7 +613,9 @@ compileFunction ctx input = do
           <> renderSymbol (functionName function)
           <> "("
           <> T.intercalate ", " [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
-          <> ") {"
+          <> ") "
+          <> functionAttributes
+          <> " {"
       ]
         <> rendered
         <> edgeBlocks
@@ -565,16 +643,20 @@ compileTerminator ctx function parameters terminator =
     Branch condition whenTrue whenFalse -> do
       trueEdge <- edgeTo parameters whenTrue
       falseEdge <- edgeTo parameters whenFalse
-      emit ("br i1 " <> renderOperand I1 condition <> ", label " <> trueEdge <> ", label " <> falseEdge)
+      weights <- branchWeights =<< mapM isColdTarget [whenTrue, whenFalse]
+      emit ("br i1 " <> renderOperand I1 condition <> ", label " <> trueEdge <> ", label " <> falseEdge <> weights)
     Switch ty scrutinee cases fallback -> do
-      fallbackEdge <-
+      -- A switch without a fallback traps, and the trap is unlikely.
+      (fallbackEdge, fallbackCold) <-
         case fallback of
-          Just target -> edgeTo parameters target
-          Nothing -> ("%" <>) <$> trapBlock "switch without a matching case"
+          Just target -> (,) <$> edgeTo parameters target <*> isColdTarget target
+          Nothing -> (\name -> ("%" <> name, True)) <$> trapBlock "switch without a matching case"
       edges <- forM cases $ \switchCase -> do
         edge <- edgeTo parameters (switchCaseTarget switchCase)
         pure (renderType ty <> " " <> renderInteger ty (resolvedSwitchCaseValue switchCase) <> ", label " <> edge)
-      emit ("switch " <> typed ty scrutinee <> ", label " <> fallbackEdge <> " [" <> T.intercalate " " edges <> "]")
+      caseCold <- mapM (isColdTarget . switchCaseTarget) cases
+      weights <- branchWeights (fallbackCold : caseCold)
+      emit ("switch " <> typed ty scrutinee <> ", label " <> fallbackEdge <> " [" <> T.intercalate " " edges <> "]" <> weights)
     Return values -> returnValues (functionResults function) (zipWith renderOperand (functionResults function) values)
     TailCall symbol arguments ->
       tailCall (renderSymbol symbol) (Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures ctx)) arguments
@@ -627,7 +709,8 @@ guardCallee target = do
   continue <- fresh
   let continueName = quote ("c" <> T.drop 1 continue)
   emit (isNull <> " = icmp eq ptr " <> renderOperand Code target <> ", null")
-  emit ("br i1 " <> isNull <> ", label %" <> trap <> ", label %" <> continueName)
+  weights <- unlikelyFirst
+  emit ("br i1 " <> isNull <> ", label %" <> trap <> ", label %" <> continueName <> weights)
   pure continueName
 
 -- | Branch to a trap block when a condition holds and continue in a fresh
@@ -637,7 +720,8 @@ trapWhen condition message = do
   trap <- trapBlock message
   continue <- fresh
   let continueName = quote ("c" <> T.drop 1 continue)
-  emit ("br i1 " <> condition <> ", label %" <> trap <> ", label %" <> continueName)
+  weights <- unlikelyFirst
+  emit ("br i1 " <> condition <> ", label %" <> trap <> ", label %" <> continueName <> weights)
   beginBlock continueName
 
 compileInstruction :: Ctx -> Instruction -> M ()
@@ -753,6 +837,17 @@ compileInstruction ctx (Instruction results operation) =
           emit (byte <> " = load i8, ptr " <> pointer <> ", align " <> tshow alignBytes)
           single ("trunc i8 " <> byte <> " to i1")
         _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
+    LoadInvariant ty address alignment -> do
+      let alignBytes = alignmentInBytes wordBytes alignment
+      pointer <- effectiveAddress address
+      invariant <- metadataNode "!{}"
+      let suffix = ", align " <> tshow alignBytes <> ", !invariant.load " <> invariant
+      case ty of
+        I1 -> do
+          byte <- fresh
+          emit (byte <> " = load i8, ptr " <> pointer <> suffix)
+          single ("trunc i8 " <> byte <> " to i1")
+        _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> suffix)
     Store ty value address alignment -> do
       let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address

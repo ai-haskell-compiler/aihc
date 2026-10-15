@@ -549,6 +549,7 @@ therefore wrong wherever it runs, and caught only by the interpreter.
 | Operation | Result | Semantics |
 | --- | --- | --- |
 | `load T address align A` | `T` | Read a `T` from the address. Traps when the address is not mapped. Traps when the address is not a multiple of `A`. |
+| `load.invariant T address align A` | `T` | A `load` of a location whose contents never change while the program runs, such as a field of an info table. A backend can read the location once for all loads of the same address. The header word of a heap object is not such a location. |
 | `store T %v, address align A` | none | Write `%v` to the address. Traps when the address is not mapped, is read-only, or is not a multiple of `A`. |
 | `ptr.add %p, %i` | `ptr` | Add an `i64` to a pointer. The addition wraps at the target word size. |
 | `stack.alloc N align A` | `ptr` | Reserve `N` bytes of stack memory. The contents are undefined until the function writes them. The memory lives until the function returns. Only the entry block may contain this operation. |

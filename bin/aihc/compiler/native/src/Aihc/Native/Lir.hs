@@ -1026,6 +1026,8 @@ compileInstruction backend ctx (Instruction results operation) =
       single $ \dst -> pure (nbLoadAtomic backend ctx order ty (addressBase address) (addressByteOffset wordBytes address) dst)
     LoadDependent ty address ->
       single $ \dst -> pure (nbLoad backend ctx ty (addressBase address) (addressByteOffset wordBytes address) dst)
+    LoadInvariant ty address _ ->
+      single $ \dst -> pure (nbLoad backend ctx ty (addressBase address) (addressByteOffset wordBytes address) dst)
     StoreAtomic order ty value address ->
       pure (nbStoreAtomic backend ctx order ty value (addressBase address) (addressByteOffset wordBytes address))
     CompareSwap order ty expected replacement address ->
