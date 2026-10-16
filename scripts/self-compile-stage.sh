@@ -195,10 +195,11 @@ run_with_timeout() {
 # The level is part of the identity of an installed package, so aihc-base is
 # installed at the level of the build.
 echo "Installing aihc-base for $target at -O$level"
+# Copy compiler output to the job log before a runner shutdown can prevent
+# the artifact upload. The pipefail option preserves compiler failures.
 if ! "$aihc" install core-libs/aihc-base \
 	--store "$work_directory/store" --immutable --target "$target" -O "$level" \
-	>"$log_dir/aihc-base.log" 2>&1; then
-	tail -n 40 "$log_dir/aihc-base.log" >&2
+	2>&1 | tee "$log_dir/aihc-base.log"; then
 	exit 1
 fi
 
@@ -208,12 +209,11 @@ run_with_timeout "$aihc" build "$workspace/$root_name" --executable aihc \
 	--constraint "aihc -hackage -pretty-ui" \
 	--store "$work_directory/store" --build-root "$work_directory/build" \
 	--target "$target" -O "$level" -o "$work_directory/bin" \
-	>"$log_dir/aihc.log" 2>&1 || status=$?
+	2>&1 | tee "$log_dir/aihc.log" || status=$?
 if [ "$status" -ne 0 ]; then
 	if [ "$status" -eq 124 ]; then
 		echo "The build timed out after $build_timeout seconds." >&2
 	fi
-	tail -n 40 "$log_dir/aihc.log" >&2
 	exit "$status"
 fi
 
