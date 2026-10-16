@@ -677,36 +677,6 @@
   cursor: default;
 }
 
-.lazy-stage-times {
-  margin: 0.8rem 1rem;
-  color: var(--lazy-muted);
-  font-family: var(--lazy-sans);
-  font-size: 0.75rem;
-}
-
-.lazy-stage-times summary {
-  cursor: pointer;
-}
-
-.lazy-stage-times table {
-  width: 100%;
-  margin-top: 0.5rem;
-  border-collapse: collapse;
-}
-
-.lazy-stage-times th,
-.lazy-stage-times td {
-  padding: 0.25rem;
-  text-align: left;
-}
-
-.lazy-stage-times th:last-child,
-.lazy-stage-times td:last-child {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
 .lazy-program-stdout,
 .lazy-program-stderr {
   white-space: pre-wrap;
