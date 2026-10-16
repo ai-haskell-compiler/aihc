@@ -743,17 +743,77 @@ _Static_assert(sizeof(AihcCallbackFrame) <= 48,
 
 static AihcCallbackSlot *aihc_callback_slots;
 
+static void aihc_take_inbox(AihcCapability *capability);
+static void aihc_move_threads(AihcCapability *capability, uint64_t pushes);
+static uint64_t aihc_available_capabilities(AihcMachine *machine);
+
+/* Before a safe foreign call, give the runnable threads of the capability
+   to idle capabilities. They do not wait for the call. A thread that the
+   call wakes later still waits. The roots of the caller are in its foreign
+   frame, so the collection of the move can run here. */
+static void aihc_move_runnable_threads(AihcCapability *capability) {
+  aihc_take_inbox(capability);
+  if (capability->run_queue_head == NULL) {
+    return;
+  }
+  uint64_t count = 0;
+  for (const AihcThread *thread = capability->run_queue_head; thread != NULL;
+       thread = thread->next) {
+    ++count;
+  }
+  uint64_t available = aihc_available_capabilities(capability->machine);
+  aihc_move_threads(capability, count < available ? count : available);
+}
+
+/* Give up the capability for a safe foreign call. The roots of the caller
+   are in its foreign frame and the context is in the capability, as at a
+   safepoint. Thus a stop does not wait for the call, and its leader can
+   collect the local heap of this capability. */
+static void aihc_capability_release(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  aihc_host_lock_acquire(machine->stop_lock);
+  --machine->running_count;
+  ++machine->foreign_count;
+  aihc_host_condition_broadcast(machine->stop_condition);
+  aihc_host_lock_release(machine->stop_lock);
+}
+
+/* Take back the capability after a safe foreign call. The capability does
+   not run during a stop. */
+static void aihc_capability_reacquire(AihcCapability *capability) {
+  AihcMachine *machine = capability->machine;
+  aihc_host_lock_acquire(machine->stop_lock);
+  while (machine->stop_requested) {
+    aihc_host_condition_wait(machine->stop_condition, machine->stop_lock);
+  }
+  --machine->foreign_count;
+  ++machine->running_count;
+  aihc_host_lock_release(machine->stop_lock);
+}
+
 void aihc_foreign_enter(AihcCapability *capability, AihcForeignFrame *frame,
                         AihcSlot *roots, uint64_t count, const AihcSrt *srt,
                         uint64_t allow_callbacks) {
   *frame = (AihcForeignFrame){capability->foreign_frames, roots, count, srt,
                               allow_callbacks};
   capability->foreign_frames = frame;
+  /* A safe call can block for a long time, for example in waitpid. With one
+     capability, nothing waits for it. A stop that ran during a collection
+     holds the capability. */
+  if (allow_callbacks == AIHC_FOREIGN_SAFE &&
+      capability->machine->stop_lock != NULL && capability->stop_depth == 0) {
+    aihc_move_runnable_threads(capability);
+    frame->allow_callbacks = AIHC_FOREIGN_RELEASED;
+    aihc_capability_release(capability);
+  }
 }
 
 void aihc_foreign_leave(AihcCapability *capability, AihcForeignFrame *frame) {
   if (capability->foreign_frames != frame) {
     aihc_fail("foreign frames are out of order");
+  }
+  if (frame->allow_callbacks == AIHC_FOREIGN_RELEASED) {
+    aihc_capability_reacquire(capability);
   }
   capability->foreign_frames = frame->previous;
 }
@@ -805,9 +865,15 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
     aihc_fail("invalid foreign callback");
   }
   AihcCapability *capability = slot->capability;
-  if (capability->foreign_frames != NULL &&
-      !capability->foreign_frames->allow_callbacks) {
+  AihcForeignFrame *foreign = capability->foreign_frames;
+  if (foreign != NULL && foreign->allow_callbacks == AIHC_FOREIGN_UNSAFE) {
     aihc_fail("an unsafe foreign call cannot enter a Haskell callback");
+  }
+  /* The callback runs Haskell code, so it needs the capability that the
+     safe call gave up. The callback leave gives it up again. */
+  if (foreign != NULL && foreign->allow_callbacks == AIHC_FOREIGN_RELEASED) {
+    aihc_capability_reacquire(capability);
+    foreign->allow_callbacks = AIHC_FOREIGN_SAFE;
   }
   *frame = (AihcCallbackFrame){0};
   frame->previous = capability->callback_frames;
@@ -847,7 +913,15 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
     aihc_fail("a foreign callback did not complete synchronously");
   }
   uint64_t result = frame->result;
-  frame->capability->callback_frames = frame->previous;
+  AihcCapability *capability = frame->capability;
+  capability->callback_frames = frame->previous;
+  AihcForeignFrame *foreign = capability->foreign_frames;
+  if (foreign != NULL && foreign->allow_callbacks == AIHC_FOREIGN_SAFE &&
+      capability->machine->stop_lock != NULL && capability->stop_depth == 0 &&
+      capability->callback_frames == NULL) {
+    foreign->allow_callbacks = AIHC_FOREIGN_RELEASED;
+    aihc_capability_release(capability);
+  }
   return result;
 }
 
@@ -1458,11 +1532,20 @@ static int aihc_capability_available(AihcCapability *capability) {
          !aihc_inbox_used(capability);
 }
 
+/* The number of capabilities in the idle wait with an empty inbox. */
+static uint64_t aihc_available_capabilities(AihcMachine *machine) {
+  uint64_t available = 0;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    available += aihc_capability_available(machine->capabilities[index]);
+  }
+  return available;
+}
+
 /* Push surplus threads to idle capabilities. See "Thread movement" in
    docs/multi-threaded-rts-design.md. A pushed thread can name objects of
    the local heap of this capability. Thus a collection first moves each
-   young survivor of the local heap into gen2, and the pushes then need no
-   promotion of their own. The capability keeps the first thread of its
+   young survivor of the local heap into gen2 (see aihc_move_threads). The
+   capability keeps the first thread of its
    queue and pushes at most half of the others. */
 static void aihc_push_threads(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
@@ -1476,19 +1559,26 @@ static void aihc_push_threads(AihcCapability *capability) {
        thread != NULL; thread = thread->next) {
     ++surplus;
   }
-  uint64_t available = 0;
-  for (uint64_t index = 0; index < machine->capability_count; ++index) {
-    available += aihc_capability_available(machine->capabilities[index]);
-  }
+  uint64_t available = aihc_available_capabilities(machine);
   uint64_t pushes = (surplus + 1) / 2;
   if (pushes > available) {
     pushes = available;
   }
+  aihc_move_threads(capability, pushes);
+}
+
+/* Move at most a number of threads from the end of the run queue to idle
+   capabilities, one thread to each. A collection first moves each young
+   survivor of the local heap into gen2, so a moved thread names no object
+   of this local heap. */
+static void aihc_move_threads(AihcCapability *capability, uint64_t pushes) {
+  AihcMachine *machine = capability->machine;
   if (pushes == 0) {
     return;
   }
   aihc_escape_collect(capability, 0, NULL, NULL);
-  for (uint64_t index = 0; index < machine->capability_count && pushes != 0;
+  for (uint64_t index = 0; index < machine->capability_count && pushes != 0 &&
+                           capability->run_queue_head != NULL;
        ++index) {
     AihcCapability *target = machine->capabilities[index];
     if (!aihc_capability_available(target)) {
@@ -1524,8 +1614,8 @@ static int aihc_machine_without_work(AihcMachine *machine) {
 void aihc_idle_enter(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
   aihc_host_lock_acquire(machine->stop_lock);
-  if (machine->running_count == 1 && !machine->stop_requested &&
-      aihc_machine_without_work(machine)) {
+  if (machine->running_count == 1 && machine->foreign_count == 0 &&
+      !machine->stop_requested && aihc_machine_without_work(machine)) {
     aihc_host_lock_release(machine->stop_lock);
     aihc_fail("no runnable threads");
   }
@@ -3183,3 +3273,8 @@ int rtsSupportsBoundThreads(void) { return 0; }
 int64_t nocldstop = 0;
 
 uint64_t aihc_clock_monotonic_ns(void) { return aihc_host_monotonic_ns(); }
+
+int64_t aihc_capability_count(void) {
+  return (int64_t)__atomic_load_n(&aihc_machine.capability_count,
+                                  __ATOMIC_ACQUIRE);
+}

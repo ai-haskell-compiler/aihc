@@ -115,7 +115,15 @@ The top level of the region table is one published pointer to a table with its o
 `tryTakeMVar#` and `tryReadMVar#` are runtime calls that give the value, or zero for an empty variable.
 `noDuplicate#` is a scheduler call. It claims the thunks of the update frames of the thread, as a pause does. When another thread claimed one of them, or another evaluation finished it, the thread gives up the frames above the lowest such frame and gives back the claims that the walk made above it. It then waits for that thunk, or continues with its value.
 `unsafePerformIO` and `unsafeInterleaveIO` call `noDuplicate#` before their action, as in GHC.
-Still open: local collections without a stop, the promotion of the values of STM timers, the capability locks of the FFI, `setNumCapabilities`, and the ticker.
+A `safe` or `interruptible` foreign call gives up its capability, and an `unsafe` call keeps it.
+Before the call, the capability moves its runnable threads to idle capabilities.
+During the call, the capability does not count as running, so a stop does not wait for it.
+The leader of a stop can collect the local heap of that capability, because the roots of the caller are in its foreign frame.
+After the call, the capability waits for the end of a stop before it runs again.
+A callback takes the capability back for the time that it runs.
+The OS thread of the call keeps the capability, so a thread that the call wakes on that capability waits for the end of the call.
+`getNumCapabilities` gives the count that `-N` sets.
+Still open: local collections without a stop, the promotion of the values of STM timers, a handover of the capability to another OS thread during a foreign call, `setNumCapabilities`, and the ticker.
 WASM keeps one capability until WASI supports the required thread operations.
 
 ## Goals

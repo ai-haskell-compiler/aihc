@@ -34,7 +34,7 @@
   gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
   # These examples check that Haskell threads run on several OS threads. A
   # wasm32-wasip3 program has one capability, so they do not run there.
-  threadedExampleNames = ["no-duplicate" "parallel" "workers"];
+  threadedExampleNames = ["no-duplicate" "parallel" "safe-foreign-calls" "workers"];
   wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
@@ -1067,8 +1067,14 @@
       ghc_output_directory="$TMPDIR/$example_name-ghc-build"
       run_directory="$TMPDIR/$example_name.run"
       mkdir -p "$ghc_output_directory" "$run_directory"
+      # An example can give GHC more flags, for example -threaded for a safe
+      # foreign call that blocks.
+      ghc_flags=()
+      if [[ -f "$example_directory/ghc-flags" ]]; then
+        mapfile -t ghc_flags < "$example_directory/ghc-flags"
+      fi
       if timeout --foreground --kill-after=5s 120s \
-        ghc -v0 -package-env - -outputdir "$ghc_output_directory" "$source" -o "$executable"; then
+        ghc -v0 -package-env - "''${ghc_flags[@]}" -outputdir "$ghc_output_directory" "$source" -o "$executable"; then
         :
       else
         compile_exit=$?

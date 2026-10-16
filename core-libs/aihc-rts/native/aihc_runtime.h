@@ -225,8 +225,18 @@ typedef struct AihcForeignFrame {
   AihcSlot *roots;
   uint64_t count;
   const AihcSrt *srt;
+  /* AIHC_FOREIGN_UNSAFE for an unsafe call, AIHC_FOREIGN_SAFE for a safe
+     call that holds the capability, and AIHC_FOREIGN_RELEASED for a safe
+     call that released it. Compiled code reserves five words for the frame,
+     so this word keeps both facts. */
   uint64_t allow_callbacks;
 } AihcForeignFrame;
+
+enum {
+  AIHC_FOREIGN_UNSAFE = 0,
+  AIHC_FOREIGN_SAFE = 1,
+  AIHC_FOREIGN_RELEASED = 2
+};
 
 typedef struct AihcCallbackFrame AihcCallbackFrame;
 typedef struct AihcCallbackSlot AihcCallbackSlot;
@@ -431,6 +441,10 @@ struct AihcMachine {
   uint64_t stop_requested;
   uint64_t running_count;
   uint64_t parked_count;
+  /* The number of capabilities in a safe foreign call. Such a capability
+     does not count as running, so a stop does not wait for it. It can give
+     work when the call returns, so the deadlock test must not ignore it. */
+  uint64_t foreign_count;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the
@@ -745,6 +759,8 @@ int64_t aihc_io_handle_set_position(void *handle, int64_t position);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);
+/* The number of capabilities of the machine, for getNumCapabilities. */
+int64_t aihc_capability_count(void);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_errno_get(void);
