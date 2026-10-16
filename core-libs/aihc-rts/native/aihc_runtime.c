@@ -106,17 +106,13 @@ _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 /* Copy the record to fixed-width slots, then release its object references. */
 void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
                           uint64_t *slots) {
-  /* An application returns to its continuation, so that frame is the top of
-     the stack. A continuation that the resumption enters sets the stack
-     pointer itself when the continue helper enters it. */
-  if (resume->kind == AIHC_RESUME_APPLY) {
-    aihc_stack_resume_after(capability, resume->continuation);
-  } else if (resume->kind == AIHC_RESUME_CONTINUE) {
+  /* The schedule cleared the stack pointer, so the resumption sets it after
+     its top frame. A continuation is the top frame of the thread. An
+     application returns to its continuation, and a raise unwinds from it,
+     so that frame is the top frame for both. */
+  if (resume->kind == AIHC_RESUME_CONTINUE) {
     aihc_stack_resume_after(capability, resume->function);
   } else if (resume->continuation != NULL) {
-    /* A raise unwinds from its continuation, so that frame is the top of
-       the stack, as for an application. The schedule cleared the stack
-       pointer. */
     aihc_stack_resume_after(capability, resume->continuation);
   }
   slots[0] = resume->kind;
