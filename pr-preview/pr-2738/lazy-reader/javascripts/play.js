@@ -9,7 +9,7 @@
 // page, when the first playground scrolls into view.
 
 const PLAY_ROOT = new URL("../play/", import.meta.url);
-const programWorkers = new Set();
+const playWorkers = new Set();
 
 // ---------------------------------------------------------------------------
 // The helper
@@ -496,29 +496,49 @@ function buildPlayground(root) {
     status.setAttribute("role", "status");
     output.setAttribute("aria-label", "Program output");
     status.textContent = "Select Run to compile the module.";
-    let worker;
-    const finish = () => {
+    const times = el("tbody", {});
+    const details = el("details", { class: "lazy-stage-times" }, [
+      el("summary", { text: "Stage times" }),
+      el("table", { class: "lazy-stage-table" }, [
+        el("thead", {}, [el("tr", {}, [el("th", { scope: "col", text: "Stage" }), el("th", { scope: "col", text: "Time" })])]),
+        times,
+      ]),
+    ]);
+    root.querySelector(".lazy-pane-output").append(details);
+    let builder, program, activeId = 0, active = false, phase, started, count;
+    let stdout, stderr;
+    const addTime = ({ stage, milliseconds, reused }) => {
+      times.append(el("tr", {}, [
+        el("td", { text: stage }),
+        el("td", { text: reused ? "Reused" : milliseconds.toFixed(1) + " ms" }),
+      ]));
+    };
+    const destroy = (worker) => {
       worker?.terminate();
-      programWorkers.delete(worker);
-      worker = null;
+      playWorkers.delete(worker);
+    };
+    const resetBuilder = () => {
+      destroy(builder);
+      builder = null;
+    };
+    const finish = () => {
+      destroy(program);
+      program = null;
+      if (active) addTime({ stage: "Total", milliseconds: performance.now() - started });
+      active = false;
       run.disabled = false;
       stop.disabled = true;
     };
-    run.addEventListener("click", () => {
+    const cancel = () => {
+      // A synchronous compiler operation needs worker termination to stop.
+      if (phase === "build") resetBuilder();
       finish();
-      output.textContent = "";
-      const stdout = el("pre", { class: "lazy-program-stdout" });
-      const stderr = el("pre", { class: "lazy-program-stderr" });
-      output.append(stdout, stderr);
-      let count = 0;
-      run.disabled = true;
-      stop.disabled = false;
-      status.textContent = "Load the compiler.";
-      worker = new Worker(new URL("helper/run.js", PLAY_ROOT), { type: "module" });
-      const current = worker;
-      programWorkers.add(worker);
+    };
+    const watch = (worker, id) => {
       worker.onmessage = ({ data }) => {
-        if (worker !== current) return;
+        if (!active || activeId !== id || data.id !== id) return;
+        if (worker !== builder && worker !== program) return;
+        if (data.type === "timing") addTime(data);
         if (data.type === "status") status.textContent = data.text;
         if (data.type === "stdout" || data.type === "stderr" || data.type === "tool-stderr" || data.type === "compiler-stderr") {
           const pane = data.type === "stdout" ? stdout : stderr;
@@ -527,8 +547,17 @@ function buildPlayground(root) {
           count += data.text.length;
           if (count > 65536) {
             status.textContent = "The output reached the size limit. The program stopped.";
-            finish();
+            cancel();
           }
+        }
+        if (data.type === "program") {
+          phase = "program";
+          status.textContent = "Start the program.";
+          program = new Worker(new URL("helper/program.js", PLAY_ROOT), { type: "module" });
+          playWorkers.add(program);
+          watch(program, id);
+          const transfers = [...new Set(data.files.map(([, bytes]) => bytes.buffer))];
+          program.postMessage({ id, files: data.files }, transfers);
         }
         if (data.type === "diagnostics") {
           output.append(problemsList(data.errors));
@@ -537,18 +566,40 @@ function buildPlayground(root) {
         }
         if (data.type === "done" || data.type === "error") {
           status.textContent = data.text;
+          if (data.type === "error" && worker === builder) resetBuilder();
           finish();
         }
       };
       worker.onerror = (error) => {
-        if (worker !== current) return;
+        if (!active || activeId !== id || (worker !== builder && worker !== program)) return;
         status.textContent = error.message;
+        if (worker === builder) resetBuilder();
         finish();
       };
-      worker.postMessage(editor.value);
+    };
+    run.addEventListener("click", () => {
+      output.textContent = "";
+      times.textContent = "";
+      stdout = el("pre", { class: "lazy-program-stdout" });
+      stderr = el("pre", { class: "lazy-program-stderr" });
+      output.append(stdout, stderr);
+      count = 0;
+      started = performance.now();
+      active = true;
+      activeId += 1;
+      phase = "build";
+      run.disabled = true;
+      stop.disabled = false;
+      status.textContent = builder ? "Compile the module." : "Load the compiler.";
+      if (!builder) {
+        builder = new Worker(new URL("helper/run.js", PLAY_ROOT), { type: "module" });
+        playWorkers.add(builder);
+      }
+      watch(builder, activeId);
+      builder.postMessage({ id: activeId, source: editor.value });
     });
     stop.addEventListener("click", () => {
-      finish();
+      cancel();
       status.textContent = "The program stopped.";
     });
   }
@@ -671,8 +722,8 @@ function initAnimations() {
 }
 
 function init() {
-  for (const worker of programWorkers) worker.terminate();
-  programWorkers.clear();
+  for (const worker of playWorkers) worker.terminate();
+  playWorkers.clear();
   initAnimations();
   const roots = [...document.querySelectorAll(".lazy-play")];
   if (roots.length === 0) return;
