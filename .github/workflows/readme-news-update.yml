@@ -21,7 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Update the latest news and performance sections
+      - name: Update the guide badge, news, and performance sections
         run: scripts/update-readme-news.sh README.md
 
       # The action updates the open PR on the same branch. It does not open a second PR.
@@ -38,6 +38,7 @@ jobs:
           body: |
             The weekly README news workflow made this PR automatically.
 
+            The user guide badge shows the documentation publication workflow status on main.
             It puts the newest post from https://blog.aihc.app/ in the README.
             It also puts the newest benchmark results from https://perf.aihc.app/ in the README.
             The benchmark results come from the machine that has results for the most commits.

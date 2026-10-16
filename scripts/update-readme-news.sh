@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Write the newest blog post and the newest benchmark highlights into README.md.
+# Write the guide badge, newest blog post, and newest benchmark results into README.md.
 # The blog is https://blog.aihc.app/ and the benchmarks are https://perf.aihc.app/.
 set -euo pipefail
 
@@ -7,7 +7,7 @@ usage() {
 	cat <<'USAGE'
 Usage: scripts/update-readme-news.sh [README]
 
-Rewrites the latest-news and perf-highlights sections of README (default: README.md).
+Updates the guide badge, latest-news section, and perf-highlights section of README (default: README.md).
 Set BLOG_URL or PERF_URL to use a different site.
 USAGE
 }
@@ -113,3 +113,13 @@ replace_block() {
 
 replace_block latest-news "$tmpdir/latest-news.md"
 replace_block perf-highlights "$tmpdir/perf-highlights.md"
+
+# The badge shows publication status on main, not the documentation build status.
+awk '
+  /^\[!\[User guide\]/ {
+    print "[![User guide](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/publish-docs-site.yml?branch=main&event=workflow_run&label=user%20guide)](https://docs.aihc.app/)"
+    next
+  }
+  { print }
+' "$readme" >"$tmpdir/readme.out"
+cp "$tmpdir/readme.out" "$readme"
