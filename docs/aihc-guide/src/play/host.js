@@ -103,3 +103,22 @@ export const client = {
     throw new Error("wasi:http is not available in the browser host");
   },
 };
+
+export const imports = {
+  "wasi:cli/environment": environment,
+  "wasi:cli/types": types,
+  "wasi:cli/stdin": stdin,
+  "wasi:cli/stdout": stdout,
+  "wasi:cli/stderr": stderr,
+  "wasi:cli/terminal-input": terminalInput,
+  "wasi:cli/terminal-output": terminalOutput,
+  "wasi:cli/terminal-stdin": terminalStdin,
+  "wasi:cli/terminal-stdout": terminalStdout,
+  "wasi:cli/terminal-stderr": terminalStderr,
+  "wasi:clocks/types": clocksTypes,
+  "wasi:clocks/monotonic-clock": monotonicClock,
+  "wasi:filesystem/types": fsTypes,
+  "wasi:filesystem/preopens": preopens,
+  "wasi:http/types": httpTypes,
+  "wasi:http/client": client,
+};

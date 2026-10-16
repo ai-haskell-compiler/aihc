@@ -10,7 +10,7 @@
 #
 # AIHC names the compiler and AIHC_DEV the developer tool. The defaults
 # are the cabal builds of exe:aihc and exe:aihc-dev. The output directory
-# gets aihc-play.js, aihc-play.core.wasm, and core.bundle.gz: the naming
+# gets aihc-play.js, aihc-play-component.core.wasm, and core.bundle.gz: the naming
 # and type facts of the core libraries, which the helper loads instead of
 # compiling them. The bundle comes from the wasm32-wasip3 entries of the
 # store, which the helper build installs anyway.
@@ -61,13 +61,32 @@ if [[ -f aihc.lock ]]; then
   cp aihc.lock "$work/aihc.lock.before"
   trap 'cp "$work/aihc.lock.before" "$root/aihc.lock"; rm -rf "$work"' EXIT
 fi
-"$aihc" build "$root/bin/aihc-play/app/Main.hs" \
-  -i "$root/bin/aihc-play/app" \
-  -i "$root/bin/aihc-play/src" \
-  -i "$root/bin/aihc/prim-wiring" \
-  -i "$root/bin/aihc/src" \
+# These source modules use the GHC2021 edition and OverloadedStrings in Cabal.
+node --input-type=module - "$root" "$work/source" <<'JS'
+import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
+const [root, output] = process.argv.slice(2);
+async function copy(directory, relative = "") {
+  for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
+    const name = join(relative, entry.name);
+    if (entry.isDirectory()) await copy(directory, name);
+    else if (name.endsWith(".hs")) {
+      const target = join(output, name);
+      await mkdir(dirname(target), { recursive: true });
+      const source = await readFile(join(directory, name), "utf8");
+      await writeFile(target, "{-# LANGUAGE GHC2021, OverloadedStrings #-}\n" + source);
+    }
+  }
+}
+for (const directory of ["bin/aihc-play/app", "bin/aihc-play/src", "bin/aihc/src", "bin/aihc/prim-wiring", ...["fc", "grin", "lir", "native", "wasm"].map((name) => "bin/aihc/compiler/" + name + "/src")]) {
+  await copy(join(root, directory));
+}
+JS
+"$aihc" build "$work/source/Main.hs" \
+  -i "$work/source" \
   -p aihc-parser -p aihc-resolve -p aihc-tc \
-  -p array -p base -p binary -p bytestring -p containers -p filepath -p text -p transformers \
+  -p array -p base -p binary -p bytestring -p containers -p directory -p filepath -p text -p transformers \
+  -p megaparsec -p prettyprinter -p primitive -p process -p vector \
   --workspace "$work/workspace" \
   --target wasm32-wasip3 \
   --store "$store" \
@@ -80,6 +99,13 @@ mkdir -p "$output"
 "$aihc_dev" play-bundle --store "$store/wasm32-wasip3" --output "$work/core.bundle"
 gzip -9 -n -c "$work/core.bundle" > "$output/core.bundle.gz"
 
+echo "=== Writing the browser linker inputs ==="
+"$aihc_dev" play-runtime --store "$store/wasm32-wasip3" --output "$work/runtime"
+echo '(module)' > "$work/empty.wat"
+wasm-tools component embed "$root/bin/aihc/compiler/wasm/runtime/wit" "$work/empty.wat" -o "$work/runtime/world.wasm"
+npm ci --prefix "$root/docs/aihc-guide"
+node "$root/docs/aihc-guide/build-play.mjs" "$output" "$work/runtime"
+
 if [[ -z "$jco" ]]; then
   # The pinned jco release. npx downloads it when it is not installed.
   jco="npx --yes @bytecodealliance/jco@1.38.0"
@@ -87,39 +113,26 @@ fi
 
 echo "=== Transpiling the component with jco ==="
 mkdir -p "$output"
-# Each WASI interface maps to one export of the browser host.
 $jco transpile "$work/aihc-play.wasm" \
   --out-dir "$work/out" \
-  --name aihc-play \
+  --name aihc-play-component \
+  --instantiation async \
   --async-mode jspi \
   --no-nodejs-compat \
-  --quiet \
-  -M 'wasi:cli/environment@0.3.0=../host.js#environment' \
-  -M 'wasi:cli/types@0.3.0=../host.js#types' \
-  -M 'wasi:cli/stdin@0.3.0=../host.js#stdin' \
-  -M 'wasi:cli/stdout@0.3.0=../host.js#stdout' \
-  -M 'wasi:cli/stderr@0.3.0=../host.js#stderr' \
-  -M 'wasi:cli/terminal-input@0.3.0=../host.js#terminalInput' \
-  -M 'wasi:cli/terminal-output@0.3.0=../host.js#terminalOutput' \
-  -M 'wasi:cli/terminal-stdin@0.3.0=../host.js#terminalStdin' \
-  -M 'wasi:cli/terminal-stdout@0.3.0=../host.js#terminalStdout' \
-  -M 'wasi:cli/terminal-stderr@0.3.0=../host.js#terminalStderr' \
-  -M 'wasi:clocks/types@0.3.0=../host.js#clocksTypes' \
-  -M 'wasi:clocks/monotonic-clock@0.3.0=../host.js#monotonicClock' \
-  -M 'wasi:filesystem/types@0.3.0=../host.js#fsTypes' \
-  -M 'wasi:filesystem/preopens@0.3.0=../host.js#preopens' \
-  -M 'wasi:http/types@0.3.0=../host.js#httpTypes' \
-  -M 'wasi:http/client@0.3.0=../host.js#client'
+  --quiet
 # wasm-opt makes the core module a third of its size. The build goes on
 # without it when it is not installed.
 if command -v wasm-opt >/dev/null; then
   echo "=== Shrinking the core module with wasm-opt ==="
-  wasm-opt -Oz --all-features -o "$work/out/aihc-play.core.opt.wasm" "$work/out/aihc-play.core.wasm"
-  mv "$work/out/aihc-play.core.opt.wasm" "$work/out/aihc-play.core.wasm"
+  wasm-opt -Oz --all-features -o "$work/out/aihc-play-component.core.opt.wasm" "$work/out/aihc-play-component.core.wasm"
+  mv "$work/out/aihc-play-component.core.opt.wasm" "$work/out/aihc-play-component.core.wasm"
 else
   echo "wasm-opt is not on the PATH; the core module stays unoptimized" >&2
 fi
-cp "$work/out/aihc-play.js" "$work/out/aihc-play.core.wasm" "$output/"
+cp "$work/out/aihc-play-component.js" "$output/"
+for core in "$work/out/"*.wasm; do
+  gzip -9 -n -c "$core" > "$output/$(basename "$core").gz"
+done
 ls -la "$output"
 # The component itself goes beside the output directory, for a check under
 # wasmtime: wasmtime run -S cli -S http aihc-play.wasm < requests. It is

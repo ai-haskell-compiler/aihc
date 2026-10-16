@@ -13,6 +13,7 @@ module Aihc.Play
   )
 where
 
+import Aihc.Play.Compile (compileProgram)
 import Aihc.Play.Json (Json (..))
 import Aihc.Play.Names (occurrenceJson, occurrences)
 import Aihc.Play.Session
@@ -28,6 +29,7 @@ data Command
     CommandNames
   | -- | The source with the inferred signatures.
     CommandTypes
+  | CommandCompile
   deriving (Eq, Show)
 
 parseCommand :: Text -> Maybe Command
@@ -36,11 +38,13 @@ parseCommand name =
     "parse" -> Just CommandParse
     "names" -> Just CommandNames
     "types" -> Just CommandTypes
+    "compile" -> Just CommandCompile
     _ -> Nothing
 
 runCommand :: Session -> Command -> Text -> Json
 runCommand session command source =
   case command of
+    CommandCompile -> compileProgram session source
     CommandParse ->
       let (problems, modu, _) = parseUserModule source
        in result [("tree", treeJson (abridgedTree modu))] problems

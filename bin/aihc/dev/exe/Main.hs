@@ -3,7 +3,7 @@ module Main (main) where
 import Aihc.Cli.Lto (demoteToEntry, entryName, readPrograms)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.PlayBundle (BundleStats (..), LoadedBundle (..), loadBundle)
-import Aihc.Cli.PlayBundleStore (StoreBundleInfo (..), writeStoreBundle)
+import Aihc.Cli.PlayBundleStore (StoreBundleInfo (..), writeStoreBundle, writeStoreRuntime)
 import Aihc.Dev.Explore (ExploreOptions (..), runExplore)
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
@@ -56,6 +56,7 @@ data Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
   | PlayBundle FilePath FilePath
+  | PlayRuntime FilePath FilePath
   | FcPrint FilePath
   | FcPasses PackageId [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget)
@@ -132,6 +133,12 @@ commandParser =
           ( info
               (PlayBundle <$> strOption (long "store" <> metavar "DIR" <> help "The store with the core libraries, or its platform directory") <*> strOption (long "output" <> metavar "FILE" <> help "The bundle file to write") <**> helper)
               (progDesc "Write the naming and type facts of the core libraries of a store as the bundle of the playground helper of The Lazy Reader")
+          )
+        <> command
+          "play-runtime"
+          ( info
+              (PlayRuntime <$> strOption (long "store" <> metavar "DIR") <*> strOption (long "output" <> metavar "DIR") <**> helper)
+              (progDesc "Copy the core archives and C objects for the browser linker")
           )
         <> command
           "fc-print"
@@ -300,6 +307,7 @@ runCommand (Frontend options) =
   runFrontend options
 runCommand (PipelineExamples options) =
   runPipelineExamples options
+runCommand (PlayRuntime store output) = writeStoreRuntime store output
 runCommand (PlayBundle store output) = do
   info' <- writeStoreBundle store output
   TIO.hPutStrLn stderr ("wrote " <> T.pack output <> " from " <> T.intercalate ", " (storeBundlePackages info') <> " (" <> T.pack (show (storeBundleModules info')) <> " modules)")

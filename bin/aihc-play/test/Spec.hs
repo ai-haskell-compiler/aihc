@@ -11,7 +11,7 @@ import System.Directory (XdgDirectory (XdgCache), doesDirectoryExist, getXdgDire
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import Test.Tasty (defaultMain, testGroup, withResource)
-import Test.Tasty.HUnit (assertBool, testCase)
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 
 -- | The suite runs over the bundle of a store. AIHC_PLAY_STORE names the
 -- store; without it, the default store of the user must hold the core
@@ -44,12 +44,28 @@ main =
             assertBool "the number defaults" ("three :: " `T.isInfixOf` output),
           testCase "types reports a type error" $ do
             output <- run getSession CommandTypes "x = True + ()"
-            assertBool "the error names the stage" ("\"stage\":\"typecheck\"" `T.isInfixOf` output)
+            assertBool "the error names the stage" ("\"stage\":\"typecheck\"" `T.isInfixOf` output),
+          -- Defect: compile can accept a main value that has no IO type.
+          testCase "compile rejects a main value without IO" $ do
+            output <- compile getSession "main = True"
+            assertBool "the entry gives a type diagnostic" ("\"stage\":\"typecheck\"" `T.isInfixOf` output),
+          -- Defect: compile can accept a module without a main function.
+          testCase "compile requires a main function" $ do
+            output <- compile getSession "answer = 42"
+            assertBool "the entry gives a name diagnostic" ("\"stage\":\"resolve\"" `T.isInfixOf` output),
+          -- Defect: compile can expose dependencies of the helper to the user.
+          testCase "compile limits imports to the core libraries" $ do
+            output <- compile getSession "import Data.Map\nmain = pure ()"
+            assertBool "the import gives a name diagnostic" ("\"stage\":\"resolve\"" `T.isInfixOf` output)
         ]
   where
     run getSession command source = do
       session <- getSession
       pure (renderJson (runCommand session command source))
+    compile getSession source =
+      case parseCommand "compile" of
+        Nothing -> assertFailure "The compile command is absent." >> pure ""
+        Just command -> run getSession command source
 
 openSession :: IO Session
 openSession = do

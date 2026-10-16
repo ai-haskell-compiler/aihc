@@ -15,9 +15,8 @@ description:
 
 library
   exposed-modules:
-    Aihc.Cli.PlayBundle
-    Aihc.Cli.PlayBundleStore
     Aihc.Play
+    Aihc.Play.Compile
     Aihc.Play.Json
     Aihc.Play.Names
     Aihc.Play.Protocol
@@ -25,26 +24,11 @@ library
     Aihc.Play.Tree
     Aihc.Play.Types
 
-  -- The bundle codec, the bundle writer, and the artifact codecs they
-  -- use are source modules of the compiler package, compiled here in
-  -- place as the wiring is, so the helper does not depend on the whole
-  -- compiler library. The browser build of the helper never reaches the
-  -- writer, so it does not need the directory package.
-  other-modules:
-    Aihc.Cbor
-    Aihc.Cli.InterfaceParts
-    Aihc.Cli.InterfaceTyCons
-    Aihc.Cli.PackageManifest
-    Aihc.Cli.ResolveArtifact
-    Aihc.Cli.TypeArtifact
-    Aihc.Prim.Wiring
-
   hs-source-dirs:
     src
-    ../aihc/prim-wiring
-    ../aihc/src
 
   build-depends:
+    aihc,
     aihc-parser,
     aihc-resolve,
     aihc-tc,
@@ -68,6 +52,7 @@ executable aihc-play
   hs-source-dirs: app
   main-is: Main.hs
   build-depends:
+    aihc,
     aihc-play,
     base >=4.16 && <5,
     bytestring,
@@ -81,6 +66,7 @@ test-suite spec
   hs-source-dirs: test
   main-is: Spec.hs
   build-depends:
+    aihc,
     aihc-play,
     base >=4.16 && <5,
     bytestring,

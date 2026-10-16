@@ -1,4 +1,4 @@
-/* The Lazy Reader. A book, not a manual. The colors follow docs.aihc.app. */
+/* The Lazy Reader. The colors follow docs.aihc.app. */
 
 :root {
   --lazy-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
@@ -645,4 +645,38 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   opacity: 0.8;
+}
+
+.lazy-run-controls {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+}
+
+.lazy-run {
+  border: 1px solid var(--lazy-border, #e6e0d6);
+  border-radius: 0.4rem;
+  padding: 0.35rem 1rem;
+  background: var(--lazy-paper, #faf8f3);
+  cursor: pointer;
+}
+
+.lazy-run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lazy-program-stdout,
+.lazy-program-stderr {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.lazy-program-stdout:empty,
+.lazy-program-stderr:empty {
+  display: none;
+}
+
+.lazy-program-stderr {
+  color: var(--lazy-bad, #b33);
 }

@@ -16,6 +16,8 @@ module Aihc.Play.Session
     resolveUserModule,
     typecheckUserModule,
     sessionWiring,
+    sessionPrim,
+    checkProgram,
   )
 where
 
@@ -29,6 +31,7 @@ import Aihc.Parser.Syntax
     SourceSpan,
     effectiveExtensions,
     moduleLanguagePragmas,
+    moduleName,
     sourceSpanEndCol,
     sourceSpanEndLine,
     sourceSpanStartCol,
@@ -51,11 +54,13 @@ import Aihc.Resolve
     resolveUnit,
   )
 import Aihc.Tc
-  ( TcDiagnostic (..),
+  ( MergeCheck (TrustMergedFacts),
+    TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface,
     TcSeverity (..),
     TcWiring,
+    mergeTcInterfaces,
     renderFunDepNames,
     renderPred,
     renderTcType,
@@ -167,6 +172,35 @@ typecheckUserModule session resolved =
 tcProblem :: TcDiagnostic -> Problem
 tcProblem diagnostic =
   Problem "typecheck" (diagLoc diagnostic) (T.pack (renderKind (diagKind diagnostic)))
+
+-- | Check the user module and the executable entry with the same interface.
+checkProgram :: Session -> Text -> Either [Problem] ([Module], TcInterface)
+checkProgram session source = do
+  let (parseProblems, modu, extensions) = parseUserModule source
+      (entryProblems, entry, entryExtensions) = parseUserModule entrySource
+  require (parseProblems <> entryProblems)
+  require [Problem "input" Nothing "The module must have the name Main." | moduleName modu `notElem` [Nothing, Just "Main"]]
+  let package = Package "exe" (PackageId "exe")
+      units = modulesInPackage package [(modu, extensions), (entry, entryExtensions)]
+      visible = collectModuleExportsWithDeps (sessionExports session) units <> sessionExports session
+      scope = builtins package visible builtinFunctionModules
+  resolved <- case resolveUnit scope visible units of
+    Left failure -> Left (map resolveProblem (failureErrors failure))
+    Right (ResolvedUnit result) -> Right result
+  let (checked, interface) = typecheckModulesWithInterface (primTcConfig (sessionPrim session)) (sessionInterface session) resolved
+  require (concatMap (map tcProblem . filter ((== TcError) . diagSeverity) . tcModuleDiagnostics) checked)
+  pure (checked, mergeTcInterfaces TrustMergedFacts [sessionInterface session, interface])
+  where
+    require [] = Right ()
+    require problems = Left problems
+    entrySource =
+      T.unlines
+        [ "{-# LANGUAGE NoImplicitPrelude #-}",
+          "module Aihc.Entry where",
+          "import qualified Main",
+          "import GHC.TopHandler (runMainIO)",
+          "entry = runMainIO Main.main"
+        ]
 
 renderKind :: TcErrorKind -> String
 renderKind kind =

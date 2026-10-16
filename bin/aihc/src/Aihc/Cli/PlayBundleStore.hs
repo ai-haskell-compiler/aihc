@@ -9,6 +9,7 @@ module Aihc.Cli.PlayBundleStore
   ( writeStoreBundle,
     storeBundle,
     StoreBundleInfo (..),
+    writeStoreRuntime,
   )
 where
 
@@ -24,8 +25,8 @@ import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as T
-import System.Directory (doesDirectoryExist, doesFileExist, getModificationTime, listDirectory)
-import System.FilePath (joinPath, (</>))
+import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, listDirectory)
+import System.FilePath (joinPath, takeExtension, (</>))
 
 -- | What a bundle was built from.
 data StoreBundleInfo = StoreBundleInfo
@@ -129,10 +130,30 @@ closure platform known ((identity, manifest) : rest)
         unless present $
           ioError (userError ("the dependency " <> T.unpack dependency <> " of " <> identity <> " is not in the store"))
         value <- readPackageManifest manifestPath >>= either (ioError . userError) pure
-        pure [(T.unpack dependency, value) | packageManifestName value `elem` corePackages]
+        pure [(T.unpack dependency, value) | packageManifestName value `elem` ("aihc-rts" : corePackages)]
       closure platform (Map.insert identity (identity, manifest) known) (dependencies <> rest)
 
 -- | The directory of a module inside a store entry, as the store lays it
 -- out: one directory level for each part of the name.
 moduleNameDirectory :: Text -> FilePath
 moduleNameDirectory = joinPath . map T.unpack . T.splitOn "."
+
+-- | Copy the core archives and C objects for the browser linker.
+writeStoreRuntime :: FilePath -> FilePath -> IO ()
+writeStoreRuntime store output = do
+  platform <- findPlatformDirectory store
+  base <- newestEntry platform "aihc-base"
+  entries <- closure platform Map.empty [base]
+  createDirectoryIfMissing True output
+  files <- fmap concat . forM (Map.toAscList entries) $ \(identity, (_, manifest)) -> do
+    let root = platform </> identity
+        cbits = root </> "cbits"
+    present <- doesDirectoryExist cbits
+    objects <- if present then sortOn id . filter ((== ".o") . takeExtension) <$> listDirectory cbits else pure []
+    let archive = "lib" <> T.unpack (packageManifestName manifest) <> ".a"
+        paths = [(name, cbits </> name) | name <- objects] <> [(archive, root </> "lib" </> archive) | packageManifestName manifest `elem` corePackages]
+    forM paths $ \(name, path) -> do
+      let target = identity <> "-" <> name
+      copyFile path (output </> target)
+      pure target
+  writeFile (output </> "files.list") (unlines files)
