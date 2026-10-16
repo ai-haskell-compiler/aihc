@@ -258,7 +258,6 @@ function problemsList(problems) {
 
 const FRIENDLY_LABELS = {
   Module: "module",
-  DeclValue: "value declaration",
   FunctionBind: "function",
   PatternBind: "binding",
   Match: "equation",
@@ -282,7 +281,6 @@ const FRIENDLY_LABELS = {
   EDo: "do",
   ETuple: "tuple",
   EList: "list",
-  EParen: "parentheses",
   ENeg: "negation",
   EInt: "number",
   EFloat: "number",
@@ -297,7 +295,6 @@ const FRIENDLY_LABELS = {
   PLit: "literal pattern",
   PTuple: "tuple pattern",
   PList: "list pattern",
-  PParen: "parentheses",
   PInfix: "infix pattern",
   PAs: "as-pattern",
   PBang: "bang pattern",
@@ -307,7 +304,6 @@ const FRIENDLY_LABELS = {
   TyFun: "function type",
   TyList: "list type",
   TyTuple: "tuple type",
-  TyParen: "parentheses",
   TyForall: "forall",
   Name: "name",
   ModuleHead: "module header",
@@ -321,14 +317,18 @@ function friendlyLabel(label) {
   return words.toLowerCase();
 }
 
-function renderTree(node, depth = 0) {
-  const row = el("div", { class: "lazy-tree-node", style: "--depth: " + depth });
+function renderTree(node, isLast = true, isRoot = true) {
+  const row = el("div", { class: "lazy-tree-node" });
   row.append(el("span", { class: "lazy-tree-label", text: friendlyLabel(node.label) }));
   if (node.text !== undefined) row.append(el("code", { class: "lazy-tree-text", text: node.text }));
-  const item = el("div", { class: "lazy-tree-item" }, [row]);
-  if (node.children) {
+  const classes = ["lazy-tree-item"];
+  if (isRoot) classes.push("lazy-tree-root");
+  if (isLast) classes.push("lazy-tree-last");
+  const item = el("div", { class: classes.join(" ") }, [row]);
+  const kids = node.children ?? [];
+  if (kids.length > 0) {
     const children = el("div", { class: "lazy-tree-children" });
-    for (const child of node.children) children.append(renderTree(child, depth + 1));
+    kids.forEach((child, index) => children.append(renderTree(child, index === kids.length - 1, false)));
     item.append(children);
   }
   return item;
@@ -466,6 +466,7 @@ function buildPlayground(root) {
   const editor = el("textarea", {
     class: "lazy-editor",
     spellcheck: "false",
+    wrap: "off",
     autocapitalize: "off",
     autocomplete: "off",
     rows: String(Math.max(3, seed.split("\n").length + 1)),
@@ -518,11 +519,42 @@ function buildPlayground(root) {
     timer = setTimeout(refresh, 120);
   });
   editor.addEventListener("keydown", (event) => {
-    if (event.key === "Tab") {
+    // Keep the page shortcuts of the theme away from the editor.
+    event.stopPropagation();
+    if ((event.key === "Home" || event.key === "End") && !event.altKey && !event.metaKey) {
+      // On macOS these keys move to the start or end of the whole text.
+      // Move along the line instead, and along the text with Control.
+      event.preventDefault();
+      const { value, selectionStart, selectionEnd, selectionDirection } = editor;
+      const head = selectionDirection === "backward" ? selectionStart : selectionEnd;
+      let target;
+      if (event.key === "Home") {
+        target = event.ctrlKey ? 0 : value.lastIndexOf("\n", head - 1) + 1;
+      } else {
+        const newline = value.indexOf("\n", head);
+        target = event.ctrlKey || newline < 0 ? value.length : newline;
+      }
+      if (event.shiftKey) {
+        const anchor = selectionDirection === "backward" ? selectionEnd : selectionStart;
+        editor.setSelectionRange(Math.min(anchor, target), Math.max(anchor, target), target < anchor ? "backward" : "forward");
+      } else {
+        editor.setSelectionRange(target, target);
+      }
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Keep the indentation of the current line.
       event.preventDefault();
       const { selectionStart, selectionEnd, value } = editor;
-      editor.value = value.slice(0, selectionStart) + "  " + value.slice(selectionEnd);
-      editor.selectionStart = editor.selectionEnd = selectionStart + 2;
+      const lineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
+      const indent = /^[ \t]*/.exec(value.slice(lineStart, selectionStart))[0];
+      editor.setRangeText("\n" + indent, selectionStart, selectionEnd, "end");
+      editor.dispatchEvent(new Event("input"));
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      editor.setRangeText("  ", editor.selectionStart, editor.selectionEnd, "end");
       editor.dispatchEvent(new Event("input"));
     }
   });
@@ -545,7 +577,33 @@ const PANE_TITLES = {
   types: "The compiler infers",
 };
 
+// The animation of chapter 1 plays one round, waits, and plays again. It
+// starts when it scrolls into view.
+function initAnimations() {
+  for (const figure of document.querySelectorAll(".lazy-anim")) {
+    if (figure.dataset.armed || matchMedia("(prefers-reduced-motion: reduce)").matches) continue;
+    figure.dataset.armed = "yes";
+    figure.classList.add("armed");
+    let timer = null;
+    const round = () => {
+      figure.classList.remove("on");
+      // Force a style flush, so the reset is not merged with the next round.
+      void figure.getBoundingClientRect();
+      timer = setTimeout(() => {
+        figure.classList.add("on");
+        timer = setTimeout(round, 11000);
+      }, 400);
+    };
+    new IntersectionObserver((entries) => {
+      const visible = entries.some((entry) => entry.isIntersecting);
+      clearTimeout(timer);
+      if (visible) round();
+    }).observe(figure);
+  }
+}
+
 function init() {
+  initAnimations();
   const roots = [...document.querySelectorAll(".lazy-play")];
   if (roots.length === 0) return;
   const playgrounds = roots.map(buildPlayground);

@@ -62,25 +62,6 @@ Try this
 
 </div>
 
-## How the guessing works
-
-The compiler does not really guess.
-It plays a small game of constraints.
-
-Take `twice f a = f (f a)`.
-At first, the compiler knows nothing.
-It gives `f` an unknown type, and `a` another unknown type.
-Then it reads the body.
-`f a` means that `f` is a function, and that its argument has the type of `a`.
-`f (f a)` means that the result of `f` is also something `f` can take.
-So the argument type and the result type of `f` are the same.
-
-Each fact is a small equation.
-The compiler solves the equations, and the unknowns get filled in.
-A programmer calls this *unification*.
-When every equation has a solution, the program is well typed.
-When one does not, the compiler stops and tells you which two types it could not match.
-
 ## The road ahead
 
 Three chapters in, the compiler has read the text, found every name, and worked out every type.

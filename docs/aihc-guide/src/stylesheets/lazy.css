@@ -34,6 +34,7 @@
   --lazy-ink: #1d1a17;
   --lazy-muted: #6b655d;
   --lazy-rule: #e6e0d6;
+  --lazy-line: #b9afa0;
   --lazy-surface: #ffffff;
   --lazy-surface-2: #f3f0ea;
   --lazy-accent: #5e5086;
@@ -59,6 +60,7 @@
   --lazy-ink: #ebe6de;
   --lazy-muted: #a59f95;
   --lazy-rule: #2d2936;
+  --lazy-line: #5a5470;
   --lazy-surface: #1d1a22;
   --lazy-surface-2: #26222e;
   --lazy-accent: #b7a9e0;
@@ -287,7 +289,11 @@
   padding: 0.8rem 1rem;
   border: 0;
   outline: 0;
+  max-height: 22rem;
   resize: vertical;
+  overflow: auto;
+  white-space: pre;
+  overscroll-behavior: contain;
   background: transparent;
   color: var(--lazy-ink);
   font-family: var(--lazy-mono);
@@ -341,25 +347,43 @@
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  padding: 0.1rem 0 0.1rem calc(var(--depth) * 1.1rem);
-  position: relative;
+  padding: 0.12rem 0;
+  min-height: 1.7rem;
 }
 
-.lazy-tree-node::before {
+/* The lines of the tree. Each child hangs off a vertical line of its
+   parent by an elbow. The line of the last child stops at its elbow. */
+.lazy-tree-children {
+  margin-left: 0.9rem;
+  padding-left: 1.3rem;
+}
+
+.lazy-tree-children > .lazy-tree-item::before,
+.lazy-tree-children > .lazy-tree-item::after {
   content: "";
   position: absolute;
-  left: calc(var(--depth) * 1.1rem - 0.7rem);
-  top: 0;
-  bottom: 0;
-  width: 0.5rem;
-  border-left: 1.5px solid var(--lazy-rule);
-  border-bottom: 1.5px solid var(--lazy-rule);
-  border-bottom-left-radius: 0.4rem;
-  height: 0.95rem;
+  left: -1.3rem;
+  border-color: var(--lazy-line);
 }
 
-.lazy-tree-node[style="--depth: 0"]::before {
-  display: none;
+.lazy-tree-children > .lazy-tree-item::before {
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid var(--lazy-line);
+}
+
+.lazy-tree-children > .lazy-tree-item.lazy-tree-last::before {
+  bottom: auto;
+  height: 0.95rem;
+  width: 1.1rem;
+  border-bottom: 2px solid var(--lazy-line);
+  border-bottom-left-radius: 0.6rem;
+}
+
+.lazy-tree-children > .lazy-tree-item:not(.lazy-tree-last)::after {
+  top: 0.95rem;
+  width: 1.1rem;
+  border-top: 2px solid var(--lazy-line);
 }
 
 .lazy-tree-label {
@@ -527,90 +551,62 @@
   margin: 0.2rem 0 0.2rem 1rem;
 }
 
-/* The chapter 1 animation: text becomes a tree becomes a program. */
-
-.lazy-anim .lazy-anim-token {
-  animation: lazy-token 9s ease-in-out infinite;
-  transform-origin: center;
-}
-
-.lazy-anim .lazy-anim-node {
-  animation: lazy-node 9s ease-in-out infinite;
-  transform-origin: center;
-}
-
-.lazy-anim .lazy-anim-edge {
-  stroke-dasharray: 60;
-  stroke-dashoffset: 60;
-  animation: lazy-edge 9s ease-in-out infinite;
-}
+/* The chapter 1 animation: text becomes a tree becomes a program.
+   The script adds "armed" when it takes control, and toggles "on" to play
+   one round. Each element waits --i steps of a quarter second, so the
+   parts appear in order. Without the script, everything is visible. */
 
 .lazy-anim .lazy-anim-arrow {
   stroke-dasharray: 8 6;
   animation: lazy-flow 1.2s linear infinite;
 }
 
-.lazy-anim .lazy-anim-bit {
-  animation: lazy-bit 9s steps(1) infinite;
+.lazy-anim.armed .lazy-anim-token,
+.lazy-anim.armed .lazy-anim-node,
+.lazy-anim.armed .lazy-anim-edge,
+.lazy-anim.armed .lazy-anim-block {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 0.4s ease, transform 0.4s ease, stroke-dashoffset 0.6s ease;
 }
 
-@keyframes lazy-token {
-  0%,
-  8% {
-    opacity: 0;
-    transform: translateY(0.3rem);
-  }
-  14%,
-  100% {
-    opacity: 1;
-    transform: none;
-  }
+.lazy-anim.armed .lazy-anim-token {
+  transform: translateY(6px);
 }
 
-@keyframes lazy-node {
-  0%,
-  28% {
-    opacity: 0;
-    transform: scale(0.6);
-  }
-  36%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
+.lazy-anim.armed .lazy-anim-node {
+  transform: scale(0.6);
 }
 
-@keyframes lazy-edge {
-  0%,
-  32% {
-    stroke-dashoffset: 60;
-  }
-  44%,
-  100% {
-    stroke-dashoffset: 0;
-  }
+.lazy-anim.armed .lazy-anim-edge {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
 }
 
-@keyframes lazy-bit {
-  0%,
-  58% {
-    opacity: 0.15;
-  }
-  66%,
-  100% {
-    opacity: 1;
-  }
+.lazy-anim.armed .lazy-anim-block {
+  transform: translateY(-16px);
+}
+
+.lazy-anim.armed.on .lazy-anim-token,
+.lazy-anim.armed.on .lazy-anim-node,
+.lazy-anim.armed.on .lazy-anim-edge,
+.lazy-anim.armed.on .lazy-anim-block {
+  opacity: 1;
+  transform: none;
+  stroke-dashoffset: 0;
+  transition-delay: calc(var(--i) * 0.25s);
+}
+
+/* A reset must not play backwards. */
+.lazy-anim.armed:not(.on) * {
+  transition: none !important;
 }
 
 @keyframes lazy-flow {
   to {
     stroke-dashoffset: -14;
   }
-}
-
-/* Each animated element has a delay step through the --i custom property. */
-.lazy-anim [style*="--i"] {
-  animation-delay: calc(var(--i) * 0.25s);
 }
 
 @media (prefers-reduced-motion: reduce) {
