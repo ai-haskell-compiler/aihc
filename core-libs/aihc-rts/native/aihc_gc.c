@@ -3108,17 +3108,17 @@ static unsigned aihc_choose_generation(const AihcCapability *capability,
      that aged into gen2 would make every value that it later gets an
      escape: a lazy list that a thread produces then promotes each new
      cell. Thus gen1 keeps the local survivors, and a collection copies it
-     when it has doubled since the last copy. */
-  unsigned generation;
+     when it has also doubled since the last copy. */
+  unsigned generation =
+      capability->gen1_age >= capability->machine->gen1_collections ? 1 : 0;
   if (capability->machine->capability_count > 1) {
     uint64_t limit = capability->gen1_limit_bytes;
     if (limit < capability->nursery_bytes) {
       limit = capability->nursery_bytes;
     }
-    generation = capability->gen1.bytes >= limit ? 1 : 0;
-  } else {
-    generation =
-        capability->gen1_age >= capability->machine->gen1_collections ? 1 : 0;
+    if (capability->gen1.bytes < limit) {
+      generation = 0;
+    }
   }
   uint64_t limit = capability->machine->gen2_limit_bytes;
   if (aihc_gen2_bytes(capability) >= limit &&
