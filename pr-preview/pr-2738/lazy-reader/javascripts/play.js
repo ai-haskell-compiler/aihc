@@ -515,9 +515,10 @@ function buildPlayground(root) {
       stop.disabled = false;
       status.textContent = "Load the compiler.";
       worker = new Worker(new URL("helper/run.js", PLAY_ROOT), { type: "module" });
+      const current = worker;
       programWorkers.add(worker);
       worker.onmessage = ({ data }) => {
-        if (!worker) return;
+        if (worker !== current) return;
         if (data.type === "status") status.textContent = data.text;
         if (data.type === "stdout" || data.type === "stderr" || data.type === "tool-stderr" || data.type === "compiler-stderr") {
           const pane = data.type === "stdout" ? stdout : stderr;
@@ -540,6 +541,7 @@ function buildPlayground(root) {
         }
       };
       worker.onerror = (error) => {
+        if (worker !== current) return;
         status.textContent = error.message;
         finish();
       };
@@ -683,7 +685,7 @@ function init() {
       });
     }
   });
-  roots.forEach((root) => observer.observe(root));
+  roots.filter((root) => root.dataset.command !== "compile").forEach((root) => observer.observe(root));
 }
 
 // Material loads pages with instant navigation, so the script runs once and
