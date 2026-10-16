@@ -632,6 +632,11 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
 /* The two parts of aihc_visit_roots: the roots of one capability, and the
    roots of the machine with the roots of the requester. */
+/* The roots of a local collection that runs while the other capabilities
+   run. See aihc_runtime.c. */
+void aihc_visit_local_roots(AihcCapability *capability, uint64_t root_count,
+                            AihcSlot *roots, AihcRootVisitor visitor,
+                            void *context);
 void aihc_visit_capability_roots(AihcCapability *capability,
                                  AihcRootVisitor visitor, void *context);
 void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
@@ -654,6 +659,12 @@ AihcValue *aihc_gc_allocate(AihcCapability *capability, uint64_t words);
    and reads as zero. Its bytes charge the nursery budget, as a pinned block
    does. A thread record is the only such object. */
 AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words);
+/* An immovable copy of a young byte array that becomes a root of the
+   machine. See aihc_runtime.c. */
+void *aihc_rts_publish_array(void *array);
+/* Write the header, the length, and the elements of a boxed array into
+   memory that the caller allocated. aihc_array.lir defines it. */
+AihcValue *aihc_array_initialize(void *array, int64_t count, AihcSlot initial);
 /* Raise heap_peak_bytes to what the current space holds now. */
 void aihc_gc_record_peak(AihcCapability *capability);
 /* Fold the bytes the mutator has taken since the last account into

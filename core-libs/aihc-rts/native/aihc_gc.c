@@ -153,6 +153,9 @@ typedef struct {
   /* The generation that receives the survivors of the nursery: gen1, or
      gen2 when the -B count is zero. */
   unsigned young_target;
+  /* The generation that receives the survivors of gen1: gen2, or gen1 for
+     a local collection with several capabilities. */
+  unsigned gen1_target;
   /* Set at the end of a gen2 cycle: the young generations were swept
      already, so a young object is live, and gen2 is judged by the marks of
      the cycle. */
@@ -178,6 +181,13 @@ typedef struct {
      bridge collection, which copies every local heap. See "Local heaps" in
      docs/multi-threaded-rts-design.md. */
   AihcCapability *local;
+  /* Set for a local collection that runs while the other capabilities run.
+     It holds the heap lock, which is also the object lock, so the
+     collections still run one at a time. It touches no state of another
+     capability and no global object, because no global object names an
+     object of a local heap. See "Local heaps" in
+     docs/multi-threaded-rts-design.md. */
+  int concurrent;
 } AihcGcContext;
 
 /* The packed state of a stack chunk. */
@@ -1778,8 +1788,13 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
            above, which this collection does not move. A dead object in the
            remembered set can name a frame that is popped, and new frames
            can be at its address, so only a live frame is scanned. */
+        /* A collection without a stop does not scan a frame of another
+           capability, which runs that stack. Such a frame names no object
+           of this local heap. */
         if (aihc_chunk_generation(aihc_stack_chunk_of(value)) <=
                 context->collected &&
+            (!context->concurrent ||
+             aihc_stack_chunk_of(value)->capability == context->local) &&
             aihc_frame_is_live(capability, value)) {
           aihc_mark_static(value);
         }
@@ -1809,7 +1824,8 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
       value = (AihcValue *)(uintptr_t)value->fields[0];
       continue;
     }
-    unsigned generation = source == 0 ? context->young_target : 2;
+    unsigned generation =
+        source == 0 ? context->young_target : context->gen1_target;
     if (generation < target) {
       generation = target;
     }
@@ -1817,7 +1833,8 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
       generation = 2;
     }
     *where = generation;
-    /* A survivor of gen1 goes to gen2, which has no owner. */
+    /* A survivor of gen1 goes to gen2, which has no owner, or back to the
+       gen1 of the collecting capability in a local collection. */
     return aihc_copy(context, value, generation,
                      owner != NULL ? owner : capability);
   }
@@ -2048,9 +2065,17 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
      need the region lookup. */
   int is_frame = generation == AIHC_GENERATION_STATIC &&
                  aihc_region_kind(object) == AIHC_REGION_STACK;
+  /* The referents of a static object go to gen2. The referents of a frame
+     go there too, unless gen2 is global and the collection keeps its
+     survivors local: the chunk then takes the youngest generation that its
+     frames name, and later collections scan it again. A frame that names a
+     lazy list would otherwise put the producer of the list into gen2, and
+     each new cell would then escape. */
+  unsigned static_target = is_frame && context->gen1_target == 1 ? 0 : 2;
   AihcScanContext scan = {
       .gc = context,
-      .target = generation == AIHC_GENERATION_STATIC ? 2 : generation,
+      .target = generation == AIHC_GENERATION_STATIC ? static_target
+                                                     : generation,
       .youngest = AIHC_GENERATION_STATIC,
       .from_frame = is_frame,
   };
@@ -2199,6 +2224,9 @@ static void aihc_trace(AihcGcContext *context) {
     for (uint64_t index = 0; index < capability->machine->capability_count;
          ++index) {
       AihcCapability *other = capability->machine->capabilities[index];
+      if (context->local != NULL && other != context->local) {
+        continue;
+      }
       if (aihc_generation_scan_pending(&other->gen1)) {
         aihc_generation_scan_one(context, other);
         scanned = 1;
@@ -2252,6 +2280,14 @@ static void aihc_scan_remembered_of(AihcGcContext *context,
       break;
     default:
       aihc_fail("remembered set holds an invalid address");
+    }
+    if (context->concurrent && kind != AIHC_REGION_GEN1 && generation >= 2) {
+      /* A global object names no object of a local heap: a store into it
+         promotes the value. Another capability can store into it now, so a
+         collection without a stop does not scan it, and the entry goes. The
+         stacks of the waiting threads are kept stacks, and the queue links
+         are thread roots. */
+      continue;
     }
     if (generation <= context->collected) {
       /* A young pinned block is marked and scanned when something reaches
@@ -2369,7 +2405,9 @@ static void aihc_trace_kept_stacks(AihcGcContext *context) {
     scanned = 0;
     for (AihcStack *stack = capability->machine->stacks; stack != NULL;
          stack = stack->next) {
-      if (aihc_running_capability(capability->machine, stack) != NULL ||
+      if ((context->concurrent &&
+           stack->thread->capability != context->local->index) ||
+          aihc_running_capability(capability->machine, stack) != NULL ||
           stack->top == NULL ||
           aihc_chunk_generation(aihc_stack_chunk_of(stack->top)) >
               context->collected ||
@@ -2392,7 +2430,10 @@ static void aihc_trace_kept_stacks(AihcGcContext *context) {
    from allocating a chunk on every push. */
 static void aihc_sweep_stacks(AihcGcContext *context) {
   AihcCapability *capability = context->capability;
-  AihcStack *stack = capability->machine->stacks;
+  /* A thread record is in gen2, so a local collection retains every
+     thread. Without a stop, it releases the spare chunks of its own
+     capability alone. */
+  AihcStack *stack = context->concurrent ? NULL : capability->machine->stacks;
   while (stack != NULL) {
     AihcStack *next = stack->next;
     AihcThread *thread =
@@ -2407,7 +2448,8 @@ static void aihc_sweep_stacks(AihcGcContext *context) {
   for (uint64_t index = 0; index < capability->machine->capability_count;
        ++index) {
     AihcCapability *other = capability->machine->capabilities[index];
-    if (other->stack_next == NULL) {
+    if (other->stack_next == NULL ||
+        (context->concurrent && other != context->local)) {
       continue;
     }
     AihcStackChunk *spare = aihc_stack_chunk_of(other->stack_next - 1)->above;
@@ -3063,9 +3105,22 @@ void aihc_gc_record_peak(AihcCapability *capability) {
 static unsigned aihc_choose_generation(const AihcCapability *capability,
                                        uint64_t required_bytes) {
   /* A local collection copies gen1 when the capability itself reached the
-     -B count. */
-  unsigned generation =
-      capability->gen1_age >= capability->machine->gen1_collections ? 1 : 0;
+     -B count. With several capabilities, gen2 is global, and a survivor
+     that aged into gen2 would make every value that it later gets an
+     escape: a lazy list that a thread produces then promotes each new
+     cell. Thus gen1 keeps the local survivors, and a collection copies it
+     when it has doubled since the last copy. */
+  unsigned generation;
+  if (capability->machine->capability_count > 1) {
+    uint64_t limit = capability->gen1_limit_bytes;
+    if (limit < capability->nursery_bytes) {
+      limit = capability->nursery_bytes;
+    }
+    generation = capability->gen1.bytes >= limit ? 1 : 0;
+  } else {
+    generation =
+        capability->gen1_age >= capability->machine->gen1_collections ? 1 : 0;
+  }
   uint64_t limit = capability->machine->gen2_limit_bytes;
   if (aihc_gen2_bytes(capability) >= limit &&
       !capability->machine->gen2_cycle_active) {
@@ -3107,10 +3162,20 @@ static unsigned aihc_choose_generation(const AihcCapability *capability,
    of the capability. Every other local heap stays as it is. A full
    collection is always a bridge collection. See "Local heaps" in
    docs/multi-threaded-rts-design.md. */
-static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
-                                 int start_cycle, int promote_all, int local,
-                                 uint64_t root_count, AihcSlot *roots,
-                                 const AihcSrt *srt);
+static int aihc_collect_stopped(AihcCapability *capability, unsigned collected,
+                                int start_cycle, int promote_all, int local,
+                                int concurrent, uint64_t root_count,
+                                AihcSlot *roots, const AihcSrt *srt);
+
+/* The gen2 steps that a local collection without a stop leaves to a stop:
+   the start of a cycle, and the mark slices. */
+enum { AIHC_FOLLOW_CYCLE_START = 1, AIHC_FOLLOW_MARK_SLICE = 2 };
+
+#ifndef AIHC_GC_VERIFY
+static void aihc_collect_follow(AihcCapability *capability, int follow,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt);
+#endif
 
 /* Every collection stops the other capabilities for now, so no mutator
    runs while the collector moves or marks. The collector holds the heap
@@ -3119,18 +3184,69 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
                          int start_cycle, int promote_all, int local,
                          uint64_t root_count, AihcSlot *roots,
                          const AihcSrt *srt) {
+  AihcMachine *machine = capability->machine;
+#ifndef AIHC_GC_VERIFY
+  /* A local collection with workers runs without a stop. The stamps of the
+     stack chunks wrap near UINT32_MAX collections, and the clear of the
+     stamps walks every stack, so that collection stops. The verifier
+     walks every heap, so it stops too. */
+  if (local && collected < 2 && machine->capability_count > 1 &&
+      machine->stop_lock != NULL && capability->stop_depth == 0 &&
+      (uint32_t)(__atomic_load_n(&machine->gc_count, __ATOMIC_RELAXED) +
+                 64) > 64) {
+    aihc_heap_lock(machine);
+    int follow =
+        aihc_collect_stopped(capability, collected, start_cycle, promote_all,
+                             local, 1, root_count, roots, srt);
+    aihc_heap_unlock(machine);
+    if (follow != 0) {
+      aihc_stop_begin(capability, root_count, roots);
+      aihc_heap_lock(machine);
+      aihc_collect_follow(capability, follow, root_count, roots, srt);
+      aihc_heap_unlock(machine);
+      aihc_stop_end(capability);
+    }
+    return;
+  }
+#endif
   aihc_stop_begin(capability, root_count, roots);
-  aihc_heap_lock(capability->machine);
-  aihc_collect_stopped(capability, collected, start_cycle, promote_all, local,
-                       root_count, roots, srt);
-  aihc_heap_unlock(capability->machine);
+  aihc_heap_lock(machine);
+  (void)aihc_collect_stopped(capability, collected, start_cycle, promote_all,
+                             local, 0, root_count, roots, srt);
+  aihc_heap_unlock(machine);
   aihc_stop_end(capability);
 }
 
-static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
-                                 int start_cycle, int promote_all, int local,
-                                 uint64_t root_count, AihcSlot *roots,
-                                 const AihcSrt *srt) {
+#ifndef AIHC_GC_VERIFY
+/* The gen2 steps after a local collection without a stop. The caller
+   stopped the other capabilities and holds the heap lock. */
+static void aihc_collect_follow(AihcCapability *capability, int follow,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt) {
+  AihcMachine *machine = capability->machine;
+  if ((follow & AIHC_FOLLOW_CYCLE_START) != 0 && !machine->gen2_cycle_active) {
+    aihc_cycle_start(capability, root_count, roots, srt);
+  }
+  if (machine->gen2_cycle_active) {
+    uint64_t budget = machine->deferred_mark_bytes;
+    machine->deferred_mark_bytes = 0;
+    if (budget < machine->mark_slice_floor) {
+      budget = machine->mark_slice_floor;
+    }
+    aihc_mark_slice(capability, budget);
+  } else {
+    machine->deferred_mark_bytes = 0;
+  }
+  if (!machine->gen2_cycle_active) {
+    aihc_sweep_slice(capability);
+  }
+}
+#endif
+
+static int aihc_collect_stopped(AihcCapability *capability, unsigned collected,
+                                int start_cycle, int promote_all, int local,
+                                int concurrent, uint64_t root_count,
+                                AihcSlot *roots, const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   AihcMachine *machine = capability->machine;
   uint64_t capability_count = machine->capability_count;
@@ -3177,11 +3293,18 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
       ++other->gen1_age;
     }
   }
+  /* A local collection with several capabilities keeps its survivors
+     local, unless it promotes everything. See aihc_choose_generation. */
+  int keep_local = only != NULL && capability_count > 1 && !promote_all;
   AihcGcContext context = {.capability = capability,
                            .collected = collected,
                            .young_target =
-                               promote_all || gen1_collections == 0 ? 2 : 1,
-                           .local = only};
+                               keep_local ? 1
+                               : promote_all || gen1_collections == 0 ? 2
+                                                                     : 1,
+                           .gen1_target = keep_local ? 1 : 2,
+                           .local = only,
+                           .concurrent = concurrent && only != NULL};
 
   /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
      blocks. A full collection marks gen2 in place. The first version copies
@@ -3200,8 +3323,10 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
       gen1->last = NULL;
       gen1->bytes = 0;
     }
-    gen1->scan_block = gen1->last;
-    gen1->scan = gen1->last == NULL ? NULL : gen1->last->next;
+    if (only == NULL || machine->capabilities[index] == only) {
+      gen1->scan_block = gen1->last;
+      gen1->scan = gen1->last == NULL ? NULL : gen1->last->next;
+    }
   }
   if (collected == 2) {
     aihc_gen2_begin_marking(capability);
@@ -3226,7 +3351,13 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
       }
     }
   }
-  aihc_visit_roots(capability, root_count, roots, aihc_evacuate_root, &context);
+  if (context.concurrent) {
+    aihc_visit_local_roots(capability, root_count, roots, aihc_evacuate_root,
+                           &context);
+  } else {
+    aihc_visit_roots(capability, root_count, roots, aihc_evacuate_root,
+                     &context);
+  }
   /* A bridge collection stops the other capabilities. Their roots are their
      own records, and the visit of the machine roots again finds them
      updated. A local collection needs only the roots of its capability: the
@@ -3244,7 +3375,11 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
   }
   aihc_trace(&context);
   aihc_trace_kept_stacks(&context);
-  aihc_update_stable_names(&context);
+  /* With several capabilities, every stable name and its referent are
+     global, so a local collection changes no name. */
+  if (!context.concurrent) {
+    aihc_update_stable_names(&context);
+  }
   aihc_sweep_stacks(&context);
   aihc_sweep_pinned(&context);
   aihc_age_chunks(&context);
@@ -3265,22 +3400,44 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
     other->barrier_work = 0;
   }
   free(from1);
+  if (keep_local && collected == 1) {
+    only->gen1_limit_bytes =
+        only->gen1.bytes > UINT64_MAX / 2 ? UINT64_MAX : 2 * only->gen1.bytes;
+  }
   for (size_t index = 0; index < context.kept_count; ++index) {
     aihc_remember_unique(capability, context.kept[index]);
   }
   free(context.kept);
+  int follow = 0;
   if (collected == 1 && !capability->machine->gen2_cycle_active &&
       (start_cycle ||
        aihc_gen2_bytes(capability) >= capability->machine->gen2_limit_bytes)) {
-    aihc_cycle_start(capability, root_count, roots, srt);
+    if (context.concurrent) {
+      /* The start scans every local heap and every stack. */
+      follow |= AIHC_FOLLOW_CYCLE_START;
+    } else {
+      aihc_cycle_start(capability, root_count, roots, srt);
+    }
   }
   if (capability->machine->gen2_cycle_active) {
     /* A full collection marked everything it reached: the slice runs the
        cycle to its end. */
-    aihc_mark_slice(capability,
-                    collected == 2
-                        ? UINT64_MAX
-                        : aihc_slice_budget(capability, context.copied_bytes));
+    uint64_t budget = collected == 2 ? UINT64_MAX
+                                     : aihc_slice_budget(capability,
+                                                         context.copied_bytes);
+    uint64_t deferred = capability->machine->deferred_mark_bytes;
+    budget = budget > UINT64_MAX - deferred ? UINT64_MAX : budget + deferred;
+    if (context.concurrent) {
+      /* The marker scans the stacks of other capabilities, so the slice
+         waits for a stop. Several slices go into one stop. */
+      capability->machine->deferred_mark_bytes = budget;
+      if (budget >= 8 * capability->machine->mark_slice_cap) {
+        follow |= AIHC_FOLLOW_MARK_SLICE;
+      }
+    } else {
+      capability->machine->deferred_mark_bytes = 0;
+      aihc_mark_slice(capability, budget);
+    }
   }
   if (!capability->machine->gen2_cycle_active) {
     aihc_sweep_slice(capability);
@@ -3294,6 +3451,7 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
   if (pause_ns > capability->machine->gc_max_pause_ns) {
     capability->machine->gc_max_pause_ns = pause_ns;
   }
+  return follow;
 }
 
 static _Noreturn void aihc_heap_exhausted(void) {
@@ -3693,6 +3851,14 @@ static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
 
 AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
                      AihcSlot value) {
+  /* Most stores need no promotion, and the test reads no shared state that
+     can change, so it takes no lock. */
+  AihcMachine *machine = capability->machine;
+  if (machine->capability_count < 2 || aihc_promote_is_young(machine, object) ||
+      !aihc_promote_is_young(machine, (const AihcValue *)(uintptr_t)value)) {
+    capability->pause_top = NULL;
+    return value;
+  }
   aihc_heap_lock(capability->machine);
   AihcSlot result = aihc_escape_unlocked(capability, object, value);
   aihc_heap_unlock(capability->machine);
@@ -4060,21 +4226,27 @@ static void aihc_gc_collect_stopped(AihcCapability *capability, uint64_t words,
                                     uint64_t root_count, AihcSlot *roots,
                                     const AihcSrt *srt);
 
-/* The collection and a growth of the nursery arena are one stop. */
+/* The collection is local and needs no stop. A growth of the nursery arena
+   affects every capability, so it stops them. */
 void aihc_gc_collect(AihcCapability *capability, uint64_t words,
                      uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
-  aihc_stop_begin(capability, root_count, roots);
-  aihc_gc_collect_stopped(capability, words, root_count, roots, srt);
-  aihc_stop_end(capability);
+  size_t bytes = aihc_reservation_bytes(capability, words);
+  aihc_collect_for(capability, bytes, root_count, roots, srt);
+  if (bytes > aihc_nursery_room(capability)) {
+    aihc_stop_begin(capability, root_count, roots);
+    aihc_gc_collect_stopped(capability, words, root_count, roots, srt);
+    aihc_stop_end(capability);
+    return;
+  }
+  aihc_nursery_refill(capability, bytes);
 }
 
 static void aihc_gc_collect_stopped(AihcCapability *capability, uint64_t words,
                                     uint64_t root_count, AihcSlot *roots,
                                     const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
-  aihc_collect_for(capability, bytes, root_count, roots, srt);
   if (bytes > aihc_nursery_room(capability)) {
-    /* The nursery is empty. A batch can exceed the large-object threshold,
+    /* The nursery is empty after the collection of aihc_gc_collect. A batch can exceed the large-object threshold,
        but each object in the batch still uses the nursery. */
     /* Arena replacement affects every capability. Empty the other nurseries
      * first. */

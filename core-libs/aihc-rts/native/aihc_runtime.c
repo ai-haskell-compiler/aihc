@@ -114,9 +114,10 @@ void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
   } else if (resume->kind == AIHC_RESUME_CONTINUE) {
     aihc_stack_resume_after(capability, resume->function);
   } else if (resume->continuation != NULL) {
-    /* The continue helper enters the frame without a chunk change when the
-       same thread runs again, so the chunk is made young here. */
-    aihc_stack_enter_chunk(capability, resume->continuation);
+    /* A raise unwinds from its continuation, so that frame is the top of
+       the stack, as for an application. The schedule cleared the stack
+       pointer. */
+    aihc_stack_resume_after(capability, resume->continuation);
   }
   slots[0] = resume->kind;
   slots[1] = (uintptr_t)resume->function;
@@ -742,6 +743,12 @@ _Static_assert(sizeof(AihcCallbackFrame) <= 48,
                "callback frame exceeds its LIR stack space");
 
 static AihcCallbackSlot *aihc_callback_slots;
+static AihcMachine aihc_machine;
+
+static AihcBackendEntry aihc_callback_create_locked(AihcCapability *capability,
+                                                    AihcValue *closure,
+                                                    AihcCallbackSlot *slots,
+                                                    uint64_t count);
 
 static void aihc_take_inbox(AihcCapability *capability);
 static void aihc_move_threads(AihcCapability *capability, uint64_t pushes);
@@ -821,6 +828,19 @@ void aihc_foreign_leave(AihcCapability *capability, AihcForeignFrame *frame) {
 AihcBackendEntry aihc_callback_create(AihcCapability *capability,
                                       AihcValue *closure,
                                       AihcCallbackSlot *slots, uint64_t count) {
+  /* A local collection of another capability walks the list under the heap
+     lock. */
+  aihc_heap_lock(capability->machine);
+  AihcBackendEntry entry = aihc_callback_create_locked(capability, closure,
+                                                       slots, count);
+  aihc_heap_unlock(capability->machine);
+  return entry;
+}
+
+static AihcBackendEntry aihc_callback_create_locked(AihcCapability *capability,
+                                                    AihcValue *closure,
+                                                    AihcCallbackSlot *slots,
+                                                    uint64_t count) {
   for (uint64_t index = 0; index < count; ++index) {
     AihcCallbackSlot *slot = &slots[index];
     AihcCallbackSlot *registered = aihc_callback_slots;
@@ -844,14 +864,17 @@ void aihc_free_haskell_fun_ptr(AihcBackendEntry entry) {
   if (entry == NULL) {
     return;
   }
+  aihc_heap_lock(&aihc_machine);
   for (AihcCallbackSlot *slot = aihc_callback_slots; slot != NULL;
        slot = slot->next) {
     if (slot->entry == entry && slot->closure != NULL) {
       slot->closure = NULL;
       slot->capability = NULL;
+      aihc_heap_unlock(&aihc_machine);
       return;
     }
   }
+  aihc_heap_unlock(&aihc_machine);
   aihc_fail("invalid foreign callback release");
 }
 
@@ -936,9 +959,13 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
    visited. A thread that nothing reaches keeps them until a gen2 cycle
    frees its record. A thread with a resumption is on the run queue. */
 static void aihc_visit_thread_roots(AihcMachine *machine,
+                                    const AihcCapability *owner,
                                     AihcRootVisitor visitor, void *context) {
   for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
     AihcThread *thread = stack->thread;
+    if (owner != NULL && thread->capability != owner->index) {
+      continue;
+    }
     thread->transaction =
         aihc_visit_pointer(thread->transaction, visitor, context);
     thread->queues = aihc_visit_pointer(thread->queues, visitor, context);
@@ -948,6 +975,16 @@ static void aihc_visit_thread_roots(AihcMachine *machine,
          thread->resume_kind == AIHC_RESUME_APPLY) &&
         thread->resume_count == 1) {
       thread->resume_value = visitor(thread->resume_value, context);
+    }
+    /* A global queue of the thread can name an older young queue of the
+       thread. A local collection without a stop drops the global objects
+       from the remembered set, so every collection updates these links
+       here. The collector holds the object lock, which guards the links. */
+    for (AihcBlackholeQueue *queue = thread->queues; queue != NULL;
+         queue = queue->next) {
+      if (!aihc_value_is_young(machine, queue)) {
+        queue->next = aihc_visit_pointer(queue->next, visitor, context);
+      }
     }
   }
 }
@@ -985,10 +1022,18 @@ void aihc_visit_capability_roots(AihcCapability *capability,
       aihc_visit_pointer(capability->run_queue_head, visitor, context);
   capability->run_queue_tail =
       aihc_visit_pointer(capability->run_queue_tail, visitor, context);
+  /* Other capabilities append to the inbox under its lock, also during a
+     local collection of this capability. */
+  if (capability->inbox_lock != NULL) {
+    aihc_host_lock_acquire(capability->inbox_lock);
+  }
   capability->inbox_head =
       aihc_visit_pointer(capability->inbox_head, visitor, context);
   capability->inbox_tail =
       aihc_visit_pointer(capability->inbox_tail, visitor, context);
+  if (capability->inbox_lock != NULL) {
+    aihc_host_lock_release(capability->inbox_lock);
+  }
   capability->io_requests_head =
       aihc_visit_pointer(capability->io_requests_head, visitor, context);
   capability->io_requests_tail =
@@ -999,7 +1044,7 @@ void aihc_visit_capability_roots(AihcCapability *capability,
 void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
                               AihcSlot *roots, AihcRootVisitor visitor,
                               void *context) {
-  aihc_visit_thread_roots(machine, visitor, context);
+  aihc_visit_thread_roots(machine, NULL, visitor, context);
   aihc_visit_value(&machine->global_array, visitor, context);
   for (uint64_t index = 0; index < machine->global_count; ++index) {
     machine->globals[index] = visitor(machine->globals[index], context);
@@ -1020,6 +1065,20 @@ void aihc_visit_roots(AihcCapability *capability, uint64_t root_count,
   aihc_visit_capability_roots(capability, visitor, context);
   aihc_visit_machine_roots(capability->machine, root_count, roots, visitor,
                            context);
+}
+
+/* The roots of a local collection that runs while the other capabilities
+   run: the roots of the capability, the roots of the caller, and the roots
+   of the threads of the capability. The roots of the machine and the
+   threads of other capabilities name no object of this local heap. */
+void aihc_visit_local_roots(AihcCapability *capability, uint64_t root_count,
+                            AihcSlot *roots, AihcRootVisitor visitor,
+                            void *context) {
+  aihc_visit_capability_roots(capability, visitor, context);
+  for (uint64_t index = 0; index < root_count; ++index) {
+    roots[index] = visitor(roots[index], context);
+  }
+  aihc_visit_thread_roots(capability->machine, capability, visitor, context);
 }
 
 void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
@@ -1308,7 +1367,6 @@ int64_t aihc_get_exit_status(const AihcCapability *capability) {
   return capability->machine->exit_status;
 }
 
-static AihcMachine aihc_machine;
 static AihcCapability aihc_initial_capability;
 
 AihcCapability *aihc_machine_initialize(void) {
@@ -1323,6 +1381,36 @@ AihcCapability *aihc_machine_initialize(void) {
     aihc_process_capability = &aihc_initial_capability;
   }
   return &aihc_initial_capability;
+}
+
+extern const AihcInfo aihc_byte_array_info;
+
+/* The program arguments and the environment are roots of the machine,
+   which every capability reads, and a local collection without a stop does
+   not visit the roots of the machine. With several capabilities, an array
+   that a capability installs is in its local heap, so the install takes an
+   immovable copy outside the heap. A collection takes the copy for a static
+   object. A later install does not free it, because a reader on another
+   capability can still read it, and installs are rare. */
+void *aihc_rts_publish_array(void *opaque_array) {
+  AihcByteArray *array = opaque_array;
+  if (aihc_machine.capability_count < 2 ||
+      !aihc_value_is_young(&aihc_machine, array)) {
+    return array;
+  }
+  size_t size = (size_t)array->size;
+  AihcByteArray *copy = malloc(sizeof(*copy) + (size == 0 ? 1 : size));
+  if (copy == NULL) {
+    aihc_fail("out of memory");
+  }
+  *copy = (AihcByteArray){.header = (AihcSlot)(uintptr_t)&aihc_byte_array_info,
+                          .size = array->size,
+                          .contents = (uint8_t *)(copy + 1),
+                          .pinned = 1,
+                          .alignment = 1,
+                          .words = 0};
+  memcpy(copy->contents, array->contents, size);
+  return copy;
 }
 
 /* Host imports need fixed addresses. Retained process data can move after
@@ -1545,8 +1633,9 @@ static uint64_t aihc_available_capabilities(AihcMachine *machine) {
    docs/multi-threaded-rts-design.md. A pushed thread can name objects of
    the local heap of this capability. Thus a collection first moves each
    young survivor of the local heap into gen2 (see aihc_move_threads). The
-   capability keeps the first thread of its
-   queue and pushes at most half of the others. */
+   capability keeps the first thread of its queue and gives each other
+   thread to an idle capability, as GHC does. Without a preemption tick, a
+   thread that stays here can wait for a long computation of the first. */
 static void aihc_push_threads(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
   if (__atomic_load_n(&machine->idle_count, __ATOMIC_SEQ_CST) == 0 ||
@@ -1560,11 +1649,7 @@ static void aihc_push_threads(AihcCapability *capability) {
     ++surplus;
   }
   uint64_t available = aihc_available_capabilities(machine);
-  uint64_t pushes = (surplus + 1) / 2;
-  if (pushes > available) {
-    pushes = available;
-  }
-  aihc_move_threads(capability, pushes);
+  aihc_move_threads(capability, surplus < available ? surplus : available);
 }
 
 /* Move at most a number of threads from the end of the run queue to idle
@@ -1798,6 +1883,11 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
     aihc_fail("a foreign callback cannot suspend");
   }
   AihcMachine *machine = capability->machine;
+  /* The thread that ran here is suspended: its record names its top frame,
+     and the next thread sets the stack pointer when it resumes. Until then
+     the capability runs no stack, so a collection in the schedule takes the
+     stack of that thread for a suspended stack, as in the idle wait. */
+  capability->stack_next = NULL;
   for (;;) {
     /* The scheduler is a safepoint: the roots of the capability are in its
        records. */
@@ -2700,6 +2790,23 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
       return value;
     }
   }
+  /* A thunk of the local heap is reachable only by the threads of this
+     capability, which do not run now. Without a queue, its update needs no
+     lock either. A queue is on the list of its owner, which other
+     capabilities change under the lock. */
+  if (aihc_value_is_young(machine, object)) {
+    AihcBlackholeQueue *local_queue = NULL;
+    if ((header & AIHC_HEADER_EVALUATING) != 0) {
+      (void)aihc_thunk_owner(object, &local_queue);
+    }
+    if (local_queue == NULL) {
+      __atomic_store_n(&object->fields[0], (AihcSlot)(uintptr_t)value,
+                       __ATOMIC_RELEASE);
+      __atomic_store_n(&object->header, header | AIHC_HEADER_EVALUATING,
+                       __ATOMIC_RELEASE);
+      return value;
+    }
+  }
   aihc_object_lock(machine);
   header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
   if ((header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
@@ -3066,6 +3173,12 @@ _Noreturn void aihc_worker_run(AihcCapability *capability) {
    program does not depend on the speed of the OS threads. */
 static void aihc_workers_start(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
+  /* The startup data is in the local heap of this capability: the program
+     arguments, the environment, and the global table are roots of the
+     machine, which other capabilities read. A local collection without a
+     stop does not visit the roots of the machine, so this data becomes
+     global first. */
+  aihc_escape_collect(capability, 0, NULL, NULL);
   machine->heap_lock = aihc_host_recursive_lock_new();
   aihc_regions_set_lock(machine->heap_lock);
   /* One recursive lock serves as both: a promotion under the heap lock
@@ -3265,12 +3378,22 @@ static uint64_t aihc_stm_commit_locked(AihcCapability *capability) {
 AihcValue *aihc_tvar_delay(AihcCapability *capability, int64_t delay,
                            AihcSlot initial, AihcSlot final) {
   uint64_t timer_words = aihc_record_words(sizeof(AihcTransactionTimer));
-  /* The caller reserves the variable and timer together. */
+  /* The caller reserves the variable and timer together. With several
+     capabilities, the timer list of the machine is global, so the timer and
+     its variable are global too. */
+  int global = capability->machine->capability_count > 1 && delay > 0;
+  AihcSlot start = delay <= 0 ? final : initial;
   AihcValue *variable =
-      aihc_mutvar_new(capability, delay <= 0 ? final : initial);
+      global ? aihc_array_initialize(
+                   aihc_gc_allocate_global(capability, aihc_array_words(1)), 1,
+                   start)
+             : aihc_mutvar_new(capability, start);
   if (delay > 0) {
     AihcTransactionTimer *timer =
-        (AihcTransactionTimer *)aihc_gc_allocate(capability, timer_words);
+        (AihcTransactionTimer *)(global ? aihc_gc_allocate_global(capability,
+                                                                  timer_words)
+                                        : aihc_gc_allocate(capability,
+                                                           timer_words));
     timer->header = (AihcSlot)(uintptr_t)&aihc_transaction_timer_info;
     timer->variable = variable;
     timer->final = final;

@@ -93,7 +93,7 @@ The first part of build step 4 gives each capability a worker on its own OS thre
 Each thread record names its capability, and a woken thread goes back to that capability.
 Another capability puts a pushed or woken thread into the inbox of the capability, which has its own lock.
 The worker moves its inbox into its run queue at each schedule.
-At a schedule, a capability with two or more runnable threads pushes at most half of the surplus to idle capabilities.
+At a schedule, a capability with two or more runnable threads keeps one and pushes each other thread to an idle capability, one thread to each, as GHC does.
 Before the push, a collection moves each young survivor of its local heap into gen2.
 A pushed thread gets the new capability in each chunk of its stack.
 A capability without runnable threads waits in its idle wait.
@@ -129,7 +129,25 @@ The abort of a valid transaction records the commit count, so a commit between t
 When the only work of the machine is waits without a timer, each waiting transaction raises `BlockedIndefinitelyOnSTM`.
 With one capability, a transaction that retries lets the other threads run when they have work, and otherwise it waits for the earliest timer.
 As in GHC, `forkIO` catches an exception that the action does not catch, writes it to the standard error, and ends only that thread.
-Still open: local collections without a stop, the promotion of the values of STM timers, a handover of the capability to another OS thread during a foreign call, `setNumCapabilities`, and the ticker.
+A local collection does not stop the other capabilities.
+It holds the heap lock, which is also the object lock, so the local collections still run one at a time.
+It visits the roots of its capability, the roots of its caller, and the roots of its own threads, and it does not visit the roots of the machine.
+It does not scan the global objects of its remembered set, because a store into a global object promotes the value.
+It drops these entries from the set. The kept stacks reach the frames that the waiters name, and each collection updates the links from the global queues of a thread to its young queues.
+It scans no frame of a chunk of another capability, and it changes no stack, gen1 cursor, or spare chunk of another capability.
+The start of a gen2 cycle and the mark slices need a stop, because they scan every local heap and every stack.
+A local collection without a stop therefore defers them: a later stop starts the cycle, or does the mark work of several collections in one slice.
+A growth of the nursery arena and every bridge collection also stop the other capabilities.
+With several capabilities, gen2 is global, so a survivor that ages into gen2 makes each later store into it an escape.
+A lazy list whose producer ages into gen2 then promotes each new cell.
+Thus a local collection keeps its survivors in gen1, and it copies gen1 when gen1 has doubled since the last copy.
+The referents of a frame also stay local, and the chunk takes the youngest generation that its frames name.
+Only an escape, a push, and a bridge collection move objects into gen2.
+Before the workers start, a collection promotes the startup data, which the roots of the machine name.
+An install of new program arguments or a new environment takes an immovable copy outside the heap.
+The STM timers and their variables are global.
+The schedule clears the stack pointer of the capability, so a collection in the schedule takes the stack of the suspended thread for a suspended stack.
+Still open: local collections that run at the same time, the promotion of the values of STM timers, a handover of the capability to another OS thread during a foreign call, `setNumCapabilities`, and the ticker.
 WASM keeps one capability until WASI supports the required thread operations.
 
 ## Goals
@@ -485,8 +503,11 @@ owner publication-safe, which costs atomics on the single-threaded path.
 Decision: the busy capability pushes. This is the GHC model. At each
 schedule, a capability with two or more runnable threads reads the global
 count of idle capabilities. When the count is above zero, it takes idle
-capabilities from the idle list under the idle list lock. It moves half of
-its surplus threads into their inboxes and wakes them. A capability with
+capabilities from the idle list under the idle list lock. It keeps one
+thread and moves each other thread into the inbox of an idle capability,
+one thread to each, and wakes them. Without a preemption tick, a thread
+that the capability keeps in its queue can wait for a long computation of
+the running thread, so the push does not keep half of the surplus. A capability with
 one runnable thread pays one load and one compare.
 
 Each thread record names its capability: the capability whose run queue or

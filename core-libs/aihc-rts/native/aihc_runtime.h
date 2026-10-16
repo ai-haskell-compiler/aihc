@@ -323,6 +323,10 @@ struct AihcCapability {
      docs/multi-threaded-rts-design.md. */
   AihcGeneration gen1;
   uint64_t gen1_age;
+  /* With several capabilities, gen1 is the oldest local generation, and a
+     collection copies gen1 when it reaches this size. See
+     aihc_choose_generation. */
+  uint64_t gen1_limit_bytes;
   /* The stores that gave an object outside the local heap a value of the
      local heap. In the end state each one promotes the value. */
   uint64_t escape_count;
@@ -425,6 +429,9 @@ struct AihcMachine {
   uint64_t mark_factor;
   uint64_t mark_slice_floor;
   uint64_t mark_slice_cap;
+  /* The mark work that local collections without a stop owe the active
+     gen2 cycle. A later stop does it in one slice. */
+  uint64_t deferred_mark_bytes;
   /* The bytes of gen2 when the active cycle took its snapshot. The cycle
      is finished in one pause when gen2 doubles while it runs. */
   uint64_t gen2_cycle_start_bytes;

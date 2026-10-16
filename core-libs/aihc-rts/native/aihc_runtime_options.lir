@@ -25,6 +25,7 @@
 ; in C, since the width of a C pointer is the one thing a Lir unit does not
 ; know.
 
+extern func @aihc_rts_publish_array(ptr) -> ptr cc c
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_host_byte_array(ptr, ptr, i64) -> ptr cc c
 extern func @aihc_byte_array_contents(ptr) -> ptr cc c
@@ -655,7 +656,8 @@ validate:
 rejected:
   return -1
 install:
-  call @aihc_rts_environment_install(%array, %length)
+  %published = call @aihc_rts_publish_array(%array)
+  call @aihc_rts_environment_install(%published, %length)
   return 0
 }
 
@@ -720,7 +722,8 @@ validate:
 rejected:
   return -1
 install:
-  call @aihc_rts_install(%array, %length)
+  %published = call @aihc_rts_publish_array(%array)
+  call @aihc_rts_install(%published, %length)
   return 0
 }
 
