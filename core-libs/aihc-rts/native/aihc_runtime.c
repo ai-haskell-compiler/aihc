@@ -831,8 +831,8 @@ AihcBackendEntry aihc_callback_create(AihcCapability *capability,
   /* A local collection of another capability walks the list under the heap
      lock. */
   aihc_heap_lock(capability->machine);
-  AihcBackendEntry entry = aihc_callback_create_locked(capability, closure,
-                                                       slots, count);
+  AihcBackendEntry entry =
+      aihc_callback_create_locked(capability, closure, slots, count);
   aihc_heap_unlock(capability->machine);
   return entry;
 }
@@ -1974,14 +1974,14 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
        block = block->next) {
     AihcValue *object = (AihcValue *)block->object;
     AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_RELAXED);
-    if (header == 0 || ((const AihcInfo *)(uintptr_t)(
-                           header & ~AIHC_HEADER_TAG_MASK))
-                               ->object_kind != AIHC_OBJECT_BYTE_ARRAY) {
+    if (header == 0 ||
+        ((const AihcInfo *)(uintptr_t)(header & ~AIHC_HEADER_TAG_MASK))
+                ->object_kind != AIHC_OBJECT_BYTE_ARRAY) {
       continue;
     }
     AihcByteArray *array = (AihcByteArray *)object;
-    uintptr_t start = (uintptr_t)__atomic_load_n(&array->contents,
-                                                 __ATOMIC_RELAXED);
+    uintptr_t start =
+        (uintptr_t)__atomic_load_n(&array->contents, __ATOMIC_RELAXED);
     uint64_t size = __atomic_load_n(&array->size, __ATOMIC_RELAXED);
     if (address >= start && address - start <= size) {
       uint64_t available = size - (address - start);
@@ -2637,8 +2637,7 @@ const AihcResume *aihc_no_duplicate(AihcCapability *capability,
     }
     AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
     AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
-    if (aihc_value_info_table(thunk)->object_kind ==
-        AIHC_OBJECT_INDIRECTION) {
+    if (aihc_value_info_table(thunk)->object_kind == AIHC_OBJECT_INDIRECTION) {
       /* Another evaluation finished the thunk, and a collection made it an
          indirection. Field zero is the value. */
       lowest = frame;
@@ -3299,7 +3298,6 @@ static void aihc_log_prepend(AihcCapability *capability, AihcTransaction *owner,
    parent. */
 static uint64_t aihc_stm_commit_locked(AihcCapability *capability);
 
-
 /* The object lock makes the check of the reads and the writes one step for
    the other capabilities. */
 uint64_t aihc_stm_commit(AihcCapability *capability) {
@@ -3476,8 +3474,8 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
   request->mode = AIHC_STM_WAIT_TIMER;
   request->deadline = UINT64_MAX;
   aihc_object_lock(machine);
-  for (AihcTransactionTimer *timer = machine->transaction_timers;
-       timer != NULL; timer = timer->next) {
+  for (AihcTransactionTimer *timer = machine->transaction_timers; timer != NULL;
+       timer = timer->next) {
     if (timer->deadline < request->deadline) {
       request->deadline = timer->deadline;
     }

@@ -517,8 +517,7 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
        request = request->next) {
     if (request->kind == AIHC_IO_TIMER) {
       has_timer = 1;
-      uint64_t deadline =
-          __atomic_load_n(&request->deadline, __ATOMIC_SEQ_CST);
+      uint64_t deadline = __atomic_load_n(&request->deadline, __ATOMIC_SEQ_CST);
       if (deadline < earliest) {
         earliest = deadline;
       }

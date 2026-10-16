@@ -1226,8 +1226,7 @@ void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
   /* A thunk that another evaluation finished can be an indirection now,
      which also has no tag. Its field zero is the value, so a claim must
      not touch it. */
-  if (((const AihcInfo *)(uintptr_t)header)->object_kind !=
-      AIHC_OBJECT_THUNK) {
+  if (((const AihcInfo *)(uintptr_t)header)->object_kind != AIHC_OBJECT_THUNK) {
     return;
   }
   /* The swap takes the state Claiming. A failed swap found another state,
@@ -2074,8 +2073,8 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
   unsigned static_target = is_frame && context->gen1_target == 1 ? 0 : 2;
   AihcScanContext scan = {
       .gc = context,
-      .target = generation == AIHC_GENERATION_STATIC ? static_target
-                                                     : generation,
+      .target =
+          generation == AIHC_GENERATION_STATIC ? static_target : generation,
       .youngest = AIHC_GENERATION_STATIC,
       .from_frame = is_frame,
   };
@@ -3192,8 +3191,8 @@ static void aihc_collect(AihcCapability *capability, unsigned collected,
      walks every heap, so it stops too. */
   if (local && collected < 2 && machine->capability_count > 1 &&
       machine->stop_lock != NULL && capability->stop_depth == 0 &&
-      (uint32_t)(__atomic_load_n(&machine->gc_count, __ATOMIC_RELAXED) +
-                 64) > 64) {
+      (uint32_t)(__atomic_load_n(&machine->gc_count, __ATOMIC_RELAXED) + 64) >
+          64) {
     aihc_heap_lock(machine);
     int follow =
         aihc_collect_stopped(capability, collected, start_cycle, promote_all,
@@ -3299,9 +3298,9 @@ static int aihc_collect_stopped(AihcCapability *capability, unsigned collected,
   AihcGcContext context = {.capability = capability,
                            .collected = collected,
                            .young_target =
-                               keep_local ? 1
+                               keep_local                             ? 1
                                : promote_all || gen1_collections == 0 ? 2
-                                                                     : 1,
+                                                                      : 1,
                            .gen1_target = keep_local ? 1 : 2,
                            .local = only,
                            .concurrent = concurrent && only != NULL};
@@ -3422,9 +3421,9 @@ static int aihc_collect_stopped(AihcCapability *capability, unsigned collected,
   if (capability->machine->gen2_cycle_active) {
     /* A full collection marked everything it reached: the slice runs the
        cycle to its end. */
-    uint64_t budget = collected == 2 ? UINT64_MAX
-                                     : aihc_slice_budget(capability,
-                                                         context.copied_bytes);
+    uint64_t budget = collected == 2
+                          ? UINT64_MAX
+                          : aihc_slice_budget(capability, context.copied_bytes);
     uint64_t deferred = capability->machine->deferred_mark_bytes;
     budget = budget > UINT64_MAX - deferred ? UINT64_MAX : budget + deferred;
     if (context.concurrent) {
@@ -4246,8 +4245,9 @@ static void aihc_gc_collect_stopped(AihcCapability *capability, uint64_t words,
                                     const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
   if (bytes > aihc_nursery_room(capability)) {
-    /* The nursery is empty after the collection of aihc_gc_collect. A batch can exceed the large-object threshold,
-       but each object in the batch still uses the nursery. */
+    /* The nursery is empty after the collection of aihc_gc_collect. A batch can
+       exceed the large-object threshold, but each object in the batch still
+       uses the nursery. */
     /* Arena replacement affects every capability. Empty the other nurseries
      * first. */
     if (aihc_other_nurseries_used(capability)) {
