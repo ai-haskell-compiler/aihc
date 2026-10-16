@@ -13,6 +13,7 @@ import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo 
 import Aihc.Tc.Env
 import Aihc.Tc.Interface
 import Aihc.Tc.Types
+import Control.Monad (mapAndUnzipM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -152,11 +153,11 @@ shareTypeKeyed ty =
     TcMetaTv unique -> record (KeyMetaTv unique) ty
     TcTyCon tyCon arguments -> do
       (c, tyCon') <- shareTyConKeyed tyCon
-      (as, arguments') <- unzip <$> mapM shareTypeKeyed arguments
+      (as, arguments') <- mapAndUnzipM shareTypeKeyed arguments
       record (KeyTyCon c as) (TcTyCon tyCon' arguments')
     TcKindedTyCon tyCon kindArguments -> do
       (c, tyCon') <- shareTyConKeyed tyCon
-      (ks, kindArguments') <- unzip <$> mapM shareTypeKeyed kindArguments
+      (ks, kindArguments') <- mapAndUnzipM shareTypeKeyed kindArguments
       record (KeyKindedTyCon c ks) (TcKindedTyCon tyCon' kindArguments')
     TcArrowTy -> record KeyArrow ty
     TcTyLit literal -> record (KeyLit literal) ty
@@ -169,7 +170,7 @@ shareTypeKeyed ty =
       (b, body') <- shareTypeKeyed body
       record (KeyForAll v b) (TcForAllTy variable' body')
     TcQualTy predicates body -> do
-      (ps, predicates') <- unzip <$> mapM sharePredKeyed predicates
+      (ps, predicates') <- mapAndUnzipM sharePredKeyed predicates
       (b, body') <- shareTypeKeyed body
       record (KeyQual ps b) (TcQualTy predicates' body')
     TcAppTy function argument -> do
@@ -187,15 +188,15 @@ sharePredKeyed predicate =
   case predicate of
     ClassPred tyCon arguments -> do
       (c, tyCon') <- shareTyConKeyed tyCon
-      (as, arguments') <- unzip <$> mapM shareTypeKeyed arguments
+      (as, arguments') <- mapAndUnzipM shareTypeKeyed arguments
       record (KeyClass c as) (ClassPred tyCon' arguments')
     EqPred left right -> do
       (l, left') <- shareTypeKeyed left
       (r, right') <- shareTypeKeyed right
       record (KeyEq l r) (EqPred left' right')
     QuantifiedPred variables antecedents consequent -> do
-      (vs, variables') <- unzip <$> mapM shareTyVarKeyed variables
-      (as, antecedents') <- unzip <$> mapM sharePredKeyed antecedents
+      (vs, variables') <- mapAndUnzipM shareTyVarKeyed variables
+      (as, antecedents') <- mapAndUnzipM sharePredKeyed antecedents
       (c, consequent') <- sharePredKeyed consequent
       record (KeyQuantified vs as c) (QuantifiedPred variables' antecedents' consequent')
     IParamPred name payload -> do
@@ -209,9 +210,9 @@ sharePredKeyed predicate =
 
 shareScheme :: TypeScheme -> Share TypeScheme
 shareScheme (Scheme inferred specified predicates body) = do
-  (is, inferred') <- unzip <$> mapM shareTyVarKeyed inferred
-  (ss, specified') <- unzip <$> mapM shareTyVarKeyed specified
-  (ps, predicates') <- unzip <$> mapM sharePredKeyed predicates
+  (is, inferred') <- mapAndUnzipM shareTyVarKeyed inferred
+  (ss, specified') <- mapAndUnzipM shareTyVarKeyed specified
+  (ps, predicates') <- mapAndUnzipM sharePredKeyed predicates
   (b, body') <- shareTypeKeyed body
   let key = SchemeKey is ss ps b
       rebuilt = Scheme inferred' specified' predicates' body'
