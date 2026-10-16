@@ -32,7 +32,7 @@ import Aihc.Tc.Types
     applySubst,
   )
 import Aihc.Tc.Zonk (defaultTypeKinds, zonkType)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, modify')
@@ -72,22 +72,29 @@ decideConstructorRepresentations previousTypes previousFamilies = do
   state <- lift get
   let localTypes = Map.difference (tcsDataTypes state) previousTypes
       localFamilies = Map.difference (tcsDataFamilyInstances state) previousFamilies
-      local = typeConstructors True localTypes <> familyConstructors True localFamilies
-      known = local <> typeConstructors False (tcsDataTypes state) <> familyConstructors False (tcsDataFamilyInstances state)
-      localKeys = Map.keys local
-  decided <- Memo.evalStateT (mapM (\key -> (,) key <$> decideCon known key) localKeys) Map.empty
-  let reps = Map.fromList decided
-      rewrite info =
-        case Map.lookup (conKey info) reps of
-          Just fieldReps -> info {dciFields = zipWith (\field rep -> field {dcfiRep = rep}) (dciFields info) fieldReps}
-          Nothing -> info
-  mapM_ (checkWidth . rewrite . knownInfo) (Map.elems local)
-  lift $
-    modify' $ \current ->
-      current
-        { tcsDataTypes = Map.map (\info -> info {dtiConstructors = map rewrite (dtiConstructors info)}) (tcsDataTypes current),
-          tcsDataFamilyInstances = Map.map (\info -> info {dfiiConstructors = map rewrite (dfiiConstructors info)}) (tcsDataFamilyInstances current)
-        }
+  -- A component without a constructor of its own has nothing to decide.
+  -- The pass reads every known type when it decides, and an imported
+  -- interface can hold them as facts that decode on demand, so it must
+  -- not read them for nothing.
+  unless (Map.null localTypes && Map.null localFamilies) $ do
+    let local = typeConstructors True localTypes <> familyConstructors True localFamilies
+        known = local <> typeConstructors False (tcsDataTypes state) <> familyConstructors False (tcsDataFamilyInstances state)
+        localKeys = Map.keys local
+    decided <- Memo.evalStateT (mapM (\key -> (,) key <$> decideCon known key) localKeys) Map.empty
+    let reps = Map.fromList decided
+        rewrite info =
+          case Map.lookup (conKey info) reps of
+            Just fieldReps -> info {dciFields = zipWith (\field rep -> field {dcfiRep = rep}) (dciFields info) fieldReps}
+            Nothing -> info
+    mapM_ (checkWidth . rewrite . knownInfo) (Map.elems local)
+    -- Only the local constructors get a representation, so only the
+    -- local entries change.
+    lift $
+      modify' $ \current ->
+        current
+          { tcsDataTypes = Map.map (\info -> info {dtiConstructors = map rewrite (dtiConstructors info)}) localTypes `Map.union` tcsDataTypes current,
+            tcsDataFamilyInstances = Map.map (\info -> info {dfiiConstructors = map rewrite (dfiiConstructors info)}) localFamilies `Map.union` tcsDataFamilyInstances current
+          }
 
 typeConstructors :: Bool -> Map GlobalName DataTypeInfo -> Map ConKey KnownCon
 typeConstructors local types =

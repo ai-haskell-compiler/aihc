@@ -9,6 +9,7 @@ packages:
   components/aihc-tc
   bin/aihc-fmt
   bin/aihc-haddock
+  bin/aihc-play
   tooling/aihc-hackage
   tooling/aihc-hackage-fetch
   tooling/aihc-http

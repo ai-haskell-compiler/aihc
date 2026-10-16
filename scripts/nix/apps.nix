@@ -194,6 +194,43 @@ in {
       exec bash ./scripts/install-hackage-packages.sh "$@"
     '';
 
+  # The playground helper of The Lazy Reader: aihc-play compiled by aihc to
+  # wasm32-wasip3 and transpiled by jco. The build reads Hackage for the
+  # dependencies of aihc-play and npm for jco, so it is an app and not a
+  # derivation. The deploy workflow runs it and adds the output to the site
+  # of the guide.
+  build-lazy-reader-helper =
+    mkAppWithInputs "build-lazy-reader-helper" [
+      pkgs.bash
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gnutar
+      pkgs.gzip
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang
+      pkgs.llvmPackages.clang-unwrapped
+      pkgs.wasm-tools
+      pkgs.wasm-component-ld
+      wasmLd
+      pkgs.binaryen
+      pkgs.nodejs_24
+    ] ''
+      set -euo pipefail
+      ${repoRootGuard}
+      export GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC="''${AIHC:-${aihcExe}}"
+      export AIHC_DEV="''${AIHC_DEV:-${aihcDevExe}}"
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      exec bash ./scripts/build-lazy-reader-helper.sh "$@"
+    '';
+
   self-hosting-packages =
     mkAppWithInputs "self-hosting-packages" [
       pkgs.bash

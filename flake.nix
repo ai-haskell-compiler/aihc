@@ -32,7 +32,7 @@
       inherit (core) projectHsPackages;
       inherit sources mkWasiSysroot mkEditorGrammars mkLirExtension;
       inherit (haskell) mkHsPkgsForChecks;
-      inherit (docs) mkManual;
+      inherit (docs) mkManual mkGuide;
     };
     mkDevShells = import ./scripts/nix/dev-shells.nix {
       inherit mkWasiSysroot;

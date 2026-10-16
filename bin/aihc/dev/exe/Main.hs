@@ -2,6 +2,8 @@ module Main (main) where
 
 import Aihc.Cli.Lto (demoteToEntry, entryName, readPrograms)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
+import Aihc.Cli.PlayBundle (BundleStats (..), LoadedBundle (..), loadBundle)
+import Aihc.Cli.PlayBundleStore (StoreBundleInfo (..), writeStoreBundle)
 import Aihc.Dev.Explore (ExploreOptions (..), runExplore)
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
@@ -13,13 +15,19 @@ import Aihc.Dev.PipelineExamples (PipelineExamplesOptions (..), runPipelineExamp
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget, OptimizationLevel (..), hostNativeTarget, parseNativeTarget, parseOptimizationLevel)
 import Aihc.Resolve (PackageId (..))
+import Aihc.Tc (TcInterface (..))
+import Control.DeepSeq (force)
+import Control.Exception (evaluate)
 import Control.Monad (foldM_, unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Yaml
+import GHC.Clock (getMonotonicTime)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
@@ -47,6 +55,7 @@ data Command
   | Fuzz FuzzCLI.Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
+  | PlayBundle FilePath FilePath
   | FcPrint FilePath
   | FcPasses PackageId [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget)
@@ -117,6 +126,12 @@ commandParser =
           ( info
               (PipelineExamples <$> pipelineExamplesParser <**> helper)
               (progDesc "Compile the pipeline examples of the AIHC Manual and write their System FC, GRIN and Lir programs")
+          )
+        <> command
+          "play-bundle"
+          ( info
+              (PlayBundle <$> strOption (long "store" <> metavar "DIR" <> help "The store with the core libraries, or its platform directory") <*> strOption (long "output" <> metavar "FILE" <> help "The bundle file to write") <**> helper)
+              (progDesc "Write the naming and type facts of the core libraries of a store as the bundle of the playground helper of The Lazy Reader")
           )
         <> command
           "fc-print"
@@ -285,6 +300,24 @@ runCommand (Frontend options) =
   runFrontend options
 runCommand (PipelineExamples options) =
   runPipelineExamples options
+runCommand (PlayBundle store output) = do
+  info' <- writeStoreBundle store output
+  TIO.hPutStrLn stderr ("wrote " <> T.pack output <> " from " <> T.intercalate ", " (storeBundlePackages info') <> " (" <> T.pack (show (storeBundleModules info')) <> " modules)")
+  -- Read the bundle back, so a bundle that does not load fails here and
+  -- not in the browser.
+  bytes <- BS.readFile output
+  started <- getMonotonicTime
+  loaded <- either (ioError . userError) pure (loadBundle bytes)
+  let stats = loadedStats loaded
+  _ <- evaluate (force (loadedExports loaded))
+  _ <- evaluate (Map.size (tcInterfaceTermMap (loadedInterface loaded)))
+  headerDone <- getMonotonicTime
+  _ <- evaluate (force (loadedInterface loaded))
+  factsDone <- getMonotonicTime
+  TIO.hPutStrLn stderr ("naming section: " <> T.pack (show (statsNamingBytes stats)) <> " bytes, " <> T.pack (show (statsTyCons stats)) <> " type constructors, type section: " <> T.pack (show (statsTypeBytes stats)) <> " bytes, " <> T.pack (show (statsFacts stats)) <> " facts")
+  let interface = loadedInterface loaded
+  TIO.hPutStrLn stderr ("terms " <> T.pack (show (Map.size (tcInterfaceTermMap interface))) <> ", tycons " <> T.pack (show (Map.size (tcInterfaceTyConMap interface))) <> ", data types " <> T.pack (show (Map.size (tcInterfaceDataTypeMap interface))) <> ", classes " <> T.pack (show (Map.size (tcInterfaceClassMap interface))) <> ", instances " <> T.pack (show (Map.size (tcInterfaceInstanceMap interface))) <> ", data family instances " <> T.pack (show (Map.size (tcInterfaceDataFamilyInstanceMap interface))) <> ", type family instances " <> T.pack (show (Map.size (tcInterfaceTypeFamilyInstanceMap interface))) <> ", pattern synonyms " <> T.pack (show (Map.size (tcInterfacePatSynMap interface))) <> ", foreign imports " <> T.pack (show (Map.size (tcInterfaceForeignImportMap interface))))
+  TIO.hPutStrLn stderr ("header and naming decoded in " <> T.pack (show (round ((headerDone - started) * 1000) :: Int)) <> " ms, every fact decoded in " <> T.pack (show (round ((factsDone - headerDone) * 1000) :: Int)) <> " ms")
 runCommand (Explore input level target) = do
   resolved <- case target <|> hostNativeTarget of
     Just found -> pure found

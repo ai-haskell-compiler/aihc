@@ -9,10 +9,14 @@ on:
       - .github/actions/setup-nix-ci/action.yml
       - .github/workflows/deploy-docs.yml
       - docs/aihc-manual/**
+      - docs/aihc-guide/**
+      - bin/aihc-play/**
+      - scripts/build-lazy-reader-helper.sh
       - editors/grammars/**
       - flake.lock
       - flake.nix
       - bin/aihc/dev/src/Aihc/Dev/PipelineExamples.hs
+      - scripts/nix/apps.nix
       - scripts/nix/checks.nix
       - scripts/nix/docs.nix
       - scripts/nix/editor-grammars.nix
@@ -59,6 +63,25 @@ jobs:
           echo "=== Site structure ==="
           find docs/aihc-manual/site -type f | head -50
 
+      - name: Build The Lazy Reader
+        run: |
+          echo "=== Building The Lazy Reader ==="
+          nix build .#guide --print-out-paths
+          # Wrangler reads the site from docs/aihc-guide/site.
+          cp -rL result docs/aihc-guide/site
+          chmod -R u+w docs/aihc-guide/site
+
+          # The playground helper is aihc-play, compiled by aihc to
+          # WebAssembly. Its build needs Hackage and npm, so it runs as an
+          # app outside the Nix sandbox and lands beside the site.
+          echo "=== Building the playground helper ==="
+          nix run .#build-lazy-reader-helper -- --output docs/aihc-guide/site/play/helper
+          # The script leaves the component beside the output directory.
+          rm -f docs/aihc-guide/site/play/aihc-play.wasm
+
+          echo "=== Site structure ==="
+          find docs/aihc-guide/site -type f -not -path "*/assets/*" | head -60
+
       # `wrangler deploy --dry-run` does not send requests to Cloudflare.
       # Thus it cannot find a token that has incorrect permissions.
       # This step sends the first deployment requests with the deployment token.
@@ -69,6 +92,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCS_ZONE: aihc.app
           DOCS_WORKER: aihc-manual
+          GUIDE_WORKER: aihc-lazy-reader
         run: |
           set -euo pipefail
 
@@ -107,6 +131,13 @@ jobs:
               --data '{"manifest":{"/ci-token-check.txt":{"hash":"00000000000000000000000000000000","size":1}}}' \
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$DOCS_WORKER/assets-upload-session")" \
             '.success'
+          require "an asset upload session for the $GUIDE_WORKER Worker" \
+            "$(curl --silent --show-error --request POST \
+              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data '{"manifest":{"/ci-token-check.txt":{"hash":"00000000000000000000000000000000","size":1}}}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$GUIDE_WORKER/assets-upload-session")" \
+            '.success'
           # The custom domain route needs access to the zone.
           require "the $DOCS_ZONE zone in the account" \
             "$(cf_get "zones?name=$DOCS_ZONE&account.id=$CLOUDFLARE_ACCOUNT_ID")" \
@@ -129,6 +160,26 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: docs/aihc-manual
+          wranglerVersion: "4.143.0"
+          command: deploy
+
+      - name: Check the Cloudflare deployment of The Lazy Reader
+        if: github.event_name == 'pull_request'
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: docs/aihc-guide
+          wranglerVersion: "4.143.0"
+          command: deploy --dry-run
+
+      - name: Deploy to lazy.aihc.app
+        if: github.event_name != 'pull_request'
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: docs/aihc-guide
           wranglerVersion: "4.143.0"
           command: deploy
 

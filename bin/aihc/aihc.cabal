@@ -158,6 +158,8 @@ library
     Aihc.Cli.Options
     Aihc.Cli.PackageManifest
     Aihc.Cli.Plan
+    Aihc.Cli.PlayBundle
+    Aihc.Cli.PlayBundleStore
     Aihc.Cli.Progress
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Store

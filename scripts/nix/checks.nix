@@ -6,6 +6,7 @@
   mkEditorGrammars,
   mkLirExtension,
   mkManual,
+  mkGuide,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
@@ -513,6 +514,17 @@
   haddockTests = mkTestRunner {
     drv = hsPkgs.aihc-haddock;
     src = sources.haddockSrc pkgs;
+  };
+  # The suite writes the bundle of the core libraries from a store and
+  # checks the helper over it, so it gets the seed store with the native
+  # aihc-base.
+  playTests = mkTestRunner {
+    drv = hsPkgs.aihc-play;
+    src = sources.playSrc pkgs;
+    directory = "bin/aihc-play";
+    setup = ''
+      export AIHC_PLAY_STORE=${specSeedStore}/core
+    '';
   };
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
@@ -1148,6 +1160,12 @@
 
   manual = mkManual pkgs pipelineExamples editorGrammars;
 
+  # The Lazy Reader, without its WebAssembly helper. The helper needs the
+  # Hackage packages that aihc-play depends on and jco from npm, so the
+  # deploy workflow builds it with `nix run .#build-lazy-reader-helper` and
+  # adds it to this site.
+  guide = mkGuide pkgs (sources.guideSrc pkgs);
+
   # Every example uses LLVM and the available host-native backend. Nix
   # schedules independent examples in parallel against the immutable shared
   # library and runtime artifacts.
@@ -1285,6 +1303,7 @@ in {
     testing-tests = testingTests;
     aihc-tests = aihcTests;
     fmt-tests = fmtTests;
+    play-tests = playTests;
     haddock-tests = haddockTests;
     unicode-generated = unicodeGenerated;
     nix-lint = nixLint;
@@ -1298,10 +1317,10 @@ in {
     core-libraries-install = coreLibrariesInstall;
     examples-tests = examplesTests;
     wasip3-example-test = wasip3ExampleTest;
-    inherit manual;
+    inherit manual guide;
   };
   packages = {
-    inherit manual pipelineExamples;
+    inherit manual guide pipelineExamples;
     hackage-checks = hackageChecks;
     docs = manual;
     default = manual;

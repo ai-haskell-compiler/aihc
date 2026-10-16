@@ -17,6 +17,12 @@ hedgehog:
 hedgehog1:
   TASTY_HEDGEHOG_TESTS=10000 TASTY_HEDGEHOG_SHRINKS=1000000 cabal test all -v0 --jobs=1 --test-options="--hide-successes"
 
+# Build the playground helper and the core-libraries bundle of The Lazy Reader and serve the guide at http://127.0.0.1:8000
+guide:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  nix develop --quiet --command bash -c 'cabal build -v0 exe:aihc exe:aihc-dev && scripts/build-lazy-reader-helper.sh --output docs/aihc-guide/src/play/helper --store .aihc-target/lazy-reader-store && cd docs/aihc-guide && mkdocs serve'
+
 # Auto-format Nix, Cabal, Haskell, and C files (excludes dist-newstyle, result, .git, the benchmarks submodule; Haskell excludes test fixtures)
 fmt:
   nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0 | xargs -0 -r alejandra; while IFS= read -r -d "" file; do cabal-gild --mode format --io "$file"; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0); ormolu --mode inplace $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*"); find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format -i'

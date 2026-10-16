@@ -10,10 +10,14 @@ on:
     paths:
       - .github/workflows/docs-preview.yml
       - docs/aihc-manual/**
+      - docs/aihc-guide/**
+      - bin/aihc-play/**
+      - scripts/build-lazy-reader-helper.sh
       - editors/grammars/**
       - flake.lock
       - flake.nix
       - bin/aihc/dev/src/Aihc/Dev/PipelineExamples.hs
+      - scripts/nix/apps.nix
       - scripts/nix/checks.nix
       - scripts/nix/docs.nix
       - scripts/nix/editor-grammars.nix
@@ -49,6 +53,18 @@ jobs:
         run: |
           nix build .#manual --out-link manual-result
           cp -rL manual-result manual-preview
+          chmod -R u+w manual-preview
+
+      # The guide and its playground helper go under lazy-reader/ of the
+      # same preview.
+      - name: Build The Lazy Reader
+        if: github.event.action != 'closed'
+        run: |
+          nix build .#guide --out-link guide-result
+          cp -rL guide-result manual-preview/lazy-reader
+          chmod -R u+w manual-preview/lazy-reader
+          nix run .#build-lazy-reader-helper -- --output manual-preview/lazy-reader/play/helper
+          rm -f manual-preview/lazy-reader/play/aihc-play.wasm
 
       - name: Publish preview
         uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1

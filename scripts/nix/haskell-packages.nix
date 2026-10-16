@@ -6,6 +6,7 @@
     "aihc"
     "aihc-fmt"
     "aihc-haddock"
+    "aihc-play"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
@@ -111,6 +112,17 @@
     };
     aihc-haddock = {
       src = sources.haddockSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
+    aihc-play = {
+      src = sources.playSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath bin/aihc-play";
+        srcModifier = src: src;
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;

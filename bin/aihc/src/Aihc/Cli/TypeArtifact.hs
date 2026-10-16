@@ -1,9 +1,19 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Aihc.Cli.TypeArtifact
   ( TypeArtifact (..),
     decodeTypeArtifact,
     encodeTypeArtifact,
     encodeTypeArtifactParts,
     encodeTypeInterface,
+    encodeTypeInterfaceBody,
+    decodeTypeInterfaceBody,
+    putTyConDefinition,
+    getTyConDefinition,
+    putTyConFlavor,
+    getTyConFlavor,
+    putTermKey,
+    getTermKey,
   )
 where
 
@@ -102,12 +112,23 @@ encodeTypeInterface :: TcInterface -> BL.ByteString
 encodeTypeInterface interface =
   let tyCons = Set.toAscList (interfaceTyCons interface)
       tyConTable = Map.fromList (zip tyCons [0 ..])
-      (parts, index) = interfaceParts tyConTable interface
    in Builder.toLazyByteString
         ( encodeList putTyConDefinition tyCons
-            <> encodeList (putPart index) parts
-            <> putInterface index interface
+            <> encodeTypeInterfaceBody tyConTable interface
         )
+
+-- | The parts and the facts of an interface, against a table of type
+-- constructors the caller writes on its own. Every type constructor of
+-- the interface must be in the table.
+encodeTypeInterfaceBody :: Map TyCon Word64 -> TcInterface -> Builder.Builder
+encodeTypeInterfaceBody tyConTable interface =
+  let (parts, index) = interfaceParts tyConTable interface
+   in encodeList (putPart index) parts <> putInterface index interface
+
+-- | The inverse of 'encodeTypeInterfaceBody', against the type
+-- constructor table of the caller.
+decodeTypeInterfaceBody :: Array Int TyCon -> BL.ByteString -> Either String TcInterface
+decodeTypeInterfaceBody = runInterface
 
 decodeTypeArtifact :: BL.ByteString -> Either String TypeArtifact
 decodeTypeArtifact bytes =
