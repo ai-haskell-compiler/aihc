@@ -38,7 +38,7 @@ jobs:
           body: |
             The weekly README news workflow made this PR automatically.
 
-            The user guide badge shows whether docs.aihc.app responds.
+            The user guide badge shows the documentation publication workflow status on main.
             It puts the newest post from https://blog.aihc.app/ in the README.
             It also puts the newest benchmark results from https://perf.aihc.app/ in the README.
             The benchmark results come from the machine that has results for the most commits.

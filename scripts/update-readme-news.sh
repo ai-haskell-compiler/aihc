@@ -114,10 +114,10 @@ replace_block() {
 replace_block latest-news "$tmpdir/latest-news.md"
 replace_block perf-highlights "$tmpdir/perf-highlights.md"
 
-# The badge shows guide access. A canceled workflow does not remove the guide.
+# The badge shows publication status on main, not the documentation build status.
 awk '
   /^\[!\[User guide\]/ {
-    print "[![User guide](https://img.shields.io/website?url=https%3A%2F%2Fdocs.aihc.app%2F&label=user%20guide&up_message=online&down_message=offline)](https://docs.aihc.app/)"
+    print "[![User guide](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/publish-docs-site.yml?branch=main&event=workflow_run&label=user%20guide)](https://docs.aihc.app/)"
     next
   }
   { print }
