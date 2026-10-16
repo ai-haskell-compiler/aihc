@@ -496,23 +496,8 @@ function buildPlayground(root) {
     status.setAttribute("role", "status");
     output.setAttribute("aria-label", "Program output");
     status.textContent = "Select Run to compile the module.";
-    const times = el("tbody", {});
-    const details = el("details", { class: "lazy-stage-times" }, [
-      el("summary", { text: "Stage times" }),
-      el("table", { class: "lazy-stage-table" }, [
-        el("thead", {}, [el("tr", {}, [el("th", { scope: "col", text: "Stage" }), el("th", { scope: "col", text: "Time" })])]),
-        times,
-      ]),
-    ]);
-    root.querySelector(".lazy-pane-output").append(details);
-    let builder, program, activeId = 0, active = false, phase, started, count;
+    let builder, program, activeId = 0, active = false, phase, count;
     let stdout, stderr;
-    const addTime = ({ stage, milliseconds, reused }) => {
-      times.append(el("tr", {}, [
-        el("td", { text: stage }),
-        el("td", { text: reused ? "Reused" : milliseconds.toFixed(1) + " ms" }),
-      ]));
-    };
     const destroy = (worker) => {
       worker?.terminate();
       playWorkers.delete(worker);
@@ -524,7 +509,6 @@ function buildPlayground(root) {
     const finish = () => {
       destroy(program);
       program = null;
-      if (active) addTime({ stage: "Total", milliseconds: performance.now() - started });
       active = false;
       run.disabled = false;
       stop.disabled = true;
@@ -538,7 +522,6 @@ function buildPlayground(root) {
       worker.onmessage = ({ data }) => {
         if (!active || activeId !== id || data.id !== id) return;
         if (worker !== builder && worker !== program) return;
-        if (data.type === "timing") addTime(data);
         if (data.type === "status") status.textContent = data.text;
         if (data.type === "stdout" || data.type === "stderr" || data.type === "tool-stderr" || data.type === "compiler-stderr") {
           const pane = data.type === "stdout" ? stdout : stderr;
@@ -579,12 +562,10 @@ function buildPlayground(root) {
     };
     run.addEventListener("click", () => {
       output.textContent = "";
-      times.textContent = "";
       stdout = el("pre", { class: "lazy-program-stdout" });
       stderr = el("pre", { class: "lazy-program-stderr" });
       output.append(stdout, stderr);
       count = 0;
-      started = performance.now();
       active = true;
       activeId += 1;
       phase = "build";
