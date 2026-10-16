@@ -127,6 +127,8 @@ await writeFile(process.argv[2], JSON.stringify({ url: process.argv[3] }));
 JS
 cp "$root/docs/aihc-guide/src/play/run.js" "$output/run.js"
 cp "$root/docs/aihc-guide/src/play/host.js" "$output/host.js"
+cp "$root/docs/aihc-guide/src/play/program.js" "$output/program.js"
+cp "$root/docs/aihc-guide/src/play/timing.js" "$output/timing.js"
 
 echo "=== Transpile the component with jco ==="
 "$tools/bin/aihc-play-transpile" "$work/aihc-play.wasm" "$work/out"
