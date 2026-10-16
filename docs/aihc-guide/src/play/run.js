@@ -1,6 +1,3 @@
-import { transpile } from "@bytecodealliance/jco/component";
-import { $init, tools } from "play-wasm-tools";
-import { commands } from "@yowasp/clang";
 import * as host from "./host.js";
 
 const encoder = new TextEncoder();
@@ -74,6 +71,8 @@ onmessage = async ({ data: source }) => {
       return;
     }
     report("status", "Assemble and link the program.");
+    const config = await (await fetch(new URL("tools.json", import.meta.url))).json();
+    const { commands, componentNew, transpile } = await import(new URL(config.url, import.meta.url).href);
     const runtime = await (await inflated("runtime.json.gz")).json();
     let files = Object.fromEntries(Object.entries(runtime.files).map(([name, value]) => [name, fromBase64(value)]));
     const objects = Object.keys(files).filter((name) => name.endsWith(".o")).sort();
@@ -94,8 +93,7 @@ onmessage = async ({ data: source }) => {
     const module = new Uint8Array(core.length + metadata.length);
     module.set(core);
     module.set(metadata, core.length);
-    await $init;
-    const component = tools.componentNew(module, []);
+    const component = await componentNew(module, []);
     report("status", "Prepare the P3 program.");
     const result = await transpile(component, {
       name: "program", instantiation: { tag: "async" }, noNodejsCompat: true, noTypescript: true,

@@ -4,6 +4,7 @@
   mkWasiSysroot,
 }: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
+  playTools = import ./play-tools.nix {inherit pkgs;};
   wasmSysroot = mkWasiSysroot pkgs;
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
     exec ${pkgs.lld}/bin/wasm-ld "$@"
@@ -196,7 +197,7 @@ in {
 
   # The playground helper of The Lazy Reader: aihc-play compiled by aihc to
   # wasm32-wasip3 and transpiled by jco. The build reads Hackage for the
-  # dependencies of aihc-play and npm for jco, so it is an app and not a
+  # dependencies of aihc-play, so it is an app and not a
   # derivation. The deploy workflow runs it and adds the output to the site
   # of the guide.
   build-lazy-reader-helper =
@@ -224,12 +225,18 @@ in {
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC="''${AIHC:-${aihcExe}}"
+      export AIHC_PLAY_TOOLS=${playTools}
       export AIHC_DEV="''${AIHC_DEV:-${aihcDevExe}}"
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
       exec bash ./scripts/build-lazy-reader-helper.sh "$@"
     '';
+
+  publish-play-tools = mkAppWithInputs "publish-play-tools" [pkgs.bash pkgs.curl pkgs.coreutils pkgs.wrangler] ''
+    export AIHC_PLAY_TOOLS=${playTools}
+    exec bash ./scripts/publish-play-tools.sh "$@"
+  '';
 
   self-hosting-packages =
     mkAppWithInputs "self-hosting-packages" [

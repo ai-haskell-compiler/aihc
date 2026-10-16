@@ -6,7 +6,7 @@
 # from the browser host of the guide, docs/aihc-guide/src/play/host.js.
 #
 # Usage: scripts/build-lazy-reader-helper.sh --output DIR [--store DIR]
-#        [--optimization LEVEL] [--jco PATH]
+#        [--optimization LEVEL]
 #
 # AIHC names the compiler and AIHC_DEV the developer tool. The defaults
 # are the cabal builds of exe:aihc and exe:aihc-dev. The output directory
@@ -18,18 +18,20 @@ set -euo pipefail
 output=""
 store=""
 optimization="s"
-jco="${JCO:-}"
+tools="${AIHC_PLAY_TOOLS:-}"
+if [[ -z "$tools" ]]; then
+  tools=$(nix build .#aihc-play-tools --no-link --print-out-paths)
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output=$2; shift 2 ;;
     --store) store=$2; shift 2 ;;
     --optimization) optimization=$2; shift 2 ;;
-    --jco) jco=$2; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 if [[ -z "$output" ]]; then
-  echo "usage: $0 --output DIR [--store DIR] [--optimization LEVEL] [--jco PATH]" >&2
+  echo "usage: $0 --output DIR [--store DIR] [--optimization LEVEL]" >&2
   exit 2
 fi
 
@@ -108,23 +110,26 @@ echo "=== Writing the browser linker inputs ==="
 "$aihc_dev" play-runtime --store "$store/wasm32-wasip3" --output "$work/runtime"
 echo '(module)' > "$work/empty.wat"
 wasm-tools component embed "$root/bin/aihc/compiler/wasm/runtime/wit" "$work/empty.wat" -o "$work/runtime/world.wasm"
-npm ci --prefix "$root/docs/aihc-guide"
-node "$root/docs/aihc-guide/build-play.mjs" "$output" "$work/runtime"
+node "$root/scripts/package-play-runtime.mjs" "$output" "$work/runtime"
 
-if [[ -z "$jco" ]]; then
-  # The pinned jco release. npx downloads it when it is not installed.
-  jco="npx --yes @bytecodealliance/jco@1.38.0"
+# Local builds use the same tools without an R2 account.
+version=$(cat "$tools/version")
+if [[ -n "${AIHC_PLAY_TOOLS_URL:-}" ]]; then
+  tools_url="${AIHC_PLAY_TOOLS_URL%/}/$version/tools.js"
+else
+  mkdir -p "$output/tools/$version"
+  cp -R "$tools/assets/." "$output/tools/$version/"
+  tools_url="./tools/$version/tools.js"
 fi
+node --input-type=module - "$output/tools.json" "$tools_url" <<'JS'
+import { writeFile } from "node:fs/promises";
+await writeFile(process.argv[2], JSON.stringify({ url: process.argv[3] }));
+JS
+cp "$root/docs/aihc-guide/src/play/run.js" "$output/run.js"
+cp "$root/docs/aihc-guide/src/play/host.js" "$output/host.js"
 
-echo "=== Transpiling the component with jco ==="
-mkdir -p "$output"
-$jco transpile "$work/aihc-play.wasm" \
-  --out-dir "$work/out" \
-  --name aihc-play-component \
-  --instantiation async \
-  --async-mode jspi \
-  --no-nodejs-compat \
-  --quiet
+echo "=== Transpile the component with jco ==="
+"$tools/bin/aihc-play-transpile" "$work/aihc-play.wasm" "$work/out"
 # wasm-opt makes the core module a third of its size. The build goes on
 # without it when it is not installed.
 if command -v wasm-opt >/dev/null; then
@@ -139,6 +144,7 @@ for core in "$work/out/"*.wasm; do
   gzip -9 -n -c "$core" > "$output/$(basename "$core").gz"
 done
 for asset in "$output/"*; do
+  [[ -f "$asset" ]] || continue
   if [[ $(wc -c < "$asset") -gt 26214400 ]]; then
     echo "The asset exceeds the site limit: $asset" >&2
     exit 1

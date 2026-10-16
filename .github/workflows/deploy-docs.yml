@@ -12,6 +12,11 @@ on:
       - docs/aihc-guide/**
       - bin/aihc-play/**
       - scripts/build-lazy-reader-helper.sh
+      - scripts/build-play-tools.mjs
+      - scripts/transpile-play.mjs
+      - scripts/package-play-runtime.mjs
+      - scripts/publish-play-tools.sh
+      - scripts/nix/play-tools.nix
       - editors/grammars/**
       - flake.lock
       - flake.nix
@@ -63,7 +68,15 @@ jobs:
           echo "=== Site structure ==="
           find docs/aihc-manual/site -type f | head -50
 
+      - name: Publish the browser tools to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: nix run .#publish-play-tools
+
       - name: Build The Lazy Reader
+        env:
+          AIHC_PLAY_TOOLS_URL: https://assets.aihc.app/play
         run: |
           echo "=== Building The Lazy Reader ==="
           nix build .#guide --print-out-paths
@@ -72,7 +85,7 @@ jobs:
           chmod -R u+w docs/aihc-guide/site
 
           # The playground helper is aihc-play, compiled by aihc to
-          # WebAssembly. Its build needs Hackage and npm, so it runs as an
+          # WebAssembly. Its build needs Hackage, so it runs as an
           # app outside the Nix sandbox and lands beside the site.
           echo "=== Building the playground helper ==="
           nix run .#build-lazy-reader-helper -- --output docs/aihc-guide/site/play/helper
