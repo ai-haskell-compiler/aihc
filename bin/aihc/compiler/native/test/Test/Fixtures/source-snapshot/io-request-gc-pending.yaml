@@ -47,6 +47,8 @@ return: "@0"
 heap: |
   @0 = CResult 66
 # Poll descriptors use C storage and add no managed allocation.
-allocated-bytes: 64632
+allocated-bytes:
+  macos-arm64: 64632
+  linux-amd64: 64632
 status: pass
 reason: A pending read must retain its buffer while another thread forces collections.
