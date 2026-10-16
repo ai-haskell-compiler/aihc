@@ -79,6 +79,7 @@ tests =
       testGroup
         "generational collector fuzz"
         [ testProperty "collects random heaps and stacks" (prop_collect getDriver),
+          testCase "permits a dead static thunk after a deferred frame disappears" (checkScript getDriver discardedStaticScript),
           testCase "forwards the target of an evaluated static thunk" (checkScript getDriver evaluatedStaticScript),
           testCase "scans the frames below a pop across chunks" (checkScript getDriver deepPopScript),
           testCase "keeps a thunk a waiter of another thread names" (checkScript getDriver waiterScript),
@@ -88,6 +89,26 @@ tests =
           testCase "promotes a global object that names a young thunk without a collection" (checkScript getDriver globalPromotionScript),
           testCase "grows the nursery after a local collection beside a young large array" (checkScript getDriver localGrowthScript)
         ]
+
+-- | A deferred forward frame holds the only reference to a static thunk.
+-- A pop discards that frame before the cycle scans it. The thunk is dead,
+-- so the cycle can free its target.
+discardedStaticScript :: [Command]
+discardedStaticScript =
+  [ CMachine 0 0 128 64,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CReserve 1,
+    CNew 2 KNode [] Nothing,
+    CPush 2 (FSNormal (replicate 60 False) Nothing (replicate 60 (VWord 0))),
+    CSUpdate 0 (VHeap 2),
+    CPush 3 (FSForward (replicate 90 True) Nothing (replicate 90 (VStatic 0))),
+    CPush 4 (FSNormal (replicate 173 False) Nothing (replicate 173 (VWord 0))),
+    CPush 5 (FSNormal (replicate 173 False) Nothing (replicate 173 (VWord 0))),
+    CCycle,
+    CEnter 3 Nothing,
+    CCollect
+  ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
 -- alive, then force a collection. The thunk must reach the moved object
@@ -1070,10 +1091,10 @@ raise thread exception = go
       Just Object {} -> model
       other -> error ("abandoned thunk is " <> show other)
 
--- | Mark the evaluated static thunks that a full collection or a gen2
--- cycle frees the value of: the slots no live code reaches. A cycle
--- judges them at its snapshot, which is now. The model is conservative
--- for a cycle that ends later: it stops naming the slot at once.
+-- | Mark evaluated static thunks that no live code reaches. A full
+-- collection can free their targets. A cycle can also free a target if
+-- a pop discards its last deferred frame before the cycle scans it.
+-- The model excludes dead slots at the start and end of a cycle.
 staleStatics :: Bool -> Model -> Model
 staleStatics full model
   | not full = model
@@ -1388,7 +1409,10 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                 -- in the model before the check.
                 -- A collection is a pause of the running thread. The model
                 -- of a reservation learns of its collection only here.
-                checked = pause (step model)
+                -- A pop can discard a deferred frame before the cycle scans
+                -- its static references. At the end of the cycle, a static
+                -- thunk that lost its last reference can have a dead target.
+                checked = staleStatics (rFinish report) (pause (step model))
                 -- A local collection copies the local heap of one
                 -- capability: the reserving capability at a reservation,
                 -- and the running capability at an escape. An explicit or
@@ -1801,8 +1825,8 @@ genShape profile =
 -- promotion copied is left out: the copy and the original are two objects
 -- of one identity, and a new reference to one of them could keep it alive
 -- while only the other is live in the model. Static slots exclude
--- stale slots, because the collector reads through the invalid target of
--- any static object that becomes live again.
+-- dead evaluated thunks and stale slots. The collector reads through the
+-- invalid target of any static object that becomes live again.
 data Pool = Pool
   { poolHeap :: [Id],
     poolStatics :: [Int],
@@ -1825,7 +1849,10 @@ poolOwnedBy owner model
 poolOf :: Model -> Pool
 poolOf model =
   let live = liveness model
-      stale = taintedStatics model
+      -- A discarded frame can hold the last reference to an evaluated
+      -- static thunk. A cycle can then free its target. As with dead heap
+      -- objects, later commands must not use that thunk again.
+      stale = taintedStatics (staleStatics True model)
       usableSrts = [index | index <- Map.keys (mSrts model), Set.null (Set.intersection stale (srtClosure model index))]
       values = [identity | identity <- Set.toList (liveHeap live), isValue (mHeap model Map.! identity), not (Set.member identity (mPromoted model))]
       isValue Thread {} = False
