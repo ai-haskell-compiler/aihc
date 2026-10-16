@@ -20,7 +20,7 @@ where
 import Aihc.Parser.Syntax (Module, Name (..), UnqualifiedName (..))
 import Aihc.Play.Json (Json (..))
 import Data.Data (Data, cast, gmapQ, showConstr, toConstr, tyConName, typeRepTyCon)
-import Data.List (isSuffixOf)
+import Data.List (isSuffixOf, partition)
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -77,13 +77,17 @@ nodes value
       [] -> Nothing
       _ -> Just (last texts)
 
--- | A node whose only child is a name takes the name as its own text.
--- @EVar x@ then shows as one node, not as two.
+-- | A node with no text and exactly one name child takes the name as its
+-- own text. @EVar x@ then shows as one node, not as two. A function takes
+-- its name and keeps its equations. An infix application takes its
+-- operator and keeps its operands.
 absorb :: Tree -> Tree
 absorb tree =
-  case (treeText tree, treeChildren tree) of
-    (Nothing, [Tree "Name" (Just name) []]) -> tree {treeText = Just name, treeChildren = []}
+  case (treeText tree, partition isName (treeChildren tree)) of
+    (Nothing, ([Tree _ (Just name) _], rest)) -> tree {treeText = Just name, treeChildren = rest}
     _ -> tree
+  where
+    isName child = treeLabel child == "Name" && null (treeChildren child)
 
 qualifiedName :: Name -> Text
 qualifiedName name =
@@ -116,7 +120,9 @@ hiddenTypes =
       "Double"
     ]
 
--- | Containers whose structure is not part of the syntax.
+-- | Nodes and containers that only add noise for a reader. Parentheses
+-- show in the source text, and a value declaration only wraps a function
+-- or a binding. The node vanishes and its children take its place.
 transparentConstructors :: Set.Set String
 transparentConstructors =
-  Set.fromList ["(:)", "[]", "Just", "Nothing", "(,)", "(,,)", "Left", "Right"]
+  Set.fromList ["(:)", "[]", "Just", "Nothing", "(,)", "(,,)", "Left", "Right", "DeclValue", "EParen", "PParen", "TyParen"]

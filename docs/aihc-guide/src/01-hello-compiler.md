@@ -59,23 +59,30 @@ hide:
       <text x="428" y="163" fill="#46396b">x</text>
     </g>
   </g>
-  <!-- The program -->
+  <!-- The program: WebAssembly instructions, built block by block -->
   <rect x="512" y="40" width="196" height="140" rx="14" fill="#faf8f3" stroke="#e6e0d6"/>
   <text x="610" y="28" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" letter-spacing="1.5" fill="#6b655d">PROGRAM</text>
-  <rect x="560" y="74" width="100" height="72" rx="10" fill="#1d1a17"/>
-  <g fill="#f2c14e">
-    <circle class="lazy-anim-bit" style="--i: 22" cx="580" cy="94" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 23" cx="600" cy="94" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 24" cx="620" cy="94" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 25" cx="640" cy="94" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 26" cx="580" cy="110" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 27" cx="600" cy="110" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 28" cx="620" cy="110" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 29" cx="640" cy="110" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 30" cx="580" cy="126" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 31" cx="600" cy="126" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 32" cx="620" cy="126" r="5"/>
-    <circle class="lazy-anim-bit" style="--i: 33" cx="640" cy="126" r="5"/>
+  <g font-family="ui-monospace, Menlo, monospace" font-size="13">
+    <g class="lazy-anim-block" style="--i: 24">
+      <rect x="528" y="52" width="164" height="21" rx="6" fill="#5e5086"/>
+      <text x="538" y="67" fill="#ffffff">func $double</text>
+    </g>
+    <g class="lazy-anim-block" style="--i: 26">
+      <rect x="544" y="77" width="148" height="21" rx="6" fill="#eee9f7"/>
+      <text x="554" y="92" fill="#46396b">local.get 0</text>
+    </g>
+    <g class="lazy-anim-block" style="--i: 22">
+      <rect x="544" y="102" width="148" height="21" rx="6" fill="#eee9f7"/>
+      <text x="554" y="117" fill="#46396b">local.get 0</text>
+    </g>
+    <g class="lazy-anim-block" style="--i: 24">
+      <rect x="544" y="127" width="148" height="21" rx="6" fill="#f2c14e"/>
+      <text x="554" y="142" fill="#1d1a17">i64.add</text>
+    </g>
+    <g class="lazy-anim-block" style="--i: 26">
+      <rect x="528" y="152" width="164" height="21" rx="6" fill="#5e5086"/>
+      <text x="538" y="167" fill="#ffffff">end</text>
+    </g>
   </g>
   <!-- Arrows -->
   <path class="lazy-anim-arrow" d="M214 110 L256 110" stroke="#7d6fa6" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
@@ -126,25 +133,17 @@ greeting = "hello"
 
 Try this
 
-- Add a third line: `big = double (double 10)`. The parentheses become a node of their own.
+- Add a third line: `big = double (double 10)`. The parentheses are in the text, but not in the tree.
 - Remove the `=` from the first line. The parser tells you where it got lost.
 - Write `answer = if True then 1 else 0`. An `if` has exactly three children. Find them.
 
 </div>
 
-## What the tree does not show
+## One question left
 
-The tree on the right hides a few things.
-Each node also knows the line and the column where it came from.
-The compiler keeps them for error messages, so that a message can point at the right place.
-The tree also hides small tags, such as whether a number was written with a hash.
-A reader does not need them, so the playground leaves them out.
-
-One more thing is missing, and it is important.
 The tree has two nodes that say `x`.
-The parser does not know whether they are the same `x`.
-It does not know what `+` is, or where `double` came from.
-A parser finds the shape of the text, and nothing else.
-Finding out who is who is the next job.
+Are they the same `x`?
+The parser cannot tell.
+It finds the shape of the text, and nothing else.
 
 <a class="lazy-next" href="../02-who-is-who/"><small>Next chapter</small>Who is who</a>
