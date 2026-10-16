@@ -1873,23 +1873,40 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   default:
     break;
   }
-  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
-       block != NULL; block = block->next) {
+  /* Other capabilities add blocks to the list under the heap lock. A block
+     whose object has no header yet is not initialized, and its object is
+     not this buffer. Its other fields can still change, so the loads are
+     atomic. */
+  AihcMachine *machine = capability->machine;
+  aihc_heap_lock(machine);
+  int owned = 1;
+  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
+       block = block->next) {
     AihcValue *object = (AihcValue *)block->object;
-    if (aihc_value_kind(object) != AIHC_OBJECT_BYTE_ARRAY) {
+    AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_RELAXED);
+    if (header == 0 || ((const AihcInfo *)(uintptr_t)(
+                           header & ~AIHC_HEADER_TAG_MASK))
+                               ->object_kind != AIHC_OBJECT_BYTE_ARRAY) {
       continue;
     }
     AihcByteArray *array = (AihcByteArray *)object;
-    uintptr_t start = (uintptr_t)array->contents;
-    if (address >= start && address - start <= array->size) {
-      uint64_t available = array->size - (address - start);
+    uintptr_t start = (uintptr_t)__atomic_load_n(&array->contents,
+                                                 __ATOMIC_RELAXED);
+    uint64_t size = __atomic_load_n(&array->size, __ATOMIC_RELAXED);
+    if (address >= start && address - start <= size) {
+      uint64_t available = size - (address - start);
       if (offset > available || length > available - offset) {
-        return 0;
+        owned = 0;
+        break;
       }
       aihc_write_barrier(capability, (AihcValue *)request);
       request->buffer_owner = object;
       break;
     }
+  }
+  aihc_heap_unlock(machine);
+  if (!owned) {
+    return 0;
   }
   request->buffer = buffer;
   request->offset = offset;
@@ -2530,7 +2547,12 @@ const AihcResume *aihc_no_duplicate(AihcCapability *capability,
     }
     AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
     AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
-    if ((header & AIHC_HEADER_TAG_MASK) == 0) {
+    if (aihc_value_info_table(thunk)->object_kind ==
+        AIHC_OBJECT_INDIRECTION) {
+      /* Another evaluation finished the thunk, and a collection made it an
+         indirection. Field zero is the value. */
+      lowest = frame;
+    } else if ((header & AIHC_HEADER_TAG_MASK) == 0) {
       aihc_write_barrier(capability, thunk);
       aihc_thunk_claim(thunk, current);
     } else {
@@ -2643,7 +2665,14 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
-  if (aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
+  AihcObjectKind kind = aihc_value_info_table(object)->object_kind;
+  if (kind == AIHC_OBJECT_INDIRECTION) {
+    /* Another evaluation of the thunk finished first, and a collection
+       made the thunk an indirection to that value. The value stands. That
+       update woke the waiters, and nothing claims an indirection. */
+    return value;
+  }
+  if (kind != AIHC_OBJECT_THUNK) {
     aihc_fail("attempted to update a cell that is not a thunk");
   }
   /* The promotion comes before the object lock, because it can collect. */
@@ -2701,6 +2730,11 @@ static void aihc_abandon_blackhole(AihcCapability *capability,
 static void aihc_abandon_blackhole_locked(AihcCapability *capability,
                                           AihcValue *object,
                                           AihcValue *exception) {
+  if (object != NULL &&
+      aihc_value_info_table(object)->object_kind == AIHC_OBJECT_INDIRECTION) {
+    /* Another evaluation finished the thunk. See aihc_update_blackhole. */
+    return;
+  }
   if (object == NULL ||
       aihc_value_info_table(object)->object_kind != AIHC_OBJECT_THUNK) {
     aihc_fail("exception update frame does not contain a thunk");

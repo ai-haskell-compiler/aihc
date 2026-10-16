@@ -1213,6 +1213,13 @@ void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
   if ((header & AIHC_HEADER_TAG_MASK) != 0) {
     return;
   }
+  /* A thunk that another evaluation finished can be an indirection now,
+     which also has no tag. Its field zero is the value, so a claim must
+     not touch it. */
+  if (((const AihcInfo *)(uintptr_t)header)->object_kind !=
+      AIHC_OBJECT_THUNK) {
+    return;
+  }
   /* The swap takes the state Claiming. A failed swap found another state,
      which a claim leaves as it is. The owner store is a release store,
      because a reader can see the owner under the header of an update, and
@@ -4125,6 +4132,10 @@ static AihcValue *aihc_pinned_block_adopt_unlocked(AihcCapability *capability,
   }
   block->bytes = charge_bytes;
   aihc_pinned_set_owner(block, capability->index);
+  /* Another capability can walk the list under the heap lock before the
+     caller initializes the object. A zero header tells it to skip the
+     object. See aihc_io_request_buffer. */
+  __atomic_store_n(&((AihcValue *)block->object)->header, 0, __ATOMIC_RELAXED);
   block->next = capability->machine->pinned_blocks;
   capability->machine->pinned_blocks = block;
   capability->machine->fixed_bytes += charge_bytes;
