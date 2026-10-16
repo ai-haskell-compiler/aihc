@@ -2681,16 +2681,30 @@ AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
     return NULL;
   }
   AihcMachine *machine = capability->machine;
-  aihc_object_lock(machine);
-  AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
-  if ((header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
-    aihc_fail("attempted to update a thunk in the state Claiming");
-  }
   /* The update deletes the owner or the queue in field zero and every free
      variable, so the barrier shades them. */
   aihc_count_escape(capability, object, (AihcSlot)(uintptr_t)value);
   value = (AihcValue *)(uintptr_t)stored;
   aihc_write_barrier_update(capability, object);
+  /* A thunk that no pause claimed has no waiters, so the update needs no
+     lock. The swap of the header publishes the value. A claim that comes
+     first makes the swap fail, and the update then takes the lock. A claim
+     that comes later finds the state Evaluated and leaves it. */
+  AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
+  if ((header & AIHC_HEADER_TAG_MASK) == 0) {
+    __atomic_store_n(&object->fields[0], (AihcSlot)(uintptr_t)value,
+                     __ATOMIC_RELEASE);
+    if (__atomic_compare_exchange_n(&object->header, &header,
+                                    header | AIHC_HEADER_EVALUATING, 0,
+                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+      return value;
+    }
+  }
+  aihc_object_lock(machine);
+  header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
+  if ((header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_TAG_MASK) {
+    aihc_fail("attempted to update a thunk in the state Claiming");
+  }
   AihcBlackholeQueue *queue = NULL;
   if ((header & AIHC_HEADER_EVALUATING) != 0) {
     (void)aihc_thunk_owner(object, &queue);
