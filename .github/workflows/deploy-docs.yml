@@ -32,6 +32,7 @@ permissions:
 
 concurrency:
   group: documentation-content
+  queue: max
   cancel-in-progress: false
 
 jobs:
