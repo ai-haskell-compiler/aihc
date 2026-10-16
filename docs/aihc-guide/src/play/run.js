@@ -116,6 +116,7 @@ onmessage = async ({ data: source }) => {
       report("done", "The program finished.");
     } finally { URL.revokeObjectURL(url); }
   } catch (error) {
-    report("error", String(error?.message ?? error));
+    if (error?.name === "ProgramExit") report(error.code === 0 ? "done" : "error", error.message);
+    else report("error", String(error?.message ?? error));
   }
 };

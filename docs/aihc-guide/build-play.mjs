@@ -3,9 +3,10 @@ import { readFile, writeFile, readdir, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve, join } from "node:path";
 import { gzipSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const root = dirname(new URL(import.meta.url).pathname);
+const root = dirname(fileURLToPath(import.meta.url));
 const [output, runtime] = process.argv.slice(2).map((path) => resolve(path));
 if (!output || !runtime) throw new Error("Give the output and runtime directories.");
 await mkdir(output, { recursive: true });

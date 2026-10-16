@@ -29,7 +29,8 @@ data Command
     CommandNames
   | -- | The source with the inferred signatures.
     CommandTypes
-  | CommandCompile
+  | -- | The WASM assembly of an executable.
+    CommandCompile
   deriving (Eq, Show)
 
 parseCommand :: Text -> Maybe Command

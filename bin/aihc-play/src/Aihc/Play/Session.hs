@@ -4,8 +4,8 @@
 --
 -- The session holds the names and the types the module of the reader can
 -- see. They come from a bundle of the core libraries, written by
--- @aihc-dev play-bundle@ from a store. The three commands of the helper
--- parse, resolve, and type check one module against it.
+-- @aihc-dev play-bundle@ from a store. The helper checks each user module
+-- against these facts.
 module Aihc.Play.Session
   ( Session,
     bundleSession,
@@ -34,6 +34,7 @@ import Aihc.Parser.Syntax
     moduleName,
     sourceSpanEndCol,
     sourceSpanEndLine,
+    sourceSpanSourceName,
     sourceSpanStartCol,
     sourceSpanStartLine,
   )
@@ -177,7 +178,8 @@ tcProblem diagnostic =
 checkProgram :: Session -> Text -> Either [Problem] ([Module], TcInterface)
 checkProgram session source = do
   let (parseProblems, modu, extensions) = parseUserModule source
-      (entryProblems, entry, entryExtensions) = parseUserModule entrySource
+      entryExtensions = headerExtensions GHC2021Edition entrySource
+      (entryProblems, entry) = parseWith entryPath entryExtensions entrySource
   require (parseProblems <> entryProblems)
   require [Problem "input" Nothing "The module must have the name Main." | moduleName modu `notElem` [Nothing, Just "Main"]]
   let package = Package "exe" (PackageId "exe")
@@ -185,14 +187,19 @@ checkProgram session source = do
       visible = collectModuleExportsWithDeps (sessionExports session) units <> sessionExports session
       scope = builtins package visible builtinFunctionModules
   resolved <- case resolveUnit scope visible units of
-    Left failure -> Left (map resolveProblem (failureErrors failure))
+    Left failure -> Left (map (entryProblem . resolveProblem) (failureErrors failure))
     Right (ResolvedUnit result) -> Right result
   let (checked, interface) = typecheckModulesWithInterface (primTcConfig (sessionPrim session)) (sessionInterface session) resolved
-  require (concatMap (map tcProblem . filter ((== TcError) . diagSeverity) . tcModuleDiagnostics) checked)
+  require (concatMap (map (entryProblem . tcProblem) . filter ((== TcError) . diagSeverity) . tcModuleDiagnostics) checked)
   pure (checked, mergeTcInterfaces TrustMergedFacts [sessionInterface session, interface])
   where
     require [] = Right ()
     require problems = Left problems
+    entryPath = "Aihc/Entry.hs"
+    entryProblem problem
+      | maybe False ((== T.pack entryPath) . sourceSpanSourceName) (problemSpan problem) =
+          problem {problemSpan = Nothing, problemMessage = "The main function is invalid. " <> problemMessage problem}
+      | otherwise = problem
     entrySource =
       T.unlines
         [ "{-# LANGUAGE NoImplicitPrelude #-}",

@@ -100,7 +100,10 @@ findPlatformDirectory store = do
 
 -- | The newest store entry of a package, by the time of its manifest.
 newestEntry :: FilePath -> Text -> IO (FilePath, PackageManifest)
-newestEntry platform name = do
+newestEntry = newestEntryMatching (const True)
+
+newestEntryMatching :: (PackageManifest -> Bool) -> FilePath -> Text -> IO (FilePath, PackageManifest)
+newestEntryMatching matches platform name = do
   children <- listDirectory platform
   candidates <- fmap concat . forM children $ \child -> do
     let manifestPath = packageManifestPath (platform </> child)
@@ -110,9 +113,11 @@ newestEntry platform name = do
       else do
         manifest <- readPackageManifest manifestPath
         case manifest of
-          Right value | packageManifestName value == name -> do
-            time <- getModificationTime manifestPath
-            pure [(time, (child, value))]
+          Right value
+            | packageManifestName value == name,
+              matches value -> do
+                time <- getModificationTime manifestPath
+                pure [(time, (child, value))]
           _ -> pure []
   case sortOn (Down . fst) candidates of
     (_, entry) : _ -> pure entry
@@ -142,7 +147,7 @@ moduleNameDirectory = joinPath . map T.unpack . T.splitOn "."
 writeStoreRuntime :: FilePath -> FilePath -> IO ()
 writeStoreRuntime store output = do
   platform <- findPlatformDirectory store
-  base <- newestEntry platform "aihc-base"
+  base <- newestEntryMatching (not . any (`elem` ["lto", "no-code"]) . packageManifestFlags) platform "aihc-base"
   entries <- closure platform Map.empty [base]
   createDirectoryIfMissing True output
   files <- fmap concat . forM (Map.toAscList entries) $ \(identity, (_, manifest)) -> do

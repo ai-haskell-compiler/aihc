@@ -10,10 +10,9 @@
 #
 # AIHC names the compiler and AIHC_DEV the developer tool. The defaults
 # are the cabal builds of exe:aihc and exe:aihc-dev. The output directory
-# gets aihc-play.js, aihc-play-component.core.wasm, and core.bundle.gz: the naming
-# and type facts of the core libraries, which the helper loads instead of
-# compiling them. The bundle comes from the wasm32-wasip3 entries of the
-# store, which the helper build installs anyway.
+# gets the helper, browser tools, and compressed core library assets.
+# The helper reads core.bundle.gz for name resolution and type checks.
+# The browser linker reads the runtime objects and core archives.
 set -euo pipefail
 
 output=""
@@ -94,6 +93,12 @@ JS
   -O "$optimization" \
   --output "$work/aihc-play.wasm"
 
+echo "=== Compiling the core libraries for the browser linker ==="
+# The browser linker needs native archives. LTO entries contain System FC.
+"$aihc" install "$root/core-libs/aihc-base" \
+  --immutable --target wasm32-wasip3 --store "$store" \
+  --build-root "$work/runtime-build" -O 1
+
 echo "=== Writing the bundle of the core libraries ==="
 mkdir -p "$output"
 "$aihc_dev" play-bundle --store "$store/wasm32-wasip3" --output "$work/core.bundle"
@@ -132,6 +137,12 @@ fi
 cp "$work/out/aihc-play-component.js" "$output/"
 for core in "$work/out/"*.wasm; do
   gzip -9 -n -c "$core" > "$output/$(basename "$core").gz"
+done
+for asset in "$output/"*; do
+  if [[ $(wc -c < "$asset") -gt 26214400 ]]; then
+    echo "The asset exceeds the site limit: $asset" >&2
+    exit 1
+  fi
 done
 ls -la "$output"
 # The component itself goes beside the output directory, for a check under
