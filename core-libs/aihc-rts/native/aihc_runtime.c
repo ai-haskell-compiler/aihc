@@ -2399,11 +2399,12 @@ const AihcResume *aihc_no_duplicate(AihcCapability *capability,
     if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
       break;
     }
-    if (info->frame_kind != AIHC_FRAME_UPDATE) {
-      continue;
-    }
     if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
       break;
+    }
+    if (info->frame_kind != AIHC_FRAME_UPDATE) {
+      frame->header |= AIHC_FRAME_PROCESSED;
+      continue;
     }
     AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
     AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
@@ -2770,6 +2771,8 @@ const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
     uint64_t frame_words = aihc_value_words(frame);
     AihcValue *copy = aihc_gc_allocate(capability, frame_words);
     memcpy(copy, frame, frame_words * sizeof(AihcSlot));
+    /* The copy has a new parent chain. Its pause must visit that chain. */
+    copy->header &= ~AIHC_FRAME_PROCESSED;
     aihc_value_fields(copy)[0] = 0;
     if (previous == NULL) {
       aihc_value_fields(captured)[0] = (AihcSlot)(uintptr_t)copy;

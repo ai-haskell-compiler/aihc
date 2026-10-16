@@ -1244,17 +1244,17 @@ static void aihc_pause_locked(AihcCapability *capability, AihcThread *thread,
     if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
       return;
     }
+    if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
+      return;
+    }
     if (info->frame_kind == AIHC_FRAME_UPDATE) {
-      if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
-        return;
-      }
       AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
       if ((thunk->header & AIHC_HEADER_TAG_MASK) == 0) {
         aihc_write_barrier(capability, thunk);
         aihc_thunk_claim(thunk, thread);
       }
-      frame->header |= AIHC_FRAME_PROCESSED;
     }
+    frame->header |= AIHC_FRAME_PROCESSED;
     frame = (AihcValue *)(uintptr_t)frame->fields[0];
   }
 }
