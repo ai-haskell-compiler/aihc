@@ -366,7 +366,10 @@ a `ptr`, with at most eight stored fields and at most four supplied values,
 the field names a shared function of the runtime unit `aihc_enter.lir`,
 which reaches the code through the `identity` field. A thunk uses
 `aihc_lir_enter_thunk_S`, which loads its stored fields after the owner word.
-Every other shape gets one generated function per enterable object.
+A continuation frame uses `aihc_lir_enter_frame_S_V`, whose loads carry the
+`stack` region; the loads of the other shared functions carry the `heap`
+region. Every other shape gets one generated function per enterable object,
+whose loads carry the region of the object.
 
 A frame with `AIHC_FRAME_FORWARD` has the ordinary closure object kind.
 Its first field holds its parent, and its pointer bitmap describes all captured values.
@@ -958,7 +961,8 @@ The units are:
 - `aihc_enter.lir` defines the shared enter functions `aihc_lir_enter_S_V`
   and `aihc_lir_enter_S_V_k` for `S` stored pointers up to eight and `V`
   supplied pointers up to four; the `_k` form passes the continuation to the
-  code. See "Info tables".
+  code. `aihc_lir_enter_frame_S_V` is the form for a continuation frame, and
+  `aihc_lir_enter_thunk_S` the form for a thunk. See "Info tables".
 - `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
   and the bulk operations: copy, clone, shrink, and resize. The lowering
   emits the rest of the boxed-array primitives inline: the identity test is

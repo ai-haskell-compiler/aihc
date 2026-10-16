@@ -282,6 +282,9 @@ constructorStage remaining
 
 data RuntimeEnter = RuntimeEnter
   { enterTarget :: !Symbol,
+    -- | The region of the stored fields: 'StackRegion' for a continuation
+    -- frame, and 'HeapRegion' for a closure or a thunk.
+    enterRegion :: !Region,
     -- | The stored fields start after this many words of the payload: one
     -- for the owner word of a thunk, and zero otherwise.
     enterStoredOffset :: !Int,
@@ -609,6 +612,7 @@ lowerEnvironment options gcProgram =
               Just
                 RuntimeEnter
                   { enterTarget = target,
+                    enterRegion = if name `Set.member` continuationFunctions then StackRegion else HeapRegion,
                     enterStoredOffset = 0,
                     enterStored = map repType fields,
                     enterSupplied = map repType (concat layouts),
@@ -619,6 +623,7 @@ lowerEnvironment options gcProgram =
           Just
             RuntimeEnter
               { enterTarget = target,
+                enterRegion = HeapRegion,
                 enterStoredOffset = thunkOwnerWords,
                 enterStored = map repType fields,
                 enterSupplied = [],
@@ -1288,11 +1293,14 @@ enterFunction info enter =
 -- and @V@ supplied pointers from one up to 'sharedEnterMaxSupplied'; the @_k@
 -- form passes the continuation to the code. It defines
 -- @aihc_lir_enter_thunk_S@ for a thunk, whose stored fields start after the
--- owner word, and which takes no supplied value. Those functions load the stored
--- fields and tail-call the code through the identity field of the info
--- table, which is what a generated stub does for the same shape. Any value
--- that is not a pointer keeps a generated stub, since WebAssembly checks the
--- signature of an indirect call and a stub coerces such values.
+-- owner word, and which takes no supplied value. It defines
+-- @aihc_lir_enter_frame_S_V@ for a continuation frame, whose loads carry the
+-- stack region where the loads of the other forms carry the heap region.
+-- Those functions load the stored fields and tail-call the code through the
+-- identity field of the info table, which is what a generated stub does for
+-- the same shape. Any value that is not a pointer keeps a generated stub,
+-- since WebAssembly checks the signature of an indirect call and a stub
+-- coerces such values.
 sharedEnterSymbol :: RuntimeEnter -> Maybe Symbol
 sharedEnterSymbol enter
   | all (== Ptr) (enterStored enter),
@@ -1301,10 +1309,11 @@ sharedEnterSymbol enter
     length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
     stored <= sharedEnterMaxStored,
     supplied <= sharedEnterMaxSupplied =
-      case (enterStoredOffset enter, supplied, passesContinuation) of
-        (0, _, False) -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied)))
-        (0, _, True) | supplied > 0 -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> "_k")))
-        (offset, 0, True) | offset == thunkOwnerWords -> Just (Symbol (T.pack ("aihc_lir_enter_thunk_" <> show stored)))
+      case (enterRegion enter, enterStoredOffset enter, supplied, passesContinuation) of
+        (StackRegion, 0, _, False) -> Just (Symbol (T.pack ("aihc_lir_enter_frame_" <> show stored <> "_" <> show supplied)))
+        (HeapRegion, 0, _, False) -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied)))
+        (HeapRegion, 0, _, True) | supplied > 0 -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> "_k")))
+        (HeapRegion, offset, 0, True) | offset == thunkOwnerWords -> Just (Symbol (T.pack ("aihc_lir_enter_thunk_" <> show stored)))
         _ -> Nothing
   | otherwise = Nothing
   where
@@ -1327,7 +1336,7 @@ lowerEnterStub stub enter = do
   supplied <- forM (enterSupplied enter) $ \ty -> (,ty) <$> fresh "supplied"
   beginBlock (Label "entry") []
   stored <- forM (zip [0 :: Int ..] (enterStored enter)) $ \(index, ty) ->
-    loadSlot AnyRegion "stored" ty (OperandVar object) (toInteger (8 * (index + 1 + enterStoredOffset enter)))
+    loadSlot (enterRegion enter) "stored" ty (OperandVar object) (toInteger (8 * (index + 1 + enterStoredOffset enter)))
   let values = stored <> [Typed (OperandVar var) ty | (var, ty) <- supplied] <> [Typed (OperandVar continuation) Ptr | enterPassesContinuation enter]
       parameters = enterTargetParameters enter
   when (length parameters /= length values) $
@@ -1367,6 +1376,7 @@ continuationInfoItems spec = do
             Just
               RuntimeEnter
                 { enterTarget = continuationTarget spec,
+                  enterRegion = StackRegion,
                   enterStoredOffset = 0,
                   enterStored = continuationStored spec,
                   enterSupplied = continuationSupplied spec,

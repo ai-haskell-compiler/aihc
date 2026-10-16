@@ -106,8 +106,8 @@ expected: |
 
   func @aihc_lir_info_0_e(%hp_58: ptr, %hp_limit_59: ptr, %sp_60: ptr, %sp_limit_61: ptr, %object_62: ptr, %continuation_63: ptr, %supplied_64: i64) {
   entry:
-    %stored_65 = load ptr [%object_62 + 8] align 8
-    %stored_66 = load ptr [%object_62 + 16] align 8
+    %stored_65 = load ptr [%object_62 + 8] align 8 region stack
+    %stored_66 = load ptr [%object_62 + 16] align 8 region stack
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_58, %hp_limit_59, %sp_60, %sp_limit_61, %stored_65, %stored_66, %supplied_64)
   }
 

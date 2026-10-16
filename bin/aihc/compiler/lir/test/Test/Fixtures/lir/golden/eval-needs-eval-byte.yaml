@@ -19,7 +19,7 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern func @aihc_lir_enter_1_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  extern func @aihc_lir_enter_frame_1_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_lir_enter_thunk_0(ptr, ptr, ptr, ptr, ptr, ptr)
 
@@ -144,7 +144,7 @@ expected: |
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_enter_1_1, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_enter_frame_1_1, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01" }
 
