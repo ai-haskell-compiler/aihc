@@ -3337,7 +3337,7 @@ desugarSectionR annotation operator operand = do
   binder <- freshBinder "_section" =<< sectionArgumentType annotation
   operator' <- desugarInfixOperator operator
   operand' <- desugarExpr operand
-  shareSectionOperand operand operand' (\shared -> ExLam binder (ExApp (ExApp operator' (ExVar (binderName binder))) shared))
+  shareSectionOperand operand operand' (ExLam binder . ExApp (ExApp operator' (ExVar (binderName binder))))
 
 -- | Bind the operand of a section outside the lambda of the section, as
 -- GHC does. Each application of the section then uses one value of the
