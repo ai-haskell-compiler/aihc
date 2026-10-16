@@ -225,8 +225,18 @@ typedef struct AihcForeignFrame {
   AihcSlot *roots;
   uint64_t count;
   const AihcSrt *srt;
+  /* AIHC_FOREIGN_UNSAFE for an unsafe call, AIHC_FOREIGN_SAFE for a safe
+     call that holds the capability, and AIHC_FOREIGN_RELEASED for a safe
+     call that released it. Compiled code reserves five words for the frame,
+     so this word keeps both facts. */
   uint64_t allow_callbacks;
 } AihcForeignFrame;
+
+enum {
+  AIHC_FOREIGN_UNSAFE = 0,
+  AIHC_FOREIGN_SAFE = 1,
+  AIHC_FOREIGN_RELEASED = 2
+};
 
 typedef struct AihcCallbackFrame AihcCallbackFrame;
 typedef struct AihcCallbackSlot AihcCallbackSlot;
@@ -313,6 +323,10 @@ struct AihcCapability {
      docs/multi-threaded-rts-design.md. */
   AihcGeneration gen1;
   uint64_t gen1_age;
+  /* With several capabilities, gen1 is the oldest local generation, and a
+     collection copies gen1 when it reaches this size. See
+     aihc_choose_generation. */
+  uint64_t gen1_limit_bytes;
   /* The stores that gave an object outside the local heap a value of the
      local heap. In the end state each one promotes the value. */
   uint64_t escape_count;
@@ -326,6 +340,9 @@ struct AihcCapability {
   uint64_t idle;
   /* The threads that this capability pushed to an idle capability. */
   uint64_t push_count;
+  /* The commit count of the machine when the last transaction of this
+     capability that retried was still valid. See aihc_stm_wait_request. */
+  uint64_t stm_retry_token;
   /* The inbox: the threads that other capabilities push or wake into this
      capability. inbox_lock guards the inbox, and the worker moves it into
      the run queue at each schedule. Without workers, the lock is NULL and
@@ -368,6 +385,13 @@ struct AihcMachine {
   uint64_t gc_count;
   uint64_t gc_time_ns;
   AihcTransactionTimer *transaction_timers;
+  /* The transactions that wait in retry for a commit, and the count of
+     those among them without a timer. stm_wait_lock guards both and takes
+     no other lock. Each commit increments stm_commit_count. */
+  struct AihcStmWaiter *stm_waiters;
+  uint64_t stm_forever_count;
+  uint64_t stm_commit_count;
+  void *stm_wait_lock;
   struct AihcPinnedBlock *pinned_blocks;
   /* The bytes of the pinned list: pinned blocks and large objects. */
   uint64_t fixed_bytes;
@@ -405,6 +429,9 @@ struct AihcMachine {
   uint64_t mark_factor;
   uint64_t mark_slice_floor;
   uint64_t mark_slice_cap;
+  /* The mark work that local collections without a stop owe the active
+     gen2 cycle. A later stop does it in one slice. */
+  uint64_t deferred_mark_bytes;
   /* The bytes of gen2 when the active cycle took its snapshot. The cycle
      is finished in one pause when gen2 doubles while it runs. */
   uint64_t gen2_cycle_start_bytes;
@@ -431,6 +458,10 @@ struct AihcMachine {
   uint64_t stop_requested;
   uint64_t running_count;
   uint64_t parked_count;
+  /* The number of capabilities in a safe foreign call. Such a capability
+     does not count as running, so a stop does not wait for it. It can give
+     work when the call returns, so the deadlock test must not ignore it. */
+  uint64_t foreign_count;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the
@@ -745,6 +776,8 @@ int64_t aihc_io_handle_set_position(void *handle, int64_t position);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);
+/* The number of capabilities of the machine, for getNumCapabilities. */
+int64_t aihc_capability_count(void);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_errno_get(void);

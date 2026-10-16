@@ -2492,6 +2492,10 @@ callForeign foreignCall arguments
     [] <- arguments = do
       now <- liftEvalIO Host.getMonotonicTimeNSec
       pure [RuntimeLit (GrinLitInt Word64Rep (toInteger now))]
+  -- The interpreter runs every thread on one capability.
+  | symbol == "aihc_capability_count",
+    [] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep 1)]
   | symbol == "aihc_errno_get",
     [] <- arguments = do
       Errno current <- liftEvalIO getErrno
