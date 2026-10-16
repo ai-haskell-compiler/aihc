@@ -3342,9 +3342,9 @@ AihcSlot aihc_tvar_read_io(AihcCapability *capability, AihcValue *variable) {
 /* The request of a transaction that retries. With workers, the request
    waits for the next commit or the earliest STM timer. A commit after the
    reads of the transaction ends the wait at once. Without workers, nothing
-   can commit during a blocking poll. Thus the request ends at once when
-   other threads have work, and it waits for the earliest timer otherwise.
-   A request that ends at once without a timer gives zero, and the
+   can commit during a blocking poll. Thus the request waits for the
+   earliest STM timer. Without a timer, it lets the other threads run once
+   when they have work. Otherwise it ends at once and gives zero, and the
    transaction raises BlockedIndefinitelyOnSTM. */
 void *aihc_stm_wait_request(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
@@ -3383,12 +3383,16 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
     return request;
   }
   aihc_object_unlock(machine);
-  if (capability->run_queue_head != NULL || capability->io_request_count != 0) {
-    request->deadline = 0;
-  } else if (request->deadline == UINT64_MAX) {
-    request->state = AIHC_IO_COMPLETED;
-    request->result = 0;
-    return request;
+  if (request->deadline == UINT64_MAX) {
+    if (capability->run_queue_head == NULL &&
+        capability->io_request_count == 0) {
+      request->state = AIHC_IO_COMPLETED;
+      request->result = 0;
+      return request;
+    }
+    /* A deadline in the future suspends the thread, so the others run
+       before the transaction runs again. */
+    request->deadline = aihc_host_monotonic_ns() + 1;
   }
   request->state = AIHC_IO_SUBMITTED;
   return request;
