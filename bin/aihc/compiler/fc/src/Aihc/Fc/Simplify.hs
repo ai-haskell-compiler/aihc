@@ -4098,21 +4098,31 @@ knownConstructor env expr = do
     -- A top-level value shares its fields that are not cheap. Each such
     -- field becomes 'expensiveField' before the copy, so the copy does
     -- not hold the field, and no alternative takes it.
+    --
+    --
+    -- A call that gives a value argument shares nothing: each evaluation
+    -- of the call builds every field again. A dictionary function, such as
+    -- the instance of 'Monad' for 'ReaderT r m', is such a call, and its
+    -- fields are mostly method workers applied to the dictionaries. The
+    -- copy of a call thus also takes a field that is a call of a top-level
+    -- function with cheap arguments. The case then builds the field that
+    -- it selects once, as the call built it.
     unfoldShared body args
       | isKnownConstructor (spArity env) body = unfold body args
       | otherwise =
-          case cheapFieldsOnly (spEnv env) body of
+          case cheapFieldsOnly (any isRight args) (spEnv env) body of
             Just cheap -> unfold cheap args
             Nothing -> pure Nothing
-    cheapFieldsOnly scope body =
+    cheapFieldsOnly call scope body =
       case body of
-        ExTyLam binder inner -> ExTyLam binder <$> cheapFieldsOnly (extendBinder scope binder) inner
-        ExLam binder inner -> ExLam binder <$> cheapFieldsOnly (extendBinder scope binder) inner
-        ExCast inner coercion -> (`ExCast` coercion) <$> cheapFieldsOnly scope inner
+        ExTyLam binder inner -> ExTyLam binder <$> cheapFieldsOnly call (extendBinder scope binder) inner
+        ExLam binder inner -> ExLam binder <$> cheapFieldsOnly call (extendBinder scope binder) inner
+        ExCast inner coercion -> (`ExCast` coercion) <$> cheapFieldsOnly call scope inner
         _ -> do
           let (headExpr, conArgs) = collectSpine body
               field value
                 | isCheapValue (spArity env) value = Just value
+                | call, isTopLevelCall value = Just value
                 | otherwise = do
                     ty <- exprType scope value
                     -- An unlifted field must run before the constructor
@@ -4138,6 +4148,22 @@ knownConstructor env expr = do
                 null args ->
                   Just (reverse binds, con, lefts conArgs, rights conArgs, [])
             _ -> Nothing
+
+-- | A call of a top-level function whose arguments are cheap values, such
+-- as a method worker applied to a dictionary.
+isTopLevelCall :: Expr -> Bool
+isTopLevelCall expr =
+  case collectSpine expr of
+    (ExVar name, args@(_ : _)) ->
+      not (isConstructorName name)
+        && isTopLevelName name
+        && all (either (const True) isTrivial) args
+    _ -> False
+  where
+    isTopLevelName name =
+      case nameOrigin name of
+        OriginTop {} -> True
+        _ -> False
 
 -- | The field that 'knownConstructor' gives in place of a field of a
 -- top-level value that is not a cheap value. An alternative that uses it

@@ -51,14 +51,9 @@ expected: |-
     = Λ(a : sType). λ(x : a) (unused y : a).
       x
 
-  val 1.vmake :: ∀(a : sType). a → tBox a
-    = Λ(a : sType). λ(x : a).
-      cBox @a (vkeep @a x) (vcostly @a x)
-
   pub val 1.vcostly :: ∀(a : sType). a → a
     = Λ(a : sType). λ(x : a).
-      let! cBox (unused _pat : a → a) (value : a) = vmake @a x;
-      value
+      vcostly @a x
 
   pub val 1.vselect :: ∀(a : sType). a → a → a
     = Λ(a : sType). λ(x : a) (unused y : a).
@@ -70,7 +65,6 @@ expected: |-
 
   pub val 1.vwhole :: ∀(a : sType). a → tBox a
     = Λ(a : sType). λ(x : a).
-      let! cBox (field : a → a) (unused _pat : a) as (_scrut : tBox a) = vmake @a x;
-      vconsume @a (field x) _scrut
+      vconsume @a x (cBox @a (vkeep @a x) (vcostly @a x))
 status: pass
 reason: An unused costly field must not block selection of a cheap field from a recursive constructor producer.
