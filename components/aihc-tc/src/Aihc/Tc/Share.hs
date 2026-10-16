@@ -13,8 +13,10 @@ import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo 
 import Aihc.Tc.Env
 import Aihc.Tc.Interface
 import Aihc.Tc.Types
+import Control.Monad (mapAndUnzipM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 
 -- | Share equal parts of the facts that one unit declares.
 shareTcInterface :: TcInterface -> TcInterface
@@ -23,20 +25,56 @@ shareTcInterface interface =
     Result shared _ -> shared
 
 -- The tables of the parts seen so far. A part is looked up after its own
--- parts are shared, so an equal part compares against parts that are the
--- same objects, and each distinct part ends up in a table once. The keys
--- are the shared parts themselves: a table costs its spine and nothing
--- else, and it dies with the pass.
+-- parts are shared, and each shared part has an identity. So a table is
+-- keyed by the constructor of a part and the identities of its parts: a
+-- lookup compares a few integers and never walks a type. Each distinct
+-- part ends up in a table once, and the tables die with the pass.
 data ShareState = ShareState
-  { stateTyCons :: !(Map TyCon TyCon),
-    stateTyVars :: !(Map TyVarId TyVarId),
-    stateTypes :: !(Map TcType TcType),
-    statePreds :: !(Map Pred Pred),
-    stateSchemes :: !(Map TypeScheme TypeScheme)
+  { stateTyCons :: !(Map TyCon (Int, TyCon)),
+    stateTyVars :: !(Map TyVarKey (Int, TyVarId)),
+    stateTypes :: !(Map TypeKey (Int, TcType)),
+    statePreds :: !(Map PredKey (Int, Pred)),
+    stateSchemes :: !(Map SchemeKey TypeScheme),
+    stateNextId :: !Int
   }
 
+-- | A type variable as its unique, the identity of its kind, and its name.
+-- The unique comes first, because it is the cheapest part to compare.
+data TyVarKey = TyVarKey !Unique !Int !Text
+  deriving (Eq, Ord)
+
+-- | A type as its constructor and the identities of its shared parts. Two
+-- types are equal exactly when their keys are equal, because equal parts
+-- are already one object with one identity.
+data TypeKey
+  = KeyTyVar !Int
+  | KeyMetaTv !Unique
+  | KeyTyCon !Int ![Int]
+  | KeyArrow
+  | KeyFun !Int !Int
+  | KeyForAll !Int !Int
+  | KeyQual ![Int] !Int
+  | KeyApp !Int !Int
+  | KeyLit !TyLit
+  | KeyKindedTyCon !Int ![Int]
+  deriving (Eq, Ord)
+
+-- | A predicate as its constructor and the identities of its shared parts.
+data PredKey
+  = KeyClass !Int ![Int]
+  | KeyEq !Int !Int
+  | KeyQuantified ![Int] ![Int] !Int
+  | KeyIParam !Text !Int
+  | KeyIrred !Int
+  deriving (Eq, Ord)
+
+-- | A scheme as the identities of its inferred binders, specified binders,
+-- predicates, and body.
+data SchemeKey = SchemeKey ![Int] ![Int] ![Int] !Int
+  deriving (Eq, Ord)
+
 emptyState :: ShareState
-emptyState = ShareState Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyState = ShareState Map.empty Map.empty Map.empty Map.empty Map.empty 0
 
 -- | A strict state monad: every result is evaluated as it is produced, so
 -- the rebuilt interface holds no thunk that could keep a table alive.
@@ -71,58 +109,119 @@ instance Monad Share where
             Result value state' -> runShare (continue value) state'
       )
 
--- | The one object for a part: the table's, or this one once recorded.
-intern :: (Ord part) => (ShareState -> Map part part) -> (Map part part -> ShareState -> ShareState) -> part -> Share part
-intern select store part =
+-- | The one object for a part and its identity: the table's, or this one
+-- once recorded with a new identity.
+intern :: (Ord key) => (ShareState -> Map key (Int, part)) -> (Map key (Int, part) -> ShareState -> ShareState) -> key -> part -> Share (Int, part)
+intern select store key part =
   Share
     ( \state ->
-        case Map.lookup part (select state) of
+        case Map.lookup key (select state) of
           Just known -> Result known state
-          Nothing -> Result part (store (Map.insert part part (select state)) state)
+          Nothing ->
+            let identity = stateNextId state
+                recorded = (identity, part)
+             in Result recorded ((store (Map.insert key recorded (select state)) state) {stateNextId = identity + 1})
     )
 
 -- Sharing of the parts, bottom up.
 
 shareTyCon :: TyCon -> Share TyCon
-shareTyCon = intern stateTyCons (\table state -> state {stateTyCons = table})
+shareTyCon tyCon = snd <$> shareTyConKeyed tyCon
+
+shareTyConKeyed :: TyCon -> Share (Int, TyCon)
+shareTyConKeyed tyCon = intern stateTyCons (\table state -> state {stateTyCons = table}) tyCon tyCon
 
 shareTyVar :: TyVarId -> Share TyVarId
-shareTyVar variable = do
-  kind <- shareType (tvKind variable)
-  intern stateTyVars (\table state -> state {stateTyVars = table}) (mkTyVarId (tvName variable) (tvUnique variable) kind)
+shareTyVar variable = snd <$> shareTyVarKeyed variable
+
+shareTyVarKeyed :: TyVarId -> Share (Int, TyVarId)
+shareTyVarKeyed variable = do
+  (kindId, kind) <- shareTypeKeyed (tvKind variable)
+  let unique = tvUnique variable
+      name = tvName variable
+  intern stateTyVars (\table state -> state {stateTyVars = table}) (TyVarKey unique kindId name) (mkTyVarId name unique kind)
 
 shareType :: TcType -> Share TcType
-shareType ty = do
-  rebuilt <-
-    case ty of
-      TcTyVar variable -> TcTyVar <$> shareTyVar variable
-      TcMetaTv unique -> pure (TcMetaTv unique)
-      TcTyCon tyCon arguments -> TcTyCon <$> shareTyCon tyCon <*> mapM shareType arguments
-      TcKindedTyCon tyCon kindArguments -> TcKindedTyCon <$> shareTyCon tyCon <*> mapM shareType kindArguments
-      TcArrowTy -> pure TcArrowTy
-      TcTyLit {} -> pure ty
-      TcFunTy argument result -> TcFunTy <$> shareType argument <*> shareType result
-      TcForAllTy variable body -> TcForAllTy <$> shareTyVar variable <*> shareType body
-      TcQualTy predicates body -> TcQualTy <$> mapM sharePred predicates <*> shareType body
-      TcAppTy function argument -> TcAppTy <$> shareType function <*> shareType argument
-  intern stateTypes (\table state -> state {stateTypes = table}) rebuilt
+shareType ty = snd <$> shareTypeKeyed ty
+
+shareTypeKeyed :: TcType -> Share (Int, TcType)
+shareTypeKeyed ty =
+  case ty of
+    TcTyVar variable -> do
+      (v, variable') <- shareTyVarKeyed variable
+      record (KeyTyVar v) (TcTyVar variable')
+    TcMetaTv unique -> record (KeyMetaTv unique) ty
+    TcTyCon tyCon arguments -> do
+      (c, tyCon') <- shareTyConKeyed tyCon
+      (as, arguments') <- mapAndUnzipM shareTypeKeyed arguments
+      record (KeyTyCon c as) (TcTyCon tyCon' arguments')
+    TcKindedTyCon tyCon kindArguments -> do
+      (c, tyCon') <- shareTyConKeyed tyCon
+      (ks, kindArguments') <- mapAndUnzipM shareTypeKeyed kindArguments
+      record (KeyKindedTyCon c ks) (TcKindedTyCon tyCon' kindArguments')
+    TcArrowTy -> record KeyArrow ty
+    TcTyLit literal -> record (KeyLit literal) ty
+    TcFunTy argument result -> do
+      (a, argument') <- shareTypeKeyed argument
+      (r, result') <- shareTypeKeyed result
+      record (KeyFun a r) (TcFunTy argument' result')
+    TcForAllTy variable body -> do
+      (v, variable') <- shareTyVarKeyed variable
+      (b, body') <- shareTypeKeyed body
+      record (KeyForAll v b) (TcForAllTy variable' body')
+    TcQualTy predicates body -> do
+      (ps, predicates') <- mapAndUnzipM sharePredKeyed predicates
+      (b, body') <- shareTypeKeyed body
+      record (KeyQual ps b) (TcQualTy predicates' body')
+    TcAppTy function argument -> do
+      (f, function') <- shareTypeKeyed function
+      (a, argument') <- shareTypeKeyed argument
+      record (KeyApp f a) (TcAppTy function' argument')
+  where
+    record = intern stateTypes (\table state -> state {stateTypes = table})
 
 sharePred :: Pred -> Share Pred
-sharePred predicate = do
-  rebuilt <-
-    case predicate of
-      ClassPred tyCon arguments -> ClassPred <$> shareTyCon tyCon <*> mapM shareType arguments
-      EqPred left right -> EqPred <$> shareType left <*> shareType right
-      QuantifiedPred variables antecedents consequent ->
-        QuantifiedPred <$> mapM shareTyVar variables <*> mapM sharePred antecedents <*> sharePred consequent
-      IParamPred name payload -> IParamPred name <$> shareType payload
-      IrredPred constraint -> IrredPred <$> shareType constraint
-  intern statePreds (\table state -> state {statePreds = table}) rebuilt
+sharePred predicate = snd <$> sharePredKeyed predicate
+
+sharePredKeyed :: Pred -> Share (Int, Pred)
+sharePredKeyed predicate =
+  case predicate of
+    ClassPred tyCon arguments -> do
+      (c, tyCon') <- shareTyConKeyed tyCon
+      (as, arguments') <- mapAndUnzipM shareTypeKeyed arguments
+      record (KeyClass c as) (ClassPred tyCon' arguments')
+    EqPred left right -> do
+      (l, left') <- shareTypeKeyed left
+      (r, right') <- shareTypeKeyed right
+      record (KeyEq l r) (EqPred left' right')
+    QuantifiedPred variables antecedents consequent -> do
+      (vs, variables') <- mapAndUnzipM shareTyVarKeyed variables
+      (as, antecedents') <- mapAndUnzipM sharePredKeyed antecedents
+      (c, consequent') <- sharePredKeyed consequent
+      record (KeyQuantified vs as c) (QuantifiedPred variables' antecedents' consequent')
+    IParamPred name payload -> do
+      (p, payload') <- shareTypeKeyed payload
+      record (KeyIParam name p) (IParamPred name payload')
+    IrredPred constraint -> do
+      (c, constraint') <- shareTypeKeyed constraint
+      record (KeyIrred c) (IrredPred constraint')
+  where
+    record = intern statePreds (\table state -> state {statePreds = table})
 
 shareScheme :: TypeScheme -> Share TypeScheme
-shareScheme scheme = do
-  rebuilt <- traverseScheme shareTyVar sharePred shareType scheme
-  intern stateSchemes (\table state -> state {stateSchemes = table}) rebuilt
+shareScheme (Scheme inferred specified predicates body) = do
+  (is, inferred') <- mapAndUnzipM shareTyVarKeyed inferred
+  (ss, specified') <- mapAndUnzipM shareTyVarKeyed specified
+  (ps, predicates') <- mapAndUnzipM sharePredKeyed predicates
+  (b, body') <- shareTypeKeyed body
+  let key = SchemeKey is ss ps b
+      rebuilt = Scheme inferred' specified' predicates' body'
+  Share
+    ( \state ->
+        case Map.lookup key (stateSchemes state) of
+          Just known -> Result known state
+          Nothing -> Result rebuilt state {stateSchemes = Map.insert key rebuilt (stateSchemes state)}
+    )
 
 -- The interface and its facts.
 
