@@ -317,6 +317,13 @@ void aihc_memory_move(void *destination, const void *source, uint64_t length) {
   memmove(destination, source, (size_t)length);
 }
 
+/* The sign of memcmp as minus one, zero, or one. */
+int64_t aihc_memory_compare(const void *left, const void *right,
+                            uint64_t length) {
+  int order = memcmp(left, right, (size_t)length);
+  return (int64_t)(order > 0) - (int64_t)(order < 0);
+}
+
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
   memset(destination, (int)(byte & 0xff), (size_t)length);
 }
