@@ -336,6 +336,9 @@ struct AihcCapability {
   uint64_t idle;
   /* The threads that this capability pushed to an idle capability. */
   uint64_t push_count;
+  /* The commit count of the machine when the last transaction of this
+     capability that retried was still valid. See aihc_stm_wait_request. */
+  uint64_t stm_retry_token;
   /* The inbox: the threads that other capabilities push or wake into this
      capability. inbox_lock guards the inbox, and the worker moves it into
      the run queue at each schedule. Without workers, the lock is NULL and
@@ -378,6 +381,13 @@ struct AihcMachine {
   uint64_t gc_count;
   uint64_t gc_time_ns;
   AihcTransactionTimer *transaction_timers;
+  /* The transactions that wait in retry for a commit, and the count of
+     those among them without a timer. stm_wait_lock guards both and takes
+     no other lock. Each commit increments stm_commit_count. */
+  struct AihcStmWaiter *stm_waiters;
+  uint64_t stm_forever_count;
+  uint64_t stm_commit_count;
+  void *stm_wait_lock;
   struct AihcPinnedBlock *pinned_blocks;
   /* The bytes of the pinned list: pinned blocks and large objects. */
   uint64_t fixed_bytes;

@@ -123,6 +123,12 @@ After the call, the capability waits for the end of a stop before it runs again.
 A callback takes the capability back for the time that it runs.
 The OS thread of the call keeps the capability, so a thread that the call wakes on that capability waits for the end of the call.
 `getNumCapabilities` gives the count that `-N` sets.
+A transaction that retries waits in a timer request until the next commit or the earliest STM timer.
+This first version does not keep a watcher list on each `TVar`: each commit with writes ends every wait, and each woken transaction runs again.
+The abort of a valid transaction records the commit count, so a commit between the abort and the wait ends the wait at once.
+When the only work of the machine is waits without a timer, each waiting transaction raises `BlockedIndefinitelyOnSTM`.
+With one capability, a transaction that retries lets the other threads run when they have work, and otherwise it waits for the earliest timer.
+As in GHC, `forkIO` catches an exception that the action does not catch, writes it to the standard error, and ends only that thread.
 Still open: local collections without a stop, the promotion of the values of STM timers, a handover of the capability to another OS thread during a foreign call, `setNumCapabilities`, and the ticker.
 WASM keeps one capability until WASI supports the required thread operations.
 

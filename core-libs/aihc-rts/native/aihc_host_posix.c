@@ -418,10 +418,16 @@ static int aihc_posix_try_request(AihcIoRequest *request, int64_t *result) {
      thread keeps running while it waits. aihc_posix_poll bounds its wait by
      the earliest deadline and comes back here to collect the expired ones. */
   if (request->kind == AIHC_IO_TIMER) {
-    if (aihc_host_monotonic_ns() < request->deadline) {
+    /* Another capability can end the wait of a transaction in retry. See
+       aihc_stm_wake_waiters. */
+    if (aihc_host_monotonic_ns() <
+        __atomic_load_n(&request->deadline, __ATOMIC_SEQ_CST)) {
       return 0;
     }
-    *result = 1;
+    *result = __atomic_load_n(&request->mode, __ATOMIC_SEQ_CST) ==
+                      AIHC_STM_WAIT_ABANDONED
+                  ? 0
+                  : 1;
     return 1;
   }
   if (request->kind == AIHC_IO_OPEN) {
@@ -511,8 +517,10 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
        request = request->next) {
     if (request->kind == AIHC_IO_TIMER) {
       has_timer = 1;
-      if (request->deadline < earliest) {
-        earliest = request->deadline;
+      uint64_t deadline =
+          __atomic_load_n(&request->deadline, __ATOMIC_SEQ_CST);
+      if (deadline < earliest) {
+        earliest = deadline;
       }
     } else {
       ++count;

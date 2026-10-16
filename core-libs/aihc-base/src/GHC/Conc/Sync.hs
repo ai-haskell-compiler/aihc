@@ -37,7 +37,9 @@ import Control.Applicative (Alternative (..))
 import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.Exception (ErrorCall (..), Exception (..), SomeException)
 import GHC.IO (IO (..), catch, throwIO)
-import GHC.IO.Exception (AsyncException (ThreadKilled), BlockedIndefinitelyOnSTM (..))
+import GHC.IO.Exception (AsyncException (ThreadKilled), BlockedIndefinitelyOnMVar (..), BlockedIndefinitelyOnSTM (..))
+import GHC.IO.Handle.Text (hPutStrLn)
+import GHC.IO.StdHandles (stderr)
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Prim
 import GHC.Word (Word64 (..))
@@ -95,9 +97,26 @@ myThreadId =
           (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
     )
 
--- | Schedule an action on a new green thread.
+-- | Schedule an action on a new green thread. As in GHC, an exception that
+-- the action does not catch ends only the new thread, and the handler
+-- writes it to the standard error.
 forkIO :: IO () -> IO ThreadId
-forkIO (IO action) =
+forkIO action = forkIOWithoutHandler (action `catch` childHandler)
+
+-- | Report an exception that ends a forked thread. As in GHC, the handler
+-- writes nothing for a thread that was killed or blocked forever.
+childHandler :: SomeException -> IO ()
+childHandler exception
+  | Just ThreadKilled <- fromException exception = return ()
+  | Just BlockedIndefinitelyOnMVar <- fromException exception = return ()
+  | Just BlockedIndefinitelyOnSTM <- fromException exception = return ()
+  | otherwise = catch (hPutStrLn stderr (displayException exception)) ignoreException
+  where
+    ignoreException :: SomeException -> IO ()
+    ignoreException _ = return ()
+
+forkIOWithoutHandler :: IO () -> IO ThreadId
+forkIOWithoutHandler (IO action) =
   IO
     ( \state ->
         -- Explicit GRIN apply does not enter operands, and unpacking the IO

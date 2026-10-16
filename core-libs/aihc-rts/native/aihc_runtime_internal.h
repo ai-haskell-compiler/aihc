@@ -194,6 +194,16 @@ struct AihcIoRequest {
   AihcIoRequest *next;
 };
 
+/* A transaction that retries waits in a timer request. The mode of the
+   request tells why the wait ended. A wait that a commit or a timer ends
+   gives one, and the transaction runs again. An abandoned wait gives zero,
+   and the transaction raises BlockedIndefinitelyOnSTM. */
+enum {
+  AIHC_STM_WAIT_TIMER = 0,
+  AIHC_STM_WAIT_WOKEN = 1,
+  AIHC_STM_WAIT_ABANDONED = 2
+};
+
 /* Sixteen slots include the two pinned metadata slots. */
 _Static_assert(sizeof(AihcIoRequest) <= 14 * sizeof(AihcSlot),
                "IO request exceeds the GRIN reservation");
