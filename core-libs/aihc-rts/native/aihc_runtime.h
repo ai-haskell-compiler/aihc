@@ -431,6 +431,10 @@ struct AihcMachine {
   uint64_t stop_requested;
   uint64_t running_count;
   uint64_t parked_count;
+  /* The suffix of the pinned list that contains only gen2 blocks. A young
+     collection scans the prefix alone. A promotion can leave a gen2 block
+     in the prefix until the next sweep moves it into the suffix. */
+  struct AihcPinnedBlock *mature_pinned_blocks;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the

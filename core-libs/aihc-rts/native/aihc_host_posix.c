@@ -522,13 +522,17 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
   if (count > SIZE_MAX / sizeof(struct pollfd)) {
     aihc_fail("poll buffer is too large");
   }
-  AihcRootFrame frame;
-  aihc_roots_enter(capability, &frame, 0, NULL);
+  /* Poll descriptors contain no heap pointers. A C buffer needs no heap
+     lock or collection, even while another capability collects. */
+  struct pollfd local_descriptors[16];
+  size_t local_count = sizeof(local_descriptors) / sizeof(local_descriptors[0]);
+  struct pollfd *allocated =
+      count > local_count ? malloc(sizeof(*allocated) * count) : NULL;
+  if (count > local_count && allocated == NULL) {
+    aihc_fail("out of memory");
+  }
   struct pollfd *descriptors =
-      count == 0 ? NULL
-                 : aihc_byte_array_contents(aihc_host_byte_array(
-                       capability, &frame, sizeof(*descriptors) * count));
-  aihc_record_allocation(capability);
+      allocated == NULL ? local_descriptors : allocated;
   if (idle) {
     descriptors[0].fd = aihc_wake_pipes[capability->index][0];
     descriptors[0].events = POLLIN;
@@ -558,7 +562,7 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
     aihc_posix_drain_wake(capability);
   }
   if (ready == -1) {
-    aihc_roots_leave(capability, &frame);
+    free(allocated);
     if (error != EINTR) {
       aihc_complete_all_io_with_error(capability, error);
     }
@@ -598,7 +602,7 @@ static AihcIoPollOutcome aihc_posix_poll(AihcCapability *capability,
     }
   }
   capability->io_requests_tail = tail;
-  aihc_roots_leave(capability, &frame);
+  free(allocated);
   return AIHC_IO_POLL_PROGRESS;
 }
 

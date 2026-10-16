@@ -2411,25 +2411,36 @@ static void aihc_fixed_uncharge(AihcCapability *capability,
       bytes;
 }
 
-/* Free the pinned blocks of the collected generations that nothing reached,
-   and clear the marks of the others. */
+/* Free unreachable blocks of the collected generations and clear the marks.
+   Put gen2 survivors in the suffix, which young collections do not scan. */
 static void aihc_sweep_pinned(AihcGcContext *context) {
   AihcCapability *capability = context->capability;
-  AihcPinnedBlock **link = &capability->machine->pinned_blocks;
-  while (*link != NULL) {
+  AihcMachine *machine = capability->machine;
+  AihcPinnedBlock *stop =
+      context->collected < 2 ? machine->mature_pinned_blocks : NULL;
+  AihcPinnedBlock *mature = stop;
+  AihcPinnedBlock **link = &machine->pinned_blocks;
+  while (*link != stop) {
     AihcPinnedBlock *block = *link;
     if ((block->bytes & AIHC_PINNED_MARK) != 0) {
       block->bytes &= ~AIHC_PINNED_MARK;
-      link = &block->next;
     } else if (aihc_pinned_generation(block) <= context->collected &&
                !aihc_pinned_foreign(context, block)) {
       *link = block->next;
       aihc_fixed_uncharge(capability, block);
       aihc_pinned_block_release(block);
+      continue;
+    }
+    if (aihc_pinned_generation(block) == 2) {
+      *link = block->next;
+      block->next = mature;
+      mature = block;
     } else {
       link = &block->next;
     }
   }
+  *link = mature;
+  machine->mature_pinned_blocks = mature;
 }
 
 /* Free the gen2 blocks of the pinned list the cycle did not mark, and
@@ -2445,6 +2456,9 @@ static void aihc_sweep_pinned_cycle(AihcCapability *capability) {
       link = &block->next;
     } else {
       *link = block->next;
+      if (block == capability->machine->mature_pinned_blocks) {
+        capability->machine->mature_pinned_blocks = block->next;
+      }
       aihc_fixed_uncharge(capability, block);
       aihc_pinned_block_release(block);
     }
@@ -3817,6 +3831,7 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
     capability->machine->pinned_blocks = block->next;
     aihc_pinned_block_release(block);
   }
+  capability->machine->mature_pinned_blocks = NULL;
   capability->machine->fixed_bytes = 0;
   memset(capability->machine->fixed_generation_bytes, 0,
          sizeof(capability->machine->fixed_generation_bytes));
@@ -4540,13 +4555,23 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
   aihc_verify_work.count = 0;
   aihc_verify_srt_work.count = 0;
   uint64_t fixed[3] = {0, 0, 0};
+  int mature = 0;
   for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
        block != NULL; block = block->next) {
     (void)aihc_address_set_insert(&aihc_verify_pinned, (AihcValue *)block);
     if (aihc_pinned_generation(block) > 2) {
       aihc_fail("verifier: a fixed block has an invalid generation");
     }
+    if (block == capability->machine->mature_pinned_blocks) {
+      mature = 1;
+    }
+    if (mature && aihc_pinned_generation(block) != 2) {
+      aihc_fail("verifier: a young block is in the mature pinned suffix");
+    }
     fixed[aihc_pinned_generation(block)] += aihc_pinned_bytes(block);
+  }
+  if (capability->machine->mature_pinned_blocks != NULL && !mature) {
+    aihc_fail("verifier: the mature pinned suffix is absent");
   }
   /* The counts of each generation must agree with the pinned list. */
   for (unsigned generation = 0; generation < 3; ++generation) {
