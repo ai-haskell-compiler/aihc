@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (evaluate)
+    import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    -- Each evaluation of an application of this function adds one to the
+    -- counter.
+    counted :: IORef Int -> Int
+    counted counter = unsafePerformIO (modifyIORef' counter (+ 1) >> pure 10)
+    {-# NOINLINE counted #-}
+
+    test :: IO Int
+    test = do
+      counter <- newIORef 0
+      let right = map (`subtract` counted counter) [1, 2, 3]
+          left = map (counted counter -) [1, 2, 3]
+      _ <- evaluate (sum right + sum left)
+      readIORef counter
+expression: unsafePerformIO test
+output: "I# 2"
+status: pass
+reason: a section evaluates its operand once for all of its applications

@@ -3330,14 +3330,29 @@ desugarSectionL annotation operand operator
       binder <- freshBinder "_section" =<< sectionArgumentType annotation
       operator' <- desugarInfixOperator operator
       operand' <- desugarExpr operand
-      pure (ExLam binder (ExApp (ExApp operator' operand') (ExVar (binderName binder))))
+      shareSectionOperand operand operand' (\shared -> ExLam binder (ExApp (ExApp operator' shared) (ExVar (binderName binder))))
 
 desugarSectionR :: TcAnnotation -> Syn.Name -> Syn.Expr -> ValueM Expr
 desugarSectionR annotation operator operand = do
   binder <- freshBinder "_section" =<< sectionArgumentType annotation
   operator' <- desugarInfixOperator operator
   operand' <- desugarExpr operand
-  pure (ExLam binder (ExApp (ExApp operator' (ExVar (binderName binder))) operand'))
+  shareSectionOperand operand operand' (ExLam binder . ExApp (ExApp operator' (ExVar (binderName binder))))
+
+-- | Bind the operand of a section outside the lambda of the section, as
+-- GHC does. Each application of the section then uses one value of the
+-- operand, and does not evaluate the operand again.
+shareSectionOperand :: Syn.Expr -> Expr -> (Expr -> Expr) -> ValueM Expr
+shareSectionOperand operand operand' section
+  | isAtom operand' = pure (section operand')
+  | otherwise = do
+      operandType <- requiredExprType operand
+      fixed <- hasFixedRuntimeRep operandType
+      if not fixed
+        then pure (section operand')
+        else do
+          binder <- freshBinder "_operand" operandType
+          pure (ExLet (Bind binder operand') (section (ExVar (binderName binder))))
 
 sectionArgumentType :: TcAnnotation -> ValueM TcType
 sectionArgumentType annotation =
