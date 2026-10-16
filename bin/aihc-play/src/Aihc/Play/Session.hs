@@ -4,16 +4,12 @@
 --
 -- The session holds the names and the types the module of the reader can
 -- see. They come from a bundle of the core libraries, written by
--- @aihc-dev play-bundle@ from a store, or from the primitive modules of
--- aihc and the small Prelude of the guide, compiled in the session. The
--- three commands of the helper parse, resolve, and type check one module
--- against it.
+-- @aihc-dev play-bundle@ from a store. The three commands of the helper
+-- parse, resolve, and type check one module against it.
 module Aihc.Play.Session
   ( Session,
-    buildSession,
     bundleSession,
     sessionBundleStats,
-    supportModulePaths,
     Problem (..),
     problemJson,
     parseUserModule,
@@ -26,21 +22,13 @@ where
 import Aihc.Cli.PlayBundle (BundleStats, LoadedBundle (..), loadBundle)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
-  ( DataDecl (..),
-    Decl (..),
-    ExportSpec (..),
-    Extension (..),
+  ( Extension (..),
     LanguageEdition (..),
     Module (..),
-    ModuleHead (..),
     ModuleHeaderPragmas (..),
-    Name (..),
     SourceSpan,
-    UnqualifiedName (..),
-    binderHeadName,
     effectiveExtensions,
     moduleLanguagePragmas,
-    moduleName,
     sourceSpanEndCol,
     sourceSpanEndLine,
     sourceSpanStartCol,
@@ -68,13 +56,10 @@ import Aihc.Tc
     TcInterface,
     TcSeverity (..),
     TcWiring,
-    emptyTcInterface,
     renderFunDepNames,
     renderPred,
     renderTcType,
     tcModuleDiagnostics,
-    tcModuleSuccess,
-    typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
 import Data.ByteString (ByteString)
@@ -87,9 +72,7 @@ data Session = Session
     sessionInterface :: !TcInterface,
     -- | The identity of the primitive package the facts name.
     sessionPrim :: !PackageId,
-    -- | The modules whose exports the syntax reaches without an import.
-    sessionBuiltinModules :: ![Text],
-    sessionBundleStats :: !(Maybe BundleStats)
+    sessionBundleStats :: !BundleStats
   }
 
 -- | One problem of one phase.
@@ -114,12 +97,6 @@ problemJson problem =
         ("endCol", JInt (sourceSpanEndCol span'))
       ]
 
-primPackageId :: PackageId
-primPackageId = PackageId "aihc-prim"
-
-primPackage :: Package
-primPackage = Package "aihc-prim" primPackageId
-
 -- | The package of the reader's module. The resolver shows an empty
 -- package as the main one.
 userPackage :: Package
@@ -127,20 +104,6 @@ userPackage = Package "" (PackageId "")
 
 sessionWiring :: Session -> TcWiring
 sessionWiring = primTcWiring . sessionPrim
-
--- | The modules that the session needs, relative to the source root of
--- aihc-prim and to the prelude directory of the helper.
-supportModulePaths :: ([FilePath], [FilePath])
-supportModulePaths =
-  ( ["GHC/Types.hs", "GHC/Prim.hs", "Aihc/Prim/IO.hs", "GHC/Tuple.hs", "GHC/CString.hs"],
-    ["GHC/Classes.hs", "GHC/Num.hs", "GHC/Prim/Base.hs", "Prelude.hs"]
-  )
-
--- | The modules whose exports the syntax reaches without an import, in
--- the small Prelude of the guide: the literal and @do@ desugaring names,
--- and the class names of deriving.
-builtinModules :: [Text]
-builtinModules = ["GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Base", "GHC.Types"]
 
 -- | A session over a bundle of the core libraries. The header of the
 -- bundle is decoded now. Each type fact is decoded when the type checker
@@ -153,79 +116,8 @@ bundleSession bytes = do
       { sessionExports = loadedExports loaded,
         sessionInterface = loadedInterface loaded,
         sessionPrim = loadedPrim loaded,
-        sessionBuiltinModules = builtinFunctionModules,
-        sessionBundleStats = Just (loadedStats loaded)
+        sessionBundleStats = loadedStats loaded
       }
-
--- | Parse, resolve and type check the support modules as one unit of the
--- primitive package. The primitive modules and the small Prelude compile
--- together, so deriving and the literal syntax find their classes in the
--- package that the type checker expects.
-buildSession :: [(FilePath, Text)] -> Either String Session
-buildSession sources = do
-  modules <- traverse (uncurry parseSupportModule) sources
-  let units = modulesInPackage primPackage modules
-      exports = collectModuleExportsWithDeps mempty units
-      scope = builtins primPackage exports builtinModules
-  resolved <-
-    case resolveUnit scope exports units of
-      Right (ResolvedUnit result) -> Right result
-      Left failure -> Left ("support modules do not resolve: " <> show (failureErrors failure))
-  let (checked, interface) = typecheckModuleSccWithInterface (primTcConfig primPackageId) emptyTcInterface resolved
-  if all tcModuleSuccess checked
-    then Right (Session exports interface primPackageId builtinModules Nothing)
-    else
-      Left
-        ( "support modules do not type check: "
-            <> unlines
-              [ T.unpack (fromMaybe "?" (moduleName modu)) <> ": " <> T.unpack (problemMessage problem)
-              | modu <- checked,
-                problem <- map tcProblem (tcModuleDiagnostics modu)
-              ]
-        )
-
-parseSupportModule :: FilePath -> Text -> Either String (Module, [Extension])
-parseSupportModule path source =
-  case parseWith path extensions source of
-    (problems@(_ : _), _) -> Left (path <> ": " <> T.unpack (T.intercalate "; " (map problemMessage problems)))
-    ([], modu) -> Right (withoutUnboxedSums modu, extensions)
-  where
-    -- The support modules never import the Prelude of the guide. Their
-    -- header pragmas say so, and the primitive modules of aihc have no
-    -- Prelude to import.
-    extensions = filter (/= ImplicitPrelude) (headerExtensions GHC2021Edition source)
-
--- | Drop the unboxed sum types of @GHC.Types@.
---
--- @GHC.Types@ declares @Sum2#@ to @Sum63#@, with one constructor for each
--- alternative: about two thousand constructors that take most of the time
--- to check the primitive package. No chapter of the guide uses an unboxed
--- sum, so the playground leaves them out and starts in a fraction of the
--- time.
-withoutUnboxedSums :: Module -> Module
-withoutUnboxedSums modu =
-  modu
-    { moduleHead = fmap dropExports (moduleHead modu),
-      moduleDecls = filter (not . isSumDecl) (moduleDecls modu)
-    }
-  where
-    dropExports header = header {moduleHeadExports = fmap (filter (not . isSumExport)) (moduleHeadExports header)}
-    isSumDecl decl =
-      case decl of
-        DeclAnn _ inner -> isSumDecl inner
-        DeclData dataDecl -> isSumName (unqualifiedNameText (binderHeadName (dataDeclHead dataDecl)))
-        DeclStandaloneKindSig name _ -> isSumName (unqualifiedNameText name)
-        _ -> False
-    isSumExport export =
-      case export of
-        ExportAnn _ inner -> isSumExport inner
-        ExportAll _ _ name -> isSumName (nameText name)
-        ExportAbs _ _ name -> isSumName (nameText name)
-        ExportWith _ _ name _ -> isSumName (nameText name)
-        ExportWithAll _ _ name _ _ -> isSumName (nameText name)
-        _ -> False
-    isSumName name =
-      "Sum" `T.isPrefixOf` name && "#" `T.isSuffixOf` name && T.all (`elem` ['0' .. '9']) (T.dropEnd 1 (T.drop 3 name))
 
 -- | The extensions a module header declares over a language edition.
 headerExtensions :: LanguageEdition -> Text -> [Extension]
@@ -258,7 +150,7 @@ resolveUserModule session modu extensions =
   where
     units = modulesInPackage userPackage [(modu, extensions)]
     visible = collectModuleExportsWithDeps (sessionExports session) units <> sessionExports session
-    scope = builtins userPackage visible (sessionBuiltinModules session)
+    scope = builtins userPackage visible builtinFunctionModules
 
 resolveProblem :: ResolveError -> Problem
 resolveProblem failure =

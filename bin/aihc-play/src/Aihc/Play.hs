@@ -7,9 +7,7 @@ module Aihc.Play
   ( Command (..),
     parseCommand,
     runCommand,
-    loadSupportSources,
     Session,
-    buildSession,
     bundleSession,
     sessionBundleStats,
   )
@@ -22,8 +20,6 @@ import Aihc.Play.Tree (abridgedTree, treeJson)
 import Aihc.Play.Types (inferredSignatures, signatureJson, withSignatures)
 import Aihc.Resolve (ModuleUnit (..), ResolvedModule (..))
 import Data.Text (Text)
-import Data.Text.IO qualified as TIO
-import System.FilePath ((</>))
 
 data Command
   = -- | The abridged parse tree.
@@ -41,19 +37,6 @@ parseCommand name =
     "names" -> Just CommandNames
     "types" -> Just CommandTypes
     _ -> Nothing
-
--- | Read the support modules from the aihc-prim source root and the
--- prelude directory of the helper.
-loadSupportSources :: FilePath -> FilePath -> IO [(FilePath, Text)]
-loadSupportSources primRoot preludeRoot = do
-  let (primPaths, preludePaths) = supportModulePaths
-  prim <- traverse (readOne primRoot) primPaths
-  prelude <- traverse (readOne preludeRoot) preludePaths
-  pure (prim <> prelude)
-  where
-    readOne root path = do
-      source <- TIO.readFile (root </> path)
-      pure (root </> path, source)
 
 runCommand :: Session -> Command -> Text -> Json
 runCommand session command source =

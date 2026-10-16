@@ -276,9 +276,6 @@ in rec {
               + ''
                 export AIHC_EVAL_FIXTURES="$TMPDIR/empty-eval-fixtures"
                 mkdir -p "$AIHC_EVAL_FIXTURES"
-                # The aihc-play suite compiles the primitive package before
-                # it builds its test tree.
-                export AIHC_PRIM_SRC=${sources.primSrc pkgs}
               '';
           })
         else hsLib.dontCheck intermediatesAdjusted;

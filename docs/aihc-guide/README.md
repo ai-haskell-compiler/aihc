@@ -16,9 +16,6 @@ people who read manuals. This guide is for the others.
 - `src/play/helper/`: the WebAssembly helper and the bundle of the core
   libraries, `core.bundle.gz`. A build writes them here. They are not in
   git.
-- `src/play/prim/`, `src/play/prelude/`: the support sources of the
-  fallback, for a build without a bundle. A build copies them here. They
-  are not in git.
 
 ## The helper
 
@@ -35,10 +32,6 @@ request. The helper decodes the exports of every module at once, and
 decodes each type fact the first time the type checker looks it up. The
 format is in `bin/aihc/src/Aihc/Cli/PlayBundle.hs`.
 
-Without a bundle, the page sends the primitive modules of aihc and the
-small Prelude of `bin/aihc-play/prelude` with the `load` request, and the
-helper compiles them in the browser. That takes a few seconds.
-
 The page then sends each edit to the helper and shows the answer.
 
 The playground needs JavaScript Promise Integration, which Chrome 137,
@@ -46,8 +39,8 @@ Firefox 139 and Safari 27 have.
 
 ## Local work
 
-`just guide` builds the helper and the bundle, copies the support
-sources, and serves the site at <http://127.0.0.1:8000/>. The first
+`just guide` builds the helper and the bundle and serves the site at
+<http://127.0.0.1:8000/>. The first
 helper build compiles the dependencies of aihc-play for wasm and takes
 some minutes. Later builds reuse the store under
 `.aihc-target/lazy-reader-store`.

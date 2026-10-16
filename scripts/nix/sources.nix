@@ -283,7 +283,7 @@ in rec {
       filter = path: _type: let
         relPath = pkgs.lib.removePrefix ((toString root) + "/docs/aihc-guide/") (toString path);
       in
-        !(pkgs.lib.hasPrefix "site" relPath || pkgs.lib.hasPrefix "src/play/prim" relPath || pkgs.lib.hasPrefix "src/play/prelude" relPath || pkgs.lib.hasPrefix "src/play/helper" relPath);
+        !(pkgs.lib.hasPrefix "site" relPath || pkgs.lib.hasPrefix "src/play/helper" relPath);
     };
 
   # Filtered source for nix linting - only nix files.

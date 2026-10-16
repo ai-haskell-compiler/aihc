@@ -21,13 +21,6 @@ hedgehog1:
 guide:
   #!/usr/bin/env bash
   set -euo pipefail
-  guide=docs/aihc-guide/src/play
-  mkdir -p "$guide/prim/GHC" "$guide/prim/Aihc/Prim"
-  for module in GHC/Types.hs GHC/Prim.hs Aihc/Prim/IO.hs GHC/Tuple.hs GHC/CString.hs; do
-    cp "core-libs/aihc-prim/src/$module" "$guide/prim/$module"
-  done
-  rm -rf "$guide/prelude"
-  cp -R bin/aihc-play/prelude "$guide/prelude"
   nix develop --quiet --command bash -c 'cabal build -v0 exe:aihc exe:aihc-dev && scripts/build-lazy-reader-helper.sh --output docs/aihc-guide/src/play/helper --store .aihc-target/lazy-reader-store && cd docs/aihc-guide && mkdocs serve'
 
 # Auto-format Nix, Cabal, Haskell, and C files (excludes dist-newstyle, result, .git, the benchmarks submodule; Haskell excludes test fixtures)

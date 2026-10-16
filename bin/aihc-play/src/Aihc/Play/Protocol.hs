@@ -6,16 +6,12 @@
 -- name, a space, and the byte count of the body. The body follows the
 -- newline of the header and has exactly that many bytes.
 --
--- A @load@ body holds source files. Each file is one header line, the path
--- and the byte count of the file, and then the file bytes.
---
 -- Byte counts keep the framing simple on both sides. The page encodes the
 -- source as UTF-8 and counts the bytes. The helper does not have to parse
 -- JSON for that.
 module Aihc.Play.Protocol
   ( Request (..),
     readRequest,
-    parseFiles,
   )
 where
 
@@ -47,23 +43,6 @@ readRequest handle = do
         Just (command, count) -> do
           body <- BS.hGet handle count
           pure (Just (Right (Request (decode command) body)))
-
--- | The files of a @load@ body.
-parseFiles :: ByteString -> Either String [(FilePath, Text)]
-parseFiles = go
-  where
-    go bytes
-      | BS.null bytes = Right []
-      | otherwise =
-          let (header, rest) = BC.break (== '\n') bytes
-           in case parseHeader header of
-                Nothing -> Left ("invalid file header: " <> BC.unpack header)
-                Just (path, count) ->
-                  let afterHeader = BS.drop 1 rest
-                      (content, remaining) = BS.splitAt count afterHeader
-                   in if BS.length content /= count
-                        then Left ("short file body for " <> BC.unpack path)
-                        else ((BC.unpack path, decode content) :) <$> go remaining
 
 parseHeader :: ByteString -> Maybe (ByteString, Int)
 parseHeader line =

@@ -515,15 +515,14 @@
     drv = hsPkgs.aihc-haddock;
     src = sources.haddockSrc pkgs;
   };
-  # The suite also writes the bundle of the core libraries from a store
-  # and checks the helper over it, so it gets the seed store with the
-  # native aihc-base.
+  # The suite writes the bundle of the core libraries from a store and
+  # checks the helper over it, so it gets the seed store with the native
+  # aihc-base.
   playTests = mkTestRunner {
     drv = hsPkgs.aihc-play;
     src = sources.playSrc pkgs;
     directory = "bin/aihc-play";
     setup = ''
-      export AIHC_PRIM_SRC=${sources.primSrc pkgs}
       export AIHC_PLAY_STORE=${specSeedStore}/core
     '';
   };
@@ -1165,7 +1164,7 @@
   # Hackage packages that aihc-play depends on and jco from npm, so the
   # deploy workflow builds it with `nix run .#build-lazy-reader-helper` and
   # adds it to this site.
-  guide = mkGuide pkgs (sources.guideSrc pkgs) (sources.primSrc pkgs) (sources.playSrc pkgs);
+  guide = mkGuide pkgs (sources.guideSrc pkgs);
 
   # Every example uses LLVM and the available host-native backend. Nix
   # schedules independent examples in parallel against the immutable shared
