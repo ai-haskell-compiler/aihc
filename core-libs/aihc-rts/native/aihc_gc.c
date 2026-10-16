@@ -1553,6 +1553,47 @@ void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
   }
 }
 
+/* The index of the capability whose local heap holds an object: its
+   nursery, its gen1 blocks, or a young pinned block that it owns. A global
+   object gives -1. */
+static int64_t aihc_local_owner(const AihcMachine *machine,
+                                const AihcValue *value) {
+  switch (aihc_region_kind(value)) {
+  case AIHC_REGION_NURSERY: {
+    const AihcCapability *owner = aihc_nursery_owner(machine, value);
+    return owner == NULL ? -1 : (int64_t)owner->index;
+  }
+  case AIHC_REGION_GEN1:
+    for (uint64_t index = 0; index < machine->capability_count; ++index) {
+      for (const AihcHeapBlock *block =
+               machine->capabilities[index]->gen1.first;
+           block != NULL; block = block->link) {
+        if ((const uint8_t *)value >= block->start &&
+            (const uint8_t *)value < block->next) {
+          return (int64_t)index;
+        }
+      }
+    }
+    return -1;
+  case AIHC_REGION_LARGE:
+  case AIHC_REGION_PINNED: {
+    const AihcPinnedBlock *block = aihc_pinned_block_of(value);
+    return aihc_pinned_generation(block) < 2 ? (int64_t)aihc_pinned_owner(block)
+                                             : -1;
+  }
+  case AIHC_REGION_OUTSIDE:
+    if (aihc_outside_is_pinned(value)) {
+      const AihcPinnedBlock *block = aihc_pinned_block_of(value);
+      return aihc_pinned_generation(block) < 2
+                 ? (int64_t)aihc_pinned_owner(block)
+                 : -1;
+    }
+    return -1;
+  default:
+    return -1;
+  }
+}
+
 static void aihc_gc_keep(AihcGcContext *context, AihcValue *object) {
   if (context->kept_count == context->kept_capacity) {
     context->kept = aihc_worklist_grow(context->kept, &context->kept_capacity,
@@ -3259,7 +3300,22 @@ static void aihc_collect_stopped(AihcCapability *capability, unsigned collected,
   }
   free(from1);
   for (size_t index = 0; index < context.kept_count; ++index) {
-    aihc_remember_unique(capability, context.kept[index]);
+    int64_t local_owner = only == NULL
+                              ? aihc_local_owner(machine, context.kept[index])
+                              : (int64_t)only->index;
+    if (local_owner >= 0) {
+      uint64_t owner = (uint64_t)local_owner;
+      aihc_remember_unique(machine->capabilities[owner], context.kept[index]);
+    } else {
+      /* A bridge collection can retain a pointer into any local heap.
+         Each local collection must scan the object until that pointer
+         reaches gen2. */
+      for (uint64_t owner = 0; owner < capability_count; ++owner) {
+        AihcCapability *other = machine->capabilities[owner];
+        aihc_remember_unique(other, context.kept[index]);
+        other->remembered_repeatable = 1;
+      }
+    }
   }
   free(context.kept);
   if (collected == 1 && !capability->machine->gen2_cycle_active &&
@@ -4283,47 +4339,6 @@ static const AihcValue *aihc_verify_parent;
    when the parent is global or the machine has one capability. */
 static int64_t aihc_verify_parent_owner = -1;
 
-/* The index of the capability whose local heap holds an object: its
-   nursery, its gen1 blocks, or a young pinned block that it owns. A global
-   object gives -1. */
-static int64_t aihc_verify_owner(const AihcValue *value) {
-  const AihcMachine *machine = aihc_verify_machine->machine;
-  switch (aihc_region_kind(value)) {
-  case AIHC_REGION_NURSERY: {
-    const AihcCapability *owner = aihc_nursery_owner(machine, value);
-    return owner == NULL ? -1 : (int64_t)owner->index;
-  }
-  case AIHC_REGION_GEN1:
-    for (uint64_t index = 0; index < machine->capability_count; ++index) {
-      for (const AihcHeapBlock *block =
-               machine->capabilities[index]->gen1.first;
-           block != NULL; block = block->link) {
-        if ((const uint8_t *)value >= block->start &&
-            (const uint8_t *)value < block->next) {
-          return (int64_t)index;
-        }
-      }
-    }
-    return -1;
-  case AIHC_REGION_LARGE:
-  case AIHC_REGION_PINNED: {
-    const AihcPinnedBlock *block = aihc_pinned_block_of(value);
-    return aihc_pinned_generation(block) < 2 ? (int64_t)aihc_pinned_owner(block)
-                                             : -1;
-  }
-  case AIHC_REGION_OUTSIDE:
-    if (aihc_outside_is_pinned(value)) {
-      const AihcPinnedBlock *block = aihc_pinned_block_of(value);
-      return aihc_pinned_generation(block) < 2
-                 ? (int64_t)aihc_pinned_owner(block)
-                 : -1;
-    }
-    return -1;
-  default:
-    return -1;
-  }
-}
-
 static _Noreturn void aihc_verify_fail(const char *message,
                                        const AihcValue *value) {
   const AihcInfo *info = aihc_verify_parent == NULL
@@ -4471,7 +4486,7 @@ static void aihc_verify_value(AihcValue *value) {
   /* The local heaps invariant: no local heap names an object of another
      local heap. */
   if (aihc_verify_parent_owner >= 0) {
-    int64_t owner = aihc_verify_owner(value);
+    int64_t owner = aihc_local_owner(aihc_verify_machine->machine, value);
     if (owner >= 0 && owner != aihc_verify_parent_owner) {
       aihc_verify_fail(
           "verifier: a local object names an object of another local heap",
@@ -4493,9 +4508,10 @@ static AihcSlot aihc_verify_slot(AihcSlot slot, void *context) {
    code reaches, and for a frame the parent link. */
 static void aihc_verify_scan(AihcValue *object) {
   aihc_verify_parent = object;
-  aihc_verify_parent_owner = aihc_verify_machine->machine->capability_count > 1
-                                 ? aihc_verify_owner(object)
-                                 : -1;
+  aihc_verify_parent_owner =
+      aihc_verify_machine->machine->capability_count > 1
+          ? aihc_local_owner(aihc_verify_machine->machine, object)
+          : -1;
   if (aihc_visit_runtime_object(object, aihc_verify_slot, NULL)) {
     return;
   }
