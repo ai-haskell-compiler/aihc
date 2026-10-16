@@ -587,6 +587,8 @@ void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
                            size_t new_size);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
+int64_t aihc_memory_compare(const void *left, const void *right,
+                            uint64_t length);
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length);
 /* These accessors reach the stable-name fields of the shared machine. */
 AihcStableName **aihc_stable_names(AihcCapability *capability);
