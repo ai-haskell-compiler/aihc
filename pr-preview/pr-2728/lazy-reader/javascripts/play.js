@@ -124,45 +124,12 @@ async function fetchText(path) {
   return response.text();
 }
 
-// The support modules: the primitive package of aihc and the small Prelude
-// of the guide. Without a bundle, the helper compiles them at the start.
-const SUPPORT_FILES = [
-  "prim/GHC/Types.hs",
-  "prim/GHC/Prim.hs",
-  "prim/Aihc/Prim/IO.hs",
-  "prim/GHC/Tuple.hs",
-  "prim/GHC/CString.hs",
-  "prelude/GHC/Classes.hs",
-  "prelude/GHC/Num.hs",
-  "prelude/GHC/Prim/Base.hs",
-  "prelude/Prelude.hs",
-];
-
-async function loadSupport() {
-  const files = await Promise.all(SUPPORT_FILES.map((path) => fetchText(path)));
-  const parts = [];
-  files.forEach((text, index) => {
-    const body = helper.encoder.encode(text);
-    parts.push(helper.encoder.encode(SUPPORT_FILES[index] + " " + body.length + "\n"));
-    parts.push(body);
-  });
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    body.set(part, offset);
-    offset += part.length;
-  }
-  return body;
-}
-
 // The bundle of the core libraries: the naming and type facts of
-// aihc-prim and aihc-base, written by the helper build. The helper loads
-// it instead of compiling the libraries. The file is gzip, inflated here,
-// so the size on the wire does not depend on the server.
+// aihc-prim and aihc-base, written by the helper build. The file is gzip,
+// inflated here, so the size on the wire does not depend on the server.
 async function loadBundle() {
   const response = await fetch(new URL("helper/core.bundle.gz", PLAY_ROOT));
-  if (!response.ok) return null;
+  if (!response.ok) throw new Error("cannot fetch the bundle of the core libraries: " + response.status);
   const inflated = response.body.pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(inflated).arrayBuffer());
 }
@@ -191,16 +158,8 @@ function startHelper() {
         .run()
         .then(() => setHelperState("stopped", "The compiler stopped."))
         .catch((error) => setHelperState("failed", "The compiler failed: " + error));
-      let answer;
-      if (bundle) {
-        setHelperState("loading", "Loading the core libraries.");
-        answer = await send("load-bundle", bundle);
-      } else {
-        // Without a bundle, the helper compiles the primitive modules and
-        // the small Prelude of the guide instead.
-        setHelperState("loading", "Compiling the Prelude. This takes a few seconds.");
-        answer = await send("load", await loadSupport());
-      }
+      setHelperState("loading", "Loading the core libraries.");
+      const answer = await send("load-bundle", bundle);
       if (!answer.ok) throw new Error(answer.message);
       const ready = performance.now();
       helper.timing = { fetched: Math.round(fetched - started), ready: Math.round(ready - fetched) };
@@ -211,9 +170,11 @@ function startHelper() {
           helper.timing.fetched +
           " ms to fetch, " +
           helper.timing.ready +
-          " ms to load" +
-          (bundle ? ", " + answer.facts + " facts in " + answer.typeBytes + " bytes" : "") +
-          ")",
+          " ms to load, " +
+          answer.facts +
+          " facts in " +
+          answer.typeBytes +
+          " bytes)",
       );
       setHelperState("ready");
     } catch (error) {
