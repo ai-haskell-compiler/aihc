@@ -87,6 +87,7 @@ import Aihc.Tc.Types
     pattern KTYPE,
   )
 import Control.Monad (zipWithM)
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -171,7 +172,8 @@ withConversionContext context =
 interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
 interfaceConvertEnv config interface =
   withKindEnv
-    (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
+    -- Keep imported kind schemes lazy until conversion needs them.
+    (LazyMap.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
     ( withClassTyCons
         (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
         ( withSynonymTyCons
@@ -429,7 +431,8 @@ declsEnv convertEnv declarations =
 
 bindingsFromInterface :: TcInterface -> Map.Map Entity TcBindingResult
 bindingsFromInterface interface =
-  Map.fromList (termBindings <> instanceBindings <> defaultMethodBindings)
+  -- An index must not decode the types of unused imported bindings.
+  LazyMap.fromList (termBindings <> instanceBindings <> defaultMethodBindings)
   where
     termBindings =
       [ (key, TcBindingResult key identifier (interfaceSchemeType scheme))
