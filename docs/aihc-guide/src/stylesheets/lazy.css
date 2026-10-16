@@ -646,3 +646,48 @@
   text-transform: uppercase;
   opacity: 0.8;
 }
+
+.lazy-run-controls {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+}
+
+.lazy-run {
+  border: 1px solid var(--lazy-line);
+  border-radius: 0.4rem;
+  padding: 0.35rem 1rem;
+  background: var(--lazy-surface-2);
+  color: var(--lazy-ink);
+  cursor: pointer;
+}
+
+.lazy-run:enabled:hover {
+  border-color: var(--lazy-accent);
+}
+
+.lazy-run:focus-visible {
+  outline: 2px solid var(--lazy-accent);
+  outline-offset: 2px;
+}
+
+.lazy-run:disabled {
+  background: var(--lazy-surface);
+  color: var(--lazy-muted);
+  cursor: default;
+}
+
+.lazy-program-stdout,
+.lazy-program-stderr {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.lazy-program-stdout:empty,
+.lazy-program-stderr:empty {
+  display: none;
+}
+
+.lazy-program-stderr {
+  color: var(--lazy-bad, #b33);
+}

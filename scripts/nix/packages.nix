@@ -5,5 +5,6 @@
   mkLirExtension,
 }: pkgs: {
   aihc-grammars = mkEditorGrammars pkgs;
+  aihc-play-tools = import ./play-tools.nix {inherit pkgs;};
   vscode-lir = mkLirExtension pkgs;
 }

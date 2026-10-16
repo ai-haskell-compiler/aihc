@@ -267,14 +267,9 @@ in rec {
     ".yml"
   ];
 
-  # The helper of The Lazy Reader compiles the core library wiring of the
-  # compiler in place, as the aihc-tc suites do.
-  # The helper compiles the artifact codecs of the compiler in place, so
-  # its source set holds the compiler source directory too.
+  # The helper uses the shared compiler library.
   playSrc = mkRootSubsetSrc [
     "bin/aihc-play/"
-    "bin/aihc/prim-wiring/"
-    "bin/aihc/src/"
   ] [".hs" ".cabal"];
 
   # The guide, without the site that a local build writes.
@@ -284,7 +279,7 @@ in rec {
       filter = path: _type: let
         relPath = pkgs.lib.removePrefix ((toString root) + "/docs/aihc-guide/") (toString path);
       in
-        !(pkgs.lib.hasPrefix "site" relPath || pkgs.lib.hasPrefix "src/play/helper" relPath);
+        !(pkgs.lib.hasPrefix "site" relPath || pkgs.lib.hasPrefix "node_modules" relPath || pkgs.lib.hasPrefix "src/play/helper" relPath);
     };
 
   # Filtered source for nix linting - only nix files.

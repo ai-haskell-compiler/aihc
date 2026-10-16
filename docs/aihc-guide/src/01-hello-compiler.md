@@ -91,6 +91,26 @@ hide:
 </svg>
 </figure>
 
+## Run a program
+
+Change the Haskell module on the left.
+Select **Run** to compile it and see its output on the right.
+Select **Stop** to stop the program.
+
+<div class="lazy-play" data-command="compile">
+<pre>
+module Main where
+
+main :: IO ()
+main = putStrLn "Hello, compiler!"
+</pre>
+</div>
+
+The module must have the name `Main` and a `main` function.
+You can import modules from `aihc-prim` and `aihc-base`, which includes `Prelude`.
+The browser compiles the module and runs the WASI P3 program.
+The first run must load the compiler tools and core libraries.
+
 ## Words first
 
 To a computer, a program is one long line of characters.

@@ -1,3 +1,4 @@
 /site
 /src/play/helper
 /src/play/aihc-play.wasm
+/node_modules

@@ -9,15 +9,14 @@ maintainer: lemmih@gmail.com
 category: Development
 synopsis: The playground helper of The Lazy Reader, the illustrated guide to aihc
 description:
-  A small program that runs the front end of aihc over one module and
-  answers with JSON. The guide compiles it to WebAssembly and runs it in
-  the browser of the reader.
+  This program checks one module and produces JSON diagnostics or WASM
+  assembly. It uses the shared compiler modules. The guide compiles the
+  helper to WebAssembly and runs it in the browser.
 
 library
   exposed-modules:
-    Aihc.Cli.PlayBundle
-    Aihc.Cli.PlayBundleStore
     Aihc.Play
+    Aihc.Play.Compile
     Aihc.Play.Json
     Aihc.Play.Names
     Aihc.Play.Protocol
@@ -25,39 +24,18 @@ library
     Aihc.Play.Tree
     Aihc.Play.Types
 
-  -- The bundle codec, the bundle writer, and the artifact codecs they
-  -- use are source modules of the compiler package, compiled here in
-  -- place as the wiring is, so the helper does not depend on the whole
-  -- compiler library. The browser build of the helper never reaches the
-  -- writer, so it does not need the directory package.
-  other-modules:
-    Aihc.Cbor
-    Aihc.Cli.InterfaceParts
-    Aihc.Cli.InterfaceTyCons
-    Aihc.Cli.PackageManifest
-    Aihc.Cli.ResolveArtifact
-    Aihc.Cli.TypeArtifact
-    Aihc.Prim.Wiring
-
   hs-source-dirs:
     src
-    ../aihc/prim-wiring
-    ../aihc/src
 
   build-depends:
+    aihc,
     aihc-parser,
     aihc-resolve,
     aihc-tc,
-    array,
     base >=4.16 && <5,
-    binary,
     bytestring,
     containers,
-    deepseq,
-    directory,
-    filepath,
     text >=1.2,
-    transformers,
 
   -- The compiler package compiles its modules with OverloadedStrings.
   default-extensions: OverloadedStrings
@@ -68,6 +46,7 @@ executable aihc-play
   hs-source-dirs: app
   main-is: Main.hs
   build-depends:
+    aihc,
     aihc-play,
     base >=4.16 && <5,
     bytestring,
@@ -81,6 +60,7 @@ test-suite spec
   hs-source-dirs: test
   main-is: Spec.hs
   build-depends:
+    aihc,
     aihc-play,
     base >=4.16 && <5,
     bytestring,

@@ -19,6 +19,19 @@ export const environment = {
 
 export const types = {};
 
+export class ProgramExit extends Error {
+  constructor(code) {
+    super("The program exited with code " + code + ".");
+    this.name = "ProgramExit";
+    this.code = code;
+  }
+}
+
+export const exit = {
+  exit: (status) => { throw new ProgramExit(status.tag === "ok" ? 0 : 1); },
+  exitWithCode: (code) => { throw new ProgramExit(code); },
+};
+
 async function drain(data, sink) {
   if (typeof data.read === "function") {
     for (;;) {
@@ -83,6 +96,7 @@ const start = typeof performance !== "undefined" ? performance.now() : Date.now(
 const nowNs = () =>
   BigInt(Math.round(((typeof performance !== "undefined" ? performance.now() : Date.now()) - start) * 1e6));
 export const clocksTypes = {};
+export const systemClock = {};
 export const monotonicClock = {
   now: nowNs,
   waitFor: (ns) => new Promise((resolve) => setTimeout(resolve, Number(ns) / 1e6)),
@@ -102,4 +116,25 @@ export const client = {
   send: () => {
     throw new Error("wasi:http is not available in the browser host");
   },
+};
+
+export const imports = {
+  "wasi:cli/environment": environment,
+  "wasi:cli/exit": exit,
+  "wasi:cli/types": types,
+  "wasi:cli/stdin": stdin,
+  "wasi:cli/stdout": stdout,
+  "wasi:cli/stderr": stderr,
+  "wasi:cli/terminal-input": terminalInput,
+  "wasi:cli/terminal-output": terminalOutput,
+  "wasi:cli/terminal-stdin": terminalStdin,
+  "wasi:cli/terminal-stdout": terminalStdout,
+  "wasi:cli/terminal-stderr": terminalStderr,
+  "wasi:clocks/types": clocksTypes,
+  "wasi:clocks/system-clock": systemClock,
+  "wasi:clocks/monotonic-clock": monotonicClock,
+  "wasi:filesystem/types": fsTypes,
+  "wasi:filesystem/preopens": preopens,
+  "wasi:http/types": httpTypes,
+  "wasi:http/client": client,
 };

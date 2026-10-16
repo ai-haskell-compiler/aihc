@@ -119,6 +119,7 @@ import Data.Char (isAlpha, isAlphaNum, isAsciiUpper, isDigit)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
@@ -266,7 +267,8 @@ prepareValueInterface interface =
     }
   where
     termTypes =
-      Map.fromList
+      -- Preserve on-demand decoding of imported schemes and dictionary types.
+      LazyMap.fromList
         ( [ (key, schemeType scheme)
           | (key@(GlobalTerm {}), scheme) <- tcInterfaceTerms interface
           ]
