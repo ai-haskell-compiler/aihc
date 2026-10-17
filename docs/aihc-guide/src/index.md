@@ -24,26 +24,32 @@ The playground is the compiler itself. It runs in your browser.
 
 <div class="lazy-cards" markdown>
 
-<a class="lazy-card" href="01-hello-compiler/">
+<a class="lazy-card" href="01-machine-code/">
 <span class="lazy-card-number">Chapter 1</span>
-<span class="lazy-card-title">Hello, compiler</span>
+<span class="lazy-card-title">Help! My Haskell Became Machine Code</span>
+<span class="lazy-card-note">The full journey in one picture. Compile and run a program.</span>
+</a>
+
+<a class="lazy-card" href="02-text-to-tree/">
+<span class="lazy-card-number">Chapter 2</span>
+<span class="lazy-card-title">From text to tree</span>
 <span class="lazy-card-note">Text becomes a tree. Watch the parser work.</span>
 </a>
 
-<a class="lazy-card" href="02-who-is-who/">
-<span class="lazy-card-number">Chapter 2</span>
+<a class="lazy-card" href="03-who-is-who/">
+<span class="lazy-card-number">Chapter 3</span>
 <span class="lazy-card-title">Who is who</span>
 <span class="lazy-card-note">Every name gets a color. Find out which x is which.</span>
 </a>
 
-<a class="lazy-card" href="03-what-is-what/">
-<span class="lazy-card-number">Chapter 3</span>
+<a class="lazy-card" href="04-what-is-what/">
+<span class="lazy-card-number">Chapter 4</span>
 <span class="lazy-card-title">What is what</span>
 <span class="lazy-card-note">The compiler guesses the types. It guesses well.</span>
 </a>
 
 <span class="lazy-card lazy-card-soon">
-<span class="lazy-card-number">Chapter 4</span>
+<span class="lazy-card-number">Chapter 5</span>
 <span class="lazy-card-title">The honest language</span>
 <span class="lazy-card-note">System FC, where nothing is implicit. Not written yet.</span>
 </span>

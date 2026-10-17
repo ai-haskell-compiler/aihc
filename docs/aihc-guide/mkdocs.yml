@@ -77,6 +77,7 @@ markdown_extensions:
 
 nav:
   - The Lazy Reader: index.md
-  - 1. Hello, compiler: 01-hello-compiler.md
-  - 2. Who is who: 02-who-is-who.md
-  - 3. What is what: 03-what-is-what.md
+  - "1. Help! My Haskell Became Machine Code": 01-machine-code.md
+  - 2. From text to tree: 02-text-to-tree.md
+  - 3. Who is who: 03-who-is-who.md
+  - 4. What is what: 04-what-is-what.md
