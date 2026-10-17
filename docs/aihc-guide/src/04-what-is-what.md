@@ -4,7 +4,7 @@ hide:
   - toc
 ---
 
-<p class="lazy-chapter">Chapter 3</p>
+<p class="lazy-chapter">Chapter 4</p>
 
 # What is what
 
@@ -64,7 +64,7 @@ Try this
 
 ## The road ahead
 
-Three chapters in, the compiler has read the text, found every name, and worked out every type.
+Four chapters in, the compiler has read the text, found every name, and worked out every type.
 It has not changed the program at all.
 That changes in the next chapter.
 The compiler rewrites the program into a smaller, stricter language, where nothing is left implicit.

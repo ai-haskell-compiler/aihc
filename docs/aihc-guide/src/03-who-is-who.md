@@ -4,7 +4,7 @@ hide:
   - toc
 ---
 
-<p class="lazy-chapter">Chapter 2</p>
+<p class="lazy-chapter">Chapter 3</p>
 
 # Who is who
 
@@ -72,4 +72,4 @@ The next chapter asks what type each name has.
 That question only makes sense when the compiler knows which name is which.
 A good compiler answers the questions in order, and keeps each answer in its own place.
 
-<a class="lazy-next" href="../03-what-is-what/"><small>Next chapter</small>What is what</a>
+<a class="lazy-next" href="../04-what-is-what/"><small>Next chapter</small>What is what</a>

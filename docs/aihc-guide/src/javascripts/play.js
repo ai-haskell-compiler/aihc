@@ -612,10 +612,11 @@ function buildPlayground(root) {
     }
   };
 
+  // Update the answer only when the reader stops typing.
   editor.addEventListener("input", () => {
     editor.rows = Math.max(3, editor.value.split("\n").length + 1);
     clearTimeout(timer);
-    if (command !== "compile") timer = setTimeout(refresh, 120);
+    if (command !== "compile") timer = setTimeout(refresh, TYPING_PAUSE_MS);
   });
   editor.addEventListener("keydown", (event) => {
     // Keep the page shortcuts of the theme away from the editor.
@@ -669,6 +670,9 @@ function buildPlayground(root) {
 
   return { refresh: command === "compile" ? () => {} : refresh };
 }
+
+// The time without a keystroke before a playground asks the helper again.
+const TYPING_PAUSE_MS = 1000;
 
 const PANE_TITLES = {
   parse: "The compiler sees",

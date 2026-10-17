@@ -1,14 +1,14 @@
 ---
-title: Hello, compiler
+title: Help! My Haskell Became Machine Code
 hide:
   - toc
 ---
 
 <p class="lazy-chapter">Chapter 1</p>
 
-# Hello, compiler
+# Help! My Haskell Became Machine Code
 
-<p class="lazy-lede">A compiler is a program that reads a program. It reads text that a person wrote, and it writes a program that a machine can run. This chapter is about the first step: how text becomes a tree.</p>
+<p class="lazy-lede">A compiler is a program that reads a program. It reads text that a person wrote, and it writes a program that a machine can run. This chapter gives the full journey in one picture. The next chapters look at each step.</p>
 
 <figure class="lazy-figure lazy-anim">
 <svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Source text becomes a syntax tree, and the tree becomes a program.">
@@ -87,12 +87,28 @@ hide:
   <!-- Arrows -->
   <path class="lazy-anim-arrow" d="M214 110 L256 110" stroke="#7d6fa6" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
   <path class="lazy-anim-arrow" d="M464 110 L506 110" stroke="#7d6fa6" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
-  <text x="360" y="208" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#6b655d">This chapter is about the first arrow. The second arrow takes the rest of the book.</text>
+  <text x="360" y="208" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#6b655d">The next chapter is about the first arrow. The second arrow takes the rest of the book.</text>
 </svg>
 </figure>
 
+## The journey
+
+A machine does not understand Haskell.
+It understands small instructions: get a value, add two values, jump to a different instruction.
+The compiler changes your Haskell into these instructions.
+It does this in a sequence of steps, and each step does one job.
+
+1. The compiler reads the text and finds its shape. The result is a tree.
+2. The compiler finds, for each name, where that name was defined.
+3. The compiler finds the type of each part of the program.
+4. The compiler writes the program again in a small language where nothing is implicit.
+5. The compiler writes the instructions that the machine runs.
+
+Each chapter of this guide is about one of these steps.
+
 ## Run a program
 
+Here is the full compiler.
 Change the Haskell module on the left.
 Select **Run** to compile it and see its output on the right.
 Select **Stop** to stop the program.
@@ -107,63 +123,18 @@ main = putStrLn "Hello, compiler!"
 </div>
 
 The module must have the name `Main` and a `main` function.
-You can import modules from `aihc-prim` and `aihc-base`, which includes `Prelude`.
+You can use the `Prelude`.
 The browser compiles the module and runs the WASI P3 program.
-The first run must load the compiler tools and core libraries.
-
-## Words first
-
-To a computer, a program is one long line of characters.
-The letters `d`, `o`, `u`, `b`, `l`, `e` are six characters.
-They are not yet a word.
-
-The first thing the compiler does is to read the characters and to group them into words.
-A programmer calls these words *tokens*.
-`double` is a token. So is `=`, and so is `+`.
-A space between two tokens is not a token. It only keeps them apart.
-
-This step is small, and the compiler does it fast.
-The interesting part comes next.
-
-## A tree, not a list
-
-Read this sentence: *the cat sleeps on the book*.
-You did not read it as six separate words.
-You read *the cat* as one thing, *on the book* as another, and *sleeps* as the action that connects them.
-The words have a shape.
-
-A program has a shape too.
-In `double x = x + x`, the `+` connects two things, and the `=` connects a name to a body.
-The compiler finds this shape.
-The result is a tree: one node at the top, and smaller pieces below it.
-The part of the compiler that does this is the *parser*.
-
-Here is the parser of aihc.
-Write a little Haskell on the left, and look at the tree on the right.
-
-<div class="lazy-play" data-command="parse">
-<pre>
-double x = x + x
-
-greeting = "hello"
-</pre>
-</div>
+The first run must load the compiler tools and the libraries.
 
 <div class="lazy-try" markdown>
 
 Try this
 
-- Add a third line: `big = double (double 10)`. The parentheses are in the text, but not in the tree.
-- Remove the `=` from the first line. The parser tells you where it got lost.
-- Write `answer = if True then 1 else 0`. An `if` has exactly three children. Find them.
+- Change the text in the quotes. Then select **Run** again.
+- Write `main = print (sum [1 .. 100])`. The program adds the numbers from 1 to 100.
+- Write `main = putStrLn 42`. A number is not a string, and the compiler tells you.
 
 </div>
 
-## One question left
-
-The tree has two nodes that say `x`.
-Are they the same `x`?
-The parser cannot tell.
-It finds the shape of the text, and nothing else.
-
-<a class="lazy-next" href="../02-who-is-who/"><small>Next chapter</small>Who is who</a>
+<a class="lazy-next" href="../02-text-to-tree/"><small>Next chapter</small>From text to tree</a>
