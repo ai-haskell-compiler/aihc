@@ -1070,10 +1070,9 @@ raise thread exception = go
       Just Object {} -> model
       other -> error ("abandoned thunk is " <> show other)
 
--- | Mark the evaluated static thunks that a full collection or a gen2
--- cycle frees the value of: the slots no live code reaches. A cycle
--- judges them at its snapshot, which is now. The model is conservative
--- for a cycle that ends later: it stops naming the slot at once.
+-- | Mark evaluated static thunks stale when no live code reaches them.
+-- A full collection or a gen2 cycle can free their targets. At a cycle
+-- snapshot, the model stops references to these slots at once.
 staleStatics :: Bool -> Model -> Model
 staleStatics full model
   | not full = model
@@ -1388,7 +1387,10 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                 -- in the model before the check.
                 -- A collection is a pause of the running thread. The model
                 -- of a reservation learns of its collection only here.
-                checked = pause (step model)
+                -- A pop can pass a deferred forward frame. If no live
+                -- code reaches its static thunk, the cycle can free the
+                -- target before the next report.
+                checked = staleStatics (rFinish report) (pause (step model))
                 -- A local collection copies the local heap of one
                 -- capability: the reserving capability at a reservation,
                 -- and the running capability at an escape. An explicit or

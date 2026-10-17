@@ -1066,8 +1066,10 @@ static void report_collection(void) {
 
   for (size_t index = 0; index < entry_capacity; ++index) {
     Entry *entry = &entries[index];
+    /* A later allocation can use the address of a freed indirection.
+       The address alone does not identify the old indirection. */
     if (entry->indirection && entry->address != NULL &&
-        is_object_start(entry->address)) {
+        is_object_start(entry->address) && is_indirection(entry->address)) {
       /* An indirection of an old generation stays until a collection of
          that generation, and the remembered set keeps its target alive
          while it is there. The model needs its age for that, so the driver
