@@ -1,4 +1,4 @@
-[![User guide](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/deploy-docs.yml?label=user%20guide)](https://ai-haskell-compiler.github.io/aihc/)
+[![User guide](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/publish-docs-site.yml?branch=main&event=workflow_run&label=user%20guide)](https://docs.aihc.app/)
 [![Generated Reports](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/generated-reports-update.yml?label=reports)](https://github.com/ai-haskell-compiler/aihc/actions/workflows/generated-reports-update.yml)
 [![Self-Compile](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/self-compile.yml?branch=main&label=Self-Compile)](https://github.com/ai-haskell-compiler/aihc/actions/workflows/self-compile.yml)
 [![Discord](https://img.shields.io/discord/1555935190487142460?label=discord&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/uGWkhMCZrZ)
@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC this week: the compiler compiles itself, then tests the result](https://blog.aihc.app/posts/2026-10-09-aihc-highlights/)** (09 Oct 2026)
+**[AIHC this week: parallel threads, smaller arithmetic, faster starts](https://blog.aihc.app/posts/2026-10-16-aihc-highlights/)** (16 Oct 2026)
 
-An identical self-built compiler, incremental GC defects, faster inliner decisions with a runtime tradeoff, and Hackage downloads on WebAssembly.
+Haskell threads run in parallel, Integer division sheds allocations, SHA uses narrower instructions, and the browser playground loads real core libraries.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -49,16 +49,16 @@ Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 ## Performance
 
 <!-- AUTO-GENERATED: START perf-highlights -->
-Each number is the AIHC value divided by the GHC value, as a geometric mean over 7 benchmarks. Lower is better. 1.00× is parity.
+Each number is the AIHC value divided by the GHC value, as a geometric mean over 10 benchmarks. Lower is better. 1.00× is parity.
 
 | Metric | Native | LLVM | Wasm |
 | --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.25× | 0.20× | 0.36× |
-| Artifact size `-Os` | 0.71× | 0.96× | 0.57× |
-| Runtime `-O1` | 23.3× | 21.6× | 38.0× |
-| Runtime `-O2` | 3.91× | 3.30× | 4.39× |
+| Compile time `-O0` | 0.36× | 0.32× | 0.78× |
+| Artifact size `-Os` | 0.61× | 0.54× | 0.84× |
+| Runtime `-O1` | 26.0× | 24.5× | 32.3× |
+| Runtime `-O2` | 2.69× | 2.39× | 2.28× |
 
-Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`f08dbf4fa`](https://github.com/ai-haskell-compiler/aihc/commit/f08dbf4fad1c991db7fe5c56db854b099b7d8001) (2026-10-10). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`6fe0db81e`](https://github.com/ai-haskell-compiler/aihc/commit/6fe0db81e2959197f7cfb22bbdd2260a2ab0404b) (2026-10-16). Get all results at [perf.aihc.app](https://perf.aihc.app/).
 <!-- AUTO-GENERATED: END perf-highlights -->
 
 
