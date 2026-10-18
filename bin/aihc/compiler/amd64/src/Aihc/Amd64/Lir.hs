@@ -167,7 +167,6 @@ amd64Backend =
       nbQuadSymbol = amd64QuadSymbol,
       nbQuadSymbolAddend = amd64QuadSymbolAddend,
       nbAsCode = amd64AsCode,
-      nbRewriteBlock = zeroWithXor,
       nbRenderTraps = renderTraps,
       -- A conditional jump takes a 32-bit displacement, which reaches the
       -- stub from anywhere in the object.
@@ -351,80 +350,6 @@ registersFor convention scratch =
     carrier registers index
       | index < length registers = Just (registers !! index)
       | otherwise = Nothing
-
--- | Clear a register with @xor r32, r32@ instead of @mov r32, 0@. The xor
--- form is two or three bytes and the mov form is five or six, but the xor
--- writes the condition flags. Thus the rewrite occurs only where no
--- instruction reads the flags before an instruction writes them again.
---
--- A backward walk finds where the flags are live. A label takes the state
--- of the statement after it. A jump to a label of the list takes the state
--- of that label. A jump out of the list goes to a block or to a trap stub,
--- and neither reads the flags. A loop through a label can change the state
--- of the label, so the walk repeats until the labels do not change.
-zeroWithXor :: [Amd64Statement] -> [Amd64Statement]
-zeroWithXor statements
-  | not (any isZeroMove statements) = statements
-  | otherwise = zipWith rewrite statements (drop 1 (liveBefore (settle Map.empty)))
-  where
-    liveBefore labels = scanr (flagStep labels) False statements
-    settle labels =
-      let next = Map.fromList [(name, live) | (Amd64Label name, live) <- zip statements (liveBefore labels)]
-       in if next == labels then labels else settle next
-    rewrite statement liveAfter =
-      case statement of
-        Amd64Code (AmdMov register (Amd64MoveImmediate 0))
-          | not liveAfter,
-            Just dword <- clearable register ->
-              amd64Instruction (AmdXor (Amd64RmRegister dword) (Amd64BinaryRegister dword))
-        _ -> statement
-    -- The 32-bit form clears the whole register. A byte move keeps the
-    -- upper bits, so it stays.
-    clearable register
-      | register `elem` quadRegisters, register /= RSP = Just (dwordRegister register)
-      | register `elem` dwordRegisters, register /= ESP = Just register
-      | otherwise = Nothing
-
-isZeroMove :: Amd64Statement -> Bool
-isZeroMove statement =
-  case statement of
-    Amd64Code (AmdMov _ (Amd64MoveImmediate 0)) -> True
-    _ -> False
-
--- | Whether the condition flags are live before a statement, from whether
--- they are live after it and the state of each label.
-flagStep :: Map Name Bool -> Amd64Statement -> Bool -> Bool
-flagStep labels statement liveAfter =
-  case statement of
-    Amd64Code instruction ->
-      case instruction of
-        AmdJe _ -> True
-        AmdJne _ -> True
-        AmdJcc _ _ -> True
-        AmdSet _ _ -> True
-        AmdCmov {} -> True
-        -- These set each status flag that a condition reads.
-        AmdAdd _ _ -> False
-        AmdSub _ _ -> False
-        AmdAnd _ _ -> False
-        AmdOr _ _ -> False
-        AmdXor _ _ -> False
-        AmdCmp _ _ -> False
-        AmdTest _ _ -> False
-        AmdNeg _ -> False
-        AmdUcomis {} -> False
-        -- No code reads the flags that a call or a return leaves.
-        AmdRet -> False
-        AmdRetImm _ -> False
-        AmdUd2 -> False
-        AmdCall _ -> False
-        AmdCallRegister _ -> False
-        AmdJmp (Amd64JumpRegister _) -> False
-        AmdJmp (Amd64JumpLabel name) -> Map.findWithDefault False name labels
-        -- Each other instruction keeps the flags, or changes only some of
-        -- them. Both cases keep them live.
-        _ -> liveAfter
-    _ -> liveAfter
 
 instructionEffect :: Amd64Instruction -> SlotEffect
 instructionEffect instruction =
@@ -641,12 +566,19 @@ canonicalInteger ty value
 address :: Amd64Register -> Text -> Amd64Statement
 address register label = amd64Instruction (AmdMovGot register label)
 
+-- | Put a constant in a register. Zero comes from @xor r32, r32@, which is
+-- two or three bytes where @mov r32, 0@ is five or six. The xor writes the
+-- condition flags. Instruction selection puts each flag reader directly
+-- after the instruction that sets its flags, and it loads each constant
+-- before that instruction, so no constant comes between the two.
 immediate :: (Integral value) => Amd64Register -> value -> Amd64Statement
 immediate register value
+  | integer == 0 = amd64Instruction (AmdXor (Amd64RmRegister dword) (Amd64BinaryRegister dword))
   | integer >= 0 && integer <= 0xffffffff = amd64Instruction (AmdMov (dwordRegister register) (Amd64MoveImmediate integer))
   | otherwise = amd64Instruction (AmdMov register (Amd64MoveImmediate (integer `mod` (2 ^ (64 :: Int)))))
   where
     integer = toInteger value
+    dword = dwordRegister register
 
 move :: Amd64Register -> Amd64Register -> [Amd64Statement]
 move destination source
