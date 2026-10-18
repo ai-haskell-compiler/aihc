@@ -33,6 +33,7 @@ module GHC.Prim.Integer
     integerTestBit#,
     integerToInt#,
     integerXor,
+    magnitudeRemWord#,
     wordLog2#,
     wordToInteger,
   )
@@ -64,6 +65,7 @@ import GHC.Prim
     quotWord#,
     readWordArray#,
     realWorld#,
+    remWord#,
     shrinkMutableByteArray#,
     sizeofByteArray#,
     subIntC#,
@@ -593,6 +595,14 @@ positiveQuotRem dividend divisor =
 -- | Divide magnitudes without a quotient array. The remainder has the
 -- sign of the numerator.
 integerRem :: Integer -> Integer -> Integer
+integerRem (IP magnitude) (IS denominator) =
+  case denominator of
+    0# -> integerDivisionByZero
+    _ -> IS (word2Int# (magnitudeRemWord# magnitude (absoluteIntWord# denominator)))
+integerRem (IN magnitude) (IS denominator) =
+  case denominator of
+    0# -> integerDivisionByZero
+    _ -> IS (0# -# word2Int# (magnitudeRemWord# magnitude (absoluteIntWord# denominator)))
 integerRem numerator denominator =
   case signInteger# denominator of
     0# -> integerDivisionByZero
@@ -616,6 +626,17 @@ integerRemWord# (IS small) divisor =
     (# _, remainder #) -> remainder
 integerRemWord# (IP magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
 integerRemWord# (IN magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
+
+-- | The remainder of a magnitude and a nonzero divisor word. A big
+-- magnitude has two or more limbs. Two limbs do not use the loop. The
+-- result is less than the divisor, thus it is not more than 2^63 - 1.
+magnitudeRemWord# :: ByteArray# -> Word# -> Word#
+magnitudeRemWord# magnitude divisor =
+  case wordCount# magnitude of
+    2# ->
+      case quotRemWord2# (remWord# (indexWordArray# magnitude 1#) divisor) (indexWordArray# magnitude 0#) divisor of
+        (# _, remainder #) -> remainder
+    size -> remainderWords# magnitude divisor (size -# 1#) 0##
 
 remainderWords# :: ByteArray# -> Word# -> Int# -> Word# -> Word#
 remainderWords# magnitude divisor index remainder =

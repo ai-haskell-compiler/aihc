@@ -31,10 +31,13 @@ import GHC.Err (errorWithoutStackTrace)
 import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
-import GHC.Internal.Integer (Integer (..), integerQuotRem, integerRem, wordToInteger)
+import GHC.Internal.Integer (Integer (..), integerQuotRem, integerRem, magnitudeRemWord#, wordToInteger)
 import GHC.Num (Num (..))
 import GHC.Prim
-  ( int16ToInt#,
+  ( Int#,
+    Word#,
+    int16ToInt#,
+    int2Word#,
     int32ToInt#,
     int64ToInt#,
     int8ToInt#,
@@ -57,6 +60,9 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
+    (+#),
+    (-#),
+    (<#),
     (==#),
   )
 import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
@@ -284,6 +290,8 @@ integerQuotRemChecked numerator denominator = integerQuotRem numerator denominat
 {-# NOINLINE integerQuotRemChecked #-}
 
 -- | A remainder without a quotient. A zero divisor raises 'DivideByZero'.
+-- A small divisor uses one word remainder of the magnitude. The magnitude
+-- of a big numerator is always more than the magnitude of a small divisor.
 integerRemChecked :: Integer -> Integer -> Integer
 integerRemChecked (IS numerator) (IS denominator) =
   case denominator of
@@ -292,17 +300,68 @@ integerRemChecked (IS numerator) (IS denominator) =
       case denominator ==# negateInt# 1# of
         1# -> IS 0#
         _ -> IS (remInt# numerator denominator)
-integerRemChecked _ (IS 0#) = divZeroError
+integerRemChecked (IP magnitude) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ -> IS (word2Int# (magnitudeRemWord# magnitude (absoluteWord# denominator)))
+integerRemChecked (IN magnitude) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ -> IS (negateInt# (word2Int# (magnitudeRemWord# magnitude (absoluteWord# denominator))))
 integerRemChecked numerator denominator = integerRem numerator denominator
 
 -- | Compute a modulus without a quotient. The result has the divisor sign.
 integerModChecked :: Integer -> Integer -> Integer
+integerModChecked (IS numerator) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      case denominator ==# negateInt# 1# of
+        1# -> IS 0#
+        _ ->
+          let remainder = remInt# numerator denominator
+           in case remainder of
+                0# -> IS 0#
+                _ ->
+                  case (remainder <# 0#) ==# (denominator <# 0#) of
+                    1# -> IS remainder
+                    _ -> IS (remainder +# denominator)
+integerModChecked (IP magnitude) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      let remainder = word2Int# (magnitudeRemWord# magnitude (absoluteWord# denominator))
+       in case remainder of
+            0# -> IS 0#
+            _ ->
+              case denominator <# 0# of
+                1# -> IS (denominator +# remainder)
+                _ -> IS remainder
+integerModChecked (IN magnitude) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      let remainder = word2Int# (magnitudeRemWord# magnitude (absoluteWord# denominator))
+       in case remainder of
+            0# -> IS 0#
+            _ ->
+              case denominator <# 0# of
+                1# -> IS (negateInt# remainder)
+                _ -> IS (denominator -# remainder)
 integerModChecked numerator denominator =
-  case integerRemChecked numerator denominator of
+  case integerRem numerator denominator of
     remainder ->
       case signum remainder == negate (signum denominator) of
         True -> remainder + denominator
         False -> remainder
+
+-- | The magnitude of an 'Int#' as a 'Word#'. The magnitude of the minimum
+-- Int is 2^63, and it is correct as a word.
+absoluteWord# :: Int# -> Word#
+absoluteWord# value =
+  case value <# 0# of
+    1# -> int2Word# (negateInt# value)
+    _ -> int2Word# value
 
 -- | 'divMod' on 'Integer'. The remainder has the sign of the divisor. The
 -- body is large, thus each use stays a call.
