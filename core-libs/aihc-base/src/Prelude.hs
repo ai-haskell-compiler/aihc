@@ -8,6 +8,10 @@
 -- shape of its template, and a flip is another shape.
 {-# HLINT ignore "Avoid lambda" #-}
 
+-- A foldl in reverseOnto would copy the loop of listFoldl with a closure
+-- for flip (:).
+{-# HLINT ignore reverseOnto "Use foldl" #-}
+
 module Prelude
   ( Applicative (..),
     Bounded (..),
@@ -287,8 +291,11 @@ init (value : values) = value : init values
 reverse :: [a] -> [a]
 reverse = reverseOnto []
 
+-- | Put the elements of the second list in reverse order in front of the
+-- first. Each step makes one cons cell and no thunk.
 reverseOnto :: [a] -> [a] -> [a]
-reverseOnto = foldl (flip (:))
+reverseOnto result [] = result
+reverseOnto result (value : values) = reverseOnto (value : result) values
 
 lookup :: (Eq a) => a -> [(a, b)] -> Maybe b
 lookup _ [] = Nothing
