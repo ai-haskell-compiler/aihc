@@ -12,6 +12,10 @@
 -- for flip (:).
 {-# HLINT ignore reverseOnto "Use foldl" #-}
 
+-- The list traversal keeps its arguments: the arity pass reads the arity
+-- from the body.
+{-# HLINT ignore listTraverse "Eta reduce" #-}
+
 module Prelude
   ( Applicative (..),
     Bounded (..),
@@ -1059,8 +1063,17 @@ instance Traversable ((,) a) where
   traverse f (first, second) = fmap (first,) (f second)
 
 instance Traversable List where
-  traverse _ [] = pure []
-  traverse f (value : values) = fmap (:) (f value) <*> traverse f values
+  traverse = listTraverse
+
+-- | The traversal of a list. The loop is local and the traversal is
+-- INLINE, so a call with a known applicative functor gets its own copy of
+-- the loop, and the methods of the functor are known in it.
+listTraverse :: (Applicative f) => (a -> f b) -> [a] -> f [b]
+listTraverse f values = loop values
+  where
+    loop [] = pure []
+    loop (value : rest) = fmap (:) (f value) <*> loop rest
+{-# INLINE listTraverse #-}
 
 instance Traversable Dual where
   traverse f (Dual value) = fmap Dual (f value)
