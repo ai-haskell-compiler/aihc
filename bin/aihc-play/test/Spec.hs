@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Aihc.Cli.PlayBundleStore (storeBundle)
+import Aihc.Native (hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.Play
 import Aihc.Play.Json (renderJson)
 import Data.ByteString.Lazy qualified as BL
@@ -15,7 +16,9 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 
 -- | The suite runs over the bundle of a store. AIHC_PLAY_STORE names the
 -- store; without it, the default store of the user must hold the core
--- libraries. The bundle is written when the first test runs, so a run
+-- libraries. The default store can have a directory for each target, thus
+-- the suite uses the directory of the host target when it is present. The
+-- bundle is written when the first test runs, so a run
 -- that selects no test needs no store.
 main :: IO ()
 main =
@@ -75,7 +78,13 @@ openSession = do
     Nothing -> do
       cache <- getXdgDirectory XdgCache "aihc"
       let path = cache </> "store"
+          hostPath = (path </>) . nativeTargetStoreDirectory <$> hostNativeTarget
+      hostPresent <- maybe (pure False) doesDirectoryExist hostPath
       present <- doesDirectoryExist path
-      if present then pure path else fail "no store: set AIHC_PLAY_STORE to a store with aihc-base"
+      case hostPath of
+        Just directory | hostPresent -> pure directory
+        _
+          | present -> pure path
+          | otherwise -> fail "no store: set AIHC_PLAY_STORE to a store with aihc-base"
   (_, bytes) <- storeBundle store
   either fail pure (bundleSession (BL.toStrict bytes))
