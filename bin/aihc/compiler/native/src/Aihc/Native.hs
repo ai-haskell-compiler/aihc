@@ -430,6 +430,12 @@ elfSectionArguments = ["-ffunction-sections", "-fdata-sections"]
 -- export trie is dead weight. An ELF executable exports no symbol unless
 -- the link asks for it.
 --
+-- An ELF executable is not position independent. AIHC info tables and
+-- static closures hold absolute pointers. A PIE needs one 24-byte
+-- @R_X86_64_RELATIVE@ entry for each of these pointers. Because the tables
+-- are in @.rodata@, a PIE also needs text relocations (@DT_TEXTREL@). GHC
+-- also links its Linux executables without PIE.
+--
 -- The WebAssembly linker removes unreachable functions without an
 -- argument, and exports only what the link names.
 executableLinkArguments :: NativeTarget -> [String]
@@ -443,7 +449,7 @@ executableLinkArguments target =
     Wasm32Wasip3 -> []
   where
     appleArguments = ["-Wl,-dead_strip", "-Wl,-no_exported_symbols"]
-    elfArguments = ["-Wl,--gc-sections"]
+    elfArguments = ["-Wl,--gc-sections", "-no-pie"]
 
 -- | Whether the linker of a target takes macOS frameworks. Cabal gives the
 -- @frameworks@ of a package to the linker on macOS only. The @llvm@ target
