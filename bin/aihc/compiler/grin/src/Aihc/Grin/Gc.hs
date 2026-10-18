@@ -17,7 +17,7 @@ where
 import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinError, CpsGrinProgram (..), toCpsGrin)
 import Aihc.Grin.Heap (normalizeHeapReservations)
-import Aihc.Grin.Primitive (primitiveHeapWords, primitiveInitializes)
+import Aihc.Grin.Primitive (primitiveHeapWords, primitiveInitializes, uncheckedByteArrayLimit, uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -68,8 +68,8 @@ lowerGc cps =
     dynamicFunctions = evalState (mapM insertDynamicFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)
     dynamicProgram = program {grinFunctions = dynamicFunctions, grinPrimitives = grinPrimitives program <> dynamicDeclarations}
     dynamicDeclarations =
-      [ (GrinVar helper (-2000000001) (if primitiveInitializes helper then BoxedRep Unlifted else WordRep), arity)
-      | (names, helper, arity) <- reservationHelpers <> initializationHelpers,
+      [ (GrinVar helper (-2000000001) (if primitiveInitializes helper || helper == uncheckedByteArrayPrimitive then BoxedRep Unlifted else WordRep), arity)
+      | (names, helper, arity) <- reservationHelpers <> initializationHelpers <> [(["newByteArray#"], uncheckedByteArrayPrimitive, 1)],
         any (\(var, _) -> grinVarName var `elem` names) (grinPrimitives program)
       ]
     frames = cpsContinuationFunctions cps
@@ -108,6 +108,18 @@ insertDynamicFunction function = do
 
 insertDynamic :: GrinExpr -> State Int GrinExpr
 insertDynamic expression = case expression of
+  -- A movable byte array of a small fixed size gets a fixed reservation,
+  -- which can merge with the reservations around it. Then the backend
+  -- writes the array in the heap, and no runtime call occurs.
+  GrinBind results (GrinPrimitiveCall resultRep "newByteArray#" [size@(GrinLitValue (GrinLitInt _ bytes))]) body
+    | bytes >= 0 && bytes <= uncheckedByteArrayLimit -> do
+        rest <- insertDynamic body
+        pure
+          ( GrinBind
+              []
+              (GrinEnsureHeap (staticHeapWords (fromInteger (uncheckedByteArrayWords bytes))) [])
+              (GrinBind results (GrinPrimitiveCall resultRep uncheckedByteArrayPrimitive [size]) rest)
+          )
   GrinBind results (GrinPrimitiveCall resultRep name arguments) body
     | Just (helper, operands) <- dynamicReservation name arguments -> do
         unique <- get

@@ -8,45 +8,61 @@ program: |
 expected: |
   extern func @aihc_byte_array_bounds_fail() cc c
 
-  extern func @aihc_byte_array_initialize(ptr, i64, i64, i64) -> ptr cc c
-
-  extern func @aihc_byte_array_words(i64, i64, i64) -> i64 cc c
-
-  extern func @aihc_heap_allocate(ptr, i64, i64, i64, ptr, ptr) -> ptr cc c
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
   extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern data @aihc_byte_array_info
 
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
   entry:
     %roots_5 = stack.alloc 8 align 8
-    %result_6 = call @aihc_byte_array_words(8, 0, 8)
-    store ptr %$cps_return_4, [%roots_5] align 8
-    %capability_7 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_0, [%capability_7 + 16] align 1 word
-    store ptr %sp_2, [%capability_7 + 32] align 1 word
-    %result_8 = call @aihc_heap_allocate(%capability_7, %result_6, 0, 1, %roots_5, null)
-    %$cps_return$gc_9 = load ptr [%roots_5] align 8
-    %hp_10 = load ptr [%capability_7 + 16] align 1 word
-    %hp_limit_11 = load ptr [%capability_7 + 24] align 1 word
-    %result_12 = call @aihc_byte_array_initialize(%result_8, 8, 0, 8)
-    %size_13 = load i64 [%result_12 + 8] align 8 region heap
-    %limit_14 = div.u i64 %size_13, 8
-    %invalid_15 = ge.u i64 4, %limit_14
-    br %invalid_15, out_of_bounds_16, inside_17
+    %heap_end_6 = ptr.add %hp_0, 56
+    %heap_fits_7 = le.u ptr %heap_end_6, %hp_limit_1
+    br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
-  cold out_of_bounds_16:
+  cold gc_collect_8:
+    store ptr %$cps_return_4, [%roots_5] align 8
+    %capability_13 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_0, [%capability_13 + 16] align 1 word
+    store ptr %sp_2, [%capability_13 + 32] align 1 word
+    call @aihc_heap_collect(%capability_13, 7, 1, %roots_5, null)
+    %$cps_return$gc_14 = load ptr [%roots_5] align 8
+    %hp_15 = load ptr [%capability_13 + 16] align 1 word
+    %hp_limit_16 = load ptr [%capability_13 + 24] align 1 word
+    jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+
+  gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
+    %hp_17 = ptr.add %hp_11, 56
+    %contents_18 = ptr.add %hp_11, 48
+    store ptr @aihc_byte_array_info, [%hp_11] align 8 region heap
+    store i64 8, [%hp_11 + 8] align 8 region heap
+    store ptr %contents_18, [%hp_11 + 16] align 8 region heap
+    store i64 0, [%hp_11 + 24] align 8 region heap
+    store i64 8, [%hp_11 + 32] align 8 region heap
+    store i64 7, [%hp_11 + 40] align 8 region heap
+    %size_19 = load i64 [%hp_11 + 8] align 8 region heap
+    %limit_20 = div.u i64 %size_19, 8
+    %invalid_21 = ge.u i64 4, %limit_20
+    br %invalid_21, out_of_bounds_22, inside_23
+
+  cold out_of_bounds_22:
     call @aihc_byte_array_bounds_fail()
     trap "byte array access is out of bounds"
 
-  inside_17:
-    %offset_18 = mul i64 4, 8
-    %contents_19 = load ptr [%result_12 + 16] align 8 region heap
-    %address_20 = ptr.add %contents_19, %offset_18
-    %value_21 = load i64 [%address_20] align 1
-    tailcall @aihc_lir_continue_i(%hp_10, %hp_limit_11, %sp_2, %sp_limit_3, %$cps_return$gc_9, %value_21)
+  inside_23:
+    %offset_24 = mul i64 4, 8
+    %contents_25 = load ptr [%hp_11 + 16] align 8 region heap
+    %address_26 = ptr.add %contents_25, %offset_24
+    %value_27 = load i64 [%address_26] align 1
+    tailcall @aihc_lir_continue_i(%hp_17, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %value_27)
   }
 status: pass
 reason: |
   With --check-prim-bounds the array primitive compares the index against the
   length of the array and branches to a call of aihc_byte_array_bounds_fail,
   which the same program without the flag does not mention at all.
+  The array has a fixed size of 8 bytes, so a normal heap check of seven
+  words covers it. The lowering writes the six header words in the heap.
+  The calls of aihc_byte_array_words, aihc_heap_allocate, and
+  aihc_byte_array_initialize do not occur.
