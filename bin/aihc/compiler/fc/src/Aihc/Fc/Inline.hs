@@ -466,6 +466,7 @@ simplifyValue config known diverging recursive inTemplates st name
                             spKnown = known,
                             spArity = arities,
                             spLocals = Map.empty,
+                            spCalls = Map.empty,
                             spExcluded = Map.empty,
                             spCse = Map.empty,
                             spEvaluated = Set.empty,

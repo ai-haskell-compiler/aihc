@@ -135,6 +135,7 @@ simplifyProgram primPackage phase siteLimit program =
             spKnown = Map.filter isKnownValue bodies,
             spArity = arities,
             spLocals = Map.empty,
+            spCalls = Map.empty,
             spExcluded = Map.empty,
             spCse = Map.empty,
             spEvaluated = Set.empty,
@@ -387,6 +388,9 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
+    -- | Local lazy bindings whose right-hand side is a saturated call of a
+    -- dictionary function with trivial arguments. See 'dictionaryCall'.
+    spCalls :: !(Map Name Expr),
     -- | Alternatives that a variable cannot select in this scope.
     spExcluded :: !(Map Expr (Set AltCon)),
     -- | Strict bindings in scope whose right-hand side is a pure
@@ -2069,6 +2073,7 @@ inlineCandidate env name candidate args = do
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
 bindingEnv env0 binder rhs
   | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
+  | dictionaryCall env rhs = evaluatedEnv {spCalls = Map.insert (binderName binder) rhs (spCalls env)}
   | isStrictBinder (spEnv env) binder,
     isPurePrimitiveCall (spEnv env) rhs || isStateToken rhs,
     Map.notMember rhs (spCse env) =
@@ -2233,6 +2238,7 @@ shadowNames names env
       env
         { spEvaluated = List.foldl' (flip Set.delete) (spEvaluated env) names,
           spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
+          spCalls = Map.filter (Set.disjoint shadowed . exprValueNames) (List.foldl' (flip Map.delete) (spCalls env) names),
           spDone = List.foldl' (flip Map.delete) (spDone env) names,
           spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
           spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
@@ -4086,6 +4092,10 @@ knownConstructor env expr = do
         | isConstructorName name -> pure (Just ([], name, lefts args, rights args, []))
         | Just body <- Map.lookup name (spLocals env) -> unfold body args
         | Just body <- Map.lookup name (spKnown env) -> unfoldShared body args
+        | null args,
+          Just call <- Map.lookup name (spCalls env) -> do
+            known <- knownConstructor env call
+            pure (fmap (\(binds, con, types, fields) -> (binds, con, types, fields, [])) known)
       _ -> pure Nothing
   pure $ do
     (binds, con, types, fields, innerCasts) <- known
@@ -4148,6 +4158,32 @@ knownConstructor env expr = do
                 null args ->
                   Just (reverse binds, con, lefts conArgs, rights conArgs, [])
             _ -> Nothing
+
+-- | A saturated call of a dictionary function with trivial arguments, such
+-- as @$fAlternativePrsr \@tm \@t $dTokenMachine@. A let of it is a thunk
+-- that builds the dictionary, and a case on the let binder takes the
+-- dictionary apart. The case selects the field of the call instead, as
+-- 'knownConstructor' does for the call itself, so the dictionary is not
+-- built. A dictionary is never bottom, so the case does not have to
+-- evaluate the binder.
+dictionaryCall :: Simpl -> Expr -> Bool
+dictionaryCall env rhs =
+  case collectSpine rhs of
+    (ExVar name, args)
+      | not (isConstructorName name),
+        Just body <- Map.lookup name (spKnown env),
+        all (either (const True) isTrivial) args,
+        length (rights args) == functionArity body,
+        (ExVar con, _) <- collectSpine (constructorBody body) ->
+          "$Dict$" `T.isPrefixOf` nameText con
+    _ -> False
+  where
+    constructorBody body =
+      case body of
+        ExTyLam _ inner -> constructorBody inner
+        ExLam _ inner -> constructorBody inner
+        ExCast inner _ -> constructorBody inner
+        _ -> body
 
 -- | A call of a top-level function whose arguments are cheap values, such
 -- as a method worker applied to a dictionary.
