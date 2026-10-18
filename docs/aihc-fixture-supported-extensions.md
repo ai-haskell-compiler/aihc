@@ -2,11 +2,11 @@
 
 ## Summary
 
-- Total Extensions: 86
-- Supported: 44
+- Total Extensions: 87
+- Supported: 45
 - In Progress: 42
-- Fixtures (eval): 614
-- Fixtures (fc): 401
+- Fixtures (eval): 632
+- Fixtures (fc): 440
 
 ## Extension Status
 
@@ -15,12 +15,12 @@
 | AllowAmbiguousTypes        |   🔴    | 7/9           |
 | ApplicativeDo              |   🔴    | 0/1           |
 | Arrows                     |   🔴    | 0/1           |
-| BangPatterns               |   🟢    | 13/13         |
+| BangPatterns               |   🟢    | 15/15         |
 | BlockArguments             |   🟢    | 2/2           |
 | CApiFFI                    |   🟢    | 4/4           |
 | ConstraintKinds            |   🟢    | 24/24         |
-| DataKinds                  |   🟡    | 39/42         |
-| DefaultSignatures          |   🟢    | 8/8           |
+| DataKinds                  |   🟡    | 44/47         |
+| DefaultSignatures          |   🟢    | 9/9           |
 | DeriveAnyClass             |   🟢    | 6/6           |
 | DeriveDataTypeable         |   🟢    | 4/4           |
 | DeriveFoldable             |   🟢    | 3/3           |
@@ -37,11 +37,11 @@
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedDefaultRules       |   🔴    | 0/1           |
 | ExtendedLiterals           |   🟢    | 13/13         |
-| FlexibleContexts           |   🟢    | 24/24         |
+| FlexibleContexts           |   🟢    | 29/29         |
 | FlexibleInstances          |   🟡    | 52/53         |
 | ForeignFunctionInterface   |   🟢    | 45/45         |
 | FunctionalDependencies     |   🔴    | 25/28         |
-| GADTs                      |   🟡    | 118/120       |
+| GADTs                      |   🟡    | 129/130       |
 | GeneralizedNewtypeDeriving |   🟢    | 19/19         |
 | GHCForeignImportPrim       |   🔴    | 7/9           |
 | ImplicitParams             |   🟢    | 5/5           |
@@ -49,10 +49,11 @@
 | ImpredicativeTypes         |   🔴    | 0/1           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟡    | 63/65         |
+| KindSignatures             |   🟡    | 66/68         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 274/276       |
+| MagicHash                  |   🟡    | 307/309       |
 | MonadComprehensions        |   🔴    | 0/2           |
+| MonoLocalBinds             |   🟢    | 1/1           |
 | MultiParamTypeClasses      |   🟡    | 41/44         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 4/4           |
@@ -67,32 +68,32 @@
 | ParallelListComp           |   🔴    | 0/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
 | PatternSynonyms            |   🟢    | 27/27         |
-| PolyKinds                  |   🟢    | 51/51         |
+| PolyKinds                  |   🟢    | 52/52         |
 | PostfixOperators           |   🟢    | 1/1           |
 | QualifiedDo                |   🔴    | 0/2           |
 | QuantifiedConstraints      |   🟢    | 5/5           |
 | QuasiQuotes                |   🟢    | 1/1           |
-| RankNTypes                 |   🟡    | 41/42         |
+| RankNTypes                 |   🟡    | 44/45         |
 | RebindableSyntax           |   🔴    | 21/24         |
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🟢    | 13/13         |
 | RequiredTypeArguments      |   🔴    | 0/1           |
 | RoleAnnotations            |   🟢    | 4/4           |
-| ScopedTypeVariables        |   🟡    | 48/51         |
-| StandaloneDeriving         |   🔴    | 11/14         |
+| ScopedTypeVariables        |   🟡    | 55/58         |
+| StandaloneDeriving         |   🔴    | 12/14         |
 | StandaloneKindSignatures   |   🟢    | 6/6           |
-| StarIsType                 |   🟢    | 3/3           |
+| StarIsType                 |   🟢    | 4/4           |
 | Strict                     |   🔴    | 2/3           |
 | StrictData                 |   🔴    | 0/1           |
 | TemplateHaskellQuotes      |   🟢    | 1/1           |
 | TransformListComp          |   🔴    | 0/2           |
 | TypeAbstractions           |   🔴    | 0/1           |
-| TypeApplications           |   🟡    | 22/23         |
-| TypeFamilies               |   🟡    | 62/65         |
+| TypeApplications           |   🟡    | 24/25         |
+| TypeFamilies               |   🟡    | 72/75         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
-| TypeOperators              |   🟢    | 117/117       |
+| TypeOperators              |   🟢    | 121/121       |
 | UnboxedSums                |   🟢    | 10/10         |
-| UnboxedTuples              |   🟡    | 83/84         |
+| UnboxedTuples              |   🟡    | 91/92         |
 | UndecidableInstances       |   🟡    | 19/21         |
 | UndecidableSuperClasses    |   🟢    | 4/4           |
 | UnliftedFFITypes           |   🟢    | 2/2           |
