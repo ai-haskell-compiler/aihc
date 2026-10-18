@@ -168,8 +168,9 @@ amd64Backend =
       nbQuadSymbolAddend = amd64QuadSymbolAddend,
       nbAsCode = amd64AsCode,
       nbRenderTraps = renderTraps,
-      -- A conditional jump takes a 32-bit displacement, which reaches the
-      -- stub from anywhere in the object.
+      -- A conditional jump to a trap stub keeps its 32-bit displacement,
+      -- which reaches the stub from anywhere in the object. Only a jump to
+      -- a private label of the function can become short.
       nbTrapTrampoline = Nothing,
       nbPrologueFrame = prologueFrame,
       nbCParameterMoves = cParameterMoves,
