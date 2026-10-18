@@ -130,7 +130,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_64, %hp_limit_65, %sp_66, %sp_limit_67, %$cps_return_68, %payload_77)
   }
 
-  data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_2, zero 8 }
+  data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_1, zero 8 }
 
   data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }
 
@@ -140,15 +140,11 @@ expected: |
 
   data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
 
-  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01" }
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_enter_1_1, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_enter_1_1, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
 
-  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01" }
-
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 2, i8 0, i8 1, i8 1, i8 0 }
-
-  data @aihc_lir_info_2 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_enter_thunk_0, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1 }
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_enter_thunk_0, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1 }
 status: pass
 reason: |
   The inline evaluation check loads the header, removes the two evaluation

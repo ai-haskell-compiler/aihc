@@ -43,9 +43,9 @@ lowerObservedProgram target gcStress entryName gcProgram = do
       resultReps
   (_, items) <- runLower options gcProgram $ \env -> do
     lowerUnitItems env
-    continuationInfoItems (ContinuationSpec threadDoneInfo (Symbol "aihc_lir_thread_done_applied_info") threadDoneTarget [] [Ptr] ContinuationFrameStop)
+    continuationInfoItems (ContinuationSpec threadDoneInfo threadDoneTarget [] [Ptr] ContinuationFrameStop)
     threadDoneContinuation threadDoneTarget
-    continuationInfoItems (ContinuationSpec snapshotInfo (Symbol "aihc_lir_snapshot_applied_info") snapshotTarget [] resultTypes ContinuationFrameStop)
+    continuationInfoItems (ContinuationSpec snapshotInfo snapshotTarget [] resultTypes ContinuationFrameStop)
     snapshotContinuation resultTypes
     observedMain
   let original = Module items

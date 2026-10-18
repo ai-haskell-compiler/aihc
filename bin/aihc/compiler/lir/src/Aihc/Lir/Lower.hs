@@ -297,6 +297,12 @@ data RuntimeInfo = RuntimeInfo
     infoLinkage :: !Linkage,
     infoIdentity :: !DataField,
     infoFields :: ![GrinRep],
+    -- | The slots of the object once it wants no more arguments: the stored
+    -- fields, then each slot that an application can still supply. The
+    -- pointer bitmap describes all of them, so the runtime finds the kind of
+    -- an arriving slot in the table of the object that takes it, and the
+    -- last stage needs no table of its own.
+    infoLayout :: ![GrinRep],
     infoRemainingArity :: !Int,
     infoNext :: !(Maybe Symbol),
     infoEnter :: !(Maybe RuntimeEnter),
@@ -372,11 +378,10 @@ groupsName groups =
   where
     groupName shape = if null shape then "v" else shapeName shape
 
--- | The two info tables of the frame an over-saturated application pushes
--- for the given argument groups.
-applyFrameInfoSymbol, applyFrameAppliedInfoSymbol :: [[Type]] -> Symbol
+-- | The info table of the frame an over-saturated application pushes for
+-- the given argument groups.
+applyFrameInfoSymbol :: [[Type]] -> Symbol
 applyFrameInfoSymbol groups = Symbol ("aihc_lir_apply_frame_" <> groupsName groups <> "_info")
-applyFrameAppliedInfoSymbol groups = Symbol ("aihc_lir_apply_frame_" <> groupsName groups <> "_applied_info")
 
 -- | An open block under construction.
 data OpenBlock = OpenBlock
@@ -549,7 +554,8 @@ lowerEnvironment options gcProgram =
     -- One constructor needs at most two info tables: the saturated object,
     -- and one shared by every stage that still wants arguments. The partial
     -- table carries the saturated one as its next stage, which is where the
-    -- runtime reads the full width and the pointer map from.
+    -- runtime reads the full width from. Both tables have the pointer map of
+    -- the full width.
     constructorEntries =
       [ ( key,
           RuntimeInfo
@@ -559,6 +565,7 @@ lowerEnvironment options gcProgram =
               -- Both tables describe the saturated slots. A partial object
               -- has filled a prefix of them.
               infoFields = concat layouts,
+              infoLayout = concat layouts,
               infoRemainingArity = if stage == SaturatedConstructor then 0 else length layouts,
               infoNext = if stage == SaturatedConstructor then Nothing else Just (constructorInfoSymbol name 0),
               infoEnter = Nothing,
@@ -587,6 +594,7 @@ lowerEnvironment options gcProgram =
               infoLinkage = Internal,
               infoIdentity = DataCode (if name `Set.member` forwardingFunctions then Nothing else Just target),
               infoFields = runtimeInfoKeyFields key,
+              infoLayout = runtimeInfoKeyLayout key,
               infoRemainingArity = runtimeInfoKeyRemainingArity key,
               infoNext = runtimeInfoKeyNext key >>= (`Map.lookup` infoSymbols),
               infoEnter = if name `Set.member` forwardingFunctions then Nothing else runtimeEnter target name key,
@@ -1212,7 +1220,7 @@ validateRuntimeRep runtimeRep =
 
 -- | The pointer bitmap one info table describes.
 infoBitmap :: RuntimeInfo -> BS.ByteString
-infoBitmap info = BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- infoFields info]
+infoBitmap info = BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- infoLayout info]
 
 -- | The array holding one pointer bitmap, emitted once per distinct bitmap.
 --
@@ -1338,12 +1346,11 @@ lowerEnterStub stub enter = do
   terminate (TailCall (enterTarget enter) (contextOperands context <> arguments))
   finishFunction stub Internal (contextParameters <> [(object, Ptr), (continuation, Ptr)] <> supplied) [] AihcConvention
 
--- | A continuation object kind for an entry or a harness: the unapplied and
--- the applied info table, and the stub that enters the target function with
--- the stored fields and the supplied values.
+-- | A continuation object kind for an entry or a harness: the info table,
+-- and the stub that enters the target function with the stored fields and
+-- the supplied values.
 data ContinuationSpec = ContinuationSpec
   { continuationInfo :: !Symbol,
-    continuationAppliedInfo :: !Symbol,
     continuationTarget :: !Symbol,
     continuationStored :: ![Type],
     continuationSupplied :: ![Type],
@@ -1351,20 +1358,19 @@ data ContinuationSpec = ContinuationSpec
   }
 
 continuationInfoItems :: ContinuationSpec -> LowerM ()
-continuationInfoItems spec = do
-  lowerInfo unapplied
-  lowerInfo applied
+continuationInfoItems spec = lowerInfo info
   where
     stored = map typeRep (continuationStored spec)
     supplied = map typeRep (continuationSupplied spec)
-    unapplied =
+    info =
       RuntimeInfo
         { infoSymbol = continuationInfo spec,
           infoLinkage = Internal,
           infoIdentity = DataCode (Just (continuationTarget spec)),
           infoFields = stored,
+          infoLayout = stored <> supplied,
           infoRemainingArity = 1,
-          infoNext = Just (continuationAppliedInfo spec),
+          infoNext = Nothing,
           infoEnter =
             Just
               RuntimeEnter
@@ -1378,14 +1384,6 @@ continuationInfoItems spec = do
           infoFrameKind = Just (continuationFrame spec),
           infoObjectKind = runtimeObjectClosure,
           infoSrt = Nothing
-        }
-    applied =
-      unapplied
-        { infoSymbol = continuationAppliedInfo spec,
-          infoFields = stored <> supplied,
-          infoRemainingArity = 0,
-          infoNext = Nothing,
-          infoEnter = Nothing
         }
     -- Info tables carry pointer bitmaps, so recover a representation from
     -- the Lir type.
@@ -2262,7 +2260,7 @@ lowerCallbackPool call signature = do
       (parameters, results) = runtimeCallSignatureFor target False signature
       entries = [Symbol (pool <> "_" <> T.pack (show index)) | index <- [0 .. callbackPoolSize - 1]]
   emitItem (ItemData (DataItem (Symbol pool) Internal True (toInteger (lowerWordSize target)) (concatMap (\entry -> [DataCode (Just entry), DataNull, DataNull, DataNull]) entries)))
-  continuationInfoItems (ContinuationSpec info (Symbol (pool <> "_applied_info")) stop [] resultTypes ContinuationFrameStop)
+  continuationInfoItems (ContinuationSpec info stop [] resultTypes ContinuationFrameStop)
   -- The stop frame gives the context back to the capability: the foreign call
   -- that ran the callback loads the heap context from there.
   do
@@ -3566,9 +3564,9 @@ finishedSymbol = Symbol "aihc_lir_finished"
 entryItems :: GcGrinProgram -> LowerM ()
 entryItems _ = do
   requireExternData (globalSymbol executableEntryName)
-  continuationInfoItems (ContinuationSpec finalInfo (Symbol "aihc_lir_final_applied_info") finalTarget [] [Ptr] ContinuationFrameStop)
-  continuationInfoItems (ContinuationSpec topInfo (Symbol "aihc_lir_top_applied_info") topTarget [Ptr] [Ptr] ContinuationFrameNormal)
-  continuationInfoItems (ContinuationSpec threadDoneInfo (Symbol "aihc_lir_thread_done_applied_info") threadDoneTarget [] [Ptr] ContinuationFrameStop)
+  continuationInfoItems (ContinuationSpec finalInfo finalTarget [] [Ptr] ContinuationFrameStop)
+  continuationInfoItems (ContinuationSpec topInfo topTarget [Ptr] [Ptr] ContinuationFrameNormal)
+  continuationInfoItems (ContinuationSpec threadDoneInfo threadDoneTarget [] [Ptr] ContinuationFrameStop)
   emitItem (ItemData (DataItem finishedSymbol Internal True 8 [DataInt I64 0]))
   -- The top continuation applies the evaluated entry action to no arguments
   -- with the final continuation.
@@ -3823,7 +3821,7 @@ generateHelper env helper =
     -- The frame applies the function that arrives to the groups it holds,
     -- with the parent as the continuation.
     HelperApplyFrame groups -> do
-      continuationInfoItems (ContinuationSpec (applyFrameInfoSymbol groups) (applyFrameAppliedInfoSymbol groups) symbol (Ptr : concat groups) [Ptr] ContinuationFrameNormal)
+      continuationInfoItems (ContinuationSpec (applyFrameInfoSymbol groups) symbol (Ptr : concat groups) [Ptr] ContinuationFrameNormal)
       (context, contextParameters) <- freshContext
       parent <- fresh "parent"
       values <- forM (concat groups) $ \ty -> (,ty) <$> fresh "value"
@@ -3976,10 +3974,13 @@ runtimeInfoKeyStages node =
     GrinConstructor name remaining -> [ConstructorRuntimeInfo name (constructorStage remaining)]
     GrinClosure name layouts -> stages fields layouts
       where
+        -- A stage that wants one group is the last one. The application
+        -- that supplies the group enters the function, so no object of the
+        -- stage after it exists.
         stages current remaining =
           ClosureRuntimeInfo name current remaining : case remaining of
-            [] -> []
-            layout : rest -> stages (current <> layout) rest
+            layout : rest@(_ : _) -> stages (current <> layout) rest
+            _ -> []
     GrinThunk name -> [ThunkRuntimeInfo name fields]
   where
     fields = map grinValueRuntimeRep (grinNodeFields node)
@@ -3998,6 +3999,13 @@ runtimeInfoKeyFields key =
     ClosureRuntimeInfo _ fields _ -> fields
     -- The owner word is field zero of the payload.
     ThunkRuntimeInfo _ fields -> replicate thunkOwnerWords IntRep <> fields
+
+-- | See 'infoLayout'.
+runtimeInfoKeyLayout :: RuntimeInfoKey -> [GrinRep]
+runtimeInfoKeyLayout key =
+  case key of
+    ClosureRuntimeInfo _ fields layouts -> fields <> concat layouts
+    _ -> runtimeInfoKeyFields key
 
 runtimeInfoKeyRemainingArity :: RuntimeInfoKey -> Int
 runtimeInfoKeyRemainingArity key =
@@ -4019,7 +4027,7 @@ runtimeInfoKeyNext key =
   case key of
     ConstructorRuntimeInfo name PartialConstructor -> Just (ConstructorRuntimeInfo name SaturatedConstructor)
     ConstructorRuntimeInfo {} -> Nothing
-    ClosureRuntimeInfo name fields (layout : rest) -> Just (ClosureRuntimeInfo name (fields <> layout) rest)
+    ClosureRuntimeInfo name fields (layout : rest@(_ : _)) -> Just (ClosureRuntimeInfo name (fields <> layout) rest)
     ClosureRuntimeInfo {} -> Nothing
     ThunkRuntimeInfo {} -> Nothing
 
