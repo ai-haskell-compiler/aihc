@@ -19,7 +19,7 @@ Each info table contains these fields:
 | Field | Purpose |
 | --- | --- |
 | `identity` | Identifies the function or the saturated constructor. |
-| `field_is_pointer` | Points to a byte map that identifies managed pointers. |
+| `field_is_pointer` | Points to a byte map that identifies managed pointers. For an object that requires arguments, the map also includes the fields that the arguments will supply. |
 | `next` | Points to the table for the next application stage. |
 | `backend_entry` | Gives the entry address that has the backend calling convention. |
 | `srt` | Points to the static reference table of the code, or is null. |
@@ -30,6 +30,7 @@ Each info table contains these fields:
 | `needs_eval` | Is `1` for a thunk, `2` for an indirection, and `0` for a value. A thunk under evaluation keeps the value `1`. |
 
 The garbage collector uses `field_count` and `field_is_pointer` to find managed pointers.
+It reads only the first `field_count` bytes of the map.
 The application code uses `remaining_arity` and `next` to apply one source argument.
 The inline evaluation check uses only `needs_eval` to find a value or an indirection.
 The run-time evaluation code uses `object_kind` and `backend_entry` to enter an object.
@@ -37,7 +38,8 @@ Exception code uses `frame_kind` to identify continuation frames.
 
 One source argument can use more than one machine field.
 For this reason, two adjacent tables can have field counts that differ by more than one.
-The `next` table gives the correct field layout for the next source argument.
+The map of a table gives the layout of the fields that the next source argument supplies.
+The run-time system reads the map at index `field_count` to find the kind of an arriving field.
 
 ## Application stages
 
@@ -50,14 +52,15 @@ It calls the backend entry of the object instead.
 The table sequence records these changes:
 
 ```text
-remaining arity:  2  ->  1  ->  0
-stored fields:    0  ->  1  ->  2
+remaining arity:  2  ->  1
+stored fields:    0  ->  1
 ```
 
 The backend entry of a stage takes all remaining arguments of that stage.
 One application supplies a maximum of four argument groups.
 Thus, a stage has a backend entry only when one to four argument groups remain.
-The last table has no `next` value and no backend entry.
+The last table requires one argument group and has no `next` value.
+No object holds all the arguments, so no table describes that object.
 A saturated call of a known function calls the generated code directly.
 
 Use the example below to see each stage of a function.

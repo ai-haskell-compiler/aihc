@@ -101,12 +101,14 @@
   function buildFunction(reps, supplied) {
     const arity = reps.length;
     const tables = [];
-    for (let stage = 0; stage <= arity; stage++) {
+    // Each table gives the pointer map of the full layout, so no table
+    // describes the saturated application.
+    const layout = argSlots(reps, arity);
+    for (let stage = 0; stage < arity; stage++) {
       const slots = argSlots(reps, stage);
       const remaining = arity - stage;
       let entry;
-      if (remaining === 0) entry = "null";
-      else if (remaining > APPLY_GROUP_LIMIT) entry = "null (over " + APPLY_GROUP_LIMIT + " groups)";
+      if (remaining > APPLY_GROUP_LIMIT) entry = "null (over " + APPLY_GROUP_LIMIT + " groups)";
       else entry = "adapter: " + stage + " stored + " + remaining + " supplied";
       tables.push({
         id: "stage" + stage,
@@ -114,8 +116,8 @@
         subtitle: stage + " supplied",
         values: {
           identity: "code of f",
-          field_is_pointer: pointerMap(slots),
-          next: stage < arity ? "f, " + (stage + 1) + " supplied" : "null",
+          field_is_pointer: pointerMap(layout),
+          next: stage < arity - 1 ? "f, " + (stage + 1) + " supplied" : "null",
           backend_entry: entry,
           srt: "SRT of f, or null",
           field_count: String(slots.length),
@@ -136,7 +138,7 @@
         object: null,
         note:
           "This application is saturated. The code calls f directly and makes no closure. " +
-          "The last table has no next value and no backend entry.",
+          "No table describes a saturated application, so the last table has no next value.",
       };
     }
     const slots = argSlots(reps, supplied).map((slot) => ({

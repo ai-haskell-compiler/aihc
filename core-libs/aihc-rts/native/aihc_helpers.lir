@@ -565,7 +565,9 @@ slow:
   tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
 }
 
-; The next-stage bitmap selects a pointer or an integer argument.
+; The bitmap of the frame selects a pointer or an integer argument. The
+; bitmap of an object that wants arguments describes its full layout, so the
+; entry at the stored count is the kind of the slot that arrives.
 ; Follow forward frames before the bitmap check, because the frame that
 ; takes the value is the first frame with an entry.
 export func @aihc_lir_continue_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
@@ -584,9 +586,9 @@ cold forward:
 
 check:
   %kind = call @aihc_info_kind(%header)
-  %next_info = call @aihc_info_next(%header)
-  %has_next = ne ptr %next_info, null
-  br %has_next, count, word
+  %arity = call @aihc_info_arity(%header)
+  %wants = ne i64 %arity, 0
+  br %wants, count, word
 
 count:
   %kind_is_partial = eq i64 %kind, @AIHC_OBJECT_PARTIAL_CONSTRUCTOR
@@ -601,7 +603,7 @@ info_count:
   jump bitmap(%count)
 
 bitmap(%count_2: i64):
-  %bitmap = call @aihc_info_bitmap(%next_info)
+  %bitmap = call @aihc_info_bitmap(%header)
   %entry = ptr.add %bitmap, %count_2
   %flag = load i8 [%entry] align 1
   %is_pointer = ne i8 %flag, 0
@@ -630,9 +632,9 @@ indirection:
   jump loop(%next)
 
 check:
-  %next_info = call @aihc_info_next(%header)
-  %has_next = ne ptr %next_info, null
-  br %has_next, count, word
+  %arity = call @aihc_info_arity(%header)
+  %wants = ne i64 %arity, 0
+  br %wants, count, word
 
 count:
   %kind_is_partial = eq i64 %kind, @AIHC_OBJECT_PARTIAL_CONSTRUCTOR
@@ -647,7 +649,7 @@ info_count:
   jump bitmap(%count)
 
 bitmap(%count_2: i64):
-  %bitmap = call @aihc_info_bitmap(%next_info)
+  %bitmap = call @aihc_info_bitmap(%header)
   %entry = ptr.add %bitmap, %count_2
   %flag = load i8 [%entry] align 1
   %is_pointer = ne i8 %flag, 0
@@ -811,19 +813,15 @@ export data @aihc_indirection_info align 8 = {
 }
 
 data @aihc_lir_cps_update_bitmap align 1 = {
-  bytes "\x01\x01"
-}
-
-data @aihc_lir_cps_update_applied_bitmap align 1 = {
   bytes "\x01\x01\x01"
 }
 
 ; The closure before the thunk's result is applied to it: two stored fields
-; and one still wanted.
+; and one still wanted. The bitmap also describes the wanted field.
 export data @aihc_lir_cps_update_info align 8 = {
   code @aihc_lir_cps_update,              ; identity
   ptr @aihc_lir_cps_update_bitmap,        ; field_is_pointer
-  ptr @aihc_lir_cps_update_applied_info,  ; next
+  ptr null,                               ; next
   code @aihc_lir_cps_update_entry,       ; backend_entry
   ptr null,                               ; srt
   i8 2,                                   ; field_count
@@ -831,18 +829,4 @@ export data @aihc_lir_cps_update_info align 8 = {
   i8 @AIHC_FRAME_UPDATE,                  ; frame_kind
   i8 @AIHC_OBJECT_CLOSURE,                ; object_kind
   i8 @AIHC_NEEDS_EVAL_NONE                ; needs_eval
-}
-
-; The saturated stage the collector reads the full width from.
-export data @aihc_lir_cps_update_applied_info align 8 = {
-  code @aihc_lir_cps_update,
-  ptr @aihc_lir_cps_update_applied_bitmap,
-  ptr null,
-  code null,
-  ptr null,
-  i8 3,
-  i8 0,
-  i8 @AIHC_FRAME_UPDATE,
-  i8 @AIHC_OBJECT_CLOSURE,
-  i8 @AIHC_NEEDS_EVAL_NONE
 }
