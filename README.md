@@ -13,12 +13,12 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
 | Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `123/123` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `393/398` (`98.74%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `977/1015` (`96.25%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `248/248` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `817/5013` (`16.30%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2255/10061` (`22.41%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
-| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●● `77/77` (`100.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `398/403` (`98.75%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1035/1072` (`96.54%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `257/257` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `818/5013` (`16.32%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2266/10061` (`22.52%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●● `76/76` (`100.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Getting started
 
@@ -72,7 +72,7 @@ Expand the details to see the required packages and their installation status.
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 77 install, 0 fail, 0 wait for a dependency</summary>
+<summary>Self-compile packages: 76 install, 0 fail, 0 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -97,7 +97,6 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | splitmix | 0.1.3.2 | ✅ installs |
 | stm | 2.5.3.1 | ✅ installs |
 | tagged | 0.8.11 | ✅ installs |
-| terminal-size | 0.3.4 | ✅ installs |
 | text | 2.1.4 | ✅ installs |
 | prettyprinter | 1.7.2 | ✅ installs |
 | prettyprinter-ansi-terminal | 1.1.4 | ✅ installs |
