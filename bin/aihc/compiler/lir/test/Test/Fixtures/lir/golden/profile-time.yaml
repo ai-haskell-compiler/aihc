@@ -61,24 +61,19 @@ expected: |
     tailcall @aihc_f_aihc_entry___sother(%hp_17, %hp_limit_35, %sp_33, %sp_limit_34, %frame_32)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_36: ptr, %hp_limit_37: ptr, %sp_38: ptr, %sp_limit_39: ptr, %$cps_return_40: ptr, %value_41: i64) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_36: ptr, %hp_limit_37: ptr, %sp_38: ptr, %sp_limit_39: ptr, %object_42: ptr, %continuation_43: ptr, %value_41: i64) {
   entry:
-    %capability_42 = load ptr [%sp_limit_39 - 4040] align 1 word
-    store ptr %$cps_return_40, [%capability_42 + 80] align 1 word
-    store ptr @aihc_f_aihc_entry___sentry__ucont, [%capability_42 + 72] align 1 word
-    %result_43 = add i64 %value_41, %value_41
-    tailcall @aihc_lir_continue_i(%hp_36, %hp_limit_37, %sp_38, %sp_limit_39, %$cps_return_40, %result_43)
+    %stored_44 = load ptr [%object_42 + 8] align 8
+    %capability_45 = load ptr [%sp_limit_39 - 4040] align 1 word
+    store ptr %stored_44, [%capability_45 + 80] align 1 word
+    store ptr @aihc_f_aihc_entry___sentry__ucont, [%capability_45 + 72] align 1 word
+    %result_46 = add i64 %value_41, %value_41
+    tailcall @aihc_lir_continue_i(%hp_36, %hp_limit_37, %sp_38, %sp_limit_39, %stored_44, %result_46)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x00" }
 
-  func @aihc_lir_info_0_e(%hp_44: ptr, %hp_limit_45: ptr, %sp_46: ptr, %sp_limit_47: ptr, %object_48: ptr, %continuation_49: ptr, %supplied_50: i64) {
-  entry:
-    %stored_51 = load ptr [%object_48 + 8] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_44, %hp_limit_45, %sp_46, %sp_limit_47, %stored_51, %supplied_50)
-  }
-
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
 
   data @aihc_time_profile_name_0 align 1 = { bytes "$other", i8 0 }
 

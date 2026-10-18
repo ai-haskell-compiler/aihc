@@ -2,8 +2,7 @@
 	.p2align 2
 _enter:
 	add x22, x0, #0
-	mov x8, x0
-	orr x8, x8, #0xfff
+	orr x8, x0, #0xfff
 	add x23, x8, #1
 	ldr x8, [x0]
 	ldr x8, [x8, #24]

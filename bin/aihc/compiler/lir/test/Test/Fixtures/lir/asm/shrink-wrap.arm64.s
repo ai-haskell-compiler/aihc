@@ -2,9 +2,7 @@
 	.p2align 2
 _reserve:
 	ldr x8, [x19]
-	mov x17, xzr
-	cmp x8, x17
-	b.ne .Llir_0_2
+	cbnz x8, .Llir_0_2
 .Llir_0_1:
 	stp x29, x30, [sp, #-32]!
 	add x21, sp, #16

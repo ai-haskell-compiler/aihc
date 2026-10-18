@@ -64,32 +64,34 @@ expected: |
     tailcall @aihc_f_aihc_entry___sother(%hp_22, %hp_limit_35, %sp_33, %sp_limit_34, %frame_32)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_36: ptr, %hp_limit_37: ptr, %sp_38: ptr, %sp_limit_39: ptr, %$cps_return_40: ptr, %first_41: ptr, %value_42: i64) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_36: ptr, %hp_limit_37: ptr, %sp_38: ptr, %sp_limit_39: ptr, %object_43: ptr, %continuation_44: ptr, %value_42: i64) {
   entry:
-    %roots_43 = stack.alloc 16 align 8
-    %heap_end_44 = ptr.add %hp_36, 24
-    %heap_fits_45 = le.u ptr %heap_end_44, %hp_limit_37
-    br %heap_fits_45, gc_reserved_47(%$cps_return_40, %first_41, %hp_36, %hp_limit_37), gc_collect_46
+    %stored_45 = load ptr [%object_43 + 8] align 8
+    %stored_46 = load ptr [%object_43 + 16] align 8
+    %roots_47 = stack.alloc 16 align 8
+    %heap_end_48 = ptr.add %hp_36, 24
+    %heap_fits_49 = le.u ptr %heap_end_48, %hp_limit_37
+    br %heap_fits_49, gc_reserved_51(%stored_45, %stored_46, %hp_36, %hp_limit_37), gc_collect_50
 
-  cold gc_collect_46:
-    store ptr %$cps_return_40, [%roots_43] align 8
-    store ptr %first_41, [%roots_43 + 8] align 8
-    %capability_52 = load ptr [%sp_limit_39 - 4040] align 1 word
-    store ptr %hp_36, [%capability_52 + 16] align 1 word
-    store ptr %sp_38, [%capability_52 + 32] align 1 word
-    call @aihc_heap_collect(%capability_52, 3, 2, %roots_43, null)
-    %$cps_return$gc_53 = load ptr [%roots_43] align 8
-    %first$gc_54 = load ptr [%roots_43 + 8] align 8
-    %hp_55 = load ptr [%capability_52 + 16] align 1 word
-    %hp_limit_56 = load ptr [%capability_52 + 24] align 1 word
-    jump gc_reserved_47(%$cps_return$gc_53, %first$gc_54, %hp_55, %hp_limit_56)
+  cold gc_collect_50:
+    store ptr %stored_45, [%roots_47] align 8
+    store ptr %stored_46, [%roots_47 + 8] align 8
+    %capability_56 = load ptr [%sp_limit_39 - 4040] align 1 word
+    store ptr %hp_36, [%capability_56 + 16] align 1 word
+    store ptr %sp_38, [%capability_56 + 32] align 1 word
+    call @aihc_heap_collect(%capability_56, 3, 2, %roots_47, null)
+    %$cps_return$gc_57 = load ptr [%roots_47] align 8
+    %first$gc_58 = load ptr [%roots_47 + 8] align 8
+    %hp_59 = load ptr [%capability_56 + 16] align 1 word
+    %hp_limit_60 = load ptr [%capability_56 + 24] align 1 word
+    jump gc_reserved_51(%$cps_return$gc_57, %first$gc_58, %hp_59, %hp_limit_60)
 
-  gc_reserved_47(%$cps_return$gc_48: ptr, %first$gc_49: ptr, %hp_50: ptr, %hp_limit_51: ptr):
-    %hp_57 = ptr.add %hp_50, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_50] align 8 region heap
-    store ptr %first$gc_49, [%hp_50 + 8] align 8 region heap
-    store ptr %first$gc_49, [%hp_50 + 16] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_57, %hp_limit_51, %sp_38, %sp_limit_39, %$cps_return$gc_48, %hp_50)
+  gc_reserved_51(%$cps_return$gc_52: ptr, %first$gc_53: ptr, %hp_54: ptr, %hp_limit_55: ptr):
+    %hp_61 = ptr.add %hp_54, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_54] align 8 region heap
+    store ptr %first$gc_53, [%hp_54 + 8] align 8 region heap
+    store ptr %first$gc_53, [%hp_54 + 16] align 8 region heap
+    tailcall @aihc_lir_continue_p(%hp_61, %hp_limit_55, %sp_38, %sp_limit_39, %$cps_return$gc_52, %hp_54)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -102,14 +104,7 @@ expected: |
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
 
-  func @aihc_lir_info_0_e(%hp_58: ptr, %hp_limit_59: ptr, %sp_60: ptr, %sp_limit_61: ptr, %object_62: ptr, %continuation_63: ptr, %supplied_64: i64) {
-  entry:
-    %stored_65 = load ptr [%object_62 + 8] align 8
-    %stored_66 = load ptr [%object_62 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_58, %hp_limit_59, %sp_60, %sp_limit_61, %stored_65, %stored_66, %supplied_64)
-  }
-
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }
 status: pass
 reason: |
   A call can collect, so it ends the caller's reservation and the store after it

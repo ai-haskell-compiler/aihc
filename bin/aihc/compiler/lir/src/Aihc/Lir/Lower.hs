@@ -1601,17 +1601,19 @@ lowerFunction env function = do
       (stored, rest) = splitAt (maybe 0 directStored direct) parameters
       passes = maybe False directPassesContinuation direct
       (supplied, continuationParameter) = if passes then (init rest, [lirVar | (_, lirVar, _) <- drop (length rest - 1) rest]) else (rest, [])
-  object <- fresh "object"
-  continuation <- maybe (fresh "continuation") pure (listToMaybe continuationParameter)
-  let entryParameters = case direct of
-        Nothing -> [(lirVar, ty) | (_, lirVar, ty) <- parameters]
-        Just _ -> (object, Ptr) : (continuation, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied]
+  object <- traverse (const (fresh "object")) direct
+  continuation <- case (direct, continuationParameter) of
+    (Just _, []) -> Just <$> fresh "continuation"
+    _ -> pure (listToMaybe continuationParameter)
+  let entryParameters = case (object, continuation) of
+        (Just objectVar, Just continuationVar) -> (objectVar, Ptr) : (continuationVar, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied]
+        _ -> [(lirVar, ty) | (_, lirVar, ty) <- parameters]
   beginBlock (Label "entry") []
-  loaded <- case direct of
-    Just entry ->
+  loaded <- case (direct, object) of
+    (Just entry, Just objectVar) ->
       forM (zip [1 :: Int ..] stored) $ \(index, (var, _, ty)) ->
-        (var,) <$> loadSlot AnyRegion "stored" ty (OperandVar object) (toInteger (8 * (index + directStoredOffset entry)))
-    Nothing -> pure []
+        (var,) <$> loadSlot AnyRegion "stored" ty (OperandVar objectVar) (toInteger (8 * (index + directStoredOffset entry)))
+    _ -> pure []
   let bound = Map.fromList loaded `Map.union` Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
       boundVars = [var' | (var, _, _) <- parameters, Just (Typed (OperandVar var') _) <- [Map.lookup var bound]]
   when (lowerProfileTime (envOptions env)) $

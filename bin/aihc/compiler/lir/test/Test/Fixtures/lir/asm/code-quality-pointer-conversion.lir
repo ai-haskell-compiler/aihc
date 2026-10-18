@@ -1,8 +1,8 @@
 ; The entry of a frame, as a continue helper does it. A conversion between a
-; pointer and an integer does not change the bits, so its result and its
-; operand are partners in the register allocator. The last conversion takes
-; the register of its operand, and that operand is computed straight into
-; the argument register of the stack limit: no move follows the addition.
+; pointer and an integer does not change the bits, so a native backend
+; removes it and each use reads the operand. The first operation reads the
+; frame register directly, and the addition writes straight into the
+; argument register of the stack limit: no move follows it.
 ; The stack pointer is a value of its own, so the frame stays in the register
 ; of the object argument and only the copy moves.
 func @enter(%machine: ptr, %hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %value: ptr) {
