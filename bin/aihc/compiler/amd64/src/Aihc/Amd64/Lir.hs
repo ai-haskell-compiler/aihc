@@ -396,6 +396,7 @@ instructionEffect instruction =
     AmdXor destination _ -> modifies destination
     AmdImul destination _ -> writes [destination]
     AmdCmp _ _ -> Writes []
+    AmdCmpGot _ _ -> Writes []
     AmdTest _ _ -> Writes []
     AmdShl destination -> modifies destination
     AmdShr destination -> modifies destination
@@ -651,6 +652,12 @@ compareWith ctx ty signed left right =
       -- compares the same bits.
       | typeBits ty == 32 ->
           [amd64Instruction (AmdCmp (Amd64RmRegister (dwordRegister left)) (Amd64BinaryImmediate value))]
+    -- A symbol address needs no register: the compare reads it from the
+    -- Global Offset Table entry.
+    _
+      | OperandLiteral (LitSymbol symbol) <- right,
+        typeBits ty == 64 ->
+          [amd64Instruction (AmdCmpGot left (lirSymbol symbol))]
     _ ->
       let (loads, register) = operandIn' ctx 0 ty scratchRight right
           (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)

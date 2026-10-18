@@ -216,6 +216,10 @@ data Amd64Instruction
   | AmdXor !Amd64Rm !Amd64BinarySource
   | AmdImul !Amd64Register !Amd64Rm
   | AmdCmp !Amd64Rm !Amd64BinarySource
+  | -- | @cmp reg, [rip + sym\@GOTPCREL]@: compare a register with the
+    -- address of a symbol. The linker of an executable that is not
+    -- position-independent relaxes it to @cmp reg, imm32@.
+    AmdCmpGot !Amd64Register !Text
   | AmdTest !Amd64Rm !Amd64Register
   | AmdShl !Amd64Rm
   | AmdShr !Amd64Rm
@@ -448,6 +452,7 @@ encodeInstruction instruction =
     AmdXor destination source -> encodeBinary [0x31] 6 destination source
     AmdImul destination source -> encodeRegisterSource (registerWidth (registerInfo destination) == 64) [0x0f, 0xaf] destination source
     AmdCmp left right -> encodeCompare left right
+    AmdCmpGot left symbol -> encodeGot 0x3b left symbol
     AmdTest left right -> encodeRm (registerWidth register == 64) [0x85] (registerNumber register) (rmOperand left) False []
       where
         register = registerInfo right
@@ -597,11 +602,16 @@ encodeRegisterSource width64 destinationOpcode destinationSource source =
    in encodeRm width64 destinationOpcode (registerNumber destination) (rmOperand source) False []
 
 encodeMovGot :: Amd64Register -> Text -> [Item]
-encodeMovGot destinationSource target =
-  let destination = registerInfo destinationSource
-      prefix = rex True (registerNumber destination >= 8) False False
-      modrm = ((registerNumber destination .&. 7) `shiftL` 3) .|. 5
-   in [Bytes (BS.pack [prefix, 0x8b, modrm]), Apply (Fixup X86GotPcRelX (SymbolName target) (-4) 4 0)]
+encodeMovGot = encodeGot 0x8b
+
+-- | A 64-bit instruction with a register operand and the Global Offset
+-- Table entry of a symbol as its memory operand.
+encodeGot :: Word8 -> Amd64Register -> Text -> [Item]
+encodeGot opcode registerSource target =
+  let register = registerInfo registerSource
+      prefix = rex True (registerNumber register >= 8) False False
+      modrm = ((registerNumber register .&. 7) `shiftL` 3) .|. 5
+   in [Bytes (BS.pack [prefix, opcode, modrm]), Apply (Fixup X86GotPcRelX (SymbolName target) (-4) 4 0)]
 
 encodeLea :: Amd64Register -> Amd64Address -> [Item]
 encodeLea destinationSource source =
