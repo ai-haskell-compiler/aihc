@@ -126,7 +126,10 @@ static void aihc_posix_drain_wake(const AihcCapability *capability) {
   }
 }
 
-static void *aihc_worker_main(void *argument) { aihc_worker_run(argument); }
+static void *aihc_worker_main(void *argument) {
+  aihc_time_profile_thread(argument);
+  aihc_worker_run(argument);
+}
 
 /* A worker runs Haskell code, which can use as much C stack as the main
    thread. */

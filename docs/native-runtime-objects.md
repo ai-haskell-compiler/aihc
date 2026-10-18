@@ -522,6 +522,65 @@ because the counters of two units would have the same symbols. The `main` of
 the entry unit calls `aihc_allocation_profile_register` with the three before
 the machine starts, and `aihc_runtime_statistics_report` writes the entries.
 
+### Time profile
+
+`aihc build --profile-time` makes a whole-program build (the flag implies
+`--lto`) that samples the Haskell stack of the program. At exit, the program
+writes the samples in the folded stack format to the file that
+`AIHC_PROFILE` names. Without the variable, the file is the program name
+with `.folded` added, in the current directory. Each line is one stack and
+its sample count:
+
+```text
+exe:Main:$main_cont;exe:Main:$$wnfib_cont_2;exe:Main:$$wnfib 12
+```
+
+Give the file to `inferno-flamegraph`, `flamegraph.pl`, or speedscope to get
+a flame graph:
+
+```bash
+nix shell nixpkgs#inferno -c inferno-flamegraph < main.folded > main.svg
+```
+
+- The names go from the bottom frame to the running function. A name is the
+  package, the module, and the GRIN function. A continuation has the name of
+  its function with `_cont`. Thus a frame shows the code that a return goes
+  to, not the caller. An update frame shows the function of its thunk.
+- `[collection]` is a sample in a collection. The frames below it show the
+  code that started the collection.
+- `[runtime]` is a sample before the first function starts.
+- `[truncated]` is the bottom of a stack with more than 1024 frames. The
+  sample keeps the 1024 frames nearest the running function.
+- `AIHC_PROFILE_INTERVAL_US` sets the interval between two samples, in
+  microseconds of CPU time. The default is 1000. macOS gives fewer samples
+  than an interval below 10000 asks for. Use the counts as relative values.
+
+At the entry of each function, the lowering stores the continuation of the
+function in the capability field `profile_frame`. Then it stores the code of
+the function in `profile_code`. A computation gives its hidden continuation
+parameter. A continuation frame gives its parent, its first parameter. Each
+entry thus costs a load of the capability and two stores. A test program
+with deep recursion and much allocation ran in 1.19 s with the flag and in
+1.19 s without it on Apple ARM64.
+
+The entry unit calls `aihc_time_profile_register` with the tables of the
+whole-program object: the code and the name of each function, and the info
+table of each function object. The registration starts an `ITIMER_PROF`
+timer. The `SIGPROF` handler in `aihc_profile.c` finds the capability of the
+interrupted OS thread in a thread-local variable. It walks the frames from
+`profile_frame` through field zero of each frame. It reads a frame only when
+the region table gives a stack chunk for its address and the frame header is
+one of the registered info tables. Thus a stale continuation stops the walk
+and does not cause a fault. The handler appends the codes to one buffer of
+256 MiB address space, and the exit report names them.
+
+While a capability collects, `profile_collecting` is not zero. The handler
+then adds `[collection]` and does not read the thunk of an update frame,
+because the collector can move it.
+
+Only the POSIX hosts have the profiler. `aihc build` refuses the flag for
+`wasm32-wasip3`.
+
 The environment parser lives in `aihc_runtime_options.lir` next to the RTS
 option parser. The POSIX host flattens `environ` into one buffer of
 `NAME=VALUE` strings, and the C runtime reads the path through

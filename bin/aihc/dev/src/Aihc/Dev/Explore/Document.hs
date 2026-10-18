@@ -18,10 +18,11 @@ module Aihc.Dev.Explore.Document
     documentText,
     textMatches,
     matchingLines,
+    wrapRows,
   )
 where
 
-import Data.Char (isUpper, toLower)
+import Data.Char (isSpace, isUpper, toLower)
 import Data.List (sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Ord (Down (..))
@@ -213,3 +214,31 @@ textMatches query line
 matchingLines :: Text -> Document -> [Int]
 matchingLines query document =
   [index | (index, line) <- zip [0 ..] (V.toList (documentLines document)), not (null (textMatches query line))]
+
+-- | The offset and the length of each screen row of a line that wraps at a
+-- width. A row breaks after the last space that fits, when the row has text
+-- in front of that space. Otherwise, a long word breaks at the width. A
+-- continuation row does not start with spaces. A line always has a row.
+wrapRows :: Int -> Text -> [(Int, Int)]
+wrapRows width line = go 0
+  where
+    size = max 1 width
+    characters = V.fromList (T.unpack line)
+    count = V.length characters
+    spaceAt index = index < count && isSpace (characters V.! index)
+    go start
+      | count - start <= size = [(start, count - start)]
+      | otherwise =
+          let end = start + size
+              chunk = V.slice start size characters
+              textStart = fromMaybe size (V.findIndex (not . isSpace) chunk)
+              lastSpace = V.findIndex isSpace (V.reverse chunk)
+              rowEnd
+                | spaceAt end = end
+                | Just fromEnd <- lastSpace, size - 1 - fromEnd > textStart = start + size - fromEnd
+                | otherwise = end
+              next = skipSpaces rowEnd
+           in (start, rowEnd - start) : (if next >= count then [] else go next)
+    skipSpaces index
+      | spaceAt index = skipSpaces (index + 1)
+      | otherwise = index

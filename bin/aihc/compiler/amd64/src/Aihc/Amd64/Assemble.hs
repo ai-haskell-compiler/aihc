@@ -428,10 +428,10 @@ encodeInstruction instruction =
     AmdPush register -> encodePushPop False register
     AmdPop register -> encodePushPop True register
     AmdCall target -> relativeBranch [0xe8] X86Plt32 (SymbolName target)
-    AmdJmp (Amd64JumpLabel target) -> relativeBranch [0xe9] X86Pc32 target
+    AmdJmp (Amd64JumpLabel target) -> jump [0xe9] target
     AmdJmp (Amd64JumpRegister register) -> encodeGroup True [0xff] 4 (RegisterOperand (registerInfo register)) []
-    AmdJe target -> relativeBranch [0x0f, 0x84] X86Pc32 target
-    AmdJne target -> relativeBranch [0x0f, 0x85] X86Pc32 target
+    AmdJe target -> jump [0x0f, 0x84] target
+    AmdJne target -> jump [0x0f, 0x85] target
     AmdMov destination source -> encodeMove destination source
     AmdStore destination source -> encodeStore destination source
     AmdMovsxd destination source -> encodeRegisterSource True [0x63] destination source
@@ -478,7 +478,7 @@ encodeInstruction instruction =
     AmdSet condition destination -> encodeGroupWithWidth False [0x0f, 0x90 + conditionCode condition] 0 (rmOperand destination) [] True
     AmdRetImm count -> bytes [0xc2, fromIntegral count, fromIntegral (count `shiftR` 8)]
     AmdCallRegister register -> encodeGroup False [0xff] 2 (RegisterOperand (registerInfo register)) []
-    AmdJcc condition target -> relativeBranch [0x0f, 0x80 + conditionCode condition] X86Pc32 target
+    AmdJcc condition target -> jump [0x0f, 0x80 + conditionCode condition] target
     AmdCmov condition destination source -> encodeRegisterSource True [0x0f, 0x40 + conditionCode condition] destination source
     AmdNeg destination -> encodeGroup True [0xf7] 3 (rmOperand destination) []
     AmdSar destination -> encodeGroup True [0xd3] 7 (rmOperand destination) []
@@ -683,6 +683,16 @@ encodeRm width64 opcode regField operand forceByteRex suffix =
 
 relativeBranch :: [Word8] -> FixupKind -> Name -> [Item]
 relativeBranch opcode kind target = [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) 4 0)]
+
+-- | A @jmp@ or a @jcc@ with a 32-bit displacement. The object can make a
+-- jump to a private label short when it seals the function. A jump to a
+-- symbol, such as a trap stub, keeps the 32-bit displacement, so it
+-- reaches the whole object.
+jump :: [Word8] -> Name -> [Item]
+jump opcode target =
+  case target of
+    LocalName _ _ -> relativeBranch opcode X86Branch32 target
+    SymbolName _ -> relativeBranch opcode X86Pc32 target
 
 conditionCode :: Amd64Condition -> Word8
 conditionCode condition =

@@ -615,6 +615,12 @@ void aihc_gc_apply_limit(AihcCapability *capability);
 /* The zero-terminated path of the statistics file, or null when the
    environment names none. */
 const char *aihc_rts_stats_path(void);
+/* Stops the time profiler and writes its samples. A program built with
+   --profile-time sets it, and the statistics report calls it once. */
+extern void (*aihc_time_profile_finish)(void);
+/* Gives the time profiler the capability that the calling OS thread runs.
+   Only the POSIX hosts define it. */
+void aihc_time_profile_thread(AihcCapability *capability);
 /* Flatten one null-terminated list of NAME=VALUE strings for the parser. */
 void aihc_environment_initialize(char *const envp[]);
 uint64_t aihc_object_words(const AihcInfo *info);

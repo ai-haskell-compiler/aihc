@@ -49,4 +49,6 @@ library
       wasm/aihc_wasip3_libc.c
       wasm/generated/command.c
   else
-    c-sources: native/aihc_host_posix.c
+    c-sources:
+      native/aihc_host_posix.c
+      native/aihc_profile.c
