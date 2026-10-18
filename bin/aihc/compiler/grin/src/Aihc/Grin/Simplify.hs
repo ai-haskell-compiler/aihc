@@ -32,6 +32,16 @@
 -- * @case v of ...@ takes the alternative the node selects. The binders of
 --   the alternative are bound to the fields of the node.
 --
+-- * A @store@ of a constructor node is a pointer that already points at the
+--   same node, when one is in scope: a pointer that an earlier @store@
+--   made, or a case binder or scrutinee whose alternative matched the
+--   constructor with these fields. A node with a constructor tag is never
+--   updated, so the two objects cannot be told apart. GRIN has no types,
+--   so the rule also takes the case binder for a constructor that the
+--   alternative builds again at another type, such as
+--   @case r of { Failure lf -> Failure lf }@ in a parser monad, as GHC's
+--   STG common subexpression pass does.
+--
 -- * A @store@ or a @constant@ that nothing after it uses disappears. This
 --   removes the closures the application rule replaced. A bind whose body
 --   only returns what it bound is that value expression.
@@ -76,7 +86,12 @@ data Env = Env
     envKnown :: !(Map GrinVar GrinNode),
     -- | The local pointers that are in weak-head normal form without a
     -- known node: the results of an @eval@, and the binders of a case.
-    envEvaluated :: !(Set GrinVar)
+    envEvaluated :: !(Set GrinVar),
+    -- | A pointer for each known constructor node whose fields are all
+    -- variables, by its constructor and fields. See 'knownPointer'.
+    envPointers :: !(Map (Text, [GrinVar]) GrinVar),
+    -- | The pointers and the fields that 'envPointers' names.
+    envPointerVars :: !(Set GrinVar)
   }
 
 -- | Simplify every function body of a program.
@@ -104,7 +119,9 @@ simplifyGrinProgram program =
                   <> [(grinGlobalName global, grinGlobalNode global) | global <- grinGlobals program]
               ),
           envKnown = Map.empty,
-          envEvaluated = Set.empty
+          envEvaluated = Set.empty,
+          envPointers = Map.empty,
+          envPointerVars = Set.empty
         }
     simplifyFunction function =
       function {grinFunctionBody = fst (simplifyExpr env (grinFunctionBody function))}
@@ -140,11 +157,47 @@ forget :: [GrinVar] -> Env -> Env
 forget vars env =
   env
     { envKnown = List.foldl' (flip Map.delete) (envKnown env) vars,
-      envEvaluated = envEvaluated env `Set.difference` Set.fromList vars
+      envEvaluated = envEvaluated env `Set.difference` Set.fromList vars,
+      envPointers = pointers,
+      envPointerVars = pointerVars
     }
+  where
+    rebound = Set.fromList vars
+    (pointers, pointerVars)
+      | Set.disjoint rebound (envPointerVars env) = (envPointers env, envPointerVars env)
+      | otherwise =
+          let kept = Map.filterWithKey (\(_, fields) var -> Set.notMember var rebound && all (`Set.notMember` rebound) fields) (envPointers env)
+           in (kept, Set.fromList (concat [var : fields | ((_, fields), var) <- Map.toList kept]))
 
 know :: GrinVar -> GrinNode -> Env -> Env
-know var node env = env {envKnown = Map.insert var node (envKnown env)}
+know var node env =
+  case pointerKey node of
+    Just key
+      | Map.notMember key (envPointers env) ->
+          known
+            { envPointers = Map.insert key var (envPointers env),
+              envPointerVars = Set.insert var (List.foldl' (flip Set.insert) (envPointerVars env) (snd key))
+            }
+    _ -> known
+  where
+    known = env {envKnown = Map.insert var node (envKnown env)}
+
+-- | The key of a saturated constructor node with at least one field, all
+-- of them variables, in 'envPointers'.
+pointerKey :: GrinNode -> Maybe (Text, [GrinVar])
+pointerKey node =
+  case node of
+    GrinNode (GrinConstructor name 0) fields@(_ : _) -> (,) name <$> traverse fieldVar fields
+    _ -> Nothing
+  where
+    fieldVar value =
+      case value of
+        GrinVarValue var -> Just var
+        _ -> Nothing
+
+-- | A pointer in scope to a node equal to the given one.
+knownPointer :: Env -> GrinNode -> Maybe GrinVar
+knownPointer env node = pointerKey node >>= (`Map.lookup` envPointers env)
 
 evaluated :: GrinVar -> Env -> Env
 evaluated var env = env {envEvaluated = Set.insert var (envEvaluated env)}
@@ -194,6 +247,8 @@ simplifyExpr env expression =
           -- The unfolding is final: simplifying it again would unfold a
           -- call that closes a cycle once more.
           (inlined, freeExprVars inlined)
+    GrinStore node
+      | Just var <- knownPointer env node -> (GrinConstant [GrinVarValue var], Set.singleton var)
     GrinEval _ _ value
       | isEvaluated env value -> (GrinConstant [value], freeValueVars value)
     GrinFetch tag value
