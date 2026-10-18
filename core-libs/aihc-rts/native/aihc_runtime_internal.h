@@ -222,6 +222,10 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
 
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcCapability *capability);
+/* The info tables of a mutable and of a frozen byte array. See
+   aihc_byte_array.lir. */
+extern const AihcInfo aihc_byte_array_info;
+extern const AihcInfo aihc_frozen_byte_array_info;
 /* Six fixed slots precede the inline byte payload. */
 typedef struct {
   AihcSlot header;
@@ -538,6 +542,10 @@ int64_t aihc_array_copy_escaping(AihcCapability *capability, AihcValue *source,
 /* The collection of an escape: it moves every young survivor into gen2. */
 void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
+/* The same collection for another reason, which the statistics count. */
+void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
+                      uint64_t root_count, AihcSlot *roots,
+                      const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
 /* Give each chunk of the stack of a thread to another capability, which

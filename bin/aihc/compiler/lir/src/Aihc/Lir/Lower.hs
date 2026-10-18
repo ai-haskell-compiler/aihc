@@ -2712,7 +2712,15 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
           emit [] (Store ty narrow (byteAddress target 0) (byteAlignment 1))
           bind []
+    -- The freeze and the thaw of a byte array change only its info table.
+    -- A promotion copies a frozen byte array and collects for a mutable one.
     (_, [value])
+      | Just table <- lookup name byteArrayFreezePrimitives -> do
+          typed <- materialize ctx env value
+          let info = Symbol table
+          requireExternData info
+          storeSlot AnyRegion Ptr (OperandLiteral (LitSymbol info)) (typedOperand typed) 0
+          bind [typed]
       | name `elem` identityPrimitives -> do
           typed <- materialize ctx env value
           bind [typed]
@@ -3477,6 +3485,13 @@ floatToIntPrimitives =
     ("double2Int#", F64)
   ]
 
+-- | The info table that each freeze or thaw of a byte array stores.
+byteArrayFreezePrimitives :: [(Text, Text)]
+byteArrayFreezePrimitives =
+  [ ("unsafeFreezeByteArray#", "aihc_frozen_byte_array_info"),
+    ("unsafeThawByteArray#", "aihc_byte_array_info")
+  ]
+
 identityPrimitives :: [Text]
 identityPrimitives =
   [ "int2Word#",
@@ -3494,8 +3509,6 @@ identityPrimitives =
     "unsafeThawArray#",
     "unsafeFreezeSmallArray#",
     "unsafeThawSmallArray#",
-    "unsafeFreezeByteArray#",
-    "unsafeThawByteArray#",
     "castFloatToWord32#",
     "castWord32ToFloat#",
     "castDoubleToWord64#",

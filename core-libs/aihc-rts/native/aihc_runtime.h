@@ -364,6 +364,27 @@ struct AihcCapability {
   uint64_t profile_collecting;
 };
 
+/* The reason that starts a collection. The statistics report a count for
+   each reason. */
+typedef enum {
+  /* A reservation found no room in the nursery. */
+  AIHC_GC_REASON_NURSERY,
+  /* The write barrier work reached the -R budget. */
+  AIHC_GC_REASON_BARRIER,
+  /* The fixed allocations since the last collection reached the nursery
+     size. */
+  AIHC_GC_REASON_LARGE,
+  /* A promotion reached an object that a copy cannot promote. */
+  AIHC_GC_REASON_ESCAPE,
+  /* A push of threads to an idle capability. */
+  AIHC_GC_REASON_PUSH,
+  /* The -M limit needs a full collection. */
+  AIHC_GC_REASON_HEAP_LIMIT,
+  /* A request of the program or of the runtime start. */
+  AIHC_GC_REASON_REQUEST,
+  AIHC_GC_REASON_COUNT
+} AihcGcReason;
+
 /* The process state shared by all capabilities. */
 struct AihcMachine {
   /* The capability records, which never move: compiled code finds its
@@ -471,6 +492,10 @@ struct AihcMachine {
      does not count as running, so a stop does not wait for it. It can give
      work when the call returns, so the deadlock test must not ignore it. */
   uint64_t foreign_count;
+  /* The number of collections for each reason. See AihcGcReason. */
+  uint64_t gc_reason_counts[AIHC_GC_REASON_COUNT];
+  /* The collections that copy gen1 only because gen2 is above its limit. */
+  uint64_t gc_gen2_limit_count;
 };
 
 /* Compiled code calls the write barrier before a pointer store outside the

@@ -568,10 +568,10 @@ void aihc_runtime_statistics_report(void) {
     escapes += each->escape_count;
     pushes += each->push_count;
   }
-  /* The fixed text is 204 bytes and the ten numbers take at most 200. An
-     allocation entry takes its name, which can double with escapes, and at
-     most 90 more bytes. */
-  size_t capacity = 512;
+  /* The fixed text is 420 bytes and the eighteen numbers take at most 360.
+     An allocation entry takes its name, which can double with escapes, and
+     at most 90 more bytes. */
+  size_t capacity = 1024;
   uint64_t *order = NULL;
   if (aihc_allocation_size != 0) {
     order = malloc(aihc_allocation_size * sizeof(uint64_t));
@@ -589,7 +589,7 @@ void aihc_runtime_statistics_report(void) {
     aihc_fail("out of memory");
   }
   char *cursor = text;
-  cursor = aihc_append_text(cursor, "{\"schema\": 3, \"peak_heap_bytes\": ");
+  cursor = aihc_append_text(cursor, "{\"schema\": 4, \"peak_heap_bytes\": ");
   cursor = aihc_append_decimal(cursor, capability->machine->heap_peak_bytes);
   cursor = aihc_append_text(cursor, ", \"allocated_bytes\": ");
   cursor = aihc_append_decimal(cursor, allocated);
@@ -611,6 +611,19 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_decimal(cursor, escapes);
   cursor = aihc_append_text(cursor, ", \"push_count\": ");
   cursor = aihc_append_decimal(cursor, pushes);
+  static const char *const reason_names[AIHC_GC_REASON_COUNT] = {
+      ", \"gc_nursery_count\": ",    ", \"gc_barrier_count\": ",
+      ", \"gc_large_count\": ",      ", \"gc_escape_count\": ",
+      ", \"gc_push_count\": ",       ", \"gc_heap_limit_count\": ",
+      ", \"gc_request_count\": "};
+  for (unsigned reason = 0; reason < AIHC_GC_REASON_COUNT; ++reason) {
+    cursor = aihc_append_text(cursor, reason_names[reason]);
+    cursor = aihc_append_decimal(
+        cursor, capability->machine->gc_reason_counts[reason]);
+  }
+  cursor = aihc_append_text(cursor, ", \"gc_gen2_limit_count\": ");
+  cursor =
+      aihc_append_decimal(cursor, capability->machine->gc_gen2_limit_count);
   if (order != NULL) {
     cursor = aihc_append_allocations(cursor, order);
     free(order);
@@ -1399,8 +1412,6 @@ AihcCapability *aihc_machine_initialize(void) {
   return &aihc_initial_capability;
 }
 
-extern const AihcInfo aihc_byte_array_info;
-
 /* The program arguments and the environment are roots of the machine,
    which every capability reads, and a local collection without a stop does
    not visit the roots of the machine. With several capabilities, an array
@@ -1677,7 +1688,7 @@ static void aihc_move_threads(AihcCapability *capability, uint64_t pushes) {
   if (pushes == 0) {
     return;
   }
-  aihc_escape_collect(capability, 0, NULL, NULL);
+  aihc_promote_all(capability, AIHC_GC_REASON_PUSH, 0, NULL, NULL);
   for (uint64_t index = 0; index < machine->capability_count && pushes != 0 &&
                            capability->run_queue_head != NULL;
        ++index) {
@@ -3193,7 +3204,7 @@ static void aihc_workers_start(AihcCapability *capability) {
      machine, which other capabilities read. A local collection without a
      stop does not visit the roots of the machine, so this data becomes
      global first. */
-  aihc_escape_collect(capability, 0, NULL, NULL);
+  aihc_promote_all(capability, AIHC_GC_REASON_REQUEST, 0, NULL, NULL);
   machine->heap_lock = aihc_host_recursive_lock_new();
   aihc_regions_set_lock(machine->heap_lock);
   /* One recursive lock serves as both: a promotion under the heap lock

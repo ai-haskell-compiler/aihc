@@ -13,6 +13,17 @@ export data @aihc_byte_array_info align 8 = {
   i8 @AIHC_NEEDS_EVAL_NONE
 }
 
+; unsafeFreezeByteArray# gives a byte array this table, and
+; unsafeThawByteArray# gives it the table above again. The layout is the
+; same. A promotion copies a frozen byte array, because no thread writes it.
+; It promotes a mutable byte array through a collection, so that no write
+; reaches a stale original.
+export data @aihc_frozen_byte_array_info align 8 = {
+  ptr null, ptr null, ptr null, code null, ptr null,
+  i8 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
+  i8 @AIHC_NEEDS_EVAL_NONE
+}
+
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_memory_copy(ptr, ptr, i64) cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
