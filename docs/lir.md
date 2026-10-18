@@ -681,6 +681,13 @@ the modules that have no inline functions to splice. The linter reports each
 error as `@symbol/block: message`. It omits the block, or the symbol and the
 block, when they do not apply.
 
+Under `--lint`, a module that the compiler lowered gets one more rule. Each
+internal data object must have a name in another item of the module. Only the
+module can name an internal object, so an object without a name is dead, and
+the lowering must not emit it. `unreferencedDataErrors` applies this rule. A
+module written by hand can contain such an object, so `lintModule` does not
+apply the rule.
+
 The test fixtures in `bin/aihc/compiler/lir/test/Test/Fixtures/lir/lint` give
 the exact text of every error. Each fixture is a Lir module. Each header comment
 `; error: <text>` is one expected error. The test asserts the complete list in

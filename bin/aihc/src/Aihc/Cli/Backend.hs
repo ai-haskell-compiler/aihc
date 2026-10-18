@@ -20,6 +20,7 @@ where
 import Aihc.Amd64.Lir qualified as Amd64
 import Aihc.Arm64.Lir qualified as Arm64
 import Aihc.Grin.Gc (GcGrinProgram)
+import Aihc.Lir.Lint qualified as Lint
 import Aihc.Lir.Lower (LowerTarget, appleArm64Target, posixTarget64, wasip3Target)
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Pretty (renderModule)
@@ -27,8 +28,10 @@ import Aihc.Lir.Syntax (Item (..), Module (..))
 import Aihc.Llvm.Lir qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendCompiler, llvmLtoArguments, optimizationArgument, runtimeOptimizationLevel)
 import Aihc.Wasm.Lir qualified as Wasm
+import Control.Monad (unless, when)
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Exit (ExitCode (..))
 import System.FilePath (takeBaseName, (</>))
@@ -132,6 +135,10 @@ compileGrinTo lint settings target lirPath gcProgram path = case target of
   _ -> do
     lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) settings gcProgram)
     mapM_ (\dump -> TIO.writeFile dump (renderLirModule lirModule)) lirPath
+    when lint $ do
+      let items = moduleItems lirModule
+          errors = Lint.unreferencedDataErrors items (foldMap Lint.itemDataReferences items)
+      unless (null errors) (ioError (userError ("Lir lint failed:\n" <> unlines (map (T.unpack . Lint.renderLintError) errors))))
     compileLirTo lint target lirModule path
 
 -- | The Lir text of a module, as the object backends dump it: one item to

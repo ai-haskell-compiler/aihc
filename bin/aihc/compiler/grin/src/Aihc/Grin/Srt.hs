@@ -88,14 +88,20 @@ programStaticObjects program =
     -- The shared object of a nullary constructor stands for a value of that
     -- constructor wherever one is named, including in another unit that
     -- builds one, so it follows the visibility of the constructor rather
-    -- than of a declaration.
+    -- than of a declaration. Only this unit can name the object of a private
+    -- constructor, and a case alternative compares against the info table
+    -- and not the object. Thus a private constructor gets its object only
+    -- when the program names it.
     implicitConstructors =
-      [ (name, GrinNode (GrinConstructor name 0) [], grinConstructorVis constructor)
+      [ (name, GrinNode (GrinConstructor name 0) [], vis)
       | constructor <- grinConstructors program,
-        let name = grinConstructorName constructor,
+        let name = grinConstructorName constructor
+            vis = grinConstructorVis constructor,
         null (grinConstructorLayouts constructor),
-        not (name `Set.member` declaredNames)
+        not (name `Set.member` declaredNames),
+        vis == GrinPub || name `Set.member` referencedNames
       ]
+    referencedNames = Set.fromList (grinProgramGlobalReferences program)
 
 -- | Whether the collector has to mark one static object.
 --

@@ -537,12 +537,13 @@ lowerEnvironment options gcProgram =
         ( concatMap declaredConstructorInfos constructorLayouts
             <> concatMap requiredNodeConstructorInfos (programNodes program)
         )
-    -- Every declared constructor keeps its tables, whatever its visibility:
-    -- a case alternative names one to compare a tag against without
-    -- building a node, and 'requiredNodeConstructorInfos' only reads the
-    -- nodes. Narrowing this to what the unit names is a separate change.
+    -- Every declared constructor keeps its saturated table, whatever its
+    -- visibility: a case alternative names it to compare a tag against
+    -- without building a node, and 'requiredNodeConstructorInfos' only reads
+    -- the nodes. Only a node or another unit names the partial table, so a
+    -- constructor that no other unit can name gets it only from its nodes.
     declaredConstructorInfos (name, layouts)
-      | null layouts = [ConstructorRuntimeInfo name SaturatedConstructor]
+      | null layouts || Map.lookup name constructorLinkage == Just Internal = [ConstructorRuntimeInfo name SaturatedConstructor]
       | otherwise = [ConstructorRuntimeInfo name SaturatedConstructor, ConstructorRuntimeInfo name PartialConstructor]
     -- One constructor needs at most two info tables: the saturated object,
     -- and one shared by every stage that still wants arguments. The partial
@@ -1182,10 +1183,10 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 
 -- | Each action produces one function or data item, or an info table and stub.
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
-lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
+lowerUnitActions env program@(GrinProgram _ _ _ _ functions) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
     <> [lowerFunction env function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
-    <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
+    <> map (lowerStaticObject env) (programStaticObjects program)
     <> map lowerInfo (envInfos env)
     <> [lowerCallbackPool call signature | call <- grinForeignCalls program, GrinForeignWrapper signature <- [grinForeignCallTarget call]]
     <> [lowerStaticReferenceTables env]
