@@ -197,6 +197,11 @@ data Env = Env
     -- call can walk the body again with what it knows about the
     -- arguments.
     envBodies :: !(Map Name ([Binder], Expr)),
+    -- | The free variables that the right-hand side of each lazy let in
+    -- scope evaluates, when it is not a function. An evaluation of the
+    -- binder evaluates the right-hand side, thus it evaluates these
+    -- variables too. See 'demandExpr'.
+    envThunks :: !(Map Name (Set Name)),
     -- | The constructors that each variable in scope cannot have. The
     -- default alternative of a case on a variable knows that the variable
     -- has none of the constructors of the other alternatives.
@@ -217,6 +222,7 @@ analysisEnv types signatures =
       envAnalysisOnly = False,
       envEvaluates = Map.empty,
       envBodies = Map.empty,
+      envThunks = Map.empty,
       envExcluded = Map.empty,
       envRefine = True
     }
@@ -501,7 +507,7 @@ demandExpr env ty expr =
   case expr of
     ExVar name
       | isConstructorName name -> pure (expr, Set.empty)
-      | otherwise -> pure (expr, Set.singleton name)
+      | otherwise -> pure (expr, Set.insert name (Map.findWithDefault Set.empty name (envThunks env)))
     ExLit {} -> pure (expr, Set.empty)
     ExCoercion {} -> pure (expr, Set.empty)
     ExLam binder body
@@ -519,7 +525,25 @@ demandExpr env ty expr =
     ExTyApp {} -> demandApplication env ty (collectSpine expr)
     ExLet (Bind binder rhs) body -> do
       (rhs', rhsStrict) <- demandExpr env (Just (binderType binder)) rhs
-      let inner = bindSignature (extendType env binder) binder rhs
+      -- A lazy let that is not a function is a thunk. A path of the body
+      -- that evaluates the binder evaluates the right-hand side there, so
+      -- the path also evaluates what the right-hand side evaluates. GHC
+      -- inlines such a let into the alternatives that use it, and each
+      -- alternative is then strict in these variables:
+      --
+      -- > let y = abstract x a
+      -- > let r = case y of { ... }
+      -- > in case k of { A -> r; B -> case y of { ... } }
+      --
+      -- Each alternative evaluates @y@, thus the body is strict in @y@.
+      -- The demand only tells which variables are evaluated, not how
+      -- often, so a binder used on more than one path gives no wrong
+      -- answer.
+      let thunk = null (fst (collectLambdas rhs)) && not (isStrictBinder (envTypes env) binder)
+          withThunk current
+            | thunk = current {envThunks = Map.insert (binderName binder) rhsStrict (envThunks current)}
+            | otherwise = current
+          inner = withThunk (bindSignature (extendType env binder) binder rhs)
       (body', bodyStrict) <- demandExpr inner ty body
       let name = binderName binder
           evaluated = Set.member name bodyStrict
