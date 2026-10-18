@@ -1703,6 +1703,8 @@ compileExpr ctx env expression =
     -- thunks of a variable to their target, so the ready branch gets the
     -- value and no continuation is allocated. That test is only on the path
     -- of an object that is not a value.
+    -- The blocks of that test are cold, so a native backend puts them after
+    -- the hot code and the ready branch follows the check directly.
     GrinIfWhnf value ready slow -> do
       object <- pointerValue ctx env value
       checkLabel <- freshLabel "eval_check"
@@ -1728,14 +1730,14 @@ compileExpr ctx env expression =
           terminate (Branch (typedOperand notValue) (Target notValueLabel []) (Target readyLabel []))
           thunkLabel <- freshLabel "eval_thunk"
           ownerLabel <- freshLabel "eval_owner"
-          beginBlock notValueLabel []
+          beginColdBlock notValueLabel []
           isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
           terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target thunkLabel []))
-          beginBlock thunkLabel []
+          beginColdBlock thunkLabel []
           tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
           claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
           terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
-          beginBlock ownerLabel []
+          beginColdBlock ownerLabel []
           word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
           (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
           wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
@@ -1743,7 +1745,7 @@ compileExpr ctx env expression =
           isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
           owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
           terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
-          beginBlock followLabel []
+          beginColdBlock followLabel []
           next <- loadSlotDependent HeapRegion "next" Ptr (OperandVar current) 8
           terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
