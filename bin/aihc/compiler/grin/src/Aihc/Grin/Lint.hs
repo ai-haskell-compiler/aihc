@@ -10,7 +10,7 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), CpsGrinProgram, cpsContinuationFrames, cpsFunctionContinuations, cpsGrinProgram)
 import Aihc.Grin.Gc (GcGrinProgram, dynamicReservation, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
-import Aihc.Grin.Primitive (primitiveAllocates, primitiveHeapWords, primitiveInitializes)
+import Aihc.Grin.Primitive (primitiveAllocates, primitiveHeapWords, primitiveInitializes, uncheckedByteArrayLimit, uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -128,6 +128,10 @@ lintHeapReservations frames expression =
           | primitiveInitializes name = case arguments of
               GrinVarValue memory : _ | memory `Set.member` pending -> ([], (available, Set.delete memory pending))
               _ -> ([GrinLintInitializationWithoutAllocation name], budget)
+          | name == uncheckedByteArrayPrimitive = case arguments of
+              [GrinLitValue (GrinLitInt _ bytes)]
+                | bytes >= 0 && bytes <= uncheckedByteArrayLimit -> consume (uncheckedByteArrayWords bytes) budget
+              _ -> ([GrinLintUnloweredAllocation name], budget)
           | Just _ <- dynamicReservation name arguments =
               (GrinLintUnloweredAllocation name : uninitialized pending, (Just 0, Set.empty))
           | Just words' <- primitiveHeapWords name =

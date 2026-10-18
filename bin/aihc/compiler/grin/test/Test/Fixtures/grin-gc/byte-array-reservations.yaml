@@ -5,6 +5,9 @@ program: |
   allocate (size :: IntRep) -> BoxedRep Unlifted =
     primitive-call @(BoxedRep Unlifted) newByteArray# (size :: IntRep)
 
+  fixed -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) newByteArray# (16 :: IntRep)
+
   resize (array :: BoxedRep Unlifted) (size :: IntRep) -> BoxedRep Unlifted =
     primitive-call @(BoxedRep Unlifted) resizeMutableByteArray# (array :: BoxedRep Unlifted) (size :: IntRep)
 expected: |
@@ -22,6 +25,8 @@ expected: |
 
   primitive aihcByteArrayPinned# :: WordRep/1
 
+  primitive aihcNewByteArrayUnchecked# :: BoxedRep Unlifted/1
+
   allocate (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
     $gc_byte_array_words :: WordRep <-
       primitive-call @WordRep aihcByteArrayWords# (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
@@ -29,6 +34,13 @@ expected: |
       allocate ($gc_byte_array_words :: WordRep) (0 :: WordRep) ($cps_return :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcInitByteArray# ($gc_memory :: AddrRep) (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+
+  fixed ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $cps_return$gc :: BoxedRep Lifted <-
+      ensure-heap (8 :: WordRep) ($cps_return :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) aihcNewByteArrayUnchecked# (16 :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
 
   resize (array :: BoxedRep Unlifted) (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
@@ -45,3 +57,7 @@ status: pass
 reason: |
   Dynamic allocation returns memory before byte array initialization.
   Resize preserves the pinned flag and relocates the source array.
+  A movable array of a fixed size gets a fixed reservation of eight words.
+  These are six header words and two payload words for 16 bytes.
+  Then aihcNewByteArrayUnchecked# makes the array without a runtime call.
+  The declaration of that primitive is new for the same reason.

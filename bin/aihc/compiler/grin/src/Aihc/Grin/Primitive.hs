@@ -26,6 +26,9 @@ module Aihc.Grin.Primitive
     allocatingPrimitives,
     primitiveHeapWords,
     primitiveInitializes,
+    uncheckedByteArrayPrimitive,
+    uncheckedByteArrayWords,
+    uncheckedByteArrayLimit,
   )
 where
 
@@ -188,6 +191,27 @@ controlPrimitives =
     -- it never reaches a backend as a call.
     "prompt#"
   ]
+
+-- | The primitive that makes a movable byte array of a fixed size. Its one
+-- argument is the size in bytes, and it is a literal. A reservation before it
+-- supplies 'uncheckedByteArrayWords' of that size. Thus the backend takes
+-- the words from the heap pointer and writes the header itself, and it does
+-- not call the runtime. The GC phase makes these calls from newByteArray#.
+uncheckedByteArrayPrimitive :: Text
+uncheckedByteArrayPrimitive = "aihcNewByteArrayUnchecked#"
+
+-- | The heap slots of a movable byte array with the given size in bytes:
+-- six header slots and the payload, which has at least one byte. This is
+-- the charge that aihc_byte_array_words gives for an unpinned array with an
+-- alignment of eight.
+uncheckedByteArrayWords :: Integer -> Integer
+uncheckedByteArrayWords size = (48 + max 1 size + 7) `div` 8
+
+-- | The largest size in bytes of an unchecked byte array. A larger array
+-- keeps the runtime path. The limit is far below the large-object size of
+-- the runtime, so the array is always a nursery object.
+uncheckedByteArrayLimit :: Integer
+uncheckedByteArrayLimit = 1024
 
 -- | Initialization must precede the next operation that can collect.
 primitiveInitializes :: Text -> Bool

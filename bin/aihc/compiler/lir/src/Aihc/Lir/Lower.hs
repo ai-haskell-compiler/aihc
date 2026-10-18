@@ -72,6 +72,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
+import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, nodeWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
@@ -2419,6 +2420,27 @@ extendForeignResult foreignTy (Typed operand actual) =
 compilePrimitive :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinRep -> Text -> [GrinValue] -> LowerM ValueEnv
 compilePrimitive ctx env vars runtimeRep name arguments =
   case (name, arguments) of
+    -- A reservation before the call covers the array, so the array starts
+    -- at the heap pointer. The header has the same six slots that
+    -- aihc_byte_array_initialize writes: the info table, the size, the
+    -- contents address, the pinned flag, the alignment, and the charge.
+    -- The payload follows the header, and it stays uninitialized.
+    (_, [GrinLitValue (GrinLitInt _ size)])
+      | name == uncheckedByteArrayPrimitive -> do
+          let words' = uncheckedByteArrayWords size
+          array <- bumpAllocate (fromInteger words')
+          let object = typedOperand array
+              literal = OperandLiteral . LitInt
+              info = Symbol "aihc_byte_array_info"
+          requireExternData info
+          contents <- emitValue "contents" Ptr (PtrAdd object (literal 48))
+          storeSlot HeapRegion Ptr (OperandLiteral (LitSymbol info)) object 0
+          storeSlot HeapRegion I64 (literal size) object 8
+          storeSlot HeapRegion Ptr (typedOperand contents) object 16
+          storeSlot HeapRegion I64 (literal 0) object 24
+          storeSlot HeapRegion I64 (literal 8) object 32
+          storeSlot HeapRegion I64 (literal words') object 40
+          bind [array]
     ("divInt#", [left, right]) -> do
       leftOperand <- word left
       rightOperand <- word right
