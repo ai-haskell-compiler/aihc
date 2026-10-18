@@ -92,8 +92,9 @@ cErrnoFAULT = 14
 cErrnoFBIG :: CInt
 cErrnoFBIG = 27
 
+-- Linux 7.2 added EFTYPE to asm-generic/errno.h.
 cErrnoFTYPE :: CInt
-cErrnoFTYPE = -1
+cErrnoFTYPE = 134
 
 cErrnoHOSTDOWN :: CInt
 cErrnoHOSTDOWN = 112
