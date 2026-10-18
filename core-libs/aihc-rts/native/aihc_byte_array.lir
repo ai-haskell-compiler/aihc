@@ -16,7 +16,6 @@ export data @aihc_byte_array_info align 8 = {
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_memory_copy(ptr, ptr, i64) cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
-extern func @aihc_memory_compare(ptr, ptr, i64) -> i64 cc c
 extern func @aihc_memory_set(ptr, i64, i64) cc c
 
 data @aihc_byte_array_size_message align 1 = {
@@ -39,10 +38,6 @@ data @aihc_byte_array_shrink_message align 1 = {
 
 data @aihc_byte_array_copy_message align 1 = {
   bytes "invalid byte array copy", zero 1
-}
-
-data @aihc_byte_array_compare_message align 1 = {
-  bytes "invalid byte array comparison", zero 1
 }
 
 data @aihc_byte_array_word_index_message align 1 = {
@@ -315,56 +310,6 @@ entry:
   %byte = and i64 %value, 255
   call @aihc_memory_set(%destination, %byte, %checked_length)
   return 0
-}
-
-; Compare two ranges. The result is minus one, zero, or one, in the order of
-; the first byte that differs. Text comparisons call this often, thus the
-; checks are inline and the bytes go to the memory helper of the C runtime.
-; The checks and their messages are those of the helpers above.
-export func @aihc_byte_array_compare(%left: ptr, %left_offset: i64, %right: ptr, %right_offset: i64, %length: i64) -> i64 cc c {
-entry:
-  %negative_left_offset = lt.s i64 %left_offset, 0
-  %negative_right_offset = lt.s i64 %right_offset, 0
-  %negative_length = lt.s i64 %length, 0
-  %negative_offset = or i1 %negative_left_offset, %negative_right_offset
-  %negative = or i1 %negative_offset, %negative_length
-  br %negative, invalid_count, present
-
-invalid_count:
-  call @aihc_fail(@aihc_byte_array_size_message)
-  trap "invalid byte array size"
-
-present:
-  %left_missing = eq ptr %left, null
-  %right_missing = eq ptr %right, null
-  %missing = or i1 %left_missing, %right_missing
-  br %missing, invalid, ranges
-
-ranges:
-  %left_size = load i64 [%left + 8] align 8
-  %right_size = load i64 [%right + 8] align 8
-  %left_past_end = gt.u i64 %left_offset, %left_size
-  %left_remaining = sub i64 %left_size, %left_offset
-  %left_too_long = gt.u i64 %length, %left_remaining
-  %right_past_end = gt.u i64 %right_offset, %right_size
-  %right_remaining = sub i64 %right_size, %right_offset
-  %right_too_long = gt.u i64 %length, %right_remaining
-  %left_outside = or i1 %left_past_end, %left_too_long
-  %right_outside = or i1 %right_past_end, %right_too_long
-  %outside = or i1 %left_outside, %right_outside
-  br %outside, invalid, compare
-
-invalid:
-  call @aihc_fail(@aihc_byte_array_compare_message)
-  trap "invalid byte array comparison"
-
-compare:
-  %left_contents = load ptr [%left + 16] align 8
-  %right_contents = load ptr [%right + 16] align 8
-  %left_bytes = ptr.add %left_contents, %left_offset
-  %right_bytes = ptr.add %right_contents, %right_offset
-  %result = call @aihc_memory_compare(%left_bytes, %right_bytes, %length)
-  return %result
 }
 
 ; The failure of an element access that compiled code checks itself: under

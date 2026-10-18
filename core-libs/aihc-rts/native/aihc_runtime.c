@@ -298,7 +298,8 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */
 
-/* aihc_mutvar_*, aihc_stable_name_*, the byte-array primitives, and the RTS
+/* aihc_mutvar_*, aihc_stable_name_*, the byte-array primitives except
+   aihc_byte_array_compare, and the RTS
    option parser live in core-libs/aihc-rts/native/aihc_mutvar.lir,
    aihc_stable_name.lir, aihc_byte_array.lir, and aihc_runtime_options.lir.
    The two accessors below reach the stable-name fields of the shared machine.
@@ -323,11 +324,28 @@ void aihc_memory_move(void *destination, const void *source, uint64_t length) {
   memmove(destination, source, (size_t)length);
 }
 
-/* The sign of memcmp as minus one, zero, or one. */
-int64_t aihc_memory_compare(const void *left, const void *right,
-                            uint64_t length) {
-  int order = memcmp(left, right, (size_t)length);
-  return (int64_t)(order > 0) - (int64_t)(order < 0);
+/* compareByteArrays#: compare two ranges. The result is minus one, zero, or
+   one, in the order of the first byte that differs. Text comparisons call
+   this often, thus it is C: one call does the checks and then calls memcmp.
+   A Lir function with the same checks kept its arguments in callee-saved
+   registers and called memcmp through one more C function. */
+uint64_t aihc_byte_array_compare(void *opaque_left, int64_t left_offset,
+                                 void *opaque_right, int64_t right_offset,
+                                 int64_t length) {
+  const AihcByteArray *left = opaque_left;
+  const AihcByteArray *right = opaque_right;
+  if ((left_offset | right_offset | length) < 0) {
+    aihc_fail("invalid byte array size");
+  }
+  if (left == NULL || right == NULL || (uint64_t)left_offset > left->size ||
+      (uint64_t)length > left->size - (uint64_t)left_offset ||
+      (uint64_t)right_offset > right->size ||
+      (uint64_t)length > right->size - (uint64_t)right_offset) {
+    aihc_fail("invalid byte array comparison");
+  }
+  int order = memcmp(left->contents + left_offset,
+                     right->contents + right_offset, (size_t)length);
+  return (uint64_t)((int64_t)(order > 0) - (int64_t)(order < 0));
 }
 
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
