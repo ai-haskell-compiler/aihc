@@ -11,8 +11,8 @@ main:
 	sub rsp, 0x18
 	lea rdi, [rsp]
 	mov esi, 0x25
-	mov edx, 0x0
-	mov eax, 0x0
+	xor edx, edx
+	xor eax, eax
 	call store_byte
 	movzx rax, al
 	add rsp, 0x18

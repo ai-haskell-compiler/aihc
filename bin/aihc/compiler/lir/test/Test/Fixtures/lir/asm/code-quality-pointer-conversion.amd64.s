@@ -11,7 +11,7 @@ enter:
 	test r10, r10
 	je .Llir_trap_0
 	mov rdx, rsi
-	mov esi, 0x0
+	xor esi, esi
 	jmp r10
 	.text
 	.p2align 4

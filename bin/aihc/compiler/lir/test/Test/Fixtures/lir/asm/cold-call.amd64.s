@@ -13,7 +13,7 @@ reserve:
 	mov r13, rdi
 	mov rdi, rbx
 	mov esi, 0x2
-	mov eax, 0x0
+	xor eax, eax
 	call collect
 	mov rsi, r12
 	mov rdi, r13

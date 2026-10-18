@@ -566,12 +566,19 @@ canonicalInteger ty value
 address :: Amd64Register -> Text -> Amd64Statement
 address register label = amd64Instruction (AmdMovGot register label)
 
+-- | Put a constant in a register. Zero comes from @xor r32, r32@, which is
+-- two or three bytes where @mov r32, 0@ is five or six. The xor writes the
+-- condition flags. Instruction selection puts each flag reader directly
+-- after the instruction that sets its flags, and it loads each constant
+-- before that instruction, so no constant comes between the two.
 immediate :: (Integral value) => Amd64Register -> value -> Amd64Statement
 immediate register value
+  | integer == 0 = amd64Instruction (AmdXor (Amd64RmRegister dword) (Amd64BinaryRegister dword))
   | integer >= 0 && integer <= 0xffffffff = amd64Instruction (AmdMov (dwordRegister register) (Amd64MoveImmediate integer))
   | otherwise = amd64Instruction (AmdMov register (Amd64MoveImmediate (integer `mod` (2 ^ (64 :: Int)))))
   where
     integer = toInteger value
+    dword = dwordRegister register
 
 move :: Amd64Register -> Amd64Register -> [Amd64Statement]
 move destination source

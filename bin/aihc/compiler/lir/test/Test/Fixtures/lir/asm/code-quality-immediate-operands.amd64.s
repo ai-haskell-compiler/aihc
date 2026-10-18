@@ -29,6 +29,6 @@ chunk:
 	mov eax, 0x1
 	ret
 .Llir_1_2:
-	mov eax, 0x0
+	xor eax, eax
 	ret
 	.section .note.GNU-stack

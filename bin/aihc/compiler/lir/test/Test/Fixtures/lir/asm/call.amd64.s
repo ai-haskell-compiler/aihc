@@ -7,11 +7,11 @@ twice:
 	mov [rsp], rbx
 	mov [rsp + 8], r12
 	mov rbx, rdi
-	mov eax, 0x0
+	xor eax, eax
 	call helper
 	mov r12, rax
 	mov rdi, r12
-	mov eax, 0x0
+	xor eax, eax
 	call helper
 	add rax, r12
 	add rax, rbx
