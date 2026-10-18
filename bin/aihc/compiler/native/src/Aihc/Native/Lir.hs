@@ -45,7 +45,7 @@ module Aihc.Native.Lir
 where
 
 import Aihc.Lir.Division (lowerWideDivision)
-import Aihc.Lir.Inline (prepareCheckedModule, prepareModule)
+import Aihc.Lir.Inline (mapOperation, mapTerminator, prepareCheckedModule, prepareModule)
 import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, operationReads, readCounts, terminatorReads)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
@@ -503,7 +503,7 @@ compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register
 compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
-    lowered = lowerWideDivision (isJust (nbQuotRemWide backend)) input
+    lowered = forwardPointerConversions (lowerWideDivision (isJust (nbQuotRemWide backend)) input)
     (function, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
@@ -532,6 +532,47 @@ compileFunctionTo backend output signatures index input state =
         when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
         native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
+
+-- | Remove each conversion between a pointer and an integer of a variable.
+-- The conversion does not change the bits, and a native target keeps both
+-- types in the same registers. Thus each use of the result reads the
+-- operand, and the register allocator has no copy to place. The source of a
+-- conversion defines its value before the conversion, so the operand is
+-- available at each use of the result.
+forwardPointerConversions :: Function -> Function
+forwardPointerConversions function
+  | Map.null forwarded = function
+  | otherwise = function {functionBlocks = map rewrite (functionBlocks function)}
+  where
+    forwarded =
+      Map.fromList
+        [ (result, source)
+        | block <- functionBlocks function,
+          Instruction [result] operation <- blockInstructions block,
+          Just source@(OperandVar _) <- [conversionSource operation]
+        ]
+    conversionSource operation =
+      case operation of
+        PtrToInt value -> Just value
+        PtrFromInt value -> Just value
+        _ -> Nothing
+    resolve operand =
+      case operand of
+        OperandVar var | Just source <- Map.lookup var forwarded -> resolve source
+        _ -> operand
+    isForwarded instruction =
+      case instructionResults instruction of
+        [result] -> Map.member result forwarded
+        _ -> False
+    rewrite block =
+      block
+        { blockInstructions =
+            [ instruction {instructionOperation = mapOperation resolve (instructionOperation instruction)}
+            | instruction <- blockInstructions block,
+              not (isForwarded instruction)
+            ],
+          blockTerminator = mapTerminator resolve id Return (blockTerminator block)
+        }
 
 -- | Put the blocks in the order of emission: the entry block, then the
 -- other blocks that are not cold, then the cold blocks. Each group keeps the

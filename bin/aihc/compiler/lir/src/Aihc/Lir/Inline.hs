@@ -21,6 +21,8 @@ module Aihc.Lir.Inline
     prepareCheckedModule,
     inlineModule,
     hasInlineFunctions,
+    mapOperation,
+    mapTerminator,
   )
 where
 

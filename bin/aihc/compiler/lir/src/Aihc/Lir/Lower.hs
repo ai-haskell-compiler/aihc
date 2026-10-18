@@ -300,7 +300,10 @@ data RuntimeEnter = RuntimeEnter
     enterStored :: ![Type],
     enterSupplied :: ![Type],
     enterTargetParameters :: ![Type],
-    enterPassesContinuation :: !Bool
+    enterPassesContinuation :: !Bool,
+    -- | The target takes the arguments of the entry itself and loads the
+    -- stored fields. See 'directEntryFunctions'.
+    enterDirect :: !Bool
   }
 
 data RuntimeInfo = RuntimeInfo
@@ -337,7 +340,10 @@ data LowerEnv = LowerEnv
     envInfos :: ![RuntimeInfo],
     envStaticReferences :: !StaticReferences,
     envSrtSymbols :: !(Map FunctionName Symbol),
-    envAddrLiterals :: !(Map BS.ByteString Symbol)
+    envAddrLiterals :: !(Map BS.ByteString Symbol),
+    -- | The functions that only their object enters. See
+    -- 'directEntryFunctions'.
+    envDirectEntries :: !(Map FunctionName DirectEntry)
   }
 
 -- | Shared functions that lowered code tail-calls.
@@ -484,7 +490,15 @@ failWith = lift . Left
 runLower :: LowerOptions -> GcGrinProgram -> (LowerUnit -> LowerM value) -> Either LowerError (value, [Item])
 runLower options gcProgram action = do
   let env = lowerEnvironment options gcProgram
-  (value, final) <- runStateT (action (LowerUnit env (gcGrinProgram gcProgram)) <* generateHelpers env Set.empty) (initialLowerState options gcProgram)
+      initial = initialLowerState options gcProgram
+      -- A function that only its object enters takes the arguments of the
+      -- entry.
+      directSignature name entry =
+        let rest = drop (directStored entry) (Map.findWithDefault [] name (envFunctionParameters env))
+            supplied = if directPassesContinuation entry then take (length rest - 1) rest else rest
+         in Signature (contextTypes <> [Ptr, Ptr] <> supplied) [] AihcConvention
+      signatures = foldr (\(name, entry) -> Map.insert (functionSymbol name) (directSignature name entry)) (stateSignatures initial) (Map.toList (envDirectEntries env))
+  (value, final) <- runStateT (action (LowerUnit env (gcGrinProgram gcProgram)) <* generateHelpers env Set.empty) initial {stateSignatures = signatures}
   pure (value, externItems final <> reverse (stateItemsRev final))
 
 initialLowerState :: LowerOptions -> GcGrinProgram -> LowerState
@@ -526,10 +540,12 @@ lowerEnvironment options gcProgram =
       envInfos = map snd (constructorEntries <> functionEntries),
       envStaticReferences = staticReferences,
       envSrtSymbols = srtSymbols,
-      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)]
+      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
+      envDirectEntries = directEntries
     }
   where
     program = gcGrinProgram gcProgram
+    directEntries = directEntryFunctions continuationFunctions forwardingFunctions functionParameters infoKeys program
     continuationFunctions = gcContinuationFunctions gcProgram
     continuationFrames = gcContinuationFrames gcProgram
     forwardingFunctions = Map.keysSet (Map.filter (== ContinuationFrameForward) continuationFrames)
@@ -640,7 +656,8 @@ lowerEnvironment options gcProgram =
                     enterStored = map repType fields,
                     enterSupplied = map repType (concat layouts),
                     enterTargetParameters = targetParameters name,
-                    enterPassesContinuation = name `Set.notMember` continuationFunctions
+                    enterPassesContinuation = name `Set.notMember` continuationFunctions,
+                    enterDirect = name `Map.member` directEntries
                   }
         ThunkRuntimeInfo _ fields ->
           Just
@@ -650,9 +667,62 @@ lowerEnvironment options gcProgram =
                 enterStored = map repType fields,
                 enterSupplied = [],
                 enterTargetParameters = targetParameters name,
-                enterPassesContinuation = True
+                enterPassesContinuation = True,
+                enterDirect = name `Map.member` directEntries
               }
         _ -> Nothing
+
+-- | How a function that only its object enters takes its arguments. See
+-- 'directEntryFunctions'.
+data DirectEntry = DirectEntry
+  { -- | The stored fields start after this many words of the payload, as
+    -- in 'enterStoredOffset'.
+    directStoredOffset :: !Int,
+    -- | The number of parameters that come from the stored fields.
+    directStored :: !Int,
+    -- | Whether the last parameter is the continuation.
+    directPassesContinuation :: !Bool
+  }
+
+-- | The functions that only their object enters: a continuation frame, a
+-- closure, or a thunk. Such a function takes the arguments of the entry of
+-- the object: the context, the object, the continuation, and the supplied
+-- values. It loads the stored fields from the object itself. Thus the entry
+-- reaches the code with one indirect jump and no enter stub. A direct call,
+-- or a second info table of the function, needs the plain signature, so such
+-- a function keeps a stub.
+directEntryFunctions :: Set FunctionName -> Set FunctionName -> Map FunctionName [Type] -> [RuntimeInfoKey] -> GrinProgram -> Map FunctionName DirectEntry
+directEntryFunctions continuationFunctions forwardingFunctions parameters keys program =
+  Map.fromList
+    [ (name, entry)
+    | (name, [key]) <- Map.toList keysByFunction,
+      name `Set.notMember` forwardingFunctions,
+      name `Set.notMember` called,
+      Just (entry, types) <- [shape name key],
+      Map.lookup name parameters == Just (map repType types)
+    ]
+  where
+    keysByFunction = Map.fromListWith (<>) [(name, [key]) | key <- keys, Just name <- [runtimeInfoFunctionName key]]
+    -- The same shapes as 'runtimeEnter'.
+    shape name key =
+      case key of
+        ClosureRuntimeInfo _ fields layouts
+          | not (null layouts),
+            length layouts <= grinApplyGroupLimit ->
+              let passes = name `Set.notMember` continuationFunctions
+               in Just (DirectEntry 0 (length fields) passes, fields <> concat layouts <> [BoxedRep Lifted | passes])
+        ThunkRuntimeInfo _ fields -> Just (DirectEntry thunkOwnerWords (length fields) True, fields <> [BoxedRep Lifted])
+        _ -> Nothing
+    called = Set.fromList (concatMap (directCalls . grinFunctionBody) (grinFunctions program))
+    directCalls expression =
+      case expression of
+        GrinCall _ name _ -> [name]
+        GrinBind _ value body -> directCalls value <> directCalls body
+        GrinStoreRec _ body -> directCalls body
+        GrinStoreRecUnchecked _ body -> directCalls body
+        GrinIfWhnf _ ready slow -> directCalls ready <> directCalls slow
+        GrinCase _ _ alternatives -> concatMap (directCalls . grinAltRhs) alternatives
+        _ -> []
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
@@ -1308,16 +1378,18 @@ lowerInfo info = do
 -- object has one of the shapes the runtime defines, and otherwise a stub of
 -- this module.
 enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
-enterFunction info enter =
-  case sharedEnterSymbol enter of
-    Just symbol -> do
-      let signature = Signature (contextTypes <> [Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
-      modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
-      pure symbol
-    Nothing -> do
-      let stub = Symbol (unSymbol info <> "_e")
-      lowerEnterStub stub enter
-      pure stub
+enterFunction info enter
+  | enterDirect enter = pure (enterTarget enter)
+  | otherwise =
+      case sharedEnterSymbol enter of
+        Just symbol -> do
+          let signature = Signature (contextTypes <> [Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
+          modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
+          pure symbol
+        Nothing -> do
+          let stub = Symbol (unSymbol info <> "_e")
+          lowerEnterStub stub enter
+          pure stub
 
 -- | The shared enter function of the runtime for one object shape, when the
 -- runtime defines one. @aihc_enter.lir@ defines @aihc_lir_enter_S_V@ and
@@ -1406,7 +1478,8 @@ continuationInfoItems spec = lowerInfo info
                   enterStored = continuationStored spec,
                   enterSupplied = continuationSupplied spec,
                   enterTargetParameters = continuationStored spec <> continuationSupplied spec,
-                  enterPassesContinuation = False
+                  enterPassesContinuation = False,
+                  enterDirect = False
                 },
           infoFrameKind = Just (continuationFrame spec),
           infoObjectKind = runtimeObjectClosure,
@@ -1522,9 +1595,27 @@ lowerFunction env function = do
   parameters <- forM (grinFunctionParameters function) $ \var -> do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
+  -- A function that only its object enters loads the stored fields of the
+  -- object into the parameters of its stored fields.
+  let direct = Map.lookup (grinFunctionName function) (envDirectEntries env)
+      (stored, rest) = splitAt (maybe 0 directStored direct) parameters
+      passes = maybe False directPassesContinuation direct
+      (supplied, continuationParameter) = if passes then (init rest, [lirVar | (_, lirVar, _) <- drop (length rest - 1) rest]) else (rest, [])
+  object <- fresh "object"
+  continuation <- maybe (fresh "continuation") pure (listToMaybe continuationParameter)
+  let entryParameters = case direct of
+        Nothing -> [(lirVar, ty) | (_, lirVar, ty) <- parameters]
+        Just _ -> (object, Ptr) : (continuation, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied]
   beginBlock (Label "entry") []
+  loaded <- case direct of
+    Just entry ->
+      forM (zip [1 :: Int ..] stored) $ \(index, (var, _, ty)) ->
+        (var,) <$> loadSlot AnyRegion "stored" ty (OperandVar object) (toInteger (8 * (index + directStoredOffset entry)))
+    Nothing -> pure []
+  let bound = Map.fromList loaded `Map.union` Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
+      boundVars = [var' | (var, _, _) <- parameters, Just (Typed (OperandVar var') _) <- [Map.lookup var bound]]
   when (lowerProfileTime (envOptions env)) $
-    storeProfileEntry (grinFunctionName function) (profileContinuation env function [lirVar | (_, lirVar, _) <- parameters])
+    storeProfileEntry (grinFunctionName function) (profileContinuation env function boundVars)
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
   roots <-
     case maximumRoots (grinFunctionBody function) of
@@ -1533,13 +1624,13 @@ lowerFunction env function = do
   foreignFrame <- if hasForeignCall needsForeignFrame (grinFunctionBody function) then Just . typedOperand <$> emitValue "foreign_frame" Ptr (StackAlloc 40 (byteAlignment 8)) else pure Nothing
   codeSlot <- if hasForeignCall needsCodeSlot (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
-      valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
+      valueEnv = bound
   compileExpr ctx valueEnv (grinFunctionBody function)
   modify' (\state -> state {stateContext = Nothing})
   finishFunction
     (functionSymbol (grinFunctionName function))
     (if lowerExposeFunctions (envOptions env) then Export else Internal)
-    (contextParameters <> [(lirVar, ty) | (_, lirVar, ty) <- parameters])
+    (contextParameters <> entryParameters)
     []
     AihcConvention
 
@@ -3791,9 +3882,10 @@ generateHelper env helper =
       beginBlock (Label "enter") []
       -- Entering a frame pops it and every frame above it: the frame is
       -- the new stack pointer, and its chunk gives the stack limit. The
-      -- stack pointer is a value of its own, so the frame can stay in the
-      -- register of the object argument and only the copy moves.
-      stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
+      -- usual frame is in the chunk of the stack pointer, and then the
+      -- stack limit stays the same. The frame is also the object argument,
+      -- so it stays in its register and only the copy for the stack pointer
+      -- moves.
       stackLimit <- chunkEnd (OperandVar current)
       -- A frame in a lower chunk than the stack pointer was in makes that
       -- chunk young again: new frames go above it. See aihc_stack_enter_chunk.
@@ -3801,18 +3893,17 @@ generateHelper env helper =
       enterFrame <- freshLabel "enter_frame"
       enterChunk <- freshLabel "enter_chunk"
       terminate (Branch (typedOperand sameChunk) (Target enterFrame []) (Target enterChunk []))
+      let enterWith limit =
+            TailCallIndirect
+              (typedOperand entry)
+              (contextOperands context {contextStack = OperandVar current, contextStackLimit = limit} <> (OperandVar current : OperandLiteral LitNull : [OperandVar var | (var, _) <- values]))
+              (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
       beginColdBlock enterChunk []
       capability <- capabilityOperand context
       _ <- callRuntime "aihc_stack_enter_chunk" [Ptr, Ptr] [] [capability, OperandVar current]
-      terminate (Jump (Target enterFrame []))
+      terminate (enterWith stackLimit)
       beginBlock enterFrame []
-      let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
-      terminate
-        ( TailCallIndirect
-            (typedOperand entry)
-            (contextOperands entered <> (OperandVar current : OperandLiteral LitNull : [OperandVar var | (var, _) <- values]))
-            (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
-        )
+      terminate (enterWith (contextStackLimit context))
       finishFunction symbol Internal (contextParameters <> ((continuation, Ptr) : values)) [] AihcConvention
     HelperApply [shape] -> do
       target <- targetM

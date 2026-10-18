@@ -500,6 +500,7 @@ constantBits :: Type -> Operand -> Maybe Integer
 constantBits ty operand =
   case operand of
     OperandLiteral (LitInt value) | not (isFloatType ty) -> Just (canonicalInteger ty value)
+    OperandLiteral LitNull -> Just 0
     _ -> Nothing
 
 -- | An add or a sub of the constant bits in the given width, as one
@@ -575,7 +576,7 @@ conditionTest ctx fused condition =
       let (loads, register) = operandIn' ctx 0 I1 scratchLeft condition
        in (loads, TestNonZero register)
   where
-    isZero operand = operand == OperandLiteral (LitInt 0)
+    isZero operand = operand == OperandLiteral (LitInt 0) || operand == OperandLiteral LitNull
 
 compareWith :: Ctx Arm64Register -> Type -> Bool -> Arm64Register -> Operand -> [Arm64Statement]
 compareWith ctx ty signed left right =

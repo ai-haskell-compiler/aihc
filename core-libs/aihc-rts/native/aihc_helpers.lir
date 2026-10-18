@@ -46,6 +46,19 @@ entry:
   return %capability
 }
 
+; Write an update frame: the info table, the parent continuation, and the
+; thunk.
+inline func @aihc_push_update_frame(%update: ptr, %parent: ptr, %thunk: ptr) {
+entry:
+  %update_info_word = ptr.to_int @aihc_lir_cps_update_info
+  store i64 %update_info_word, [%update] align 8
+  %parent_word = ptr.to_int %parent
+  store i64 %parent_word, [%update + 8] align 8
+  %thunk_word = ptr.to_int %thunk
+  store i64 %thunk_word, [%update + 16] align 8
+  return
+}
+
 ; A blackhole requires a heap reservation. A thunk pushes its update frame
 ; on the stack of the thread. The push fits in the current chunk when the
 ; new stack pointer is not above the stack limit. Otherwise the runtime
@@ -57,6 +70,37 @@ entry:
 export func @aihc_lir_eval(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %value: ptr, %continuation: ptr) {
 entry:
   %roots = stack.alloc 16 align 8
+  %first_header_word = call @aihc_object_header_word_dependent(%value)
+  %first_evaluating = call @aihc_header_is_evaluating(%first_header_word)
+  br %first_evaluating, loop(%value), first_inspect
+
+; The usual value is a thunk with room for its update frame, or a value.
+; These blocks look at the value directly, so that their path does not go
+; through the parameter of the loop. The loop does all other cases.
+first_inspect:
+  %first_header = call @aihc_info_table_of_header(%first_header_word)
+  %first_kind = call @aihc_info_kind(%first_header)
+  switch i64 %first_kind {
+    @AIHC_OBJECT_THUNK -> first_thunk
+    @AIHC_OBJECT_INDIRECTION -> first_loop
+    @AIHC_OBJECT_BLACKHOLE -> first_loop
+    default -> first_ready
+  }
+
+first_thunk:
+  %first_update_end = ptr.add %sp, @AIHC_UPDATE_FRAME_BYTES
+  %first_update_fits = le.u ptr %first_update_end, %sp_limit
+  br %first_update_fits, first_push, first_loop
+
+first_push:
+  call @aihc_push_update_frame(%sp, %continuation, %value)
+  %first_entry = call @aihc_info_entry(%first_header)
+  tailcall.indirect %first_entry(%hp, %hp_limit, %first_update_end, %sp_limit, %value, %sp) : (ptr, ptr, ptr, ptr, ptr, ptr)
+
+first_ready:
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %continuation, %value)
+
+first_loop:
   jump loop(%value)
 
 loop(%current: ptr):
@@ -133,12 +177,7 @@ cold stack_collect:
   tailcall @aihc_lir_eval(%collected_hp, %collected_hp_limit, %sp, %sp_limit, %moved_thunk, %moved_thunk_continuation)
 
 push(%update: ptr, %pushed_sp: ptr, %pushed_sp_limit: ptr, %pushed_hp_limit: ptr):
-  %update_info_word = ptr.to_int @aihc_lir_cps_update_info
-  store i64 %update_info_word, [%update] align 8
-  %parent_word = ptr.to_int %continuation
-  store i64 %parent_word, [%update + 8] align 8
-  %value_word = ptr.to_int %current
-  store i64 %value_word, [%update + 16] align 8
+  call @aihc_push_update_frame(%update, %continuation, %current)
   ; The entry writes nothing into the thunk. A pause claims it later, when
   ; the evaluation has not ended by then.
   %entry = call @aihc_info_entry(%header)
@@ -326,116 +365,101 @@ finish(%length: i64):
 
 export func @aihc_lir_continue_(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr) {
 entry:
-  jump loop(%continuation)
-
-loop(%current: ptr):
-  %header = call @aihc_info_table(%current)
+  %header = call @aihc_info_table(%continuation)
   %entry = call @aihc_info_entry(%header)
   %forward = eq code %entry, null
   br %forward, forward, enter
 
 ; A forward frame has no entry. It passes the values to its parent.
 cold forward:
-  %parent = call @aihc_forward_parent(%current, %header)
-  jump loop(%parent)
+  %parent = call @aihc_forward_parent(%continuation, %header)
+  tailcall @aihc_lir_continue_(%hp, %hp_limit, %sp, %sp_limit, %parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
-  ; a value of its own, so the frame can stay in the register of the object
-  ; argument and only the copy moves.
-  %entered_sp = ptr.add %current, 0
-  %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entered_limit_word = ptr.to_int %entered_limit
-  %sp_limit_word = ptr.to_int %sp_limit
-  %same_chunk = eq i64 %entered_limit_word, %sp_limit_word
+  ; stack pointer, and its chunk gives the stack limit. The usual frame is
+  ; in the chunk of the stack pointer, and then the stack limit stays the
+  ; same. The frame is also the object argument, so it stays in its
+  ; register and only the copy for the stack pointer moves.
+  %entered_limit = call @aihc_stack_chunk_end(%continuation)
+  %same_chunk = eq ptr %entered_limit, %sp_limit
   br %same_chunk, enter_frame, enter_chunk
 
 ; The frame is in a lower chunk than the stack pointer was. New frames go
 ; above it, so the collector must scan the chunk again.
 cold enter_chunk:
   %capability_enter_chunk = call @aihc_stack_capability(%sp_limit)
-  call @aihc_stack_enter_chunk(%capability_enter_chunk, %current)
-  jump enter_frame
+  call @aihc_stack_enter_chunk(%capability_enter_chunk, %continuation)
+  tailcall.indirect %entry(%hp, %hp_limit, %continuation, %entered_limit, %continuation, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
 
 enter_frame:
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %continuation, %sp_limit, %continuation, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_continue_i(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
 entry:
-  jump loop(%continuation)
-
-loop(%current: ptr):
-  %header = call @aihc_info_table(%current)
+  %header = call @aihc_info_table(%continuation)
   %entry = call @aihc_info_entry(%header)
   %forward = eq code %entry, null
   br %forward, forward, enter
 
 ; A forward frame has no entry. It passes the values to its parent.
 cold forward:
-  %parent = call @aihc_forward_parent(%current, %header)
-  jump loop(%parent)
+  %parent = call @aihc_forward_parent(%continuation, %header)
+  tailcall @aihc_lir_continue_i(%hp, %hp_limit, %sp, %sp_limit, %parent, %value)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
-  ; a value of its own, so the frame can stay in the register of the object
-  ; argument and only the copy moves.
-  %entered_sp = ptr.add %current, 0
-  %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entered_limit_word = ptr.to_int %entered_limit
-  %sp_limit_word = ptr.to_int %sp_limit
-  %same_chunk = eq i64 %entered_limit_word, %sp_limit_word
+  ; stack pointer, and its chunk gives the stack limit. The usual frame is
+  ; in the chunk of the stack pointer, and then the stack limit stays the
+  ; same. The frame is also the object argument, so it stays in its
+  ; register and only the copy for the stack pointer moves.
+  %entered_limit = call @aihc_stack_chunk_end(%continuation)
+  %same_chunk = eq ptr %entered_limit, %sp_limit
   br %same_chunk, enter_frame, enter_chunk
 
 ; The frame is in a lower chunk than the stack pointer was. New frames go
 ; above it, so the collector must scan the chunk again.
 cold enter_chunk:
   %capability_enter_chunk = call @aihc_stack_capability(%sp_limit)
-  call @aihc_stack_enter_chunk(%capability_enter_chunk, %current)
-  jump enter_frame
+  call @aihc_stack_enter_chunk(%capability_enter_chunk, %continuation)
+  tailcall.indirect %entry(%hp, %hp_limit, %continuation, %entered_limit, %continuation, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 
 enter_frame:
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  tailcall.indirect %entry(%hp, %hp_limit, %continuation, %sp_limit, %continuation, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 }
 
 export func @aihc_lir_continue_p(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: ptr) {
 entry:
-  jump loop(%continuation)
-
-loop(%current: ptr):
-  %header = call @aihc_info_table(%current)
+  %header = call @aihc_info_table(%continuation)
   %entry = call @aihc_info_entry(%header)
   %forward = eq code %entry, null
   br %forward, forward, enter
 
 ; A forward frame has no entry. It passes the values to its parent.
 cold forward:
-  %parent = call @aihc_forward_parent(%current, %header)
-  jump loop(%parent)
+  %parent = call @aihc_forward_parent(%continuation, %header)
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %parent, %value)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
-  ; a value of its own, so the frame can stay in the register of the object
-  ; argument and only the copy moves.
-  %entered_sp = ptr.add %current, 0
-  %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entered_limit_word = ptr.to_int %entered_limit
-  %sp_limit_word = ptr.to_int %sp_limit
-  %same_chunk = eq i64 %entered_limit_word, %sp_limit_word
+  ; stack pointer, and its chunk gives the stack limit. The usual frame is
+  ; in the chunk of the stack pointer, and then the stack limit stays the
+  ; same. The frame is also the object argument, so it stays in its
+  ; register and only the copy for the stack pointer moves.
+  %entered_limit = call @aihc_stack_chunk_end(%continuation)
+  %same_chunk = eq ptr %entered_limit, %sp_limit
   br %same_chunk, enter_frame, enter_chunk
 
 ; The frame is in a lower chunk than the stack pointer was. New frames go
 ; above it, so the collector must scan the chunk again.
 cold enter_chunk:
   %capability_enter_chunk = call @aihc_stack_capability(%sp_limit)
-  call @aihc_stack_enter_chunk(%capability_enter_chunk, %current)
-  jump enter_frame
+  call @aihc_stack_enter_chunk(%capability_enter_chunk, %continuation)
+  tailcall.indirect %entry(%hp, %hp_limit, %continuation, %entered_limit, %continuation, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
 enter_frame:
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %continuation, %sp_limit, %continuation, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 ; Arity counts application stages, not the number of Lir values.
@@ -687,6 +711,16 @@ entry:
   return %young
 }
 
+; The two stores of an update that no pause claimed.
+inline func @aihc_update_plain(%blackhole: ptr, %header_word: i64, %result: ptr) {
+entry:
+  %result_word = ptr.to_int %result
+  store.atomic release i64 %result_word, [%blackhole + 8]
+  %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
+  store.atomic release i64 %evaluated_word, [%blackhole]
+  return
+}
+
 ; Update a thunk with the result of its evaluation: the result goes into
 ; field zero, and the header keeps the thunk table with bit zero. Most
 ; thunks are young, and no pause claimed them, so the two stores do the
@@ -708,10 +742,7 @@ entry:
 ; reader can see bit zero, and the stores of the evaluation are visible to
 ; a reader that loads the value with a dependency.
 plain:
-  %result_word = ptr.to_int %result
-  store.atomic release i64 %result_word, [%blackhole + 8]
-  %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
-  store.atomic release i64 %evaluated_word, [%blackhole]
+  call @aihc_update_plain(%blackhole, %header_word, %result)
   return 1
 
 ; The C update gives null when the update is an escape whose promotion
@@ -742,6 +773,31 @@ entry:
 export func @aihc_lir_cps_update(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
 entry:
   %roots = stack.alloc 24 align 8
+  %first_header_word = call @aihc_object_header_word(%blackhole)
+  %first_tag = and i64 %first_header_word, @AIHC_HEADER_TAG_MASK
+  %first_unclaimed = eq i64 %first_tag, 0
+  br %first_unclaimed, first_young, first_update
+
+; The usual thunk is young, and no pause claimed it. These blocks do its
+; update directly, so that their path does not go through the parameters of
+; the update loop. The loop does all other cases.
+first_young:
+  %first_capability = call @aihc_stack_capability(%sp_limit)
+  %first_is_young = call @aihc_object_is_young(%first_capability, %blackhole)
+  br %first_is_young, first_plain, first_update
+
+first_plain:
+  call @aihc_update_plain(%blackhole, %first_header_word, %result)
+  %first_ready = call @aihc_result_ready(%result)
+  br %first_ready, first_continue, evaluate_first
+
+first_continue:
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %outer, %result)
+
+evaluate_first:
+  tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %sp_limit, %result, %outer)
+
+cold first_update:
   jump update(%hp, %hp_limit, %outer, %blackhole, %result)
 
 update(%current_hp: ptr, %current_hp_limit: ptr, %current_outer: ptr, %current_blackhole: ptr, %current_result: ptr):
