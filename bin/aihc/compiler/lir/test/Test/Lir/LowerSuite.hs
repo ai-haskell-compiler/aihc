@@ -77,7 +77,7 @@ parseFixture =
     LowerFixture
       <$> object .: "program"
       <*> pure target
-      <*> (ModuleSettings <$> object .:? "check-prim-bounds" .!= False <*> object .:? "profile-allocations" .!= False)
+      <*> (ModuleSettings <$> object .:? "check-prim-bounds" .!= False <*> object .:? "profile-allocations" .!= False <*> object .:? "profile-time" .!= False)
       <*> object .: "expected"
 
 -- | The GRIN pipeline a native target takes, stopping at the Lir text.

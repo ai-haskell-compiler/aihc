@@ -280,6 +280,12 @@ struct AihcCapability {
      collection for a young thunk. See "Local heaps" in
      docs/multi-threaded-rts-design.md. */
   AihcValue *pause_top;
+  /* The code and the continuation of the function that started last. Only
+     a program built with --profile-time stores them, at the entry of each
+     function: the continuation first, then the code. The time profiler
+     reads them when a sample interrupts the thread. See aihc_profile.c. */
+  const void *profile_code;
+  AihcValue *profile_frame;
   /* The block cursor counts reserved bytes, including fixed allocation and
      stack charges. A refill extends the limit without a gap in the heap. */
   uint64_t nursery_taken;
@@ -353,6 +359,9 @@ struct AihcCapability {
   void *inbox_lock;
   /* The levels of the stop that this capability leads. */
   uint64_t stop_depth;
+  /* Not zero while this capability collects. The time profiler then gives
+     the sample a collection frame and does not read heap objects. */
+  uint64_t profile_collecting;
 };
 
 /* The process state shared by all capabilities. */
@@ -649,6 +658,17 @@ void aihc_runtime_statistics_report(void);
 void aihc_allocation_profile_register(const char *const *names,
                                       const uint64_t *counts,
                                       const uint64_t *size);
+/* The tables of a program built with --profile-time: the code of each
+   function, its name, and their number, then the info tables of the
+   functions and their number. The entry registers them before the
+   capability starts, and the registration starts the sample timer. Only the
+   POSIX hosts define it. See aihc_profile.c. */
+void aihc_time_profile_register(AihcCapability *capability,
+                                const void *const *codes,
+                                const char *const *names,
+                                const uint64_t *code_count,
+                                const AihcInfo *const *infos,
+                                const uint64_t *info_count);
 int64_t aihc_program_environment_size(void);
 int64_t aihc_program_environment_copy(void *buffer, int64_t capacity);
 /* Install an immutable managed byte array without allocation. */

@@ -26,6 +26,12 @@ _Static_assert(offsetof(AihcCapability, nursery_bytes) ==
                "capability nursery_bytes ABI");
 _Static_assert(offsetof(AihcCapability, pause_top) == 6 * sizeof(void *) + 16,
                "capability pause_top ABI");
+_Static_assert(offsetof(AihcCapability, profile_code) ==
+                   7 * sizeof(void *) + 16,
+               "capability profile_code ABI");
+_Static_assert(offsetof(AihcCapability, profile_frame) ==
+                   8 * sizeof(void *) + 16,
+               "capability profile_frame ABI");
 
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
@@ -535,7 +541,14 @@ static char *aihc_append_allocations(char *cursor, const uint64_t *order) {
   return aihc_append_text(cursor, "]");
 }
 
+void (*aihc_time_profile_finish)(void);
+
 void aihc_runtime_statistics_report(void) {
+  if (aihc_time_profile_finish != NULL) {
+    void (*finish)(void) = aihc_time_profile_finish;
+    aihc_time_profile_finish = NULL;
+    finish();
+  }
   const char *path = aihc_rts_stats_path();
   AihcCapability *capability = aihc_process_capability;
   if (path == NULL || capability == NULL || aihc_statistics_reported) {

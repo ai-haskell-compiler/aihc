@@ -416,7 +416,7 @@ programTestWith tools expected shouldFail stress cSource program = do
   assertEqual "direct GRIN lint" [] (lintProgram linkedProgram)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin linkedProgram)
   moduleLir <- either (assertFailure . show) pure (lowerModule wasip3Target defaultModuleSettings gc)
-  entryLir <- either (assertFailure . show) pure (lowerEntry wasip3Target False)
+  entryLir <- either (assertFailure . show) pure (lowerEntry wasip3Target False False)
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))
   moduleAssembly <- compileText (if stress then forceCollection moduleLir else moduleLir)
@@ -434,7 +434,7 @@ programTestWith tools expected shouldFail stress cSource program = do
             component = directory </> "program.wasm"
         createDirectory runtimeDirectory
         runtime <- runtimeBuildArchive <$> buildRuntimeArchive Wasm32Wasip3 [] runtimeDirectory
-        compileEntryObject False False Wasm32Wasip3 directory entry
+        compileEntryObject False False False Wasm32Wasip3 directory entry
         world <- wasip3WorldPath
         TIO.writeFile assemblyPath moduleAssembly
         writeFile stubPath (putcharStub expected <> T.unpack cSource)

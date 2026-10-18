@@ -473,8 +473,13 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- entry get the counters, because the counters of two units would have
     -- the same symbols.
     compileProfileAllocations :: !Bool,
-    -- | Give the units this config compiles the counters. 'compileLtoProgram'
-    -- sets it for the whole-program object alone.
+    -- | Give the whole program the time profile tables and entry stores, as
+    -- @--profile-time@ asks. Only the whole-program object and the entry
+    -- get them, for the same reason as 'compileProfileAllocations'.
+    compileProfileTime :: !Bool,
+    -- | Give the units this config compiles the profiles that the config
+    -- asks for. 'compileLtoProgram' sets it for the whole-program object
+    -- alone.
     compileProfileUnit :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
@@ -676,6 +681,7 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compilePasses = planPasses plan,
         compileGrinPointsTo = planGrinPointsTo plan,
         compileProfileAllocations = False,
+        compileProfileTime = False,
         compileProfileUnit = False,
         compileNoCode = False,
         compileOptimization = level,
@@ -2061,6 +2067,7 @@ backendOptionsKey config =
         <> ltoKeyParts config
         <> checkPrimBoundsKeyParts config
         <> ["profile-allocations" | compileProfileAllocations config]
+        <> ["profile-time" | compileProfileTime config]
     )
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -3189,7 +3196,7 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     -- native source is that same text for @--keep-native@ as well.
     keepLir = keepsLirText config
     target = compileTarget config
-    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config)
+    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config && compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config)
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
         if null (Fc.programDecls (fcProgram fcModule))
