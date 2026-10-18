@@ -527,7 +527,7 @@ void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
    These bits belong to the thunk header, not to references to the thunk.
    Bit zero alone marks a claimed or evaluated thunk: field zero names its
    owner or its value. Both bits mark a claim between its two stores. Bit one
-   of an update frame marks a frame that a pause processed. */
+   of a frame marks a frame that a pause processed. */
 #define AIHC_HEADER_EVALUATING UINT64_C(1)
 #define AIHC_HEADER_CLAIMING UINT64_C(2)
 #define AIHC_FRAME_PROCESSED UINT64_C(2)

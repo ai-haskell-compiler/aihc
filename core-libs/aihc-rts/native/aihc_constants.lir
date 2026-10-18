@@ -34,8 +34,8 @@ const @AIHC_CAPABILITY_PAUSE_TOP_OFFSET = 6 words + 16
 
 ; Two low header bits preserve the original info-table pointer. In a thunk,
 ; bit zero alone means claimed or evaluated: field zero names the owner or
-; the value. Both bits mean that a claim is between its two stores. In an
-; update frame, bit one marks a frame that a pause processed. See
+; the value. Both bits mean that a claim is between its two stores. In a
+; frame, bit one marks a frame that a pause processed. See
 ; "Blackholing" in docs/multi-threaded-rts-design.md.
 const @AIHC_HEADER_EVALUATING = 1
 const @AIHC_HEADER_CLAIMING = 2
