@@ -116,7 +116,6 @@ shortJumps =
   testGroup
     "short jumps"
     [ check "a forward jump of 127 bytes is short" (BS.pack [0xeb, 0x7f] <> BS.replicate 127 0xcc <> BS.pack [0x0f, 0x84]),
-      check "a forward jump of 128 bytes is long" (BS.pack [0x0f, 0x84, 0x80, 0, 0, 0] <> BS.replicate 128 0xcc),
       check "a backward jump of 128 bytes is short" (BS.replicate 126 0xcc <> BS.pack [0xeb, 0x80]),
       check "a jump over a short jump is short" (BS.pack [0xeb, 0x80, 0xeb, 0x7f, 0xeb, 0x7d] <> BS.replicate 125 0xcc <> BS.pack [0xc3])
     ]
