@@ -2,9 +2,7 @@
 	.p2align 2
 _shared:
 	mov x0, x19
-	cbz x19, .Llir_else_0
-	b .Llir_0_2
-.Llir_else_0:
+	cbnz x19, .Llir_0_2
 	mov x8, x0
 .Llir_0_1:
 	mov x0, x8

@@ -48,16 +48,16 @@ expected: |
     %not_value_21 = ne i64 %needs_eval_20, 0
     br %not_value_21, eval_not_value_22, eval_ready_13
 
-  eval_not_value_22:
+  cold eval_not_value_22:
     %indirection_26 = eq i64 %needs_eval_20, 2
     br %indirection_26, eval_follow_23, eval_thunk_24
 
-  eval_thunk_24:
+  cold eval_thunk_24:
     %tag_27 = and i64 %header_word_16, 3
     %claimed_28 = eq i64 %tag_27, 1
     br %claimed_28, eval_owner_25, eval_slow_14
 
-  eval_owner_25:
+  cold eval_owner_25:
     %word_29 = load.dependent ptr [%current_15 + 8] region heap
     %header_word_30 = load.dependent i64 [%word_29] region heap
     %info_word_31 = and i64 %header_word_30, -4
@@ -69,7 +69,7 @@ expected: |
     %owned_37 = or i1 %thread_35, %queue_36
     br %owned_37, eval_slow_14, eval_check_12(%word_29)
 
-  eval_follow_23:
+  cold eval_follow_23:
     %next_38 = load.dependent ptr [%current_15 + 8] region heap
     jump eval_check_12(%next_38)
 
