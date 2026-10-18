@@ -59,7 +59,7 @@ data Command
   | PlayRuntime FilePath FilePath
   | FcPrint FilePath
   | FcPasses PackageId [FilePath] OptimizationLevel [String]
-  | Explore FilePath OptimizationLevel (Maybe NativeTarget)
+  | Explore FilePath OptimizationLevel (Maybe NativeTarget) Bool
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -178,6 +178,7 @@ exploreParser =
       (eitherReader parseOptimizationLevel)
       (short 'O' <> metavar "LEVEL" <> value O2 <> help "The first optimization level to show: 0, 1, 2 or s (default: 2)")
     <*> optional (option (eitherReader parseNativeTarget) (long "target" <> metavar "TARGET" <> help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3 (default: the host)"))
+    <*> switch (long "wrap" <> help "Wrap long lines at word boundaries. The z key changes this mode")
 
 pipelineExamplesParser :: Parser PipelineExamplesOptions
 pipelineExamplesParser =
@@ -326,13 +327,13 @@ runCommand (PlayBundle store output) = do
   let interface = loadedInterface loaded
   TIO.hPutStrLn stderr ("terms " <> T.pack (show (Map.size (tcInterfaceTermMap interface))) <> ", tycons " <> T.pack (show (Map.size (tcInterfaceTyConMap interface))) <> ", data types " <> T.pack (show (Map.size (tcInterfaceDataTypeMap interface))) <> ", classes " <> T.pack (show (Map.size (tcInterfaceClassMap interface))) <> ", instances " <> T.pack (show (Map.size (tcInterfaceInstanceMap interface))) <> ", data family instances " <> T.pack (show (Map.size (tcInterfaceDataFamilyInstanceMap interface))) <> ", type family instances " <> T.pack (show (Map.size (tcInterfaceTypeFamilyInstanceMap interface))) <> ", pattern synonyms " <> T.pack (show (Map.size (tcInterfacePatSynMap interface))) <> ", foreign imports " <> T.pack (show (Map.size (tcInterfaceForeignImportMap interface))))
   TIO.hPutStrLn stderr ("header and naming decoded in " <> T.pack (show (round ((headerDone - started) * 1000) :: Int)) <> " ms, every fact decoded in " <> T.pack (show (round ((factsDone - headerDone) * 1000) :: Int)) <> " ms")
-runCommand (Explore input level target) = do
+runCommand (Explore input level target wrap) = do
   resolved <- case target <|> hostNativeTarget of
     Just found -> pure found
     Nothing -> do
       TIO.hPutStrLn stderr "This host is not a supported target; pass --target"
       exitFailure
-  runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved}
+  runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved, exploreWrap = wrap}
 runCommand (FcPasses primPackage paths level shown) = do
   (program, roots) <- case paths of
     [path] -> do

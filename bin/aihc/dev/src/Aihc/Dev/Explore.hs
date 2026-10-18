@@ -47,7 +47,9 @@ import System.Timeout (timeout)
 data ExploreOptions = ExploreOptions
   { exploreInput :: !FilePath,
     exploreLevel :: !OptimizationLevel,
-    exploreTarget :: !NativeTarget
+    exploreTarget :: !NativeTarget,
+    -- | Wrap long lines at the start. The @z@ key changes this mode.
+    exploreWrap :: !Bool
   }
 
 -- | The state of a build of one level.
@@ -103,6 +105,13 @@ data Explorer = Explorer
     explorerCursor :: !Int,
     explorerTop :: !Int,
     explorerHeight :: !Int,
+    -- | The width of the screen.
+    explorerWidth :: !Int,
+    -- | Wrap long lines. Without wrap, the view cuts long lines, and the
+    -- left and right keys scroll the view horizontally.
+    explorerWrap :: !Bool,
+    -- | The first column of the text that the view shows without wrap.
+    explorerLeft :: !Int,
     explorerStatus :: !Text,
     explorerPrompt :: !(Maybe Prompt),
     -- | The last query of the function prompt or the search prompt, for @n@
@@ -146,6 +155,9 @@ runExplore options = do
               explorerCursor = 0,
               explorerTop = 0,
               explorerHeight = 20,
+              explorerWidth = 80,
+              explorerWrap = exploreWrap options,
+              explorerLeft = 0,
               explorerStatus = "",
               explorerPrompt = Nothing,
               explorerLastQuery = Nothing,
@@ -172,7 +184,7 @@ explorerApp =
       appChooseCursor = neverShowCursor,
       appHandleEvent = handleEvent,
       appStartEvent = do
-        updateHeight
+        updateSize
         level <- gets explorerLevel
         startBuild level,
       appAttrMap = const highlightAttrMap
@@ -195,12 +207,12 @@ startBuild level = do
       modifyIORef' (explorerThreads state) ((thread, done) :)
     put state {explorerBuilds = Map.insert level (BuildRunning "Start") (explorerBuilds state)}
 
-updateHeight :: EventM () Explorer ()
-updateHeight = do
+updateSize :: EventM () Explorer ()
+updateSize = do
   vty <- getVtyHandle
-  (_, height) <- liftIO (Vty.displayBounds (Vty.outputIface vty))
+  (width, height) <- liftIO (Vty.displayBounds (Vty.outputIface vty))
   -- The header and the status line take two lines each.
-  modify (\state -> state {explorerHeight = max 1 (height - 4)})
+  modify (\state -> state {explorerHeight = max 1 (height - 4), explorerWidth = max 1 width})
 
 handleEvent :: BrickEvent () BuildEvent -> EventM () Explorer ()
 handleEvent event =
@@ -217,7 +229,7 @@ handleEvent event =
           case outcome of
             Left _ -> setStatus ("The build of " <> levelText level <> " failed")
             Right _ -> switchView level (explorerStage state)
-    VtyEvent (Vty.EvResize _ _) -> updateHeight >> scrollToCursor
+    VtyEvent (Vty.EvResize _ _) -> updateSize >> scrollToCursor
     VtyEvent (Vty.EvKey key modifiers) -> do
       prompt <- gets explorerPrompt
       case prompt of
@@ -235,6 +247,11 @@ handleKey key modifiers =
     Vty.KDown -> moveCursor 1
     Vty.KChar 'k' -> moveCursor (-1)
     Vty.KUp -> moveCursor (-1)
+    Vty.KChar 'h' -> scrollHorizontally (-horizontalStep)
+    Vty.KLeft -> scrollHorizontally (-horizontalStep)
+    Vty.KChar 'l' -> scrollHorizontally horizontalStep
+    Vty.KRight -> scrollHorizontally horizontalStep
+    Vty.KChar 'z' -> toggleWrap
     Vty.KPageDown -> pageBy 1
     Vty.KChar 'd' | Vty.MCtrl `elem` modifiers -> pageBy 1
     Vty.KChar ' ' -> pageBy 1
@@ -449,10 +466,10 @@ showStage level stage target = do
   case loaded of
     Left message -> do
       -- The next change of view searches for the same definition.
-      put state {explorerStage = stage, explorerDocument = emptyDocument, explorerCursor = 0, explorerTop = 0, explorerTarget = fmap (,0) target}
+      put state {explorerStage = stage, explorerDocument = emptyDocument, explorerCursor = 0, explorerTop = 0, explorerLeft = 0, explorerTarget = fmap (,0) target}
       setStatus message
     Right document -> do
-      put state {explorerStage = stage, explorerDocument = document, explorerCursor = 0, explorerTop = 0, explorerTarget = Nothing}
+      put state {explorerStage = stage, explorerDocument = document, explorerCursor = 0, explorerTop = 0, explorerLeft = 0, explorerTarget = Nothing}
       case target of
         Nothing -> setStatus ""
         Just definition -> do
@@ -549,11 +566,14 @@ jumpTo :: Int -> EventM () Explorer ()
 jumpTo line = do
   moveCursorTo line
   modify (\state -> state {explorerTop = max 0 (explorerCursor state - scrollContext (explorerHeight state))})
+  -- Wrapped lines above the cursor can push it off the screen.
+  scrollToCursor
 
 scrollContext :: Int -> Int
 scrollContext height = min 3 (height `div` 4)
 
--- | Keep the cursor on the screen, with some lines of context above it.
+-- | Keep all rows of the cursor line on the screen, with some lines of
+-- context above it and some rows of context below it.
 scrollToCursor :: EventM () Explorer ()
 scrollToCursor =
   modify $ \state ->
@@ -561,11 +581,61 @@ scrollToCursor =
         height = explorerHeight state
         top = explorerTop state
         context = scrollContext height
+        rows = lineRows state
+        -- The first line of the view that shows the rows of the cursor line
+        -- and the context below it. The walk stops at the height.
+        fitTop line used
+          | line > 0 && used + rows (line - 1) + context <= height = fitTop (line - 1) (used + rows (line - 1))
+          | otherwise = line
         top'
           | cursor < top + context = max 0 (cursor - context)
-          | cursor >= top + height - context = cursor - height + context + 1
-          | otherwise = top
+          | otherwise = max top (fitTop cursor (rows cursor))
      in state {explorerTop = max 0 top'}
+
+-- | The number of screen rows of a line of the view.
+lineRows :: Explorer -> Int -> Int
+lineRows state index
+  | explorerWrap state = maybe 1 (length . wrapRows (viewTextWidth state) . cleanLine) (documentLines (explorerDocument state) V.!? index)
+  | otherwise = 1
+
+-- | The width of the text of a line, after the line numbers.
+viewTextWidth :: Explorer -> Int
+viewTextWidth state = max 1 (explorerWidth state - gutterWidth (explorerDocument state) - 1)
+
+-- | The width of the line numbers.
+gutterWidth :: Document -> Int
+gutterWidth document = length (show (V.length (documentLines document)))
+
+-- | The text of a line as the view shows it.
+cleanLine :: Text -> Text
+cleanLine = T.replace "\t" "    "
+
+-- | The number of columns that a left or right key scrolls the view.
+horizontalStep :: Int
+horizontalStep = 4
+
+-- | Scroll the view horizontally. The view does not scroll past the end of
+-- the longest line on the screen.
+scrollHorizontally :: Int -> EventM () Explorer ()
+scrollHorizontally step = do
+  state <- get
+  if explorerWrap state
+    then setStatus "The lines wrap. Push z to cut the lines and scroll horizontally"
+    else do
+      let document = explorerDocument state
+          top = explorerTop state
+          onScreen = V.take (explorerHeight state) (V.drop top (documentLines document))
+          longest = V.foldl' (\size line -> max size (T.length (cleanLine line))) 0 onScreen
+          limit = max 0 (longest - viewTextWidth state)
+      put state {explorerLeft = max 0 (min limit (explorerLeft state + step))}
+
+-- | Wrap long lines, or stop the wrap.
+toggleWrap :: EventM () Explorer ()
+toggleWrap = do
+  modify (\state -> state {explorerWrap = not (explorerWrap state), explorerLeft = 0})
+  scrollToCursor
+  wrap <- gets explorerWrap
+  setStatus (if wrap then "Long lines wrap" else "Long lines are cut. The left and right keys scroll the view")
 
 levelText :: OptimizationLevel -> Text
 levelText level = "-O" <> T.pack (renderOptimizationLevel level)
@@ -632,27 +702,49 @@ drawBody state =
     Just prompt | listsChoices (promptKind prompt) -> drawPrompt prompt state
     _
       | isNothing (explorerModule state) -> padBottom Max (padRight Max (txt (waitingText state)))
-      | otherwise -> padBottom Max (vBox (map drawLine [top .. min (count - 1) (top + explorerHeight state - 1)]))
+      | otherwise -> padBottom Max (vBox (take height (concatMap drawLine [top .. count - 1])))
   where
     document = explorerDocument state
     count = V.length (documentLines document)
     top = explorerTop state
-    width = length (show count)
+    height = explorerHeight state
+    width = gutterWidth document
+    -- The screen rows of a line.
     drawLine index =
       let number = T.justifyRight width ' ' (T.pack (show (index + 1)))
           text = documentLines document V.! index
           segments = fromMaybe [] (documentSegments document V.!? index)
           highlighted = T.concat (map segmentText segments) == text && not (null segments)
           pieces
-            | index == explorerCursor state = [(clean text, attrName "cursor")]
-            | highlighted = [(clean (segmentText segment), classAttr (segmentClass segment)) | segment <- segments]
-            | otherwise = [(clean text, attrName "plain")]
+            | index == explorerCursor state = [(cleanLine text, attrName "cursor")]
+            | highlighted = [(cleanLine (segmentText segment), classAttr (segmentClass segment)) | segment <- segments]
+            | otherwise = [(cleanLine text, attrName "plain")]
           content = case explorerLastQuery state of
             Just (SearchText _ query) -> markMatches query pieces
             _ -> pieces
           lineAttr = if index == explorerCursor state then attrName "cursor" else attrName "plain"
-       in hBox [withAttr (attrName "gutter") (txt (number <> " ")), withAttr lineAttr (padRight Max (hBox [withAttr attr (txt piece) | (piece, attr) <- content]))]
-    clean = T.replace "\t" "    "
+          rows
+            | explorerWrap state = wrapRows (viewTextWidth state) (T.concat (map fst content))
+            | otherwise = [(explorerLeft state, viewTextWidth state)]
+          drawRow row (start, size) =
+            hBox
+              [ withAttr (attrName "gutter") (txt ((if row == (0 :: Int) then number else T.replicate width " ") <> " ")),
+                withAttr lineAttr (padRight Max (hBox [withAttr attr (txt piece) | (piece, attr) <- sliceColumns start size content]))
+              ]
+       in zipWith drawRow [0 ..] rows
+
+-- | The part of a line from a column, with a maximum width. The pieces keep
+-- their attributes.
+sliceColumns :: Int -> Int -> [(Text, AttrName)] -> [(Text, AttrName)]
+sliceColumns start size pieces =
+  case pieces of
+    [] -> []
+    (text, attr) : rest
+      | size <= 0 -> []
+      | start >= T.length text -> sliceColumns (start - T.length text) size rest
+      | otherwise ->
+          let piece = T.take size (T.drop start text)
+           in (piece, attr) : sliceColumns 0 (size - T.length piece) rest
 
 -- | True for a prompt that shows its choices in place of the view.
 listsChoices :: PromptKind -> Bool
@@ -708,9 +800,12 @@ drawStatus state =
     _ ->
       hBox
         [ padRight Max (txt (explorerStatus state)),
-          txt (buildText <> "  1-8/Tab stage  o level  g module  d definition  / ? search  w save  q quit")
+          txt (columnText <> buildText <> "  1-8/Tab stage  o level  g module  d definition  / ? search  z wrap  w save  q quit")
         ]
   where
+    columnText
+      | explorerWrap state || explorerLeft state == 0 = ""
+      | otherwise = "[column " <> T.pack (show (explorerLeft state + 1)) <> "] "
     buildText = case [(level, message) | (level, BuildRunning message) <- Map.toList (explorerBuilds state)] of
       (level, message) : _ -> "[" <> levelText level <> ": " <> message <> "]"
       [] -> ""
