@@ -72,8 +72,8 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
-import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, nodeWords)
+import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths)
