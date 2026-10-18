@@ -1246,9 +1246,11 @@ void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
 }
 
 /* The pause of the running thread: claim the thunk of each update frame
-   that no pause processed, from the top, and mark the frame. The walk stops
-   at the first marked frame, because the walk that marked it processed
-   every frame below it. A thunk that is claimed or evaluated stays as it
+   that no pause processed, from the top. The walk marks each frame that it
+   passes, not only the update frames, and it stops at the first marked
+   frame, because the walk that marked it processed every frame below it.
+   Thus a frame is walked once, and a deep stack does not make each pause
+   walk the full stack again. A thunk that is claimed or evaluated stays as it
    is. On one capability its owner is the thread itself: the thread entered
    the thunk twice, and the next evaluation of the thunk reports the loop.
    The claim stores a pointer into a thunk that can be old, so it takes the
@@ -1273,17 +1275,17 @@ static void aihc_pause_locked(AihcCapability *capability, AihcThread *thread,
     if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
       return;
     }
+    if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
+      return;
+    }
     if (info->frame_kind == AIHC_FRAME_UPDATE) {
-      if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
-        return;
-      }
       AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
       if ((thunk->header & AIHC_HEADER_TAG_MASK) == 0) {
         aihc_write_barrier(capability, thunk);
         aihc_thunk_claim(thunk, thread);
       }
-      frame->header |= AIHC_FRAME_PROCESSED;
     }
+    frame->header |= AIHC_FRAME_PROCESSED;
     frame = (AihcValue *)(uintptr_t)frame->fields[0];
   }
 }
@@ -4652,7 +4654,7 @@ static void aihc_verify_value(AihcValue *value) {
   default:
     aihc_fail("verifier: a reachable address has an invalid region kind");
   }
-  /* A processed update frame has the bit pattern of a forwarding header, and
+  /* A processed frame has the bit pattern of a forwarding header, and
      frames never move. */
   if (aihc_region_kind(value) != AIHC_REGION_STACK &&
       aihc_header_is_forward(value->header)) {

@@ -1,4 +1,6 @@
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 -- | Text and block transfers on handles. Text goes through the byte
 -- buffer as UTF-8.
@@ -20,13 +22,12 @@ module GHC.IO.Handle.Text
   )
 where
 
-import Data.Bool (Bool (..), not, (&&), (||))
+import Data.Bool (Bool (..), not, (&&))
 import Data.Maybe (Maybe (..), maybe)
 import Foreign.Marshal.Utils (copyBytes)
-import Foreign.Storable (Storable (..))
-import GHC.Base (Monad (..), String, ord, otherwise, ($), (++), (.))
+import GHC.Base (Monad (..), String, otherwise, ($), (++), (.))
 import GHC.Char (chr)
-import GHC.IO (IO)
+import GHC.IO (IO (..))
 import GHC.IO.Buffer
   ( Buffer (..),
     BufferState (..),
@@ -52,7 +53,7 @@ import GHC.IO.Handle.Internals
   )
 import GHC.IO.Unsafe (unsafeInterleaveIO)
 import GHC.IORef (readIORef, writeIORef)
-import GHC.Int (Int)
+import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Handle.Read (fillIfEmpty, readByte, readUtf8Char)
 import GHC.Internal.IO.Types
@@ -67,10 +68,34 @@ import GHC.Internal.IO.Types
 import GHC.Internal.IO.Types qualified as Buffered (fillReadBuffer, flushWriteBuffer)
 import GHC.Internal.IO.Types qualified as RawIO (read, write)
 import GHC.Num (Num (..))
-import GHC.Ptr (Ptr, castPtr, plusPtr)
+import GHC.Prim
+  ( Addr#,
+    Int#,
+    RealWorld,
+    State#,
+    andI#,
+    chr#,
+    int2Word#,
+    orI#,
+    ord#,
+    readWord8OffAddr#,
+    uncheckedIShiftRA#,
+    word2Int#,
+    word8ToWord#,
+    wordToWord8#,
+    writeWord8OffAddr#,
+    (*#),
+    (+#),
+    (-#),
+    (<#),
+    (==#),
+    (>#),
+    (>=#),
+  )
+import GHC.Ptr (Ptr (..), castPtr, plusPtr)
 import GHC.Real (Integral (..), fromIntegral)
 import GHC.Show (Show (..))
-import GHC.Types (Char)
+import GHC.Types (Char (..), isTrue#)
 import GHC.Word (Word8)
 
 -- ---------------------------------------------------------------------
@@ -110,46 +135,78 @@ flushForMode handle_@Handle__ {haBufferMode} sawNewline =
     BlockBuffering _ -> return ()
 
 -- | Encode the characters as UTF-8 into the byte buffer. The result says
--- whether the text had a newline.
+-- whether the text had a newline. The loop writes the buffer record back
+-- only before a flush and at the end.
 writeChars :: Handle__ -> String -> IO Bool
-writeChars _ [] = return False
-writeChars handle_@Handle__ {haByteBuffer} (character : rest) = do
-  buffer <- readIORef haByteBuffer
-  buffer' <-
-    case bufferAvailable buffer < 4 of
-      True -> do
-        flushByteWriteBuffer handle_
-        readIORef haByteBuffer
-      False -> return buffer
-  written <- withRawBuffer (bufRaw buffer') $ \pointer -> encodeUtf8 pointer (bufR buffer') (ord character)
-  writeIORef haByteBuffer buffer' {bufR = written}
-  newline <- writeChars handle_ rest
-  return (character == '\n' || newline)
+writeChars handle_@Handle__ {haByteBuffer} = fill False
+  where
+    fill newline [] = return newline
+    fill newline text = do
+      buffer <- readIORef haByteBuffer
+      buffer' <-
+        case bufferAvailable buffer < 4 of
+          True -> do
+            flushByteWriteBuffer handle_
+            readIORef haByteBuffer
+          False -> return buffer
+      Encoded rest offset newline' <-
+        withRawBuffer (bufRaw buffer') $ \pointer ->
+          encodeChars pointer (bufSize buffer' - 4) (bufR buffer') newline text
+      writeIORef haByteBuffer buffer' {bufR = offset}
+      fill newline' rest
+
+-- | The result of 'encodeChars': the characters that did not fit, the
+-- next offset, and whether the encoded characters had a newline.
+data Encoded = Encoded String !Int !Bool
+
+-- | Encode characters as UTF-8 at @offset@ until the text ends or the
+-- offset is past @limit@. One character needs at most four bytes, so the
+-- buffer must have four bytes after @limit@.
+encodeChars :: Ptr Word8 -> Int -> Int -> Bool -> String -> IO Encoded
+encodeChars (Ptr address) (I# limit) (I# offset) newline text =
+  IO
+    ( \state -> case encodeChars# address limit offset (newlineFlag newline) text state of
+        (# state', rest, offset', newline' #) -> (# state', Encoded rest (I# offset') (isTrue# newline') #)
+    )
+  where
+    newlineFlag True = 1#
+    newlineFlag False = 0#
+
+encodeChars# :: Addr# -> Int# -> Int# -> Int# -> String -> State# RealWorld -> (# State# RealWorld, String, Int#, Int# #)
+encodeChars# address limit offset newline text state =
+  case text of
+    [] -> (# state, [], offset, newline #)
+    C# character : rest -> case offset ># limit of
+      1# -> (# state, text, offset, newline #)
+      _ ->
+        let code = ord# character
+         in case encodeUtf8# address offset code state of
+              (# state', offset' #) -> encodeChars# address limit offset' (newline `orI#` (code ==# 10#)) rest state'
 
 -- | Write one code point as UTF-8 and give the next offset.
-encodeUtf8 :: Ptr Word8 -> Int -> Int -> IO Int
-encodeUtf8 pointer offset code
-  | code < 0x80 = do
-      byte offset code
-      return (offset + 1)
-  | code < 0x800 = do
-      byte offset (0xC0 + quot code 64)
-      byte (offset + 1) (0x80 + rem code 64)
-      return (offset + 2)
-  | code < 0x10000 = do
-      byte offset (0xE0 + quot code 4096)
-      byte (offset + 1) (0x80 + rem (quot code 64) 64)
-      byte (offset + 2) (0x80 + rem code 64)
-      return (offset + 3)
-  | otherwise = do
-      byte offset (0xF0 + quot code 262144)
-      byte (offset + 1) (0x80 + rem (quot code 4096) 64)
-      byte (offset + 2) (0x80 + rem (quot code 64) 64)
-      byte (offset + 3) (0x80 + rem code 64)
-      return (offset + 4)
+encodeUtf8# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+encodeUtf8# address offset code state0 =
+  case code <# 0x80# of
+    1# -> case byte 0# code state0 of
+      state1 -> (# state1, offset +# 1# #)
+    _ -> case code <# 0x800# of
+      1# -> case byte 0# (0xC0# +# shifted 6#) state0 of
+        state1 -> case byte 1# (continuation 0#) state1 of
+          state2 -> (# state2, offset +# 2# #)
+      _ -> case code <# 0x10000# of
+        1# -> case byte 0# (0xE0# +# shifted 12#) state0 of
+          state1 -> case byte 1# (continuation 6#) state1 of
+            state2 -> case byte 2# (continuation 0#) state2 of
+              state3 -> (# state3, offset +# 3# #)
+        _ -> case byte 0# (0xF0# +# shifted 18#) state0 of
+          state1 -> case byte 1# (continuation 12#) state1 of
+            state2 -> case byte 2# (continuation 6#) state2 of
+              state3 -> case byte 3# (continuation 0#) state3 of
+                state4 -> (# state4, offset +# 4# #)
   where
-    byte :: Int -> Int -> IO ()
-    byte index value = pokeByteOff pointer index (fromIntegral value :: Word8)
+    shifted count = code `uncheckedIShiftRA#` count
+    continuation count = 0x80# +# (shifted count `andI#` 63#)
+    byte index value = writeWord8OffAddr# address (offset +# index) (wordToWord8# (int2Word# value))
 
 -- | Encode the characters that a raw character buffer holds and hand the
 -- buffer back for reuse. @sz@ is the size of the raw buffer and @count@
@@ -214,15 +271,104 @@ hGetContents handle =
     text <- lazyRead handle_
     return (handle_ {haType = SemiClosedHandle}, text)
 
+-- | Each step decodes all the complete characters in the byte buffer, as
+-- the GHC 'hGetContents' does. Thus a step, and its 'unsafeInterleaveIO',
+-- is for one buffer and not for one character.
 lazyRead :: Handle__ -> IO String
-lazyRead handle_ =
-  unsafeInterleaveIO $ do
-    next <- readUtf8Char handle_
-    case next of
-      Nothing -> return []
-      Just character -> do
-        rest <- lazyRead handle_
-        return (character : rest)
+lazyRead handle_ = unsafeInterleaveIO (lazyReadBuffer handle_)
+
+lazyReadBuffer :: Handle__ -> IO String
+lazyReadBuffer handle_@Handle__ {haByteBuffer} = do
+  filled <- fillIfEmpty handle_
+  case filled of
+    False -> return []
+    True -> do
+      buffer@Buffer {bufRaw, bufL, bufR} <- readIORef haByteBuffer
+      rest <- lazyRead handle_
+      withRawBuffer bufRaw $ \pointer -> do
+        stop <- completeUtf8 pointer bufL bufR
+        case stop == bufL of
+          -- The bytes of the first character are not all in the buffer.
+          -- 'readUtf8Char' reads them across the refill.
+          True -> do
+            next <- readUtf8Char handle_
+            return (maybe [] (: rest) next)
+          False -> do
+            writeIORef haByteBuffer buffer {bufL = stop}
+            decodeUtf8 pointer bufL stop rest
+
+-- | The offset after the last complete UTF-8 character that starts at or
+-- after @index@ and ends before @end@.
+completeUtf8 :: Ptr Word8 -> Int -> Int -> IO Int
+completeUtf8 (Ptr address) (I# index) (I# end) =
+  IO
+    ( \state -> case completeUtf8# address index end state of
+        (# state', stop #) -> (# state', I# stop #)
+    )
+
+completeUtf8# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+completeUtf8# address index end state =
+  case index >=# end of
+    1# -> (# state, index #)
+    _ -> case readUtf8Byte# address index state of
+      (# state1, leading #) -> case (index +# utf8Length# leading) ># end of
+        1# -> (# state1, index #)
+        _ -> case readUtf8# address index leading state1 of
+          (# state2, _, next #) -> completeUtf8# address next end state2
+
+-- | Decode the UTF-8 characters from @index@ to @stop@ in front of @rest@.
+-- All the bytes of each character must be before @stop@. The decoding is
+-- the one of 'readUtf8Char'.
+decodeUtf8 :: Ptr Word8 -> Int -> Int -> String -> IO String
+decodeUtf8 (Ptr address) (I# index) (I# stop) rest = IO (decodeUtf8# address index stop rest)
+
+decodeUtf8# :: Addr# -> Int# -> Int# -> String -> State# RealWorld -> (# State# RealWorld, String #)
+decodeUtf8# address index stop rest state =
+  case index >=# stop of
+    1# -> (# state, rest #)
+    _ -> case readUtf8Byte# address index state of
+      (# state1, leading #) -> case readUtf8# address index leading state1 of
+        (# state2, code, next #) -> case decodeUtf8# address next stop rest state2 of
+          (# state3, text #) -> (# state3, C# (chr# code) : text #)
+
+readUtf8Byte# :: Addr# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+readUtf8Byte# address index state =
+  case readWord8OffAddr# address index state of
+    (# state', value #) -> (# state', word2Int# (word8ToWord# value) #)
+
+-- | The number of bytes that a leading byte asks for.
+utf8Length# :: Int# -> Int#
+utf8Length# leading =
+  case leading <# 0xC0# of
+    1# -> 1#
+    _ -> case leading <# 0xE0# of
+      1# -> 2#
+      _ -> case leading <# 0xF0# of
+        1# -> 3#
+        _ -> 4#
+
+-- | The code point of the character at @index@ and the offset after it. A
+-- bad sequence gives the replacement character, and a bad continuation
+-- byte ends the character, as in 'readUtf8Char'.
+readUtf8# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int#, Int# #)
+readUtf8# address index leading state =
+  case leading <# 0x80# of
+    1# -> (# state, leading, index +# 1# #)
+    _ -> case leading <# 0xC0# of
+      1# -> (# state, 0xFFFD#, index +# 1# #)
+      _ -> case leading <# 0xE0# of
+        1# -> continuation (leading -# 0xC0#) (index +# 1#) 1# state
+        _ -> case leading <# 0xF0# of
+          1# -> continuation (leading -# 0xE0#) (index +# 1#) 2# state
+          _ -> continuation (leading -# 0xF0#) (index +# 1#) 3# state
+  where
+    continuation code next count state0 =
+      case count of
+        0# -> (# state0, code, next #)
+        _ -> case readUtf8Byte# address next state0 of
+          (# state1, byte #) -> case (byte >=# 0x80#) `andI#` (byte <# 0xC0#) of
+            1# -> continuation ((code *# 64#) +# (byte -# 0x80#)) (next +# 1#) (count -# 1#) state1
+            _ -> (# state1, 0xFFFD#, next +# 1# #)
 
 -- | Read the rest of the input strictly.
 hGetContents' :: Handle -> IO String
