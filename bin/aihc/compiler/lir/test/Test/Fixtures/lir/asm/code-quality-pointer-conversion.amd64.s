@@ -1,7 +1,7 @@
 	.text
 	.p2align 4
 enter:
-	lea r14, [rdi]
+	mov r14, rdi
 	mov r9, rdi
 	or r9, 0xfff
 	lea r15, [r9 + 1]

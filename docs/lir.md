@@ -809,6 +809,13 @@ The lowering keeps the control model of CPS-GRIN:
   at `%hp`, and `%hp` advances by the words of the object. Then the store
   writes the header and the fields. Neither step touches memory other than
   the object. `GrinEnsureHeap` always reserves nursery space, even for a large batch.
+- The advance of `%hp` waits until the next read of the context, such as a
+  call, a tail call, or a reservation. Until then, each object is at an
+  offset from the same `%hp`, and the stores of the header and the fields
+  use that offset. The pointer to the object comes after these stores: it is
+  `ptr.add %hp, offset`, also for offset zero. Thus `%hp` dies at the
+  advance, and the new `%hp` can take its register. A pointer copy whose
+  source lives as long as the copy is removed before register allocation.
 - `GrinAllocate` calls `aihc_heap_allocate` for one dynamic object and returns its address.
   A nursery allocation advances `%hp` immediately. Large and pinned allocations use separate storage.
   Array initialization writes into this address without allocation or a heap pointer change.

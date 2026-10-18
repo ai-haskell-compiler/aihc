@@ -1,7 +1,8 @@
--- | Simplify Boolean switches, rotate expressions, and arithmetic widths before register allocation.
-module Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths) where
+-- | Simplify Boolean switches, rotate expressions, arithmetic widths, and
+-- pointer copies before register allocation.
+module Aihc.Lir.Simplify (removePointerCopies, simplifyBooleanBranches, simplifyRotations, simplifyWidths) where
 
-import Aihc.Lir.RegAlloc (operationReads, readCounts)
+import Aihc.Lir.RegAlloc (Interval (..), functionIntervals, operationReads, readCounts)
 import Aihc.Lir.Syntax
 import Control.Applicative ((<|>))
 import Data.Map.Strict qualified as Map
@@ -162,3 +163,48 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
             | Set.member candidate names = unused (Var (unVar candidate <> "_"))
             | otherwise = candidate
        in (result, Set.insert result names)
+
+-- | Use the source of a pointer copy (@ptr.add %source, 0@) in place of the
+-- copy when the live interval of the source covers the interval of the
+-- copy. The register allocator gives each value one interval, so the
+-- substitution then does not make the source live longer, and the copy is
+-- one move less.
+--
+-- A copy that lives longer than its source stays. It lets the source die
+-- first, so that a new value can take the register of the source. See
+-- @bumpAllocate@ in "Aihc.Lir.Lower", which copies the heap pointer for
+-- this reason.
+removePointerCopies :: Function -> Function
+removePointerCopies function
+  | Map.null candidates = function
+  | Map.null copies = function
+  | otherwise =
+      function
+        { functionBlocks =
+            [ block
+                { blockInstructions =
+                    [ instruction {instructionOperation = mapOperation rename (instructionOperation instruction)}
+                    | instruction@(Instruction results _) <- blockInstructions block,
+                      not (any (`Map.member` copies) results)
+                    ],
+                  blockTerminator = mapTerminator rename id Return (blockTerminator block)
+                }
+            | block <- functionBlocks function
+            ]
+        }
+  where
+    candidates =
+      Map.fromList
+        [ (copy, source)
+        | block <- functionBlocks function,
+          Instruction [copy] (PtrAdd (OperandVar source) (OperandLiteral (LitInt 0))) <- blockInstructions block
+        ]
+    intervals = Map.fromList [(intervalVar interval, intervalEnd interval) | interval <- functionIntervals function]
+    copies = Map.filterWithKey covered candidates
+    covered copy source = Map.lookup copy intervals <= Map.lookup source intervals
+    rename operand =
+      case operand of
+        OperandVar var -> OperandVar (original var)
+        OperandLiteral _ -> operand
+    -- The source of a copy can be a copy that goes too.
+    original var = maybe var original (Map.lookup var copies)

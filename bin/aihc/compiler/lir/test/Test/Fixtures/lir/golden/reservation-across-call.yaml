@@ -42,7 +42,6 @@ expected: |
     jump gc_reserved_14(%$cps_return$gc_19, %hp_20, %hp_limit_21)
 
   gc_reserved_14(%$cps_return$gc_15: ptr, %hp_16: ptr, %hp_limit_17: ptr):
-    %hp_22 = ptr.add %hp_16, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_16] align 8 region heap
     store i64 1, [%hp_16 + 8] align 8 region heap
     %sp_23 = ptr.add %sp_7, 24
@@ -61,35 +60,37 @@ expected: |
     store ptr @aihc_lir_info_0, [%frame_32] align 8 region stack
     store ptr %$cps_return$gc_15, [%frame_32 + 8] align 8 region stack
     store ptr %hp_16, [%frame_32 + 16] align 8 region stack
-    tailcall @aihc_f_aihc_entry___sother(%hp_22, %hp_limit_35, %sp_33, %sp_limit_34, %frame_32)
+    %hp_36 = ptr.add %hp_16, 16
+    tailcall @aihc_f_aihc_entry___sother(%hp_36, %hp_limit_35, %sp_33, %sp_limit_34, %frame_32)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_36: ptr, %hp_limit_37: ptr, %sp_38: ptr, %sp_limit_39: ptr, %$cps_return_40: ptr, %first_41: ptr, %value_42: i64) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_37: ptr, %hp_limit_38: ptr, %sp_39: ptr, %sp_limit_40: ptr, %$cps_return_41: ptr, %first_42: ptr, %value_43: i64) {
   entry:
-    %roots_43 = stack.alloc 16 align 8
-    %heap_end_44 = ptr.add %hp_36, 24
-    %heap_fits_45 = le.u ptr %heap_end_44, %hp_limit_37
-    br %heap_fits_45, gc_reserved_47(%$cps_return_40, %first_41, %hp_36, %hp_limit_37), gc_collect_46
+    %roots_44 = stack.alloc 16 align 8
+    %heap_end_45 = ptr.add %hp_37, 24
+    %heap_fits_46 = le.u ptr %heap_end_45, %hp_limit_38
+    br %heap_fits_46, gc_reserved_48(%$cps_return_41, %first_42, %hp_37, %hp_limit_38), gc_collect_47
 
-  cold gc_collect_46:
-    store ptr %$cps_return_40, [%roots_43] align 8
-    store ptr %first_41, [%roots_43 + 8] align 8
-    %capability_52 = load ptr [%sp_limit_39 - 4040] align 1 word
-    store ptr %hp_36, [%capability_52 + 16] align 1 word
-    store ptr %sp_38, [%capability_52 + 32] align 1 word
-    call @aihc_heap_collect(%capability_52, 3, 2, %roots_43, null)
-    %$cps_return$gc_53 = load ptr [%roots_43] align 8
-    %first$gc_54 = load ptr [%roots_43 + 8] align 8
-    %hp_55 = load ptr [%capability_52 + 16] align 1 word
-    %hp_limit_56 = load ptr [%capability_52 + 24] align 1 word
-    jump gc_reserved_47(%$cps_return$gc_53, %first$gc_54, %hp_55, %hp_limit_56)
+  cold gc_collect_47:
+    store ptr %$cps_return_41, [%roots_44] align 8
+    store ptr %first_42, [%roots_44 + 8] align 8
+    %capability_53 = load ptr [%sp_limit_40 - 4040] align 1 word
+    store ptr %hp_37, [%capability_53 + 16] align 1 word
+    store ptr %sp_39, [%capability_53 + 32] align 1 word
+    call @aihc_heap_collect(%capability_53, 3, 2, %roots_44, null)
+    %$cps_return$gc_54 = load ptr [%roots_44] align 8
+    %first$gc_55 = load ptr [%roots_44 + 8] align 8
+    %hp_56 = load ptr [%capability_53 + 16] align 1 word
+    %hp_limit_57 = load ptr [%capability_53 + 24] align 1 word
+    jump gc_reserved_48(%$cps_return$gc_54, %first$gc_55, %hp_56, %hp_limit_57)
 
-  gc_reserved_47(%$cps_return$gc_48: ptr, %first$gc_49: ptr, %hp_50: ptr, %hp_limit_51: ptr):
-    %hp_57 = ptr.add %hp_50, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_50] align 8 region heap
-    store ptr %first$gc_49, [%hp_50 + 8] align 8 region heap
-    store ptr %first$gc_49, [%hp_50 + 16] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_57, %hp_limit_51, %sp_38, %sp_limit_39, %$cps_return$gc_48, %hp_50)
+  gc_reserved_48(%$cps_return$gc_49: ptr, %first$gc_50: ptr, %hp_51: ptr, %hp_limit_52: ptr):
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_51] align 8 region heap
+    store ptr %first$gc_50, [%hp_51 + 8] align 8 region heap
+    store ptr %first$gc_50, [%hp_51 + 16] align 8 region heap
+    %object_58 = ptr.add %hp_51, 0
+    %hp_59 = ptr.add %hp_51, 24
+    tailcall @aihc_lir_continue_p(%hp_59, %hp_limit_52, %sp_39, %sp_limit_40, %$cps_return$gc_49, %object_58)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -102,11 +103,11 @@ expected: |
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
 
-  func @aihc_lir_info_0_e(%hp_58: ptr, %hp_limit_59: ptr, %sp_60: ptr, %sp_limit_61: ptr, %object_62: ptr, %continuation_63: ptr, %supplied_64: i64) {
+  func @aihc_lir_info_0_e(%hp_60: ptr, %hp_limit_61: ptr, %sp_62: ptr, %sp_limit_63: ptr, %object_64: ptr, %continuation_65: ptr, %supplied_66: i64) {
   entry:
-    %stored_65 = load ptr [%object_62 + 8] align 8
-    %stored_66 = load ptr [%object_62 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_58, %hp_limit_59, %sp_60, %sp_limit_61, %stored_65, %stored_66, %supplied_64)
+    %stored_67 = load ptr [%object_64 + 8] align 8
+    %stored_68 = load ptr [%object_64 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_60, %hp_limit_61, %sp_62, %sp_limit_63, %stored_67, %stored_68, %supplied_66)
   }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }

@@ -30,11 +30,12 @@ expected: |
     jump gc_reserved_9(%$cps_return$gc_16, %hp_17, %hp_limit_18)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_19 = ptr.add %hp_11, 16
-    %slot_20 = ptr.to_int @aihc_c_aihc_entry_Box_0
-    store i64 %slot_20, [%hp_11] align 8 region heap
+    %slot_19 = ptr.to_int @aihc_c_aihc_entry_Box_0
+    store i64 %slot_19, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_19, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
+    %object_20 = ptr.add %hp_11, 0
+    %hp_21 = ptr.add %hp_11, 16
+    tailcall @aihc_lir_continue_p(%hp_21, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %object_20)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

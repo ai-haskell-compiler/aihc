@@ -40,7 +40,6 @@ expected: |
     jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_17 = ptr.add %hp_11, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
     %result_18 = add i64 2, 3
@@ -48,38 +47,39 @@ expected: |
     %flag_20 = lt.s i64 %result_19, 30
     %wide_21 = zext i1 %flag_20 to i64
     %coerced_22 = ptr.to_int %hp_11
-    %capability_23 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_17, [%capability_23 + 16] align 1 word
-    store ptr %sp_2, [%capability_23 + 32] align 1 word
-    %result_24 = call @aihc_mutvar_new(%capability_23, %coerced_22)
-    %hp_25 = load ptr [%capability_23 + 16] align 1 word
-    %hp_limit_26 = load ptr [%capability_23 + 24] align 1 word
-    %heap_end_27 = ptr.add %hp_25, 40
-    %heap_fits_28 = le.u ptr %heap_end_27, %hp_limit_26
-    br %heap_fits_28, gc_reserved_30(%$cps_return$gc_10, %result_24, %hp_25, %hp_limit_26), gc_collect_29
+    %hp_23 = ptr.add %hp_11, 16
+    %capability_24 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_23, [%capability_24 + 16] align 1 word
+    store ptr %sp_2, [%capability_24 + 32] align 1 word
+    %result_25 = call @aihc_mutvar_new(%capability_24, %coerced_22)
+    %hp_26 = load ptr [%capability_24 + 16] align 1 word
+    %hp_limit_27 = load ptr [%capability_24 + 24] align 1 word
+    %heap_end_28 = ptr.add %hp_26, 40
+    %heap_fits_29 = le.u ptr %heap_end_28, %hp_limit_27
+    br %heap_fits_29, gc_reserved_31(%$cps_return$gc_10, %result_25, %hp_26, %hp_limit_27), gc_collect_30
 
-  cold gc_collect_29:
+  cold gc_collect_30:
     store ptr %$cps_return$gc_10, [%roots_5] align 8
-    store ptr %result_24, [%roots_5 + 8] align 8
-    %capability_35 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_25, [%capability_35 + 16] align 1 word
-    store ptr %sp_2, [%capability_35 + 32] align 1 word
-    call @aihc_heap_collect(%capability_35, 5, 2, %roots_5, null)
-    %$cps_return$gc$gc_36 = load ptr [%roots_5] align 8
-    %cell$gc_37 = load ptr [%roots_5 + 8] align 8
-    %hp_38 = load ptr [%capability_35 + 16] align 1 word
-    %hp_limit_39 = load ptr [%capability_35 + 24] align 1 word
-    jump gc_reserved_30(%$cps_return$gc$gc_36, %cell$gc_37, %hp_38, %hp_limit_39)
+    store ptr %result_25, [%roots_5 + 8] align 8
+    %capability_36 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_26, [%capability_36 + 16] align 1 word
+    store ptr %sp_2, [%capability_36 + 32] align 1 word
+    call @aihc_heap_collect(%capability_36, 5, 2, %roots_5, null)
+    %$cps_return$gc$gc_37 = load ptr [%roots_5] align 8
+    %cell$gc_38 = load ptr [%roots_5 + 8] align 8
+    %hp_39 = load ptr [%capability_36 + 16] align 1 word
+    %hp_limit_40 = load ptr [%capability_36 + 24] align 1 word
+    jump gc_reserved_31(%$cps_return$gc$gc_37, %cell$gc_38, %hp_39, %hp_limit_40)
 
-  gc_reserved_30(%$cps_return$gc$gc_31: ptr, %cell$gc_32: ptr, %hp_33: ptr, %hp_limit_34: ptr):
-    %hp_40 = ptr.add %hp_33, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_33] align 8 region heap
-    store i64 %wide_21, [%hp_33 + 8] align 8 region heap
-    %hp_41 = ptr.add %hp_40, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_40] align 8 region heap
-    store ptr %hp_33, [%hp_40 + 8] align 8 region heap
-    store ptr %cell$gc_32, [%hp_40 + 16] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_41, %hp_limit_34, %sp_2, %sp_limit_3, %$cps_return$gc$gc_31, %hp_40)
+  gc_reserved_31(%$cps_return$gc$gc_32: ptr, %cell$gc_33: ptr, %hp_34: ptr, %hp_limit_35: ptr):
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_34] align 8 region heap
+    store i64 %wide_21, [%hp_34 + 8] align 8 region heap
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_34 + 16] align 8 region heap
+    store ptr %hp_34, [%hp_34 + 24] align 8 region heap
+    store ptr %cell$gc_33, [%hp_34 + 32] align 8 region heap
+    %object_42 = ptr.add %hp_34, 16
+    %hp_43 = ptr.add %hp_34, 40
+    tailcall @aihc_lir_continue_p(%hp_43, %hp_limit_35, %sp_2, %sp_limit_3, %$cps_return$gc$gc_32, %object_42)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
