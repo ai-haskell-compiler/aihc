@@ -149,6 +149,7 @@ simplifyProgram primPackage phase siteLimit program =
             spInside = False,
             spCredits = Map.empty,
             spSpeculative = False,
+            spLazyField = False,
             spCaseContext = Nothing,
             spLocalCandidates = Map.empty,
             spInTemplate = False,
@@ -441,6 +442,14 @@ data Simpl = Simpl
     -- throw away. A trial copy pushes no context of its own. See
     -- 'letOfCase'.
     spSpeculative :: !Bool,
+    -- | Whether the walk is in a field of a constructor application. A
+    -- call there is the body of a thunk, and a copy of the callee saves
+    -- one call when the thunk runs, if it runs. GHC's inliner finds no
+    -- benefit in such a call when no argument is interesting, and keeps
+    -- it. A copy there also makes the function around the field larger,
+    -- and a combinator such as the @<|>@ of a parser can then grow past
+    -- what the inliner copies at its own calls. See 'inlineSite'.
+    spLazyField :: !Bool,
     -- | The alternatives of the case whose scrutinee the expression under
     -- simplification is the tail of, when there is one: the copy of a
     -- candidate made in the scrutinee of a case keeps them for the sites
@@ -2049,12 +2058,18 @@ takesArgument env candidate args =
   where
     valueArgs = rights args
     count = length valueArgs
-    interesting argument =
-      case argument of
-        ExVar name -> Map.member name (spArity env)
-        ExTyApp body _ -> interesting body
-        ExCast body _ -> interesting body
-        _ -> True
+    interesting = interestingArgument env
+
+-- | An argument that tells a copy of the callee something: anything but
+-- a local variable, as in GHC's @interestingArg@. A variable that names
+-- a known top-level function or constant counts.
+interestingArgument :: Simpl -> Expr -> Bool
+interestingArgument env argument =
+  case argument of
+    ExVar name -> Map.member name (spArity env)
+    ExTyApp body _ -> interestingArgument env body
+    ExCast body _ -> interestingArgument env body
+    _ -> True
 
 -- | A fresh copy of a candidate applied to simplified arguments. The
 -- candidate is not inlined into its own copy.
@@ -2396,7 +2411,7 @@ extendTypeBinder env binder = env {spEnv = extendBinder (spEnv env) binder}
 -- | The environment under a lambda: the result receives one argument
 -- fewer, and the first lambda of the binding has been passed.
 passLambda :: Simpl -> Simpl
-passLambda env = env {spCredit = max 0 (spCredit env - 1), spInside = True, spCaseContext = Nothing}
+passLambda env = env {spCredit = max 0 (spCredit env - 1), spInside = True, spCaseContext = Nothing, spLazyField = False}
 
 -- | The environment of a part that is not in leading position, such as
 -- the head or an argument of an application: no lambda in it is known to
@@ -2438,7 +2453,10 @@ simplifyApp env headExpr args =
       headExpr' <- case headExpr of
         ExVar {} -> pure headExpr
         _ -> simplifyExpr (noOneShot env) headExpr
-      args' <- simplifyArgs (noOneShot env) args
+      let argumentEnv = case headExpr of
+            ExVar name | isConstructorName name -> (noOneShot env) {spLazyField = True}
+            _ -> noOneShot env
+      args' <- simplifyArgs argumentEnv args
       rebuildApp env headExpr' args'
 
 simplifyArgs :: Simpl -> [Arg] -> SimplM [Arg]
@@ -2557,6 +2575,7 @@ inlineSite env name candidate original args' = do
       discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
   verdict <-
     if keepsLoop env candidate args' reduction
+      || boringLazyField env candidate reduction args'
       then pure Nothing
       else decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
   case verdict of
@@ -2567,6 +2586,20 @@ inlineSite env name candidate original args' = do
       paid <- gets (nestedPaid before)
       recordSite charge paid (exprSize (spEnv env) result - exprSize (spEnv env) original - callDiscount env candidate args' - discount)
       pure result
+
+-- | Whether a site is a call in a field of a constructor application that
+-- a copy does not help, as in GHC, where such a context is boring: the
+-- call reduces nothing, no argument is interesting, and the callee does
+-- not return a constructor, which would make the field a value instead
+-- of a thunk. A wrapper of the worker/wrapper split is @INLINE@, but GHC
+-- does not copy one in a boring context either. See 'spLazyField'.
+boringLazyField :: Simpl -> Candidate -> Reduction -> [Arg] -> Bool
+boringLazyField env candidate reduction args =
+  spLazyField env
+    && reduction == NoReduction
+    && candidateSites candidate `elem` [SitesMeasured, SitesRequested]
+    && not (any (interestingArgument env) (rights args))
+    && not (isConstructorValue (candidateBody candidate))
 
 -- | The function under the cast of a body, at the given type arguments,
 -- when the given coercion undoes that cast. A body such as
