@@ -3166,11 +3166,11 @@ static unsigned aihc_choose_generation(const AihcCapability *capability,
    of the capability. Every other local heap stays as it is. A full
    collection is always a bridge collection. See "Local heaps" in
    docs/multi-threaded-rts-design.md. */
-static int aihc_collect_stopped(AihcCapability *capability,
-                                AihcGcReason reason, unsigned collected,
-                                int start_cycle, int promote_all, int local,
-                                int concurrent, uint64_t root_count,
-                                AihcSlot *roots, const AihcSrt *srt);
+static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
+                                unsigned collected, int start_cycle,
+                                int promote_all, int local, int concurrent,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt);
 
 /* The gen2 steps that a local collection without a stop leaves to a stop:
    the start of a cycle, and the mark slices. */
@@ -3185,11 +3185,10 @@ static void aihc_collect_follow(AihcCapability *capability, int follow,
 /* Every collection stops the other capabilities for now, so no mutator
    runs while the collector moves or marks. The collector holds the heap
    lock too, after the stop, because no parked capability holds it. */
-static void aihc_collect_marked(AihcCapability *capability,
-                                AihcGcReason reason, unsigned collected,
-                                int start_cycle, int promote_all, int local,
-                                uint64_t root_count, AihcSlot *roots,
-                                const AihcSrt *srt);
+static void aihc_collect_marked(AihcCapability *capability, AihcGcReason reason,
+                                unsigned collected, int start_cycle,
+                                int promote_all, int local, uint64_t root_count,
+                                AihcSlot *roots, const AihcSrt *srt);
 
 /* The time profiler gives a sample in a collection its own frame. */
 static void aihc_collect(AihcCapability *capability, AihcGcReason reason,
@@ -3202,11 +3201,10 @@ static void aihc_collect(AihcCapability *capability, AihcGcReason reason,
   --capability->profile_collecting;
 }
 
-static void aihc_collect_marked(AihcCapability *capability,
-                                AihcGcReason reason, unsigned collected,
-                                int start_cycle, int promote_all, int local,
-                                uint64_t root_count, AihcSlot *roots,
-                                const AihcSrt *srt) {
+static void aihc_collect_marked(AihcCapability *capability, AihcGcReason reason,
+                                unsigned collected, int start_cycle,
+                                int promote_all, int local, uint64_t root_count,
+                                AihcSlot *roots, const AihcSrt *srt) {
   AihcMachine *machine = capability->machine;
 #ifndef AIHC_GC_VERIFY
   /* A local collection with workers runs without a stop. The stamps of the
@@ -3266,11 +3264,11 @@ static void aihc_collect_follow(AihcCapability *capability, int follow,
 }
 #endif
 
-static int aihc_collect_stopped(AihcCapability *capability,
-                                AihcGcReason reason, unsigned collected,
-                                int start_cycle, int promote_all, int local,
-                                int concurrent, uint64_t root_count,
-                                AihcSlot *roots, const AihcSrt *srt) {
+static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
+                                unsigned collected, int start_cycle,
+                                int promote_all, int local, int concurrent,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   AihcMachine *machine = capability->machine;
   uint64_t capability_count = machine->capability_count;
@@ -3508,8 +3506,8 @@ void aihc_gc_collect_generation(AihcCapability *capability, unsigned generation,
                                 uint64_t root_count, AihcSlot *roots,
                                 const AihcSrt *srt) {
   aihc_collect(capability, AIHC_GC_REASON_REQUEST,
-               generation > 2 ? 2 : generation, 0, 0, 0, root_count,
-               roots, srt);
+               generation > 2 ? 2 : generation, 0, 0, 0, root_count, roots,
+               srt);
 }
 
 void aihc_gc_start_cycle(AihcCapability *capability, uint64_t root_count,
@@ -4223,8 +4221,8 @@ static void aihc_ensure_large(AihcCapability *capability, size_t bytes,
       aihc_old_bytes(capability) + bytes > capability->machine->heap_max_bytes;
   if (capability->fixed_since_gc + bytes > capability->nursery_bytes ||
       limit_near) {
-    aihc_collect_for(capability, AIHC_GC_REASON_LARGE, bytes, root_count,
-                     roots, srt);
+    aihc_collect_for(capability, AIHC_GC_REASON_LARGE, bytes, root_count, roots,
+                     srt);
   }
 }
 
@@ -4275,10 +4273,9 @@ static void aihc_gc_collect_stopped(AihcCapability *capability, uint64_t words,
 
 /* The collection is local and needs no stop. A growth of the nursery arena
    affects every capability, so it stops them. */
-static void aihc_gc_collect_for(AihcCapability *capability,
-                                AihcGcReason reason, uint64_t words,
-                                uint64_t root_count, AihcSlot *roots,
-                                const AihcSrt *srt) {
+static void aihc_gc_collect_for(AihcCapability *capability, AihcGcReason reason,
+                                uint64_t words, uint64_t root_count,
+                                AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
   aihc_collect_for(capability, reason, bytes, root_count, roots, srt);
   if (bytes > aihc_nursery_room(capability)) {

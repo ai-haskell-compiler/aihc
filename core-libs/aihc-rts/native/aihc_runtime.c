@@ -612,14 +612,14 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_text(cursor, ", \"push_count\": ");
   cursor = aihc_append_decimal(cursor, pushes);
   static const char *const reason_names[AIHC_GC_REASON_COUNT] = {
-      ", \"gc_nursery_count\": ",    ", \"gc_barrier_count\": ",
-      ", \"gc_large_count\": ",      ", \"gc_escape_count\": ",
-      ", \"gc_push_count\": ",       ", \"gc_heap_limit_count\": ",
+      ", \"gc_nursery_count\": ", ", \"gc_barrier_count\": ",
+      ", \"gc_large_count\": ",   ", \"gc_escape_count\": ",
+      ", \"gc_push_count\": ",    ", \"gc_heap_limit_count\": ",
       ", \"gc_request_count\": "};
   for (unsigned reason = 0; reason < AIHC_GC_REASON_COUNT; ++reason) {
     cursor = aihc_append_text(cursor, reason_names[reason]);
-    cursor = aihc_append_decimal(
-        cursor, capability->machine->gc_reason_counts[reason]);
+    cursor = aihc_append_decimal(cursor,
+                                 capability->machine->gc_reason_counts[reason]);
   }
   cursor = aihc_append_text(cursor, ", \"gc_gen2_limit_count\": ");
   cursor =

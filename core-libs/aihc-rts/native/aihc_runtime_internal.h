@@ -544,8 +544,7 @@ void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
 /* The same collection for another reason, which the statistics count. */
 void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
-                      uint64_t root_count, AihcSlot *roots,
-                      const AihcSrt *srt);
+                      uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
 /* Give each chunk of the stack of a thread to another capability, which
