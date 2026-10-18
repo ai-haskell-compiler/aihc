@@ -19,6 +19,6 @@ expected: |-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     value :: BoxedRep Lifted <-
       fetch (C1.Box) (case_value :: BoxedRep Lifted)
-    store (C1.Box (value :: BoxedRep Lifted))
+    constant (case_value :: BoxedRep Lifted)
 status: pass
 reason: preserves the lifted representation of an existential constructor field
