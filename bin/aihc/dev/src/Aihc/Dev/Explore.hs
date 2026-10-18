@@ -726,12 +726,12 @@ drawBody state =
           rows
             | explorerWrap state = wrapRows (viewTextWidth state) (T.concat (map fst content))
             | otherwise = [(explorerLeft state, viewTextWidth state)]
-          drawRow (row, (start, size)) =
+          drawRow row (start, size) =
             hBox
               [ withAttr (attrName "gutter") (txt ((if row == (0 :: Int) then number else T.replicate width " ") <> " ")),
                 withAttr lineAttr (padRight Max (hBox [withAttr attr (txt piece) | (piece, attr) <- sliceColumns start size content]))
               ]
-       in map drawRow (zip [0 ..] rows)
+       in zipWith drawRow [0 ..] rows
 
 -- | The part of a line from a column, with a maximum width. The pieces keep
 -- their attributes.
