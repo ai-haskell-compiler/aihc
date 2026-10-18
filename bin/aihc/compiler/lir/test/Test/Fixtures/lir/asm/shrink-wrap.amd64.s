@@ -2,7 +2,7 @@
 	.p2align 4
 reserve:
 	mov r9, [rbx]
-	mov r10d, 0x0
+	xor r10d, r10d
 	cmp r9, r10
 	jne .Llir_0_2
 .Llir_0_1:
@@ -11,7 +11,7 @@ reserve:
 	mov [r13], r12
 	mov rdi, rbx
 	mov rsi, r13
-	mov eax, 0x0
+	xor eax, eax
 	call collect
 	mov r12, [r13]
 	add rsp, 0x18

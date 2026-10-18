@@ -1,7 +1,7 @@
 	.text
 	.p2align 4
 sum:
-	mov eax, 0x0
+	xor eax, eax
 .Llir_0_1:
 	test rdi, rdi
 	je .Llir_0_3

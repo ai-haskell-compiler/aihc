@@ -125,6 +125,12 @@ data NativeBackend statement register error = NativeBackend
     nbQuadSymbol :: Text -> statement,
     nbQuadSymbolAddend :: Text -> Int64 -> statement,
     nbAsCode :: statement -> Maybe SlotEffect,
+    -- | Rewrite the statements of one block, or of the prologue, before the
+    -- walk emits them. The statements end at the terminator of the block or
+    -- fall through to the next block. A block starts with no value in the
+    -- condition flags, and each branch out of the list goes to a block or
+    -- to a trap stub.
+    nbRewriteBlock :: [statement] -> [statement],
     nbRenderTraps :: [(Text, Int)] -> [statement],
     -- | A trampoline of one function: its local label and an unconditional
     -- branch to the trap stub with the given label. A backend whose
@@ -514,22 +520,27 @@ compileFunctionTo backend output signatures index input state =
       put next
       when keep (lift (output statement))
     emitStatements = mapM_ (lift . lift . emitStatement)
+    emitBlock = emitStatements . nbRewriteBlock backend
     action = do
       (prepared, prefix) <- native (prepareFunction backend signatures index function)
       let ctx = prepared {ctxRotations = rotations}
-      emitStatements prefix
+      emitBlock prefix
       let blocks = functionBlocks function
           -- The number of the first instruction of each block.
           firsts = scanl (+) 0 (map (length . blockInstructions) blocks)
       forM_ (zip4 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]) firsts) $ \(entry, block, next, first) -> do
         let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
             framed = hasBlockFrame ctx (blockLabel block)
-        emitStatements [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
-        when framed $ emitStatements (enterBlockFrame backend ctx entry block)
-        forM_ (zip [first ..] instructions) $ \(number, instruction) ->
-          native (coldCallSaves backend ctx number <$> compileInstruction backend ctx instruction) >>= emitStatements
-        when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
-        native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
+        body <- forM (zip [first ..] instructions) $ \(number, instruction) ->
+          native (coldCallSaves backend ctx number <$> compileInstruction backend ctx instruction)
+        terminator <- native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block))
+        emitBlock
+          ( [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
+              <> (if framed then enterBlockFrame backend ctx entry block else [])
+              <> concat body
+              <> (if framed then nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)) else [])
+              <> terminator
+          )
       native (functionTrapTrampolines backend) >>= emitStatements
 
 prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error (Ctx register, [statement])

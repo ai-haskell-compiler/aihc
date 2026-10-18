@@ -161,6 +161,7 @@ arm64Backend =
       nbQuadSymbol = arm64QuadSymbol,
       nbQuadSymbolAddend = arm64QuadSymbolAddend,
       nbAsCode = arm64AsCode,
+      nbRewriteBlock = id,
       nbRenderTraps = renderTraps,
       -- A conditional branch reaches 1 MB. A whole-program object is
       -- larger, so each function branches to its own trampoline and the

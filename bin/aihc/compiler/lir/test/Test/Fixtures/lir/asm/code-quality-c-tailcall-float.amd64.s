@@ -7,7 +7,7 @@ double:
 	cmp rsi, 0x2a
 	sete sil
 	movzx rsi, sil
-	mov r11d, 0x0
+	xor r11d, r11d
 	mov rax, rdi
 	test rsi, rsi
 	cmove rax, r11
@@ -22,7 +22,7 @@ single:
 	cmp rdi, 0x13
 	sete dil
 	movzx rdi, dil
-	mov r11d, 0x0
+	xor r11d, r11d
 	mov rax, rsi
 	test rdi, rdi
 	cmove rax, r11

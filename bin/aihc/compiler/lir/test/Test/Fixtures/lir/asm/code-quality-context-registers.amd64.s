@@ -3,7 +3,7 @@
 step:
 	sub rsp, 0x8
 	lea rdi, [r15 + 1]
-	mov eax, 0x0
+	xor eax, eax
 	call work
 	imul r15, rax
 	add rsp, 0x8
