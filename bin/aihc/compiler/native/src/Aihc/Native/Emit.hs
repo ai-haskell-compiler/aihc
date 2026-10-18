@@ -24,6 +24,7 @@ import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.ByteString.Lazy qualified as BL
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text.IO qualified as TIO
 import System.IO (IOMode (WriteMode), withFile)
 
@@ -82,16 +83,19 @@ writeGrinObjectWith backend lint settings dumpPath gcProgram path = do
     native = obNative backend
     declarations = do
       items <- newIORef []
+      references <- newIORef Set.empty
       let declaration item = case item of
             ItemFunction function -> ItemExternFunction (ExternFunction (functionName function) (functionSignature function))
             ItemData value -> ItemData value {dataFields = []}
             _ -> item
       let retain _ item =
             let value = declaration item
-             in value `seq` modifyIORef' items (value :)
+             in value `seq` modifyIORef' items (value :) >> modifyIORef' references (Set.union (Lint.itemDataReferences item))
       Lower.lowerModuleTo (obLowerTarget backend) settings retain gcProgram >>= checked
-      (symbols, errors) <- Lint.moduleSymbols . Module . reverse <$> readIORef items
+      declared <- reverse <$> readIORef items
+      let (symbols, errors) = Lint.moduleSymbols (Module declared)
       checkLint errors
+      readIORef references >>= checkLint . Lint.unreferencedDataErrors declared
       pure symbols
     checkLint [] = pure ()
     checkLint errors = checked (Left (nbLintErrors native errors))

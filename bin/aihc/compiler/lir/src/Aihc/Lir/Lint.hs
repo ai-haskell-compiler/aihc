@@ -7,6 +7,8 @@ module Aihc.Lir.Lint
     Symbols,
     moduleSymbols,
     lintItem,
+    itemDataReferences,
+    unreferencedDataErrors,
     renderLintError,
   )
 where
@@ -15,6 +17,7 @@ import Aihc.Lir.Pretty (atomicOpName, binaryOpName, compareOpName, convertOpName
 import Aihc.Lir.Resolve (evaluateConstants)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
+import Data.Foldable (traverse_)
 import Data.Functor.Const (Const (..))
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -77,6 +80,41 @@ moduleSymbolsFor wordBytes (Module items) = foldl' addSymbol (Map.empty, []) ite
         Just (symbol, info)
           | Map.member symbol table -> (table, errors <> [LintError (Just symbol) Nothing ("duplicate definition of " <> renderSymbol symbol)])
           | otherwise -> (Map.insert symbol info table, errors)
+
+-- | The data objects that one item names, other than itself: a symbol
+-- operand of a function, or a symbol field of a data object.
+itemDataReferences :: Item -> Set Symbol
+itemDataReferences item =
+  case item of
+    ItemFunction function ->
+      Set.fromList
+        [ symbol
+        | block <- functionBlocks function,
+          OperandLiteral (LitSymbol symbol) <- blockOperands block
+        ]
+    ItemData dataItem ->
+      Set.fromList [symbol | DataSymbol symbol _ <- dataFields dataItem, symbol /= dataName dataItem]
+    _ -> Set.empty
+  where
+    blockOperands block =
+      getConst
+        ( traverse_ (forOperationOperands operand . instructionOperation) (blockInstructions block)
+            *> forTerminatorOperands operand (blockTerminator block)
+        )
+    operand value = Const [value]
+
+-- | The internal data objects of a lowered module that no item names. Only
+-- the module itself can name an internal object, so such an object is dead.
+-- The compiler must not emit one. A module written by hand can contain one,
+-- so 'lintModule' does not apply this rule. The caller gives the references
+-- of every item, which lets a backend that streams the items collect them.
+unreferencedDataErrors :: [Item] -> Set Symbol -> [LintError]
+unreferencedDataErrors items references =
+  [ LintError (Just (dataName dataItem)) Nothing "no item names this internal data object"
+  | ItemData dataItem <- items,
+    dataLinkage dataItem == Internal,
+    dataName dataItem `Set.notMember` references
+  ]
 
 -- | The symbol an item defines or declares. An include names no symbol.
 itemSymbol :: Map Symbol (Either Text Integer) -> Item -> Maybe (Symbol, SymbolInfo)
