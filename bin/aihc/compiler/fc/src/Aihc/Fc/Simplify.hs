@@ -493,7 +493,10 @@ data SimplState = SimplState
     ssCopied :: !(Map Name Int),
     -- | How many more rules may fire in this walk. Rules are not checked
     -- for termination, so a bound keeps a looping pair of rules finite.
-    ssRuleFuel :: !Int
+    ssRuleFuel :: !Int,
+    -- | How many more let-bound dictionary calls a case may take apart in
+    -- this walk. See 'knownConstructor'.
+    ssCallFuel :: !Int
   }
 
 -- | The state of one walk, with the unique supply and the growth allowance.
@@ -506,12 +509,18 @@ initialSimplState supply allowance =
       ssExempt = 0,
       ssRulesFired = 0,
       ssCopied = Map.empty,
-      ssRuleFuel = ruleFuel
+      ssRuleFuel = ruleFuel,
+      ssCallFuel = callFuel
     }
 
 -- | How many rules may fire in one walk over one body.
 ruleFuel :: Int
 ruleFuel = 1000
+
+-- | How many let-bound dictionary calls the cases of one walk over one
+-- body may take apart.
+callFuel :: Int
+callFuel = 100
 
 type SimplM = State SimplState
 
@@ -2238,7 +2247,7 @@ shadowNames names env
       env
         { spEvaluated = List.foldl' (flip Set.delete) (spEvaluated env) names,
           spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
-          spCalls = Map.filter (Set.disjoint shadowed . exprValueNames) (List.foldl' (flip Map.delete) (spCalls env) names),
+          spCalls = List.foldl' (flip Map.delete) (spCalls env) names,
           spDone = List.foldl' (flip Map.delete) (spDone env) names,
           spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
           spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
@@ -4094,8 +4103,22 @@ knownConstructor env expr = do
         | Just body <- Map.lookup name (spKnown env) -> unfoldShared body args
         | null args,
           Just call <- Map.lookup name (spCalls env) -> do
-            known <- knownConstructor env call
-            pure (fmap (\(binds, con, types, fields) -> (binds, con, types, fields, [])) known)
+            -- Each selection can expose a direct call of a method that
+            -- takes the same dictionary apart again, as the methods of
+            -- an instance do through its own dictionary. A bound keeps
+            -- such a chain finite, as 'ruleFuel' does for the rules.
+            fuel <- gets ssCallFuel
+            if fuel <= 0
+              then pure Nothing
+              else do
+                modify' (\st -> st {ssCallFuel = fuel - 1})
+                known <- knownConstructor env call
+                -- A field of a dictionary can be a method body. Each case
+                -- on the binder would copy it, so only a small field is
+                -- taken: an alternative that uses any other field is not
+                -- selected.
+                let small field = if isSmallField field then field else expensiveField
+                pure (fmap (\(binds, con, types, fields) -> (binds, con, types, map small fields, [])) known)
       _ -> pure Nothing
   pure $ do
     (binds, con, types, fields, innerCasts) <- known
@@ -4184,6 +4207,16 @@ dictionaryCall env rhs =
         ExLam _ inner -> constructorBody inner
         ExCast inner _ -> constructorBody inner
         _ -> body
+
+-- | A field that a case on a let-bound dictionary call may copy: a
+-- variable under type applications, such as a superclass dictionary, or
+-- a call of a top-level function with trivial arguments, such as a
+-- method worker applied to the dictionaries. See 'dictionaryCall'.
+isSmallField :: Expr -> Bool
+isSmallField field =
+  case collectSpine field of
+    (ExVar _, args) -> all (either (const True) isTrivial) args
+    _ -> False
 
 -- | A call of a top-level function whose arguments are cheap values, such
 -- as a method worker applied to a dictionary.
