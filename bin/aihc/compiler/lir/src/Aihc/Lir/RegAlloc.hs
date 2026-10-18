@@ -35,7 +35,12 @@
 -- call results, and returned values are hinted with the register the
 -- convention puts them in. The argument of a jump and the block parameter
 -- it reaches are partners: each prefers the register the other already has,
--- and failing that the register the other was hinted with. Last, a result
+-- then the register the other was hinted with, and failing that the
+-- register that a partner of the other already has. The last step matters
+-- at a join: a value that a cold path loads goes to a block parameter with
+-- no hint, and the fast path gives the parameter its value from a register
+-- that is already placed. Thus the loaded value goes to that register too.
+-- Last, a result
 -- prefers the register of an operand of its own instruction, which is free
 -- exactly when the operand dies there; on a two-operand machine that is the
 -- difference between one instruction and two. A hint that is not free at
@@ -572,6 +577,7 @@ reachNone = 2
 -- An interval that outlives another may take its register once that one has
 -- expired. A hint of the value that is free is taken first, then the
 -- register of a partner already placed, then a hint of a partner, then the
+-- register of a placed partner of a partner, then the
 -- register of an operand that just died, then the first free register of
 -- the pool. A value that lives across a cold call looks at the preserved
 -- registers before the operand and the rest of the pool. When nothing
@@ -699,6 +705,7 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
         searchRowWith weigh hints value pure value
           `orElse` searchRowWith weigh partners value (readArray assigned) value
           `orElse` searchRowWith weigh partners value (\partner -> searchRowWith weigh hints partner pure value) value
+          `orElse` searchRowWith weigh partners value (\partner -> searchRowWith weigh partners partner (readArray assigned) value) value
       -- A value that lives across a cold call and takes no hint prefers a
       -- preserved register. When none is free, the value needs a save in
       -- each volatile register, so a hint is again the best choice.
