@@ -118,10 +118,11 @@ lirModuleDefinesCode lirModule = any definesCode (moduleItems lirModule)
 -- | Compile the entry unit of an executable to @object@. The entry starts
 -- the runtime and enters the program; the entry of every executable is the
 -- same, so it is generated rather than read from a source. With the
--- profile flag, the entry registers the allocation counters of the program.
-compileEntryObject :: Bool -> Bool -> NativeTarget -> FilePath -> FilePath -> IO ()
-compileEntryObject lto profileAllocations target directory object = do
-  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target) profileAllocations)
+-- profile flags, the entry registers the allocation counters and the time
+-- profile tables of the program.
+compileEntryObject :: Bool -> Bool -> Bool -> NativeTarget -> FilePath -> FilePath -> IO ()
+compileEntryObject lto profileAllocations profileTime target directory object = do
+  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target) profileAllocations profileTime)
   compileLirObject lto target (takeBaseName object) entryModule directory object
 
 -- | Use shared incremental conversion for both native object paths. The Lir

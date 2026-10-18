@@ -1,0 +1,98 @@
+profile-time: true
+program: |
+  $other -> IntRep =
+    constant (7 :: IntRep)
+
+  $entry -> IntRep =
+    (value%1 :: IntRep) <- call @IntRep $other
+    (sum%2 :: IntRep) <- primitive-call @IntRep +# (value%1 :: IntRep) (value%1 :: IntRep)
+    constant (sum%2 :: IntRep)
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
+
+  func @aihc_f_aihc_entry___sother(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
+  entry:
+    %capability_5 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %$cps_return_4, [%capability_5 + 80] align 1 word
+    store ptr @aihc_f_aihc_entry___sother, [%capability_5 + 72] align 1 word
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, 7)
+  }
+
+  func @aihc_f_aihc_entry___sentry(%hp_6: ptr, %hp_limit_7: ptr, %sp_8: ptr, %sp_limit_9: ptr, %$cps_return_10: ptr) {
+  entry:
+    %capability_11 = load ptr [%sp_limit_9 - 4040] align 1 word
+    store ptr %$cps_return_10, [%capability_11 + 80] align 1 word
+    store ptr @aihc_f_aihc_entry___sentry, [%capability_11 + 72] align 1 word
+    %roots_12 = stack.alloc 8 align 8
+    %heap_fits_13 = le.u ptr %hp_6, %hp_limit_7
+    br %heap_fits_13, gc_reserved_15(%$cps_return_10, %hp_6, %hp_limit_7), gc_collect_14
+
+  cold gc_collect_14:
+    store ptr %$cps_return_10, [%roots_12] align 8
+    %capability_19 = load ptr [%sp_limit_9 - 4040] align 1 word
+    store ptr %hp_6, [%capability_19 + 16] align 1 word
+    store ptr %sp_8, [%capability_19 + 32] align 1 word
+    call @aihc_heap_collect(%capability_19, 0, 1, %roots_12, null)
+    %$cps_return$gc_20 = load ptr [%roots_12] align 8
+    %hp_21 = load ptr [%capability_19 + 16] align 1 word
+    %hp_limit_22 = load ptr [%capability_19 + 24] align 1 word
+    jump gc_reserved_15(%$cps_return$gc_20, %hp_21, %hp_limit_22)
+
+  gc_reserved_15(%$cps_return$gc_16: ptr, %hp_17: ptr, %hp_limit_18: ptr):
+    %sp_23 = ptr.add %sp_8, 16
+    %stack_fits_24 = le.u ptr %sp_23, %sp_limit_9
+    br %stack_fits_24, stack_pushed_26(%sp_8, %sp_23, %sp_limit_9, %hp_limit_18), stack_grow_25
+
+  cold stack_grow_25:
+    %capability_27 = load ptr [%sp_limit_9 - 4040] align 1 word
+    %result_28 = call @aihc_stack_grow(%capability_27, %sp_8, 2)
+    %sp_29 = ptr.add %result_28, 16
+    %sp_limit_30 = ptr.add %result_28, 4032
+    %hp_limit_31 = load ptr [%capability_27 + 24] align 1 word
+    jump stack_pushed_26(%result_28, %sp_29, %sp_limit_30, %hp_limit_31)
+
+  stack_pushed_26(%frame_32: ptr, %sp_33: ptr, %sp_limit_34: ptr, %hp_limit_35: ptr):
+    store ptr @aihc_lir_info_0, [%frame_32] align 8 region stack
+    store ptr %$cps_return$gc_16, [%frame_32 + 8] align 8 region stack
+    tailcall @aihc_f_aihc_entry___sother(%hp_17, %hp_limit_35, %sp_33, %sp_limit_34, %frame_32)
+  }
+
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_36: ptr, %hp_limit_37: ptr, %sp_38: ptr, %sp_limit_39: ptr, %$cps_return_40: ptr, %value_41: i64) {
+  entry:
+    %capability_42 = load ptr [%sp_limit_39 - 4040] align 1 word
+    store ptr %$cps_return_40, [%capability_42 + 80] align 1 word
+    store ptr @aihc_f_aihc_entry___sentry__ucont, [%capability_42 + 72] align 1 word
+    %result_43 = add i64 %value_41, %value_41
+    tailcall @aihc_lir_continue_i(%hp_36, %hp_limit_37, %sp_38, %sp_limit_39, %$cps_return_40, %result_43)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x00" }
+
+  func @aihc_lir_info_0_e(%hp_44: ptr, %hp_limit_45: ptr, %sp_46: ptr, %sp_limit_47: ptr, %object_48: ptr, %continuation_49: ptr, %supplied_50: i64) {
+  entry:
+    %stored_51 = load ptr [%object_48 + 8] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_44, %hp_limit_45, %sp_46, %sp_limit_47, %stored_51, %supplied_50)
+  }
+
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
+
+  data @aihc_time_profile_name_0 align 1 = { bytes "$other", i8 0 }
+
+  data @aihc_time_profile_name_1 align 1 = { bytes "$entry", i8 0 }
+
+  data @aihc_time_profile_name_2 align 1 = { bytes "$entry_cont", i8 0 }
+
+  export data @aihc_time_profile_codes align 8 = { code @aihc_f_aihc_entry___sother, code @aihc_f_aihc_entry___sentry, code @aihc_f_aihc_entry___sentry__ucont }
+
+  export data @aihc_time_profile_names align 8 = { ptr @aihc_time_profile_name_0, ptr @aihc_time_profile_name_1, ptr @aihc_time_profile_name_2 }
+
+  export data @aihc_time_profile_code_count align 8 = { i64 3 }
+
+  export data @aihc_time_profile_infos align 8 = { ptr @aihc_lir_info_0 }
+
+  export data @aihc_time_profile_info_count align 8 = { i64 1 }
+status: pass

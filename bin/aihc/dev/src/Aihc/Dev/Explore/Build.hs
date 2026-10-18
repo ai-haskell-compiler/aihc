@@ -96,6 +96,7 @@ runExplorerBuild input target directory level send = do
             buildLint = False,
             buildCheckPrimBounds = False,
             buildProfileAllocations = False,
+            buildProfileTime = False,
             buildLto = False,
             buildOptimization = level,
             buildNoLink = False,

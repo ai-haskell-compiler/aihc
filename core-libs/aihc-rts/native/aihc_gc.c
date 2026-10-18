@@ -3179,10 +3179,26 @@ static void aihc_collect_follow(AihcCapability *capability, int follow,
 /* Every collection stops the other capabilities for now, so no mutator
    runs while the collector moves or marks. The collector holds the heap
    lock too, after the stop, because no parked capability holds it. */
+static void aihc_collect_marked(AihcCapability *capability, unsigned collected,
+                                int start_cycle, int promote_all, int local,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt);
+
+/* The time profiler gives a sample in a collection its own frame. */
 static void aihc_collect(AihcCapability *capability, unsigned collected,
                          int start_cycle, int promote_all, int local,
                          uint64_t root_count, AihcSlot *roots,
                          const AihcSrt *srt) {
+  ++capability->profile_collecting;
+  aihc_collect_marked(capability, collected, start_cycle, promote_all, local,
+                      root_count, roots, srt);
+  --capability->profile_collecting;
+}
+
+static void aihc_collect_marked(AihcCapability *capability, unsigned collected,
+                                int start_cycle, int promote_all, int local,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt) {
   AihcMachine *machine = capability->machine;
 #ifndef AIHC_GC_VERIFY
   /* A local collection with workers runs without a stop. The stamps of the

@@ -53,6 +53,9 @@ data BuildOptions = BuildOptions
     -- write the counts to the runtime statistics. The flag implies a
     -- whole-program build.
     buildProfileAllocations :: !Bool,
+    -- | Sample the Haskell stack of the program and write the samples as
+    -- folded stacks. The flag implies a whole-program build.
+    buildProfileTime :: !Bool,
     buildLto :: !Bool,
     buildOptimization :: !OptimizationLevel,
     buildNoLink :: !Bool,
@@ -210,6 +213,10 @@ buildOptionsParser =
     <*> OA.switch
       ( OA.long "profile-allocations"
           <> OA.help "Count the heap objects that the program allocates, by info table, and write the counts to the AIHC_RTS_STATS file. Implies --lto"
+      )
+    <*> OA.switch
+      ( OA.long "profile-time"
+          <> OA.help "Sample the Haskell stack of the program while it runs, and write the samples as folded stacks to the AIHC_PROFILE file (default PROGRAM.folded). Implies --lto. POSIX targets only"
       )
     <*> ltoOption
     <*> optimizationOption
