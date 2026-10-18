@@ -145,9 +145,11 @@ Each 4 KiB stack chunk header gets one generation byte. The rules are:
   running thread is always young. A thread switch marks the top chunk of the
   new running thread young in the scheduler, which already runs in C.
 - A collection of the generations up to g walks each live stack from its top
-  frame. It scans each chunk of generation g or below, evacuates the referents
-  of its frames into generation g plus one, and labels the chunk g plus one.
-  The walk stops at the first older chunk.
+  frame. It scans each chunk of generation g or below and evacuates the
+  referents of its frames. A frame makes no demand on its referents, so each
+  referent ages as a young object does. The chunk takes the youngest
+  generation that its frames name, and g plus one at most. The walk stops at
+  the first older chunk.
 - A pop into a lower chunk labels that chunk young. New frames then overwrite
   the space above the entered frame.
 

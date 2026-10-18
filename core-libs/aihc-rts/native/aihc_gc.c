@@ -2065,12 +2065,14 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
   int is_frame = generation == AIHC_GENERATION_STATIC &&
                  aihc_region_kind(object) == AIHC_REGION_STACK;
   /* The referents of a static object go to gen2. The referents of a frame
-     go there too, unless gen2 is global and the collection keeps its
-     survivors local: the chunk then takes the youngest generation that its
-     frames name, and later collections scan it again. A frame that names a
-     lazy list would otherwise put the producer of the list into gen2, and
-     each new cell would then escape. */
-  unsigned static_target = is_frame && context->gen1_target == 1 ? 0 : 2;
+     make no demand, so they age as other young objects do. The chunk takes
+     the youngest generation that its frames name, and later collections
+     scan it again. If a frame put its referents into gen2, a lazy producer
+     that a frame names would go to gen2. The remembered set then promotes
+     each value that an update gives the producer, so most young data would
+     not age. With several capabilities, gen2 is global, and each new cell
+     would also escape. */
+  unsigned static_target = is_frame ? 0 : 2;
   AihcScanContext scan = {
       .gc = context,
       .target =
