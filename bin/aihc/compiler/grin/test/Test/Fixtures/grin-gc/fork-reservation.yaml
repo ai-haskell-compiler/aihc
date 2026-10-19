@@ -20,10 +20,8 @@ expected: |
     if-whnf ($cps_fork_capture :: BoxedRep Lifted)
       call @(TupleRep []) fork_cont ($cps_fork_return :: BoxedRep Lifted) ($cps_fork_capture :: BoxedRep Lifted)
     else
-      $cps_fork_capture$gc :: BoxedRep Lifted, $cps_fork_return$gc :: BoxedRep Lifted <-
-        ensure-heap (0 :: WordRep) ($cps_fork_capture :: BoxedRep Lifted) ($cps_fork_return :: BoxedRep Lifted)
       $cps_continuation :: BoxedRep Lifted <-
-        store-unchecked (Pfork_cont/1 ($cps_fork_return$gc :: BoxedRep Lifted))
-      cps-eval @(BoxedRep Lifted) ($cps_fork_capture$gc :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
+        store-unchecked (Pfork_cont/1 ($cps_fork_return :: BoxedRep Lifted))
+      cps-eval @(BoxedRep Lifted) ($cps_fork_capture :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
 status: pass
 reason: A fork reservation must protect the action and the caller continuation, and it must include the closure that evaluates the action in the new thread.

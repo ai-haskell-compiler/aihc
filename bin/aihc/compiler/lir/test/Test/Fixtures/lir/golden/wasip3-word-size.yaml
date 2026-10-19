@@ -17,29 +17,35 @@ expected: |
     br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
   cold gc_collect_8:
-    %slot_13 = ptr.to_int %$cps_return_4
-    store i64 %slot_13, [%roots_5] align 8
-    %capability_14 = load ptr [%sp_limit_3 - 4056] align 1 word
-    store ptr %hp_0, [%capability_14 + 8] align 1 word
-    store ptr %sp_2, [%capability_14 + 16] align 1 word
-    call @aihc_heap_collect(%capability_14, 2, 1, %roots_5, null)
-    %$cps_return$gc_15 = load i64 [%roots_5] align 8
-    %$cps_return$gc_16 = ptr.from_int %$cps_return$gc_15
-    %hp_17 = load ptr [%capability_14 + 8] align 1 word
-    %hp_limit_18 = load ptr [%capability_14 + 12] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_16, %hp_17, %hp_limit_18)
+    tailcall @aihc_lir_collect_replay_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_f_aihc_entry___sentry, 2, null)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_19 = ptr.add %hp_11, 16
-    %slot_20 = ptr.to_int @aihc_c_aihc_entry_Box_0
-    store i64 %slot_20, [%hp_11] align 8 region heap
+    %hp_13 = ptr.add %hp_11, 16
+    %slot_14 = ptr.to_int @aihc_c_aihc_entry_Box_0
+    store i64 %slot_14, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_19, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
+    tailcall @aihc_lir_continue_p(%hp_13, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
   data @aihc_c_aihc_entry_Box_0 align 4 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
+
+  func @aihc_lir_collect_replay_p(%hp_15: ptr, %hp_limit_16: ptr, %sp_17: ptr, %sp_limit_18: ptr, %value_19: ptr, %code_20: code, %words_21: i64, %srt_22: ptr) {
+  entry:
+    %roots_23 = stack.alloc 8 align 8
+    %slot_24 = ptr.to_int %value_19
+    store i64 %slot_24, [%roots_23] align 8
+    %capability_25 = load ptr [%sp_limit_18 - 4056] align 1 word
+    store ptr %hp_15, [%capability_25 + 8] align 1 word
+    store ptr %sp_17, [%capability_25 + 16] align 1 word
+    call @aihc_heap_collect(%capability_25, %words_21, 1, %roots_23, %srt_22)
+    %value_26 = load i64 [%roots_23] align 8
+    %value_27 = ptr.from_int %value_26
+    %hp_28 = load ptr [%capability_25 + 8] align 1 word
+    %hp_limit_29 = load ptr [%capability_25 + 12] align 1 word
+    tailcall.indirect %code_20(%hp_28, %hp_limit_29, %sp_17, %sp_limit_18, %value_27) : (ptr, ptr, ptr, ptr, ptr)
+  }
 status: pass
 reason: |
   The same program on the 32-bit target. A heap slot is eight bytes everywhere,

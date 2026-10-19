@@ -801,6 +801,15 @@ The lowering keeps the control model of CPS-GRIN:
   a block whose parameters carry the roots, `%hp`, and `%hp_limit`, so the
   code after a reservation names them the same way whichever path reached
   it.
+- When the code before a reservation only reads values (constants, fields,
+  WHNF tests, and case tests), the slow block is one `tailcall` of a shared
+  helper `aihc_lir_collect_replay_<shape>`. It takes the context, the
+  arguments of the function, the code of the function, the words, and the
+  static reference table of the function. The helper stores the pointer
+  arguments in its root array, calls `aihc_heap_collect`, and enters the
+  function again with the relocated arguments. The function then makes the
+  reservation again. A read from a frame that the entry popped ends the
+  replay, because a collection does not relocate that frame.
 - A reservation of a dynamic size compares the room below the heap limit
   in words with the size, and first tests that the heap pointer is not
   above the limit: a large allocation lowers the limit, and the stores of
@@ -836,6 +845,15 @@ The lowering keeps the control model of CPS-GRIN:
   loads `%hp_limit` again after the call. The new limit can be below `%hp`,
   and the next reservation then collects. The GC pass puts a reservation
   of zero words before each push, so that reservation can be the next one.
+  A push whose frame only goes to an evaluation gets no reservation:
+  `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry
+  when `%hp` is above `%hp_limit`.
+- The slow branch of a WHNF test that pushes a frame and evaluates the value
+  is one `tailcall` of a shared helper `aihc_lir_force_<shape>`. It takes the
+  value, the info table of the frame, and the fields of the frame. The
+  helper pushes the frame and tail-calls the evaluation helper. The test,
+  the cold blocks that follow indirections and evaluated thunks, and the
+  ready branch stay in the function.
 - A continue helper enters a frame: the frame becomes `%sp`, and the end of
   its chunk becomes `%sp_limit`. That pops the frame and every frame above
   it. When the new `%sp_limit` differs from the old one, the frame is in a

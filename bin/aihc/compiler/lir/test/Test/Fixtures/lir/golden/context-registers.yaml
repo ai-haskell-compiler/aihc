@@ -29,57 +29,49 @@ expected: |
     br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
   cold gc_collect_8:
-    store ptr %$cps_return_4, [%roots_5] align 8
-    %capability_13 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_0, [%capability_13 + 16] align 1 word
-    store ptr %sp_2, [%capability_13 + 32] align 1 word
-    call @aihc_heap_collect(%capability_13, 5, 1, %roots_5, null)
-    %$cps_return$gc_14 = load ptr [%roots_5] align 8
-    %hp_15 = load ptr [%capability_13 + 16] align 1 word
-    %hp_limit_16 = load ptr [%capability_13 + 24] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+    tailcall @aihc_lir_collect_replay_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_f_aihc_entry___sentry, 5, null)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_17 = ptr.add %hp_11, 16
+    %hp_13 = ptr.add %hp_11, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
-    %result_18 = add i64 2, 3
-    %result_19 = mul i64 %result_18, %result_18
-    %flag_20 = lt.s i64 %result_19, 30
-    %wide_21 = zext i1 %flag_20 to i64
-    %coerced_22 = ptr.to_int %hp_11
-    %capability_23 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_17, [%capability_23 + 16] align 1 word
-    store ptr %sp_2, [%capability_23 + 32] align 1 word
-    %result_24 = call @aihc_mutvar_new(%capability_23, %coerced_22)
-    %hp_25 = load ptr [%capability_23 + 16] align 1 word
-    %hp_limit_26 = load ptr [%capability_23 + 24] align 1 word
-    %heap_end_27 = ptr.add %hp_25, 40
-    %heap_fits_28 = le.u ptr %heap_end_27, %hp_limit_26
-    br %heap_fits_28, gc_reserved_30(%$cps_return$gc_10, %result_24, %hp_25, %hp_limit_26), gc_collect_29
+    %result_14 = add i64 2, 3
+    %result_15 = mul i64 %result_14, %result_14
+    %flag_16 = lt.s i64 %result_15, 30
+    %wide_17 = zext i1 %flag_16 to i64
+    %coerced_18 = ptr.to_int %hp_11
+    %capability_19 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_13, [%capability_19 + 16] align 1 word
+    store ptr %sp_2, [%capability_19 + 32] align 1 word
+    %result_20 = call @aihc_mutvar_new(%capability_19, %coerced_18)
+    %hp_21 = load ptr [%capability_19 + 16] align 1 word
+    %hp_limit_22 = load ptr [%capability_19 + 24] align 1 word
+    %heap_end_23 = ptr.add %hp_21, 40
+    %heap_fits_24 = le.u ptr %heap_end_23, %hp_limit_22
+    br %heap_fits_24, gc_reserved_26(%$cps_return$gc_10, %result_20, %hp_21, %hp_limit_22), gc_collect_25
 
-  cold gc_collect_29:
+  cold gc_collect_25:
     store ptr %$cps_return$gc_10, [%roots_5] align 8
-    store ptr %result_24, [%roots_5 + 8] align 8
-    %capability_35 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_25, [%capability_35 + 16] align 1 word
-    store ptr %sp_2, [%capability_35 + 32] align 1 word
-    call @aihc_heap_collect(%capability_35, 5, 2, %roots_5, null)
-    %$cps_return$gc$gc_36 = load ptr [%roots_5] align 8
-    %cell$gc_37 = load ptr [%roots_5 + 8] align 8
-    %hp_38 = load ptr [%capability_35 + 16] align 1 word
-    %hp_limit_39 = load ptr [%capability_35 + 24] align 1 word
-    jump gc_reserved_30(%$cps_return$gc$gc_36, %cell$gc_37, %hp_38, %hp_limit_39)
+    store ptr %result_20, [%roots_5 + 8] align 8
+    %capability_31 = load ptr [%sp_limit_3 - 4040] align 1 word
+    store ptr %hp_21, [%capability_31 + 16] align 1 word
+    store ptr %sp_2, [%capability_31 + 32] align 1 word
+    call @aihc_heap_collect(%capability_31, 5, 2, %roots_5, null)
+    %$cps_return$gc$gc_32 = load ptr [%roots_5] align 8
+    %cell$gc_33 = load ptr [%roots_5 + 8] align 8
+    %hp_34 = load ptr [%capability_31 + 16] align 1 word
+    %hp_limit_35 = load ptr [%capability_31 + 24] align 1 word
+    jump gc_reserved_26(%$cps_return$gc$gc_32, %cell$gc_33, %hp_34, %hp_limit_35)
 
-  gc_reserved_30(%$cps_return$gc$gc_31: ptr, %cell$gc_32: ptr, %hp_33: ptr, %hp_limit_34: ptr):
-    %hp_40 = ptr.add %hp_33, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_33] align 8 region heap
-    store i64 %wide_21, [%hp_33 + 8] align 8 region heap
-    %hp_41 = ptr.add %hp_40, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_40] align 8 region heap
-    store ptr %hp_33, [%hp_40 + 8] align 8 region heap
-    store ptr %cell$gc_32, [%hp_40 + 16] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_41, %hp_limit_34, %sp_2, %sp_limit_3, %$cps_return$gc$gc_31, %hp_40)
+  gc_reserved_26(%$cps_return$gc$gc_27: ptr, %cell$gc_28: ptr, %hp_29: ptr, %hp_limit_30: ptr):
+    %hp_36 = ptr.add %hp_29, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_29] align 8 region heap
+    store i64 %wide_17, [%hp_29 + 8] align 8 region heap
+    %hp_37 = ptr.add %hp_36, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_36] align 8 region heap
+    store ptr %hp_29, [%hp_36 + 8] align 8 region heap
+    store ptr %cell$gc_28, [%hp_36 + 16] align 8 region heap
+    tailcall @aihc_lir_continue_p(%hp_37, %hp_limit_30, %sp_2, %sp_limit_3, %$cps_return$gc$gc_27, %hp_36)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -89,6 +81,20 @@ expected: |
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
   data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0 }
+
+  func @aihc_lir_collect_replay_p(%hp_38: ptr, %hp_limit_39: ptr, %sp_40: ptr, %sp_limit_41: ptr, %value_42: ptr, %code_43: code, %words_44: i64, %srt_45: ptr) {
+  entry:
+    %roots_46 = stack.alloc 8 align 8
+    store ptr %value_42, [%roots_46] align 8
+    %capability_47 = load ptr [%sp_limit_41 - 4040] align 1 word
+    store ptr %hp_38, [%capability_47 + 16] align 1 word
+    store ptr %sp_40, [%capability_47 + 32] align 1 word
+    call @aihc_heap_collect(%capability_47, %words_44, 1, %roots_46, %srt_45)
+    %value_48 = load ptr [%roots_46] align 8
+    %hp_49 = load ptr [%capability_47 + 16] align 1 word
+    %hp_limit_50 = load ptr [%capability_47 + 24] align 1 word
+    tailcall.indirect %code_43(%hp_49, %hp_limit_50, %sp_40, %sp_limit_41, %value_48) : (ptr, ptr, ptr, ptr, ptr)
+  }
 status: pass
 reason: |
   The heap pointer, the heap limit, the stack pointer, and the stack limit

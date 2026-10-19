@@ -359,6 +359,16 @@ data Helper
     -- does not know whether it is a pointer, so the info table decides.
     HelperContinueSlot
   | HelperApplySlot
+  | -- | Collect for a reservation of a function whose code before the
+    -- reservation has no effect, then enter that function again with its
+    -- relocated arguments. Each argument says whether it is a root. See
+    -- 'Replay'.
+    HelperCollectReplay ![(Type, Bool)]
+  | -- | The slow branch of a WHNF test that pushes the frame of a
+    -- continuation and evaluates the value. It takes the value, the info
+    -- table of the frame, and the fields of the frame, which have these
+    -- types. See 'compileForce'.
+    HelperForce !GrinEvalUpdate ![Type]
   deriving (Eq, Ord, Show)
 
 helperSymbol :: Helper -> Symbol
@@ -374,11 +384,32 @@ helperSymbol helper =
     HelperApplyFrame groups -> "aihc_lir_apply_frame_" <> groupsName groups
     HelperContinueSlot -> "aihc_lir_continue_slot"
     HelperApplySlot -> "aihc_lir_apply_slot"
+    HelperCollectReplay shape -> "aihc_lir_collect_replay_" <> replayShapeName shape
+    HelperForce update shape ->
+      "aihc_lir_force_"
+        <> (case update of EvalUpdate -> ""; EvalSingleEntry -> "single_")
+        <> replayShapeName [(ty, True) | ty <- shape]
 
 shapeName :: [Type] -> Text
 shapeName = T.pack . map letter
   where
     letter ty = if ty == Ptr then 'p' else 'i'
+
+-- | A root is @p@, another pointer is @a@, a code address is @c@, and
+-- every other type has its own letter.
+replayShapeName :: [(Type, Bool)] -> Text
+replayShapeName shape = if null shape then "v" else T.pack (map letter shape)
+  where
+    letter (ty, root) = case ty of
+      Ptr -> if root then 'p' else 'a'
+      Code -> 'c'
+      I1 -> 'b'
+      I8 -> 'h'
+      I16 -> 's'
+      I32 -> 'w'
+      I64 -> 'i'
+      F32 -> 'f'
+      F64 -> 'd'
 
 -- | One group keeps the name of its shape. Several groups separate their
 -- shapes with underscores and name an empty group @v@, so the two forms
@@ -428,8 +459,25 @@ data LowerState = LowerState
     -- | The context of the code under construction, when it has one.
     stateContext :: !(Maybe Context),
     -- | The store safepoint whose store comes next. See 'beginSafepoint'.
-    stateSafepoint :: !(Maybe Safepoint)
+    stateSafepoint :: !(Maybe Safepoint),
+    -- | How to run the function again from its entry, while the code so far
+    -- has no effect. See 'Replay'.
+    stateReplay :: !(Maybe Replay)
   }
+
+-- | The entry of the function under construction and its arguments. While
+-- the code since the entry only reads values, running the function again
+-- from its entry with the same arguments gives the same result. Thus a
+-- reservation there does not need its own collection path: the cold path
+-- gives the arguments to a shared helper, which collects with the arguments
+-- as roots and enters the function again with the relocated arguments. The
+-- function then makes the reservation again. The relocated arguments name
+-- the same values, so the code before the reservation reads the same values
+-- again. A read from a frame that the entry popped is not such a read,
+-- because a collection does not relocate the slots of that frame.
+-- The fields are the code of the function and each argument with its type
+-- and whether it is a root.
+data Replay = Replay !Symbol ![(Operand, Type, Bool)]
 
 -- | The block at a store safepoint and the roots it binds. When the barrier
 -- of the store asks for a collection, the cold path spills the roots,
@@ -505,7 +553,8 @@ initialLowerState options gcProgram =
       stateBlocksRev = [],
       stateOpen = Nothing,
       stateContext = Nothing,
-      stateSafepoint = Nothing
+      stateSafepoint = Nothing,
+      stateReplay = Nothing
     }
 
 externItems :: LowerState -> [Item]
@@ -718,6 +767,11 @@ helperSignature helper = case helper of
   HelperExit -> signature [] []
   HelperContinueSlot -> running [Ptr, I64]
   HelperApplySlot -> running [Ptr, Ptr, I64]
+  -- The arguments of the function come first, so they can stay where the
+  -- function received them. The code, the words, and the static reference
+  -- table of the function follow them.
+  HelperCollectReplay shape -> running (map fst shape <> [Code, I64, Ptr])
+  HelperForce _ shape -> running (Ptr : Ptr : shape)
   HelperCStringLength -> Signature [Ptr] [I64] CConvention
   where
     signature parameters results = Signature parameters results AihcConvention
@@ -732,6 +786,8 @@ sharedHelperSignature helper =
     HelperApply [shape] | common shape -> Just (helperSignature helper)
     HelperApply _ -> Nothing
     HelperApplyFrame _ -> Nothing
+    HelperCollectReplay _ -> Nothing
+    HelperForce _ _ -> Nothing
     _ -> Just (helperSignature helper)
   where
     common shape = shape `elem` [[], [Ptr], [I64]]
@@ -1108,9 +1164,15 @@ setContext context = modify' (\state -> state {stateContext = Just context})
 branchWith :: LowerM value -> LowerM value
 branchWith action = do
   context <- gets stateContext
+  replay <- gets stateReplay
   result <- action
-  modify' (\state -> state {stateContext = context})
+  modify' (\state -> state {stateContext = context, stateReplay = replay})
   pure result
+
+-- | The code under construction can have an effect from here on, so the
+-- function cannot run again from its entry. See 'Replay'.
+endReplay :: LowerM ()
+endReplay = modify' (\state -> state {stateReplay = Nothing})
 
 -- | Give the capability the heap pointer and the stack pointer before a C call
 -- that can read them.
@@ -1534,8 +1596,10 @@ lowerFunction env function = do
   codeSlot <- if hasForeignCall needsCodeSlot (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
+      replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters]
+  modify' (\state -> state {stateReplay = Just replay})
   compileExpr ctx valueEnv (grinFunctionBody function)
-  modify' (\state -> state {stateContext = Nothing})
+  modify' (\state -> state {stateContext = Nothing, stateReplay = Nothing})
   finishFunction
     (functionSymbol (grinFunctionName function))
     (if lowerExposeFunctions (envOptions env) then Export else Internal)
@@ -1620,12 +1684,20 @@ compileExpr ctx env expression =
       let liveEnv = case value of
             GrinForeignCallExpr {} -> Map.restrictKeys env (freeExprVars expression)
             _ -> env
+          -- A reservation ends the replay itself, after its check.
+          onlyReads = case value of
+            GrinConstant {} -> True
+            GrinEnsureHeap {} -> True
+            GrinFetch tag _ -> not (isFrameNode (ctxEnv ctx) (GrinNode tag []))
+            _ -> False
+      unless onlyReads endReplay
       env' <- compileBinding ctx liveEnv vars value
       compileExpr ctx env' body
     GrinStoreRec {} -> unsupported "store-rec without a heap reservation"
     GrinStoreRecUnchecked bindings body -> do
       when (any (isFrameNode (ctxEnv ctx) . snd) bindings) $
         unsupported "continuation frame in a recursive store group"
+      endReplay
       allocated <- forM bindings $ \(var, node) -> do
         object <- allocateNode ctx node
         pure (var, object)
@@ -1691,67 +1763,12 @@ compileExpr ctx env expression =
           _ <- callRuntime "aihc_set_exit_status" [Ptr, I64] [] [capability, statusOperand]
           entry <- callRuntime "aihc_halt" [Ptr] [Code] [capability]
           terminate (TailCallIndirect entry [] (Signature [] [] AihcConvention))
-    -- The needs_eval byte of the info table is zero for a value. Thus the
-    -- ready branch needs one load and one branch after the header. The
-    -- info-table address removes the evaluation bits of the header, and a
-    -- thunk under evaluation keeps its thunk table. Thus that thunk goes to
-    -- the slow branch. An evaluated thunk keeps its thunk table with bit
-    -- zero, and field zero is its value. A claimed thunk has bit zero too,
-    -- and field zero names its owner: a thread record or a blackhole queue.
-    -- A collection makes an indirection of neither, and it follows both
-    -- kinds of object. The check follows the indirections and the evaluated
-    -- thunks of a variable to their target, so the ready branch gets the
-    -- value and no continuation is allocated. That test is only on the path
-    -- of an object that is not a value.
-    -- The blocks of that test are cold, so a native backend puts them after
-    -- the hot code and the ready branch follows the check directly.
-    GrinIfWhnf value ready slow -> do
-      object <- pointerValue ctx env value
-      checkLabel <- freshLabel "eval_check"
-      readyLabel <- freshLabel "eval_ready"
-      slowLabel <- freshLabel "eval_slow"
-      current <- fresh "current"
-      terminate (Jump (Target checkLabel [object]))
-      beginBlock checkLabel [(current, Ptr)]
-      (headerWord, header) <- loadObjectHeaderDependent HeapRegion (OperandVar current)
-      needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
-      notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
-      -- Only a variable can take the target. Another value keeps the slow
-      -- branch for an indirection.
-      let follows = case value of
-            GrinVarValue var -> Just var
-            _ -> Nothing
-          env' = maybe env (\var -> Map.insert var (Typed (OperandVar current) Ptr) env) follows
-      case follows of
-        Nothing -> terminate (Branch (typedOperand notValue) (Target slowLabel []) (Target readyLabel []))
-        Just _ -> do
-          notValueLabel <- freshLabel "eval_not_value"
-          followLabel <- freshLabel "eval_follow"
-          terminate (Branch (typedOperand notValue) (Target notValueLabel []) (Target readyLabel []))
-          thunkLabel <- freshLabel "eval_thunk"
-          ownerLabel <- freshLabel "eval_owner"
-          beginColdBlock notValueLabel []
-          isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
-          terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target thunkLabel []))
-          beginColdBlock thunkLabel []
-          tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
-          claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
-          terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
-          beginColdBlock ownerLabel []
-          word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
-          (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
-          wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
-          isThread <- emitValue "thread" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectThread)))
-          isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
-          owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
-          terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
-          beginColdBlock followLabel []
-          next <- loadSlotDependent HeapRegion "next" Ptr (OperandVar current) 8
-          terminate (Jump (Target checkLabel [typedOperand next]))
-      beginBlock readyLabel []
-      branchWith (compileExpr ctx env' ready)
-      beginBlock slowLabel []
-      branchWith (compileExpr ctx env' slow)
+    GrinIfWhnf (GrinVarValue var) ready (GrinBind [frame] (GrinStoreUnchecked node) (GrinCpsEval update _ (GrinVarValue evaluated) (GrinVarValue continuation)))
+      | isFrameNode (ctxEnv ctx) node,
+        evaluated == var,
+        continuation == frame ->
+          compileForce ctx env var update node ready
+    GrinIfWhnf value ready slow -> compileIfWhnf ctx env value ready slow
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
@@ -1771,6 +1788,92 @@ compileExpr ctx env expression =
     GrinForeignCallExpr {} -> unsupported "unbound foreign call after CPS"
   where
     unsupported = failWith . LowerUnsupportedExpression
+
+-- | The needs_eval byte of the info table is zero for a value. Thus the
+-- ready branch needs one load and one branch after the header. The
+-- info-table address removes the evaluation bits of the header, and a
+-- thunk under evaluation keeps its thunk table. Thus that thunk goes to
+-- the slow branch. An evaluated thunk keeps its thunk table with bit
+-- zero, and field zero is its value. A claimed thunk has bit zero too,
+-- and field zero names its owner: a thread record or a blackhole queue.
+-- A collection makes an indirection of neither, and it follows both
+-- kinds of object. The check follows the indirections and the evaluated
+-- thunks of a variable to their target, so the ready branch gets the
+-- value and no continuation is allocated. That test is only on the path
+-- of an object that is not a value.
+-- The blocks of that test are cold, so a native backend puts them after
+-- the hot code and the ready branch follows the check directly.
+compileIfWhnf :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> GrinExpr -> LowerM ()
+compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' -> compileExpr ctx env' slow)
+
+-- | A WHNF test whose slow branch the given action compiles, with the
+-- variable of the value bound to its target.
+compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> LowerM ()) -> LowerM ()
+compileIfWhnfWith ctx env value ready slow = do
+  object <- pointerValue ctx env value
+  checkLabel <- freshLabel "eval_check"
+  readyLabel <- freshLabel "eval_ready"
+  slowLabel <- freshLabel "eval_slow"
+  current <- fresh "current"
+  terminate (Jump (Target checkLabel [object]))
+  beginBlock checkLabel [(current, Ptr)]
+  (headerWord, header) <- loadObjectHeaderDependent HeapRegion (OperandVar current)
+  needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
+  notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
+  -- Only a variable can take the target. Another value keeps the slow
+  -- branch for an indirection.
+  let follows = case value of
+        GrinVarValue var -> Just var
+        _ -> Nothing
+      env' = maybe env (\var -> Map.insert var (Typed (OperandVar current) Ptr) env) follows
+  case follows of
+    Nothing -> terminate (Branch (typedOperand notValue) (Target slowLabel []) (Target readyLabel []))
+    Just _ -> do
+      notValueLabel <- freshLabel "eval_not_value"
+      followLabel <- freshLabel "eval_follow"
+      terminate (Branch (typedOperand notValue) (Target notValueLabel []) (Target readyLabel []))
+      thunkLabel <- freshLabel "eval_thunk"
+      ownerLabel <- freshLabel "eval_owner"
+      beginColdBlock notValueLabel []
+      isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
+      terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target thunkLabel []))
+      beginColdBlock thunkLabel []
+      tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
+      claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
+      terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
+      beginColdBlock ownerLabel []
+      word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
+      (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
+      wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
+      isThread <- emitValue "thread" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectThread)))
+      isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
+      owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
+      terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
+      beginColdBlock followLabel []
+      next <- loadSlotDependent HeapRegion "next" Ptr (OperandVar current) 8
+      terminate (Jump (Target checkLabel [typedOperand next]))
+  beginBlock readyLabel []
+  branchWith (compileExpr ctx env' ready)
+  beginBlock slowLabel []
+  branchWith (slow env')
+
+-- | A WHNF test whose slow branch pushes the frame of a continuation and
+-- evaluates the value. The test and the ready branch stay in the function,
+-- as 'compileIfWhnf' compiles them. The slow branch
+-- gives the value, the info table of the frame, and the fields to a shared
+-- helper of their shape, which pushes the frame and evaluates the value.
+-- Thus the push, its stack growth, and the stores of the frame are not in
+-- each function.
+compileForce :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> GrinNode -> GrinExpr -> LowerM ()
+compileForce ctx env var update node ready =
+  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' -> do
+    object <- pointerValue ctx env' (GrinVarValue var)
+    -- The fields have the types that 'initializeFields' stores them with.
+    fields <- mapM (materialize ctx env') (grinNodeFields node)
+    info <- nodeInfoSymbol (ctxEnv ctx) node
+    helper <- requireHelper (HelperForce update (map typedType fields))
+    running <- runningArguments
+    terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
 
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
@@ -1979,19 +2082,28 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   let heapArguments current = [contextHeap current, contextHeapLimit current]
   terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
   beginColdBlock collect []
-  forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-    storeSlot AnyRegion Ptr root array (toInteger (8 * index))
-  -- The compare above is the reservation, so this is the collector rather
-  -- than a second reservation that would repeat it. The function's table
-  -- travels as an argument: this is the only place a collection runs on
-  -- behalf of a running compiled function.
-  capability <- capabilityOperand context
-  storeContext capability context
-  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
-  relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
-    loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
-  collected <- loadHeapContext capability context
-  terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
+  replay <- gets stateReplay
+  endReplay
+  case replay of
+    -- The code before the reservation only read values, so the function
+    -- can run again from its entry after the collection. See 'Replay'.
+    Just (Replay code arguments) -> do
+      helper <- requireHelper (HelperCollectReplay [(ty, root) | (_, ty, root) <- arguments])
+      terminate (TailCall helper (contextOperands context <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', ctxSrt ctx]))
+    Nothing -> do
+      forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
+        storeSlot AnyRegion Ptr root array (toInteger (8 * index))
+      -- The compare above is the reservation, so this is the collector rather
+      -- than a second reservation that would repeat it. The function's table
+      -- travels as an argument: this is the only place a collection runs on
+      -- behalf of a running compiled function.
+      capability <- capabilityOperand context
+      storeContext capability context
+      _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+      relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
+        loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
+      collected <- loadHeapContext capability context
+      terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
   beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr), (heapLimit, Ptr)])
   setContext context {contextHeap = OperandVar heap, contextHeapLimit = OperandVar heapLimit}
   pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
@@ -3926,6 +4038,52 @@ generateHelper env helper =
       apply <- requireHelper (HelperApply groups)
       terminate (TailCall apply (contextOperands context <> (OperandVar applied : OperandVar parent : [OperandVar var | (var, _) <- values])))
       finishFunction symbol Internal (contextParameters <> ((parent, Ptr) : values <> [(applied, Ptr)])) [] AihcConvention
+    -- The roots are the arguments of the function. Every other argument
+    -- does not move. The function makes its reservation again when it runs.
+    HelperCollectReplay shape -> do
+      (context, contextParameters) <- freshContext
+      values <- forM shape $ \(ty, root) -> (,ty,root) <$> fresh "value"
+      code <- fresh "code"
+      words' <- fresh "words"
+      srt <- fresh "srt"
+      beginBlock (Label "entry") []
+      let roots = [OperandVar var | (var, _, True) <- values]
+      array <-
+        if null roots
+          then pure (OperandLiteral LitNull)
+          else typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * length roots)) (byteAlignment 8))
+      forM_ (zip [0 :: Int ..] roots) $ \(index, root) ->
+        storeSlot AnyRegion Ptr root array (toInteger (8 * index))
+      capability <- capabilityOperand context
+      storeContext capability context
+      _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, OperandVar words', OperandLiteral (LitInt (toInteger (length roots))), array, OperandVar srt]
+      relocated <- relocate array (0 :: Int) values
+      collected <- loadHeapContext capability context
+      terminate (TailCallIndirect (OperandVar code) (contextOperands collected <> relocated) (Signature (contextTypes <> [ty | (_, ty, _) <- values]) [] AihcConvention))
+      finishFunction symbol Internal (contextParameters <> [(var, ty) | (var, ty, _) <- values] <> [(code, Code), (words', I64), (srt, Ptr)]) [] AihcConvention
+      where
+        relocate array index values = case values of
+          [] -> pure []
+          (_, _, True) : rest -> do
+            moved <- loadSlot AnyRegion "value" Ptr array (toInteger (8 * index))
+            (typedOperand moved :) <$> relocate array (index + 1) rest
+          (var, _, False) : rest -> (OperandVar var :) <$> relocate array index rest
+    -- See 'compileForce'.
+    HelperForce update shape -> do
+      (context, contextParameters) <- freshContext
+      value <- fresh "value"
+      info <- fresh "info"
+      fields <- forM shape $ \ty -> (,ty) <$> fresh "field"
+      beginBlock (Label "entry") []
+      (frame, pushed) <- pushStackFrame context (1 + length shape)
+      storeSlot StackRegion Ptr (OperandVar info) frame 0
+      forM_ (zip [0 :: Int ..] fields) $ \(index, (field, ty)) ->
+        storeSlot StackRegion ty (OperandVar field) frame (toInteger (8 * (index + 1)))
+      eval <- requireHelper $ case update of
+        EvalUpdate -> HelperEval
+        EvalSingleEntry -> HelperEvalSingleEntry
+      terminate (TailCall eval (contextOperands pushed <> [OperandVar value, frame]))
+      finishFunction symbol Internal (contextParameters <> [(value, Ptr), (info, Ptr)] <> fields) [] AihcConvention
     _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
     symbol = helperSymbol helper

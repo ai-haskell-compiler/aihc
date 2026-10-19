@@ -21,6 +21,7 @@ module Aihc.Native
     executableEntryName,
     executableEntryParts,
     hostNativeTarget,
+    llvmCodeGenerationArguments,
     llvmLto,
     llvmLtoArguments,
     llvmLtoLinkArguments,

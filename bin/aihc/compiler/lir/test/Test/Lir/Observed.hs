@@ -17,6 +17,7 @@ import Control.Monad (forM, forM_, when)
 import Data.List (find)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 import Test.Native.Observed (renderObservedMetadata)
 
 -- | The Lir module of the observed program and the C metadata of the
@@ -107,9 +108,16 @@ lowerObservedProgram target gcStress entryName gcProgram = do
 -- | Change only test output. Select the collector path of each generated
 -- reservation and call the explicit collector. A block refill is insufficient.
 -- Identify collector blocks by their call, not their label.
+--
+-- The collector path of a reservation that runs its function again from
+-- the entry is a tail call to a replay helper. A forced path there would
+-- run the function again without end, so a flag selects it every second
+-- time: the helper sets the flag before it enters the function again, and
+-- the reservation clears the flag and takes the collector path only when
+-- the flag was clear.
 forceCollection :: Module -> Module
 forceCollection (Module items) =
-  Module (map collectorDeclaration (take 1 collectorDeclarations) <> map forceItem items)
+  Module (map collectorDeclaration (take 1 collectorDeclarations) <> [replayFlagItem | any usesReplay items] <> map forceItem items)
   where
     collectorDeclarations = filter isCollectorDeclaration items
     isCollectorDeclaration (ItemExternFunction external) =
@@ -117,23 +125,55 @@ forceCollection (Module items) =
     isCollectorDeclaration _ = False
     collectorDeclaration (ItemExternFunction external) = ItemExternFunction external {externFunctionName = Symbol "aihc_gc_collect", externFunctionSignature = Signature [Ptr, I64, I64, Ptr, Ptr] [] CConvention}
     collectorDeclaration item = item
-    forceItem (ItemFunction function) =
-      ItemFunction function {functionBlocks = map forceBlock (functionBlocks function)}
+    replayFlag = Symbol "aihc_test_replay_collected"
+    replayFlagItem = ItemData (DataItem replayFlag Internal True 8 [DataInt I64 0])
+    flagAddress = byteAddress (OperandLiteral (LitSymbol replayFlag)) 0
+    isReplayHelper symbol = "aihc_lir_collect_replay_" `T.isPrefixOf` unSymbol symbol
+    usesReplay (ItemFunction function) = isReplayHelper (functionName function)
+    usesReplay _ = False
+    forceItem (ItemFunction function)
+      | isReplayHelper (functionName function) =
+          ItemFunction function {functionBlocks = map (setFlag . forceBlock) (functionBlocks function)}
+      | otherwise =
+          ItemFunction function {functionBlocks = map forceBlock (functionBlocks function)}
       where
         collectors =
           [ blockLabel block
           | block <- functionBlocks function,
             Instruction _ (Call (Symbol "aihc_heap_collect") _) <- blockInstructions block
           ]
+        replays =
+          [ blockLabel block
+          | block <- functionBlocks function,
+            TailCall symbol _ <- [blockTerminator block],
+            isReplayHelper symbol
+          ]
         forceBlock block =
-          block
-            { blockInstructions = concatMap forceInstruction (blockInstructions block),
-              blockTerminator = case blockTerminator block of
-                Branch _ whenTrue whenFalse
-                  | targetLabel whenFalse `elem` collectors -> Jump whenFalse
-                  | targetLabel whenTrue `elem` collectors -> Jump whenTrue
-                terminator -> terminator
-            }
+          case blockTerminator block of
+            Branch _ whenTrue whenFalse
+              | targetLabel whenFalse `elem` collectors -> forced {blockTerminator = Jump whenFalse}
+              | targetLabel whenTrue `elem` collectors -> forced {blockTerminator = Jump whenTrue}
+              | targetLabel whenFalse `elem` replays -> alternate whenTrue whenFalse
+              | targetLabel whenTrue `elem` replays -> alternate whenFalse whenTrue
+            _ -> forced
+          where
+            forced = block {blockInstructions = concatMap forceInstruction (blockInstructions block)}
+            flagValue = Var ("stress_flag_" <> unLabel (blockLabel block))
+            flagSet = Var ("stress_flag_set_" <> unLabel (blockLabel block))
+            alternate reserved collect =
+              forced
+                { blockInstructions =
+                    blockInstructions forced
+                      <> [ Instruction [flagValue] (Load I64 flagAddress (byteAlignment 8)),
+                           Instruction [flagSet] (Compare Ne I64 (OperandVar flagValue) (OperandLiteral (LitInt 0))),
+                           Instruction [] (Store I64 (OperandLiteral (LitInt 0)) flagAddress (byteAlignment 8))
+                         ],
+                  blockTerminator = Branch (OperandVar flagSet) reserved collect
+                }
+        setFlag block =
+          case blockTerminator block of
+            TailCallIndirect {} -> block {blockInstructions = blockInstructions block <> [Instruction [] (Store I64 (OperandLiteral (LitInt 1)) flagAddress (byteAlignment 8))]}
+            _ -> block
     forceItem item = item
     forceInstruction (Instruction results (Call (Symbol "aihc_heap_collect") arguments)) =
       [Instruction results (Call (Symbol "aihc_gc_collect") arguments)]

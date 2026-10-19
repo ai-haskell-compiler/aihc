@@ -216,6 +216,15 @@ insertFunctionReservations continuations function =
 insertExprReservations :: Set FunctionName -> GrinExpr -> GrinExpr
 insertExprReservations continuations expression =
   case expression of
+    -- The evaluation helpers are safepoints: each collects at its entry when
+    -- the heap pointer is above the heap limit. Thus a frame that the code
+    -- pushes only to evaluate a value needs no reservation of its own. The
+    -- frame push stays the only code before the transfer, and the cold
+    -- collection with every live root goes out of the function.
+    GrinBind resultVars@[frame] (GrinStore node) body@(GrinCpsEval _ _ _ (GrinVarValue continuation))
+      | isFrame node,
+        continuation == frame ->
+          GrinBind resultVars (GrinStoreUnchecked node) body
     GrinBind resultVars (GrinStore node) body
       | isFrame node ->
           GrinBind
