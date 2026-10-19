@@ -1,0 +1,19 @@
+extensions:
+  - MultiParamTypeClasses
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
+    module Test where
+    data ST s a = ST a
+    data Array s = Array
+    class Mutable a m where
+      new :: m a
+    instance Mutable (Array s) (ST s) where
+      new = ST Array
+    discard :: ST s a -> ST s ()
+    discard _ = ST ()
+    result :: ST s ()
+    result = discard (new :: ST s (Array s))
+status: pass
+reason: An expression signature must use one variable for each free type variable name.
