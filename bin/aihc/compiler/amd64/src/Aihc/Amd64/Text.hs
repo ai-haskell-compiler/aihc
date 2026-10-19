@@ -80,6 +80,7 @@ instruction code =
     AmdOr destination source -> binary "or" destination source
     AmdXor destination source -> binary "xor" destination source
     AmdCmp destination source -> binary "cmp" destination source
+    AmdCmpGot left symbol -> "cmp " <> reg left <> ", [rip + " <> T.unpack symbol <> "@GOTPCREL]"
     AmdImul destination source -> two "imul" destination source
     AmdTest destination source -> "test " <> rm destination <> ", " <> reg source
     AmdShl destination -> "shl " <> rm destination <> ", cl"
