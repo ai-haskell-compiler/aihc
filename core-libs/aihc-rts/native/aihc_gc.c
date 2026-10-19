@@ -2642,16 +2642,20 @@ static void aihc_sweep_pinned_list(AihcGcContext *context,
   AihcMachine *machine = capability->machine;
   while (*link != NULL) {
     AihcPinnedBlock *block = *link;
+    unsigned generation = aihc_pinned_generation(block);
     if ((block->bytes & AIHC_PINNED_MARK) != 0) {
       block->bytes &= ~AIHC_PINNED_MARK;
-    } else if (aihc_pinned_generation(block) <= context->collected &&
+    } else if (generation <= context->collected && generation <= 2 &&
                !aihc_pinned_foreign(context, block)) {
+      /* A collection collects gen2 at most, so the second test is also
+         explicit for the static analyzer, which does not know the bound
+         of collected. */
       *link = block->next;
       aihc_fixed_uncharge(capability, block);
       aihc_pinned_block_release(block);
       continue;
     }
-    if (young && aihc_pinned_generation(block) == 2) {
+    if (young && generation == 2) {
       *link = block->next;
       block->next = machine->pinned_blocks;
       machine->pinned_blocks = block;
