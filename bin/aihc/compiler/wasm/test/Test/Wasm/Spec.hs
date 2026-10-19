@@ -75,7 +75,8 @@ tests = do
   pure
     ( testGroup
         "aihc-wasm"
-        [ testGroup "callback source fixtures" (map (callbackSourceTest tools callbackDirectory) callbacks),
+        [ testGroup "callback source fixtures" (map (foreignSourceTest tools callbackDirectory) callbacks),
+          foreignSourceTest tools (root </> "bin/aihc/compiler/wasm/test/Test/Fixtures/source") "foreign-memcpy-int-length.yaml",
           testGroup "Lir evaluation fixtures" (map (fixtureTest tools directory) names),
           assembly,
           testGroup "GRIN heap snapshots lowered for wasm32" (map (snapshotTest snapshotDirectory) snapshots),
@@ -355,11 +356,11 @@ snapshotTest directory name = testCase name $ do
 
 -- Programs
 
--- | Compile each callback source fixture through the complete WASM pipeline.
-callbackSourceTest :: Maybe WasmTools -> FilePath -> FilePath -> TestTree
-callbackSourceTest tools directory name = testCase name $ do
+-- | Compile each foreign source fixture through the complete WASM pipeline.
+foreignSourceTest :: Maybe WasmTools -> FilePath -> FilePath -> TestTree
+foreignSourceTest tools directory name = testCase name $ do
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
-  source <- maybe (assertFailure "a callback fixture requires source") pure (Source.snapshotFixtureSource fixture)
+  source <- maybe (assertFailure "a foreign fixture requires source") pure (Source.snapshotFixtureSource fixture)
   let driver =
         T.unlines
           [ "data CallbackOutput = CallbackOutput Int32#",
@@ -370,7 +371,7 @@ callbackSourceTest tools directory name = testCase name $ do
   programs <- either assertFailure pure (GrinGolden.buildFcPrograms [MagicHash, UnboxedTuples] [source <> "\n" <> driver])
   fc <- case programs of
     [one] -> pure one
-    _ -> assertFailure "a callback fixture requires one module"
+    _ -> assertFailure "a foreign fixture requires one module"
   program <- either assertFailure pure (Grin.lowerProgram (PackageId "aihc-prim") fc)
   let mainName = grinScopedName "" "Test" "main"
       linked = program {grinGlobals = [global {grinGlobalName = if grinGlobalName global == mainName then "main" else grinGlobalName global} | global <- grinGlobals program]}

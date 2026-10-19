@@ -2512,7 +2512,7 @@ compileCCall ctx env passMachine foreignCall arguments = do
           then
             let (parameters', results') = runtimeCallSignatureFor target False signature {grinForeignArgumentTypes = drop 1 (grinForeignArgumentTypes signature)}
              in (Ptr : parameters', results')
-          else runtimeCallSignatureFor target passMachine signature
+          else directForeignCallSignature target passMachine foreignCall
   when (length arguments /= length (grinForeignArgumentTypes signature)) $ failWith (LowerUnsupportedExpression "foreign call arity mismatch")
   values <- mapM (materialize ctx env) arguments
   operands <- zipWithM coerce (drop (fromEnum passMachine) parameters) values
@@ -2543,6 +2543,19 @@ contextFreeRuntimeCalls = Set.fromList ["aihc_my_thread_id", "aihc_array_copy"]
 -- | The Lir signature of a C runtime or foreign function.
 runtimeCallSignature :: Bool -> GrinForeignSignature -> ([Type], [Type])
 runtimeCallSignature = runtimeCallSignatureFor posixTarget64
+
+-- | A direct memcpy import uses size_t for its length. Some packages use
+-- Int# instead, which stays 64 bits in AIHC on a 32-bit target.
+directForeignCallSignature :: LowerTarget -> Bool -> GrinForeignCall -> ([Type], [Type])
+directForeignCallSignature target passMachine call
+  | not passMachine,
+    lowerWordSize target == 4,
+    grinForeignCallSymbol call == "memcpy",
+    signature == ([Ptr, Ptr, I64], [Ptr]) =
+      ([Ptr, Ptr, I32], [Ptr])
+  | otherwise = signature
+  where
+    signature = runtimeCallSignatureFor target passMachine (grinForeignCallSignature call)
 
 runtimeCallSignatureFor :: LowerTarget -> Bool -> GrinForeignSignature -> ([Type], [Type])
 runtimeCallSignatureFor target passMachine signature =

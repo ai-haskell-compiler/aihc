@@ -1,0 +1,17 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data Ptr = Ptr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "memcpy" copy :: MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> Int# -> IO Ptr
+  value = runRW# (\s -> case newByteArray# 1# s of
+    (# s1, source #) -> case setByteArray# source 0# 1# 42# s1 of
+      s2 -> case newByteArray# 1# s2 of
+        (# s3, destination #) -> case copy destination source 1# of
+          IO action -> case action s3 of
+            (# _, Ptr address #) -> I# (int8ToInt# (indexInt8OffAddr# address 0#)))
+status: pass
+reason: A direct memcpy call must use the wasm32 size_t width for its Int# length.
