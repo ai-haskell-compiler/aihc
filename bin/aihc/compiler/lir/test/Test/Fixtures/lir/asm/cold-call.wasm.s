@@ -13,8 +13,7 @@
 	block
 # entry
 	local.get	1
-	i64.const	16
-	i32.wrap_i64
+	i32.const	16
 	i32.add
 	local.get	2
 	i32.le_u
@@ -42,8 +41,7 @@
 	i32.store	8
 	local.get	0
 	local.get	1
-	i64.const	16
-	i32.wrap_i64
+	i32.const	16
 	i32.add
 	local.get	2
 	local.get	3

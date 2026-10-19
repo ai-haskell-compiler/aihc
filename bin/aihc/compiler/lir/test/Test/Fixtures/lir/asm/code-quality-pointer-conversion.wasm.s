@@ -24,16 +24,15 @@
 	local.get	1
 	local.get	2
 	local.get	5
-	i64.const	0
-	i32.wrap_i64
+	i32.const	0
 	i32.add
 	local.get	5
 	i64.extend_i32_u
-	i64.const	4095
-	i64.or
-	i64.const	1
-	i64.add
 	i32.wrap_i64
+	i32.const	4095
+	i32.or
+	i32.const	1
+	i32.add
 	local.get	5
 	i32.const	0
 	local.get	6

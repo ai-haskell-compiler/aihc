@@ -13,10 +13,9 @@ enter_direct:
 	.functype	enter_direct (i32, i32, i32) -> ()
 # entry
 	local.get	1
-	i64.load	0
-	i64.const	-4
-	i64.and
-	i32.wrap_i64
+	i32.load	0
+	i32.const	-4
+	i32.and
 	i32.load	0
 	local.tee	2
 	i32.eqz
@@ -28,8 +27,7 @@ enter_direct:
 	end_if
 	local.get	0
 	local.get	1
-	i64.load	8
-	i32.wrap_i64
+	i32.load	8
 	local.get	2
 	return_call_indirect	__indirect_function_table, (i32, i32) -> ()
 	end_function
@@ -42,10 +40,9 @@ enter_inline:
 	.functype	enter_inline (i32, i32, i32) -> ()
 # entry
 	local.get	1
-	i64.load	0
-	i64.const	-4
-	i64.and
-	i32.wrap_i64
+	i32.load	0
+	i32.const	-4
+	i32.and
 	i32.load	0
 	local.tee	2
 	i32.eqz
@@ -57,8 +54,7 @@ enter_inline:
 	end_if
 	local.get	0
 	local.get	1
-	i64.load	8
-	i32.wrap_i64
+	i32.load	8
 	local.get	2
 	return_call_indirect	__indirect_function_table, (i32, i32) -> ()
 	end_function
