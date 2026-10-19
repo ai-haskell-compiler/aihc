@@ -362,6 +362,11 @@ struct AihcCapability {
   /* Not zero while this capability collects. The time profiler then gives
      the sample a collection frame and does not read heap objects. */
   uint64_t profile_collecting;
+  /* The young pinned blocks and large objects that this capability
+     allocated. A collection of this capability sweeps this list alone and
+     moves each block that is now in gen2 to the list of the machine. See
+     aihc_sweep_pinned. */
+  struct AihcPinnedBlock *young_pinned;
 };
 
 /* The reason that starts a collection. The statistics report a count for
@@ -422,8 +427,11 @@ struct AihcMachine {
   uint64_t stm_forever_count;
   uint64_t stm_commit_count;
   void *stm_wait_lock;
+  /* The pinned blocks and large objects of gen2. A block that a promotion
+     moved into gen2 can stay on the young list of its capability until the
+     next collection of that capability. */
   struct AihcPinnedBlock *pinned_blocks;
-  /* The bytes of the pinned list: pinned blocks and large objects. */
+  /* The bytes of the pinned lists: pinned blocks and large objects. */
   uint64_t fixed_bytes;
   AihcValue *global_array;
   /* The stack of each thread that has not finished. The collector releases

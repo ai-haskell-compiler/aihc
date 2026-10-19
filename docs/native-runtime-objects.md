@@ -416,6 +416,15 @@ outside every region. The collector tells it from a static object by its
 kind: the runtime allocates pinned only byte arrays and IO requests, and no
 static object has either kind.
 
+Each capability keeps its young fixed blocks on its own list, and the
+machine keeps the gen2 fixed blocks on one list. A collection sweeps the
+young lists of the capabilities that it collects. Only a full collection
+sweeps the gen2 list. Thus the sweep of a local collection does not walk
+the gen2 blocks or the blocks of another capability. A block that a
+collection or a promotion moves into gen2 goes to the gen2 list at the next
+sweep of its young list. The sweep at the end of a gen2 cycle walks every
+list, because a young list can hold such a block until then.
+
 A fixed block is a large object or a pinned block. The machine keeps the
 charges of the fixed blocks of each generation in `fixed_generation_bytes`.
 A new fixed block counts in generation zero. A promotion moves the charge of
