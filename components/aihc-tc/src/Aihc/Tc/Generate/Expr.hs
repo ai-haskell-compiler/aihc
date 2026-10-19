@@ -50,12 +50,13 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields, recordFieldLabel, recordHeadNameSyntax, recordUpdateHeads, synthesizedRecordLocal)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkRuntimeType, checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind, unboxedSumType)
+import Aihc.Tc.Kind (checkSurfaceType, explicitForallNames, scopedSigTyVars, sigToScheme, tcTypeKind, unboxedSumType)
 import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
@@ -295,17 +296,12 @@ occurrenceAnnotation ty typeArgs inferredCount evidenceVars
   | null typeArgs && null evidenceVars = Nothing
   | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars []) {pendingTcAnnInferredTypeArgs = inferredCount}
 
--- | An expression signature stands in a result position, not at a binder,
--- so its type needs no fixed runtime representation: any @TYPE r@ will do.
--- Checking against @typeKind@ would reject @(proxy# :: Proxy# a)@ and
--- @(3# :: Int#)@, which are perfectly good annotated expressions.
--- 'checkRuntimeType' accepts every @TYPE r@ and defaults an unconstrained
--- representation to lifted, while still rejecting an ill-kinded annotation
--- such as @(x :: Maybe)@.
+-- | Quantify free variables in an expression signature. Each name denotes
+-- one variable. Keep variables from the enclosing scope unchanged.
+-- 'sigToScheme' also permits a result of any @TYPE r@ kind.
 inferTypeSig :: Maybe SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do
-  scoped <- getScopedTyVars
-  sigTy <- checkRuntimeType scoped tyAnn
+  sigTy <- schemeToType <$> sigToScheme tyAnn
   if isPolyType sigTy
     then inferPolyTypeSig sp inner tyAnn sigTy
     else inferMonoTypeSig sp inner tyAnn sigTy
