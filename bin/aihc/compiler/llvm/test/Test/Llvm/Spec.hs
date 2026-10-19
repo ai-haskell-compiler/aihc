@@ -6,7 +6,7 @@ import Aihc.Cli.Backend (BackendOutput (..))
 import Aihc.Lir.Lower (posixTarget64)
 import Aihc.Lir.Parser (parseModule)
 import Aihc.Llvm.Lir (compileLirModule)
-import Aihc.Native (NativeTarget (Llvm))
+import Aihc.Native (NativeTarget (Llvm), llvmCodeGenerationArguments)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -26,7 +26,9 @@ tests = do
         { backendName = "aihc-llvm",
           backendTarget = Llvm,
           backendLowerTarget = posixTarget64,
-          backendClangArguments = ["-Wno-override-module"],
+          -- The code generator options of the llvm target, so that the
+          -- programs avoid the x86-64 tail call defect that they work around.
+          backendClangArguments = "-Wno-override-module" : llvmCodeGenerationArguments,
           backendRuns = (arch == "aarch64" && os == "darwin") || (arch == "x86_64" && os == "linux"),
           backendAllocationKey = if os == "darwin" then "macos-arm64" else "linux-amd64",
           backendSourceExtension = ".ll",
