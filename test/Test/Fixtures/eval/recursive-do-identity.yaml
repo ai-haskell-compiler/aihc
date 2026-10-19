@@ -1,0 +1,22 @@
+evaluators:
+  - fc
+  - grin
+  - grin-points-to
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+    import Data.Functor.Identity (Identity (..))
+    import Prelude
+
+    result :: [Int]
+    result = runIdentity $ mdo
+      xs <- pure (1 : xs)
+      pure (take 3 xs)
+expression: result == [1, 1, 1]
+output: |
+  True
+status: pass
+reason: Identity must support a recursive do block with a value that refers to itself.

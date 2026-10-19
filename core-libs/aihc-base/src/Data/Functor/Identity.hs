@@ -7,6 +7,7 @@ module Data.Functor.Identity
   )
 where
 
+import Control.Monad.Fix (MonadFix (..), fix)
 import Data.Bits (Bits)
 import Data.Foldable (Foldable (..))
 import Data.Kind (Type)
@@ -47,6 +48,9 @@ instance Monad Identity where
   Identity value >>= next = next value
   Identity _ >> next = next
   return = Identity
+
+instance MonadFix Identity where
+  mfix f = Identity (fix (runIdentity . f))
 
 instance (Semigroup a) => Semigroup (Identity a) where
   Identity left <> Identity right = Identity (left <> right)
