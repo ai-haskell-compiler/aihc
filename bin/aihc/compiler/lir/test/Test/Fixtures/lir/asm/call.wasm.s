@@ -9,23 +9,18 @@
 	.type	.Ltwice,@function
 .Ltwice:
 	.functype	.Ltwice (i64) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i64, i64, i64, i64
+	.local	i64, i64
 # entry
 	local.get	0
 	call	helper
-	local.set	7
-	local.get	7
+	local.tee	1
 	call	helper
-	local.set	8
-	local.get	7
-	local.get	8
+	local.set	2
+	local.get	1
+	local.get	2
 	i64.add
-	local.set	9
-	local.get	9
 	local.get	0
 	i64.add
-	local.set	10
-	local.get	10
 	return
 	end_function
 

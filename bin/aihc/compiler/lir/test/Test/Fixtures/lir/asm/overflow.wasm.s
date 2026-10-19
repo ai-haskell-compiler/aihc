@@ -8,13 +8,10 @@
 	.type	.Lspread,@function
 .Lspread:
 	.functype	.Lspread (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i64
 # entry
 	local.get	0
 	local.get	25
 	i64.add
-	local.set	32
-	local.get	32
 	local.get	1
 	local.get	2
 	local.get	3

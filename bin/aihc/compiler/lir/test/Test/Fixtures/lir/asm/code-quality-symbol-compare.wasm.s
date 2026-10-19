@@ -8,13 +8,10 @@
 	.type	.Lwhich,@function
 .Lwhich:
 	.functype	.Lwhich (i32) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i32, i32
 # entry
 	local.get	0
 	i32.const	.Lfirst
 	i32.eq
-	local.set	7
-	local.get	7
 	if
 # one
 	i64.const	1
@@ -24,8 +21,6 @@
 	local.get	0
 	i32.const	.Lsecond
 	i32.eq
-	local.set	8
-	local.get	8
 	if
 # two
 	i64.const	2
