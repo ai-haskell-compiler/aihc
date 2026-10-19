@@ -4763,7 +4763,14 @@ desugarDoPattern resultType binder ty pattern' success =
 -- | Match one binder against a pattern. The failure expression, when given,
 -- is the default alternative of each constructor case.
 desugarPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
-desugarPatternWithFailure resultType binder ty pattern' success failure =
+desugarPatternWithFailure resultType binder ty pattern' success failure = do
+  (expanded, locals) <- expandLazyPattern binder ty pattern'
+  withMatchLocals locals (desugarExpandedPatternWithFailure resultType binder ty expanded success failure)
+
+-- | Expand lazy patterns before constructor and literal checks. Their
+-- selectors force the scrutinee only when the body uses a bound variable.
+desugarExpandedPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarExpandedPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
     _
       | isOverloadedLiteralPattern pattern' -> do
@@ -4808,7 +4815,6 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
     Syn.PStrict inner -> do
       body <- desugarPatternWithFailure resultType binder ty inner success failure
       forceDefaultPattern resultType binder inner body
-    Syn.PIrrefutable inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PTypeSig inner _ -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PVar name -> do
       locals <- binderEntry name binder ty

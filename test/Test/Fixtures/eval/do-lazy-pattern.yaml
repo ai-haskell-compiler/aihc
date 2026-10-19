@@ -1,0 +1,18 @@
+evaluators:
+  - fc
+  - grin
+  - grin-points-to
+modules:
+  - |
+    module Test where
+    import Data.Functor.Identity (Identity (..))
+
+    result :: Identity Int
+    result = do
+      ~(left, right) <- pure (error "forced lazy do pattern" :: (Int, Int))
+      pure 7
+expression: runIdentity result
+output: |
+  I# 7
+status: pass
+reason: A lazy do pattern must not force an unused tuple.
