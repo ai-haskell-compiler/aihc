@@ -246,7 +246,9 @@ renderOrigin origin =
 renderEvTerm :: EvTerm -> String
 renderEvTerm ev =
   case ev of
-    EvVarTerm evVar -> renderEvVar evVar
+    -- After finalization, an evidence variable is only the placeholder for a
+    -- reported unsolved constraint. Its unique is not stable, so hide it.
+    EvVarTerm _ -> "unsolved"
     EvGiven pred' -> "given " <> renderPred pred'
     EvDict _ name typeArgs evidence ->
       T.unpack name
