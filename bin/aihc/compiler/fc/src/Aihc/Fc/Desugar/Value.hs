@@ -3156,8 +3156,14 @@ desugarAnnotatedExpr annotation inner = do
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "negate" -> do
-              method <- desugarResolvedOccurrence annotation resolution
-              ExApp method <$> desugarExpr operand
+              primPackage <- gets (cePrimPackage . vsConvertEnv)
+              case negatableIntegerLiteral operand of
+                Just (literalAnnotation, literalResolution, value)
+                  | negateFoldsIntoLiteral primPackage annotation resolution literalResolution ->
+                      desugarOverloadedInteger literalAnnotation literalResolution (negate value)
+                _ -> do
+                  method <- desugarResolvedOccurrence annotation resolution
+                  ExApp method <$> desugarExpr operand
         Syn.EAnn resolutionAnnotation primitiveLiteral
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             resolutionNamespace resolution == ResolutionNamespaceType,
@@ -3237,6 +3243,50 @@ instantiateAnnotated annotation inner = do
   types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
   evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
   pure (foldl ExApp (foldl ExTyApp inner' types) evidence)
+
+-- | A negated integer literal is one literal when 'negate' and
+-- 'fromInteger' are the class methods at Integer or Int. The instances of
+-- these two types give @negate (fromInteger n) == fromInteger (negate n)@,
+-- also for the minimum Int. Other instances can break this law, so they
+-- keep the call.
+negateFoldsIntoLiteral :: PackageId -> TcAnnotation -> ResolutionAnnotation -> ResolutionAnnotation -> Bool
+negateFoldsIntoLiteral primPackage annotation negateResolution literalResolution =
+  classMethod "negate" negateResolution && classMethod "fromInteger" literalResolution && knownType
+  where
+    isPrim module' tyCon = tyConPackageId tyCon == primPackage && tyConModuleName tyCon == module'
+    classMethod method resolution =
+      case resolutionTarget resolution of
+        EntityGlobal global ->
+          globalNamePackage global == primPackage
+            && globalNameModule global == "GHC.Prim.Num"
+            && globalNameText global == method
+        _ -> False
+    knownType =
+      case tcAnnTypeArgs annotation of
+        [TcTyCon tyCon []]
+          | isPrim "GHC.Prim.Integer" tyCon -> tyConName tyCon == "Integer"
+          | isPrim "GHC.Types" tyCon -> tyConName tyCon == "Int"
+        _ -> False
+
+-- | The checked overloaded integer literal that a negation applies to.
+negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, ResolutionAnnotation, Integer)
+negatableIntegerLiteral expression =
+  case expression of
+    Syn.EParen inner -> negatableIntegerLiteral inner
+    Syn.EAnn annotation (Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _))
+      | Just tcAnnotation <- Syn.fromAnnotation annotation,
+        null (tcAnnTypeBinders tcAnnotation),
+        null (tcAnnEvidenceBinders tcAnnotation),
+        Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+        resolutionNamespace resolution == ResolutionNamespaceTerm,
+        resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
+          Just (tcAnnotation, resolution, value)
+    -- Source spans and resolutions above the checked literal do not change it.
+    Syn.EAnn annotation inner
+      | Nothing <- (Syn.fromAnnotation annotation :: Maybe TcAnnotation),
+        Nothing <- (Syn.fromAnnotation annotation :: Maybe TcCastAnnotation) ->
+          negatableIntegerLiteral inner
+    _ -> Nothing
 
 isIfThenElseResolution :: ResolutionAnnotation -> Bool
 isIfThenElseResolution resolution =
