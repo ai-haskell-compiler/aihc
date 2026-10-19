@@ -297,6 +297,9 @@ data Solver s = Solver
     -- | The location of each shape of partial application that an apply
     -- site makes, by the site.
     solverShapes :: !(STRef s (MV.MVector s (Map GrinNodeTag Int))),
+    -- | The set node of the result of each closure shape that an apply
+    -- site calls with more arguments than it takes, by the site.
+    solverOverApplied :: !(STRef s (MV.MVector s (Map GrinNodeTag Int))),
     -- | Whether each set node is widened to the unknown location.
     solverWidened :: !(STRef s (MU.MVector s Bool)),
     solverWidenedCount :: !(STRef s Int),
@@ -451,6 +454,7 @@ newSolver limit = do
     <*> newSTRef 0
     <*> (newSTRef =<< MV.replicate capacity Map.empty)
     <*> (newSTRef =<< MV.replicate capacity Map.empty)
+    <*> (newSTRef =<< MV.replicate capacity Map.empty)
     <*> (newSTRef =<< MU.replicate capacity False)
     <*> newSTRef 0
     <*> pure limit
@@ -507,6 +511,7 @@ newLocation solver = do
   writeSTRef (solverLocationCount solver) (location + 1)
   ensureSize (solverLocationNodes solver) Map.empty (location + 1)
   ensureSize (solverShapes solver) Map.empty (location + 1)
+  ensureSize (solverOverApplied solver) Map.empty (location + 1)
   pure location
 
 -- | The location of one shape of partial application that an apply site
@@ -745,8 +750,7 @@ applyNode solver site groups results tag fields =
               zipWithM_ (\value slot -> for_ value (\node -> edgeToSlot solver node slot)) (map Just fields <> arguments) (functionParameters info)
               if null extra
                 then flowResults solver (functionResults info) results
-                else do
-                  applied <- newNode solver
+                else overApply solver site tag $ \applied -> do
                   flowResults solver (functionResults info) (ResultMerged applied)
                   addTrigger solver applied (TriggerApply site extra results)
           | otherwise -> grow arguments (GrinClosure functionName remaining)
@@ -760,6 +764,22 @@ applyNode solver site groups results tag fields =
       zipWithM_ (addEdge solver) fields grownFields
       zipWithM_ (\value field -> for_ value (\node -> addEdge solver node field)) arguments (drop (length fields) grownFields)
       addLocationResult solver results shape
+
+-- | The set node of the result of the closures of one shape at an apply
+-- site that gives them more argument groups than they take. The other
+-- groups go to the result. Each closure of the shape calls the same
+-- function, so they all give the same result, and the first closure makes
+-- the set node and its constraints. A set node for each closure location
+-- repeated the same result set and the same trigger for each of them. On
+-- a program that passes many closures of one function to one site, those
+-- copies were most of the set nodes and the memory of the solver.
+overApply :: Solver s -> Int -> GrinNodeTag -> (Int -> ST s ()) -> ST s ()
+overApply solver site tag connect = do
+  applied <- readAt (solverOverApplied solver) site
+  unless (Map.member tag applied) $ do
+    node <- newNode solver
+    writeAt (solverOverApplied solver) site (Map.insert tag node applied)
+    connect node
 
 -- | A location escapes: code that the program cannot see can read its
 -- fields, apply it, or evaluate it.
