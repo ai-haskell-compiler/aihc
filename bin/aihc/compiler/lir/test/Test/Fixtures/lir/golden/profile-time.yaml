@@ -50,9 +50,9 @@ expected: |
   cold stack_grow_25:
     %capability_27 = load ptr [%sp_limit_9 - 4040] align 1 word
     %result_28 = call @aihc_stack_grow(%capability_27, %sp_8, 2)
+    %hp_limit_31 = load ptr [%capability_27 + 24] align 1 word
     %sp_29 = ptr.add %result_28, 16
     %sp_limit_30 = ptr.add %result_28, 4032
-    %hp_limit_31 = load ptr [%capability_27 + 24] align 1 word
     jump stack_pushed_26(%result_28, %sp_29, %sp_limit_30, %hp_limit_31)
 
   stack_pushed_26(%frame_32: ptr, %sp_33: ptr, %sp_limit_34: ptr, %hp_limit_35: ptr):
