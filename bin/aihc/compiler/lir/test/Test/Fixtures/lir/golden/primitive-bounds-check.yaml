@@ -33,15 +33,16 @@ expected: |
     jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %contents_18 = ptr.add %hp_11, 48
     store ptr @aihc_byte_array_info, [%hp_11] align 8 region heap
     store i64 8, [%hp_11 + 8] align 8 region heap
+    %contents_18 = ptr.add %hp_11, 48
     store ptr %contents_18, [%hp_11 + 16] align 8 region heap
     store i64 0, [%hp_11 + 24] align 8 region heap
     store i64 8, [%hp_11 + 32] align 8 region heap
     store i64 7, [%hp_11 + 40] align 8 region heap
     %size_19 = load i64 [%hp_11 + 8] align 8 region heap
     %limit_20 = div.u i64 %size_19, 8
+    %hp_17 = ptr.add %hp_11, 56
     %invalid_21 = ge.u i64 4, %limit_20
     br %invalid_21, out_of_bounds_22, inside_23
 
@@ -54,8 +55,7 @@ expected: |
     %contents_25 = load ptr [%hp_11 + 16] align 8 region heap
     %address_26 = ptr.add %contents_25, %offset_24
     %value_27 = load i64 [%address_26] align 1
-    %hp_28 = ptr.add %hp_11, 56
-    tailcall @aihc_lir_continue_i(%hp_28, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %value_27)
+    tailcall @aihc_lir_continue_i(%hp_17, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %value_27)
   }
 status: pass
 reason: |

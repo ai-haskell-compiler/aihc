@@ -29,9 +29,8 @@ expected: |
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
-    %object_17 = ptr.add %hp_11, 0
-    %hp_18 = ptr.add %hp_11, 16
-    tailcall @aihc_lir_continue_p(%hp_18, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %object_17)
+    %hp_17 = ptr.add %hp_11, 16
+    tailcall @aihc_lir_continue_p(%hp_17, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

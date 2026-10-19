@@ -47,7 +47,6 @@ expected: |
     store i64 %words_25, [@aihc_allocation_profile_counts + 8] align 8
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11 + 16] align 8 region heap
     store i64 2, [%hp_11 + 24] align 8 region heap
-    %object_26 = ptr.add %hp_11, 16
     %objects_27 = load i64 [@aihc_allocation_profile_counts + 16] align 8
     %objects_28 = add i64 %objects_27, 1
     store i64 %objects_28, [@aihc_allocation_profile_counts + 16] align 8
@@ -56,10 +55,11 @@ expected: |
     store i64 %words_30, [@aihc_allocation_profile_counts + 24] align 8
     store ptr @aihc_c_aihc_entry_Pair_0, [%hp_11 + 32] align 8 region heap
     store ptr %hp_11, [%hp_11 + 40] align 8 region heap
-    store ptr %object_26, [%hp_11 + 48] align 8 region heap
-    %object_31 = ptr.add %hp_11, 32
-    %hp_32 = ptr.add %hp_11, 56
-    tailcall @aihc_lir_continue_p(%hp_32, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %object_31)
+    %hp_21 = ptr.add %hp_11, 16
+    store ptr %hp_21, [%hp_11 + 48] align 8 region heap
+    %hp_26 = ptr.add %hp_11, 32
+    %hp_31 = ptr.add %hp_11, 56
+    tailcall @aihc_lir_continue_p(%hp_31, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_26)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

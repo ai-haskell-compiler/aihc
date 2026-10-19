@@ -51,13 +51,13 @@
 	end_block
 # reserved
 	local.get	17
+	local.get	6
+	i32.store	8
+	local.get	17
 	i64.const	16
 	i32.wrap_i64
 	i32.add
 	local.set	19
-	local.get	17
-	local.get	6
-	i32.store	8
 	local.get	0
 	local.get	19
 	local.get	18

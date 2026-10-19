@@ -1004,16 +1004,12 @@ effectiveAddress ctx base offset ty =
           Nothing -> (loads <> [immediate scratchExtra offset, arm64Instruction (ArmAdd scratchRight register (Arm64RegisterValue scratchExtra))], scratchRight)
 
 arm64PtrAdd :: Ctx Arm64Register -> Arm64Register -> Operand -> Arm64Register -> [Arm64Statement]
-arm64PtrAdd ctx a offset dst
-  -- A pointer copy is a move, and nothing when the copy takes the register
-  -- of its source.
-  | offset == OperandLiteral (LitInt 0) = move dst a
-  | otherwise =
-      case constantBits I64 offset >>= addSubConstant 64 of
-        Just (negated, value) -> [arm64Instruction ((if negated then ArmSub else ArmAdd) dst a (Arm64ImmediateValue value))]
-        Nothing ->
-          let (loads', b) = operandIn' ctx 0 I64 scratchRight offset
-           in loads' <> [arm64Instruction (ArmAdd dst a (Arm64RegisterValue b))]
+arm64PtrAdd ctx a offset dst =
+  case constantBits I64 offset >>= addSubConstant 64 of
+    Just (negated, value) -> [arm64Instruction ((if negated then ArmSub else ArmAdd) dst a (Arm64ImmediateValue value))]
+    Nothing ->
+      let (loads', b) = operandIn' ctx 0 I64 scratchRight offset
+       in loads' <> [arm64Instruction (ArmAdd dst a (Arm64RegisterValue b))]
 
 arm64StackAddr :: Arm64Register -> Int -> [Arm64Statement]
 arm64StackAddr dst offset

@@ -37,13 +37,13 @@ expected: |
     %result_18 = add i64 2, 2
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11 + 16] align 8 region heap
     store i64 %result_18, [%hp_11 + 24] align 8 region heap
-    %object_19 = ptr.add %hp_11, 16
     store ptr @aihc_c_aihc_entry_Pair_0, [%hp_11 + 32] align 8 region heap
     store ptr %hp_11, [%hp_11 + 40] align 8 region heap
-    store ptr %object_19, [%hp_11 + 48] align 8 region heap
-    %object_20 = ptr.add %hp_11, 32
-    %hp_21 = ptr.add %hp_11, 56
-    tailcall @aihc_lir_continue_p(%hp_21, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %object_20)
+    %hp_17 = ptr.add %hp_11, 16
+    store ptr %hp_17, [%hp_11 + 48] align 8 region heap
+    %hp_19 = ptr.add %hp_11, 32
+    %hp_20 = ptr.add %hp_11, 56
+    tailcall @aihc_lir_continue_p(%hp_20, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_19)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

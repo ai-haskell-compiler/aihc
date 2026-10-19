@@ -1,0 +1,20 @@
+; Two objects at the heap pointer, as a constructor allocation lowers them.
+; Each advance of the heap pointer comes before the stores of its object, so
+; the old pointer is read after the advance. The stores take their offsets
+; from the first pointer, and the advances wait until a value use reads them.
+; Thus the old pointer dies at the last advance, the new heap pointer takes
+; its register, and no move puts the heap pointer back before the call.
+extern func @next(ptr, ptr, ptr, ptr, ptr, ptr)
+extern data @info
+
+func @allocate(%machine: ptr, %hp: ptr, %hp_limit: ptr, %sp: ptr, %x: ptr) {
+entry:
+  %second = ptr.add %hp, 16
+  store ptr @info, [%hp] align 8
+  store ptr %x, [%hp + 8] align 8
+  %after = ptr.add %second, 24
+  store ptr @info, [%second] align 8
+  store ptr %hp, [%second + 8] align 8
+  store ptr %x, [%second + 16] align 8
+  tailcall @next(%machine, %after, %hp_limit, %sp, %x, %second)
+}

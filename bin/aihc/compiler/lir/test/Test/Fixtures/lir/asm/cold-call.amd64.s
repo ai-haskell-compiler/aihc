@@ -21,7 +21,7 @@ reserve:
 	mov r13, [rbx + 32]
 	add rsp, 0x8
 .Llir_0_2:
-	lea r12, [rdx + 16]
 	mov [rdx + 8], rsi
+	lea r12, [rdx + 16]
 	jmp next
 	.section .note.GNU-stack

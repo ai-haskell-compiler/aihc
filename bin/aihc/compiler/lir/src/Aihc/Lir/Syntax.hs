@@ -57,9 +57,8 @@ module Aihc.Lir.Syntax
     Literal (..),
     forOperationOperands,
     forTerminatorOperands,
-    mapOperation,
-    mapAddress,
-    mapTerminator,
+    traverseOperation,
+    traverseTerminatorOperands,
   )
 where
 
@@ -555,59 +554,54 @@ forTerminatorOperands act terminator =
     TailCallIndirect callee arguments _ -> act callee *> traverse_ act arguments
     Trap _ -> pure ()
 
--- | Rewrite the operands an operation reads.
-mapOperation :: (Operand -> Operand) -> Operation -> Operation
-mapOperation operand operation =
+-- | Rewrite the operands an operation reads, with one action for a value
+-- operand and one for an address. The address action sees the base of the
+-- address, and the value action does not.
+traverseOperation :: (Applicative f) => (Operand -> f Operand) -> (Address -> f Address) -> Operation -> f Operation
+traverseOperation operand address operation =
   case operation of
-    Binary op ty left right -> Binary op ty (operand left) (operand right)
-    Unary op ty value -> Unary op ty (operand value)
-    Wide op ty left right -> Wide op ty (operand left) (operand right)
-    QuotRemWide ty high low divisor -> QuotRemWide ty (operand high) (operand low) (operand divisor)
-    Compare op ty left right -> Compare op ty (operand left) (operand right)
-    FloatBinary op ty left right -> FloatBinary op ty (operand left) (operand right)
-    FloatUnary op ty value -> FloatUnary op ty (operand value)
-    Convert op from value to -> Convert op from (operand value) to
-    PtrToInt value -> PtrToInt (operand value)
-    PtrFromInt value -> PtrFromInt (operand value)
-    Select ty condition whenTrue whenFalse -> Select ty (operand condition) (operand whenTrue) (operand whenFalse)
-    Load ty address align -> Load ty (mapAddress operand address) align
-    LoadInvariant ty address align -> LoadInvariant ty (mapAddress operand address) align
-    Store ty value address align -> Store ty (operand value) (mapAddress operand address) align
-    LoadAtomic order ty address -> LoadAtomic order ty (mapAddress operand address)
-    StoreAtomic order ty value address -> StoreAtomic order ty (operand value) (mapAddress operand address)
-    LoadDependent ty address -> LoadDependent ty (mapAddress operand address)
-    CompareSwap order ty expected replacement address ->
-      CompareSwap order ty (operand expected) (operand replacement) (mapAddress operand address)
-    AtomicRmw op order ty value address -> AtomicRmw op order ty (operand value) (mapAddress operand address)
-    Fence _ -> operation
-    PtrAdd base offset -> PtrAdd (operand base) (operand offset)
-    StackAlloc _ _ -> operation
-    GlobalGet _ -> operation
-    GlobalSet symbol value -> GlobalSet symbol (operand value)
-    Call symbol arguments -> Call symbol (map operand arguments)
-    CallIndirect callee arguments signature -> CallIndirect (operand callee) (map operand arguments) signature
+    Binary op ty left right -> Binary op ty <$> operand left <*> operand right
+    Unary op ty value -> Unary op ty <$> operand value
+    Wide op ty left right -> Wide op ty <$> operand left <*> operand right
+    QuotRemWide ty high low divisor -> QuotRemWide ty <$> operand high <*> operand low <*> operand divisor
+    Compare op ty left right -> Compare op ty <$> operand left <*> operand right
+    FloatBinary op ty left right -> FloatBinary op ty <$> operand left <*> operand right
+    FloatUnary op ty value -> FloatUnary op ty <$> operand value
+    Convert op from value to -> (\value' -> Convert op from value' to) <$> operand value
+    PtrToInt value -> PtrToInt <$> operand value
+    PtrFromInt value -> PtrFromInt <$> operand value
+    Select ty condition whenTrue whenFalse -> Select ty <$> operand condition <*> operand whenTrue <*> operand whenFalse
+    Load ty at align -> (\at' -> Load ty at' align) <$> address at
+    LoadInvariant ty at align -> (\at' -> LoadInvariant ty at' align) <$> address at
+    Store ty value at align -> (\value' at' -> Store ty value' at' align) <$> operand value <*> address at
+    LoadAtomic order ty at -> LoadAtomic order ty <$> address at
+    StoreAtomic order ty value at -> StoreAtomic order ty <$> operand value <*> address at
+    LoadDependent ty at -> LoadDependent ty <$> address at
+    CompareSwap order ty expected replacement at ->
+      CompareSwap order ty <$> operand expected <*> operand replacement <*> address at
+    AtomicRmw op order ty value at -> AtomicRmw op order ty <$> operand value <*> address at
+    Fence _ -> pure operation
+    PtrAdd base offset -> PtrAdd <$> operand base <*> operand offset
+    StackAlloc _ _ -> pure operation
+    GlobalGet _ -> pure operation
+    GlobalSet symbol value -> GlobalSet symbol <$> operand value
+    Call symbol arguments -> Call symbol <$> traverse operand arguments
+    CallIndirect callee arguments signature -> (\callee' arguments' -> CallIndirect callee' arguments' signature) <$> operand callee <*> traverse operand arguments
 
--- | Rewrite the base of an address.
-mapAddress :: (Operand -> Operand) -> Address -> Address
-mapAddress operand address = address {addressBase = operand (addressBase address)}
-
--- | Rewrite the operands and the labels of a terminator. @onReturn@ gives
--- the terminator that a @return@ becomes, which is @Return@ everywhere
--- except at a call site that is waiting for the results.
-mapTerminator :: (Operand -> Operand) -> (Label -> Label) -> ([Operand] -> Terminator) -> Terminator -> Terminator
-mapTerminator operand label onReturn terminator =
+-- | Rewrite the operands a terminator reads, and keep its labels.
+traverseTerminatorOperands :: (Applicative f) => (Operand -> f Operand) -> Terminator -> f Terminator
+traverseTerminatorOperands operand terminator =
   case terminator of
-    Jump target -> Jump (mapTarget target)
-    Branch condition whenTrue whenFalse -> Branch (operand condition) (mapTarget whenTrue) (mapTarget whenFalse)
-    Switch ty scrutinee cases fallback -> Switch ty (operand scrutinee) (map mapCase cases) (fmap mapTarget fallback)
-    Return values -> onReturn (map operand values)
-    TailCall symbol arguments -> TailCall symbol (map operand arguments)
-    TailCallIndirect callee arguments signature -> TailCallIndirect (operand callee) (map operand arguments) signature
-    Trap message -> Trap message
+    Jump target -> Jump <$> mapTarget target
+    Branch condition whenTrue whenFalse -> Branch <$> operand condition <*> mapTarget whenTrue <*> mapTarget whenFalse
+    Switch ty scrutinee cases fallback -> Switch ty <$> operand scrutinee <*> traverse mapCase cases <*> traverse mapTarget fallback
+    Return values -> Return <$> traverse operand values
+    TailCall symbol arguments -> TailCall symbol <$> traverse operand arguments
+    TailCallIndirect callee arguments signature -> (\callee' arguments' -> TailCallIndirect callee' arguments' signature) <$> operand callee <*> traverse operand arguments
+    Trap message -> pure (Trap message)
   where
-    mapTarget target = Target (label (targetLabel target)) (map operand (targetArguments target))
+    mapTarget target = Target (targetLabel target) <$> traverse operand (targetArguments target)
     mapCase switchCase =
-      let target = mapTarget (switchCaseTarget switchCase)
-       in case switchCase of
-            SwitchCase value _ -> SwitchCase value target
-            SwitchCaseConstant symbol _ -> SwitchCaseConstant symbol target
+      case switchCase of
+        SwitchCase value target -> SwitchCase value <$> mapTarget target
+        SwitchCaseConstant symbol target -> SwitchCaseConstant symbol <$> mapTarget target

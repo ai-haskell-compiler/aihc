@@ -76,7 +76,7 @@ import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcCont
 import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
-import Aihc.Lir.Simplify (removePointerCopies, simplifyBooleanBranches, simplifyRotations, simplifyWidths)
+import Aihc.Lir.Simplify (foldPointerOffsets, simplifyBooleanBranches, simplifyRotations, simplifyWidths)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -412,10 +412,6 @@ data LowerState = LowerState
     stateOpen :: !(Maybe OpenBlock),
     -- | The context of the code under construction, when it has one.
     stateContext :: !(Maybe Context),
-    -- | The bytes that the objects after the last read of the context took
-    -- from the heap. The heap pointer of the context does not include them.
-    -- See 'bumpAllocate'.
-    stateHeapPending :: !Integer,
     -- | The store safepoint whose store comes next. See 'beginSafepoint'.
     stateSafepoint :: !(Maybe Safepoint)
   }
@@ -493,7 +489,6 @@ initialLowerState options gcProgram =
       stateBlocksRev = [],
       stateOpen = Nothing,
       stateContext = Nothing,
-      stateHeapPending = 0,
       stateSafepoint = Nothing
     }
 
@@ -781,7 +776,7 @@ finishFunction symbol linkage parameters results convention = do
   put state {stateBlocksRev = []}
   emitItem
     ( ItemFunction $
-        removePointerCopies $
+        foldPointerOffsets $
           simplifyWidths $
             simplifyRotations $
               simplifyBooleanBranches
@@ -1076,38 +1071,20 @@ freshContext = do
     [heap, heapLimit, stack, stackLimit] -> pure (Context heap heapLimit stack stackLimit, zip vars contextTypes)
     _ -> failWith (LowerUnsupportedExpression "internal: context arity")
 
--- | The context of the code under construction. The heap pointer of the
--- result includes the objects that 'bumpAllocate' took after the last read.
+-- | The context of the code under construction.
 currentContext :: LowerM Context
-currentContext = do
-  context <- pendingContext
-  pending <- gets stateHeapPending
-  if pending == 0
-    then pure context
-    else do
-      heap <- emitValue "hp" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt pending)))
-      let advanced = context {contextHeap = typedOperand heap}
-      setContext advanced
-      pure advanced
+currentContext = gets stateContext >>= maybe (failWith (LowerUnsupportedExpression "internal: code without a context")) pure
 
--- | The context of the code under construction, with a heap pointer that
--- does not include the pending bytes of 'stateHeapPending'.
-pendingContext :: LowerM Context
-pendingContext = gets stateContext >>= maybe (failWith (LowerUnsupportedExpression "internal: code without a context")) pure
-
--- | Set the context of the code under construction. Its heap pointer is the
--- full heap pointer, so no bytes are pending.
 setContext :: Context -> LowerM ()
-setContext context = modify' (\state -> state {stateContext = Just context, stateHeapPending = 0})
+setContext context = modify' (\state -> state {stateContext = Just context})
 
 -- | Compile one branch. The next branch starts with the context this branch
 -- started with.
 branchWith :: LowerM value -> LowerM value
 branchWith action = do
   context <- gets stateContext
-  pending <- gets stateHeapPending
   result <- action
-  modify' (\state -> state {stateContext = context, stateHeapPending = pending})
+  modify' (\state -> state {stateContext = context})
   pure result
 
 -- | Give the capability the heap pointer and the stack pointer before a C call
@@ -1530,7 +1507,7 @@ lowerFunction env function = do
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
-  modify' (\state -> state {stateContext = Nothing, stateHeapPending = 0})
+  modify' (\state -> state {stateContext = Nothing})
   finishFunction
     (functionSymbol (grinFunctionName function))
     (if lowerExposeFunctions (envOptions env) then Export else Internal)
@@ -1596,15 +1573,12 @@ compileExpr ctx env expression =
     GrinStoreRecUnchecked bindings body -> do
       when (any (isFrameNode (ctxEnv ctx) . snd) bindings) $
         unsupported "continuation frame in a recursive store group"
-      placed <- forM bindings $ \(var, node) -> do
-        placement <- allocateNode ctx node
-        pure (var, placement)
-      -- The objects can refer to each other, so each one has its pointer
-      -- before the fields are stored.
-      objects <- traverse placementObject (Map.fromList placed)
-      let env' = objects `Map.union` env
-      forM_ placed $ \(var, placement) ->
-        for_ (lookup var bindings) (initializeFields ctx env' placement)
+      allocated <- forM bindings $ \(var, node) -> do
+        object <- allocateNode ctx node
+        pure (var, object)
+      let env' = Map.fromList allocated `Map.union` env
+      forM_ allocated $ \(var, object) ->
+        for_ (lookup var bindings) (initializeFields ctx env' object)
       compileExpr ctx env' body
     GrinCpsEval update _ value continuation -> do
       valueOperand <- pointerValue ctx env value
@@ -1828,11 +1802,8 @@ compileBinding ctx env vars expression =
           pure (Map.fromList bound `Map.union` env)
     GrinStore {} -> failWith (LowerUnsupportedExpression "store without a heap reservation")
     GrinStoreUnchecked node -> do
-      placement <- allocateNode ctx node
-      initializeFields ctx env placement node
-      -- The pointer comes after the stores, so it can take the register of
-      -- a field value that the stores read last.
-      object <- placementObject placement
+      object <- allocateNode ctx node
+      initializeFields ctx env object node
       bindResults [object]
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
@@ -1984,47 +1955,23 @@ bindVars env vars values
 -- | One object of a reservation the code before it has already made, or a
 -- continuation frame, which goes on the stack of the thread and needs no
 -- reservation.
-allocateNode :: FunctionCtx -> GrinNode -> LowerM Placement
+allocateNode :: FunctionCtx -> GrinNode -> LowerM Typed
 allocateNode ctx node = do
   info <- nodeInfoSymbol (ctxEnv ctx) node
   let region = nodeRegion (ctxEnv ctx) node
-  placement <-
+  object <-
     if isFrameNode (ctxEnv ctx) node
-      then PlacedFrame . typedOperand <$> pushFrame (nodeWords node)
+      then pushFrame (nodeWords node)
       else do
         profiling <- gets stateProfileAllocations
         when profiling (countAllocation info (grinNodeTag node) (nodeWords node))
         bumpAllocate (nodeWords node)
-  storePlaced region Ptr (OperandLiteral (LitSymbol info)) placement 0
+  storeSlot region Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
   -- The shared info table of an unsaturated constructor does not say how wide
   -- this stage is, so the object records the count itself.
   when (isPartialConstructorNode node) $
-    storePlaced region I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) placement 8
-  pure placement
-
--- | The place of a new object. A heap object is at an offset from the heap
--- pointer that 'bumpAllocate' did not advance yet. A continuation frame is
--- at its own pointer.
-data Placement
-  = PlacedHeap !Operand !Integer
-  | PlacedFrame !Operand
-
--- | Store a slot of a new object at the given offset in the object.
-storePlaced :: Region -> Type -> Operand -> Placement -> Integer -> LowerM ()
-storePlaced region ty value placement offset =
-  case placement of
-    PlacedHeap heap start -> storeSlot region ty value heap (start + offset)
-    PlacedFrame frame -> storeSlot region ty value frame offset
-
--- | The pointer to a new object. A heap object at offset zero gets a copy
--- of the heap pointer, so that a later use of the object does not keep the
--- old heap pointer live. 'removePointerCopies' removes the copy when the
--- old heap pointer lives longer.
-placementObject :: Placement -> LowerM Typed
-placementObject placement =
-  case placement of
-    PlacedHeap heap start -> emitValue "object" Ptr (PtrAdd heap (OperandLiteral (LitInt start)))
-    PlacedFrame frame -> pure (Typed frame Ptr)
+    storeSlot region I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
+  pure object
 
 -- | Add one object of the given words to the allocation counter of an info
 -- table. The counters are pairs of words, the objects and the words, in the
@@ -2081,19 +2028,12 @@ lowerAllocationProfile = do
 -- | Take the given words from heap that a reservation has already made: the
 -- object starts at the heap pointer, and the heap pointer advances past it.
 -- The caller writes the header and every field, so nothing zeroes the slots.
---
--- The advance waits until the next read of the context. Thus the objects of
--- a reservation start at offsets from one heap pointer, and the last read of
--- that pointer is the advance. The register allocator can then keep the new
--- heap pointer in the register of the old one. An advance at each object
--- keeps the old pointer live as the object, so the new pointer goes to a
--- different register and a move puts it back before the next call.
-bumpAllocate :: Int -> LowerM Placement
+bumpAllocate :: Int -> LowerM Typed
 bumpAllocate words' = do
-  context <- pendingContext
-  pending <- gets stateHeapPending
-  modify' (\state -> state {stateHeapPending = pending + 8 * toInteger words'})
-  pure (PlacedHeap (contextHeap context) pending)
+  context <- currentContext
+  next <- emitValue "hp" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt (8 * toInteger words'))))
+  setContext context {contextHeap = typedOperand next}
+  pure (Typed (contextHeap context) Ptr)
 
 -- | Whether a node is a continuation frame: a closure of a function that the
 -- CPS pass made a continuation.
@@ -2118,13 +2058,9 @@ nodeRegion env node = if isFrameNode env node then StackRegion else HeapRegion
 -- header and every field.
 pushFrame :: Int -> LowerM Typed
 pushFrame words' = do
-  context <- pendingContext
-  pending <- gets stateHeapPending
+  context <- currentContext
   (frame, pushed) <- pushStackFrame context words'
-  -- Neither path of the push reads the heap pointer, so the objects before
-  -- the frame can stay pending.
   setContext pushed
-  modify' (\state -> state {stateHeapPending = pending})
   pure (Typed frame Ptr)
 
 -- | Push a frame on a stack with the stack pointer, the stack limit, and the
@@ -2191,11 +2127,11 @@ isPartialConstructorNode node =
     GrinConstructor _ remaining -> constructorStage remaining == PartialConstructor
     _ -> False
 
-initializeFields :: FunctionCtx -> ValueEnv -> Placement -> GrinNode -> LowerM ()
-initializeFields ctx env placement node =
+initializeFields :: FunctionCtx -> ValueEnv -> Typed -> GrinNode -> LowerM ()
+initializeFields ctx env object node =
   forM_ (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     typed <- materialize ctx env field
-    storePlaced (nodeRegion (ctxEnv ctx) node) (typedType typed) (typedOperand typed) placement (toInteger (8 * (index + 1 + payloadShift)))
+    storeSlot (nodeRegion (ctxEnv ctx) node) (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1 + payloadShift)))
   where
     payloadShift = nodePayloadShift node
 
@@ -2492,7 +2428,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [GrinLitValue (GrinLitInt _ size)])
       | name == uncheckedByteArrayPrimitive -> do
           let words' = uncheckedByteArrayWords size
-          array <- bumpAllocate (fromInteger words') >>= placementObject
+          array <- bumpAllocate (fromInteger words')
           let object = typedOperand array
               literal = OperandLiteral . LitInt
               info = Symbol "aihc_byte_array_info"

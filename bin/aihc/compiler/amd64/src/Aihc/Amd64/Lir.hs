@@ -1142,16 +1142,12 @@ amd64AtomicRmw ctx op _ ty dst value base offset =
             )
 
 amd64PtrAdd :: Ctx Amd64Register -> Amd64Register -> Operand -> Amd64Register -> [Amd64Statement]
-amd64PtrAdd ctx a offset dst
-  -- A pointer copy is a move, and nothing when the copy takes the register
-  -- of its source.
-  | offset == OperandLiteral (LitInt 0) = move dst a
-  | otherwise =
-      case smallImmediate I64 offset of
-        Just value -> [amd64Instruction (AmdLea dst (Amd64MemoryAddress (Amd64Memory a (fromInteger value))))]
-        Nothing ->
-          let (loads', b) = operandIn' ctx 0 I64 scratchRight offset
-           in loads' <> arithAdd dst a b
+amd64PtrAdd ctx a offset dst =
+  case smallImmediate I64 offset of
+    Just value -> [amd64Instruction (AmdLea dst (Amd64MemoryAddress (Amd64Memory a (fromInteger value))))]
+    Nothing ->
+      let (loads', b) = operandIn' ctx 0 I64 scratchRight offset
+       in loads' <> arithAdd dst a b
   where
     arithAdd dest left right
       | dest == left = [amd64Instruction (AmdAdd (Amd64RmRegister dest) (Amd64BinaryRegister right))]

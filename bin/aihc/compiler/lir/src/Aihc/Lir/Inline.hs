@@ -26,9 +26,10 @@ where
 
 import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants)
-import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths)
+import Aihc.Lir.Simplify (foldPointerOffsets, simplifyBooleanBranches, simplifyRotations, simplifyWidths)
 import Aihc.Lir.Syntax
 import Control.Monad.Trans.State.Strict (State, runState, state)
+import Data.Functor.Identity (Identity (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -42,7 +43,7 @@ prepareModule :: Integer -> Module -> Module
 prepareModule wordBytes = simplify . inlineModule . resolveConstants wordBytes
   where
     simplify (Module items) = Module (map simplifyItem items)
-    simplifyItem (ItemFunction function) = ItemFunction (simplifyWidths (simplifyRotations (simplifyBooleanBranches function)))
+    simplifyItem (ItemFunction function) = ItemFunction (foldPointerOffsets (simplifyWidths (simplifyRotations (simplifyBooleanBranches function))))
     simplifyItem item = item
 
 -- | 'prepareModule', with the module linted as it was written and again as
@@ -331,3 +332,31 @@ mergeBlocks blocks =
               -- else reaches that one, so the two run equally often.
               blockCold = blockCold block || blockCold absorbed
             }
+
+-- | Rewrite the operands an operation reads.
+mapOperation :: (Operand -> Operand) -> Operation -> Operation
+mapOperation operand = runIdentity . traverseOperation (Identity . operand) (Identity . mapAddress operand)
+
+mapAddress :: (Operand -> Operand) -> Address -> Address
+mapAddress operand address = address {addressBase = operand (addressBase address)}
+
+-- | Rewrite the operands and the labels of a terminator. @onReturn@ gives
+-- the terminator that a @return@ becomes, which is @Return@ everywhere
+-- except at a call site that is waiting for the results.
+mapTerminator :: (Operand -> Operand) -> (Label -> Label) -> ([Operand] -> Terminator) -> Terminator -> Terminator
+mapTerminator operand label onReturn terminator =
+  case terminator of
+    Jump target -> Jump (mapTarget target)
+    Branch condition whenTrue whenFalse -> Branch (operand condition) (mapTarget whenTrue) (mapTarget whenFalse)
+    Switch ty scrutinee cases fallback -> Switch ty (operand scrutinee) (map mapCase cases) (fmap mapTarget fallback)
+    Return values -> onReturn (map operand values)
+    TailCall symbol arguments -> TailCall symbol (map operand arguments)
+    TailCallIndirect callee arguments signature -> TailCallIndirect (operand callee) (map operand arguments) signature
+    Trap message -> Trap message
+  where
+    mapTarget target = Target (label (targetLabel target)) (map operand (targetArguments target))
+    mapCase switchCase =
+      let target = mapTarget (switchCaseTarget switchCase)
+       in case switchCase of
+            SwitchCase value _ -> SwitchCase value target
+            SwitchCaseConstant symbol _ -> SwitchCaseConstant symbol target

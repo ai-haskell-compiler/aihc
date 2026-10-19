@@ -1,10 +1,13 @@
 -- | Simplify Boolean switches, rotate expressions, arithmetic widths, and
--- pointer copies before register allocation.
-module Aihc.Lir.Simplify (removePointerCopies, simplifyBooleanBranches, simplifyRotations, simplifyWidths) where
+-- pointer offsets before register allocation.
+module Aihc.Lir.Simplify (foldPointerOffsets, simplifyBooleanBranches, simplifyRotations, simplifyWidths) where
 
-import Aihc.Lir.RegAlloc (Interval (..), functionIntervals, operationReads, readCounts)
+import Aihc.Lir.RegAlloc (operationReads, readCounts, terminatorReads)
 import Aihc.Lir.Syntax
 import Control.Applicative ((<|>))
+import Control.Monad (forM_, unless)
+import Control.Monad.Trans.State.Strict (gets, modify', runState)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -164,47 +167,111 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
             | otherwise = candidate
        in (result, Set.insert result names)
 
--- | Use the source of a pointer copy (@ptr.add %source, 0@) in place of the
--- copy when the live interval of the source covers the interval of the
--- copy. The register allocator gives each value one interval, so the
--- substitution then does not make the source live longer, and the copy is
--- one move less.
+-- | Express each constant pointer offset in a block from the root of its
+-- chain. A chain starts at a value @%r@. Each @%v = ptr.add %u, c@ in the
+-- block, with a nonzero constant @c@ and with @%u@ in the chain, is @%r@
+-- plus a known offset.
 --
--- A copy that lives longer than its source stays. It lets the source die
--- first, so that a new value can take the register of the source. See
--- @bumpAllocate@ in "Aihc.Lir.Lower", which copies the heap pointer for
--- this reason.
-removePointerCopies :: Function -> Function
-removePointerCopies function
-  | Map.null candidates = function
-  | Map.null copies = function
-  | otherwise =
-      function
-        { functionBlocks =
-            [ block
-                { blockInstructions =
-                    [ instruction {instructionOperation = mapOperation rename (instructionOperation instruction)}
-                    | instruction@(Instruction results _) <- blockInstructions block,
-                      not (any (`Map.member` copies) results)
-                    ],
-                  blockTerminator = mapTerminator rename id Return (blockTerminator block)
-                }
-            | block <- functionBlocks function
-            ]
-        }
+-- An address with a chain value as its base takes @%r@ as its base and adds
+-- the offset, when the sum is an offset that every backend encodes in the
+-- access itself. A chain value that only such addresses read needs no
+-- definition. The definition of each other chain value moves down to its
+-- first other read in the block, and it adds its whole offset to @%r@. A
+-- chain value that a later block reads gets its definition before the
+-- terminator at the latest.
+--
+-- Before, each step of a chain kept the step before it live, often to the
+-- end of the block. A new step then could not take the register of the old
+-- one, and a move put it back later. Now @%r@ is live until the last
+-- definition that the chain needs, and the last one can take its register.
+foldPointerOffsets :: Function -> Function
+foldPointerOffsets function = function {functionBlocks = map foldBlock (functionBlocks function)}
   where
-    candidates =
-      Map.fromList
-        [ (copy, source)
-        | block <- functionBlocks function,
-          Instruction [copy] (PtrAdd (OperandVar source) (OperandLiteral (LitInt 0))) <- blockInstructions block
-        ]
-    intervals = Map.fromList [(intervalVar interval, intervalEnd interval) | interval <- functionIntervals function]
-    copies = Map.filterWithKey covered candidates
-    covered copy source = Map.lookup copy intervals <= Map.lookup source intervals
-    rename operand =
+    uses = readCounts function
+    foldBlock block
+      | not (any isOffset (blockInstructions block)) = block
+      | otherwise =
+          let run = do
+                forM_ (blockInstructions block) instruction
+                terminator <- traverseTerminatorOperands value (blockTerminator block)
+                escaping <- gets (Map.keys . Map.filterWithKey (\var _ -> escapes var) . chainMembers)
+                forM_ escaping materialize
+                -- A backend fuses a compare with the branch on its result,
+                -- so the definitions go before the compare.
+                emitted <- gets chainEmitted
+                case emitted of
+                  compare'@(Instruction [var] _) : before
+                    | Just var == condition -> do
+                        modify' (\state -> state {chainEmitted = before})
+                        flushPending
+                        emitInstruction compare'
+                  _ -> flushPending
+                pure terminator
+              (terminator', final) = runState run (ChainState Map.empty Set.empty [] [])
+           in block {blockInstructions = reverse (chainEmitted final), blockTerminator = terminator'}
+      where
+        localUses = Map.fromListWith (+) [(var, 1 :: Int) | var <- concatMap (operationReads . instructionOperation) (blockInstructions block) <> terminatorReads (blockTerminator block)]
+        escapes var = Map.findWithDefault 0 var uses > Map.findWithDefault 0 var localUses
+        condition = case blockTerminator block of
+          Branch (OperandVar var) _ _ -> Just var
+          Switch _ (OperandVar var) _ _ -> Just var
+          _ -> Nothing
+    instruction (Instruction [var] (PtrAdd (OperandVar base) (OperandLiteral (LitInt offset))))
+      | offset /= 0 = do
+          members <- gets chainMembers
+          let (root, start) = Map.findWithDefault (base, 0) base members
+          modify' (\state -> state {chainMembers = Map.insert var (root, start + offset) members})
+    instruction (Instruction results operation) = do
+      operation' <- traverseOperation value address operation
+      flushPending
+      emitInstruction (Instruction results operation')
+    -- A chain value that is read as a value needs its definition.
+    value operand = do
       case operand of
-        OperandVar var -> OperandVar (original var)
-        OperandLiteral _ -> operand
-    -- The source of a copy can be a copy that goes too.
-    original var = maybe var original (Map.lookup var copies)
+        OperandVar var -> materialize var
+        OperandLiteral _ -> pure ()
+      pure operand
+    address at =
+      case addressBase at of
+        OperandVar var -> do
+          members <- gets chainMembers
+          case Map.lookup var members of
+            Just (root, offset)
+              | encodable (addressOffset at + offset) ->
+                  pure at {addressBase = OperandVar root, addressOffset = addressOffset at + offset}
+              | otherwise -> materialize var >> pure at
+            Nothing -> pure at
+        OperandLiteral _ -> pure at
+    -- Every backend puts an offset from zero to 4095 in the access itself.
+    encodable offset = offset >= 0 && offset <= 4095
+    materialize var = do
+      members <- gets chainMembers
+      done <- gets chainDefined
+      forM_ (Map.lookup var members) $ \(root, offset) ->
+        unless (Set.member var done) $
+          modify' $ \state ->
+            state
+              { chainDefined = Set.insert var done,
+                chainPending = Instruction [var] (PtrAdd (OperandVar root) (OperandLiteral (LitInt offset))) : chainPending state
+              }
+    flushPending = do
+      pending <- gets chainPending
+      modify' (\state -> state {chainPending = []})
+      mapM_ emitInstruction (List.sortOn offsetOf (reverse pending))
+    emitInstruction emitted = modify' (\state -> state {chainEmitted = emitted : chainEmitted state})
+    offsetOf (Instruction _ (PtrAdd _ (OperandLiteral (LitInt offset)))) = offset
+    offsetOf _ = 0
+    isOffset (Instruction [_] (PtrAdd (OperandVar _) (OperandLiteral (LitInt offset)))) = offset /= 0
+    isOffset _ = False
+
+-- | The state of 'foldPointerOffsets' in one block.
+data ChainState = ChainState
+  { -- | Each chain value with its root and its offset from the root.
+    chainMembers :: !(Map.Map Var (Var, Integer)),
+    -- | The chain values that have their definition.
+    chainDefined :: !(Set.Set Var),
+    -- | The definitions that go before the next instruction, last first.
+    chainPending :: ![Instruction],
+    -- | The instructions of the block, last first.
+    chainEmitted :: ![Instruction]
+  }

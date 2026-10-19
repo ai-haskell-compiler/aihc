@@ -18,6 +18,6 @@ _reserve:
 	ldr x21, [x19, #32]
 	ldp x29, x30, [sp], #32
 .Llir_0_2:
-	add x20, x2, #16
 	str x1, [x2, #8]
+	add x20, x2, #16
 	b _next

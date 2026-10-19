@@ -1,7 +1,7 @@
 	.text
 	.p2align 2
 _enter:
-	mov x22, x0
+	add x22, x0, #0
 	mov x8, x0
 	orr x8, x8, #0xfff
 	add x23, x8, #1
