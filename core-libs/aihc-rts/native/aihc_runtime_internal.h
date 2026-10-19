@@ -290,6 +290,16 @@ static inline void aihc_pinned_set_generation(AihcPinnedBlock *block,
                  ((uint64_t)generation << AIHC_PINNED_GENERATION_SHIFT);
 }
 
+/* The pinned lists of a machine: the young list of each capability at the
+   indexes below the capability count, and the gen2 list of the machine at
+   the capability count. */
+static inline AihcPinnedBlock *aihc_pinned_list(const AihcMachine *machine,
+                                                uint64_t index) {
+  return index < machine->capability_count
+             ? machine->capabilities[index]->young_pinned
+             : machine->pinned_blocks;
+}
+
 /* The block of a pinned object or a large object. */
 static inline AihcPinnedBlock *aihc_pinned_block_of(const AihcValue *object) {
   return (AihcPinnedBlock *)((uint8_t *)(uintptr_t)object -

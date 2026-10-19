@@ -347,7 +347,24 @@ static int aihc_address_set_contains(const AihcAddressSet *set,
 }
 
 static void aihc_address_set_clear(AihcAddressSet *set) {
-  if (set->count != 0) {
+  if (set->count != 0 && set->capacity > 64 &&
+      set->count * 8 <= set->capacity) {
+    /* One collection can fill a large set, and the next collections fill
+       a small part of it. The clear of the whole table would then cost
+       more than the collection, so a table that is mostly empty gets a
+       smaller one with room for four times the count. */
+    size_t capacity = 64;
+    while (capacity < set->count * 4) {
+      capacity *= 2;
+    }
+    AihcValue **slots = calloc(capacity, sizeof(*slots));
+    if (slots == NULL) {
+      aihc_fail("out of memory");
+    }
+    free(set->slots);
+    set->slots = slots;
+    set->capacity = capacity;
+  } else if (set->count != 0) {
     memset(set->slots, 0, sizeof(*set->slots) * set->capacity);
   }
   set->count = 0;
@@ -848,9 +865,12 @@ static void aihc_gen2_begin_marking(AihcCapability *capability) {
     /* The cycle that is given up marked pinned blocks. The segments carry
        the epoch, but a block carries one bit, so the marks are cleared
        here. This is the degradation path, so the walk is acceptable. */
-    for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
-         block != NULL; block = block->next) {
-      block->bytes &= ~AIHC_PINNED_CYCLE_MARK;
+    AihcMachine *machine = capability->machine;
+    for (uint64_t index = 0; index <= machine->capability_count; ++index) {
+      for (AihcPinnedBlock *block = aihc_pinned_list(machine, index);
+           block != NULL; block = block->next) {
+        block->bytes &= ~AIHC_PINNED_CYCLE_MARK;
+      }
     }
   }
   ++capability->machine->gen2_epoch;
@@ -2605,42 +2625,83 @@ static void aihc_fixed_uncharge(AihcCapability *capability,
       bytes;
 }
 
-/* Free the pinned blocks of the collected generations that nothing reached,
-   and clear the marks of the others. */
-static void aihc_sweep_pinned(AihcGcContext *context) {
+/* The head of a pinned list. See aihc_pinned_list. */
+static AihcPinnedBlock **aihc_pinned_list_link(AihcMachine *machine,
+                                               uint64_t index) {
+  return index < machine->capability_count
+             ? &machine->capabilities[index]->young_pinned
+             : &machine->pinned_blocks;
+}
+
+/* Free the blocks of one pinned list that are in the collected generations
+   and that nothing reached, and clear the marks of the others. On a young
+   list, a block that is now in gen2 moves to the gen2 list. */
+static void aihc_sweep_pinned_list(AihcGcContext *context,
+                                   AihcPinnedBlock **link, int young) {
   AihcCapability *capability = context->capability;
-  AihcPinnedBlock **link = &capability->machine->pinned_blocks;
+  AihcMachine *machine = capability->machine;
   while (*link != NULL) {
     AihcPinnedBlock *block = *link;
+    unsigned generation = aihc_pinned_generation(block);
     if ((block->bytes & AIHC_PINNED_MARK) != 0) {
       block->bytes &= ~AIHC_PINNED_MARK;
-      link = &block->next;
-    } else if (aihc_pinned_generation(block) <= context->collected &&
+    } else if (generation <= context->collected && generation <= 2 &&
                !aihc_pinned_foreign(context, block)) {
+      /* A collection collects gen2 at most, so the second test is also
+         explicit for the static analyzer, which does not know the bound
+         of collected. */
       *link = block->next;
       aihc_fixed_uncharge(capability, block);
       aihc_pinned_block_release(block);
-    } else {
-      link = &block->next;
+      continue;
+    }
+    if (young && generation == 2) {
+      *link = block->next;
+      block->next = machine->pinned_blocks;
+      machine->pinned_blocks = block;
+      continue;
+    }
+    link = &block->next;
+  }
+}
+
+/* Sweep the young lists of the collected capabilities. Only a full
+   collection marks a gen2 block, so only a full collection sweeps the gen2
+   list. A local collection thus walks no block of gen2 and no block of
+   another capability. The gen2 list goes first: the sweep of a young list
+   clears the mark of a block before it moves the block to that list. */
+static void aihc_sweep_pinned(AihcGcContext *context) {
+  AihcMachine *machine = context->capability->machine;
+  if (context->collected == 2) {
+    aihc_sweep_pinned_list(context, &machine->pinned_blocks, 0);
+  }
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    if (context->local == NULL || other == context->local) {
+      aihc_sweep_pinned_list(context, &other->young_pinned, 1);
     }
   }
 }
 
-/* Free the gen2 blocks of the pinned list the cycle did not mark, and
-   clear the cycle marks of the others. */
+/* Free the gen2 blocks of the pinned lists the cycle did not mark, and
+   clear the cycle marks of the others. A young list can hold a gen2 block
+   that a promotion moved into gen2, so the sweep walks every list. */
 static void aihc_sweep_pinned_cycle(AihcCapability *capability) {
-  AihcPinnedBlock **link = &capability->machine->pinned_blocks;
-  while (*link != NULL) {
-    AihcPinnedBlock *block = *link;
-    if (aihc_pinned_generation(block) != 2) {
-      link = &block->next;
-    } else if ((block->bytes & AIHC_PINNED_CYCLE_MARK) != 0) {
-      block->bytes &= ~AIHC_PINNED_CYCLE_MARK;
-      link = &block->next;
-    } else {
-      *link = block->next;
-      aihc_fixed_uncharge(capability, block);
-      aihc_pinned_block_release(block);
+  AihcMachine *machine = capability->machine;
+  for (uint64_t index = 0; index <= machine->capability_count; ++index) {
+    AihcPinnedBlock **link = aihc_pinned_list_link(machine, index);
+    while (*link != NULL) {
+      AihcPinnedBlock *block = *link;
+      if (aihc_pinned_generation(block) != 2) {
+        link = &block->next;
+      } else if ((block->bytes & AIHC_PINNED_CYCLE_MARK) != 0) {
+        block->bytes &= ~AIHC_PINNED_CYCLE_MARK;
+        link = &block->next;
+      } else {
+        *link = block->next;
+        aihc_fixed_uncharge(capability, block);
+        aihc_pinned_block_release(block);
+      }
     }
   }
 }
@@ -3024,10 +3085,14 @@ static void aihc_cycle_start(AihcCapability *capability, uint64_t root_count,
       aihc_mark_frames(capability, stack->top);
     }
   }
-  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
-       block != NULL; block = block->next) {
-    if (aihc_pinned_generation(block) < 2) {
-      aihc_mark_young_object(capability, (AihcValue *)block->object);
+  /* A young block is only on a young list. */
+  for (uint64_t index = 0; index < capability->machine->capability_count;
+       ++index) {
+    for (AihcPinnedBlock *block = aihc_pinned_list(capability->machine, index);
+         block != NULL; block = block->next) {
+      if (aihc_pinned_generation(block) < 2) {
+        aihc_mark_young_object(capability, (AihcValue *)block->object);
+      }
     }
   }
 }
@@ -4109,10 +4174,14 @@ void aihc_machine_set_capabilities(AihcCapability *capability, uint64_t count) {
   }
   /* A removed capability is idle. Its gen1 blocks, its remembered set, and
      its young pinned blocks go to the first capability. */
-  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-       block = block->next) {
-    if (aihc_pinned_owner(block) >= count) {
+  for (uint64_t index = count; index < machine->capability_count; ++index) {
+    AihcCapability *removed = machine->capabilities[index];
+    while (removed->young_pinned != NULL) {
+      AihcPinnedBlock *block = removed->young_pinned;
+      removed->young_pinned = block->next;
       aihc_pinned_set_owner(block, 0);
+      block->next = first->young_pinned;
+      first->young_pinned = block;
     }
   }
   for (uint64_t index = count; index < machine->capability_count; ++index) {
@@ -4184,10 +4253,14 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
        stack = stack->next) {
     stack->pending_count = 0;
   }
-  while (capability->machine->pinned_blocks != NULL) {
-    AihcPinnedBlock *block = capability->machine->pinned_blocks;
-    capability->machine->pinned_blocks = block->next;
-    aihc_pinned_block_release(block);
+  for (uint64_t index = 0; index <= capability->machine->capability_count;
+       ++index) {
+    AihcPinnedBlock **link = aihc_pinned_list_link(capability->machine, index);
+    while (*link != NULL) {
+      AihcPinnedBlock *block = *link;
+      *link = block->next;
+      aihc_pinned_block_release(block);
+    }
   }
   capability->machine->fixed_bytes = 0;
   memset(capability->machine->fixed_generation_bytes, 0,
@@ -4460,8 +4533,8 @@ static AihcValue *aihc_pinned_block_adopt_unlocked(AihcCapability *capability,
      caller initializes the object. A zero header tells it to skip the
      object. See aihc_io_request_buffer. */
   __atomic_store_n(&((AihcValue *)block->object)->header, 0, __ATOMIC_RELAXED);
-  block->next = capability->machine->pinned_blocks;
-  capability->machine->pinned_blocks = block;
+  block->next = capability->young_pinned;
+  capability->young_pinned = block;
   capability->machine->fixed_bytes += charge_bytes;
   /* A new fixed block is young, as a new object in the nursery is. */
   capability->machine->fixed_generation_bytes[0] += charge_bytes;
@@ -4935,13 +5008,25 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
   aihc_verify_work.count = 0;
   aihc_verify_srt_work.count = 0;
   uint64_t fixed[3] = {0, 0, 0};
-  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
-       block != NULL; block = block->next) {
-    (void)aihc_address_set_insert(&aihc_verify_pinned, (AihcValue *)block);
-    if (aihc_pinned_generation(block) > 2) {
-      aihc_fail("verifier: a fixed block has an invalid generation");
+  for (uint64_t index = 0; index <= capability->machine->capability_count;
+       ++index) {
+    for (AihcPinnedBlock *block = aihc_pinned_list(capability->machine, index);
+         block != NULL; block = block->next) {
+      (void)aihc_address_set_insert(&aihc_verify_pinned, (AihcValue *)block);
+      if (aihc_pinned_generation(block) > 2) {
+        aihc_fail("verifier: a fixed block has an invalid generation");
+      }
+      if (index < capability->machine->capability_count &&
+          aihc_pinned_generation(block) < 2 &&
+          aihc_pinned_owner(block) != index) {
+        aihc_fail("verifier: a young fixed block is on another young list");
+      }
+      if (index == capability->machine->capability_count &&
+          aihc_pinned_generation(block) < 2) {
+        aihc_fail("verifier: a young fixed block is on the gen2 list");
+      }
+      fixed[aihc_pinned_generation(block)] += aihc_pinned_bytes(block);
     }
-    fixed[aihc_pinned_generation(block)] += aihc_pinned_bytes(block);
   }
   /* The counts of each generation must agree with the pinned list. */
   for (unsigned generation = 0; generation < 3; ++generation) {
@@ -5054,10 +5139,13 @@ void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
     aihc_walk_segments(capability, class->filled, visitor, context);
     aihc_walk_segments(capability, class->unswept, visitor, context);
   }
-  for (AihcPinnedBlock *block = capability->machine->pinned_blocks;
-       block != NULL; block = block->next) {
-    if (aihc_region_kind(block) == AIHC_REGION_LARGE) {
-      visitor((AihcValue *)block->object, context);
+  for (uint64_t index = 0; index <= capability->machine->capability_count;
+       ++index) {
+    for (AihcPinnedBlock *block = aihc_pinned_list(capability->machine, index);
+         block != NULL; block = block->next) {
+      if (aihc_region_kind(block) == AIHC_REGION_LARGE) {
+        visitor((AihcValue *)block->object, context);
+      }
     }
   }
 }

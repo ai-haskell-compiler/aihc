@@ -1975,6 +1975,40 @@ AihcIoHandle *aihc_io_handle_new(AihcCapability *capability) {
 
 /* Retain a pinned owner when the address names its payload.
    External buffers remain the caller's responsibility. */
+/* The pinned byte array whose contents hold an address, or NULL. Other
+   capabilities add blocks to the lists under the heap lock, which the
+   caller holds. A block whose object has no header yet is not initialized,
+   and its object is not the buffer. Its other fields can still change, so
+   the loads are atomic, and the array gives its contents address and its
+   size as the test read them. */
+static AihcByteArray *aihc_pinned_array_at(AihcMachine *machine,
+                                           uintptr_t address,
+                                           uintptr_t *start_out,
+                                           uint64_t *size_out) {
+  for (uint64_t list = 0; list <= machine->capability_count; ++list) {
+    for (AihcPinnedBlock *block = aihc_pinned_list(machine, list);
+         block != NULL; block = block->next) {
+      AihcValue *object = (AihcValue *)block->object;
+      AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_RELAXED);
+      if (header == 0 ||
+          ((const AihcInfo *)(uintptr_t)(header & ~AIHC_HEADER_TAG_MASK))
+                  ->object_kind != AIHC_OBJECT_BYTE_ARRAY) {
+        continue;
+      }
+      AihcByteArray *array = (AihcByteArray *)object;
+      uintptr_t start =
+          (uintptr_t)__atomic_load_n(&array->contents, __ATOMIC_RELAXED);
+      uint64_t size = __atomic_load_n(&array->size, __ATOMIC_RELAXED);
+      if (address >= start && address - start <= size) {
+        *start_out = start;
+        *size_out = size;
+        return array;
+      }
+    }
+  }
+  return NULL;
+}
+
 static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
                                   size_t offset, size_t length) {
   AihcCapability *capability = request->capability;
@@ -1990,35 +2024,19 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   default:
     break;
   }
-  /* Other capabilities add blocks to the list under the heap lock. A block
-     whose object has no header yet is not initialized, and its object is
-     not this buffer. Its other fields can still change, so the loads are
-     atomic. */
   AihcMachine *machine = capability->machine;
   aihc_heap_lock(machine);
   int owned = 1;
-  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
-       block = block->next) {
-    AihcValue *object = (AihcValue *)block->object;
-    AihcSlot header = __atomic_load_n(&object->header, __ATOMIC_RELAXED);
-    if (header == 0 ||
-        ((const AihcInfo *)(uintptr_t)(header & ~AIHC_HEADER_TAG_MASK))
-                ->object_kind != AIHC_OBJECT_BYTE_ARRAY) {
-      continue;
-    }
-    AihcByteArray *array = (AihcByteArray *)object;
-    uintptr_t start =
-        (uintptr_t)__atomic_load_n(&array->contents, __ATOMIC_RELAXED);
-    uint64_t size = __atomic_load_n(&array->size, __ATOMIC_RELAXED);
-    if (address >= start && address - start <= size) {
-      uint64_t available = size - (address - start);
-      if (offset > available || length > available - offset) {
-        owned = 0;
-        break;
-      }
+  uintptr_t start = 0;
+  uint64_t size = 0;
+  AihcByteArray *array = aihc_pinned_array_at(machine, address, &start, &size);
+  if (array != NULL) {
+    uint64_t available = size - (address - start);
+    if (offset > available || length > available - offset) {
+      owned = 0;
+    } else {
       aihc_write_barrier(capability, (AihcValue *)request);
-      request->buffer_owner = object;
-      break;
+      request->buffer_owner = (AihcValue *)array;
     }
   }
   aihc_heap_unlock(machine);
