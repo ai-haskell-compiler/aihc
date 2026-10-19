@@ -16,32 +16,40 @@ expected: |
     br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
   cold gc_collect_8:
-    store ptr %$cps_return_4, [%roots_5] align 8
-    %capability_13 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_0, [%capability_13 + 16] align 1 word
-    store ptr %sp_2, [%capability_13 + 32] align 1 word
-    call @aihc_heap_collect(%capability_13, 2, 1, %roots_5, null)
-    %$cps_return$gc_14 = load ptr [%roots_5] align 8
-    %hp_15 = load ptr [%capability_13 + 16] align 1 word
-    %hp_limit_16 = load ptr [%capability_13 + 24] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+    tailcall @aihc_lir_collect_replay_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_f_aihc_entry___sentry, 2, null)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_17 = ptr.add %hp_11, 16
+    %hp_13 = ptr.add %hp_11, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_17, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
+    tailcall @aihc_lir_continue_p(%hp_13, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
   data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
+
+  func @aihc_lir_collect_replay_p(%hp_14: ptr, %hp_limit_15: ptr, %sp_16: ptr, %sp_limit_17: ptr, %value_18: ptr, %code_19: code, %words_20: i64, %srt_21: ptr) {
+  entry:
+    %roots_22 = stack.alloc 8 align 8
+    store ptr %value_18, [%roots_22] align 8
+    %capability_23 = load ptr [%sp_limit_17 - 4040] align 1 word
+    store ptr %hp_14, [%capability_23 + 16] align 1 word
+    store ptr %sp_16, [%capability_23 + 32] align 1 word
+    call @aihc_heap_collect(%capability_23, %words_20, 1, %roots_22, %srt_21)
+    %value_24 = load ptr [%roots_22] align 8
+    %hp_25 = load ptr [%capability_23 + 16] align 1 word
+    %hp_limit_26 = load ptr [%capability_23 + 24] align 1 word
+    tailcall.indirect %code_19(%hp_25, %hp_limit_26, %sp_16, %sp_limit_17, %value_24) : (ptr, ptr, ptr, ptr, ptr)
+  }
 status: pass
 reason: |
   The shape every managed allocation takes. The reservation compares the bump
-  pointer against the end of the space and branches; the fast path carries the
-  live roots as block parameters and the slow path is the only one that spills
-  them, calls the collector and reloads what moved. The store itself loads the
+  pointer against the end of the space and branches. The fast path carries the
+  live roots as block parameters. No code before the reservation has an effect,
+  so the slow path is one tail call to a shared replay helper. The helper spills
+  the arguments of the function, calls the collector, and enters the function
+  again with the arguments that moved. The store itself loads the
   bump pointer, advances it by the words of the object, and writes the header
   and the field. The module also pins the info tables of a constructor and of
   its partial stage.

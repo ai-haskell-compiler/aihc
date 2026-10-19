@@ -21,29 +21,21 @@ expected: |
     br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
   cold gc_collect_8:
-    store ptr %$cps_return_4, [%roots_5] align 8
-    %capability_13 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_0, [%capability_13 + 16] align 1 word
-    store ptr %sp_2, [%capability_13 + 32] align 1 word
-    call @aihc_heap_collect(%capability_13, 7, 1, %roots_5, null)
-    %$cps_return$gc_14 = load ptr [%roots_5] align 8
-    %hp_15 = load ptr [%capability_13 + 16] align 1 word
-    %hp_limit_16 = load ptr [%capability_13 + 24] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+    tailcall @aihc_lir_collect_replay_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_f_aihc_entry___sentry, 7, null)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_17 = ptr.add %hp_11, 16
+    %hp_13 = ptr.add %hp_11, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8 region heap
     store i64 1, [%hp_11 + 8] align 8 region heap
-    %result_18 = add i64 2, 2
-    %hp_19 = ptr.add %hp_17, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_17] align 8 region heap
-    store i64 %result_18, [%hp_17 + 8] align 8 region heap
-    %hp_20 = ptr.add %hp_19, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_19] align 8 region heap
-    store ptr %hp_11, [%hp_19 + 8] align 8 region heap
-    store ptr %hp_17, [%hp_19 + 16] align 8 region heap
-    tailcall @aihc_lir_continue_p(%hp_20, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_19)
+    %result_14 = add i64 2, 2
+    %hp_15 = ptr.add %hp_13, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_13] align 8 region heap
+    store i64 %result_14, [%hp_13 + 8] align 8 region heap
+    %hp_16 = ptr.add %hp_15, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_15] align 8 region heap
+    store ptr %hp_11, [%hp_15 + 8] align 8 region heap
+    store ptr %hp_13, [%hp_15 + 16] align 8 region heap
+    tailcall @aihc_lir_continue_p(%hp_16, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_15)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -53,6 +45,20 @@ expected: |
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
   data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0 }
+
+  func @aihc_lir_collect_replay_p(%hp_17: ptr, %hp_limit_18: ptr, %sp_19: ptr, %sp_limit_20: ptr, %value_21: ptr, %code_22: code, %words_23: i64, %srt_24: ptr) {
+  entry:
+    %roots_25 = stack.alloc 8 align 8
+    store ptr %value_21, [%roots_25] align 8
+    %capability_26 = load ptr [%sp_limit_20 - 4040] align 1 word
+    store ptr %hp_17, [%capability_26 + 16] align 1 word
+    store ptr %sp_19, [%capability_26 + 32] align 1 word
+    call @aihc_heap_collect(%capability_26, %words_23, 1, %roots_25, %srt_24)
+    %value_27 = load ptr [%roots_25] align 8
+    %hp_28 = load ptr [%capability_26 + 16] align 1 word
+    %hp_limit_29 = load ptr [%capability_26 + 24] align 1 word
+    tailcall.indirect %code_22(%hp_28, %hp_limit_29, %sp_19, %sp_limit_20, %value_27) : (ptr, ptr, ptr, ptr, ptr)
+  }
 status: pass
 reason: |
   A primitive that cannot allocate does not split the reservations around

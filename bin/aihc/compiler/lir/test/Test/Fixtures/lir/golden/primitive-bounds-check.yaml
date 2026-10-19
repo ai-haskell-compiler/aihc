@@ -22,40 +22,46 @@ expected: |
     br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
   cold gc_collect_8:
-    store ptr %$cps_return_4, [%roots_5] align 8
-    %capability_13 = load ptr [%sp_limit_3 - 4040] align 1 word
-    store ptr %hp_0, [%capability_13 + 16] align 1 word
-    store ptr %sp_2, [%capability_13 + 32] align 1 word
-    call @aihc_heap_collect(%capability_13, 7, 1, %roots_5, null)
-    %$cps_return$gc_14 = load ptr [%roots_5] align 8
-    %hp_15 = load ptr [%capability_13 + 16] align 1 word
-    %hp_limit_16 = load ptr [%capability_13 + 24] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+    tailcall @aihc_lir_collect_replay_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_f_aihc_entry___sentry, 7, null)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_17 = ptr.add %hp_11, 56
-    %contents_18 = ptr.add %hp_11, 48
+    %hp_13 = ptr.add %hp_11, 56
+    %contents_14 = ptr.add %hp_11, 48
     store ptr @aihc_byte_array_info, [%hp_11] align 8 region heap
     store i64 8, [%hp_11 + 8] align 8 region heap
-    store ptr %contents_18, [%hp_11 + 16] align 8 region heap
+    store ptr %contents_14, [%hp_11 + 16] align 8 region heap
     store i64 0, [%hp_11 + 24] align 8 region heap
     store i64 8, [%hp_11 + 32] align 8 region heap
     store i64 7, [%hp_11 + 40] align 8 region heap
-    %size_19 = load i64 [%hp_11 + 8] align 8 region heap
-    %limit_20 = div.u i64 %size_19, 8
-    %invalid_21 = ge.u i64 4, %limit_20
-    br %invalid_21, out_of_bounds_22, inside_23
+    %size_15 = load i64 [%hp_11 + 8] align 8 region heap
+    %limit_16 = div.u i64 %size_15, 8
+    %invalid_17 = ge.u i64 4, %limit_16
+    br %invalid_17, out_of_bounds_18, inside_19
 
-  cold out_of_bounds_22:
+  cold out_of_bounds_18:
     call @aihc_byte_array_bounds_fail()
     trap "byte array access is out of bounds"
 
-  inside_23:
-    %offset_24 = mul i64 4, 8
-    %contents_25 = load ptr [%hp_11 + 16] align 8 region heap
-    %address_26 = ptr.add %contents_25, %offset_24
-    %value_27 = load i64 [%address_26] align 1
-    tailcall @aihc_lir_continue_i(%hp_17, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %value_27)
+  inside_19:
+    %offset_20 = mul i64 4, 8
+    %contents_21 = load ptr [%hp_11 + 16] align 8 region heap
+    %address_22 = ptr.add %contents_21, %offset_20
+    %value_23 = load i64 [%address_22] align 1
+    tailcall @aihc_lir_continue_i(%hp_13, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %value_23)
+  }
+
+  func @aihc_lir_collect_replay_p(%hp_24: ptr, %hp_limit_25: ptr, %sp_26: ptr, %sp_limit_27: ptr, %value_28: ptr, %code_29: code, %words_30: i64, %srt_31: ptr) {
+  entry:
+    %roots_32 = stack.alloc 8 align 8
+    store ptr %value_28, [%roots_32] align 8
+    %capability_33 = load ptr [%sp_limit_27 - 4040] align 1 word
+    store ptr %hp_24, [%capability_33 + 16] align 1 word
+    store ptr %sp_26, [%capability_33 + 32] align 1 word
+    call @aihc_heap_collect(%capability_33, %words_30, 1, %roots_32, %srt_31)
+    %value_34 = load ptr [%roots_32] align 8
+    %hp_35 = load ptr [%capability_33 + 16] align 1 word
+    %hp_limit_36 = load ptr [%capability_33 + 24] align 1 word
+    tailcall.indirect %code_29(%hp_35, %hp_limit_36, %sp_26, %sp_limit_27, %value_34) : (ptr, ptr, ptr, ptr, ptr)
   }
 status: pass
 reason: |

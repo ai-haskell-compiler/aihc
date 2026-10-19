@@ -131,6 +131,7 @@ After the call, the push loads the heap limit again.
 When the charges use the nursery, `heap_limit` goes below the nursery start, and each reservation collects.
 The first charge after a collection only empties the room, so each collection is followed by at least one chunk of progress.
 The GC pass gives each frame push a reservation of zero words, so compiled code collects after about one nursery of stack growth, also when it does not allocate.
+A frame push that only goes to an evaluation gets no reservation, because `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry when the heap pointer is above the heap limit.
 `aihc_lir_eval` collects in the same condition when its push of an update frame grows the stack.
 Refer to "Pause bound" in [gc-design.md](gc-design.md).
 A frame keeps the address of its parent in field zero, in any chunk.
@@ -791,6 +792,8 @@ GRIN snapshot fixtures request GC stress checks with `gc-stress: true`.
 The test harness changes generated Lir to select the collector path at each reservation.
 It identifies collector blocks by their calls to `aihc_heap_collect`.
 It replaces those calls with `aihc_gc_collect` to force a collection instead of a block refill.
+A reservation whose slow path enters the function again through a replay helper takes that path every second time.
+The helper sets a flag before it enters the function again, and the reservation clears the flag.
 This transformation exists only in test code.
 Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
