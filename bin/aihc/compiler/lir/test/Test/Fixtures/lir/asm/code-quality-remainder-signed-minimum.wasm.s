@@ -8,7 +8,6 @@
 	.type	.Lmain,@function
 .Lmain:
 	.functype	.Lmain () -> (i32, i64)
-	.local	i32, i32, i32, i64, f32, f64, i32, i64
 # entry
 	i32.const	255
 	i32.eqz
@@ -25,7 +24,6 @@
 	i32.rem_s
 	i32.const	255
 	i32.and
-	local.set	6
 	i64.const	-1
 	i64.eqz
 	if
@@ -37,9 +35,6 @@
 	i64.const	-9223372036854775808
 	i64.const	-1
 	i64.rem_s
-	local.set	7
-	local.get	6
-	local.get	7
 	return
 	end_function
 

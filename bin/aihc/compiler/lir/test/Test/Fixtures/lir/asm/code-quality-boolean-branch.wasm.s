@@ -9,13 +9,10 @@
 	.type	.Lone,@function
 .Lone:
 	.functype	.Lone (i64, i64) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i32
 # entry
 	local.get	0
 	local.get	1
 	i64.lt_s
-	local.set	8
-	local.get	8
 	if
 # yes
 	i64.const	11
@@ -30,7 +27,6 @@
 	.type	.Lzero,@function
 .Lzero:
 	.functype	.Lzero (i32) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64
 # entry
 	local.get	0
 	if

@@ -12,19 +12,14 @@
 	.type	.Ldouble,@function
 .Ldouble:
 	.functype	.Ldouble (f64, i64) -> (f64)
-	.local	i32, i32, i32, i64, f32, f64, i32, f64
 # entry
-	local.get	1
-	i64.const	42
-	i64.eq
-	local.set	8
 	local.get	0
 	i64.const	0
 	f64.reinterpret_i64
-	local.get	8
+	local.get	1
+	i64.const	42
+	i64.eq
 	f64.select
-	local.set	9
-	local.get	9
 	return
 	end_function
 
@@ -32,19 +27,14 @@
 	.type	.Lsingle,@function
 .Lsingle:
 	.functype	.Lsingle (i64, f32) -> (f32)
-	.local	i32, i32, i32, i64, f32, f64, i32, f32
 # entry
-	local.get	0
-	i64.const	19
-	i64.eq
-	local.set	8
 	local.get	1
 	i32.const	0
 	f32.reinterpret_i32
-	local.get	8
+	local.get	0
+	i64.const	19
+	i64.eq
 	f32.select
-	local.set	9
-	local.get	9
 	return
 	end_function
 
@@ -52,18 +42,14 @@
 	.type	.Lforward,@function
 .Lforward:
 	.functype	.Lforward (f64, i64) -> (f64)
-	.local	i32, i32, i32, i64, f32, f64, f64, f64
 # entry
 	local.get	0
 	local.get	1
 	call	.Ldouble
-	local.set	8
-	local.get	8
+	local.tee	0
 	i64.const	4617315517961601024
 	f64.reinterpret_i64
 	f64.add
-	local.set	9
-	local.get	9
 	i64.const	42
 	return_call	.Ldouble
 	end_function
@@ -72,7 +58,6 @@
 	.type	.Lindirect,@function
 .Lindirect:
 	.functype	.Lindirect (i32, f32, i64) -> (f32)
-	.local	i32, i32, i32, i64, f32, f64
 # entry
 	local.get	0
 	i32.eqz
@@ -93,24 +78,17 @@
 	.type	.Lmain,@function
 .Lmain:
 	.functype	.Lmain () -> (f64, f32)
-	.local	i32, i32, i32, i64, f32, f64, f64, i32, f32
 # entry
 	i64.const	4611686018427387904
 	f64.reinterpret_i64
 	i64.const	42
 	call	.Lforward
-	local.set	6
 	i32.const	.Ltable
 	i32.load	0
-	local.set	7
-	local.get	7
 	i32.const	1065353216
 	f32.reinterpret_i32
 	i64.const	8
 	call	.Lindirect
-	local.set	8
-	local.get	6
-	local.get	8
 	return
 	end_function
 

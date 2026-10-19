@@ -10,24 +10,14 @@
 	.type	.Lreserve,@function
 .Lreserve:
 	.functype	.Lreserve (i32, i32, i32, i32, i32, i32, i32) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i32, i32, i32, i32, i32, i32, i32
 	block
 # entry
 	local.get	1
-	i64.const	16
-	i32.wrap_i64
+	i32.const	16
 	i32.add
-	local.set	13
-	local.get	13
 	local.get	2
 	i32.le_u
-	local.set	14
-	local.get	14
 	if
-	local.get	1
-	local.get	2
-	local.set	18
-	local.set	17
 	br	1
 	end_if
 # collect
@@ -39,33 +29,26 @@
 	call	collect
 	local.get	0
 	i32.load	24
-	local.set	15
 	local.get	0
 	i32.load	32
-	local.set	16
-	local.get	15
-	local.get	16
-	local.set	18
-	local.set	17
+	local.set	2
+	local.set	1
 	br	0
 	end_block
 # reserved
-	local.get	17
+	local.get	1
 	local.get	6
 	i32.store	8
-	local.get	17
-	i64.const	16
-	i32.wrap_i64
-	i32.add
-	local.set	19
 	local.get	0
-	local.get	19
-	local.get	18
+	local.get	1
+	i32.const	16
+	i32.add
+	local.get	2
 	local.get	3
 	local.get	4
 	local.get	5
 	local.get	6
-	local.get	17
+	local.get	1
 	return_call	next
 	end_function
 

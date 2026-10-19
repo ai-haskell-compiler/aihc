@@ -11,21 +11,19 @@
 	.type	.Lshared,@function
 .Lshared:
 	.functype	.Lshared (i32) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i64, i64
+	.local	i64
 # entry
 	local.get	0
 	i64.extend_i32_u
-	local.set	7
+	local.set	1
 	local.get	0
 	if
 # yes
-	local.get	7
+	local.get	1
 	return
 	end_if
-	local.get	7
-	local.set	8
 # no
-	local.get	8
+	local.get	1
 	return
 	end_function
 
@@ -33,12 +31,9 @@
 	.type	.Lpartial,@function
 .Lpartial:
 	.functype	.Lpartial (i32) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i64
 # entry
 	local.get	0
 	i64.extend_i32_u
-	local.set	7
-	local.get	7
 	i64.const	1
 	i64.eq
 	if
@@ -56,7 +51,6 @@
 	.type	.Lsigned,@function
 .Lsigned:
 	.functype	.Lsigned (i32) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i64
 # entry
 	local.get	0
 	i32.const	31
@@ -64,8 +58,6 @@
 	i32.const	31
 	i32.shr_s
 	i64.extend_i32_s
-	local.set	7
-	local.get	7
 	i64.const	1
 	i64.eq
 	if
@@ -82,12 +74,9 @@
 	.type	.Linteger,@function
 .Linteger:
 	.functype	.Linteger (i32) -> (i64)
-	.local	i32, i32, i32, i64, f32, f64, i64
 # entry
 	local.get	0
 	i64.extend_i32_u
-	local.set	7
-	local.get	7
 	i64.const	1
 	i64.eq
 	if

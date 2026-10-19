@@ -4055,12 +4055,14 @@ typeLiteralKindTyCons :: TcKinds -> [TyCon]
 typeLiteralKindTyCons kinds =
   [kindsNaturalTyCon kinds, kindsSymbolTyCon kinds, kindsCharTyCon kinds]
 
--- | The terms that the evidence of a known type-level literal is built
--- from. The desugarer writes a call of this whether or not the module
--- names the module it comes from.
+-- | The terms that the evidence of a known type-level literal and a large
+-- 'Integer' literal are built from. The desugarer writes a call of these
+-- whether or not the module names the module they come from.
 typeLiteralSupportTerms :: PackageId -> [Entity]
 typeLiteralSupportTerms prim =
-  [GlobalTerm prim "GHC.Prim.Natural" "naturalFromInteger#"]
+  [ GlobalTerm prim "GHC.Prim.Natural" "naturalFromInteger#",
+    GlobalTerm prim "GHC.Prim.Integer" "integerFromLimbs#"
+  ]
 
 -- | Carry into an interface the facts it refers to but does not hold.
 -- The selected interface must contain only facts from the complete interface.

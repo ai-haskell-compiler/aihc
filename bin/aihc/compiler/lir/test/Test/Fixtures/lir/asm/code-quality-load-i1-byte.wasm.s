@@ -8,20 +8,15 @@
 	.type	.Lmain,@function
 .Lmain:
 	.functype	.Lmain () -> (i32, i32)
-	.local	i32, i32, i32, i64, f32, f64, i32, i32
 # entry
 	i32.const	.Lbytes
 	i32.load8_u	0
 	i32.const	1
 	i32.and
-	local.set	6
 	i32.const	.Lbytes
 	i32.load8_u	1
 	i32.const	1
 	i32.and
-	local.set	7
-	local.get	6
-	local.get	7
 	return
 	end_function
 

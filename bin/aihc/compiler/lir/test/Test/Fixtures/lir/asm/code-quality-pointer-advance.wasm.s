@@ -9,7 +9,6 @@
 	.type	.Lallocate,@function
 .Lallocate:
 	.functype	.Lallocate (i32, i32, i32, i32, i32) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i32, i32
 # entry
 	local.get	1
 	i32.const	info
@@ -26,22 +25,16 @@
 	local.get	1
 	local.get	4
 	i32.store	32
-	local.get	1
-	i64.const	16
-	i32.wrap_i64
-	i32.add
-	local.set	11
-	local.get	1
-	i64.const	40
-	i32.wrap_i64
-	i32.add
-	local.set	12
 	local.get	0
-	local.get	12
+	local.get	1
+	i32.const	40
+	i32.add
 	local.get	2
 	local.get	3
 	local.get	4
-	local.get	11
+	local.get	1
+	i32.const	16
+	i32.add
 	return_call	next
 	end_function
 
