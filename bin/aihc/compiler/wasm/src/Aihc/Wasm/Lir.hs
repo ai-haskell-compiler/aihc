@@ -3,15 +3,16 @@
 -- | Compile Lir modules to WebAssembly in the assembly syntax of LLVM MC.
 --
 -- The narrow integer types, @ptr@, and @code@ are @i32@; a narrow integer is
--- canonical, that is zero-extended.
+-- canonical, that is zero-extended. A @code@ value is an index into the
+-- function table, so a data field or a literal that names a function is a
+-- table-index relocation.
 --
 -- A Lir value stays on the operand stack when an instruction of its block
--- reads it from the top of the stack. Otherwise the value goes into a
--- WebAssembly local. The values that are not live at the same time share a
--- local, and the most used locals get the lowest indices, so that most
--- local instructions encode the index in one byte.
--- A @code@ value is an index into the function table, so a data field or a
--- literal that names a function is a table-index relocation.
+-- reads it from the top of the stack. A pure instruction whose only reader
+-- is in its block is computed where the reader pushes its operands. Any
+-- other value goes into a WebAssembly local. The values that are not live
+-- at the same time share a local, and the most used locals get the lowest
+-- indices, so that most local instructions encode the index in one byte.
 --
 -- WebAssembly has structured control flow. A reducible function becomes
 -- nested @block@, @loop@, and @if@ constructs, as "Aihc.Wasm.ControlFlow"
@@ -43,7 +44,7 @@ import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Wasm.ControlFlow (ControlFlow (..), analyzeControlFlow)
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.ByteString qualified as BS
@@ -593,10 +594,13 @@ assignLocals fn consumed body = (map snd declared, map render resolved)
         LineText text -> [Left text]
     -- A copy is useless when the argument and the parameter share a local.
     copySlots = Map.fromListWith (<>) [(copy, [slotId slot]) | Right (_, slot, Just copy) <- unresolved]
-    useless = Map.keysSet (Map.filter (\slots -> case slots of [one, two] -> one == two; _ -> False) copySlots)
+    useless = Map.keysSet (Map.filter sameSlot copySlots)
+    sameSlot slots = case slots of
+      [one, two] -> one == two
+      _ -> False
     resolved =
       combineTee
-        [ either Left (\(op, slot, _) -> Right (op, slot)) item
+        [ fmap (\(op, slot, _) -> (op, slot)) item
         | item <- unresolved,
           case item of
             Right (_, _, Just copy) -> not (Set.member copy useless)
@@ -1277,7 +1281,7 @@ allocationAddress offset = do
 assignParameters :: Fn -> Target -> M ()
 assignParameters fn (Target label arguments) = do
   let parameters = Map.findWithDefault [] label (fnBlockParameters fn)
-  tags <- mapM (uncurry copyArgument) (zip (map snd parameters) arguments)
+  tags <- zipWithM copyArgument (map snd parameters) arguments
   forM_ (reverse (zip parameters tags)) $ \((var, _), tag) ->
     case tag of
       Just copy -> known fn var >> addLine (LineCopy LocalSet var copy)
