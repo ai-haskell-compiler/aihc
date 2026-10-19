@@ -2031,6 +2031,12 @@ static void aihc_chunk_note_frame(AihcGcContext *context, AihcStackChunk *chunk,
   }
 }
 
+static int aihc_compare_chunk_depths(const void *left, const void *right) {
+  uint32_t left_depth = (*(AihcStackChunk *const *)left)->depth;
+  uint32_t right_depth = (*(AihcStackChunk *const *)right)->depth;
+  return (left_depth > right_depth) - (left_depth < right_depth);
+}
+
 /* Give each chunk with a scanned frame its new generation: one above the
    collected generation, or the youngest generation its frames refer to when
    that is lower. The chunk of the running stack pointer stays young, because
@@ -2060,6 +2066,16 @@ static void aihc_age_chunks(AihcGcContext *context) {
      again. Without this rule a gen1 collection stopped at an older chunk
      above a chunk with a gen1 referent, and the referent moved away from
      under the frame. */
+  /* The lowest chunks go first. A walk up from a chunk stops at the next
+     chunk of this collection, which gives the lower age to the chunks above
+     it in its own walk. Thus each chunk is walked once. A walk from each
+     chunk to the top of its stack walked a deep stack once for each of its
+     chunks, which took seconds in one pause. */
+  if (context->touched_count > 1) {
+    qsort(context->touched, context->touched_count, sizeof(*context->touched),
+          aihc_compare_chunk_depths);
+  }
+  uint64_t stamp = capability->machine->gc_count;
   for (size_t index = 0; index < context->touched_count; ++index) {
     AihcStackChunk *chunk = context->touched[index];
     unsigned generation = aihc_chunk_generation(chunk);
@@ -2067,6 +2083,9 @@ static void aihc_age_chunks(AihcGcContext *context) {
          above = above->above) {
       if (aihc_chunk_generation(above) > generation) {
         aihc_chunk_set_generation(above, generation);
+      }
+      if ((above->state >> AIHC_CHUNK_STAMP_SHIFT) == stamp) {
+        break;
       }
     }
   }
