@@ -8,34 +8,11 @@
 	.type	.Lenter,@function
 .Lenter:
 	.functype	.Lenter (i32, i32, i32, i32, i32, i32, i32) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i32, i64, i64, i64, i32, i32, i32
 # entry
 	local.get	5
-	i64.const	0
-	i32.wrap_i64
-	i32.add
-	local.set	13
-	local.get	5
-	i64.extend_i32_u
-	local.set	14
-	local.get	14
-	i64.const	4095
-	i64.or
-	local.set	15
-	local.get	15
-	i64.const	1
-	i64.add
-	local.set	16
-	local.get	16
-	i32.wrap_i64
-	local.set	17
-	local.get	5
 	i32.load	0
-	local.set	18
-	local.get	18
 	i32.load	24
-	local.set	19
-	local.get	19
+	local.tee	3
 	i32.eqz
 	if
 	i32.const	.Llir_trap_0
@@ -46,12 +23,21 @@
 	local.get	0
 	local.get	1
 	local.get	2
-	local.get	13
-	local.get	17
+	local.get	5
+	i64.const	0
+	i32.wrap_i64
+	i32.add
+	local.get	5
+	i64.extend_i32_u
+	i64.const	4095
+	i64.or
+	i64.const	1
+	i64.add
+	i32.wrap_i64
 	local.get	5
 	i32.const	0
 	local.get	6
-	local.get	19
+	local.get	3
 	return_call_indirect	__indirect_function_table, (i32, i32, i32, i32, i32, i32, i32, i32) -> ()
 	end_function
 

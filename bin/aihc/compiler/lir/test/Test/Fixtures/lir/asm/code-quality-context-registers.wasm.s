@@ -10,43 +10,33 @@
 	.type	.Lstep,@function
 .Lstep:
 	.functype	.Lstep (i32, i32, i32, i32, i64) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i64, i64, i64, i32, i64
 # entry
 	local.get	4
 	i64.const	1
 	i64.add
-	local.set	11
-	local.get	11
 	call	work
-	local.set	12
-	local.get	12
 	local.get	4
 	i64.mul
-	local.set	13
-	local.get	13
+	local.tee	4
 	i64.const	100
 	i64.lt_s
-	local.set	14
-	local.get	14
 	if
 # small
 	local.get	0
 	local.get	1
 	local.get	2
 	local.get	3
-	local.get	13
+	local.get	4
 	return_call	next
 	end_if
 # large
-	local.get	13
-	i64.const	100
-	i64.sub
-	local.set	15
 	local.get	0
 	local.get	1
 	local.get	2
 	local.get	3
-	local.get	15
+	local.get	4
+	i64.const	100
+	i64.sub
 	return_call	next
 	end_function
 

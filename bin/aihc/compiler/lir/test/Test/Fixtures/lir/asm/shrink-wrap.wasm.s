@@ -11,17 +11,13 @@
 	.type	.Lreserve,@function
 .Lreserve:
 	.functype	.Lreserve (i32, i32) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i32, i32, i32, i32, i32
+	.local	i32, i32
 	block
 # entry
 	local.get	0
 	i32.load	0
-	local.set	9
-	local.get	9
 	i32.const	0
 	i32.eq
-	local.set	10
-	local.get	10
 	if
 # collect
 	global.get	__stack_pointer
@@ -30,31 +26,26 @@
 	local.tee	3
 	global.set	__stack_pointer
 	local.get	3
-	local.set	8
-	local.get	8
+	local.tee	2
 	local.get	1
 	i32.store	0
 	local.get	0
-	local.get	8
+	local.get	2
 	call	collect
-	local.get	8
-	i32.load	0
-	local.set	11
 	local.get	3
 	i32.const	16
 	i32.add
 	global.set	__stack_pointer
-	local.get	11
-	local.set	12
+	local.get	2
+	i32.load	0
+	local.set	1
 	br	1
 	end_if
-	local.get	1
-	local.set	12
 	br	0
 	end_block
 # ready
 	local.get	0
-	local.get	12
+	local.get	1
 	return_call	next
 	end_function
 
