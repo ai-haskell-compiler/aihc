@@ -5706,30 +5706,44 @@ desugarIntegerLiteral value = do
   intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   wordHashType <- TyCon <$> primitiveName "GHC.Prim" "Word#" SortTypeConstructor
   constructor <- primitiveName "GHC.Prim.Integer" "IS" SortDataConstructor
+  addrHashType <- TyCon <$> primitiveName "GHC.Prim" "Addr#" SortTypeConstructor
   kinds <- valueKinds
   intRepresentation <- convertRuntimeRep (intRep kinds)
   wordRepresentation <- convertRuntimeRep (wordRep kinds)
+  addrRepresentation <- convertRuntimeRep (addrRep kinds)
   let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer) intHashType)
+      int integer = ExLit (LitInt intRepresentation integer) intHashType
       coreName text = Name text SortValue (nameOrigin constructor)
       apply name = foldl ExApp (ExVar (coreName name))
       word integer = ExLit (LitInt wordRepresentation integer) wordHashType
-      positive integer
-        | integer <= maxInt = small integer
-        | integer <= maxWord =
-            apply "integerFromTwoWords#" [ExLit (LitInt intRepresentation 1) intHashType, word 0, word integer]
-        | otherwise =
-            let (high, low) = integer `quotRem` wordBase
-                shifted = apply "integerShiftL#" [positive high, ExLit (LitInt intRepresentation 64) intHashType]
-             in apply "integerAdd" [shifted, positive low]
-      magnitude = positive (abs value)
+      sign = if value < 0 then 0 else 1
+      magnitude = abs value
+      limbs = magnitudeLimbs magnitude
+      -- A literal above two words is static data and one call, not code for each limb.
+      limbBytes = BS.pack (concatMap limbLittleEndianBytes limbs)
   pure
     ( if value >= minInt && value <= maxInt
         then small value
-        else if value < 0 then apply "integerNegate" [magnitude] else magnitude
+        else
+          if magnitude <= maxWord
+            then apply "integerFromTwoWords#" [int sign, word 0, word magnitude]
+            else
+              apply
+                "integerFromLimbs#"
+                [ int sign,
+                  ExLit (LitAddr addrRepresentation limbBytes) addrHashType,
+                  int (fromIntegral (length limbs))
+                ]
     )
   where
     wordBase = 18446744073709551616
     maxWord = wordBase - 1
+    magnitudeLimbs 0 = []
+    magnitudeLimbs integer =
+      let (high, low) = integer `quotRem` wordBase
+       in low : magnitudeLimbs high
+    limbLittleEndianBytes limb =
+      [fromIntegral ((limb `div` (256 ^ index)) `mod` 256) | index <- [0 .. 7 :: Int]]
     maxInt = 9223372036854775807
     minInt = -9223372036854775808
 
