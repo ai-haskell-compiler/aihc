@@ -133,7 +133,7 @@ forceCollection (Module items) =
     usesReplay _ = False
     forceItem (ItemFunction function)
       | isReplayHelper (functionName function) =
-          ItemFunction function {functionBlocks = map setFlag (map forceBlock (functionBlocks function))}
+          ItemFunction function {functionBlocks = map (setFlag . forceBlock) (functionBlocks function)}
       | otherwise =
           ItemFunction function {functionBlocks = map forceBlock (functionBlocks function)}
       where

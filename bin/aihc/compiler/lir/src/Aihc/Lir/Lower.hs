@@ -4042,7 +4042,7 @@ generateHelper env helper =
     -- does not move. The function makes its reservation again when it runs.
     HelperCollectReplay shape -> do
       (context, contextParameters) <- freshContext
-      values <- forM shape $ \(ty, root) -> (\var -> (var, ty, root)) <$> fresh "value"
+      values <- forM shape $ \(ty, root) -> (,ty,root) <$> fresh "value"
       code <- fresh "code"
       words' <- fresh "words"
       srt <- fresh "srt"
