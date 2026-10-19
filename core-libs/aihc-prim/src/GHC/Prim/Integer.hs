@@ -14,6 +14,7 @@ module GHC.Prim.Integer
     integerAnd,
     integerBit#,
     integerComplement,
+    integerFromLimbs#,
     integerFromMagnitude#,
     integerFromTwoWords#,
     integerFromWord#,
@@ -40,7 +41,8 @@ module GHC.Prim.Integer
 where
 
 import GHC.Prim
-  ( ByteArray#,
+  ( Addr#,
+    ByteArray#,
     Int#,
     MutableByteArray#,
     RealWorld,
@@ -50,6 +52,7 @@ import GHC.Prim
     addWordC#,
     and#,
     clz#,
+    copyAddrToByteArray#,
     copyByteArray#,
     eqWord#,
     indexWordArray#,
@@ -1190,6 +1193,25 @@ integerFromMagnitude# sign magnitude =
 -- Each caller has just allocated the magnitude, thus a call costs little.
 -- An inlined copy adds about 20 lines to each large Integer operation.
 {-# NOINLINE integerFromMagnitude# #-}
+
+-- | The 'Integer' of a large literal. The address holds a canonical
+-- magnitude of little-endian 64-bit limbs. The limb count is two or more.
+-- The sign 1 is positive, and each other sign is negative.
+integerFromLimbs# :: Int# -> Addr# -> Int# -> Integer
+integerFromLimbs# sign limbs count =
+  let byteCount = count *# 8#
+   in case newByteArray# byteCount realWorld# of
+        (# state0, mutable #) ->
+          case copyAddrToByteArray# limbs mutable 0# byteCount state0 of
+            state1 ->
+              case unsafeFreezeByteArray# mutable state1 of
+                (# _, magnitude #) ->
+                  case sign of
+                    1# -> IP magnitude
+                    _ -> IN magnitude
+-- Each large literal is one call. An inlined copy repeats this body at
+-- each literal.
+{-# NOINLINE integerFromLimbs# #-}
 
 integerFromTwoWords# :: Int# -> Word# -> Word# -> Integer
 integerFromTwoWords# sign high low =

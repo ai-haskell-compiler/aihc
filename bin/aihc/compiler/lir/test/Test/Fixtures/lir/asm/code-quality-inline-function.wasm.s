@@ -11,28 +11,13 @@
 	.globl	enter_direct
 enter_direct:
 	.functype	enter_direct (i32, i32, i32) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i64, i64, i32, i32, i64, i32
 # entry
 	local.get	1
-	i64.load	0
-	local.set	9
-	local.get	9
-	i64.const	-4
-	i64.and
-	local.set	10
-	local.get	10
-	i32.wrap_i64
-	local.set	11
-	local.get	11
 	i32.load	0
-	local.set	12
-	local.get	1
-	i64.load	8
-	local.set	13
-	local.get	13
-	i32.wrap_i64
-	local.set	14
-	local.get	12
+	i32.const	-4
+	i32.and
+	i32.load	0
+	local.tee	2
 	i32.eqz
 	if
 	i32.const	.Llir_trap_0
@@ -41,8 +26,9 @@ enter_direct:
 	unreachable
 	end_if
 	local.get	0
-	local.get	14
-	local.get	12
+	local.get	1
+	i32.load	8
+	local.get	2
 	return_call_indirect	__indirect_function_table, (i32, i32) -> ()
 	end_function
 
@@ -52,28 +38,13 @@ enter_direct:
 	.globl	enter_inline
 enter_inline:
 	.functype	enter_inline (i32, i32, i32) -> ()
-	.local	i32, i32, i32, i64, f32, f64, i64, i64, i32, i32, i64, i32
 # entry
 	local.get	1
-	i64.load	0
-	local.set	9
-	local.get	9
-	i64.const	-4
-	i64.and
-	local.set	10
-	local.get	10
-	i32.wrap_i64
-	local.set	11
-	local.get	11
 	i32.load	0
-	local.set	12
-	local.get	1
-	i64.load	8
-	local.set	13
-	local.get	13
-	i32.wrap_i64
-	local.set	14
-	local.get	12
+	i32.const	-4
+	i32.and
+	i32.load	0
+	local.tee	2
 	i32.eqz
 	if
 	i32.const	.Llir_trap_0
@@ -82,8 +53,9 @@ enter_inline:
 	unreachable
 	end_if
 	local.get	0
-	local.get	14
-	local.get	12
+	local.get	1
+	i32.load	8
+	local.get	2
 	return_call_indirect	__indirect_function_table, (i32, i32) -> ()
 	end_function
 

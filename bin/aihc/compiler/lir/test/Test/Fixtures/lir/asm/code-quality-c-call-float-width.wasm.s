@@ -9,7 +9,6 @@
 	.type	.Lident,@function
 .Lident:
 	.functype	.Lident (f32) -> (f32)
-	.local	i32, i32, i32, i64, f32, f64
 # entry
 	local.get	0
 	return
@@ -19,13 +18,10 @@
 	.type	.Lmain,@function
 .Lmain:
 	.functype	.Lmain () -> (f32)
-	.local	i32, i32, i32, i64, f32, f64, f32
 # entry
 	i32.const	1080033280
 	f32.reinterpret_i32
 	call	.Lident
-	local.set	6
-	local.get	6
 	return
 	end_function
 
