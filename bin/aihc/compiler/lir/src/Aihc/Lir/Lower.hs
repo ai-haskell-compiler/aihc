@@ -364,10 +364,10 @@ data Helper
     -- relocated arguments. Each argument says whether it is a root. See
     -- 'Replay'.
     HelperCollectReplay ![(Type, Bool)]
-  | -- | The cold path of a WHNF test whose slow branch pushes the frame of a
-    -- continuation and evaluates the value, and whose ready branch calls that
-    -- continuation. It takes the value, the info table of the frame, and the
-    -- fields of the frame, which have these types. See 'compileForce'.
+  | -- | The slow branch of a WHNF test that pushes the frame of a
+    -- continuation and evaluates the value. It takes the value, the info
+    -- table of the frame, and the fields of the frame, which have these
+    -- types. See 'compileForce'.
     HelperForce !GrinEvalUpdate ![Type]
   deriving (Eq, Ord, Show)
 
@@ -1763,15 +1763,11 @@ compileExpr ctx env expression =
           _ <- callRuntime "aihc_set_exit_status" [Ptr, I64] [] [capability, statusOperand]
           entry <- callRuntime "aihc_halt" [Ptr] [Code] [capability]
           terminate (TailCallIndirect entry [] (Signature [] [] AihcConvention))
-    GrinIfWhnf (GrinVarValue var) ready@(GrinCall _ name arguments) slow@(GrinBind [frame] (GrinStoreUnchecked node) (GrinCpsEval update _ (GrinVarValue evaluated) (GrinVarValue continuation)))
-      | GrinClosure frameName _ <- grinNodeTag node,
-        frameName == name,
-        isFrameNode (ctxEnv ctx) node,
-        name `Set.notMember` envForwardingFunctions (ctxEnv ctx),
+    GrinIfWhnf (GrinVarValue var) ready (GrinBind [frame] (GrinStoreUnchecked node) (GrinCpsEval update _ (GrinVarValue evaluated) (GrinVarValue continuation)))
+      | isFrameNode (ctxEnv ctx) node,
         evaluated == var,
-        continuation == frame,
-        arguments == grinNodeFields node <> [GrinVarValue var] ->
-          compileForce ctx env var update name node ready slow
+        continuation == frame ->
+          compileForce ctx env var update node ready
     GrinIfWhnf value ready slow -> compileIfWhnf ctx env value ready slow
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
@@ -1808,7 +1804,12 @@ compileExpr ctx env expression =
 -- The blocks of that test are cold, so a native backend puts them after
 -- the hot code and the ready branch follows the check directly.
 compileIfWhnf :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> GrinExpr -> LowerM ()
-compileIfWhnf ctx env value ready slow = do
+compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' -> compileExpr ctx env' slow)
+
+-- | A WHNF test whose slow branch the given action compiles, with the
+-- variable of the value bound to its target.
+compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> LowerM ()) -> LowerM ()
+compileIfWhnfWith ctx env value ready slow = do
   object <- pointerValue ctx env value
   checkLabel <- freshLabel "eval_check"
   readyLabel <- freshLabel "eval_ready"
@@ -1854,41 +1855,25 @@ compileIfWhnf ctx env value ready slow = do
   beginBlock readyLabel []
   branchWith (compileExpr ctx env' ready)
   beginBlock slowLabel []
-  branchWith (compileExpr ctx env' slow)
+  branchWith (slow env')
 
--- | A WHNF test whose ready branch calls a continuation with the fields of
--- its frame and the value, and whose slow branch pushes that frame and
--- evaluates the value. Only the test and the ready branch are in the
--- function. The cold path gives the value, the info table of the frame, and
--- the fields to a shared helper of their shape: it follows indirections and
--- evaluated thunks, and it calls the continuation for a value it reaches,
--- or it pushes the frame and evaluates. Thus each such test costs a load,
--- a compare, and one tail call outside its ready branch.
-compileForce :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> FunctionName -> GrinNode -> GrinExpr -> GrinExpr -> LowerM ()
-compileForce ctx env var update name node ready slow = do
-  fields <- mapM (materialize ctx env) (grinNodeFields node)
-  -- The helper calls the continuation with the fields as they are, so their
-  -- types must be the parameter types of the continuation.
-  if Map.lookup name (envFunctionParameters (ctxEnv ctx)) /= Just (map typedType fields <> [Ptr])
-    then compileIfWhnf ctx env (GrinVarValue var) ready slow
-    else compileForceHelper ctx env var update node fields ready
-
-compileForceHelper :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> GrinNode -> [Typed] -> GrinExpr -> LowerM ()
-compileForceHelper ctx env var update node fields ready = do
-  object <- pointerValue ctx env (GrinVarValue var)
-  (_, header) <- loadObjectHeaderDependent HeapRegion object
-  needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
-  notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
-  readyLabel <- freshLabel "eval_ready"
-  slowLabel <- freshLabel "eval_slow"
-  terminate (Branch (typedOperand notValue) (Target slowLabel []) (Target readyLabel []))
-  beginColdBlock slowLabel []
-  info <- nodeInfoSymbol (ctxEnv ctx) node
-  helper <- requireHelper (HelperForce update (map typedType fields))
-  running <- runningArguments
-  terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
-  beginBlock readyLabel []
-  compileExpr ctx env ready
+-- | A WHNF test whose slow branch pushes the frame of a continuation and
+-- evaluates the value. The test and the ready branch stay in the function,
+-- as 'compileIfWhnf' compiles them. The slow branch
+-- gives the value, the info table of the frame, and the fields to a shared
+-- helper of their shape, which pushes the frame and evaluates the value.
+-- Thus the push, its stack growth, and the stores of the frame are not in
+-- each function.
+compileForce :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> GrinNode -> GrinExpr -> LowerM ()
+compileForce ctx env var update node ready =
+  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' -> do
+    object <- pointerValue ctx env' (GrinVarValue var)
+    -- The fields have the types that 'initializeFields' stores them with.
+    fields <- mapM (materialize ctx env') (grinNodeFields node)
+    info <- nodeInfoSymbol (ctxEnv ctx) node
+    helper <- requireHelper (HelperForce update (map typedType fields))
+    running <- runningArguments
+    terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
 
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
@@ -4083,44 +4068,13 @@ generateHelper env helper =
             moved <- loadSlot AnyRegion "value" Ptr array (toInteger (8 * index))
             (typedOperand moved :) <$> relocate array (index + 1) rest
           (var, _, False) : rest -> (OperandVar var :) <$> relocate array index rest
-    -- See 'compileForce'. The checks are those of the WHNF test in
-    -- 'compileExpr'. The identity of the info table of a continuation frame
-    -- is the code of the continuation, which takes the fields and the value.
+    -- See 'compileForce'.
     HelperForce update shape -> do
       (context, contextParameters) <- freshContext
       value <- fresh "value"
       info <- fresh "info"
       fields <- forM shape $ \ty -> (,ty) <$> fresh "field"
       beginBlock (Label "entry") []
-      terminate (Jump (Target (Label "check") [OperandVar value]))
-      current <- fresh "current"
-      beginBlock (Label "check") [(current, Ptr)]
-      (headerWord, header) <- loadObjectHeaderDependent HeapRegion (OperandVar current)
-      needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
-      notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
-      terminate (Branch (typedOperand notValue) (Target (Label "not_value") []) (Target (Label "ready") []))
-      beginBlock (Label "not_value") []
-      isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
-      terminate (Branch (typedOperand isIndirection) (Target (Label "follow") []) (Target (Label "thunk") []))
-      beginBlock (Label "thunk") []
-      tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
-      claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
-      terminate (Branch (typedOperand claimed) (Target (Label "owner") []) (Target (Label "slow") []))
-      beginBlock (Label "owner") []
-      word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
-      (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
-      wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
-      isThread <- emitValue "thread" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectThread)))
-      isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
-      owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
-      terminate (Branch (typedOperand owned) (Target (Label "slow") []) (Target (Label "check") [typedOperand word]))
-      beginBlock (Label "follow") []
-      next <- loadSlotDependent HeapRegion "next" Ptr (OperandVar current) 8
-      terminate (Jump (Target (Label "check") [typedOperand next]))
-      beginBlock (Label "ready") []
-      code <- loadInfoCode "code" (OperandVar info) 0
-      terminate (TailCallIndirect (typedOperand code) (contextOperands context <> [OperandVar field | (field, _) <- fields] <> [OperandVar current]) (Signature (contextTypes <> shape <> [Ptr]) [] AihcConvention))
-      beginBlock (Label "slow") []
       (frame, pushed) <- pushStackFrame context (1 + length shape)
       storeSlot StackRegion Ptr (OperandVar info) frame 0
       forM_ (zip [0 :: Int ..] fields) $ \(index, (field, ty)) ->
@@ -4128,7 +4082,7 @@ generateHelper env helper =
       eval <- requireHelper $ case update of
         EvalUpdate -> HelperEval
         EvalSingleEntry -> HelperEvalSingleEntry
-      terminate (TailCall eval (contextOperands pushed <> [OperandVar current, frame]))
+      terminate (TailCall eval (contextOperands pushed <> [OperandVar value, frame]))
       finishFunction symbol Internal (contextParameters <> [(value, Ptr), (info, Ptr)] <> fields) [] AihcConvention
     _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
