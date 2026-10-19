@@ -1094,15 +1094,9 @@ push fn ty operand =
       case functionSkip state of
         next : rest | next == var -> put state {functionSkip = rest, functionClean = False}
         _
-          | Just instruction@(Instruction _ operation) <- Map.lookup var (fnDeferred fn),
-            not (Set.member var (functionConsumed state)) -> do
-              withOperands (leadingOperands operation) (compileInstruction fn instruction)
-              state' <- get
-              case functionPending state' of
-                top : rest
-                  | top == var ->
-                      put state' {functionPending = rest, functionConsumed = Set.insert var (functionConsumed state'), functionClean = False}
-                _ -> unsupported ("the deferred value " <> unVar var <> " is not on the stack")
+          | Just instruction <- Map.lookup var (fnDeferred fn),
+            not (Set.member var (functionConsumed state)) ->
+              pushDeferred fn var instruction
           | otherwise -> getVar fn var
     OperandLiteral literal ->
       case literal of
@@ -1123,6 +1117,79 @@ push fn ty operand =
     pushFloat value = do
       emit ("i32.const\t" <> renderInteger 4 (toInteger (castFloatToWord32 (double2Float value))))
       emit "f32.reinterpret_i32"
+
+-- | Push the value of a deferred instruction: compute it here.
+pushDeferred :: Fn -> Var -> Instruction -> M ()
+pushDeferred fn var instruction@(Instruction _ operation) = do
+  withOperands (leadingOperands operation) (compileInstruction fn instruction)
+  state <- get
+  case functionPending state of
+    top : rest
+      | top == var ->
+          put state {functionPending = rest, functionConsumed = Set.insert var (functionConsumed state), functionClean = False}
+    _ -> unsupported ("the deferred value " <> unVar var <> " is not on the stack")
+
+-- | Push the low 32 bits of an @i64@ operand as an @i32@. The low bits of a
+-- literal, of a load from little-endian memory, and of an addition, a
+-- subtraction, a multiplication, or a bitwise operation do not need the
+-- high bits. Thus such a deferred operand is computed in @i32@ when that
+-- needs at most one @i32.wrap_i64@.
+pushLow :: Fn -> Operand -> M ()
+pushLow fn operand = do
+  state <- get
+  case operand of
+    OperandLiteral (LitInt value) -> emit ("i32.const\t" <> renderInteger 4 value)
+    OperandVar var
+      | take 1 (functionSkip state) /= [var],
+        not (Set.member var (functionConsumed state)),
+        Just instruction <- Map.lookup var (fnDeferred fn),
+        Just low <- lowInstruction instruction,
+        either (const True) (\(_, left, right) -> lowCost fn left + lowCost fn right <= 1) low ->
+          case low of
+            Left narrowed -> pushDeferred fn var narrowed
+            Right (op, left, right) -> do
+              modify' $ \state' -> state' {functionConsumed = Set.insert var (functionConsumed state')}
+              withOperands [left, right] $ do
+                pushLow fn left
+                pushLow fn right
+              emit ("i32." <> lowOperation op)
+              modify' $ \state' -> state' {functionClean = False}
+    _ -> push fn I64 operand >> emit "i32.wrap_i64"
+
+-- | The @i32@ form of an @i64@ instruction: a narrower load, or a binary
+-- operation on the low bits of its operands.
+lowInstruction :: Instruction -> Maybe (Either Instruction (BinaryOp, Operand, Operand))
+lowInstruction (Instruction results operation) =
+  case operation of
+    Load I64 address alignment -> Just (Left (Instruction results (Load I32 address alignment)))
+    LoadInvariant I64 address alignment -> Just (Left (Instruction results (LoadInvariant I32 address alignment)))
+    LoadDependent I64 address -> Just (Left (Instruction results (LoadDependent I32 address)))
+    Binary op I64 left right | op `elem` [Add, Sub, Mul, And, Or, Xor] -> Just (Right (op, left, right))
+    _ -> Nothing
+
+-- | The number of @i32.wrap_i64@ instructions that 'pushLow' emits.
+lowCost :: Fn -> Operand -> Int
+lowCost fn operand =
+  case operand of
+    OperandLiteral (LitInt _) -> 0
+    OperandVar var
+      | Just instruction <- Map.lookup var (fnDeferred fn),
+        Just low <- lowInstruction instruction ->
+          case low of
+            Left _ -> 0
+            Right (_, left, right) -> min 1 (lowCost fn left + lowCost fn right)
+    -- An operand that 'pushLow' cannot narrow costs one wrap.
+    _ -> 1
+
+lowOperation :: BinaryOp -> Text
+lowOperation op =
+  case op of
+    Add -> "add"
+    Sub -> "sub"
+    Mul -> "mul"
+    And -> "and"
+    Or -> "or"
+    _ -> "xor"
 
 canonicalInteger :: Type -> Integer -> Integer
 canonicalInteger ty value = value `mod` (2 ^ min 64 (typeBits ty))
@@ -1434,13 +1501,17 @@ compileInstruction fn (Instruction results operation) =
           when (is64 to) (emit "i64.extend_i32_s")
           narrow to
           single
-        ZExt -> do
-          push fn from value
-          when (is64 to) (emit "i64.extend_i32_u")
-          single
+        ZExt
+          | is64 to,
+            OperandLiteral (LitInt literal) <- value -> do
+              push fn to (OperandLiteral (LitInt (canonicalInteger from literal)))
+              single
+          | otherwise -> do
+              push fn from value
+              when (is64 to) (emit "i64.extend_i32_u")
+              single
         Trunc -> do
-          push fn from value
-          when (is64 from) (emit "i32.wrap_i64")
+          if is64 from then pushLow fn value else push fn from value
           narrow to
           single
         IToFS -> do
@@ -1461,7 +1532,7 @@ compileInstruction fn (Instruction results operation) =
           emit (wasmType to <> ".reinterpret_" <> wasmType from)
           single
     PtrToInt value -> push fn Ptr value >> emit "i64.extend_i32_u" >> single
-    PtrFromInt value -> push fn I64 value >> emit "i32.wrap_i64" >> single
+    PtrFromInt value -> pushLow fn value >> single
     Select ty condition left right -> do
       push fn ty left
       push fn ty right
@@ -1520,8 +1591,7 @@ compileInstruction fn (Instruction results operation) =
     Fence _ -> pure ()
     PtrAdd base offset -> do
       push fn Ptr base
-      push fn I64 offset
-      emit "i32.wrap_i64"
+      pushLow fn offset
       emit "i32.add"
       single
     StackAlloc _ _ ->
