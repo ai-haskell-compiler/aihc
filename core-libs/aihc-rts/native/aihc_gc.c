@@ -188,6 +188,15 @@ typedef struct {
      object of a local heap. See "Local heaps" in
      docs/multi-threaded-rts-design.md. */
   int concurrent;
+  /* The nursery of the collection when it copies one nursery alone: its
+     start, its size, and its owner. The size is zero when the collection
+     copies several nurseries. The evacuation then tests most references
+     with one subtraction and one compare. */
+  uintptr_t young_start;
+  uint64_t young_bytes;
+  AihcCapability *young_owner;
+  /* The gen2 slots that copies took and that gen2 does not count yet. */
+  uint64_t gen2_slot_bytes;
 } AihcGcContext;
 
 /* The packed state of a stack chunk. */
@@ -486,8 +495,9 @@ static uint64_t aihc_generation_used(const AihcGeneration *generation) {
   return used;
 }
 
-/* Allocate bytes for a copied object in gen1. */
-static uint8_t *aihc_gen1_allocate(AihcCapability *capability, size_t bytes) {
+/* Allocate bytes for a copied object in a new gen1 block. */
+static __attribute__((noinline)) uint8_t *
+aihc_gen1_allocate_block(AihcCapability *capability, size_t bytes) {
   AihcGeneration *target = aihc_generation(capability, 1);
   AihcHeapBlock *block = target->last;
   if (block == NULL || bytes > (size_t)(block->limit - block->next)) {
@@ -514,6 +524,19 @@ static uint8_t *aihc_gen1_allocate(AihcCapability *capability, size_t bytes) {
   uint8_t *object = block->next;
   block->next += bytes;
   return object;
+}
+
+/* Allocate bytes for a copied object in gen1. Most copies fit in the last
+   block, so that case needs no call. */
+static inline __attribute__((always_inline)) uint8_t *
+aihc_gen1_allocate(AihcCapability *capability, size_t bytes) {
+  AihcHeapBlock *block = capability->gen1.last;
+  if (block != NULL && bytes <= (size_t)(block->limit - block->next)) {
+    uint8_t *object = block->next;
+    block->next += bytes;
+    return object;
+  }
+  return aihc_gen1_allocate_block(capability, bytes);
 }
 
 static void aihc_blocks_set_kind(AihcHeapBlock *blocks, AihcRegionKind kind) {
@@ -743,10 +766,12 @@ static uint8_t *aihc_gen2_allocate(AihcCapability *capability, size_t bytes) {
 
 /* Allocate a gen2 slot for a small copied object. Most copies take the slot
    at the cursor of the current segment of their class, which is free in a
-   new segment. This path takes that slot without a call. Every other case
-   goes to aihc_gen2_allocate. */
+   new segment. This path takes that slot without a call, and adds the slot
+   to the bytes that pending counts: the collection counts them all once at
+   its end. Every other case goes to aihc_gen2_allocate. */
 static inline __attribute__((always_inline)) uint8_t *
-aihc_gen2_allocate_small(AihcCapability *capability, uint64_t words) {
+aihc_gen2_allocate_small(AihcCapability *capability, uint64_t words,
+                         uint64_t *pending) {
   unsigned size_class = words < AIHC_SLOT_MIN_WORDS ? 0 : (unsigned)words - 2;
   AihcSegment *segment = aihc_size_classes[size_class].current;
   if (segment != NULL) {
@@ -761,7 +786,7 @@ aihc_gen2_allocate_small(AihcCapability *capability, uint64_t words) {
       }
       segment->cursor = slot + 1U;
       size_t slot_bytes = aihc_segment_slot_bytes(segment);
-      aihc_gen2_account(machine, slot_bytes);
+      *pending += slot_bytes;
       return aihc_segment_slots(segment) + (size_t)slot * slot_bytes;
     }
   }
@@ -1246,9 +1271,11 @@ void aihc_thunk_claim(AihcValue *thunk, AihcThread *owner) {
 }
 
 /* The pause of the running thread: claim the thunk of each update frame
-   that no pause processed, from the top, and mark the frame. The walk stops
-   at the first marked frame, because the walk that marked it processed
-   every frame below it. A thunk that is claimed or evaluated stays as it
+   that no pause processed, from the top. The walk marks each frame that it
+   passes, not only the update frames, and it stops at the first marked
+   frame, because the walk that marked it processed every frame below it.
+   Thus a frame is walked once, and a deep stack does not make each pause
+   walk the full stack again. A thunk that is claimed or evaluated stays as it
    is. On one capability its owner is the thread itself: the thread entered
    the thunk twice, and the next evaluation of the thunk reports the loop.
    The claim stores a pointer into a thunk that can be old, so it takes the
@@ -1273,17 +1300,17 @@ static void aihc_pause_locked(AihcCapability *capability, AihcThread *thread,
     if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
       return;
     }
+    if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
+      return;
+    }
     if (info->frame_kind == AIHC_FRAME_UPDATE) {
-      if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
-        return;
-      }
       AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
       if ((thunk->header & AIHC_HEADER_TAG_MASK) == 0) {
         aihc_write_barrier(capability, thunk);
         aihc_thunk_claim(thunk, thread);
       }
-      frame->header |= AIHC_FRAME_PROCESSED;
     }
+    frame->header |= AIHC_FRAME_PROCESSED;
     frame = (AihcValue *)(uintptr_t)frame->fields[0];
   }
 }
@@ -1658,7 +1685,8 @@ aihc_copy(AihcGcContext *context, AihcValue *value, unsigned generation,
   AihcValue *copy =
       (AihcValue *)(generation == 1 ? aihc_gen1_allocate(owner, bytes)
                     : words <= 8
-                        ? aihc_gen2_allocate_small(context->capability, words)
+                        ? aihc_gen2_allocate_small(context->capability, words,
+                                                   &context->gen2_slot_bytes)
                         : aihc_gen2_allocate(context->capability, bytes));
   context->copied_bytes += bytes;
   /* Most objects have a few words, and a call of memcpy costs more than
@@ -1720,6 +1748,20 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
   aihc_value_worklist_push(&aihc_pinned_worklist, object);
 }
 
+/* The capability whose nursery holds an address, or NULL. The nursery of
+   the collection is tested first. Outside it, a collection of the one
+   nursery of the machine has no other nursery to test. */
+static inline AihcCapability *
+aihc_gc_nursery_owner(const AihcGcContext *context, const void *value) {
+  if ((uintptr_t)value - context->young_start < context->young_bytes) {
+    return context->young_owner;
+  }
+  if (context->young_bytes != 0 && context->local == NULL) {
+    return NULL;
+  }
+  return aihc_nursery_owner(context->capability->machine, value);
+}
+
 /* The where of an evacuated frame. A frame counts as static for its
    referrer, unless the referrer is a thread record or a waiter, which reads
    the age of the chunk. */
@@ -1744,7 +1786,7 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
       return NULL;
     }
     unsigned source;
-    AihcCapability *owner = aihc_nursery_owner(capability->machine, value);
+    AihcCapability *owner = aihc_gc_nursery_owner(context, value);
     if (owner != NULL) {
       if (context->local != NULL && owner != context->local) {
         /* The nursery of another capability, which a local collection
@@ -1849,7 +1891,11 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
                  unsigned *where) {
   if (value != NULL) {
     AihcCapability *owner =
-        aihc_nursery_owner(context->capability->machine, value);
+        (uintptr_t)value - context->young_start < context->young_bytes
+            ? context->young_owner
+        : context->young_bytes == 0
+            ? aihc_nursery_owner(context->capability->machine, value)
+            : NULL;
     if (owner != NULL && (context->local == NULL || owner == context->local)) {
       AihcSlot header = value->header;
       if (aihc_header_is_forward(header)) {
@@ -1866,6 +1912,39 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
         }
         *where = generation;
         return aihc_copy(context, value, generation, owner);
+      }
+    } else if (owner == NULL && context->collected < 2) {
+      /* A collection of the young generations leaves an old object where
+         it is. Most references outside the nursery name gen2 or a static
+         object, so they need no call. */
+      AihcRegionKind kind = aihc_region_kind(value);
+      if (kind == AIHC_REGION_GEN2 || kind == AIHC_REGION_GEN1) {
+        *where = kind == AIHC_REGION_GEN2 ? 2 : 1;
+        return value;
+      }
+      if (kind == AIHC_REGION_OUTSIDE && !aihc_outside_is_pinned(value)) {
+        *where = AIHC_GENERATION_STATIC;
+        return value;
+      }
+      if (kind == AIHC_REGION_FROM1) {
+        /* A survivor of gen1 ages into gen2, or into the gen1 of the
+           capability of a local collection. */
+        AihcSlot header = value->header;
+        if (aihc_header_is_forward(header)) {
+          *where = aihc_header_forward_generation(header);
+          return aihc_header_forward(header);
+        }
+        if ((header & AIHC_HEADER_TAG_MASK) == 0 &&
+            aihc_value_info_table(value)->object_kind !=
+                AIHC_OBJECT_INDIRECTION) {
+          unsigned generation =
+              context->gen1_target < target ? target : context->gen1_target;
+          if (generation > 2) {
+            generation = 2;
+          }
+          *where = generation;
+          return aihc_copy(context, value, generation, context->capability);
+        }
       }
     }
   }
@@ -1884,21 +1963,21 @@ aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   unsigned generation;
   AihcValue *value = aihc_evacuate_at(scan->gc, (AihcValue *)(uintptr_t)slot,
                                       scan->target, &generation);
+  /* Only a frame gives AIHC_EVACUATED_FRAME, so a static referent needs
+     no region lookup here. */
   if (generation == AIHC_EVACUATED_FRAME) {
     generation = AIHC_GENERATION_STATIC;
-  }
-  if (value != NULL && !scan->from_frame &&
-      generation == AIHC_GENERATION_STATIC &&
-      aihc_region_kind(value) == AIHC_REGION_STACK) {
-    /* A waiter or an IO request names a frame. The chunk of the frame is
-       reached only through the record, so the record stays in the
-       remembered set until the chunk is older than every collection that
-       could scan it again: a chunk this collection scans is young, and
-       another chunk has its own age. Without this rule, a record in gen2
-       drops out of the set after one scan, and a later gen1 collection
-       never reaches the frames of its thread. */
-    unsigned age = aihc_chunk_generation(aihc_stack_chunk_of(value));
-    generation = age <= scan->gc->collected ? 0 : age;
+    if (!scan->from_frame) {
+      /* A waiter or an IO request names a frame. The chunk of the frame is
+         reached only through the record, so the record stays in the
+         remembered set until the chunk is older than every collection that
+         could scan it again: a chunk this collection scans is young, and
+         another chunk has its own age. Without this rule, a record in gen2
+         drops out of the set after one scan, and a later gen1 collection
+         never reaches the frames of its thread. */
+      unsigned age = aihc_chunk_generation(aihc_stack_chunk_of(value));
+      generation = age <= scan->gc->collected ? 0 : age;
+    }
   }
   if (generation < scan->youngest) {
     scan->youngest = generation;
@@ -2215,8 +2294,13 @@ static void aihc_trace(AihcGcContext *context) {
       continue;
     }
     if (aihc_gen2_worklist.count != 0) {
-      AihcValue *object = aihc_gen2_worklist.items[--aihc_gen2_worklist.count];
-      aihc_scan_object(context, object, 2);
+      /* The scan of a gen2 object mostly adds gen2 objects, so the list is
+         empty before the other lists are tested again. */
+      do {
+        AihcValue *object =
+            aihc_gen2_worklist.items[--aihc_gen2_worklist.count];
+        aihc_scan_object(context, object, 2);
+      } while (aihc_gen2_worklist.count != 0);
       continue;
     }
     int scanned = 0;
@@ -2227,7 +2311,9 @@ static void aihc_trace(AihcGcContext *context) {
         continue;
       }
       if (aihc_generation_scan_pending(&other->gen1)) {
-        aihc_generation_scan_one(context, other);
+        do {
+          aihc_generation_scan_one(context, other);
+        } while (aihc_generation_scan_pending(&other->gen1));
         scanned = 1;
         break;
       }
@@ -3179,10 +3265,26 @@ static void aihc_collect_follow(AihcCapability *capability, int follow,
 /* Every collection stops the other capabilities for now, so no mutator
    runs while the collector moves or marks. The collector holds the heap
    lock too, after the stop, because no parked capability holds it. */
+static void aihc_collect_marked(AihcCapability *capability, unsigned collected,
+                                int start_cycle, int promote_all, int local,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt);
+
+/* The time profiler gives a sample in a collection its own frame. */
 static void aihc_collect(AihcCapability *capability, unsigned collected,
                          int start_cycle, int promote_all, int local,
                          uint64_t root_count, AihcSlot *roots,
                          const AihcSrt *srt) {
+  ++capability->profile_collecting;
+  aihc_collect_marked(capability, collected, start_cycle, promote_all, local,
+                      root_count, roots, srt);
+  --capability->profile_collecting;
+}
+
+static void aihc_collect_marked(AihcCapability *capability, unsigned collected,
+                                int start_cycle, int promote_all, int local,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt) {
   AihcMachine *machine = capability->machine;
 #ifndef AIHC_GC_VERIFY
   /* A local collection with workers runs without a stop. The stamps of the
@@ -3304,6 +3406,14 @@ static int aihc_collect_stopped(AihcCapability *capability, unsigned collected,
                            .gen1_target = keep_local ? 1 : 2,
                            .local = only,
                            .concurrent = concurrent && only != NULL};
+  AihcCapability *young = only != NULL            ? only
+                          : capability_count == 1 ? capability
+                                                  : NULL;
+  if (young != NULL) {
+    context.young_start = (uintptr_t)young->heap_start;
+    context.young_bytes = young->nursery_bytes;
+    context.young_owner = young;
+  }
 
   /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
      blocks. A full collection marks gen2 in place. The first version copies
@@ -3374,6 +3484,7 @@ static int aihc_collect_stopped(AihcCapability *capability, unsigned collected,
   }
   aihc_trace(&context);
   aihc_trace_kept_stacks(&context);
+  aihc_gen2_account(machine, context.gen2_slot_bytes);
   /* With several capabilities, every stable name and its referent are
      global, so a local collection changes no name. */
   if (!context.concurrent) {
@@ -4636,7 +4747,7 @@ static void aihc_verify_value(AihcValue *value) {
   default:
     aihc_fail("verifier: a reachable address has an invalid region kind");
   }
-  /* A processed update frame has the bit pattern of a forwarding header, and
+  /* A processed frame has the bit pattern of a forwarding header, and
      frames never move. */
   if (aihc_region_kind(value) != AIHC_REGION_STACK &&
       aihc_header_is_forward(value->header)) {

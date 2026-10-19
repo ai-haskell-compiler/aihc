@@ -61,7 +61,6 @@ import Data.ByteString qualified as BS
 import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
-import Data.List (zip4)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
@@ -519,9 +518,11 @@ compileFunctionTo backend output signatures index input state =
       let ctx = prepared {ctxRotations = rotations}
       emitStatements prefix
       let blocks = functionBlocks function
-          -- The number of the first instruction of each block.
+          -- The number of the first instruction of each block. The
+          -- allocation numbers the instructions in the source order.
           firsts = scanl (+) 0 (map (length . blockInstructions) blocks)
-      forM_ (zip4 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]) firsts) $ \(entry, block, next, first) -> do
+          placed = layoutBlocks (zip blocks firsts)
+      forM_ (zip3 (True : repeat False) placed (map (Just . fst) (drop 1 placed) <> [Nothing])) $ \(entry, (block, first), next) -> do
         let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
             framed = hasBlockFrame ctx (blockLabel block)
         emitStatements [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
@@ -531,6 +532,19 @@ compileFunctionTo backend output signatures index input state =
         when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
         native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
+
+-- | Put the blocks in the order of emission: the entry block, then the
+-- other blocks that are not cold, then the cold blocks. Each group keeps the
+-- source order. Thus the hot path is dense in the instruction cache, and a
+-- branch to a cold block jumps forward, out of the hot path.
+--
+-- Only the emission order changes. The allocation sees the source order,
+-- because an interval that reaches a cold block at the end of the function
+-- would keep its register through all of the hot code.
+layoutBlocks :: [(Block, a)] -> [(Block, a)]
+layoutBlocks blocks = case blocks of
+  entry : rest -> entry : filter (not . blockCold . fst) rest <> filter (blockCold . fst) rest
+  [] -> []
 
 prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error (Ctx register, [statement])
 prepareFunction backend signatures index function = do
@@ -866,10 +880,13 @@ compileTerminator backend ctx next fused terminator =
       (setup, test) <- nbConditionTest backend ctx fused condition
       trueMoves <- blockArgumentMoves backend ctx whenTrue
       falseMoves <- blockArgumentMoves backend ctx whenFalse
-      if null trueMoves && null falseMoves && isNext whenFalse
+      if null trueMoves && isNext whenFalse
         then do
+          -- The false target follows, so the branch goes to the true target
+          -- when the condition holds. The moves of the false edge come after
+          -- the branch, so the path to the next block takes no jump.
           branch <- btWhen test (labelOf whenTrue)
-          pure (setup <> branch)
+          pure (setup <> branch <> falseMoves)
         else do
           falseLabel <- if null falseMoves then pure (labelOf whenFalse) else freshLabel "else"
           unlessBranch <- btUnless test falseLabel

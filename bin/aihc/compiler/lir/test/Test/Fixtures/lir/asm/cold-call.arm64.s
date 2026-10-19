@@ -5,7 +5,10 @@ _reserve:
 	cmp x8, x21
 	b.hi .Llir_0_1
 	mov x2, x20
-	b .Llir_0_2
+.Llir_0_2:
+	str x1, [x2, #8]
+	add x20, x2, #16
+	b _next
 .Llir_0_1:
 	stp x29, x30, [sp, #-32]!
 	str x20, [x19, #24]
@@ -17,7 +20,4 @@ _reserve:
 	ldr x2, [x19, #24]
 	ldr x21, [x19, #32]
 	ldp x29, x30, [sp], #32
-.Llir_0_2:
-	str x1, [x2, #8]
-	add x20, x2, #16
-	b _next
+	b .Llir_0_2

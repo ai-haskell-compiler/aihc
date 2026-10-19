@@ -28,6 +28,21 @@
 -- function with a known signature evaluates the arguments the signature
 -- calls strict. A call of anything else evaluates only its head.
 --
+-- The default alternative of a case on a variable knows that the
+-- variable has none of the constructors of the other alternatives. A
+-- later case on the variable has alternatives for these constructors
+-- that cannot run, and they do not count in what every alternative
+-- evaluates. A saturated call of a local function gives these facts of
+-- an argument variable to the parameter, and walks the body again. A
+-- shared match failure needs this: its body has a case on a value that
+-- the caller already took apart, as in this inlined @integerMul@:
+--
+-- > let fail x1 = case x1 of { IS f -> multiplyByInt# y f; _ -> case y of ... }
+-- > in case x of { IS l -> case y of { ...; _ -> fail x }; _ -> fail x }
+--
+-- The second call cannot get to the 'IS' alternative, which does not
+-- evaluate @y@. Thus the function is strict in @y@.
+--
 -- The 'Signature' of a function has one 'Demand' per manifest lambda: the
 -- parameter is 'Strict' when the body evaluates it. Top-level values get
 -- their signatures in dependency order, and a recursive group gets a
@@ -155,7 +170,7 @@ demandProgram :: PackageId -> DemandRewrites -> Program -> (Program, DemandRepor
 demandProgram primPackage rewrites program =
   let types = typeEnvFromProgram primPackage program
       signatures = topLevelSignatures types (programDecls program)
-      env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False, envEvaluates = Map.empty}
+      env = (analysisEnv types signatures) {envRewrites = rewrites, envAnalysisOnly = False}
       supply = maxLocalUnique program + 1
       (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
       strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
@@ -177,8 +192,40 @@ data Env = Env
     -- evaluates, with the number of its parameters. A saturated call
     -- evaluates the body, thus it evaluates these variables too. A join
     -- point that shares the failure of a match is such a function.
-    envEvaluates :: !(Map Name (Int, Set Name))
+    envEvaluates :: !(Map Name (Int, Set Name)),
+    -- | The parameters and the body of each local function in scope. A
+    -- call can walk the body again with what it knows about the
+    -- arguments.
+    envBodies :: !(Map Name ([Binder], Expr)),
+    -- | The free variables that the right-hand side of each lazy let in
+    -- scope evaluates, when it is not a function. An evaluation of the
+    -- binder evaluates the right-hand side, thus it evaluates these
+    -- variables too. See 'demandExpr'.
+    envThunks :: !(Map Name (Set Name)),
+    -- | The constructors that each variable in scope cannot have. The
+    -- default alternative of a case on a variable knows that the variable
+    -- has none of the constructors of the other alternatives.
+    envExcluded :: !(Map Name (Set AltCon)),
+    -- | If True, a call of a local function can walk its body again.
+    -- A walk of a body sets it to False, so that a chain of calls cannot
+    -- walk each body more than one time for each call.
+    envRefine :: !Bool
   }
+
+-- | An environment for the analysis only, with the given signatures.
+analysisEnv :: TypeEnv -> Signatures -> Env
+analysisEnv types signatures =
+  Env
+    { envTypes = types,
+      envSignatures = signatures,
+      envRewrites = StrictLetsOnly,
+      envAnalysisOnly = False,
+      envEvaluates = Map.empty,
+      envBodies = Map.empty,
+      envThunks = Map.empty,
+      envExcluded = Map.empty,
+      envRefine = True
+    }
 
 extendType :: Env -> Binder -> Env
 extendType env binder = env {envTypes = extendBinder (envTypes env) binder}
@@ -200,18 +247,18 @@ topLevelSignatures types decls = List.foldl' addComponent Map.empty (stronglyCon
     addComponent current component =
       case component of
         AcyclicSCC declaration ->
-          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly False Map.empty) (valBody declaration)) current
+          Map.insert (valName declaration) (lambdaSignature (analysisEnv types current) (valBody declaration)) current
         CyclicSCC members ->
-          fixSignatures (Env types current StrictLetsOnly False Map.empty) [(valName declaration, valBody declaration) | declaration <- members]
+          fixSignatures (analysisEnv types current) [(valName declaration, valBody declaration) | declaration <- members]
 
 -- | The signature of a local function, with the signatures in scope.
 functionSignature :: TypeEnv -> Signatures -> Expr -> Signature
-functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly False Map.empty)
+functionSignature types scope = lambdaSignature (analysisEnv types scope)
 
 -- | The signatures in scope under a local recursive group: those of the
 -- members added to those given.
 recursiveSignatures :: TypeEnv -> Signatures -> [(Name, Expr)] -> Signatures
-recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly False Map.empty)
+recursiveSignatures types scope = fixSignatures (analysisEnv types scope)
 
 -- | The signature of a function body: one demand per lambda it exposes.
 lambdaSignature :: Env -> Expr -> Signature
@@ -416,7 +463,8 @@ bindSignature env binder rhs
   | otherwise =
       env
         { envSignatures = Map.insert name signature (envSignatures env),
-          envEvaluates = Map.insert name (length binders, evaluates) (envEvaluates env)
+          envEvaluates = Map.insert name (length binders, evaluates) (envEvaluates env),
+          envBodies = Map.insert name (collectLambdas rhs) (envBodies env)
         }
   where
     name = binderName binder
@@ -459,7 +507,7 @@ demandExpr env ty expr =
   case expr of
     ExVar name
       | isConstructorName name -> pure (expr, Set.empty)
-      | otherwise -> pure (expr, Set.singleton name)
+      | otherwise -> pure (expr, Set.insert name (Map.findWithDefault Set.empty name (envThunks env)))
     ExLit {} -> pure (expr, Set.empty)
     ExCoercion {} -> pure (expr, Set.empty)
     ExLam binder body
@@ -477,7 +525,25 @@ demandExpr env ty expr =
     ExTyApp {} -> demandApplication env ty (collectSpine expr)
     ExLet (Bind binder rhs) body -> do
       (rhs', rhsStrict) <- demandExpr env (Just (binderType binder)) rhs
-      let inner = bindSignature (extendType env binder) binder rhs
+      -- A lazy let that is not a function is a thunk. A path of the body
+      -- that evaluates the binder evaluates the right-hand side there, so
+      -- the path also evaluates what the right-hand side evaluates. GHC
+      -- inlines such a let into the alternatives that use it, and each
+      -- alternative is then strict in these variables:
+      --
+      -- > let y = abstract x a
+      -- > let r = case y of { ... }
+      -- > in case k of { A -> r; B -> case y of { ... } }
+      --
+      -- Each alternative evaluates @y@, thus the body is strict in @y@.
+      -- The demand only tells which variables are evaluated, not how
+      -- often, so a binder used on more than one path gives no wrong
+      -- answer.
+      let thunk = null (fst (collectLambdas rhs)) && not (isStrictBinder (envTypes env) binder)
+          withThunk current
+            | thunk = current {envThunks = Map.insert (binderName binder) rhsStrict (envThunks current)}
+            | otherwise = current
+          inner = withThunk (bindSignature (extendType env binder) binder rhs)
       (body', bodyStrict) <- demandExpr inner ty body
       let name = binderName binder
           evaluated = Set.member name bodyStrict
@@ -501,9 +567,23 @@ demandExpr env ty expr =
       pure (ExAbsurd scrutinee' result, strict)
     ExCase scrutinee binder alternatives -> do
       let result = exprType (envTypes env) expr
+          -- The scrutinee and the case binder are the same value.
+          names = [name | ExVar name <- [scrutinee]] <> foldMap (pure . binderName) binder
+          excluded = Set.unions [Map.findWithDefault Set.empty name (envExcluded env) | name <- names]
+          others = Set.fromList [altCon alternative | alternative <- NE.toList alternatives, altCon alternative /= AltDefault]
+          alternativeEnv alternative
+            | AltDefault <- altCon alternative =
+                env {envExcluded = List.foldl' (\current name -> Map.insert name (excluded <> others) current) (envExcluded env) names}
+            | otherwise = env
       (scrutinee', scrutineeStrict) <- demandExpr env (binderType <$> binder) scrutinee
-      results <- traverse (demandAlt (foldl' extendType env binder) result) alternatives
-      let branches = [strict `Set.difference` foldMap (Set.singleton . binderName) binder | (_, strict) <- NE.toList results]
+      results <- traverse (\alternative -> demandAlt (foldl' extendType (alternativeEnv alternative) binder) result alternative) alternatives
+      -- An alternative for an excluded constructor cannot run. It
+      -- evaluates everything, thus it does not change the meet.
+      let branches =
+            [ strict `Set.difference` foldMap (Set.singleton . binderName) binder
+            | (alternative, (_, strict)) <- zip (NE.toList alternatives) (NE.toList results),
+              altCon alternative `Set.notMember` excluded
+            ]
       pure (ExCase scrutinee' binder (fmap fst results), scrutineeStrict <> meets branches)
     ExForeignCall call tys arguments -> do
       results <- traverse (demandExpr env Nothing) arguments
@@ -546,12 +626,32 @@ demandApplication env ty (function, arguments) = do
         ExVar name
           | Just (arity, evaluates) <- Map.lookup name (envEvaluates env),
             length values >= arity ->
-              evaluates
+              fromMaybe evaluates (refinedEvaluates env name values)
         _ -> Set.empty
   (arguments', strictSets, wraps) <- walkArguments env result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
   let application = List.foldl' applyArgument function' arguments'
       wrapped = foldr (\(binder, scrutinee) body -> caseFromList scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
   pure (wrapped, headStrict <> bodyStrict <> mconcat strictSets)
+
+-- | The free variables that the body of a local function evaluates in a
+-- saturated call, when an argument is a variable with excluded
+-- constructors. The walk of the body gives the excluded constructors to
+-- the parameter, thus an alternative that the call cannot reach does not
+-- count. A shared match failure is such a function: it is called from a
+-- default alternative, and its body has a case on the same value again.
+refinedEvaluates :: Env -> Name -> [Expr] -> Maybe (Set Name)
+refinedEvaluates env name values = do
+  guard (envRefine env)
+  (binders, body) <- Map.lookup name (envBodies env)
+  let facts =
+        [ (binderName binder, excluded)
+        | (binder, ExVar var) <- zip binders values,
+          Just excluded <- [Map.lookup var (envExcluded env)],
+          not (Set.null excluded)
+        ]
+  guard (not (null facts))
+  let inner = (extendTypes env binders) {envRefine = False, envExcluded = Map.union (Map.fromList facts) (envExcluded env)}
+  pure (strictIn inner body `Set.difference` Set.fromList (map binderName binders))
 
 -- | The demand of each argument, with a type argument taking no demand.
 demandsByArgument :: [Either Type Expr] -> [Demand] -> [Demand]

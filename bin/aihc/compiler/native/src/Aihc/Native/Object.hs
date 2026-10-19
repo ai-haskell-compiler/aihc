@@ -59,7 +59,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Primitive.ByteArray (ByteArray (..), MutableByteArray, copyByteArray, newPinnedByteArray, readByteArray, unsafeFreezeByteArray, writeByteArray)
+import Data.Primitive.ByteArray (ByteArray (..), MutableByteArray, copyByteArray, moveByteArray, newPinnedByteArray, readByteArray, unsafeFreezeByteArray, writeByteArray)
 import Data.Primitive.MutVar (MutVar, modifyMutVar', newMutVar, readMutVar, writeMutVar)
 import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, setPrimArray, writePrimArray)
 import Data.Set qualified as Set
@@ -94,6 +94,10 @@ data FixupKind
   | Absolute64
   | X86Pc32
   | X86Plt32
+  | -- | The 32-bit displacement of a @jmp@ (@e9@) or a @jcc@ (@0f 8x@) to a
+    -- private label. When the object seals the function, it changes the
+    -- instruction to the 2-byte form if the label is near.
+    X86Branch32
   | -- | A RIP-relative load from the Global Offset Table entry of a symbol
     -- (@R_X86_64_REX_GOTPCRELX@). The linker relaxes the load to @lea@ for
     -- a symbol in the executable.
@@ -271,30 +275,49 @@ chunkMask = chunkBytes - 1
 -- | The bytes of one section and the fixups recorded over them. A fixup
 -- row names its target by symbol number, or by @-1 - local@ for a private
 -- label.
+--
+-- The events are the things that 'relaxBranches' must move when it makes a
+-- branch shorter: the 'X86Branch32' fixups, and the labels and alignments
+-- after the first of them. Nothing before the first such branch moves, so
+-- the section records no event until it has one. An event code is
+-- @payload * 4 + tag@ (see 'eventLocal').
 data Section s = Section
   { sectionRole :: !SectionRole,
     -- | The size, the alignment power, the chunk count, the fixup count,
-    -- and the number of leading fixups that 'sealFunction' has already
-    -- examined.
+    -- the number of leading fixups that 'sealFunction' has already
+    -- examined, and the event count.
     sectionCounters :: !(MutablePrimArray s Int),
     sectionChunks :: !(Boxed s (MutableByteArray s)),
     fixupOffsets :: !(Unboxed s Int),
     fixupAddends :: !(Unboxed s Int64),
     fixupTargets :: !(Unboxed s Int),
-    fixupKinds :: !(Unboxed s Word8)
+    fixupKinds :: !(Unboxed s Word8),
+    eventOffsets :: !(Unboxed s Int),
+    eventCodes :: !(Unboxed s Int),
+    -- | The fill of each alignment event, latest first.
+    eventFills :: !(MutVar s [ByteString])
   }
 
-counterSize, counterAlignment, counterChunks, counterFixups, counterSealed :: Int
+counterSize, counterAlignment, counterChunks, counterFixups, counterSealed, counterEvents :: Int
 counterSize = 0
 counterAlignment = 1
 counterChunks = 2
 counterFixups = 3
 counterSealed = 4
+counterEvents = 5
+
+-- | The event tags: a private label (payload: its number), a symbol (its
+-- number), an 'X86Branch32' fixup (its row), and an alignment (its power).
+eventLocal, eventSymbol, eventBranch, eventAlign :: Int
+eventLocal = 0
+eventSymbol = 1
+eventBranch = 2
+eventAlign = 3
 
 newSection :: SectionRole -> ST s (Section s)
 newSection role = do
-  counters <- newPrimArray 5
-  setPrimArray counters 0 5 0
+  counters <- newPrimArray 6
+  setPrimArray counters 0 6 0
   -- The chunk column is never read past its count, so its default is
   -- never observed; the first chunk stands in for it.
   first <- newPinnedByteArray chunkBytes
@@ -304,6 +327,23 @@ newSection role = do
     <*> newColumn 0 64
     <*> newColumn 0 64
     <*> newColumn 0 64
+    <*> newColumn 0 0
+    <*> newColumn 0 0
+    <*> newMutVar []
+
+-- | Record an event at an offset.
+recordEvent :: Section s -> Int -> Int -> Int -> ST s ()
+recordEvent section offset tag payload = do
+  count <- readPrimArray (sectionCounters section) counterEvents
+  writeColumn (eventOffsets section) count offset
+  writeColumn (eventCodes section) count (payload * 4 + tag)
+  writePrimArray (sectionCounters section) counterEvents (count + 1)
+
+-- | Record a label or an alignment event, if a branch event comes before it.
+recordLaterEvent :: Section s -> Int -> Int -> Int -> ST s ()
+recordLaterEvent section offset tag payload = do
+  count <- readPrimArray (sectionCounters section) counterEvents
+  when (count > 0) (recordEvent section offset tag payload)
 
 sectionSize :: Section s -> ST s Int
 sectionSize section = readPrimArray (sectionCounters section) counterSize
@@ -424,7 +464,9 @@ freezeSection section = do
     mapM
       ( \index -> do
           ByteArray frozen <- readColumn (sectionChunks section) index >>= unsafeFreezeByteArray
-          let width = if index == count - 1 then size - index * chunkBytes else chunkBytes
+          -- 'relaxBranches' can make the section shorter, so a chunk can
+          -- be partly or fully past the end.
+          let width = max 0 (min chunkBytes (size - index * chunkBytes))
           -- The chunk is pinned, so this shares it rather than copying.
           pure (BS.take width (fromShort (SBS frozen)))
       )
@@ -556,6 +598,7 @@ defineLabel object section name = do
         else do
           writeColumn (objectSymbolOffsets object) identifier size
           writeColumn (objectSymbolSections object) identifier role
+          recordLaterEvent section size eventSymbol identifier
           pure ok
     LocalName identifier _ -> do
       defined <- readColumn (objectLocalSections object) identifier
@@ -564,6 +607,7 @@ defineLabel object section name = do
         else do
           writeColumn (objectLocalOffsets object) identifier size
           writeColumn (objectLocalSections object) identifier role
+          recordLaterEvent section size eventLocal identifier
           pure ok
 
 -- | Append one item to the current section.
@@ -586,6 +630,7 @@ emitItem object item = do
           row <- readPrimArray (sectionCounters section) counterFixups
           writePrimArray (sectionCounters section) counterFixups (row + 1)
           writeFixup section row (FixupRow size (fixupAddend fixup) target (fixupKind fixup))
+          when (fixupKind fixup == X86Branch32) (recordEvent section size eventBranch row)
           pure ok
 
 -- | Append a run of items to the current section.
@@ -606,18 +651,31 @@ emitAlign object alignmentPower fill = do
           size <- sectionSize section
           alignment <- readPrimArray (sectionCounters section) counterAlignment
           writePrimArray (sectionCounters section) counterAlignment (max alignment alignmentPower)
-          let boundary = 1 `shiftL` alignmentPower
-              padding = (boundary - size `mod` boundary) `mod` boundary
-              -- A block of whole fills, bounded so that a large alignment
-              -- pads in pieces.
-              block = BS.concat (replicate (max 1 (min padding 4096 `div` BS.length fill)) fill)
-              go remaining =
-                when (remaining > 0) $ do
-                  let count = min remaining (BS.length block)
-                  emitBytes section (BS.take count block)
-                  go (remaining - count)
-          go padding
+          events <- readPrimArray (sectionCounters section) counterEvents
+          when (events > 0) $ do
+            recordEvent section size eventAlign alignmentPower
+            modifyMutVar' (eventFills section) (fill :)
+          emitPadding section (alignmentPadding alignmentPower size) fill
           pure ok
+
+-- | The number of bytes from an offset to the next boundary.
+alignmentPadding :: Int -> Int -> Int
+alignmentPadding alignmentPower offset =
+  let boundary = 1 `shiftL` alignmentPower
+   in (boundary - offset `mod` boundary) `mod` boundary
+
+-- | Append padding made of copies of the fill.
+emitPadding :: Section s -> Int -> ByteString -> ST s ()
+emitPadding section padding fill = go padding
+  where
+    -- A block of whole fills, bounded so that a large alignment pads in
+    -- pieces.
+    block = BS.concat (replicate (max 1 (min padding 4096 `div` BS.length fill)) fill)
+    go remaining =
+      when (remaining > 0) $ do
+        let count = min remaining (BS.length block)
+        emitBytes section (BS.take count block)
+        go (remaining - count)
 
 -- | Resolve the fixups of the function just emitted that name its private
 -- labels, patching the section in place, and keep the rest for layout.
@@ -627,6 +685,7 @@ sealFunction object = do
   case current of
     Nothing -> pure ok
     Just section -> do
+      relaxBranches object section
       sealed <- readPrimArray (sectionCounters section) counterSealed
       count <- readPrimArray (sectionCounters section) counterFixups
       let go source target
@@ -661,6 +720,182 @@ resolveLocal object section fixup = do
           target <- readColumn (objectLocalOffsets object) identifier
           patchLocal section (localText identifier) target fixup
 
+-- | Make each 'X86Branch32' jump of the events short when its private
+-- label is in reach of a signed byte, and move the code after it.
+--
+-- Each jump that can be short starts short. A pass places the events with
+-- the jumps as they are, and each short jump that does not reach its label
+-- becomes long again. A jump never becomes short again, so the passes stop,
+-- and in the last pass each short jump reaches. A jump to a label that is
+-- not defined in this section stays long. The new layout is never longer at
+-- any offset, also with the alignments in it, so the bytes move to lower
+-- offsets in place.
+relaxBranches :: Object s -> Section s -> ST s ()
+relaxBranches object section = do
+  let counters = sectionCounters section
+  count <- readPrimArray counters counterEvents
+  when (count > 0) $ do
+    size <- sectionSize section
+    let role = fromIntegral (fromEnum (sectionRole section)) :: Int8
+    -- The start of each event, the long length of a jump or the padding of
+    -- an alignment, the private label of a jump, and whether a jump is
+    -- short.
+    starts <- MU.new count
+    codes <- MU.new count
+    lengths <- MU.replicate count 0
+    targets <- MU.replicate count 0
+    shorts <- MU.replicate count False
+    -- The new start of each event, and the distance that the bytes after
+    -- it move down.
+    placed <- MU.new count
+    shifts <- MU.new count
+    let prepare index =
+          when (index < count) $ do
+            offset <- readColumn (eventOffsets section) index
+            code <- readColumn (eventCodes section) index
+            MU.unsafeWrite codes index code
+            let payload = code `shiftR` 2
+            case code .&. 3 of
+              tag
+                | tag == eventBranch -> do
+                    opcode <- readWordAt section (offset - 1) 1
+                    let long = if opcode == 0xe9 then 5 else 6
+                    MU.unsafeWrite starts index (offset + 4 - long)
+                    MU.unsafeWrite lengths index long
+                    target <- readColumn (fixupTargets section) payload
+                    when (target < 0) $ do
+                      let identifier = -1 - target
+                      defined <- readColumn (objectLocalSections object) identifier
+                      MU.unsafeWrite targets index identifier
+                      MU.unsafeWrite shorts index (defined == role)
+                | tag == eventAlign -> do
+                    MU.unsafeWrite starts index offset
+                    MU.unsafeWrite lengths index (alignmentPadding payload offset)
+                | otherwise -> MU.unsafeWrite starts index offset
+            prepare (index + 1)
+        place index shift =
+          when (index < count) $ do
+            start <- MU.unsafeRead starts index
+            code <- MU.unsafeRead codes index
+            let new = start - shift
+                payload = code `shiftR` 2
+            MU.unsafeWrite placed index new
+            shift' <- case code .&. 3 of
+              tag
+                | tag == eventLocal -> writeColumn (objectLocalOffsets object) payload new >> pure shift
+                | tag == eventSymbol -> writeColumn (objectSymbolOffsets object) payload new >> pure shift
+                | tag == eventBranch -> do
+                    short <- MU.unsafeRead shorts index
+                    long <- MU.unsafeRead lengths index
+                    pure (if short then shift + long - 2 else shift)
+                | otherwise -> do
+                    padding <- MU.unsafeRead lengths index
+                    pure (start + padding - (new + alignmentPadding payload new))
+            MU.unsafeWrite shifts index shift'
+            place (index + 1) shift'
+        grow index changed
+          | index == count = pure changed
+          | otherwise = do
+              short <- MU.unsafeRead shorts index
+              if not short
+                then grow (index + 1) changed
+                else do
+                  displacement <- branchDisplacement index
+                  if displacement >= -128 && displacement < 128
+                    then grow (index + 1) changed
+                    else MU.unsafeWrite shorts index False >> grow (index + 1) True
+        branchDisplacement index = do
+          new <- MU.unsafeRead placed index
+          target <- MU.unsafeRead targets index >>= readColumn (objectLocalOffsets object)
+          pure (target - (new + 2))
+        relax = do
+          place 0 0
+          changed <- grow 0 False
+          when changed relax
+        -- Move the bytes down, and write each short jump and each new
+        -- padding.
+        compact index source destination fills
+          | index == count = do
+              moveWithin section destination source (size - source)
+              writePrimArray counters counterSize (destination + size - source)
+          | otherwise = do
+              start <- MU.unsafeRead starts index
+              code <- MU.unsafeRead codes index
+              new <- MU.unsafeRead placed index
+              short <- MU.unsafeRead shorts index
+              case code .&. 3 of
+                tag
+                  | tag == eventBranch && short -> do
+                      moveWithin section destination source (start - source)
+                      long <- MU.unsafeRead lengths index
+                      opcode <- readWordAt section (start + long - 5) 1
+                      displacement <- branchDisplacement index
+                      -- @jmp rel32@ is @e9@ and @jmp rel8@ is @eb@. A
+                      -- @jcc rel32@ is @0f 8x@ and its @rel8@ form is @7x@.
+                      let short' = if long == 5 then 0xeb else 0x70 .|. (opcode .&. 0x0f)
+                      writeWordAt section new 2 (short' .|. (fromIntegral displacement .&. 0xff) `shiftL` 8)
+                      compact (index + 1) (start + long) (new + 2) fills
+                  | tag == eventAlign -> do
+                      moveWithin section destination source (start - source)
+                      padding <- MU.unsafeRead lengths index
+                      let (fill, rest) = case fills of
+                            first : others -> (first, others)
+                            [] -> (BS.singleton 0, [])
+                          padding' = alignmentPadding (code `shiftR` 2) new
+                      mapM_ (\at -> writeWordAt section (new + at) 1 (fromIntegral (BS.index fill (at `mod` BS.length fill)))) [0 .. padding' - 1]
+                      compact (index + 1) (start + padding) (new + padding') rest
+                  | otherwise -> compact (index + 1) source destination fills
+        -- Move the fixups in the region, and drop those of the short jumps.
+        fixups row kept event shift total
+          | row == total = writePrimArray counters counterFixups kept
+          | otherwise = do
+              fixup <- readFixup section row
+              let offset = fixupRowOffset fixup
+                  advance index current
+                    | index < count = do
+                        start <- MU.unsafeRead starts index
+                        if start < offset
+                          then MU.unsafeRead shifts index >>= advance (index + 1)
+                          else pure (index, current)
+                    | otherwise = pure (index, current)
+              (event', shift') <- advance event shift
+              dropped <-
+                if fixupRowKind fixup == X86Branch32 && event' > 0
+                  then do
+                    code <- MU.unsafeRead codes (event' - 1)
+                    short <- MU.unsafeRead shorts (event' - 1)
+                    pure (short && code == row * 4 + eventBranch)
+                  else pure False
+              if dropped
+                then fixups (row + 1) kept event' shift' total
+                else do
+                  writeFixup section kept fixup {fixupRowOffset = offset - shift'}
+                  fixups (row + 1) (kept + 1) event' shift' total
+    prepare 0
+    relax
+    anyShort <- MU.foldr (||) False shorts
+    when anyShort $ do
+      first <- MU.unsafeRead starts 0
+      fills <- reverse <$> readMutVar (eventFills section)
+      compact 0 first first fills
+      sealed <- readPrimArray counters counterSealed
+      total <- readPrimArray counters counterFixups
+      fixups sealed sealed 0 0 total
+    writePrimArray counters counterEvents 0
+    writeMutVar (eventFills section) []
+
+-- | Move bytes of a section to a lower offset.
+moveWithin :: Section s -> Int -> Int -> Int -> ST s ()
+moveWithin section destination source count =
+  when (count > 0 && destination /= source) $ do
+    let from = source .&. chunkMask
+        to = destination .&. chunkMask
+        piece = minimum [count, chunkBytes - from, chunkBytes - to]
+    sourceChunk <- chunkAt section (source `shiftR` chunkShift)
+    destinationChunk <- chunkAt section (destination `shiftR` chunkShift)
+    moveByteArray destinationChunk to sourceChunk from piece
+    moveWithin section (destination + piece) (source + piece) (count - piece)
+
 -- | Whether this object can fill a fixup in without the linker.
 canResolve :: FixupKind -> Bool
 canResolve kind =
@@ -670,6 +905,7 @@ canResolve kind =
     Arm64Adr21 -> True
     X86Pc32 -> True
     X86Plt32 -> True
+    X86Branch32 -> True
     _ -> False
 
 -- | Fill a fixup in with the displacement to a target in the same section.
@@ -693,6 +929,7 @@ patchLocal section name target fixup = do
            in write (instruction .|. low .|. high)
     X86Pc32 -> patchX86
     X86Plt32 -> patchX86
+    X86Branch32 -> patchX86
     kind -> pure (Left (ObjectInvalidFixup kind))
   where
     offset = fixupRowOffset fixup
@@ -735,6 +972,7 @@ layoutObject object = do
   sections <- readMutVar (objectSections object)
   symbolCount <- readPrimArray (objectSymbolCount object) 0
   names <- listArray (0, symbolCount - 1) . reverse <$> readMutVar (objectSymbolNames object)
+  mapM_ (relaxBranches object) (Map.elems sections)
   starts <- atomStarts object symbolCount
   relocated <- MU.replicate symbolCount False
   resolved <- resolveSections object (names !) starts relocated [sections Map.! role | role <- order]

@@ -72,7 +72,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
-import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, nodeWords)
+import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, nodeWords)
 import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
@@ -100,7 +100,7 @@ import Data.Foldable (for_)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, maybeToList)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -169,7 +169,14 @@ data LowerOptions = LowerOptions
     -- defines the counters and their names, and the executable entry
     -- registers them with the runtime. Only a whole program can ask for
     -- it, because the counters of two units would have the same symbols.
-    lowerProfileAllocations :: !Bool
+    lowerProfileAllocations :: !Bool,
+    -- | Give the capability the code and the continuation of each function
+    -- at its entry, so the time profiler of the runtime can sample the
+    -- Haskell stack. A library unit defines the name table of its
+    -- functions and info tables, and the executable entry registers it with
+    -- the runtime. Only a whole program can ask for it, for the same reason
+    -- as 'lowerProfileAllocations'.
+    lowerProfileTime :: !Bool
   }
   deriving (Eq, Show)
 
@@ -178,13 +185,15 @@ data ModuleSettings = ModuleSettings
   { -- | See 'lowerCheckPrimBounds'.
     moduleCheckPrimBounds :: !Bool,
     -- | See 'lowerProfileAllocations'.
-    moduleProfileAllocations :: !Bool
+    moduleProfileAllocations :: !Bool,
+    -- | See 'lowerProfileTime'.
+    moduleProfileTime :: !Bool
   }
   deriving (Eq, Show)
 
--- | No bounds checks and no allocation profile.
+-- | No bounds checks and no profile.
 defaultModuleSettings :: ModuleSettings
-defaultModuleSettings = ModuleSettings {moduleCheckPrimBounds = False, moduleProfileAllocations = False}
+defaultModuleSettings = ModuleSettings {moduleCheckPrimBounds = False, moduleProfileAllocations = False, moduleProfileTime = False}
 
 libraryOptions :: LowerTarget -> ModuleSettings -> LowerOptions
 libraryOptions target settings =
@@ -193,7 +202,8 @@ libraryOptions target settings =
       lowerExposeFunctions = False,
       lowerTarget = target,
       lowerCheckPrimBounds = moduleCheckPrimBounds settings,
-      lowerProfileAllocations = moduleProfileAllocations settings
+      lowerProfileAllocations = moduleProfileAllocations settings,
+      lowerProfileTime = moduleProfileTime settings
     }
 
 -- | Lower one library module with the settings of the build.
@@ -201,12 +211,13 @@ lowerModule :: LowerTarget -> ModuleSettings -> GcGrinProgram -> Either LowerErr
 lowerModule target settings =
   lowerProgramWith (libraryOptions target settings)
 
--- | Lower the fixed executable entry unit. With the flag, @main@ registers
--- the allocation counters of the program with the runtime.
-lowerEntry :: LowerTarget -> Bool -> Either LowerError Module
-lowerEntry target profileAllocations = do
+-- | Lower the fixed executable entry unit. With the flags, @main@ registers
+-- the allocation counters and the time profile tables of the program with
+-- the runtime.
+lowerEntry :: LowerTarget -> Bool -> Bool -> Either LowerError Module
+lowerEntry target profileAllocations profileTime = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -319,6 +330,8 @@ data LowerEnv = LowerEnv
     envFunctionSymbols :: !(Map FunctionName Symbol),
     envFunctionParameters :: !(Map FunctionName [Type]),
     envContinuationFunctions :: !(Set FunctionName),
+    -- | The continuation parameter of each function that takes one.
+    envFunctionContinuations :: !(Map FunctionName GrinVar),
     envForwardingFunctions :: !(Set FunctionName),
     envInfoSymbols :: !(Map RuntimeInfoKey Symbol),
     envInfos :: ![RuntimeInfo],
@@ -396,6 +409,8 @@ data LowerState = LowerState
     stateTarget :: !LowerTarget,
     -- | See 'lowerProfileAllocations'.
     stateProfileAllocations :: !Bool,
+    -- | See 'lowerProfileTime'.
+    stateProfileTime :: !Bool,
     -- | The allocation counter of each info table so far: its index and
     -- the name the profile shows.
     stateProfileSites :: !(Map Symbol (Int, Text)),
@@ -478,6 +493,7 @@ initialLowerState options gcProgram =
     { stateNext = 0,
       stateTarget = lowerTarget options,
       stateProfileAllocations = lowerProfileAllocations options,
+      stateProfileTime = lowerProfileTime options,
       stateProfileSites = Map.empty,
       stateExterns = Map.empty,
       stateExternData = Set.empty,
@@ -504,6 +520,7 @@ lowerEnvironment options gcProgram =
       envFunctionSymbols = functionSymbols,
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
+      envFunctionContinuations = gcFunctionContinuations gcProgram,
       envForwardingFunctions = forwardingFunctions,
       envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
       envInfos = map snd (constructorEntries <> functionEntries),
@@ -926,6 +943,15 @@ capabilityStackNextOffset target = capabilityHeapLimitOffset target + toInteger 
 capabilityPauseTopOffset :: LowerTarget -> Integer
 capabilityPauseTopOffset target = 6 * toInteger (lowerWordSize target) + 16
 
+-- | The code of the function that started last, after the top frame of a
+-- promotion. Only a time profile stores it. See 'storeProfileEntry'.
+capabilityProfileCodeOffset :: LowerTarget -> Integer
+capabilityProfileCodeOffset target = capabilityPauseTopOffset target + toInteger (lowerWordSize target)
+
+-- | The continuation of the function that started last, after its code.
+capabilityProfileFrameOffset :: LowerTarget -> Integer
+capabilityProfileFrameOffset target = capabilityProfileCodeOffset target + toInteger (lowerWordSize target)
+
 -- | The nursery base follows the stack pointer.
 capabilityHeapStartOffset :: LowerTarget -> Integer
 capabilityHeapStartOffset target = 5 * toInteger (lowerWordSize target)
@@ -1202,6 +1228,7 @@ lowerUnitActions env program@(GrinProgram _ _ _ _ functions) =
     <> [lowerStaticReferenceTables env]
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
     <> [lowerAllocationProfile | lowerProfileAllocations (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
+    <> [lowerTimeProfile env functions | lowerProfileTime (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
 
 -- | Aggregate representations describe results, never individual slots.
 validateSlotRep :: GrinRep -> LowerM ()
@@ -1497,6 +1524,8 @@ lowerFunction env function = do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
   beginBlock (Label "entry") []
+  when (lowerProfileTime (envOptions env)) $
+    storeProfileEntry (grinFunctionName function) (profileContinuation env function [lirVar | (_, lirVar, _) <- parameters])
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
   roots <-
     case maximumRoots (grinFunctionBody function) of
@@ -1514,6 +1543,31 @@ lowerFunction env function = do
     (contextParameters <> [(lirVar, ty) | (_, lirVar, ty) <- parameters])
     []
     AihcConvention
+
+-- | The continuation of a function as the time profiler sees it: the
+-- hidden continuation parameter of a computation, or the parent of a
+-- continuation frame, which the frame gives as the first parameter. See
+-- 'lowerProfileTime'.
+profileContinuation :: LowerEnv -> GrinFunction -> [Var] -> Maybe Var
+profileContinuation env function parameters =
+  case Map.lookup name (envFunctionContinuations env) of
+    Just continuation -> lookup continuation (zip (grinFunctionParameters function) parameters)
+    Nothing
+      | name `Set.member` envContinuationFunctions env -> listToMaybe parameters
+      | otherwise -> Nothing
+  where
+    name = grinFunctionName function
+
+-- | Give the capability the continuation and the code of the function that
+-- starts, in that order. The time profiler reads the two fields when a
+-- sample interrupts the thread, so the code that it sees never belongs to
+-- an older function than the continuation. See 'lowerProfileTime'.
+storeProfileEntry :: FunctionName -> Maybe Var -> LowerM ()
+storeProfileEntry name continuation = do
+  target <- targetM
+  capability <- currentCapability
+  emit [] (Store Ptr (maybe (OperandLiteral LitNull) OperandVar continuation) (byteAddress capability (capabilityProfileFrameOffset target)) (wordAlignment 1))
+  emit [] (Store Ptr (OperandLiteral (LitSymbol (functionSymbol name))) (byteAddress capability (capabilityProfileCodeOffset target)) (wordAlignment 1))
 
 varBase :: GrinVar -> Text
 varBase var = T.filter (\character -> character /= '"' && character /= '\\') (grinVarName var)
@@ -1650,6 +1704,8 @@ compileExpr ctx env expression =
     -- thunks of a variable to their target, so the ready branch gets the
     -- value and no continuation is allocated. That test is only on the path
     -- of an object that is not a value.
+    -- The blocks of that test are cold, so a native backend puts them after
+    -- the hot code and the ready branch follows the check directly.
     GrinIfWhnf value ready slow -> do
       object <- pointerValue ctx env value
       checkLabel <- freshLabel "eval_check"
@@ -1675,14 +1731,14 @@ compileExpr ctx env expression =
           terminate (Branch (typedOperand notValue) (Target notValueLabel []) (Target readyLabel []))
           thunkLabel <- freshLabel "eval_thunk"
           ownerLabel <- freshLabel "eval_owner"
-          beginBlock notValueLabel []
+          beginColdBlock notValueLabel []
           isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
           terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target thunkLabel []))
-          beginBlock thunkLabel []
+          beginColdBlock thunkLabel []
           tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
           claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
           terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
-          beginBlock ownerLabel []
+          beginColdBlock ownerLabel []
           word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
           (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
           wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte
@@ -1690,7 +1746,7 @@ compileExpr ctx env expression =
           isQueue <- emitValue "queue" I1 (Compare Eq I64 (typedOperand wordKind) (OperandLiteral (LitInt runtimeObjectBlackholeQueue)))
           owned <- emitValue "owned" I1 (Binary Or I1 (typedOperand isThread) (typedOperand isQueue))
           terminate (Branch (typedOperand owned) (Target slowLabel []) (Target checkLabel [typedOperand word]))
-          beginBlock followLabel []
+          beginColdBlock followLabel []
           next <- loadSlotDependent HeapRegion "next" Ptr (OperandVar current) 8
           terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
@@ -2024,6 +2080,40 @@ lowerAllocationProfile = do
   emitItem (ItemData (DataItem allocationCountsSymbol Export True 8 (if null sites then [DataInt I64 0] else concat [[DataInt I64 0, DataInt I64 0] | _ <- sites])))
   emitItem (ItemData (DataItem allocationNamesSymbol Export False (toInteger (lowerWordSize target)) (if null names then [DataNull] else [DataSymbol symbol 0 | symbol <- names])))
   emitItem (ItemData (DataItem allocationSizeSymbol Export False 8 [DataInt I64 (toInteger (length sites))]))
+
+-- | The symbols of the time profile tables: the code of each function, its
+-- name, and their number, then the info tables of the functions and their
+-- number. The runtime names a sampled code from the first table. It reads a
+-- frame only when its info table is in the second table.
+timeProfileCodesSymbol, timeProfileNamesSymbol, timeProfileCodeCountSymbol, timeProfileInfosSymbol, timeProfileInfoCountSymbol :: Symbol
+timeProfileCodesSymbol = Symbol "aihc_time_profile_codes"
+timeProfileNamesSymbol = Symbol "aihc_time_profile_names"
+timeProfileCodeCountSymbol = Symbol "aihc_time_profile_code_count"
+timeProfileInfosSymbol = Symbol "aihc_time_profile_infos"
+timeProfileInfoCountSymbol = Symbol "aihc_time_profile_info_count"
+
+-- | The time profile tables of a unit. See 'lowerProfileTime'.
+lowerTimeProfile :: LowerEnv -> [GrinFunction] -> LowerM ()
+lowerTimeProfile env functions = do
+  target <- targetM
+  let names = [grinFunctionName function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
+      infos = [infoSymbol info | info <- envInfos env, DataCode (Just _) <- [infoIdentity info]]
+      word = toInteger (lowerWordSize target)
+  nameSymbols <- forM (zip [0 :: Int ..] names) $ \(index, name) -> do
+    let symbol = Symbol ("aihc_time_profile_name_" <> T.pack (show index))
+    emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes (TE.encodeUtf8 (profileFunctionName name)), DataInt I8 0]))
+    pure symbol
+  emitItem (ItemData (DataItem timeProfileCodesSymbol Export False word (if null names then [DataNull] else [DataCode (Just (functionSymbol name)) | name <- names])))
+  emitItem (ItemData (DataItem timeProfileNamesSymbol Export False word (if null nameSymbols then [DataNull] else [DataSymbol symbol 0 | symbol <- nameSymbols])))
+  emitItem (ItemData (DataItem timeProfileCodeCountSymbol Export False 8 [DataInt I64 (toInteger (length names))]))
+  emitItem (ItemData (DataItem timeProfileInfosSymbol Export False word (if null infos then [DataNull] else [DataSymbol symbol 0 | symbol <- infos])))
+  emitItem (ItemData (DataItem timeProfileInfoCountSymbol Export False 8 [DataInt I64 (toInteger (length infos))]))
+
+-- | The name of a function in a profile. A linked name separates its
+-- package, module and name with control characters, which a C string
+-- cannot hold.
+profileFunctionName :: FunctionName -> Text
+profileFunctionName = T.map (\c -> if c < ' ' then ':' else c) . unFunctionName
 
 -- | Take the given words from heap that a reservation has already made: the
 -- object starts at the heap pointer, and the heap pointer advances past it.
@@ -3514,13 +3604,19 @@ lowerExecutableMain gcProgram = do
   argc <- fresh "argc"
   argv <- fresh "argv"
   beginBlock (Label "entry") []
-  _ <- callRuntime "aihc_machine_initialize" [] [Ptr] []
+  capability <- callRuntime "aihc_machine_initialize" [] [Ptr] []
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
   profiling <- gets stateProfileAllocations
   when profiling $ do
     mapM_ requireExternData [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol]
     _ <- callRuntime "aihc_allocation_profile_register" [Ptr, Ptr, Ptr] [] (map (OperandLiteral . LitSymbol) [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol])
+    pure ()
+  profilingTime <- gets stateProfileTime
+  when profilingTime $ do
+    let tables = [timeProfileCodesSymbol, timeProfileNamesSymbol, timeProfileCodeCountSymbol, timeProfileInfosSymbol, timeProfileInfoCountSymbol]
+    mapM_ requireExternData tables
+    _ <- callRuntime "aihc_time_profile_register" (replicate 6 Ptr) [] (capability : map (OperandLiteral . LitSymbol) tables)
     pure ()
   _ <- startMachine
   _ <- callRuntime "aihc_runtime_statistics_report" [] [] []

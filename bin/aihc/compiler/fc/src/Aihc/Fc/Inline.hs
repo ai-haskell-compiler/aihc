@@ -480,6 +480,7 @@ simplifyValue config known diverging recursive inTemplates st name
                             spInside = False,
                             spCredits = snd (callArityAnalysis credit False body),
                             spSpeculative = False,
+                            spLazyField = False,
                             spCaseContext = Nothing,
                             spLocalCandidates = Map.empty,
                             spInTemplate = isTemplate st name,

@@ -1,0 +1,129 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (caller) where
+
+  import GHC.Prim (Int#, (+#))
+  import GHC.Types (Int (..))
+
+  data T = A Int# | B Int#
+
+  size :: T -> Int
+  size t = case t of
+    A i -> I# i
+    B i -> I# i
+
+  pick :: Int# -> T -> Int
+  pick i t = case i of
+    0# -> I# 0#
+    _ -> size t
+
+  mul :: T -> T -> Int
+  mul x y =
+    let k v = case v of
+          A i -> pick i y
+          _ -> size y
+     in case x of
+          A i -> case y of
+            A j -> I# (i +# j)
+            _ -> k x
+          _ -> k x
+
+  next :: T -> T
+  next t = case t of
+    A i -> B i
+    B i -> A i
+
+  caller :: T -> T -> Int
+  caller a b =
+    let t = next b
+     in mul a t
+passes:
+- demand
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.tT :: sType {
+    1.cA :: FUN @cIntRep @sLiftedRep tInt# tT;
+    1.cB :: FUN @cIntRep @sLiftedRep tInt# tT
+  }
+
+  val 1.vsize :: tT → tInt
+    = λ(x : tT).
+      case x of {
+        cA (i : tInt#) →
+          cI# i;
+        cB (i : tInt#) →
+          cI# i
+      }
+
+  val 1.vpick :: FUN @cIntRep @sLiftedRep tInt# (tT → tInt)
+    = λ(x : tInt#) (y : tT).
+      case x of {
+        0#cIntRep →
+          cI# lit (0#cIntRep) :: tInt#;
+        _ →
+          vsize y
+      }
+
+  val 1.vmul :: tT → tT → tInt
+    = λ(x : tT) (y : tT).
+      let k : tT → tInt =
+        λ(x{1} : tT).
+          case x{1} of {
+            cA (i : tInt#) →
+              vpick i y;
+            _ →
+              vsize y
+          };
+      case x of {
+        cA (i : tInt#) →
+          case y of {
+            cA (j : tInt#) →
+              cI# (prim +# i j);
+            _ →
+              k x
+          };
+        _ →
+          k x
+      }
+
+  val 1.vnext :: tT → tT
+    = λ(x : tT).
+      case x of {
+        cA (i : tInt#) →
+          cB i;
+        cB (i : tInt#) →
+          cA i
+      }
+
+  pub val 1.vcaller :: tT → tT → tInt
+    = λ(x : tT) (y : tT).
+      let! _ as (argument : tT) = vnext y;
+      vmul x argument
+status: pass
+reason: The function 'mul' evaluates 'y' on every path. In the default alternative of the case on 'x', 'x' is not 'A'. Thus the call 'k x' cannot get to the alternative of 'k' that gives 'y' to the lazy function 'pick'. Thus 'mul' is strict in 'y', and the argument 'next b' of 'mul' becomes a case.

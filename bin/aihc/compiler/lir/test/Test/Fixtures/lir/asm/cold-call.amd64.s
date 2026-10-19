@@ -5,7 +5,10 @@ reserve:
 	cmp r9, r13
 	ja .Llir_0_1
 	mov rdx, r12
-	jmp .Llir_0_2
+.Llir_0_2:
+	mov [rdx + 8], rsi
+	lea r12, [rdx + 16]
+	jmp next
 .Llir_0_1:
 	sub rsp, 0x8
 	mov [rbx + 24], r12
@@ -20,8 +23,5 @@ reserve:
 	mov rdx, [rbx + 24]
 	mov r13, [rbx + 32]
 	add rsp, 0x8
-.Llir_0_2:
-	mov [rdx + 8], rsi
-	lea r12, [rdx + 16]
-	jmp next
+	jmp .Llir_0_2
 	.section .note.GNU-stack

@@ -1,0 +1,21 @@
+; A case alternative compares a pointer with the address of a constructor.
+; On AMD64 the compare reads the address from the Global Offset Table entry
+; directly, so the address does not go into a register first.
+
+data @first align 8 = { i64 1 }
+data @second align 8 = { i64 2 }
+
+func @which(%identity: ptr) -> i64 {
+entry:
+  %is_first = eq ptr %identity, @first
+  br %is_first, one, other
+other:
+  %is_second = eq ptr %identity, @second
+  br %is_second, two, none
+one:
+  return 1
+two:
+  return 2
+none:
+  return 0
+}

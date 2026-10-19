@@ -1312,15 +1312,19 @@ The transitions are:
   it evaluates it too.
 - **Pause.** A thread pauses before a collection, at a context switch, when
   a scheduler call suspends it, and at `noDuplicate#`. The pause walks the
-  update frames of its stack from the top. An update frame has a processed
-  mark: bit one of its header word. A push writes the header without the
-  mark, and the walk sets the mark when it has processed the frame. The
-  mark is not a pointer store, so it needs no collector barrier, and a
-  frame reader masks the bit as every header reader does. The walk stops at
-  the first frame with the mark. The walk that set the mark processed
-  every frame below it too, by this rule. The walk does not stop for any
-  other reason. For each frame without the mark it loads the header of
-  the thunk and takes one case, then sets the mark:
+  frames of its stack from the top. A frame has a processed mark: bit one
+  of its header word. A push writes the header without the mark, and the
+  walk sets the mark when it has processed the frame. The walk marks each
+  frame that it passes, not only the update frames. Thus each frame is
+  walked once, and a pause under a deep stack does not walk the full stack
+  again. The mark is not a pointer store, so it needs no collector
+  barrier, and a frame reader masks the bit as every header reader does.
+  The walk stops at the first frame with the mark. The walk that set the
+  mark processed every frame below it too, by this rule. The walk does not
+  stop for any other reason. A copy of a frame that `control0#` captures
+  has no mark, because it can go on top of frames that have no mark. For
+  each update frame without the mark it loads the header of the thunk and
+  takes one case, then sets the mark:
   - Thunk: it claims. The claim is a compare-and-swap of the header from
     the thunk info to the thunk info with bits zero and one. On success it
     stores the current thread into field zero with release order. Then it
@@ -1530,9 +1534,9 @@ the current thread are claimed, and a thread that finds one of them
 claimed by another thread does not continue its evaluation.
 
 `noDuplicate#` is a pause. It is a CPS primitive with a continuation, as
-`yield#` is, so the thread can park in it. It walks the update frames of
-the current stack and claims each thunk with the compare-and-swap of the
-pause transition. The walk stops at the first frame with the processed
+`yield#` is, so the thread can park in it. It walks the frames of the
+current stack and claims the thunk of each update frame with the
+compare-and-swap of the pause transition. The walk stops at the first frame with the processed
 mark. A frame whose thunk another thread claimed makes the current thread
 a duplicate, and it parks as the pause transition gives. A frame whose
 thunk is evaluated makes the current thread continue with the value.

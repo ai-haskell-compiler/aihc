@@ -203,10 +203,10 @@ renderHeader version =
       "isLowercase# value = andInt# (shiftRightInt# (classificationCode# (ord# value)) 6#) 1#",
       "",
       "unicodeToUpper :: Char# -> Char#",
-      "unicodeToUpper value = chr# (applyMapping# 3# (ord# value))",
+      "unicodeToUpper value = chr# (applyMapping# 0# (ord# value))",
       "",
       "unicodeToLower :: Char# -> Char#",
-      "unicodeToLower value = chr# (applyMapping# 6# (ord# value))",
+      "unicodeToLower value = chr# (applyMapping# 1# (ord# value))",
       "",
       "unicodeToTitle :: Char# -> Char#",
       "unicodeToTitle value = chr# (applyTitleMapping# (ord# value))",
@@ -218,12 +218,16 @@ renderClassificationTable ranges =
   unlines
     [ "-- Each four-byte record contains a 24-bit inclusive range end followed by",
       "-- five category bits and the Uppercase and Lowercase property bits.",
+      "-- ASCII code points index a table of one byte for each code point.",
       "classificationCode# :: Int# -> Int#",
       "classificationCode# n =",
-      "  case " <> renderAddrLiteral (concatMap encodeRange ranges) <> " of",
-      "    table ->",
-      "      case lookupRangeIndex# table 4# " <> renderIntHash (length ranges) <> " n of",
-      "        index -> indexByte# table (index *# 4# +# 3#)",
+      "  case n <# 128# of",
+      "    0# ->",
+      "      case " <> renderAddrLiteral (concatMap encodeRange ranges) <> " of",
+      "        table ->",
+      "          case lookupRangeIndex# table 4# " <> renderIntHash (length ranges) <> " n of",
+      "            index -> indexByte# table (index *# 4# +# 3#)",
+      "    _ -> indexByte# " <> renderAddrLiteral (map (encodeByte . rangeValueAt ranges) asciiCodePoints) <> " n",
       ""
     ]
   where
@@ -233,51 +237,88 @@ renderCaseMappingTable :: [Range (Int, Int)] -> String
 renderCaseMappingTable ranges =
   unlines
     [ "-- Each nine-byte record contains a 24-bit inclusive range end followed by",
-      "-- signed 24-bit uppercase and lowercase code-point deltas.",
+      "-- signed 24-bit uppercase and lowercase code-point deltas. Field 0 is the",
+      "-- uppercase delta and field 1 is the lowercase delta. ASCII code points",
+      "-- index a table of two signed 8-bit deltas for each code point.",
       "applyMapping# :: Int# -> Int# -> Int#",
-      "applyMapping# fieldOffset n =",
-      "  case " <> renderAddrLiteral (concatMap encodeRange ranges) <> " of",
-      "    table ->",
-      "      case lookupRangeIndex# table 9# " <> renderIntHash (length ranges) <> " n of",
-      "        index -> n +# indexSigned24# table (index *# 9# +# fieldOffset)",
+      "applyMapping# field n =",
+      "  case n <# 128# of",
+      "    0# ->",
+      "      case " <> renderAddrLiteral (concatMap encodeRange ranges) <> " of",
+      "        table ->",
+      "          case lookupRangeIndex# table 9# " <> renderIntHash (length ranges) <> " n of",
+      "            index -> n +# indexSigned24# table (index *# 9# +# 3# +# field *# 3#)",
+      "    _ -> n +# indexSigned8# " <> renderAddrLiteral (concatMap encodeAscii asciiCodePoints) <> " (n *# 2# +# field)",
       ""
     ]
   where
     encodeRange range =
       let (upper, lower) = rangeValue range
        in encodeUnsigned24 (rangeEnd range) <> encodeSigned24 upper <> encodeSigned24 lower
+    encodeAscii codePoint =
+      let (upper, lower) = rangeValueAt ranges codePoint
+       in [encodeSigned8 upper, encodeSigned8 lower]
 
 renderTitleOverrideTable :: [Range Int] -> String
 renderTitleOverrideTable ranges =
   unlines
     [ "-- Titlecase normally equals uppercase. This compact table stores the signed",
       "-- difference between its code-point delta and the uppercase delta.",
+      "-- Code points before the first override use the uppercase delta only.",
       "applyTitleMapping# :: Int# -> Int#",
       "applyTitleMapping# n =",
-      "  case " <> renderAddrLiteral (concatMap encodeRange ranges) <> " of",
-      "    table ->",
-      "      case lookupRangeIndex# table 6# " <> renderIntHash (length ranges) <> " n of",
-      "        index -> applyMapping# 3# n +# indexSigned24# table (index *# 6# +# 3#)",
+      "  case n <# " <> renderIntHash firstOverride <> " of",
+      "    0# ->",
+      "      case " <> renderAddrLiteral (concatMap encodeRange ranges) <> " of",
+      "        table ->",
+      "          case lookupRangeIndex# table 6# " <> renderIntHash (length ranges) <> " n of",
+      "            index -> applyMapping# 0# n +# indexSigned24# table (index *# 6# +# 3#)",
+      "    _ -> applyMapping# 0# n",
       ""
     ]
   where
     encodeRange range = encodeUnsigned24 (rangeEnd range) <> encodeSigned24 (rangeValue range)
+    firstOverride =
+      case ranges of
+        Range {rangeEnd = end, rangeValue = 0} : _ -> end + 1
+        _ -> 0
+
+-- The value of the range that contains a code point. The ranges are complete.
+rangeValueAt :: [Range a] -> Int -> a
+rangeValueAt ranges codePoint =
+  case [rangeValue range | range <- ranges, rangeStart range <= codePoint, codePoint <= rangeEnd range] of
+    value : _ -> value
+    [] -> error ("no Unicode range contains code point " <> show codePoint)
+
+asciiCodePoints :: [Int]
+asciiCodePoints = [0 .. 127]
 
 renderLookupHelpers :: String
 renderLookupHelpers =
   unlines
     [ "lookupRangeIndex# :: Addr# -> Int# -> Int# -> Int# -> Int#",
-      "lookupRangeIndex# table recordSize count n = go 0# count",
-      "  where",
-      "    go low high =",
-      "      case low <# high of",
-      "        0# -> low",
-      "        _ ->",
-      "          case word2Int# (uncheckedShiftRL# (int2Word# (low +# high)) 1#) of",
-      "            middle ->",
-      "              case n <# (indexUnsigned24# table (middle *# recordSize) +# 1#) of",
-      "                0# -> go (middle +# 1#) high",
-      "                _ -> go low middle",
+      "lookupRangeIndex# table recordSize count n = lookupRangeIndexBetween# table recordSize n 0# count",
+      "",
+      "-- A top-level loop with all values as arguments. A local loop would capture",
+      "-- the table, the record size, and the code point in a closure on each call.",
+      "lookupRangeIndexBetween# :: Addr# -> Int# -> Int# -> Int# -> Int# -> Int#",
+      "lookupRangeIndexBetween# table recordSize n low high =",
+      "  case low <# high of",
+      "    0# -> low",
+      "    _ ->",
+      "      case word2Int# (uncheckedShiftRL# (int2Word# (low +# high)) 1#) of",
+      "        middle ->",
+      "          case n <# (indexUnsigned24# table (middle *# recordSize) +# 1#) of",
+      "            0# -> lookupRangeIndexBetween# table recordSize n (middle +# 1#) high",
+      "            _ -> lookupRangeIndexBetween# table recordSize n low middle",
+      "",
+      "indexSigned8# :: Addr# -> Int# -> Int#",
+      "indexSigned8# table offset =",
+      "  case indexByte# table offset of",
+      "    value ->",
+      "      case value <# 128# of",
+      "        0# -> value -# 256#",
+      "        _ -> value",
       "",
       "indexSigned24# :: Addr# -> Int# -> Int#",
       "indexSigned24# table offset =",
@@ -313,6 +354,11 @@ encodeSigned24 :: Int -> [Int]
 encodeSigned24 value
   | value < -8388608 || value >= 8388608 = error ("value does not fit in signed 24 bits: " <> show value)
   | otherwise = encodeUnsigned24 (value `mod` 16777216)
+
+encodeSigned8 :: Int -> Int
+encodeSigned8 value
+  | value < -128 || value >= 128 = error ("value does not fit in signed 8 bits: " <> show value)
+  | otherwise = value `mod` 256
 
 encodeByte :: Int -> Int
 encodeByte value

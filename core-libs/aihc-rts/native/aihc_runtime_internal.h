@@ -343,12 +343,98 @@ typedef struct {
   AihcRegionKind kind;
   void *base;
 } AihcRegionLocation;
-AihcRegionLocation aihc_region_location(const void *address);
+
+/* The region table is a two-level map from an address to the state of its
+   region. The top level is indexed by the address bits above the leaf, and a
+   leaf covers 4 GiB: one entry for each 64 KiB region. The lookups are
+   inline, because the collector does one for each old referent that it
+   reaches. aihc_heap_regions.c changes the table. */
+#define AIHC_REGION_LEAF_BITS 16
+#define AIHC_REGION_LEAF_COUNT ((size_t)1 << AIHC_REGION_LEAF_BITS)
+#define AIHC_REGION_LEAF_MASK (AIHC_REGION_LEAF_COUNT - 1)
+
+struct AihcRegionMapping;
+
+typedef struct {
+  /* The mapping that holds the region, or null outside every mapping. */
+  struct AihcRegionMapping *mapping;
+  /* The length of the run that starts here, or zero elsewhere. */
+  uint32_t run;
+  /* The position of the region in its run. */
+  uint32_t offset;
+  uint8_t kind;
+} AihcRegionEntry;
+
+typedef struct {
+  AihcRegionEntry entries[AIHC_REGION_LEAF_COUNT];
+} AihcRegionLeaf;
+
+/* The top level holds its own count. A worker can read the table while
+   another worker grows it, so a larger table replaces the top level with
+   one release store, and the old table stays allocated. Leaves are never
+   freed. The changes take the region lock. */
+typedef struct {
+  size_t count;
+  AihcRegionLeaf *leaves[];
+} AihcRegionTop;
+
+extern AihcRegionTop *aihc_region_top;
+
+/* The two shifts of sixteen keep the top index defined on a 32-bit host,
+   where one shift of thirty-two would be undefined. */
+static inline size_t aihc_region_top_index(const void *address) {
+  return (size_t)(((uintptr_t)address >> AIHC_REGION_SHIFT) >>
+                  AIHC_REGION_LEAF_BITS);
+}
+
+static inline size_t aihc_region_leaf_index(const void *address) {
+  return (size_t)(((uintptr_t)address >> AIHC_REGION_SHIFT) &
+                  AIHC_REGION_LEAF_MASK);
+}
+
+/* The entry of the region that holds an address, or null when the table
+   has no leaf for it. */
+static inline const AihcRegionEntry *aihc_region_lookup(const void *address) {
+  size_t top = aihc_region_top_index(address);
+  AihcRegionTop *table = __atomic_load_n(&aihc_region_top, __ATOMIC_ACQUIRE);
+  if (table == NULL || top >= table->count) {
+    return NULL;
+  }
+  AihcRegionLeaf *leaf = __atomic_load_n(&table->leaves[top], __ATOMIC_ACQUIRE);
+  return leaf == NULL ? NULL : &leaf->entries[aihc_region_leaf_index(address)];
+}
+
+/* The start of the run of an entry with a mapping. */
+static inline void *aihc_region_entry_base(const AihcRegionEntry *entry,
+                                           const void *address) {
+  uintptr_t region = (uintptr_t)address & ~(uintptr_t)(AIHC_REGION_BYTES - 1);
+  return (void *)(region - ((size_t)entry->offset << AIHC_REGION_SHIFT));
+}
+
+static inline AihcRegionLocation aihc_region_location(const void *address) {
+  const AihcRegionEntry *entry = aihc_region_lookup(address);
+  if (entry == NULL || entry->mapping == NULL) {
+    return (AihcRegionLocation){AIHC_REGION_OUTSIDE, NULL};
+  }
+  return (AihcRegionLocation){(AihcRegionKind)entry->kind,
+                              aihc_region_entry_base(entry, address)};
+}
+
 /* The kind of the region that holds an address. */
-AihcRegionKind aihc_region_kind(const void *address);
+static inline AihcRegionKind aihc_region_kind(const void *address) {
+  const AihcRegionEntry *entry = aihc_region_lookup(address);
+  return entry == NULL ? AIHC_REGION_OUTSIDE : (AihcRegionKind)entry->kind;
+}
+
 /* The start of the acquired run that holds an address, or null outside every
    mapping. */
-void *aihc_region_run_base(const void *address);
+static inline void *aihc_region_run_base(const void *address) {
+  const AihcRegionEntry *entry = aihc_region_lookup(address);
+  if (entry == NULL || entry->mapping == NULL) {
+    return NULL;
+  }
+  return aihc_region_entry_base(entry, address);
+}
 
 /* Visit every object of the heap: the nursery, the blocks of gen1, the
    occupied slots of gen2, and the large objects. The visitor must not
@@ -615,6 +701,12 @@ void aihc_gc_apply_limit(AihcCapability *capability);
 /* The zero-terminated path of the statistics file, or null when the
    environment names none. */
 const char *aihc_rts_stats_path(void);
+/* Stops the time profiler and writes its samples. A program built with
+   --profile-time sets it, and the statistics report calls it once. */
+extern void (*aihc_time_profile_finish)(void);
+/* Gives the time profiler the capability that the calling OS thread runs.
+   Only the POSIX hosts define it. */
+void aihc_time_profile_thread(AihcCapability *capability);
 /* Flatten one null-terminated list of NAME=VALUE strings for the parser. */
 void aihc_environment_initialize(char *const envp[]);
 uint64_t aihc_object_words(const AihcInfo *info);

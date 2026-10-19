@@ -8,6 +8,14 @@
 -- shape of its template, and a flip is another shape.
 {-# HLINT ignore "Avoid lambda" #-}
 
+-- A foldl in reverseOnto would copy the loop of listFoldl with a closure
+-- for flip (:).
+{-# HLINT ignore reverseOnto "Use foldl" #-}
+
+-- The list traversal keeps its arguments: the arity pass reads the arity
+-- from the body.
+{-# HLINT ignore listTraverse "Eta reduce" #-}
+
 module Prelude
   ( Applicative (..),
     Bounded (..),
@@ -287,8 +295,11 @@ init (value : values) = value : init values
 reverse :: [a] -> [a]
 reverse = reverseOnto []
 
+-- | Put the elements of the second list in reverse order in front of the
+-- first. Each step makes one cons cell and no thunk.
 reverseOnto :: [a] -> [a] -> [a]
-reverseOnto = foldl (flip (:))
+reverseOnto result [] = result
+reverseOnto result (value : values) = reverseOnto (value : result) values
 
 lookup :: (Eq a) => a -> [(a, b)] -> Maybe b
 lookup _ [] = Nothing
@@ -1052,8 +1063,17 @@ instance Traversable ((,) a) where
   traverse f (first, second) = fmap (first,) (f second)
 
 instance Traversable List where
-  traverse _ [] = pure []
-  traverse f (value : values) = fmap (:) (f value) <*> traverse f values
+  traverse = listTraverse
+
+-- | The traversal of a list. The loop is local and the traversal is
+-- INLINE, so a call with a known applicative functor gets its own copy of
+-- the loop, and the methods of the functor are known in it.
+listTraverse :: (Applicative f) => (a -> f b) -> [a] -> f [b]
+listTraverse f values = loop values
+  where
+    loop [] = pure []
+    loop (value : rest) = fmap (:) (f value) <*> loop rest
+{-# INLINE listTraverse #-}
 
 instance Traversable Dual where
   traverse f (Dual value) = fmap Dual (f value)

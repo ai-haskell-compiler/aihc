@@ -26,6 +26,12 @@ _Static_assert(offsetof(AihcCapability, nursery_bytes) ==
                "capability nursery_bytes ABI");
 _Static_assert(offsetof(AihcCapability, pause_top) == 6 * sizeof(void *) + 16,
                "capability pause_top ABI");
+_Static_assert(offsetof(AihcCapability, profile_code) ==
+                   7 * sizeof(void *) + 16,
+               "capability profile_code ABI");
+_Static_assert(offsetof(AihcCapability, profile_frame) ==
+                   8 * sizeof(void *) + 16,
+               "capability profile_frame ABI");
 
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
@@ -535,7 +541,14 @@ static char *aihc_append_allocations(char *cursor, const uint64_t *order) {
   return aihc_append_text(cursor, "]");
 }
 
+void (*aihc_time_profile_finish)(void);
+
 void aihc_runtime_statistics_report(void) {
+  if (aihc_time_profile_finish != NULL) {
+    void (*finish)(void) = aihc_time_profile_finish;
+    aihc_time_profile_finish = NULL;
+    finish();
+  }
   const char *path = aihc_rts_stats_path();
   AihcCapability *capability = aihc_process_capability;
   if (path == NULL || capability == NULL || aihc_statistics_reported) {
@@ -2608,8 +2621,9 @@ static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
 
 /* noDuplicate#: the evaluations of the thread must not run twice. The walk
    claims the thunk of each update frame that no pause processed, from the
-   top, as a pause does. A thunk that another thread claimed, or that
-   another evaluation finished, means that this evaluation is a duplicate
+   top, as a pause does. It marks each frame that it passes and stops at the
+   first marked frame, as a pause does. A thunk that another thread claimed, or
+   that another evaluation finished, means that this evaluation is a duplicate
    from that frame on. The thread then gives up the frames above the lowest
    such frame and gives back the claims that the walk made above it. It
    waits for that thunk with the parent continuation of the frame, or it
@@ -2632,11 +2646,12 @@ const AihcResume *aihc_no_duplicate(AihcCapability *capability,
     if (info->frame_kind == AIHC_FRAME_STOP || info->field_count == 0) {
       break;
     }
-    if (info->frame_kind != AIHC_FRAME_UPDATE) {
-      continue;
-    }
     if ((frame->header & AIHC_FRAME_PROCESSED) != 0) {
       break;
+    }
+    if (info->frame_kind != AIHC_FRAME_UPDATE) {
+      frame->header |= AIHC_FRAME_PROCESSED;
+      continue;
     }
     AihcValue *thunk = (AihcValue *)(uintptr_t)frame->fields[1];
     AihcSlot header = __atomic_load_n(&thunk->header, __ATOMIC_ACQUIRE);
@@ -3032,6 +3047,11 @@ const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
     uint64_t frame_words = aihc_value_words(frame);
     AihcValue *copy = aihc_gc_allocate(capability, frame_words);
     memcpy(copy, frame, frame_words * sizeof(AihcSlot));
+    /* A pause can mark any frame. The copy goes on top of another stack
+       when it resumes, and the frames below it there can have no mark. A
+       heap object with bit one alone also reads as forwarded. Thus the
+       copy has no mark. */
+    copy->header &= ~AIHC_FRAME_PROCESSED;
     aihc_value_fields(copy)[0] = 0;
     if (previous == NULL) {
       aihc_value_fields(captured)[0] = (AihcSlot)(uintptr_t)copy;

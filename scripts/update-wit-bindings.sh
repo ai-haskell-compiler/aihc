@@ -43,7 +43,7 @@ trap 'rm -rf "$generated"' EXIT
 # libc that blocks in a call, as the WASI 0.3 libc does, is only allowed to
 # in such a task, so the export is lifted without the async option.
 wit-bindgen c --world command --no-object-file \
-	--async=-export:wasi:cli/run@0.3.0#run \
+	--sync export:wasi:cli/run@0.3.0#run \
 	--out-dir "$generated" "$world"
 
 # Keep canonical ABI buffers in the explicit host scope until the call ends,

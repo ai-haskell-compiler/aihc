@@ -25,7 +25,7 @@ compileProgram session source =
   where
     compile (modules, interface) = do
       sources <- mapM (compileModule interface) modules
-      entry <- failure "lir" (Lir.lowerEntry Lir.wasip3Target False)
+      entry <- failure "lir" (Lir.lowerEntry Lir.wasip3Target False False)
       entrySource <- failure "wasm" (Wasm.compileLirModule entry)
       pure (sources <> [entrySource])
     compileModule :: TcInterface -> Module -> Either [Problem] Text

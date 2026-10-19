@@ -199,6 +199,7 @@ runFrontend options = do
             compilePasses = [],
             compileGrinPointsTo = False,
             compileProfileAllocations = False,
+            compileProfileTime = False,
             compileProfileUnit = False,
             compileNoCode = True,
             compileOptimization = defaultOptimizationLevel,

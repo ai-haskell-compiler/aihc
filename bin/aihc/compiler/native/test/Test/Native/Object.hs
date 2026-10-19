@@ -77,5 +77,52 @@ format name object =
         assertBool "the undefined name is missing" (contains undefinedName bytes)
     ]
 
+-- | Filler code that a jump goes over.
+filler :: Int -> Amd64.Amd64Statement
+filler count = Amd64.amd64Bytes (BS.replicate count 0xcc)
+
+local :: Int -> Amd64.Name
+local identifier = Amd64.LocalName identifier "jump"
+
+jumpTo :: Int -> Amd64.Amd64Statement
+jumpTo = Amd64.amd64Instruction . Amd64.AmdJmp . Amd64.Amd64JumpLabel . local
+
+-- | Jumps at the limits of a signed byte displacement. The outer jump of
+-- the last pair reaches its label only when the inner jump is short too.
+jumps :: IO ByteString
+jumps =
+  assembled . Amd64.assembleElf $
+    [ Amd64.amd64Section Amd64.TextSection,
+      jumpTo 0,
+      filler 127,
+      Amd64.Amd64Label (local 0),
+      Amd64.amd64Instruction (Amd64.AmdJcc Amd64.AmdEqual (local 1)),
+      filler 128,
+      Amd64.Amd64Label (local 1),
+      Amd64.Amd64Label (local 2),
+      filler 126,
+      jumpTo 2,
+      jumpTo 3,
+      jumpTo 4,
+      filler 125,
+      Amd64.Amd64Label (local 4),
+      Amd64.Amd64Label (local 3),
+      Amd64.amd64Instruction Amd64.AmdRet
+    ]
+
+-- | The jumps a seal makes short, and those it keeps long.
+shortJumps :: TestTree
+shortJumps =
+  testGroup
+    "short jumps"
+    [ check "a forward jump of 127 bytes is short" (BS.pack [0xeb, 0x7f] <> BS.replicate 127 0xcc <> BS.pack [0x0f, 0x84]),
+      check "a backward jump of 128 bytes is short" (BS.replicate 126 0xcc <> BS.pack [0xeb, 0x80]),
+      check "a jump over a short jump is short" (BS.pack [0xeb, 0x80, 0xeb, 0x7f, 0xeb, 0x7d] <> BS.replicate 125 0xcc <> BS.pack [0xc3])
+    ]
+  where
+    check name expected = testCase name $ do
+      bytes <- jumps
+      assertBool "the object does not hold the expected code" (expected `BS.isInfixOf` bytes)
+
 tests :: TestTree
-tests = testGroup "object symbols" [format "mach-o" machO, format "elf" elf]
+tests = testGroup "object symbols" [format "mach-o" machO, format "elf" elf, shortJumps]

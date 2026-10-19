@@ -98,12 +98,15 @@ buildWithConfig reporter options adjust = do
   isFile <- doesFileExist (buildInput options)
   when (isFile && not (null (buildExecutables options))) $
     ioError (userError "--executable selects the executables of a package, and a main module is one executable")
+  -- The time profiler samples from a POSIX timer signal.
+  when (buildProfileTime options && buildTarget options == Wasm32Wasip3) $
+    ioError (userError "--profile-time needs a POSIX target")
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
       report = progressReport reporter
       verbose message = when (buildVerbose options) (report (ProgressLog message))
-  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options) (buildOptimization options)
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options || buildProfileTime options) (buildOptimization options)
   let config =
         adjust
           levelConfig
@@ -114,6 +117,7 @@ buildWithConfig reporter options adjust = do
               compileLint = buildLint options,
               compileCheckPrimBounds = buildCheckPrimBounds options,
               compileProfileAllocations = buildProfileAllocations options,
+              compileProfileTime = buildProfileTime options,
               compileVerbose = verbose,
               compileUseColor = progressColor reporter,
               compileProgress = reporter

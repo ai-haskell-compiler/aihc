@@ -113,6 +113,17 @@ instance Monoid (Endo a) where
 emptyStructure :: String -> a
 emptyStructure function = errorWithoutStackTrace (function ++ ": empty structure")
 
+-- | The lazy left fold of a list. The loop is local and the fold is
+-- INLINE, so each call gets its own copy of the loop with the known step
+-- function. A step that is a constructor then makes the constructor
+-- directly, and not a thunk of an unknown call.
+listFoldl :: (b -> a -> b) -> b -> [a] -> b
+listFoldl f initial values = loop initial values
+  where
+    loop accumulator [] = accumulator
+    loop accumulator (value : rest) = loop (f accumulator value) rest
+{-# INLINE listFoldl #-}
+
 -- | The strict left fold of a list. It evaluates the initial accumulator
 -- once, and then each new accumulator before the next step. The step
 -- result goes into a strict case, so no step allocates a thunk for the
@@ -148,8 +159,7 @@ instance Foldable [] where
   -- written with the class method fuses with a producer.
   foldr = GHC.Base.foldr
 
-  foldl _ initial [] = initial
-  foldl f initial (value : values) = foldl f (f initial value) values
+  foldl f initial values = listFoldl f initial values
 
   foldl' f initial values = listFoldl' f initial values
 

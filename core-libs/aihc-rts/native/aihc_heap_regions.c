@@ -4,8 +4,7 @@
 #include <string.h>
 
 /* The region table is a two-level map from an address to the state of its
-   region. The top level is indexed by the address bits above the leaf, and a
-   leaf covers 4 GiB: one entry for each 64 KiB region. A process touches a
+   region. See aihc_runtime_internal.h for its layout. A process touches a
    few leaves, and the pages of a leaf cost memory only when they are
    written, so the table needs no reservation of address space.
 
@@ -16,9 +15,6 @@
    free and the free list is above its cache bound, the mapping goes back to
    the host. */
 
-#define AIHC_REGION_LEAF_BITS 16
-#define AIHC_REGION_LEAF_COUNT ((size_t)1 << AIHC_REGION_LEAF_BITS)
-#define AIHC_REGION_LEAF_MASK (AIHC_REGION_LEAF_COUNT - 1)
 /* The free regions the table keeps for reuse before it unmaps a free
    mapping: 1024 regions are 64 MiB. */
 #define AIHC_REGION_FREE_CACHE ((size_t)1024)
@@ -29,20 +25,6 @@ typedef struct AihcRegionMapping {
   size_t free_count;
 } AihcRegionMapping;
 
-typedef struct {
-  /* The mapping that holds the region, or null outside every mapping. */
-  AihcRegionMapping *mapping;
-  /* The length of the run that starts here, or zero elsewhere. */
-  uint32_t run;
-  /* The position of the region in its run. */
-  uint32_t offset;
-  uint8_t kind;
-} AihcRegionEntry;
-
-typedef struct {
-  AihcRegionEntry entries[AIHC_REGION_LEAF_COUNT];
-} AihcRegionLeaf;
-
 /* A free run. The list is in address order, and two neighbours in the same
    mapping are always merged. */
 typedef struct AihcRegionFreeRun {
@@ -51,16 +33,7 @@ typedef struct AihcRegionFreeRun {
   struct AihcRegionFreeRun *next;
 } AihcRegionFreeRun;
 
-/* The top level holds its own count. A worker can read the table while
-   another worker grows it, so a larger table replaces the top level with
-   one release store, and the old table stays allocated. Leaves are never
-   freed. The changes take the region lock. */
-typedef struct {
-  size_t count;
-  AihcRegionLeaf *leaves[];
-} AihcRegionTop;
-
-static AihcRegionTop *aihc_region_top;
+AihcRegionTop *aihc_region_top;
 static AihcRegionFreeRun *aihc_region_free_runs;
 static size_t aihc_region_free_count;
 /* The heap lock of a machine with workers, or null. */
@@ -78,18 +51,6 @@ static void aihc_regions_unlock(void) {
   if (aihc_region_lock != NULL) {
     aihc_host_lock_release(aihc_region_lock);
   }
-}
-
-/* The two shifts of sixteen keep the top index defined on a 32-bit host,
-   where one shift of thirty-two would be undefined. */
-static size_t aihc_region_top_index(const void *address) {
-  return (size_t)(((uintptr_t)address >> AIHC_REGION_SHIFT) >>
-                  AIHC_REGION_LEAF_BITS);
-}
-
-static size_t aihc_region_leaf_index(const void *address) {
-  return (size_t)(((uintptr_t)address >> AIHC_REGION_SHIFT) &
-                  AIHC_REGION_LEAF_MASK);
 }
 
 /* The entry of the region that holds an address. With create, the top level
@@ -350,30 +311,4 @@ void aihc_regions_set_kind(void *base, AihcRegionKind kind) {
   }
   aihc_regions_mark(base, entry->run, entry->mapping, kind, entry->run);
   aihc_regions_unlock();
-}
-
-AihcRegionKind aihc_region_kind(const void *address) {
-  const AihcRegionEntry *entry = aihc_region_entry(address, 0);
-  return entry == NULL ? AIHC_REGION_OUTSIDE : (AihcRegionKind)entry->kind;
-}
-
-void *aihc_region_run_base(const void *address) {
-  const AihcRegionEntry *entry = aihc_region_entry(address, 0);
-  if (entry == NULL || entry->mapping == NULL) {
-    return NULL;
-  }
-  uint8_t *region =
-      (uint8_t *)((uintptr_t)address & ~(uintptr_t)(AIHC_REGION_BYTES - 1));
-  return region - ((size_t)entry->offset << AIHC_REGION_SHIFT);
-}
-
-AihcRegionLocation aihc_region_location(const void *address) {
-  const AihcRegionEntry *entry = aihc_region_entry(address, 0);
-  if (entry == NULL || entry->mapping == NULL) {
-    return (AihcRegionLocation){AIHC_REGION_OUTSIDE, NULL};
-  }
-  uintptr_t region = (uintptr_t)address & ~(uintptr_t)(AIHC_REGION_BYTES - 1);
-  return (AihcRegionLocation){
-      (AihcRegionKind)entry->kind,
-      (void *)(region - ((size_t)entry->offset << AIHC_REGION_SHIFT))};
 }

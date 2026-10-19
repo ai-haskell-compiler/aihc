@@ -3,9 +3,7 @@
 shared:
 	mov rax, rbx
 	test rbx, rbx
-	je .Llir_else_0
-	jmp .Llir_0_2
-.Llir_else_0:
+	jne .Llir_0_2
 	mov r9, rax
 .Llir_0_1:
 	mov rax, r9
