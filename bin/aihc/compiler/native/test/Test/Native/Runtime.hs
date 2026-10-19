@@ -56,6 +56,7 @@ tests =
       runtimeProgramTest "-B3 keeps survivors in gen1 for three collections" ["+RTS", "-B3", "-RTS"] (gen1CountSource 3),
       runtimeProgramTest "a thread record stays in gen2 at one address" [] globalThreadSource,
       runtimeProgramTest "a store of a local value into a global object counts an escape" [] escapeCountSource,
+      runtimeProgramTest "a frozen byte array escapes by a copy and without a collection" [] frozenByteArrayEscapeSource,
       runtimeProgramTest "barrier work that reaches the -R budget makes the next reservation collect" ["+RTS", "-R64", "-RTS"] barrierBudgetSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the capability halts" True EndsWithReturn,
@@ -462,6 +463,47 @@ escapeCountSource =
       "}"
     ]
 
+-- | With two capabilities, a store of a young byte array into a global
+-- object promotes the array. A frozen byte array is immutable, so the
+-- promotion copies it into gen2 and does not collect. A mutable byte array
+-- can get writes through a stale pointer, so its promotion still asks for a
+-- collection. The defect was a collection for each frozen array, which a
+-- compiled program makes for each Text value that it stores in shared state.
+frozenByteArrayEscapeSource :: String
+frozenByteArrayEscapeSource =
+  unlines
+    [ "#include \"aihc_runtime_internal.h\"",
+      "#include <string.h>",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  aihc_machine_set_capabilities(capability, 2);",
+      "  aihc_ensure_heap(capability, 8, 0, NULL, NULL);",
+      "  AihcSlot root = (AihcSlot)(uintptr_t)aihc_mutvar_new(capability, 0);",
+      "  aihc_gc_collect_generation(capability, 2, 1, &root, NULL);",
+      "  aihc_gc_collect_generation(capability, 2, 1, &root, NULL);",
+      "  if (aihc_region_kind((void *)(uintptr_t)root) != AIHC_REGION_GEN2) return 1;",
+      "  aihc_ensure_heap(capability, 2 * aihc_byte_array_words(16, 0, 1), 1, &root, NULL);",
+      "  AihcValue *global = (AihcValue *)(uintptr_t)root;",
+      "  AihcByteArray *frozen = aihc_byte_array_new(capability, 16);",
+      "  AihcByteArray *mutable = aihc_byte_array_new(capability, 16);",
+      "  memset(frozen->contents, 7, 16);",
+      "  /* The store that unsafeFreezeByteArray# does. */",
+      "  frozen->header = (AihcSlot)(uintptr_t)&aihc_frozen_byte_array_info;",
+      "  uint64_t collections = capability->machine->gc_count;",
+      "  AihcSlot stored = aihc_write_barrier_store(capability, global, (AihcSlot)(uintptr_t)frozen);",
+      "  if (stored == AIHC_ESCAPE_COLLECT) return 2;",
+      "  if (capability->machine->gc_count != collections) return 3;",
+      "  AihcByteArray *copy = (AihcByteArray *)(uintptr_t)stored;",
+      "  if (aihc_region_kind(copy) != AIHC_REGION_GEN2) return 4;",
+      "  if (copy->size != 16 || copy->contents != (uint8_t *)(copy + 1)) return 5;",
+      "  for (int index = 0; index < 16; ++index) {",
+      "    if (copy->contents[index] != 7) return 6;",
+      "  }",
+      "  if (aihc_write_barrier_store(capability, global, (AihcSlot)(uintptr_t)mutable) != AIHC_ESCAPE_COLLECT) return 7;",
+      "  return 0;",
+      "}"
+    ]
+
 -- | The write barrier counts the scan work that it adds: the size of each
 -- object that it puts in the remembered set. When the work reaches the -R
 -- budget, the heap limit goes below the nursery, and the next reservation
@@ -763,8 +805,8 @@ runtimeStatisticsTest name requested ending =
           assertBool "the statistics file exists" present
           decoded <- eitherDecodeFileStrict (statisticsFile directory)
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
-          assertEqual "field names" ["allocated_bytes", "escape_count", "gc_count", "gc_full_count", "gc_gen1_count", "gc_max_pause_ns", "gc_minor_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "push_count", "schema"] (Map.keys statistics)
-          assertEqual "schema" (Just 3) (Map.lookup "schema" statistics)
+          assertEqual "field names" ["allocated_bytes", "escape_count", "gc_barrier_count", "gc_count", "gc_escape_count", "gc_full_count", "gc_gen1_count", "gc_gen2_limit_count", "gc_heap_limit_count", "gc_large_count", "gc_max_pause_ns", "gc_minor_count", "gc_nursery_count", "gc_push_count", "gc_request_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "push_count", "schema"] (Map.keys statistics)
+          assertEqual "schema" (Just 4) (Map.lookup "schema" statistics)
           -- After the counter reset, one leaf and 1000 cells use 8 + 1000 * 16 bytes.
           assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)
           assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16008)

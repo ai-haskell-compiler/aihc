@@ -65,6 +65,8 @@ Only the collector fuzz driver uses more than one capability.
 `aihc_promote` copies an escaping value and the young objects it reaches into gen2.
 An immutable original stays as it is, and an unclaimed thunk becomes an indirection to its copy.
 A value that reaches a mutable object or a claimed thunk runs a collection that moves every young survivor into gen2.
+`unsafeFreezeByteArray#` gives a byte array a frozen info table, and `unsafeThawByteArray#` gives back the mutable one.
+A promotion copies a frozen byte array, because no thread writes it. A mutable byte array still runs the collection.
 The RTS option `-N<n>` gives the machine `n` capabilities, but every Haskell thread runs on the first one until step 4.
 With more than one capability, an update and a pointer store into a global object promote a young value.
 GC-GRIN puts a store safepoint before each such store, with the live roots and the top frame of the thread.

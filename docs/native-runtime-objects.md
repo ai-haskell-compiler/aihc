@@ -459,7 +459,7 @@ runtime statistics of a program. When the program exits normally, the runtime
 writes one JSON object to that file:
 
 ```json
-{"schema": 3, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0, "escape_count": 0, "push_count": 0}
+{"schema": 4, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0, "escape_count": 0, "push_count": 0, "gc_nursery_count": 0, "gc_barrier_count": 0, "gc_large_count": 0, "gc_escape_count": 0, "gc_push_count": 0, "gc_heap_limit_count": 0, "gc_request_count": 0, "gc_gen2_limit_count": 0}
 ```
 
 A normal exit is a return from `main` or an `exitWith` call. A runtime failure
@@ -487,6 +487,18 @@ writes no file. An empty value counts as an unset variable.
   store promotes its value. The count adds the stores of all capabilities.
 - `push_count` counts the threads that a capability pushed to an idle
   capability.
+- The seven `gc_*_count` fields from `gc_nursery_count` to
+  `gc_request_count` divide `gc_count` by the reason that started each
+  collection. `gc_nursery_count` counts a reservation that found no room
+  in the nursery. `gc_barrier_count` counts barrier work that reached the
+  `-R` budget. `gc_large_count` counts fixed allocations that reached the
+  nursery size. `gc_escape_count` counts a promotion that reached an
+  object that a copy cannot promote. `gc_push_count` counts a push of
+  threads to an idle capability. `gc_heap_limit_count` counts a full
+  collection for the `-M` limit. `gc_request_count` counts a request of
+  the program or of the runtime start.
+- `gc_gen2_limit_count` counts the collections that copied gen1 only
+  because gen2 was above its limit.
 
 ### Allocation profile
 
