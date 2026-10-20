@@ -1,0 +1,11 @@
+cabal-version: 2.4
+name: export-body-sections
+version: 0.1.0.0
+synopsis: Section headings in the body of a module with an export list
+build-type: Simple
+
+library
+  exposed-modules: ExportBodySections
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010
