@@ -16,7 +16,7 @@ A level names what the build is for. Nothing else about it is fixed here.
 | ----- | ------- | ----- |
 | `-O0` | Finish as soon as possible. No pass runs that is not needed for correctness. | Each module on its own. |
 | `-O1` | Optimize without whole-program transformations. | Each module on its own, in a future version in import order with facts from the interfaces of its imports. |
-| `-O2` | Produce fast code. Every optimization is on. | The whole program, merged into one System FC program. |
+| `-O2` | Produce fast code with the standard optimization passes. | The whole program, merged into one System FC program. |
 | `-Os` | Produce a small executable, with the whole program in view. | The whole program. |
 
 `-O2` and `-Os` merge the System FC of every module of the program, drop the

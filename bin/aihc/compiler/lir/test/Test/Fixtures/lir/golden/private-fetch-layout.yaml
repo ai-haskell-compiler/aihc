@@ -1,0 +1,16 @@
+program: |
+  constructor Box/1 [IntRep]
+
+  $entry (value%1 :: BoxedRep Lifted) -> IntRep =
+    (payload%2 :: IntRep) <- fetch (CBox) (value%1 :: BoxedRep Lifted)
+    constant (payload%2 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: ptr, %$cps_return_5: ptr) {
+  entry:
+    %payload_6 = load i64 [%value_4 + 8] align 8 region heap
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_6)
+  }
+status: pass
+reason: A field fetch needs the constructor layout but does not reference its private info table.

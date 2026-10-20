@@ -601,21 +601,18 @@ lowerEnvironment options gcProgram =
         [ (grinConstructorName constructor, if grinConstructorVis constructor == GrinPub || lowerExposeFunctions options then Export else Internal)
         | constructor <- grinConstructors program
         ]
-    -- The program that declares a constructor defines its info tables even
-    -- when it builds no node of its own: another module that builds one has
-    -- only this program to link its node against.
+    -- Public constructors need tables for other units. Private constructors
+    -- need tables only for nodes, static objects, and case tag comparisons.
+    -- A field fetch uses the layout without a reference to the table.
     requiredConstructorInfos =
       Set.fromList
         ( concatMap declaredConstructorInfos constructorLayouts
-            <> concatMap requiredNodeConstructorInfos (programNodes program)
+            <> concatMap requiredNodeConstructorInfos (programNodes program <> map staticObjectNode (programStaticObjects program))
+            <> concatMap (caseConstructorInfos . grinFunctionBody) (grinFunctions program)
         )
-    -- Every declared constructor keeps its saturated table, whatever its
-    -- visibility: a case alternative names it to compare a tag against
-    -- without building a node, and 'requiredNodeConstructorInfos' only reads
-    -- the nodes. Only a node or another unit names the partial table, so a
-    -- constructor that no other unit can name gets it only from its nodes.
     declaredConstructorInfos (name, layouts)
-      | null layouts || Map.lookup name constructorLinkage == Just Internal = [ConstructorRuntimeInfo name SaturatedConstructor]
+      | Map.lookup name constructorLinkage == Just Internal = []
+      | null layouts = [ConstructorRuntimeInfo name SaturatedConstructor]
       | otherwise = [ConstructorRuntimeInfo name SaturatedConstructor, ConstructorRuntimeInfo name PartialConstructor]
     -- One constructor needs at most two info tables: the saturated object,
     -- and one shared by every stage that still wants arguments. The partial
@@ -4200,6 +4197,18 @@ exprNodes expression =
     GrinIfWhnf _ ready slow -> exprNodes ready <> exprNodes slow
     GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
     _ -> []
+
+-- | A case compares constructor identities. A fetch only reads fields.
+caseConstructorInfos :: GrinExpr -> [RuntimeInfoKey]
+caseConstructorInfos expression = case expression of
+  GrinBind _ value body -> caseConstructorInfos value <> caseConstructorInfos body
+  GrinStoreRec _ body -> caseConstructorInfos body
+  GrinStoreRecUnchecked _ body -> caseConstructorInfos body
+  GrinIfWhnf _ ready slow -> caseConstructorInfos ready <> caseConstructorInfos slow
+  GrinCase _ _ alternatives ->
+    [ConstructorRuntimeInfo name SaturatedConstructor | alternative <- alternatives, GrinDataAlt name <- [grinAltCon alternative]]
+      <> concatMap (caseConstructorInfos . grinAltRhs) alternatives
+  _ -> []
 
 programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =

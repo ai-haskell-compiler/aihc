@@ -92,7 +92,7 @@ The commands write the plan to `aihc.lock` in the package directory.
 | `-O0` | Run no System FC pass. |
 | `-Os` | Run the shrinking inliner. Compile the whole program at once. |
 | `-O1` | Run the shrinking inliner and the growing inliner. |
-| `-O2` | Run all passes. Compile the whole program at once. |
+| `-O2` | Run the standard optimization passes. Compile the whole program at once. |
 
 Clang receives the same level for C sources and for LLVM output.
 
