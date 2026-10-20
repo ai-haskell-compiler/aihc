@@ -43,7 +43,7 @@ expected: |
     trap "byte array access is out of bounds"
 
   inside_19:
-    %offset_20 = mul i64 4, 8
+    %offset_20 = shl i64 4, 3
     %contents_21 = load ptr [%hp_11 + 16] align 8 region heap
     %address_22 = ptr.add %contents_21, %offset_20
     %value_23 = load i64 [%address_22] align 1
