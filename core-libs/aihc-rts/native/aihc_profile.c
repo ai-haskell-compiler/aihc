@@ -2,8 +2,9 @@
    profile" in docs/native-runtime-objects.md.
 
    Compiled code gives the capability the code and the continuation of each
-   function at its entry. A SIGPROF timer interrupts the program at a fixed
-   interval of CPU time. The signal handler reads the two fields of the
+   function at its entry. A SIGPROF signal interrupts each thread of the
+   program at a fixed interval of the CPU time of that thread. The signal
+   handler reads the two fields of the
    capability that the interrupted OS thread runs, walks the continuation
    frames from that continuation through field zero of each frame, and
    appends the codes to a sample buffer. At exit, the profiler sorts the
@@ -31,6 +32,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <pthread.h>
+#include <time.h>
+#endif
 
 /* The update frame that aihc_lir_eval pushes. It is the only frame that the
    runtime units push, so it is not in the info tables of the program. */
@@ -72,8 +79,146 @@ static uint64_t aihc_profile_unbound;
 
 static _Thread_local AihcCapability *aihc_profile_capability;
 
+/* The timer that sends SIGPROF. */
+
+#ifdef __APPLE__
+/* macOS examines the ITIMER_PROF timer of a thread only when the thread
+   goes into the kernel. Compiled code that only calculates seldom goes into
+   the kernel, but a collection does at each page fault. Thus the kernel
+   kept an expired timer until the next collection. The samples in
+   collections were more than twenty times the collection time.
+
+   Thus a sampler thread sends the signals. At each interval of wall-clock
+   time, it reads the CPU time of each thread of the program. It sends
+   SIGPROF to each thread that used an interval of CPU time since its last
+   signal. The kernel interrupts a running thread at once for a signal from
+   another thread. A thread gets a maximum of one signal at each wake of the
+   sampler. */
+
+typedef struct {
+  pthread_t thread;
+  thread_act_t port;
+  /* The CPU time of the thread at the last wake, in microseconds. */
+  uint64_t used_us;
+  /* The CPU time since the last signal, in microseconds. */
+  uint64_t credit_us;
+} AihcProfileThread;
+
+static pthread_mutex_t aihc_profile_threads_lock = PTHREAD_MUTEX_INITIALIZER;
+static AihcProfileThread *aihc_profile_threads;
+static size_t aihc_profile_thread_count;
+static size_t aihc_profile_thread_capacity;
+static int aihc_profile_active;
+static int aihc_profile_stopping;
+static uint64_t aihc_profile_interval_us;
+static pthread_t aihc_profile_sampler;
+
+/* The user and system CPU time of a thread, in microseconds. */
+static int aihc_profile_thread_time(thread_act_t port, uint64_t *used_us) {
+  thread_basic_info_data_t info;
+  mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+  if (thread_info(port, THREAD_BASIC_INFO, (thread_info_t)&info, &count) !=
+      KERN_SUCCESS) {
+    return 0;
+  }
+  *used_us = ((uint64_t)info.user_time.seconds +
+              (uint64_t)info.system_time.seconds) *
+                 UINT64_C(1000000) +
+             (uint64_t)info.user_time.microseconds +
+             (uint64_t)info.system_time.microseconds;
+  return 1;
+}
+
+/* Add the calling thread to the threads that the sampler interrupts. */
+static void aihc_profile_timer_add_thread(void) {
+  if (!aihc_profile_active) {
+    return;
+  }
+  thread_act_t port = pthread_mach_thread_np(pthread_self());
+  uint64_t used_us = 0;
+  (void)aihc_profile_thread_time(port, &used_us);
+  pthread_mutex_lock(&aihc_profile_threads_lock);
+  if (aihc_profile_thread_count == aihc_profile_thread_capacity) {
+    size_t capacity = aihc_profile_thread_capacity == 0
+                          ? 8
+                          : 2 * aihc_profile_thread_capacity;
+    AihcProfileThread *threads =
+        realloc(aihc_profile_threads, capacity * sizeof(AihcProfileThread));
+    if (threads == NULL) {
+      aihc_fail("out of memory");
+    }
+    aihc_profile_threads = threads;
+    aihc_profile_thread_capacity = capacity;
+  }
+  aihc_profile_threads[aihc_profile_thread_count++] =
+      (AihcProfileThread){pthread_self(), port, used_us, 0};
+  pthread_mutex_unlock(&aihc_profile_threads_lock);
+}
+
+static void *aihc_profile_sampler_main(void *argument) {
+  (void)argument;
+  uint64_t interval = aihc_profile_interval_us;
+  struct timespec pause = {.tv_sec = (time_t)(interval / 1000000),
+                           .tv_nsec = (long)(interval % 1000000) * 1000};
+  while (!__atomic_load_n(&aihc_profile_stopping, __ATOMIC_ACQUIRE)) {
+    nanosleep(&pause, NULL);
+    pthread_mutex_lock(&aihc_profile_threads_lock);
+    for (size_t index = 0; index < aihc_profile_thread_count; ++index) {
+      AihcProfileThread *each = &aihc_profile_threads[index];
+      uint64_t used_us;
+      if (!aihc_profile_thread_time(each->port, &used_us)) {
+        continue;
+      }
+      each->credit_us += used_us - each->used_us;
+      each->used_us = used_us;
+      if (each->credit_us >= interval) {
+        each->credit_us %= interval;
+        pthread_kill(each->thread, SIGPROF);
+      }
+    }
+    pthread_mutex_unlock(&aihc_profile_threads_lock);
+  }
+  return NULL;
+}
+
+static void aihc_profile_timer_start(long interval) {
+  aihc_profile_interval_us = (uint64_t)interval;
+  aihc_profile_active = 1;
+  aihc_profile_timer_add_thread();
+  if (pthread_create(&aihc_profile_sampler, NULL, aihc_profile_sampler_main,
+                     NULL) != 0) {
+    aihc_fail("cannot start the time profile timer");
+  }
+}
+
+static void aihc_profile_timer_stop(void) {
+  __atomic_store_n(&aihc_profile_stopping, 1, __ATOMIC_RELEASE);
+  pthread_join(aihc_profile_sampler, NULL);
+}
+#else
+/* Elsewhere, the kernel examines the ITIMER_PROF timer at each clock tick,
+   and sends SIGPROF to a thread that runs. */
+
+static void aihc_profile_timer_add_thread(void) {}
+
+static void aihc_profile_timer_start(long interval) {
+  struct timeval period = {.tv_sec = (time_t)(interval / 1000000),
+                           .tv_usec = (suseconds_t)(interval % 1000000)};
+  struct itimerval timer = {.it_interval = period, .it_value = period};
+  if (setitimer(ITIMER_PROF, &timer, NULL) != 0) {
+    aihc_fail("cannot start the time profile timer");
+  }
+}
+
+static void aihc_profile_timer_stop(void) {
+  struct itimerval stop = {{0, 0}, {0, 0}};
+  setitimer(ITIMER_PROF, &stop, NULL);
+}
+#endif
+
 void aihc_time_profile_thread(AihcCapability *capability) {
   aihc_profile_capability = capability;
+  aihc_profile_timer_add_thread();
 }
 
 static int aihc_profile_compare_words(const void *left, const void *right) {
@@ -245,8 +390,7 @@ static const char *aihc_profile_path(char *scratch, size_t size) {
 }
 
 static void aihc_profile_finish(void) {
-  struct itimerval stop = {{0, 0}, {0, 0}};
-  setitimer(ITIMER_PROF, &stop, NULL);
+  aihc_profile_timer_stop();
   signal(SIGPROF, SIG_IGN);
   size_t used = __atomic_load_n(&aihc_profile_used, __ATOMIC_RELAXED);
   if (used > AIHC_PROFILE_BUFFER_WORDS) {
@@ -345,10 +489,5 @@ void aihc_time_profile_register(AihcCapability *capability,
       aihc_fail("AIHC_PROFILE_INTERVAL_US is not a positive number");
     }
   }
-  struct timeval period = {.tv_sec = (time_t)(interval / 1000000),
-                           .tv_usec = (suseconds_t)(interval % 1000000)};
-  struct itimerval timer = {.it_interval = period, .it_value = period};
-  if (setitimer(ITIMER_PROF, &timer, NULL) != 0) {
-    aihc_fail("cannot start the time profile timer");
-  }
+  aihc_profile_timer_start(interval);
 }
