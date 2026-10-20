@@ -1,0 +1,279 @@
+{
+  "dependencies": [],
+  "format_version": 3,
+  "modules": [
+    {
+      "decls": [
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "The answer.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "ExportBodySections",
+            "name": "answer",
+            "namespace": "value",
+            "package": "export-body-sections-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 14,
+            "end_line": 13,
+            "file": "src/ExportBodySections.hs",
+            "start_column": 1,
+            "start_line": 13
+          },
+          "name": "answer",
+          "namespace": "value",
+          "signature": "Int",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "The question.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "ExportBodySections",
+            "name": "question",
+            "namespace": "value",
+            "package": "export-body-sections-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 19,
+            "end_line": 21,
+            "file": "src/ExportBodySections.hs",
+            "start_column": 1,
+            "start_line": 21
+          },
+          "name": "question",
+          "namespace": "value",
+          "signature": "String",
+          "subordinates": [],
+          "warning": null
+        }
+      ],
+      "description": {
+        "document": {
+          "document": {
+            "string": "The export list gives the structure of the documentation. Haddock\n ignores the section headings in the body.",
+            "tag": "DocString"
+          },
+          "tag": "DocParagraph"
+        },
+        "meta": {
+          "version": null
+        }
+      },
+      "diagnostics": [
+        "unattached documentation comment at 15:3"
+      ],
+      "exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Values",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "answer",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "question",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": true,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/ExportBodySections.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "ExportBodySections",
+              "name": "answer",
+              "namespace": "value",
+              "package": "export-body-sections-0.1.0.0"
+            }
+          },
+          "name": "answer",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "ExportBodySections",
+              "name": "question",
+              "namespace": "value",
+              "package": "export-body-sections-0.1.0.0"
+            }
+          },
+          "name": "question",
+          "tag": "term"
+        }
+      ],
+      "name": "ExportBodySections",
+      "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Values",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "The answer.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "ExportBodySections",
+              "name": "answer",
+              "namespace": "value",
+              "package": "export-body-sections-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 14,
+              "end_line": 13,
+              "file": "src/ExportBodySections.hs",
+              "start_column": 1,
+              "start_line": 13
+            },
+            "name": "answer",
+            "namespace": "value",
+            "signature": "Int",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "The question.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "ExportBodySections",
+              "name": "question",
+              "namespace": "value",
+              "package": "export-body-sections-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 19,
+              "end_line": 21,
+              "file": "src/ExportBodySections.hs",
+              "start_column": 1,
+              "start_line": 21
+            },
+            "name": "question",
+            "namespace": "value",
+            "signature": "String",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
+      "sections": [],
+      "warning": null
+    }
+  ],
+  "name": "export-body-sections",
+  "version": "0.1.0.0"
+}
