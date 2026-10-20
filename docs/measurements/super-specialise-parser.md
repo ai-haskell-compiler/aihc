@@ -75,3 +75,20 @@ The measurement command passed this corpus directory to each executable:
 ```
 
 [Raw measurements](super-specialise-parser.json) contain all measured samples, executable hashes, and exact sizes.
+
+## Confirmation run
+
+A second run used the same executable hashes after a fresh check of origin/main at `6d69924fd`.
+It used the same method, with two warmup pairs and twenty measured pairs.
+All 44 processes produced the expected output.
+
+| Metric | `-O2` | With super-specialization | Change |
+| --- | ---: | ---: | ---: |
+| Median elapsed time | 24.759 ms | 25.939 ms | +4.77% |
+| Median CPU time | 23.221 ms | 24.272 ms | +4.53% |
+| Median instructions | 251,109,479.5 | 256,882,728 | +2.30% |
+| Allocated bytes | 42,628,832 | 46,744,296 | +9.65% |
+| Binary bytes | 9,405,608 | 10,287,448 | +9.38% |
+
+The second run confirms the regression on this sample.
+[Confirmation samples](super-specialise-parser-confirmation.json) contain the complete results.
