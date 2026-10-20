@@ -9,6 +9,7 @@ module Aihc.Fc.Views
     collectSpine,
     castedSpine,
     exprValueNames,
+    exprMentionsAny,
     maxLocalUnique,
   )
 where
@@ -71,6 +72,28 @@ exprValueNames = go
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> foldMap go arguments
+
+-- | Whether an expression uses one of the given value-class names. This is
+-- @not (Set.disjoint names (exprValueNames expr))@ without the set of the
+-- expression: the walk stops at the first use.
+exprMentionsAny :: Set Name -> Expr -> Bool
+exprMentionsAny names = go
+  where
+    go expr =
+      case expr of
+        ExVar name -> Set.member name names
+        ExLit {} -> False
+        ExCoercion {} -> False
+        ExApp function argument -> go function || go argument
+        ExTyApp function _ -> go function
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) || go body
+        ExRec binds body -> any (go . bindRhs) binds || go body
+        ExCase scrutinee _ alternatives -> go scrutinee || any (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> any go arguments
 
 -- | The largest local unique of the program.
 maxLocalUnique :: Program -> Int
