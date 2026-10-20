@@ -58,6 +58,7 @@ data BuildOptions = BuildOptions
     buildProfileTime :: !Bool,
     buildLto :: !Bool,
     buildOptimization :: !OptimizationLevel,
+    buildSuperSpecialise :: !Bool,
     buildNoLink :: !Bool,
     buildVerbose :: !Bool,
     -- | The executable of a main module, or the directory the executables
@@ -125,6 +126,7 @@ data InstallOptions = InstallOptions
     installCheckPrimBounds :: !Bool,
     installLto :: !Bool,
     installOptimization :: !OptimizationLevel,
+    installSuperSpecialise :: !Bool,
     installReinstall :: !Bool,
     installNoCode :: !Bool,
     installVerbose :: !Bool,
@@ -220,6 +222,7 @@ buildOptionsParser =
       )
     <*> ltoOption
     <*> optimizationOption
+    <*> superSpecialiseOption
     <*> OA.switch
       ( OA.long "no-link"
           <> OA.help "Compile only: write the objects, archives, and a link.args response file to a bundle directory instead of linking"
@@ -398,10 +401,11 @@ ltoOption =
         <> OA.help "Compile each module to System FC only and compile the merged program of the executable once. -O2 and -Os imply this"
     )
 
--- | @-O0@, @-O1@, @-O2@ or @-Os@, the level Clang receives for C sources
--- and LLVM output.
--- The level is part of the identity of an installed package, so the
--- packages of a build share its level.
+-- | Enable bounded specialization for the whole program.
+superSpecialiseOption :: OA.Parser Bool
+superSpecialiseOption = OA.switch (OA.long "super-specialise" <> OA.help "Specialize known dictionaries and function arguments. Requires -O2")
+
+-- | Select the optimization level for the compiler and native tools.
 optimizationOption :: OA.Parser OptimizationLevel
 optimizationOption =
   OA.option
@@ -470,6 +474,7 @@ installOptionsParser =
     <*> checkPrimBoundsOption
     <*> ltoOption
     <*> optimizationOption
+    <*> superSpecialiseOption
     <*> OA.switch
       ( OA.long "reinstall"
           <> OA.help "Build the package again when it exists"

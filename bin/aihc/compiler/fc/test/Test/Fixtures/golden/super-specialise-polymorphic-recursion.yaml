@@ -1,0 +1,119 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test (run) where
+
+  data Flag = Off | On
+  data Box a = Box a
+  turn :: Flag -> Flag
+  turn x = x
+  loop :: (Flag -> Flag) -> a -> Flag
+  loop f x = loop f (Box x)
+  run :: Flag
+  run = loop turn Off
+passes:
+- super-specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tFlag :: sType {
+    1.cOff :: tFlag;
+    1.cOn :: tFlag
+  }
+
+  type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a → tBox a
+  }
+
+  val 1.vturn :: tFlag → tFlag
+    = λ(x : tFlag).
+      x
+
+  val 1.vloop :: ∀(a : sType). (tFlag → tFlag) → a → tFlag
+    = Λ(a : sType). λ(x : tFlag → tFlag) (y : a).
+      vloop @(tBox a) x (cBox @a y)
+
+  pub val 1.vrun :: tFlag
+    = v$ssloop1 cOff
+
+  val 1.v$ssloop31 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))))))).
+      vloop @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))))))) vturn (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))))))) y)
+
+  val 1.v$ssloop29 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))))).
+      v$ssloop31 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))))) y)
+
+  val 1.v$ssloop27 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))))).
+      v$ssloop29 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))))) y)
+
+  val 1.v$ssloop25 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))).
+      v$ssloop27 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))))) y)
+
+  val 1.v$ssloop23 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))).
+      v$ssloop25 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))))) y)
+
+  val 1.v$ssloop21 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))).
+      v$ssloop23 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))))) y)
+
+  val 1.v$ssloop19 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))).
+      v$ssloop21 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))))) y)
+
+  val 1.v$ssloop17 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))).
+      v$ssloop19 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))))) y)
+
+  val 1.v$ssloop15 :: tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))).
+      v$ssloop17 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox (tBox tFlag))))))) y)
+
+  val 1.v$ssloop13 :: tBox (tBox (tBox (tBox (tBox (tBox tFlag))))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))).
+      v$ssloop15 (cBox @(tBox (tBox (tBox (tBox (tBox (tBox tFlag)))))) y)
+
+  val 1.v$ssloop11 :: tBox (tBox (tBox (tBox (tBox tFlag)))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox (tBox tFlag))))).
+      v$ssloop13 (cBox @(tBox (tBox (tBox (tBox (tBox tFlag))))) y)
+
+  val 1.v$ssloop9 :: tBox (tBox (tBox (tBox tFlag))) → tFlag
+    = λ(y : tBox (tBox (tBox (tBox tFlag)))).
+      v$ssloop11 (cBox @(tBox (tBox (tBox (tBox tFlag)))) y)
+
+  val 1.v$ssloop7 :: tBox (tBox (tBox tFlag)) → tFlag
+    = λ(y : tBox (tBox (tBox tFlag))).
+      v$ssloop9 (cBox @(tBox (tBox (tBox tFlag))) y)
+
+  val 1.v$ssloop5 :: tBox (tBox tFlag) → tFlag
+    = λ(y : tBox (tBox tFlag)).
+      v$ssloop7 (cBox @(tBox (tBox tFlag)) y)
+
+  val 1.v$ssloop3 :: tBox tFlag → tFlag
+    = λ(y : tBox tFlag).
+      v$ssloop5 (cBox @(tBox tFlag) y)
+
+  val 1.v$ssloop1 :: tFlag → tFlag
+    = λ(y : tFlag).
+      v$ssloop3 (cBox @tFlag y)
+status: pass
+reason: A known function argument remains indirect across polymorphic recursion.

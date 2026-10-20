@@ -35,6 +35,7 @@ aihc build INPUT [OPTIONS]
 | `--executable NAME` | Build only the named executable of a package. |
 | `--target TARGET` | Select the target. See [Select a target](getting-started.md#select-a-target). |
 | `-O LEVEL` | Select the optimization level. See [Optimization levels](#optimization-levels). |
+| `--super-specialise` | Specialize known dictionaries and function arguments. Requires `-O2`. |
 | `--lto` | Compile each module to System FC only, and compile the merged program once. |
 | `--no-link` | Compile only. Write the objects and a `link.args` response file to a bundle directory. |
 | `--verbose` | Print each build step. |

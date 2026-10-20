@@ -1,0 +1,80 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test (run) where
+
+  data Flag = Off | On
+  turn :: Flag -> Flag
+  turn x = x
+  {-# NOINLINE protected #-}
+  protected :: (Flag -> Flag) -> Flag -> Flag
+  protected f x = f x
+  {-# INLINE [0] late #-}
+  late :: (Flag -> Flag) -> Flag -> Flag
+  late f x = f x
+  {-# RULES "ruled" [0] forall f x. ruled f x = f x #-}
+  ruled :: (Flag -> Flag) -> Flag -> Flag
+  ruled f x = f x
+  loop :: (Flag -> Flag) -> Flag -> Flag
+  loop f x = protected f (late f (ruled f x))
+  run :: Flag -> Flag
+  run = loop turn
+passes:
+- super-specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tFlag :: sType {
+    1.cOff :: tFlag;
+    1.cOn :: tFlag
+  }
+
+  val 1.vturn :: tFlag → tFlag
+    = λ(x : tFlag).
+      x
+
+  val 1.vprotected noinline :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      x y
+
+  val 1.vlate inline [0] :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      x y
+
+  val 1.vruled :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      x y
+
+  val 1.vloop :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      vprotected x (vlate x (vruled x y))
+
+  pub val 1.vrun :: tFlag → tFlag
+    = v$ssloop1
+
+  rule "ruled" [0] λ(f : tFlag → tFlag). λ(x : tFlag).
+    vruled f x
+   = f x
+   :: tFlag
+
+  val 1.v$ssloop1 :: tFlag → tFlag
+    = λ(y : tFlag).
+      vprotected vturn (vlate vturn (vruled vturn y))
+status: pass
+reason: Specialization must retain protected calls while it removes known arguments from other calls.

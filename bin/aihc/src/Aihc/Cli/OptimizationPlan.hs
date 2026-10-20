@@ -11,6 +11,7 @@
 module Aihc.Cli.OptimizationPlan
   ( OptimizationPlan (..),
     optimizationPlan,
+    withSuperSpecialisation,
   )
 where
 
@@ -88,3 +89,11 @@ optimizationPlan lto level =
     grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     rounds = 4
+
+-- | Run specialization after the first small inliner and before demand analysis.
+withSuperSpecialisation :: OptimizationPlan -> OptimizationPlan
+withSuperSpecialisation plan = plan {planPasses = insert (planPasses plan)}
+  where
+    insert (pass@(Fc.PassDemand _) : rest) = Fc.PassSuperSpecialise : Fc.PassSpecialise : Fc.PassInline Fc.shrinkPolicy 2 2 : pass : rest
+    insert (pass : rest) = pass : insert rest
+    insert [] = []
