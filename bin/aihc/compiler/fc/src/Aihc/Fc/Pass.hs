@@ -29,7 +29,7 @@ import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), 
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
-import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram)
+import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram, specialiseTopProgram)
 import Aihc.Fc.StateToken (StateTokenReport (..), stateTokenProgram)
 import Aihc.Fc.SuperSpecialise (SuperReport (..), superSpecialiseProgram)
 import Aihc.Fc.Syntax (Program)
@@ -79,6 +79,8 @@ data Pass
     PassSpecialise
   | -- | Specialize known dictionaries and function arguments within a code budget.
     PassSuperSpecialise
+  | -- | Specialize top-level dictionary calls within a code growth limit.
+    PassTopSpecialise
   | -- | Copy each local loop whose calls give a constructor in a position,
     -- with the fields in place of the parameter, in rounds with a
     -- simplifying walk in a phase. The walk copies a local function at a
@@ -100,6 +102,7 @@ passPhase pass =
     PassDemand _ -> Nothing
     PassWorkerWrapper _ -> Nothing
     PassSuperSpecialise -> Nothing
+    PassTopSpecialise -> Nothing
     PassSpecialise -> Nothing
     PassCallPatterns phase _ -> Just phase
     PassInline _ _ phase -> Just phase
@@ -128,6 +131,7 @@ passName pass =
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
     PassWorkerWrapper SplitLateFunctions -> "worker/wrapper late"
     PassSuperSpecialise -> "super-specialise"
+    PassTopSpecialise -> "specialise top"
     PassSpecialise -> "specialise"
     PassCallPatterns phase _ -> "call patterns [" <> T.pack (show phase) <> "]"
     PassEtaExpand -> "eta expand"
@@ -213,6 +217,16 @@ runPass primPackage roots pass program =
           )
     PassSpecialise ->
       let (specialised, report) = specialiseProgram program
+       in ( specialised,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage specialised,
+                reportDetail = count (reportSpecialisedBindings report) "bindings" <> ", " <> count (reportCopies report) "copies" <> ", " <> count (reportRewrittenCalls report) "calls"
+              }
+          )
+    PassTopSpecialise ->
+      let (specialised, report) = specialiseTopProgram primPackage program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
