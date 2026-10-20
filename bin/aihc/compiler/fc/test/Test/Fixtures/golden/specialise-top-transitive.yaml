@@ -1,0 +1,89 @@
+---
+extensions: []
+modules:
+- |
+  module Library (Flag(..), outer) where
+
+  import GHC.Types (Bool(..), Int, Char, Ordering)
+
+  class Flag a where
+    flag :: a -> Bool
+
+  inner :: Flag a => a -> Bool
+  inner x = flag x
+
+  outer :: Flag a => a -> Bool
+  outer x = inner x
+- |
+  module Test (concrete) where
+
+  import GHC.Types (Bool)
+  import Library
+
+  instance Flag Bool where
+    flag x = x
+
+  concrete :: Bool -> Bool
+  concrete x = outer x
+passes:
+- specialise-top
+expected: |-
+  scope 1 = "" Library
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.t$Dict$Flag (a : sType) :: sType {
+    pub 1.c$Dict$Flag :: ∀(a : sType). (a → tBool) → t$Dict$Flag a
+  }
+
+  pub val 1.vflag :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a).
+      let! c$Dict$Flag ($cflag : a → tBool) = $dFlag;
+      $cflag
+
+  val 1.vinner :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : a).
+      vflag @a $dFlag x
+
+  pub val 1.vouter :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : a).
+      vinner @a $dFlag x
+
+  pub val 2.v$fFlagBool :: t$Dict$Flag tBool
+    = c$Dict$Flag @tBool v$fFlagBool$cflag
+
+  val 2.v$fFlagBool$cflag :: tBool → tBool
+    = λ(x : tBool).
+      x
+
+  pub val 2.vconcrete :: tBool → tBool
+    = λ(x : tBool).
+      v$souter_0 x
+
+  val 1.v$souter_0 :: tBool → tBool
+    = λ(x : tBool).
+      v$sinner_0 x
+
+  val 1.v$sinner_0 :: tBool → tBool
+    = λ(x : tBool).
+      v$sflag_0 x
+
+  val 1.v$sflag_0 :: tBool → tBool
+    = let! c$Dict$Flag ($cflag : tBool → tBool) = v$fFlagBool;
+    $cflag
+status: pass
+reason: A specialized copy exposes a static dictionary call to another module. The next round specializes that call.

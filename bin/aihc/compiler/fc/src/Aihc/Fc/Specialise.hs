@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 
--- | Specialisation of local recursive functions on static dictionaries.
+-- | Dictionary specialization for local loops and top-level functions.
 --
 -- The type checker generalizes a local function without a signature, so
 -- a loop in a @where@ clause that uses a class method gets a type
@@ -41,18 +41,21 @@
 module Aihc.Fc.Specialise
   ( SpecialiseReport (..),
     specialiseProgram,
+    specialiseTopProgram,
     specialisationLimit,
   )
 where
 
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isTrivial, maxLocalUnique, substExpr, substTypeExpr)
+import Aihc.Fc.Size (exprSize, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (substType, substTypes)
+import Aihc.Fc.TypeOf (substType, substTypes, typeEnvFromProgram)
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad (zipWithM)
-import Control.Monad.Trans.State.Strict (State, runState, state)
+import Control.Monad.Trans.State.Strict (State, execState, get, modify', put, runState, state)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -63,11 +66,11 @@ import Data.Text qualified as T
 
 -- | What the pass did.
 data SpecialiseReport = SpecialiseReport
-  { -- | Bindings that got copies in place of the original.
+  { -- | Bindings that got specialized copies.
     reportSpecialisedBindings :: !Int,
     -- | Copies made, one for each distinct static prefix.
     reportCopies :: !Int,
-    -- | Calls from outside the bindings that now name a copy.
+    -- | Calls that now name a copy.
     reportRewrittenCalls :: !Int
   }
   deriving (Eq, Show)
@@ -99,6 +102,161 @@ specialiseProgram program =
           body <- specialiseExpr Set.empty (valBody declaration)
           pure (DeclVal declaration {valBody = body})
         _ -> pure decl
+
+-- | Specialize closed dictionary calls to top-level functions. Keep the
+-- generic declarations for calls that do not match a selected prefix.
+-- Each function gets at most four copies. Each copy costs at most 256
+-- nodes. The total allowance is one quarter of the input size, or 32
+-- nodes for a small program. Three rounds expose calls in new copies.
+-- The pipeline runs this pass once, after the main optimizer.
+specialiseTopProgram :: PackageId -> Program -> (Program, SpecialiseReport)
+specialiseTopProgram primPackage program =
+  let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty allowance mempty
+      (decls, final) = runState (rounds 3 (programDecls program)) initial
+   in (tidyProgram program {programDecls = decls}, topReport final)
+  where
+    names = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
+    allowance = max 32 (programSize primPackage program `div` 4)
+    env = typeEnvFromProgram primPackage program
+    -- Dictionary producers remain shared inputs. Their specialization would
+    -- change the keys of calls that consume those dictionaries.
+    candidates = Map.fromList [(valName declaration, (declaration, prefix, inner)) | DeclVal declaration <- programDecls program, Just (prefix, inner) <- [staticPrefix (valBody declaration)], Just result <- [instantiate (valType declaration) (map (TyVar . binderName) (prefixTypes prefix)) (length (prefixDictionaries prefix))], not (isDictionaryType result)]
+    rounds :: Int -> [Decl] -> State TopState [Decl]
+    rounds 0 decls = pure decls
+    rounds remaining decls = do
+      current <- get
+      let calls = execState (mapM_ (onValue (walkCalls collect)) decls) Map.empty
+          requests = List.sortOn (\(key, count) -> (negate count, key)) (Map.toList calls)
+          unseen = filter (\(key, _) -> Map.notMember key (topCopies current)) requests
+      copies <- concat <$> mapM (makeCopy . fst) unseen
+      if null copies
+        then pure decls
+        else do
+          rewritten <- mapM (onValue (walkCalls rewrite)) (decls <> copies)
+          rounds (remaining - 1) rewritten
+    collect :: Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
+    collect aliases function arguments = do
+      case function of
+        ExVar name
+          | Just (_, prefix, _) <- Map.lookup name candidates,
+            let count = prefixLength prefix,
+            length arguments >= count,
+            let key = map (fmap (substExpr aliases)) (take count arguments),
+            staticKey Set.empty key ->
+              modify' (Map.insertWith (+) (name, key) (1 :: Int))
+        _ -> pure ()
+      pure (rebuildCall function arguments)
+    makeCopy :: (Name, [Arg]) -> State TopState [Decl]
+    makeCopy key@(name, arguments) = do
+      current <- get
+      case Map.lookup name candidates of
+        Just (declaration, prefix, inner)
+          | Map.findWithDefault 0 name (topCounts current) < specialisationLimit,
+            Just copyType <- instantiate (valType declaration) (lefts arguments) (length (prefixDictionaries prefix)) -> do
+              let types = Map.fromList (zip (map binderName (prefixTypes prefix)) (lefts arguments))
+                  -- A let preserves lazy dictionary evaluation and prevents
+                  -- substitution from duplicating an argument inside a copy.
+                  bound = zip (prefixDictionaries prefix) (rights arguments)
+                  substitutions = Map.fromList [(binderName binder, argument) | (binder, argument) <- bound, isTrivial argument]
+                  lets = [(binder, argument) | (binder, argument) <- bound, not (isTrivial argument)]
+                  body = substTypeExpr types (foldr (\(binder, argument) rest -> ExLet (Bind binder argument) rest) (substExpr substitutions inner) lets)
+                  cost = 1 + exprSize env body
+              if cost > 256 || cost > topBudget current
+                then pure []
+                else do
+                  let copyName = freshTopName (topNames current) name 0
+                      (body', supply) = freshenExprFrom (topSupply current) body
+                      first = Map.notMember name (topCounts current)
+                  put
+                    current
+                      { topSupply = supply,
+                        topNames = Set.insert copyName (topNames current),
+                        topCopies = Map.insert key copyName (topCopies current),
+                        topCounts = Map.insertWith (+) name 1 (topCounts current),
+                        topBudget = topBudget current - cost,
+                        topReport = topReport current <> SpecialiseReport (if first then 1 else 0) 1 0
+                      }
+                  pure [DeclVal declaration {valVis = Private, valName = copyName, valType = copyType, valBody = body'}]
+        _ -> pure []
+    rewrite :: Map.Map Name Expr -> Expr -> [Arg] -> State TopState Expr
+    rewrite aliases function arguments = do
+      current <- get
+      case function of
+        ExVar name
+          | Just (_, prefix, _) <- Map.lookup name candidates,
+            let count = prefixLength prefix,
+            length arguments >= count,
+            Just copy <- Map.lookup (name, map (fmap (substExpr aliases)) (take count arguments)) (topCopies current) -> do
+              modify' (\st -> st {topReport = topReport st <> SpecialiseReport 0 0 1})
+              pure (rebuildCall (ExVar copy) (drop count arguments))
+        _ -> pure (rebuildCall function arguments)
+
+-- | State shared by all rounds, so each limit applies to the whole pass.
+data TopState = TopState
+  { topSupply :: Int,
+    topNames :: Set Name,
+    topCopies :: Map.Map (Name, [Arg]) Name,
+    topCounts :: Map.Map Name Int,
+    topBudget :: Int,
+    topReport :: SpecialiseReport
+  }
+
+-- | Select a name that no value declaration uses.
+freshTopName :: Set Name -> Name -> Int -> Name
+freshTopName used original index =
+  let candidate = original {nameText = "$s" <> nameText original <> "_" <> T.pack (show index)}
+   in if Set.member candidate used
+        then freshTopName used original (index + 1)
+        else candidate
+
+onValue :: (Monad m) => (Expr -> m Expr) -> Decl -> m Decl
+onValue action (DeclVal declaration) = do
+  body <- action (valBody declaration)
+  pure (DeclVal declaration {valBody = body})
+onValue _ declaration = pure declaration
+
+-- | Visit complete call spines once. Track closed dictionary aliases so
+-- recursive calls can reuse a copy with a compound dictionary argument.
+walkCalls :: (Monad m) => (Map.Map Name Expr -> Expr -> [Arg] -> m Expr) -> Expr -> m Expr
+walkCalls action = go Map.empty
+  where
+    go aliases expr = case expr of
+      ExVar {} -> pure expr
+      ExLit {} -> pure expr
+      ExCoercion {} -> pure expr
+      ExApp {} -> spine aliases expr
+      ExTyApp {} -> spine aliases expr
+      ExLam binder body -> ExLam binder <$> go (forget [binder] aliases) body
+      ExTyLam binder body -> ExTyLam binder <$> go (forget [binder] aliases) body
+      ExLet (Bind binder rhs) body -> do
+        rhs' <- go aliases rhs
+        let argument = substExpr aliases rhs'
+            inner = forget [binder] aliases
+            next
+              | isDictionaryType (binderType binder), staticKey Set.empty [Right argument] = Map.insert (binderName binder) argument inner
+              | otherwise = inner
+        ExLet (Bind binder rhs') <$> go next body
+      ExRec binds body -> do
+        let inner = forget (map bindBinder binds) aliases
+        ExRec <$> mapM (\(Bind binder rhs) -> Bind binder <$> go inner rhs) binds <*> go inner body
+      ExCase scrutinee binder alternatives -> do
+        let inner = forget (maybe [] pure binder) aliases
+            onAlt alternative = do
+              rhs <- go (forget (altTypeBinders alternative <> altBinders alternative) inner) (altRhs alternative)
+              pure alternative {altRhs = rhs}
+        ExCase <$> go aliases scrutinee <*> pure binder <*> traverse onAlt alternatives
+      ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go aliases scrutinee
+      ExCast body coercion -> (`ExCast` coercion) <$> go aliases body
+      ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (go aliases) arguments
+    spine aliases expr = do
+      let (function, arguments) = collectSpine expr
+      function' <- go aliases function
+      arguments' <- mapM (traverse (go aliases)) arguments
+      action aliases function' arguments'
+    forget binders aliases = foldr (Map.delete . binderName) aliases binders
+
+rebuildCall :: Expr -> [Arg] -> Expr
+rebuildCall = List.foldl' (\function argument -> either (ExTyApp function) (ExApp function) argument)
 
 -- | Walk an expression with the local names in scope at each point, and
 -- specialise each recursive group after its parts.

@@ -1,0 +1,105 @@
+---
+extensions: []
+modules:
+- |
+  module Test (allFlag, concrete, other) where
+
+  import GHC.Types (Bool(..), Int, Char, Ordering)
+
+  class Flag a where
+    flag :: a -> Bool
+
+  instance Flag Bool where
+    flag x = x
+
+  allFlag :: Flag a => [a] -> Bool
+  allFlag [] = True
+  allFlag (x : xs) = if flag x then allFlag xs else False
+
+  concrete :: [Bool] -> Bool
+  concrete xs = allFlag xs
+
+  other :: Flag a => [a] -> Bool
+  other xs = allFlag xs
+passes:
+- specialise-top
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c: :: ∀(a : sType). a → t[] a → t[] a;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Flag (a : sType) :: sType {
+    1.c$Dict$Flag :: ∀(a : sType). (a → tBool) → t$Dict$Flag a
+  }
+
+  val 1.vflag :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a).
+      let! c$Dict$Flag ($cflag : a → tBool) = $dFlag;
+      $cflag
+
+  pub val 1.v$fFlagBool :: t$Dict$Flag tBool
+    = c$Dict$Flag @tBool v$fFlagBool$cflag
+
+  val 1.v$fFlagBool$cflag :: tBool → tBool
+    = λ(x : tBool).
+      x
+
+  pub val 1.vallFlag :: ∀(a : sType). t$Dict$Flag a → t[] a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : t[] a).
+      case x of {
+        c[] →
+          cTrue;
+        c: (x{1} : a) (xs : t[] a) →
+          case vflag @a $dFlag x{1} of {
+            cTrue →
+              vallFlag @a $dFlag xs;
+            cFalse →
+              cFalse
+          }
+      }
+
+  pub val 1.vconcrete :: t[] tBool → tBool
+    = λ(x : t[] tBool).
+      v$sallFlag_0 x
+
+  pub val 1.vother :: ∀(a : sType). t$Dict$Flag a → t[] a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : t[] a).
+      vallFlag @a $dFlag x
+
+  val 1.v$sallFlag_0 :: t[] tBool → tBool
+    = λ(x : t[] tBool).
+      case x of {
+        c[] →
+          cTrue;
+        c: (x{1} : tBool) (xs : t[] tBool) →
+          case v$sflag_0 x{1} of {
+            cTrue →
+              v$sallFlag_0 xs;
+            cFalse →
+              cFalse
+          }
+      }
+
+  val 1.v$sflag_0 :: tBool → tBool
+    = let! c$Dict$Flag ($cflag : tBool → tBool) = v$fFlagBool;
+    $cflag
+status: pass
+reason: Static calls use a shared recursive copy. Generic calls retain the original function.
