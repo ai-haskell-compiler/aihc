@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 
--- | Specialisation of local recursive functions on static dictionaries.
+-- | Dictionary specialization for local loops and top-level functions.
 --
 -- The type checker generalizes a local function without a signature, so
 -- a loop in a @where@ clause that uses a class method gets a type
@@ -66,11 +66,11 @@ import Data.Text qualified as T
 
 -- | What the pass did.
 data SpecialiseReport = SpecialiseReport
-  { -- | Bindings that got copies in place of the original.
+  { -- | Bindings that got specialized copies.
     reportSpecialisedBindings :: !Int,
     -- | Copies made, one for each distinct static prefix.
     reportCopies :: !Int,
-    -- | Calls from outside the bindings that now name a copy.
+    -- | Calls that now name a copy.
     reportRewrittenCalls :: !Int
   }
   deriving (Eq, Show)
@@ -108,7 +108,7 @@ specialiseProgram program =
 -- Each function gets at most four copies. Each copy costs at most 256
 -- nodes. The total allowance is one quarter of the input size, or 32
 -- nodes for a small program. Three rounds expose calls in new copies.
--- The pipeline runs this pass once, before the main inliner.
+-- The pipeline runs this pass once, after the main optimizer.
 specialiseTopProgram :: PackageId -> Program -> (Program, SpecialiseReport)
 specialiseTopProgram primPackage program =
   let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty allowance mempty
@@ -118,7 +118,9 @@ specialiseTopProgram primPackage program =
     names = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
     allowance = max 32 (programSize primPackage program `div` 4)
     env = typeEnvFromProgram primPackage program
-    candidates = Map.fromList [(valName declaration, (declaration, prefix, inner)) | DeclVal declaration <- programDecls program, Just (prefix, inner) <- [staticPrefix (valBody declaration)]]
+    -- Dictionary producers remain shared inputs. Their specialization would
+    -- change the keys of calls that consume those dictionaries.
+    candidates = Map.fromList [(valName declaration, (declaration, prefix, inner)) | DeclVal declaration <- programDecls program, Just (prefix, inner) <- [staticPrefix (valBody declaration)], Just result <- [instantiate (valType declaration) (map (TyVar . binderName) (prefixTypes prefix)) (length (prefixDictionaries prefix))], not (isDictionaryType result)]
     rounds :: Int -> [Decl] -> State TopState [Decl]
     rounds 0 decls = pure decls
     rounds remaining decls = do
@@ -132,14 +134,14 @@ specialiseTopProgram primPackage program =
         else do
           rewritten <- mapM (onValue (walkCalls rewrite)) (decls <> copies)
           rounds (remaining - 1) rewritten
-    collect :: Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
-    collect function arguments = do
+    collect :: Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
+    collect aliases function arguments = do
       case function of
         ExVar name
           | Just (_, prefix, _) <- Map.lookup name candidates,
             let count = prefixLength prefix,
             length arguments >= count,
-            let key = take count arguments,
+            let key = map (fmap (substExpr aliases)) (take count arguments),
             staticKey Set.empty key ->
               modify' (Map.insertWith (+) (name, key) (1 :: Int))
         _ -> pure ()
@@ -176,15 +178,15 @@ specialiseTopProgram primPackage program =
                       }
                   pure [DeclVal declaration {valVis = Private, valName = copyName, valType = copyType, valBody = body'}]
         _ -> pure []
-    rewrite :: Expr -> [Arg] -> State TopState Expr
-    rewrite function arguments = do
+    rewrite :: Map.Map Name Expr -> Expr -> [Arg] -> State TopState Expr
+    rewrite aliases function arguments = do
       current <- get
       case function of
         ExVar name
           | Just (_, prefix, _) <- Map.lookup name candidates,
             let count = prefixLength prefix,
             length arguments >= count,
-            Just copy <- Map.lookup (name, take count arguments) (topCopies current) -> do
+            Just copy <- Map.lookup (name, map (fmap (substExpr aliases)) (take count arguments)) (topCopies current) -> do
               modify' (\st -> st {topReport = topReport st <> SpecialiseReport 0 0 1})
               pure (rebuildCall (ExVar copy) (drop count arguments))
         _ -> pure (rebuildCall function arguments)
@@ -213,29 +215,45 @@ onValue action (DeclVal declaration) = do
   pure (DeclVal declaration {valBody = body})
 onValue _ declaration = pure declaration
 
--- | Visit complete call spines once. Visit arguments before the call.
-walkCalls :: (Monad m) => (Expr -> [Arg] -> m Expr) -> Expr -> m Expr
-walkCalls action = go
+-- | Visit complete call spines once. Track closed dictionary aliases so
+-- recursive calls can reuse a copy with a compound dictionary argument.
+walkCalls :: (Monad m) => (Map.Map Name Expr -> Expr -> [Arg] -> m Expr) -> Expr -> m Expr
+walkCalls action = go Map.empty
   where
-    go expr = case expr of
+    go aliases expr = case expr of
       ExVar {} -> pure expr
       ExLit {} -> pure expr
       ExCoercion {} -> pure expr
-      ExApp {} -> spine expr
-      ExTyApp {} -> spine expr
-      ExLam binder body -> ExLam binder <$> go body
-      ExTyLam binder body -> ExTyLam binder <$> go body
-      ExLet (Bind binder rhs) body -> ExLet <$> (Bind binder <$> go rhs) <*> go body
-      ExRec binds body -> ExRec <$> mapM (\(Bind binder rhs) -> Bind binder <$> go rhs) binds <*> go body
-      ExCase scrutinee binder alternatives -> ExCase <$> go scrutinee <*> pure binder <*> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
-      ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go scrutinee
-      ExCast body coercion -> (`ExCast` coercion) <$> go body
-      ExForeignCall call types arguments -> ExForeignCall call types <$> mapM go arguments
-    spine expr = do
+      ExApp {} -> spine aliases expr
+      ExTyApp {} -> spine aliases expr
+      ExLam binder body -> ExLam binder <$> go (forget [binder] aliases) body
+      ExTyLam binder body -> ExTyLam binder <$> go (forget [binder] aliases) body
+      ExLet (Bind binder rhs) body -> do
+        rhs' <- go aliases rhs
+        let argument = substExpr aliases rhs'
+            inner = forget [binder] aliases
+            next
+              | isDictionaryType (binderType binder), staticKey Set.empty [Right argument] = Map.insert (binderName binder) argument inner
+              | otherwise = inner
+        ExLet (Bind binder rhs') <$> go next body
+      ExRec binds body -> do
+        let inner = forget (map bindBinder binds) aliases
+        ExRec <$> mapM (\(Bind binder rhs) -> Bind binder <$> go inner rhs) binds <*> go inner body
+      ExCase scrutinee binder alternatives -> do
+        let inner = forget (maybe [] pure binder) aliases
+            onAlt alternative = do
+              rhs <- go (forget (altTypeBinders alternative <> altBinders alternative) inner) (altRhs alternative)
+              pure alternative {altRhs = rhs}
+        ExCase <$> go aliases scrutinee <*> pure binder <*> traverse onAlt alternatives
+      ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go aliases scrutinee
+      ExCast body coercion -> (`ExCast` coercion) <$> go aliases body
+      ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (go aliases) arguments
+    spine aliases expr = do
       let (function, arguments) = collectSpine expr
-      function' <- go function
-      arguments' <- mapM (traverse go) arguments
-      action function' arguments'
+      function' <- go aliases function
+      arguments' <- mapM (traverse (go aliases)) arguments
+      action aliases function' arguments'
+    forget binders aliases = foldr (Map.delete . binderName) aliases binders
 
 rebuildCall :: Expr -> [Arg] -> Expr
 rebuildCall = List.foldl' (\function argument -> either (ExTyApp function) (ExApp function) argument)
