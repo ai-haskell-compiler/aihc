@@ -166,9 +166,11 @@ data NativeBackend statement register error = NativeBackend
     nbCReturnFloat :: CallingConvention -> [Type] -> [statement],
     -- | Select a logical operation with a constant rotated right operand.
     nbRotatedBinary :: Maybe (BinaryOp -> Type -> register -> register -> register -> Int -> [statement]),
-    -- | Select an addition of an operand that is shifted left by a constant:
-    -- the destination, the left operand, the operand to shift, and the count.
-    nbShiftedAdd :: Maybe (register -> register -> register -> Int -> [statement]),
+    -- | Select an addition of an operand that is shifted left by a constant.
+    -- The first function tells if the backend has the form for a count. The
+    -- second gives the instructions from the destination, the left operand,
+    -- the operand to shift, and the count.
+    nbShiftedAdd :: Maybe (Int -> Bool, register -> register -> register -> Int -> [statement]),
     -- | Select a load from a base plus an index that is shifted left by a
     -- constant. The first function tells if the backend has the form for a
     -- type and a count. The second gives the instructions from the type,
@@ -1039,7 +1041,7 @@ compileInstruction backend ctx (Instruction results operation) =
                  in pure (rightLoads <> select op ty dst a b count)
           ([result], _)
             | Just (FusedShift count) <- Map.lookup result (ctxFusions ctx),
-              Just shiftedAdd <- nbShiftedAdd backend ->
+              Just (_, shiftedAdd) <- nbShiftedAdd backend ->
                 let (rightLoads, b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
                  in pure (rightLoads <> shiftedAdd dst a b count)
             | Just (FusedIncrement wideOp) <- Map.lookup result (ctxFusions ctx),
@@ -1099,7 +1101,7 @@ compileInstruction backend ctx (Instruction results operation) =
     PtrAdd base offset -> do
       let (loads, a) = operandIn backend ctx 0 Ptr (nbScratchLeft backend) base
       case (results, nbShiftedAdd backend, nbIndexedLoad backend) of
-        ([result], Just shiftedAdd, _)
+        ([result], Just (_, shiftedAdd), _)
           | Just (FusedShift count) <- Map.lookup result (ctxFusions ctx) ->
               let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
                in single $ \dst -> pure (loads <> loads' <> shiftedAdd dst a b count)
@@ -1153,7 +1155,9 @@ compileInstruction backend ctx (Instruction results operation) =
 -- of the load, and the side table gives the type. A carry or a borrow that
 -- only an addition reads, through a zero extension, stays in the flags: the
 -- addition moves to the position after the operation that makes the carry,
--- and reads the carry directly. The value it adds to must be ready there.
+-- and reads the carry directly. The value it adds to must be a value that is
+-- ready there, not a literal: a backend can load a literal with an
+-- instruction that changes the flags.
 -- Each rewrite keeps the reads that the allocation must see.
 selectFusions :: NativeBackend statement register error -> Function -> (Function, Map Var Fusion)
 selectFusions backend function = (function {functionBlocks = map fst selected}, Map.unions (map snd selected))
@@ -1162,18 +1166,19 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
     useOnce v = Map.lookup v uses == Just 1
     selected = map selectBlock (functionBlocks function)
     selectBlock block =
-      let (shifted, shifts) = if isJust (nbShiftedAdd backend) then selectShifts (blockInstructions block) else (blockInstructions block, Map.empty)
+      let (shifted, shifts) = maybe (blockInstructions block, Map.empty) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
           (loaded, table) = maybe (shifted, shifts) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
           (carried, carries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty)
        in (block {blockInstructions = carried}, Map.union table carries)
-    selectShifts instructions = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches)
+    selectShifts accepts instructions = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches)
       where
         definitions = Map.fromList [(v, operation) | Instruction [v] operation <- instructions]
         shift (OperandVar s)
           | useOnce s,
             Just (Binary Shl I64 index@(OperandVar _) (OperandLiteral (LitInt count))) <- Map.lookup s definitions,
             count >= 1,
-            count <= 63 =
+            count <= 63,
+            accepts (fromInteger count) =
               Just (s, index, fromInteger count)
         shift _ = Nothing
         match operation =
@@ -1229,7 +1234,7 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
             ([_, c], Wide op I64 _ _)
               | op `elem` [AddCarry, SubBorrow],
                 Just w <- Map.lookup c widened,
-                (r, value) : _ <- [candidate | candidate@(r, value) <- Map.findWithDefault [] w additions, not (Set.member r skipped), available (Set.union ready (Set.fromList results)) value] ->
+                (r, value) : _ <- [candidate | candidate@(r, value@(OperandVar _)) <- Map.findWithDefault [] w additions, not (Set.member r skipped), available (Set.union ready (Set.fromList results)) value] ->
                   ( Instruction [r] (Binary Add I64 value (OperandVar c)) : instruction : done,
                     Map.insert c FusedFlags (Map.insert r (FusedIncrement op) fusions),
                     Set.insert r (foldr Set.insert ready results),

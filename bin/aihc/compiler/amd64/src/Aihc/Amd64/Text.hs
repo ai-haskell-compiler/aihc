@@ -75,6 +75,7 @@ instruction code =
     AmdLea destination source -> "lea " <> reg destination <> ", " <> addressText source
     AmdMovGot destination symbol -> "mov " <> reg destination <> ", [rip + " <> T.unpack symbol <> "@GOTPCREL]"
     AmdAdd destination source -> binary "add" destination source
+    AmdAdc destination source -> binary "adc" destination source
     AmdSub destination source -> binary "sub" destination source
     AmdAnd destination source -> binary "and" destination source
     AmdOr destination source -> binary "or" destination source
@@ -119,6 +120,7 @@ instruction code =
     AmdCvtts2si wide destination source ->
       (if wide then "cvttsd2si " else "cvttss2si ") <> reg destination <> ", " <> xmm source
     AmdBitCount operation destination source -> two (bitCountName operation) destination source
+    AmdMulx high low source -> "mulx " <> reg high <> ", " <> reg low <> ", " <> reg source
     AmdBmi2 operation destination source mask ->
       bmi2Name operation <> " " <> reg destination <> ", " <> reg source <> ", " <> reg mask
   where
@@ -203,6 +205,8 @@ rm operand =
 
 memory :: Amd64Memory -> String
 memory (Amd64Memory base displacement) = "[" <> reg base <> offsetText displacement <> "]"
+memory (Amd64IndexedMemory base index count displacement) =
+  "[" <> reg base <> " + " <> reg index <> (if count == 0 then "" else "*" <> show ((2 :: Int) ^ count)) <> offsetText displacement <> "]"
 
 addressText :: Amd64Address -> String
 addressText target =

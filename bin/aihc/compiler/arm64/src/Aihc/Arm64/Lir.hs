@@ -198,7 +198,7 @@ arm64Backend =
           _ -> [],
       nbBinary = arm64Binary,
       nbRotatedBinary = Just rotatedBinary,
-      nbShiftedAdd = Just (\dst a b count -> [arm64Instruction (ArmAddShifted dst a b count)]),
+      nbShiftedAdd = Just (const True, \dst a b count -> [arm64Instruction (ArmAddShifted dst a b count)]),
       nbIndexedLoad = Just (indexedLoadAccepts, indexedLoad),
       nbCarryIncrement = Just (carryFlags, carryIncrement),
       nbUnary = bitCount,

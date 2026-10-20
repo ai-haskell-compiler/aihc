@@ -107,7 +107,11 @@ data Amd64Register
   | R15B
   deriving (Eq, Ord, Show)
 
-data Amd64Memory = Amd64Memory !Amd64Register !Int64
+-- | A memory operand: a base register and a displacement, or a base
+-- register, an index register shifted left by 0 to 3, and a displacement.
+data Amd64Memory
+  = Amd64Memory !Amd64Register !Int64
+  | Amd64IndexedMemory !Amd64Register !Amd64Register !Int !Int64
   deriving (Eq, Show)
 
 data Amd64Address
@@ -210,6 +214,8 @@ data Amd64Instruction
     -- Global Offset Table entry.
     AmdMovGot !Amd64Register !Text
   | AmdAdd !Amd64Rm !Amd64BinarySource
+  | -- | @adc@: add the operand and the carry flag.
+    AmdAdc !Amd64Rm !Amd64BinarySource
   | AmdSub !Amd64Rm !Amd64BinarySource
   | AmdAnd !Amd64Rm !Amd64BinarySource
   | AmdOr !Amd64Rm !Amd64BinarySource
@@ -276,6 +282,9 @@ data Amd64Instruction
     -- 64-bit registers or all 32-bit registers. The 32-bit form zero-extends
     -- its result. They need BMI2, which the hardware this backend targets has.
     AmdBmi2 !Amd64Bmi2Op !Amd64Register !Amd64Register !Amd64Register
+  | -- | @mulx high, low, source@: the unsigned product of @rdx@ and the
+    -- source, without a change of the flags. It needs BMI2.
+    AmdMulx !Amd64Register !Amd64Register !Amd64Register
   | -- | An atomic operation of the given width in bytes. The register is a
     -- 64-bit name, and the width selects the part of it that the operation
     -- uses. @cmpxchg@ compares with @rax@ as well.
@@ -357,6 +366,8 @@ data Register = Register
 data Operand
   = RegisterOperand !Register
   | MemoryOperand !Register !Int64
+  | -- | A base, an index, the shift of the index, and a displacement.
+    IndexedOperand !Register !Register !Int !Int64
   deriving (Eq, Show)
 
 registerInfo :: Amd64Register -> Register
@@ -423,6 +434,7 @@ rmOperand value =
 
 memoryOperand :: Amd64Memory -> Operand
 memoryOperand (Amd64Memory base offset) = MemoryOperand (registerInfo base) offset
+memoryOperand (Amd64IndexedMemory base index count offset) = IndexedOperand (registerInfo base) (registerInfo index) count offset
 
 encodeInstruction :: Amd64Instruction -> [Item]
 encodeInstruction instruction =
@@ -446,6 +458,7 @@ encodeInstruction instruction =
     AmdLea destination source -> encodeLea destination source
     AmdMovGot destination symbol -> encodeMovGot destination symbol
     AmdAdd destination source -> encodeBinary [0x01] 0 destination source
+    AmdAdc destination source -> encodeBinary [0x11] 2 destination source
     AmdSub destination source -> encodeBinary [0x29] 5 destination source
     AmdAnd destination source -> encodeBinary [0x21] 4 destination source
     AmdOr destination source -> encodeBinary [0x09] 1 destination source
@@ -502,6 +515,7 @@ encodeInstruction instruction =
     AmdCvtts2si double destination xmm -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2c] (registerNumber (registerInfo destination)) (RegisterOperand (xmmRegister xmm)) False []
     AmdBitCount op destination source -> bytes [0xf3] <> encodeRegisterSource True [0x0f, bitCountOpcode op] destination source
     AmdBmi2 op destination source mask -> encodeVex3 (bmi2Prefix op) 0xf5 destination source mask
+    AmdMulx high low source -> encodeVex3 0x3 0xf6 high low source
     AmdAtomic op width destination source ->
       let byteForm = width == 1
           opcode = case op of
@@ -660,6 +674,7 @@ operandUses64Bits operand =
   case operand of
     RegisterOperand register -> registerWidth register == 64
     MemoryOperand {} -> True
+    IndexedOperand {} -> True
 
 encodeGroup :: Bool -> [Word8] -> Word8 -> Operand -> [Word8] -> [Item]
 encodeGroup width64 opcode group operand suffix = encodeGroupWithWidth width64 opcode group operand suffix False
@@ -690,6 +705,20 @@ encodeRm width64 opcode regField operand forceByteRex suffix =
           sib = [0x24 .|. baseLow | useSib]
           rexByte = rex width64 (regField >= 8) False (baseNumber >= 8)
        in bytes ([rexByte | width64 || regField >= 8 || baseNumber >= 8 || (forceByteRex && regField >= 4)] <> opcode <> [modrm] <> sib <> actualDisplacement <> suffix)
+    -- The index is never rsp, whose number in the index field means no
+    -- index. A base of rbp or r13 needs a displacement byte.
+    IndexedOperand base index count displacement ->
+      let baseNumber = registerNumber base
+          indexNumber = registerNumber index
+          baseLow = baseNumber .&. 7
+          (mode, displacementBytes) :: (Word8, [Word8])
+            | displacement == 0 && baseLow /= 5 = (0, [])
+            | displacement >= -128 && displacement <= 127 = (1, [fromIntegral displacement])
+            | otherwise = (2, word32List (fromIntegral displacement))
+          modrm = mode `shiftL` 6 .|. (regField .&. 7) `shiftL` 3 .|. 4
+          sib = fromIntegral count `shiftL` 6 .|. (indexNumber .&. 7) `shiftL` 3 .|. baseLow
+          rexByte = rex width64 (regField >= 8) (indexNumber >= 8) (baseNumber >= 8)
+       in bytes ([rexByte | width64 || regField >= 8 || indexNumber >= 8 || baseNumber >= 8 || (forceByteRex && regField >= 4)] <> opcode <> [modrm, sib] <> displacementBytes <> suffix)
 
 relativeBranch :: [Word8] -> FixupKind -> Name -> [Item]
 relativeBranch opcode kind target = [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) 4 0)]
