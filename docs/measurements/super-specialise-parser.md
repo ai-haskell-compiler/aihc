@@ -3,7 +3,7 @@
 Date: 2026-10-20.
 
 These measurements compare `-O2` with `-O2 --super-specialise`.
-Both executables use compiler commit `ddbbc9335894a032ef87ce22187cf3f8f88ac3a0`.
+Both executables use compiler commit `b79d9c325983539619c67b226f9dfdc4442fccd2`.
 Both use the default runtime and target `apple-arm64`.
 Both builds passed System FC and backend lint.
 
@@ -33,21 +33,26 @@ Binary sizes are file sizes after the link step, without a separate strip step.
 
 | Metric | `-O2` | With super-specialization | Change |
 | --- | ---: | ---: | ---: |
-| Elapsed time | 24.554 ms | 23.726 ms | -3.37% |
-| CPU time | 23.002 ms | 22.225 ms | -3.38% |
-| Instructions | 256,661,544 | 248,832,604.5 | -3.05% |
-| Cycles | 73,284,013 | 70,808,837.5 | -3.38% |
-| Allocated bytes | 47,929,632 | 43,515,768 | -9.21% |
-| Peak heap bytes | 6,687,000 | 6,538,728 | -2.22% |
-| Peak RSS bytes | 17,399,808 | 16,793,600 | -3.48% |
-| GC count | 13 | 12 | -7.69% |
-| Binary bytes | 9,406,392 | 10,154,504 | +7.95% |
+| Elapsed time | 23.963 ms | 25.124 ms | +4.84% |
+| CPU time | 22.499 ms | 23.601 ms | +4.90% |
+| Instructions | 251,589,208.5 | 257,211,228.5 | +2.23% |
+| Cycles | 71,951,343.5 | 75,436,624 | +4.84% |
+| Allocated bytes | 42,628,832 | 46,744,296 | +9.65% |
+| Peak heap bytes | 6,680,736 | 6,784,984 | +1.56% |
+| Peak RSS bytes | 17,358,848 | 17,104,896 | -1.46% |
+| GC count | 12 | 13 | +8.33% |
+| Binary bytes | 9,405,608 | 10,287,448 | +9.38% |
 
-Elapsed times ranged from 24.322 to 26.125 ms for the baseline.
-They ranged from 23.553 to 24.030 ms with super-specialization.
+Elapsed times ranged from 23.796 to 25.494 ms for the baseline.
+They ranged from 24.905 to 25.789 ms with super-specialization.
 These short runs include process startup.
-The instruction and allocation results also show a decrease in work for this sample.
+The instruction and allocation results also show an increase in work for this sample.
 The result does not establish performance for other inputs.
+
+Both plans now include the later top-level dictionary pass from PR #2790.
+These measurements replace the earlier measurements from before that merge.
+The combined pipeline shows a regression for this sample.
+The option remains off by default.
 
 The specialization pass made 1,990 copies and rewrote 3,330 calls.
 Its limits prevented 4,372 further requests.
