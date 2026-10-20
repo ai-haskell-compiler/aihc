@@ -320,8 +320,8 @@ bodySections exports decls = do
     Nothing ->
       [ SectionDoc level (parseInline (docCommentText c)) (locationFromSpan relativize (docCommentSpan c))
       | c <- claimed,
-        DocCommentSection level <- [docCommentKind c],
-        not (any (encloses (docCommentSpan c)) declSpans)
+        not (any (encloses (docCommentSpan c)) declSpans),
+        DocCommentSection level <- [docCommentKind c]
       ]
   where
     declSpans = mapMaybe (fst . peelDecl) decls

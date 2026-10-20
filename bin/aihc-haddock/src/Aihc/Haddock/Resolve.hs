@@ -80,7 +80,7 @@ resolveDocumentation package dependencies inputs = map complete local
     withSections sections decls =
       case (sections, decls) of
         (section : more, decl : _)
-          | maybe False (sectionPosition section <) (locationPosition <$> declLocation decl) ->
+          | maybe False ((sectionPosition section <) . locationPosition) (declLocation decl) ->
               sectionItem section : withSections more decls
         (_, decl : rest) -> ExportResolvedItem decl : withSections sections rest
         (_, []) -> map sectionItem sections
