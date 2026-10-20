@@ -1,0 +1,60 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {},
+   "doc_map": {
+    "$main$ExportBodySections$answer": {
+     "document": {
+      "document": {
+       "string": "The answer.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$ExportBodySections$question": {
+     "document": {
+      "document": {
+       "string": "The question.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$ExportBodySections$answer",
+    "$main$ExportBodySections$question"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$ExportBodySections",
+   "options": [],
+   "visible_exports": [
+    "$main$ExportBodySections$answer",
+    "$main$ExportBodySections$question"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$ExportBodySections$answer": "ExportBodySections",
+  "$main$ExportBodySections$question": "ExportBodySections"
+ },
+ "package_info": "export-body-sections-0.1.0.0"
+}

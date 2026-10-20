@@ -1,6 +1,6 @@
 {
   "dependencies": [],
-  "format_version": 2,
+  "format_version": 3,
   "modules": [
     {
       "decls": [],
@@ -189,6 +189,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     },
     {
@@ -341,6 +342,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     },
     {
@@ -572,6 +574,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     },
     {
@@ -616,6 +619,7 @@
       "name": "QualifiedOnly",
       "named_chunks": {},
       "resolved_exports": [],
+      "sections": [],
       "warning": null
     },
     {
@@ -810,6 +814,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     },
     {
@@ -944,6 +949,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     },
     {
@@ -1175,6 +1181,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     },
     {
@@ -1643,6 +1650,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     }
   ],

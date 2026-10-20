@@ -32,6 +32,7 @@ module Aihc.Haddock.Model
     DeclDoc (..),
     ExportSubordinates (..),
     ExportItem (..),
+    SectionDoc (..),
     InstanceDoc (..),
     ModuleInfo (..),
     emptyModuleInfo,
@@ -58,7 +59,7 @@ import GHC.Generics (Generic)
 -- | Bump when the JSON layout of 'PackageDoc' changes. Cached artifacts are
 -- keyed by this version, so a bump invalidates every cached package.
 docModelFormatVersion :: Int
-docModelFormatVersion = 2
+docModelFormatVersion = 3
 
 -- | Documentation markup. Constructors and their JSON tags follow Haddock's
 -- @DocH@.
@@ -211,6 +212,15 @@ data ExportItem
     ExportResolvedModuleItem Text Text [DeclDoc]
   deriving (Eq, Show, Generic)
 
+-- | A section heading in the module body, such as @-- * Name@ between two
+-- declarations.
+data SectionDoc = SectionDoc
+  { sectionLevel :: Int,
+    sectionTitle :: Doc,
+    sectionLocation :: Location
+  }
+  deriving (Eq, Show, Generic)
+
 data InstanceDoc = InstanceDoc
   { instanceClass :: Text,
     -- | The rendered instance head including its context, for example
@@ -253,6 +263,10 @@ data ModuleDoc = ModuleDoc
     moduleDocInterface :: DocInterface,
     -- | Every top-level declaration in source order, exported or not.
     moduleDocDecls :: [DeclDoc],
+    -- | Section headings in the module body, in source order. Only a module
+    -- without an export list has them. Haddock ignores body headings when
+    -- the export list gives the structure.
+    moduleDocSections :: [SectionDoc],
     moduleDocInstances :: [InstanceDoc],
     -- | Documentation chunks declared as @-- $name@.
     moduleDocNamedChunks :: Map Text Doc,
@@ -452,6 +466,12 @@ instance ToJSON Location where
 
 instance FromJSON Location where
   parseJSON = Aeson.genericParseJSON (modelOptions "location")
+
+instance ToJSON SectionDoc where
+  toJSON = Aeson.genericToJSON (modelOptions "section")
+
+instance FromJSON SectionDoc where
+  parseJSON = Aeson.genericParseJSON (modelOptions "section")
 
 instance ToJSON DeclDoc where
   toJSON = Aeson.genericToJSON (modelOptions "decl")
