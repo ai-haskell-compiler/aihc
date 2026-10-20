@@ -1,0 +1,33 @@
+program: |
+  constructor Box [BoxedRep Lifted]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $source (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    store (CBox (value :: BoxedRep Lifted))
+
+  $entry (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    result :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $source (x :: BoxedRep Lifted)
+    case (result :: BoxedRep Lifted) as value :: BoxedRep Lifted of
+      _ ->
+        again :: BoxedRep Lifted <-
+          eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
+        store (CPair (value :: BoxedRep Lifted) (again :: BoxedRep Lifted))
+expected: |-
+  constructor Box [BoxedRep Lifted]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $source (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    store (CBox (value :: BoxedRep Lifted))
+
+  $entry (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    result :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $source (x :: BoxedRep Lifted)
+    store (CPair (result :: BoxedRep Lifted) (result :: BoxedRep Lifted))
+status: pass
+reason: A default-only case after a call must become a copy bind. The call must remain, and the case facts must remove the redundant evaluation.
