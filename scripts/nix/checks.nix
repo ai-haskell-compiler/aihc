@@ -1011,9 +1011,9 @@
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
-      # The deep stack test needs more time when other checks use the CPU.
+      # These allocation tests need more time when other checks use the CPU.
       run_timeout=${
-        if exampleName == "gc-stack-growth"
+        if builtins.elem exampleName ["gc-stack-growth" "safe-foreign-calls"]
         then "30s"
         else "10s"
       }
