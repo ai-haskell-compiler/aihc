@@ -1,0 +1,32 @@
+; One step of a multiply and add over the limbs of two byte arrays, as the
+; lowering gives it for indexWordArray#, readWordArray#, and writeWordArray#.
+; The contents pointer of the destination is read once, and the read and the
+; write of the same limb use one address. An element index is shifted, not
+; multiplied. On ARM64, the shift is part of the address of a load or of the
+; addition that makes an address. Each carry stays in the flags and the next
+; instruction adds it to the high word.
+func @limb(%left: ptr, %target: ptr, %word: i64, %offset: i64, %index: i64, %carry: i64) -> (i64, i64) {
+entry:
+  %left_offset = mul i64 %index, 8
+  %left_contents = load ptr [%left + 16] align 8 region heap
+  %left_address = ptr.add %left_contents, %left_offset
+  %value = load i64 [%left_address] align 1
+  %low, %high = mul.wide.u i64 %value, %word
+  %position = add i64 %index, %offset
+  %target_offset = mul i64 %position, 8
+  %target_contents = load ptr [%target + 16] align 8 region heap
+  %target_address = ptr.add %target_contents, %target_offset
+  %existing = load i64 [%target_address] align 1
+  %partial, %carry0 = add.carry i64 %low, %existing
+  %wide0 = zext i1 %carry0 to i64
+  %result, %carry1 = add.carry i64 %partial, %carry
+  %wide1 = zext i1 %carry1 to i64
+  %high0 = add i64 %high, %wide0
+  %next = add i64 %high0, %wide1
+  %again_offset = mul i64 %position, 8
+  %again_contents = load ptr [%target + 16] align 8 region heap
+  %again_address = ptr.add %again_contents, %again_offset
+  store i64 %result, [%again_address] align 1
+  return %result, %next
+}
+

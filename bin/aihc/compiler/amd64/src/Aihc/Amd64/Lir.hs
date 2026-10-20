@@ -207,6 +207,9 @@ amd64Backend =
           _ -> [],
       nbBinary = amd64Binary,
       nbRotatedBinary = Nothing,
+      nbShiftedAdd = Just ((<= 3), \dst a b count -> [amd64Instruction (AmdLea dst (Amd64MemoryAddress (Amd64IndexedMemory a b count 0)))]),
+      nbIndexedLoad = Just (\_ count -> count <= 3, \ty dst base index count -> [loadMemory ty dst (Amd64IndexedMemory base index count 0)]),
+      nbCarryIncrement = Just (carryFlags, carryIncrement),
       nbUnary = bitCount,
       nbWide = wide,
       nbQuotRemWide = Just quotRemWide,
@@ -380,8 +383,9 @@ instructionEffect instruction =
         _
           | base == RSP -> WritesSlot offset
           | otherwise -> Writes []
-    AmdStoreByte (Amd64Memory base _) _ -> narrowAccess base
-    AmdStoreWord (Amd64Memory base _) _ -> narrowAccess base
+    AmdStore memory _ -> narrowAccess (memoryBase memory)
+    AmdStoreByte memory _ -> narrowAccess (memoryBase memory)
+    AmdStoreWord memory _ -> narrowAccess (memoryBase memory)
     AmdMovsxd destination _ -> writes [destination]
     AmdMovsxByte destination _ -> writes [destination]
     AmdMovsxWord destination _ -> writes [destination]
@@ -390,6 +394,7 @@ instructionEffect instruction =
     AmdLea destination _ -> writes [destination]
     AmdMovGot destination _ -> writes [destination]
     AmdAdd destination _ -> modifies destination
+    AmdAdc destination _ -> modifies destination
     AmdSub destination _ -> modifies destination
     AmdAnd destination _ -> modifies destination
     AmdOr destination _ -> modifies destination
@@ -425,9 +430,10 @@ instructionEffect instruction =
     AmdCvtts2si _ destination _ -> writes [destination]
     AmdBitCount _ destination _ -> writes [destination]
     AmdBmi2 _ destination _ _ -> writes [destination]
+    AmdMulx high low _ -> writes [high, low]
     -- Each atomic operation writes its register, and @cmpxchg@ writes rax.
-    AmdAtomic _ _ (Amd64Memory base _) source
-      | base == RSP -> Forgets
+    AmdAtomic _ _ memory source
+      | memoryBase memory == RSP -> Forgets
       | otherwise -> writes [source, RAX]
     AmdMfence -> Writes []
   where
@@ -906,7 +912,7 @@ wide :: WideOp -> Type -> Amd64Register -> Amd64Register -> Amd64Register -> Amd
 wide op ty low high a b =
   case op of
     MulWideU
-      | typeBits ty == 64 -> move RAX a <> [amd64Instruction (AmdMul (Amd64RmRegister b))] <> move low RAX <> move high RDX
+      | typeBits ty == 64 -> move RDX a <> [amd64Instruction (AmdMulx high low b)]
       | otherwise ->
           move scratchLeft a
             <> [amd64Instruction (AmdImul scratchLeft (Amd64RmRegister b))]
@@ -927,11 +933,7 @@ wide op ty low high a b =
             <> narrowRegister ty scratchLeft
             <> move low scratchLeft
     AddCarry
-      | typeBits ty == 64 ->
-          move scratchLeft a
-            <> [amd64Instruction (AmdAdd (Amd64RmRegister scratchLeft) (Amd64BinaryRegister b))]
-            <> setFlag AmdCarry high
-            <> move low scratchLeft
+      | typeBits ty == 64 -> carryFlags op ty low a b <> setFlag AmdCarry high
       | otherwise ->
           move scratchLeft a
             <> [amd64Instruction (AmdAdd (Amd64RmRegister scratchLeft) (Amd64BinaryRegister b))]
@@ -945,6 +947,26 @@ wide op ty low high a b =
         <> setFlag AmdCarry high
         <> narrowRegister ty scratchLeft
         <> move low scratchLeft
+
+-- | An addition with a carry, or a subtraction with a borrow, of 64 bits
+-- that leaves the carry or the borrow in the carry flag only. The result can
+-- share a register with an operand. A move does not change the flags.
+carryFlags :: WideOp -> Type -> Amd64Register -> Amd64Register -> Amd64Register -> [Amd64Statement]
+carryFlags op _ low a b =
+  case op of
+    SubBorrow
+      | low == b && low /= a -> move scratchLeft a <> [instruction AmdSub scratchLeft b] <> move low scratchLeft
+      | otherwise -> move low a <> [instruction AmdSub low b]
+    _
+      | low == b -> [instruction AmdAdd low a]
+      | otherwise -> move low a <> [instruction AmdAdd low b]
+  where
+    instruction operation destination source = amd64Instruction (operation (Amd64RmRegister destination) (Amd64BinaryRegister source))
+
+-- | Add the carry flag to a value. Both a carry and a borrow set it.
+carryIncrement :: WideOp -> Amd64Register -> Amd64Register -> [Amd64Statement]
+carryIncrement _ dst value =
+  move dst value <> [amd64Instruction (AmdAdc (Amd64RmRegister dst) (Amd64BinaryImmediate 0))]
 
 compareResult :: Ctx Amd64Register -> CompareOp -> Type -> Amd64Register -> Operand -> Operand -> [Amd64Statement]
 compareResult ctx op ty dst left right
@@ -1583,6 +1605,13 @@ inverseCondition condition =
     AmdNotSign -> AmdSign
     AmdParity -> AmdNotParity
     AmdNotParity -> AmdParity
+
+-- | The base register of a memory operand.
+memoryBase :: Amd64Memory -> Amd64Register
+memoryBase memory =
+  case memory of
+    Amd64Memory base _ -> base
+    Amd64IndexedMemory base _ _ _ -> base
 
 loadMemory :: Type -> Amd64Register -> Amd64Memory -> Amd64Statement
 loadMemory ty value memory =

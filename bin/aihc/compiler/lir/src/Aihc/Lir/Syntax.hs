@@ -57,6 +57,9 @@ module Aihc.Lir.Syntax
     Literal (..),
     forOperationOperands,
     forTerminatorOperands,
+    mapOperation,
+    mapAddress,
+    mapTerminator,
   )
 where
 
@@ -68,7 +71,7 @@ import Data.Text (Text)
 newtype Module = Module
   { moduleItems :: [Item]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Item
   = ItemFunction !Function
@@ -81,7 +84,7 @@ data Item
     -- relative to the directory of the including file.
     -- "Aihc.Lir.Resolve" replaces the item with those constants.
     ItemInclude !Text
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | A module-level name: a function, a global, or a data object.
 newtype Symbol = Symbol {unSymbol :: Text}
@@ -146,7 +149,7 @@ data Function = Function
     functionConvention :: !CallingConvention,
     functionBlocks :: ![Block]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 functionSignature :: Function -> Signature
 functionSignature function =
@@ -160,21 +163,21 @@ data ExternFunction = ExternFunction
   { externFunctionName :: !Symbol,
     externFunctionSignature :: !Signature
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | One mutable cell without an address.
 data Global = Global
   { globalName :: !Symbol,
     globalType :: !Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | A named integer expression. Resolution uses the target word size.
 data Constant = Constant
   { constantName :: !Symbol,
     constantValue :: !ConstantExpr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data ConstantExpr
   = ConstantInt !Integer
@@ -182,10 +185,10 @@ data ConstantExpr
   | ConstantWords !ConstantExpr
   | ConstantNegate !ConstantExpr
   | ConstantBinary !ConstantOp !ConstantExpr !ConstantExpr
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data ConstantOp = ConstantAdd | ConstantSub | ConstantMul | ConstantQuot | ConstantRem
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data DataItem = DataItem
   { dataName :: !Symbol,
@@ -194,7 +197,7 @@ data DataItem = DataItem
     dataAlignment :: !Integer,
     dataFields :: ![DataField]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data DataField
   = -- | An integer stored little-endian in the width of the type. The type
@@ -221,7 +224,7 @@ data DataField
     DataCode !(Maybe Symbol)
   | DataBytes !ByteString
   | DataZero !Integer
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Block = Block
   { blockLabel :: !Label,
@@ -234,13 +237,13 @@ data Block = Block
     -- around the call.
     blockCold :: !Bool
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Instruction = Instruction
   { instructionResults :: ![Var],
     instructionOperation :: !Operation
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Operation
   = Binary !BinaryOp !Type !Operand !Operand
@@ -286,7 +289,7 @@ data Operation
   | GlobalSet !Symbol !Operand
   | Call !Symbol ![Operand]
   | CallIndirect !Operand ![Operand] !Signature
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | The memory order of an atomic operation, as in C11. 'Relaxed' gives
 -- atomicity and no order.
@@ -379,7 +382,7 @@ data Address = Address
     addressConstants :: ![AddressConstant],
     addressRegion :: !Region
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | The region of memory an address points into. A location is in one
 -- region for the whole life of the program, so an access to one region
@@ -413,7 +416,7 @@ data AddressConstant = AddressConstant
     addressConstantNegative :: !Bool,
     addressConstantInWords :: !Bool
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | The alignment an access promises: a fixed number of bytes, or a number
 -- of target words. A word-scaled alignment states the exact alignment of a
@@ -421,7 +424,7 @@ data AddressConstant = AddressConstant
 data Alignment
   = AlignBytes !Integer
   | AlignWords !Integer
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | An alignment of a fixed number of bytes.
 byteAlignment :: Integer -> Alignment
@@ -460,7 +463,7 @@ data Terminator
   | TailCall !Symbol ![Operand]
   | TailCallIndirect !Operand ![Operand] !Signature
   | Trap !Text
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | The blocks a terminator can continue at, in the order it names them.
 terminatorTargets :: Terminator -> [Target]
@@ -475,7 +478,7 @@ data Target = Target
   { targetLabel :: !Label,
     targetArguments :: ![Operand]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data SwitchCase
   = SwitchCase
@@ -486,12 +489,12 @@ data SwitchCase
       { switchCaseConstant :: !Symbol,
         switchCaseTarget :: !Target
       }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Operand
   = OperandVar !Var
   | OperandLiteral !Literal
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | Literals are untyped. The operation or the block parameter gives the type.
 data Literal
@@ -499,7 +502,7 @@ data Literal
   | LitFloat !Double
   | LitNull
   | LitSymbol !Symbol
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | Run an action on every operand one operation reads, in order and with
 -- repeats.
@@ -551,3 +554,59 @@ forTerminatorOperands act terminator =
     TailCall _ arguments -> traverse_ act arguments
     TailCallIndirect callee arguments _ -> act callee *> traverse_ act arguments
     Trap _ -> pure ()
+
+-- | Rewrite the operands an operation reads.
+mapOperation :: (Operand -> Operand) -> Operation -> Operation
+mapOperation operand operation =
+  case operation of
+    Binary op ty left right -> Binary op ty (operand left) (operand right)
+    Unary op ty value -> Unary op ty (operand value)
+    Wide op ty left right -> Wide op ty (operand left) (operand right)
+    QuotRemWide ty high low divisor -> QuotRemWide ty (operand high) (operand low) (operand divisor)
+    Compare op ty left right -> Compare op ty (operand left) (operand right)
+    FloatBinary op ty left right -> FloatBinary op ty (operand left) (operand right)
+    FloatUnary op ty value -> FloatUnary op ty (operand value)
+    Convert op from value to -> Convert op from (operand value) to
+    PtrToInt value -> PtrToInt (operand value)
+    PtrFromInt value -> PtrFromInt (operand value)
+    Select ty condition whenTrue whenFalse -> Select ty (operand condition) (operand whenTrue) (operand whenFalse)
+    Load ty address align -> Load ty (mapAddress operand address) align
+    LoadInvariant ty address align -> LoadInvariant ty (mapAddress operand address) align
+    Store ty value address align -> Store ty (operand value) (mapAddress operand address) align
+    LoadAtomic order ty address -> LoadAtomic order ty (mapAddress operand address)
+    StoreAtomic order ty value address -> StoreAtomic order ty (operand value) (mapAddress operand address)
+    LoadDependent ty address -> LoadDependent ty (mapAddress operand address)
+    CompareSwap order ty expected replacement address ->
+      CompareSwap order ty (operand expected) (operand replacement) (mapAddress operand address)
+    AtomicRmw op order ty value address -> AtomicRmw op order ty (operand value) (mapAddress operand address)
+    Fence _ -> operation
+    PtrAdd base offset -> PtrAdd (operand base) (operand offset)
+    StackAlloc _ _ -> operation
+    GlobalGet _ -> operation
+    GlobalSet symbol value -> GlobalSet symbol (operand value)
+    Call symbol arguments -> Call symbol (map operand arguments)
+    CallIndirect callee arguments signature -> CallIndirect (operand callee) (map operand arguments) signature
+
+mapAddress :: (Operand -> Operand) -> Address -> Address
+mapAddress operand address = address {addressBase = operand (addressBase address)}
+
+-- | Rewrite the operands and the labels of a terminator. @onReturn@ gives
+-- the terminator that a @return@ becomes, which is @Return@ everywhere
+-- except at a call site that is waiting for the results.
+mapTerminator :: (Operand -> Operand) -> (Label -> Label) -> ([Operand] -> Terminator) -> Terminator -> Terminator
+mapTerminator operand label onReturn terminator =
+  case terminator of
+    Jump target -> Jump (mapTarget target)
+    Branch condition whenTrue whenFalse -> Branch (operand condition) (mapTarget whenTrue) (mapTarget whenFalse)
+    Switch ty scrutinee cases fallback -> Switch ty (operand scrutinee) (map mapCase cases) (fmap mapTarget fallback)
+    Return values -> onReturn (map operand values)
+    TailCall symbol arguments -> TailCall symbol (map operand arguments)
+    TailCallIndirect callee arguments signature -> TailCallIndirect (operand callee) (map operand arguments) signature
+    Trap message -> Trap message
+  where
+    mapTarget target = Target (label (targetLabel target)) (map operand (targetArguments target))
+    mapCase switchCase =
+      let target = mapTarget (switchCaseTarget switchCase)
+       in case switchCase of
+            SwitchCase value _ -> SwitchCase value target
+            SwitchCaseConstant symbol _ -> SwitchCaseConstant symbol target

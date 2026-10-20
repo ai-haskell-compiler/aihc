@@ -1,9 +1,18 @@
--- | Simplify Boolean switches, rotate expressions, and arithmetic widths before register allocation.
-module Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths) where
+-- | Simplify Boolean switches, rotate expressions, arithmetic widths, and
+-- repeated computations before register allocation.
+module Aihc.Lir.Simplify
+  ( simplifyBooleanBranches,
+    simplifyRotations,
+    simplifyWidths,
+    simplifyMultiplications,
+    eliminateCommonSubexpressions,
+  )
+where
 
 import Aihc.Lir.RegAlloc (operationReads, readCounts)
 import Aihc.Lir.Syntax
 import Control.Applicative ((<|>))
+import Data.Bits (popCount)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -162,3 +171,113 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
             | Set.member candidate names = unused (Var (unVar candidate <> "_"))
             | otherwise = candidate
        in (result, Set.insert result names)
+
+-- | Replace a multiplication by a power of two with a left shift. Both give
+-- the same result modulo the width of the type.
+simplifyMultiplications :: Function -> Function
+simplifyMultiplications function =
+  function {functionBlocks = map simplifyBlock (functionBlocks function)}
+  where
+    simplifyBlock block = block {blockInstructions = map simplify (blockInstructions block)}
+    simplify instruction@(Instruction results operation) =
+      case operation of
+        Binary Mul ty value (OperandLiteral (LitInt factor))
+          | Just count <- power ty factor -> Instruction results (Binary Shl ty value (OperandLiteral (LitInt count)))
+        Binary Mul ty (OperandLiteral (LitInt factor)) value
+          | Just count <- power ty factor -> Instruction results (Binary Shl ty value (OperandLiteral (LitInt count)))
+        _ -> instruction
+    power ty factor
+      | factor > 1,
+        factor < 2 ^ typeBits ty,
+        popCount factor == 1 =
+          Just (toInteger (length (takeWhile (< factor) (iterate (* 2) 1))))
+      | otherwise = Nothing
+
+-- | Use the value of an earlier instruction of the same block in place of a
+-- later instruction that computes the same value.
+--
+-- A pure operation gives the same value for the same operands. A load gives
+-- the value of an earlier load of the same location when no instruction
+-- between the two can write that location. A store can write only its own
+-- region, and a store with no region can write any region. A call, a fence,
+-- and an atomic access can write any location, or order the later loads
+-- after an access of another thread.
+--
+-- The earlier instruction is in the same block as the later one and comes
+-- before it, thus it dominates each use of the later value. Thus the
+-- substitution can cover the whole function.
+eliminateCommonSubexpressions :: Function -> Function
+eliminateCommonSubexpressions function
+  | Map.null replacements = function
+  | otherwise = function {functionBlocks = map substitute blocks}
+  where
+    (blocks, replacements) = foldr visit ([], Map.empty) (functionBlocks function)
+    visit block (done, replaced) =
+      let (instructions, replaced') = eliminate replaced block
+       in (block {blockInstructions = instructions} : done, replaced')
+    operand replaced value =
+      case value of
+        OperandVar v -> Map.findWithDefault value v replaced
+        OperandLiteral _ -> value
+    substitute block =
+      block
+        { blockInstructions = [instruction {instructionOperation = mapOperation (operand replacements) (instructionOperation instruction)} | instruction <- blockInstructions block],
+          blockTerminator = mapTerminator (operand replacements) id Return (blockTerminator block)
+        }
+    eliminate replaced0 block = go replaced0 Map.empty Map.empty [] (blockInstructions block)
+      where
+        go replaced _ _ kept [] = (reverse kept, replaced)
+        go replaced pure' loads kept (Instruction results operation0 : rest) =
+          let operation = mapOperation (operand replaced) operation0
+              instruction = Instruction results operation
+              reuse earlier =
+                go (foldl' (\table (v, u) -> Map.insert v (OperandVar u) table) replaced (zip results earlier)) pure' loads kept rest
+           in case operation of
+                _
+                  | isPure operation,
+                    not (null results) ->
+                      case Map.lookup operation pure' of
+                        Just earlier -> reuse earlier
+                        Nothing -> go replaced (Map.insert operation results pure') loads (instruction : kept) rest
+                Load _ address _
+                  | not (null results) ->
+                      case lookup operation loads' of
+                        Just earlier -> reuse earlier
+                        Nothing -> go replaced pure' (Map.insert (addressRegion address) ((operation, results) : Map.findWithDefault [] (addressRegion address) loads) loads) (instruction : kept) rest
+                  where
+                    loads' = concat (Map.elems loads)
+                Store _ _ address _
+                  | addressRegion address /= AnyRegion ->
+                      go replaced pure' (Map.delete AnyRegion (Map.delete (addressRegion address) loads)) (instruction : kept) rest
+                _
+                  | writesMemory operation -> go replaced pure' Map.empty (instruction : kept) rest
+                  | otherwise -> go replaced pure' loads (instruction : kept) rest
+    isPure operation =
+      case operation of
+        Binary {} -> True
+        Unary {} -> True
+        Wide {} -> True
+        QuotRemWide {} -> True
+        Compare {} -> True
+        FloatBinary {} -> True
+        FloatUnary {} -> True
+        Convert {} -> True
+        PtrToInt {} -> True
+        PtrFromInt {} -> True
+        Select {} -> True
+        PtrAdd {} -> True
+        LoadInvariant {} -> True
+        _ -> False
+    writesMemory operation =
+      case operation of
+        Store {} -> True
+        LoadAtomic {} -> True
+        StoreAtomic {} -> True
+        LoadDependent {} -> True
+        CompareSwap {} -> True
+        AtomicRmw {} -> True
+        Fence {} -> True
+        GlobalSet {} -> True
+        Call {} -> True
+        CallIndirect {} -> True
+        _ -> False

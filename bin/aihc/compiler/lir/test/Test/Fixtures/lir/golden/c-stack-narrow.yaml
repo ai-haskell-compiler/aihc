@@ -24,12 +24,11 @@ expected: |
     call @aihc_foreign_enter(%capability_10, %foreign_frame_9, %roots_8, 1, null, 1)
     %coerced_11 = trunc i64 %value_4 to i32
     %coerced_12 = bitcast i64 %double_6 to f64
-    %coerced_13 = trunc i64 %value_4 to i32
     %coerced_14 = trunc i64 %value_4 to i8
     %coerced_15 = trunc i64 %word_5 to i8
     %coerced_16 = trunc i64 %value_4 to i16
     %coerced_17 = trunc i64 %word_5 to i16
-    %result_18 = call @narrow(%coerced_11, %coerced_12, %coerced_13, %value_4, %value_4, %value_4, %value_4, %value_4, %value_4, %coerced_14, %coerced_15, %coerced_16, %coerced_17)
+    %result_18 = call @narrow(%coerced_11, %coerced_12, %coerced_11, %value_4, %value_4, %value_4, %value_4, %value_4, %value_4, %coerced_14, %coerced_15, %coerced_16, %coerced_17)
     call @aihc_foreign_leave(%capability_10, %foreign_frame_9)
     %hp_19 = load ptr [%capability_10 + 16] align 1 word
     %hp_limit_20 = load ptr [%capability_10 + 24] align 1 word

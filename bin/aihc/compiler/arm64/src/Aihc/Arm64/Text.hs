@@ -109,6 +109,16 @@ instruction code =
     ArmEorRotate destination left right count -> three "eor" destination left right <> ", ror #" <> show count
     ArmAsr destination source count -> shifted "asr" destination source count
     ArmCset destination condition -> "cset " <> reg destination <> ", " <> cond condition
+    ArmAddShifted destination left right count -> three "add" destination left right <> ", lsl #" <> show count
+    ArmLdrIndexed size value base index scaled ->
+      let name = case size of
+            1 -> "ldrb"
+            2 -> "ldrh"
+            _ -> "ldr"
+          value' = if size == 8 then value else wordName value
+          scale = if scaled then ", lsl #" <> show (length (takeWhile (< size) (iterate (* 2) 1))) else ""
+       in name <> " " <> reg value' <> ", [" <> reg base <> ", " <> reg index <> scale <> "]"
+    ArmCinc destination source condition -> "cinc " <> reg destination <> ", " <> reg source <> ", " <> cond condition
     ArmCsinv destination left right condition -> conditional "csinv" destination left right condition
     ArmCsel destination left right condition -> conditional "csel" destination left right condition
     ArmSxtw destination source -> "sxtw " <> reg destination <> ", " <> reg (wordName source)

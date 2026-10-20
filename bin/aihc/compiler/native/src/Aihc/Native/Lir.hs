@@ -9,6 +9,7 @@ module Aihc.Native.Lir
   ( BranchTest (..),
     Ctx (..),
     Fused (..),
+    Fusion (..),
     Layout (..),
     Location (..),
     MoveSource (..),
@@ -165,6 +166,22 @@ data NativeBackend statement register error = NativeBackend
     nbCReturnFloat :: CallingConvention -> [Type] -> [statement],
     -- | Select a logical operation with a constant rotated right operand.
     nbRotatedBinary :: Maybe (BinaryOp -> Type -> register -> register -> register -> Int -> [statement]),
+    -- | Select an addition of an operand that is shifted left by a constant.
+    -- The first function tells if the backend has the form for a count. The
+    -- second gives the instructions from the destination, the left operand,
+    -- the operand to shift, and the count.
+    nbShiftedAdd :: Maybe (Int -> Bool, register -> register -> register -> Int -> [statement]),
+    -- | Select a load from a base plus an index that is shifted left by a
+    -- constant. The first function tells if the backend has the form for a
+    -- type and a count. The second gives the instructions from the type,
+    -- the destination, the base, the index, and the count.
+    nbIndexedLoad :: Maybe (Type -> Int -> Bool, Type -> register -> register -> register -> Int -> [statement]),
+    -- | Keep the carry of an addition, or the borrow of a subtraction, in the
+    -- flags until the next instruction adds it to a value. The first
+    -- function gives the operation without its second result, from the
+    -- type, the destination, and the two operands. The second function
+    -- gives the addition from the destination and the value.
+    nbCarryIncrement :: Maybe (WideOp -> Type -> register -> register -> register -> [statement], WideOp -> register -> register -> [statement]),
     nbBinary :: Ctx register -> BinaryOp -> Type -> register -> register -> Operand -> NativeM error [statement],
     nbUnary :: UnaryOp -> Type -> register -> register -> [statement],
     nbWide :: WideOp -> Type -> register -> register -> register -> register -> [statement],
@@ -233,8 +250,23 @@ data Ctx register = Ctx
     ctxSignatures :: !(Map Symbol Signature),
     ctxIncomingOverflow :: Int,
     ctxReads :: !(Map Var Int),
-    ctxRotations :: !(Map Var Int)
+    ctxRotations :: !(Map Var Int),
+    ctxFusions :: !(Map Var Fusion)
   }
+
+-- | How instruction selection joins the instruction that defines a value
+-- with another instruction. See 'selectFusions'.
+data Fusion
+  = -- | An addition whose right operand is shifted left by the count.
+    FusedShift !Int
+  | -- | A load of the type from the base plus the index shifted left by the
+    -- count. The value is a pointer addition of the base and the index.
+    FusedLoad !Type !Int
+  | -- | A carry or a borrow that stays in the flags.
+    FusedFlags
+  | -- | An addition of a carry or a borrow that the flags hold.
+    FusedIncrement !WideOp
+  deriving (Eq, Show)
 
 -- | Where a value lives: a register, or a frame slot at a byte offset above
 -- the stack pointer after the prologue.
@@ -504,7 +536,8 @@ compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
     lowered = lowerWideDivision (isJust (nbQuotRemWide backend)) input
-    (function, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
+    (rotated, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
+    (function, fusions) = selectFusions backend rotated
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
     emitStatement statement = do
@@ -515,7 +548,7 @@ compileFunctionTo backend output signatures index input state =
     emitStatements = mapM_ (lift . lift . emitStatement)
     action = do
       (prepared, prefix) <- native (prepareFunction backend signatures index function)
-      let ctx = prepared {ctxRotations = rotations}
+      let ctx = prepared {ctxRotations = rotations, ctxFusions = fusions}
       emitStatements prefix
       let blocks = functionBlocks function
           -- The number of the first instruction of each block. The
@@ -570,7 +603,8 @@ prepareFunction backend signatures index function = do
               AihcConvention -> overflowBytes backend (length (functionParameters function))
               CConvention -> 0,
             ctxReads = readCounts function,
-            ctxRotations = Map.empty
+            ctxRotations = Map.empty,
+            ctxFusions = Map.empty
           }
   prologue <- functionPrologue backend ctx
   pure
@@ -1005,6 +1039,14 @@ compileInstruction backend ctx (Instruction results operation) =
             | Just count <- Map.lookup result (ctxRotations ctx) ->
                 let (rightLoads, b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
                  in pure (rightLoads <> select op ty dst a b count)
+          ([result], _)
+            | Just (FusedShift count) <- Map.lookup result (ctxFusions ctx),
+              Just (_, shiftedAdd) <- nbShiftedAdd backend ->
+                let (rightLoads, b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
+                 in pure (rightLoads <> shiftedAdd dst a b count)
+            | Just (FusedIncrement wideOp) <- Map.lookup result (ctxFusions ctx),
+              Just (_, increment) <- nbCarryIncrement backend ->
+                pure (increment wideOp dst a)
           _ -> nbBinary backend ctx op ty dst a right
         pure (loads <> body)
     Unary op ty value -> do
@@ -1013,7 +1055,11 @@ compileInstruction backend ctx (Instruction results operation) =
     Wide op ty left right -> do
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
           (loads', b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
-      pair $ \low high -> pure (loads <> loads' <> nbWide backend op ty low high a b)
+      case (results, nbCarryIncrement backend) of
+        ([_, carry], Just (flags, _))
+          | Map.lookup carry (ctxFusions ctx) == Just FusedFlags ->
+              pair $ \low _ -> pure (loads <> loads' <> flags op ty low a b)
+        _ -> pair $ \low high -> pure (loads <> loads' <> nbWide backend op ty low high a b)
     QuotRemWide _ high low divisor ->
       case nbQuotRemWide backend of
         Just divide -> pair $ \q r -> divide ctx q r high low divisor
@@ -1054,7 +1100,16 @@ compileInstruction backend ctx (Instruction results operation) =
     Fence order -> pure (nbFence backend order)
     PtrAdd base offset -> do
       let (loads, a) = operandIn backend ctx 0 Ptr (nbScratchLeft backend) base
-      single $ \dst -> pure (loads <> nbPtrAdd backend ctx a offset dst)
+      case (results, nbShiftedAdd backend, nbIndexedLoad backend) of
+        ([result], Just (_, shiftedAdd), _)
+          | Just (FusedShift count) <- Map.lookup result (ctxFusions ctx) ->
+              let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
+               in single $ \dst -> pure (loads <> loads' <> shiftedAdd dst a b count)
+        ([result], _, Just (_, indexed))
+          | Just (FusedLoad ty count) <- Map.lookup result (ctxFusions ctx) ->
+              let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
+               in single $ \dst -> pure (loads <> loads' <> indexed ty dst a b count)
+        _ -> single $ \dst -> pure (loads <> nbPtrAdd backend ctx a offset dst)
     StackAlloc _ _ ->
       case results of
         [var]
@@ -1091,6 +1146,105 @@ compileInstruction backend ctx (Instruction results operation) =
           lines' <- body low high
           pure (lines' <> storeLow <> storeHigh)
         _ -> unsupported backend "instruction result count"
+
+-- | Join instructions of one block that one machine instruction can do.
+--
+-- A left shift by a constant that only an addition reads becomes an operand
+-- of the addition. A pointer addition that only a load reads becomes the
+-- address of the load: the load is then a pointer addition at the position
+-- of the load, and the side table gives the type. A carry or a borrow that
+-- only an addition reads, through a zero extension, stays in the flags: the
+-- addition moves to the position after the operation that makes the carry,
+-- and reads the carry directly. The value it adds to must be a value that is
+-- ready there, not a literal: a backend can load a literal with an
+-- instruction that changes the flags.
+-- Each rewrite keeps the reads that the allocation must see.
+selectFusions :: NativeBackend statement register error -> Function -> (Function, Map Var Fusion)
+selectFusions backend function = (function {functionBlocks = map fst selected}, Map.unions (map snd selected))
+  where
+    uses = readCounts function
+    useOnce v = Map.lookup v uses == Just 1
+    selected = map selectBlock (functionBlocks function)
+    selectBlock block =
+      let (shifted, shifts) = maybe (blockInstructions block, Map.empty) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
+          (loaded, table) = maybe (shifted, shifts) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
+          (carried, carries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty)
+       in (block {blockInstructions = carried}, Map.union table carries)
+    selectShifts accepts instructions = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches)
+      where
+        definitions = Map.fromList [(v, operation) | Instruction [v] operation <- instructions]
+        shift (OperandVar s)
+          | useOnce s,
+            Just (Binary Shl I64 index@(OperandVar _) (OperandLiteral (LitInt count))) <- Map.lookup s definitions,
+            count >= 1,
+            count <= 63,
+            accepts (fromInteger count) =
+              Just (s, index, fromInteger count)
+        shift _ = Nothing
+        match operation =
+          case operation of
+            PtrAdd base offset -> do
+              (s, index, count) <- shift offset
+              Just (PtrAdd base index, s, count)
+            Binary Add I64 left right ->
+              ( do
+                  (s, index, count) <- shift right
+                  Just (Binary Add I64 left index, s, count)
+              )
+                <|> ( do
+                        (s, index, count) <- shift left
+                        Just (Binary Add I64 right index, s, count)
+                    )
+            _ -> Nothing
+        matches = Map.fromList [(v, found) | Instruction [v] operation <- instructions, Just found <- [match operation]]
+        removed = Set.fromList [s | (_, s, _) <- Map.elems matches]
+        rewrite (Instruction [v] _)
+          | Just (operation, _, _) <- Map.lookup v matches = [Instruction [v] operation]
+          | Set.member v removed = []
+        rewrite instruction = [instruction]
+    selectLoads accepts shifts instructions = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.map snd matches) shifts) (Set.toList removed))
+      where
+        definitions = Map.fromList [(v, operation) | Instruction [v] operation@(PtrAdd _ (OperandVar _)) <- instructions]
+        match (Load ty (Address (OperandVar address) 0 0 [] _) _)
+          | useOnce address,
+            not (isFloatType ty),
+            ty /= I1,
+            Just operation <- Map.lookup address definitions,
+            count <- case Map.lookup address shifts of
+              Just (FusedShift shift) -> shift
+              _ -> 0,
+            accepts ty count =
+              Just (address, operation, FusedLoad ty count)
+        match _ = Nothing
+        matches = Map.fromList [(v, (operation, fusion)) | Instruction [v] load <- instructions, Just (_, operation, fusion) <- [match load]]
+        removed = Set.fromList [address | Instruction [_] load <- instructions, Just (address, _, _) <- [match load]]
+        rewrite (Instruction [v] _)
+          | Just (operation, _) <- Map.lookup v matches = [Instruction [v] operation]
+          | Set.member v removed = []
+        rewrite instruction = [instruction]
+    selectCarries instructions = (reverse kept, table)
+      where
+        defined = Set.fromList (concatMap instructionResults instructions)
+        widened = Map.fromList [(c, w) | Instruction [w] (Convert ZExt I1 (OperandVar c) I64) <- instructions, useOnce c, useOnce w]
+        additions = Map.fromListWith (<>) [(w, [(r, other)]) | Instruction [r] (Binary Add I64 left right) <- instructions, (OperandVar w, other) <- [(left, right), (right, left)]]
+        (kept, table, _, _) = foldl' step ([], Map.empty, Set.empty, Set.empty) instructions
+        step (done, fusions, ready, skipped) instruction@(Instruction results operation) =
+          case (results, operation) of
+            (_, _) | any (`Set.member` skipped) results -> (done, fusions, ready, skipped)
+            ([_, c], Wide op I64 _ _)
+              | op `elem` [AddCarry, SubBorrow],
+                Just w <- Map.lookup c widened,
+                (r, value) : _ <- [candidate | candidate@(r, value@(OperandVar _)) <- Map.findWithDefault [] w additions, not (Set.member r skipped), available (Set.union ready (Set.fromList results)) value] ->
+                  ( Instruction [r] (Binary Add I64 value (OperandVar c)) : instruction : done,
+                    Map.insert c FusedFlags (Map.insert r (FusedIncrement op) fusions),
+                    Set.insert r (foldr Set.insert ready results),
+                    Set.insert w (Set.insert r skipped)
+                  )
+            _ -> (instruction : done, fusions, foldr Set.insert ready results, skipped)
+        available ready value =
+          case value of
+            OperandVar v -> Set.member v ready || not (Set.member v defined)
+            OperandLiteral _ -> True
 
 -- | Select a single-use rotate as a logical operand within one block.
 -- The allocation input reads the rotate source at its new use position.

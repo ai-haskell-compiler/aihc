@@ -218,6 +218,15 @@ data Arm64Instruction
   | ArmLsl !Arm64Register !Arm64Register !Arm64Shift
   | ArmLsr !Arm64Register !Arm64Register !Arm64Shift
   | ArmRor !Arm64Register !Arm64Register !Arm64Shift
+  | -- | @add xd, xn, xm, lsl #k@ for @k@ from 0 to 63.
+    ArmAddShifted !Arm64Register !Arm64Register !Arm64Register !Int
+  | -- | @ldr rt, [xn, xm]@ or @ldr rt, [xn, xm, lsl #s]@ for an access of
+    -- the given number of bytes. The flag selects the shift, which is the
+    -- base two logarithm of the access size. An access below eight bytes
+    -- zero-extends the value.
+    ArmLdrIndexed !Int !Arm64Register !Arm64Register !Arm64Register !Bool
+  | -- | @cinc xd, xn, cond@: the operand plus one when the condition holds.
+    ArmCinc !Arm64Register !Arm64Register !Arm64Condition
   | ArmAndRotate !Arm64Register !Arm64Register !Arm64Register !Int
   | ArmOrrRotate !Arm64Register !Arm64Register !Arm64Register !Int
   | ArmEorRotate !Arm64Register !Arm64Register !Arm64Register !Int
@@ -420,6 +429,30 @@ encodeInstruction instruction =
     ArmOrrRotate destination left right count -> encodeLogicalRotate 0x2ac00000 destination left right count
     ArmEorRotate destination left right count -> encodeLogicalRotate 0x4ac00000 destination left right count
     ArmCset destination condition -> encodeCset destination condition
+    ArmAddShifted destination left right count ->
+      let rd = registerInfo destination
+          rn = registerInfo left
+          rm = registerInfo right
+       in words32 [0x8b000000 .|. registerNumber rm `shiftL` 16 .|. fromIntegral count `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+    ArmLdrIndexed size value base index shifted ->
+      let size' = case size of
+            1 -> 0
+            2 -> 1
+            4 -> 2
+            _ -> 3 :: Word32
+       in words32
+            [ 0x38606800
+                .|. size' `shiftL` 30
+                .|. registerNumber (registerInfo index) `shiftL` 16
+                .|. (if shifted then 0x1000 else 0)
+                .|. registerNumber (registerInfo base) `shiftL` 5
+                .|. registerNumber (registerInfo value)
+            ]
+    ArmCinc destination source condition ->
+      let rd = registerInfo destination
+          rn = registerInfo source
+          inverted = conditionCode condition `xorWord32` 1
+       in words32 [0x9a800400 .|. registerNumber rn `shiftL` 16 .|. inverted `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
     ArmCsinv destination trueValue falseValue condition -> encodeCsinv destination trueValue falseValue condition
     ArmSxtw destination source -> encodeTwoRegister 0x93407c00 destination source
     ArmBlr target -> words32 [0xd63f0000 .|. registerNumber (registerInfo target) `shiftL` 5]
