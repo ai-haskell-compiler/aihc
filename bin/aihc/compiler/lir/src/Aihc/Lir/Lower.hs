@@ -76,7 +76,7 @@ import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcCont
 import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
-import Aihc.Lir.Simplify (simplifyBooleanBranches, simplifyRotations, simplifyWidths)
+import Aihc.Lir.Simplify (eliminateCommonSubexpressions, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -851,15 +851,17 @@ finishFunction symbol linkage parameters results convention = do
     ( ItemFunction $
         simplifyWidths $
           simplifyRotations $
-            simplifyBooleanBranches
-              Function
-                { functionName = symbol,
-                  functionLinkage = linkage,
-                  functionParameters = parameters,
-                  functionResults = results,
-                  functionConvention = convention,
-                  functionBlocks = reverse (stateBlocksRev state)
-                }
+            simplifyBooleanBranches $
+              eliminateCommonSubexpressions $
+                simplifyMultiplications
+                  Function
+                    { functionName = symbol,
+                      functionLinkage = linkage,
+                      functionParameters = parameters,
+                      functionResults = results,
+                      functionConvention = convention,
+                      functionBlocks = reverse (stateBlocksRev state)
+                    }
     )
 
 -- Target layout

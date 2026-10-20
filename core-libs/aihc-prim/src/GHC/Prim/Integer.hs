@@ -801,7 +801,7 @@ subtractDivisorProduct# divisor dividend count offset quotient index carry state
                   case subWordC# word product of
                     (# result, borrow #) ->
                       case writeWordArray# dividend (offset +# index) result state1 of
-                        state2 -> subtractDivisorProduct# divisor dividend count offset quotient (index +# 1#) (plusWord# high (int2Word# (overflow +# borrow))) state2
+                        state2 -> subtractDivisorProduct# divisor dividend count offset quotient (index +# 1#) (plusWord# (plusWord# high (int2Word# overflow)) (int2Word# borrow)) state2
 
 -- | If the estimate was one too large, restore one divisor in place.
 addDivisorBack# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> State# RealWorld
@@ -1161,7 +1161,7 @@ multiplyInner# left mutable leftSize rightWord rightIndex leftIndex carry state 
                   case addWordC# partial carry of
                     (# result, carry1 #) ->
                       case writeWordArray# mutable (leftIndex +# rightIndex) result state1 of
-                        state2 -> multiplyInner# left mutable leftSize rightWord rightIndex (leftIndex +# 1#) (plusWord# high (int2Word# (carry0 +# carry1))) state2
+                        state2 -> multiplyInner# left mutable leftSize rightWord rightIndex (leftIndex +# 1#) (plusWord# (plusWord# high (int2Word# carry0)) (int2Word# carry1)) state2
 
 trimMagnitudeWords# :: MutableByteArray# RealWorld -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
 trimMagnitudeWords# mutable index state =

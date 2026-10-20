@@ -198,6 +198,9 @@ arm64Backend =
           _ -> [],
       nbBinary = arm64Binary,
       nbRotatedBinary = Just rotatedBinary,
+      nbShiftedAdd = Just (\dst a b count -> [arm64Instruction (ArmAddShifted dst a b count)]),
+      nbIndexedLoad = Just (indexedLoadAccepts, indexedLoad),
+      nbCarryIncrement = Just (carryFlags, carryIncrement),
       nbUnary = bitCount,
       nbWide = wide,
       nbQuotRemWide = Nothing,
@@ -347,6 +350,9 @@ instructionEffect instruction =
     ArmEorRotate destination _ _ _ -> writes [destination]
     ArmAsr destination _ _ -> writes [destination]
     ArmCset destination _ -> writes [destination]
+    ArmAddShifted destination _ _ _ -> writes [destination]
+    ArmLdrIndexed _ destination base _ _ -> narrowAccess base (writes [destination])
+    ArmCinc destination _ _ -> writes [destination]
     ArmCsinv destination _ _ _ -> writes [destination]
     ArmCsel destination _ _ _ -> writes [destination]
     ArmSxtw destination _ -> writes [destination]
@@ -806,16 +812,14 @@ wide :: WideOp -> Type -> Arm64Register -> Arm64Register -> Arm64Register -> Arm
 wide op ty low high a b =
   case op of
     MulWideU
-      | typeBits ty == 64 ->
-          [arm64Instruction (ArmUmulh scratchExtra a b), arm64Instruction (ArmMul low a b)] <> move high scratchExtra
+      | typeBits ty == 64 -> wordProduct ArmUmulh
       | otherwise ->
           [arm64Instruction (ArmMul scratchExtra a b), arm64Instruction (ArmLsr high scratchExtra (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
             <> narrowRegister ty high
             <> move low scratchExtra
             <> narrowRegister ty low
     MulWideS
-      | typeBits ty == 64 ->
-          [arm64Instruction (ArmSmulh scratchExtra a b), arm64Instruction (ArmMul low a b)] <> move high scratchExtra
+      | typeBits ty == 64 -> wordProduct ArmSmulh
       | otherwise ->
           let (extendLeft, a') = signExtendInto ty scratchLeft a
               (extendRight, b') = signExtendInto ty scratchRight b
@@ -839,6 +843,39 @@ wide op ty low high a b =
           ]
             <> narrowRegister ty low
             <> move high scratchExtra
+  where
+    -- The high and the low words of a product. Each result can share a
+    -- register with an operand. Thus the result that shares no register
+    -- with an operand comes first, and the extra scratch register holds
+    -- the high word when both results share one.
+    wordProduct highProduct
+      | high /= a && high /= b = [arm64Instruction (highProduct high a b), arm64Instruction (ArmMul low a b)]
+      | low /= a && low /= b = [arm64Instruction (ArmMul low a b), arm64Instruction (highProduct high a b)]
+      | otherwise = [arm64Instruction (highProduct scratchExtra a b), arm64Instruction (ArmMul low a b)] <> move high scratchExtra
+
+-- | An addition with a carry, or a subtraction with a borrow, that leaves
+-- the carry or the borrow in the flags only.
+carryFlags :: WideOp -> Type -> Arm64Register -> Arm64Register -> Arm64Register -> [Arm64Statement]
+carryFlags op _ low a b =
+  case op of
+    SubBorrow -> [arm64Instruction (ArmSubs low a (Arm64RegisterValue b))]
+    _ -> [arm64Instruction (ArmAdds low a (Arm64RegisterValue b))]
+
+-- | Add the carry or the borrow that the flags hold. A subtraction clears
+-- the carry flag when it borrows.
+carryIncrement :: WideOp -> Arm64Register -> Arm64Register -> [Arm64Statement]
+carryIncrement op dst value =
+  [arm64Instruction (ArmCinc dst value (if op == SubBorrow then ArmCc else ArmCs))]
+
+-- | A load of a register from a base plus an index. The index is not
+-- shifted, or it is shifted by the logarithm of the access size.
+indexedLoadAccepts :: Type -> Int -> Bool
+indexedLoadAccepts ty count =
+  typeBytes ty `elem` [1, 2, 4, 8] && (count == 0 || 2 ^ count == typeBytes ty)
+
+indexedLoad :: Type -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> [Arm64Statement]
+indexedLoad ty dst base index count =
+  [arm64Instruction (ArmLdrIndexed (typeBytes ty) dst base index (count /= 0))]
 
 compareResult :: Ctx Arm64Register -> CompareOp -> Type -> Arm64Register -> Operand -> Operand -> [Arm64Statement]
 compareResult ctx op ty dst left right

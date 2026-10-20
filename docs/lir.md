@@ -299,6 +299,13 @@ before it reaches a backend, `resolveConstants` substitutes every reference
 with its value and drops the definitions. `Aihc.Lir.Inline` then splices the
 inline functions. The backends and the interpreter run those two themselves
 through `prepareModule`, so a caller hands them the expanded module.
+`prepareModule`, and the lowering for each function it emits, also simplify
+each function. A multiplication by a power of two becomes a left shift. A
+pure operation, or a load, that an earlier instruction of the same block
+already computed uses the earlier value. A load uses an earlier load only
+when no instruction between them can write the location: a store writes its
+own region, and a store without a region, a call, a fence, or an atomic
+access writes all of them.
 `loadModule` reads, parses, and expands a file in one step, and
 `loadModuleWithIncludes` also reports the files it read, which a caller that
 fingerprints its inputs needs.
@@ -1182,6 +1189,13 @@ rather than as a change of some object bytes. Run the suite with
 - A 32-bit or 64-bit rotate uses `ror`. A left rotate uses the opposite count.
   A single-use constant rotate can become an operand of `and`, `orr`, or `eor`.
   The selector combines these operations before register allocation.
+- A single-use constant left shift that an `i64` addition or a `ptr.add`
+  reads is the shifted register operand of `add`. A single-use `ptr.add` of
+  a register index that a load reads is the register offset of the load. The
+  index has no shift, or a shift by the logarithm of the access size.
+- The carry of `add.carry` or the borrow of `sub.borrow`, at 64 bits, stays
+  in the flags when only one `i64` addition reads it, through a `zext`. The
+  addition moves to the position after the operation, and it is `cinc`.
 - `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no
   population count of a general register, so `popcount` goes through the
   vector unit with `cnt` and `addv`, which the base architecture requires.
