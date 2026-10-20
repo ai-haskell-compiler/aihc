@@ -574,8 +574,13 @@ nix shell nixpkgs#inferno -c inferno-flamegraph < main.folded > main.svg
 - `[truncated]` is the bottom of a stack with more than 1024 frames. The
   sample keeps the 1024 frames nearest the running function.
 - `AIHC_PROFILE_INTERVAL_US` sets the interval between two samples, in
-  microseconds of CPU time. The default is 1000. macOS gives fewer samples
-  than an interval below 10000 asks for. Use the counts as relative values.
+  microseconds of CPU time. The default is 1000. A short interval gives
+  fewer samples than it asks for. Use the counts as relative values.
+- On Linux, an `ITIMER_PROF` timer sends `SIGPROF`. On macOS, a sampler
+  thread sends `SIGPROF` to each thread of the program that used an interval
+  of CPU time. macOS examines an `ITIMER_PROF` timer only when the thread goes
+  into the kernel. Thus that timer put too many samples in collections,
+  because a collection goes into the kernel at each page fault.
 
 At the entry of each function, the lowering stores the continuation of the
 function in the capability field `profile_frame`. Then it stores the code of
