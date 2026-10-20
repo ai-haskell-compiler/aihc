@@ -1,0 +1,132 @@
+---
+extensions: []
+modules:
+- |
+  module Test (check, use) where
+
+  import GHC.Types (Bool(..), Int, Char, Ordering)
+
+  class Flag a where
+    flag :: a -> Bool
+
+  instance Flag Bool where
+    flag _ = True
+  instance Flag Int where
+    flag _ = True
+  instance Flag Char where
+    flag _ = True
+  instance Flag Ordering where
+    flag _ = True
+  instance Flag () where
+    flag _ = True
+
+  check :: Flag a => a -> Bool
+  check x = flag x
+
+  data Results = Results Bool Bool Bool Bool Bool
+
+  use :: Bool -> Int -> Char -> Ordering -> () -> Results
+  use a b c d e = Results (check a) (check b) (check c) (check d) (check e)
+passes:
+- specialise-top
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cC#] 3.tChar :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cLT, 3.cEQ, 3.cGT] 3.tOrdering :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Flag (a : sType) :: sType {
+    1.c$Dict$Flag :: ∀(a : sType). (a → tBool) → t$Dict$Flag a
+  }
+
+  type 1.tResults :: sType {
+    pub 1.cResults :: tBool → tBool → tBool → tBool → tBool → tResults
+  }
+
+  val 1.vflag :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a).
+      let! c$Dict$Flag ($cflag : a → tBool) = $dFlag;
+      $cflag
+
+  pub val 1.v$fFlagBool :: t$Dict$Flag tBool
+    = c$Dict$Flag @tBool v$fFlagBool$cflag
+
+  val 1.v$fFlagBool$cflag :: tBool → tBool
+    = λ(unused x : tBool).
+      cTrue
+
+  pub val 1.v$fFlagInt :: t$Dict$Flag tInt
+    = c$Dict$Flag @tInt v$fFlagInt$cflag
+
+  val 1.v$fFlagInt$cflag :: tInt → tBool
+    = λ(unused x : tInt).
+      cTrue
+
+  pub val 1.v$fFlagChar :: t$Dict$Flag tChar
+    = c$Dict$Flag @tChar v$fFlagChar$cflag
+
+  val 1.v$fFlagChar$cflag :: tChar → tBool
+    = λ(unused x : tChar).
+      cTrue
+
+  pub val 1.v$fFlagOrdering :: t$Dict$Flag tOrdering
+    = c$Dict$Flag @tOrdering v$fFlagOrdering$cflag
+
+  val 1.v$fFlagOrdering$cflag :: tOrdering → tBool
+    = λ(unused x : tOrdering).
+      cTrue
+
+  pub val 1.v$fFlagUnit :: t$Dict$Flag tUnit
+    = c$Dict$Flag @tUnit v$fFlagUnit$cflag
+
+  val 1.v$fFlagUnit$cflag :: tUnit → tBool
+    = λ(unused x : tUnit).
+      cTrue
+
+  pub val 1.vcheck :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : a).
+      vflag @a $dFlag x
+
+  pub val 1.vuse :: tBool → tInt → tChar → tOrdering → tUnit → tResults
+    = λ(x : tBool) (y : tInt) (z : tChar) (x1 : tOrdering) (x2 : tUnit).
+      cResults (v$scheck_0 x) (v$scheck_2 y) (v$scheck_1 z) (v$scheck_3 x1) (vcheck @tUnit v$fFlagUnit x2)
+
+  val 1.v$scheck_0 :: tBool → tBool
+    = λ(x : tBool).
+      v$sflag_0 x
+
+  val 1.v$scheck_1 :: tChar → tBool
+    = λ(x : tChar).
+      vflag @tChar v$fFlagChar x
+
+  val 1.v$scheck_2 :: tInt → tBool
+    = λ(x : tInt).
+      vflag @tInt v$fFlagInt x
+
+  val 1.v$scheck_3 :: tOrdering → tBool
+    = λ(x : tOrdering).
+      vflag @tOrdering v$fFlagOrdering x
+
+  val 1.v$sflag_0 :: tBool → tBool
+    = let! c$Dict$Flag ($cflag : tBool → tBool) = v$fFlagBool;
+    $cflag
+status: pass
+reason: Five dictionary keys produce at most four copies of one function. The remaining key uses the generic function.
