@@ -121,11 +121,11 @@ static int aihc_profile_thread_time(thread_act_t port, uint64_t *used_us) {
       KERN_SUCCESS) {
     return 0;
   }
-  *used_us = ((uint64_t)info.user_time.seconds +
-              (uint64_t)info.system_time.seconds) *
-                 UINT64_C(1000000) +
-             (uint64_t)info.user_time.microseconds +
-             (uint64_t)info.system_time.microseconds;
+  *used_us =
+      ((uint64_t)info.user_time.seconds + (uint64_t)info.system_time.seconds) *
+          UINT64_C(1000000) +
+      (uint64_t)info.user_time.microseconds +
+      (uint64_t)info.system_time.microseconds;
   return 1;
 }
 
