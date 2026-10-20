@@ -3,14 +3,19 @@ extensions: []
 modules:
 - |
   {-# LANGUAGE NoImplicitPrelude #-}
-  module Test (run, generic) where
+  module Test (run, runBox, generic) where
 
   data Flag = Off | On
+  data Box a = Box a
   class Toggle a where
     toggle :: a -> a
   instance Toggle Flag where
     toggle Off = On
     toggle On = Off
+  instance Toggle a => Toggle (Box a) where
+    toggle (Box x) = Box (toggle x)
+  runBox :: Box Flag -> Box Flag
+  runBox = loop On
   loop :: Toggle a => Flag -> a -> a
   loop Off x = x
   loop On x = loop Off (toggle x)
@@ -42,6 +47,10 @@ expected: |-
     1.cOn :: tFlag
   }
 
+  type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a → tBox a
+  }
+
   type 1.t$Dict$Toggle (a : sType) :: sType {
     1.c$Dict$Toggle :: ∀(a : sType). (a → a) → t$Dict$Toggle a
   }
@@ -63,6 +72,18 @@ expected: |-
           cOff
       }
 
+  pub val 1.v$fToggleBoxa :: ∀(a : sType). t$Dict$Toggle a → t$Dict$Toggle (tBox a)
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a).
+      c$Dict$Toggle @(tBox a) (v$fToggleBoxa$ctoggle @a $dToggle)
+
+  val 1.v$fToggleBoxa$ctoggle :: ∀(a : sType). t$Dict$Toggle a → tBox a → tBox a
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a) (x : tBox a).
+      let! cBox (x{1} : a) = x;
+      cBox @a (vtoggle @a $dToggle x{1})
+
+  pub val 1.vrunBox :: tBox tFlag → tBox tFlag
+    = v$ssloop56 cOn
+
   val 1.vloop :: ∀(a : sType). t$Dict$Toggle a → tFlag → a → a
     = Λ(a : sType). λ($dToggle : t$Dict$Toggle a) (x : tFlag) (y : a).
       case x of {
@@ -77,19 +98,40 @@ expected: |-
       vloop @a $dToggle
 
   pub val 1.vrun :: tFlag → tFlag
-    = v$ssloop1 cOn
+    = v$ssloop95 cOn
 
-  val 1.v$sstoggle4 :: tFlag → tFlag
+  val 1.v$sstoggle48 :: tFlag → tFlag
     = let! c$Dict$Toggle ($ctoggle : tFlag → tFlag) = v$fToggleFlag;
     $ctoggle
 
-  val 1.v$ssloop1 :: tFlag → tFlag → tFlag
+  val 1.v$ss$fToggleBoxa$ctoggle40 :: tBox tFlag → tBox tFlag
+    = λ(x : tBox tFlag).
+      let! cBox (x{1} : tFlag) = x;
+      cBox @tFlag (v$sstoggle48 x{1})
+
+  val 1.v$ss$fToggleBoxa33 :: t$Dict$Toggle (tBox tFlag)
+    = c$Dict$Toggle @(tBox tFlag) v$ss$fToggleBoxa$ctoggle40
+
+  val 1.v$sstoggle64 :: tBox tFlag → tBox tFlag
+    = let! c$Dict$Toggle ($ctoggle : tBox tFlag → tBox tFlag) = v$ss$fToggleBoxa33;
+    $ctoggle
+
+  val 1.v$ssloop56 :: tFlag → tBox tFlag → tBox tFlag
+    = λ(x : tFlag) (y : tBox tFlag).
+      case x of {
+        cOff →
+          y;
+        cOn →
+          v$ssloop56 cOff (v$sstoggle64 y)
+      }
+
+  val 1.v$ssloop95 :: tFlag → tFlag → tFlag
     = λ(x : tFlag) (y : tFlag).
       case x of {
         cOff →
           y;
         cOn →
-          v$ssloop1 cOff (v$sstoggle4 y)
+          v$ssloop95 cOff (v$sstoggle48 y)
       }
 status: pass
 reason: Distinct dictionary arguments still use indirect calls in top-level recursive functions.

@@ -53,15 +53,20 @@ type SpecM = State Supply
 -- Each original function permits at most sixteen copies across all regions.
 superSpecialiseProgram :: Program -> (Program, SuperReport)
 superSpecialiseProgram program =
-  let declarations = programDecls program
+  let (supply, declarations) = List.mapAccumL freshDeclaration (maxLocalUnique program + 1) (programDecls program)
       protected = foldMap ruleNames declarations
       definitions = Map.fromList [(valName val, Bind (Binder (valName val) (valType val)) (valBody val)) | DeclVal val <- declarations, eligible protected val]
       size = sum [nodes (valBody val) | DeclVal val <- declarations]
-      initial = Supply (maxLocalUnique program + 1) (min 100000 (max 256 (size `div` 2))) Map.empty (Region Set.empty False Map.empty []) (SuperReport 0 0 0)
+      initial = Supply supply (min 100000 (max 256 (size `div` 2))) Map.empty (Region Set.empty False Map.empty []) (SuperReport 0 0 0)
       (rewritten, final) = runState (mapM (onDecl definitions) declarations) initial
       copies = [DeclVal (ValDecl Private (binderName binder) (binderType binder) body InlineDefault) | Bind binder body <- reverse (regionCopies (currentRegion final))]
    in (tidyProgram program {programDecls = rewritten <> copies}, report final)
   where
+    -- Distinct lexical functions need distinct cache identities during this pass.
+    freshDeclaration supply (DeclVal val) =
+      let (body, next) = freshenExprFrom supply (valBody val)
+       in (next, DeclVal val {valBody = body})
+    freshDeclaration supply decl = (supply, decl)
     onDecl definitions decl = case decl of
       DeclVal val -> do
         body <- walk definitions Set.empty (valBody val)
@@ -111,19 +116,20 @@ walk definitions scope expression = case expression of
       arguments' <- mapM (either (pure . Left) (fmap Right . walk definitions scope)) arguments
       case function' of
         ExVar name | Just binding <- Map.lookup name definitions -> do
-          (lets, named) <- nameFunctions (bindRhs binding) arguments'
-          call <- specializeCall (List.foldl' (flip addDefinition) definitions lets) (scope <> Set.fromList (map (binderName . bindBinder) lets)) function' named
+          template <- freshTemplate binding
+          (lets, named) <- nameArguments definitions (bindRhs template) arguments'
+          call <- specializeCall (List.foldl' (flip addDefinition) definitions lets) (scope <> Set.fromList (map (binderName . bindBinder) lets)) template named
           pure (foldr ExLet call lets)
         _ -> pure (rebuild function' arguments')
 
--- | Name a function argument once. A local copy can then capture its reference.
-nameFunctions :: Expr -> [Arg] -> SpecM ([Bind], [Arg])
-nameFunctions (ExTyLam binder body) (Left ty : rest) = do
-  (lets, arguments) <- nameFunctions (substTypeExpr (Map.singleton (binderName binder) ty) body) rest
+-- | Name an argument once. A local copy can then capture its shared reference.
+nameArguments :: Definitions -> Expr -> [Arg] -> SpecM ([Bind], [Arg])
+nameArguments definitions (ExTyLam binder body) (Left ty : rest) = do
+  (lets, arguments) <- nameArguments definitions (substTypeExpr (Map.singleton (binderName binder) ty) body) rest
   pure (lets, Left ty : arguments)
-nameFunctions (ExLam binder body) (Right value : rest) = do
-  (lets, arguments) <- nameFunctions body rest
-  if functionType (binderType binder) && lambda value
+nameArguments definitions (ExLam binder body) (Right value : rest) = do
+  (lets, arguments) <- nameArguments definitions body rest
+  if (functionType (binderType binder) || dictionaryType (binderType binder)) && staticExpression value
     then do
       state <- get
       let name = (binderName binder) {nameText = "$sf", nameOrigin = OriginLocal (Unique (nextUnique state))}
@@ -131,10 +137,12 @@ nameFunctions (ExLam binder body) (Right value : rest) = do
       pure (Bind (Binder name (binderType binder)) value : lets, Right (ExVar name) : arguments)
     else pure (lets, Right value : arguments)
   where
-    lambda ExLam {} = True
-    lambda ExTyLam {} = True
-    lambda _ = False
-nameFunctions _ arguments = pure ([], arguments)
+    staticExpression ExLam {} = True
+    staticExpression ExTyLam {} = True
+    staticExpression value' = case collectSpine value' of
+      (ExVar name, arguments') -> not (null arguments') && (not (localName name) || Map.member name definitions)
+      _ -> False
+nameArguments _ _ arguments = pure ([], arguments)
 
 addDefinition :: Bind -> Definitions -> Definitions
 addDefinition binding = Map.insert (binderName (bindBinder binding)) binding
@@ -142,33 +150,42 @@ addDefinition binding = Map.insert (binderName (bindBinder binding)) binding
 bindScope :: Binder -> Set Name -> Set Name
 bindScope = Set.insert . binderName
 
-specializeCall :: Definitions -> Set Name -> Expr -> [Arg] -> SpecM Expr
-specializeCall definitions scope function arguments =
-  case function of
-    ExVar name | Just binding <- Map.lookup name definitions ->
-      case selection definitions scope (bindRhs binding) arguments of
-        Just choices -> do
-          state <- get
-          let region = currentRegion state
-              required = Set.filter localName (Set.insert name (foldMap (maybe Set.empty argNames) choices))
-          if required `Set.isSubsetOf` regionScope region
-            then request definitions binding choices arguments
-            else
-              if regionLocal region
-                then pure original
-                else do
-                  -- The call site contains every captured name, including existential types.
-                  modify' (\s -> s {currentRegion = Region scope True Map.empty []})
-                  call <- request definitions binding choices arguments
-                  local <- currentRegion <$> get
-                  modify' (\s -> s {currentRegion = region})
-                  pure $ case reverse (regionCopies local) of
-                    [] -> call
-                    copies -> ExRec copies call
-        Nothing -> pure original
-    _ -> pure original
+-- | Freshen both the signature and the body before any substitution.
+-- Tidy permits the same local name in different functions.
+freshTemplate :: Bind -> SpecM Bind
+freshTemplate binding = do
+  state <- get
+  let (expression, supply) = freshenExprFrom (nextUnique state) (ExLet binding (ExVar (binderName (bindBinder binding))))
+  modify' (\s -> s {nextUnique = supply})
+  case expression of
+    ExLet copy _ -> pure copy {bindBinder = (bindBinder copy) {binderName = binderName (bindBinder binding)}}
+    _ -> pure binding
+
+specializeCall :: Definitions -> Set Name -> Bind -> [Arg] -> SpecM Expr
+specializeCall definitions scope binding arguments =
+  case selection definitions scope (bindRhs binding) arguments of
+    Just choices -> do
+      state <- get
+      let region = currentRegion state
+          required = Set.filter localName (Set.insert name (foldMap (maybe Set.empty argNames) choices))
+      if required `Set.isSubsetOf` regionScope region
+        then request definitions binding choices arguments
+        else
+          if regionLocal region
+            then pure original
+            else do
+              -- The call site contains every captured name, including existential types.
+              modify' (\s -> s {currentRegion = Region scope True Map.empty []})
+              call <- request definitions binding choices arguments
+              local <- currentRegion <$> get
+              modify' (\s -> s {currentRegion = region})
+              pure $ case reverse (regionCopies local) of
+                [] -> call
+                copies -> ExRec copies call
+    Nothing -> pure original
   where
-    original = rebuild function arguments
+    name = binderName (bindBinder binding)
+    original = rebuild (ExVar name) arguments
 
 -- | Reserve the copy before its body. Recursive requests then reuse its name.
 request :: Definitions -> Bind -> [Maybe Arg] -> [Arg] -> SpecM Expr

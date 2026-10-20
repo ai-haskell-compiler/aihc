@@ -56,15 +56,15 @@ expected: |-
         λ(x{2} : a).
           f x{2};
       rec {
-        $ssloop4 : tFlag → a → tFlag =
+        $ssloop25 : tFlag → a → tFlag =
           λ(y : tFlag) (z : a).
             case y of {
               cOff →
                 $sf z;
               cOn →
-                $ssloop4 cOff z
+                $ssloop25 cOff z
             }
       } in
-      $ssloop4 cOn x{1}
+      $ssloop25 cOn x{1}
 status: pass
 reason: Specialization cannot remove a known function argument inside an existential case.

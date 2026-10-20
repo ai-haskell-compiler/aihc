@@ -69,24 +69,24 @@ expected: |-
       }
 
   pub val 1.vrun :: tFlag → tFlag
-    = v$ssleft1
+    = v$ssleft15
 
-  val 1.v$ssright3 :: tFlag → tFlag
+  val 1.v$ssright22 :: tFlag → tFlag
     = λ(y : tFlag).
       case y of {
         cOff →
           vturn cOn;
         cOn →
-          v$ssleft1 cOff
+          v$ssleft15 cOff
       }
 
-  val 1.v$ssleft1 :: tFlag → tFlag
+  val 1.v$ssleft15 :: tFlag → tFlag
     = λ(y : tFlag).
       case y of {
         cOff →
           vturn cOff;
         cOn →
-          v$ssright3 cOff
+          v$ssright22 cOff
       }
 status: pass
 reason: Mutually recursive functions retain known function arguments.

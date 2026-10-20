@@ -1261,7 +1261,7 @@ Calls in each new body can request further copies.
 
 A local copy remains at its call site in a recursive group.
 It can capture local functions, runtime values, and existential type variables.
-The pass gives an anonymous function argument a local name before specialization.
+The pass gives anonymous functions and dictionary or function applications a local name before specialization.
 It substitutes references, not arbitrary computations.
 Thus, shared dictionary thunks remain shared and evaluation does not occur early.
 Unknown existential evidence remains available at runtime.

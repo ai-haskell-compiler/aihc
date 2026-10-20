@@ -55,15 +55,15 @@ expected: |-
               x{1}
           };
       rec {
-        $ssloop3 : tFlag → tFlag =
+        $ssloop14 : tFlag → tFlag =
           λ(y{1} : tFlag).
             case y{1} of {
               cOff →
                 $sf cOff;
               cOn →
-                $ssloop3 cOff
+                $ssloop14 cOff
             }
       } in
-      $ssloop3 y
+      $ssloop14 y
 status: pass
 reason: A known local function with a captured value remains an indirect argument.
