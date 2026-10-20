@@ -73,8 +73,20 @@ resolveDocumentation package dependencies inputs = map complete local
       where
         interface = fromMaybe (R.exportsFromEntries []) (R.lookupModuleExport (R.ModuleKey package (moduleDocName modu)) ownExports)
         (items, missing) = case R.resolveExportList visibleExports unit of
-          Nothing -> (map ExportResolvedItem (moduleDocDecls modu), [])
+          Nothing -> (withSections (moduleDocSections modu) (moduleDocDecls modu), [])
           Just exports -> merge (R.ModuleKey package (moduleDocName modu)) (fromMaybe [] (moduleDocExports modu)) exports
+    -- Without an export list, each body heading comes before the first
+    -- declaration that follows it in the source.
+    withSections sections decls =
+      case (sections, decls) of
+        (section : more, decl : _)
+          | maybe False ((sectionPosition section <) . locationPosition) (declLocation decl) ->
+              sectionItem section : withSections more decls
+        (_, decl : rest) -> ExportResolvedItem decl : withSections sections rest
+        (_, []) -> map sectionItem sections
+    sectionItem section = ExportSectionItem (sectionLevel section) (sectionTitle section)
+    sectionPosition = locationPosition . sectionLocation
+    locationPosition loc = (locationStartLine loc, locationStartColumn loc)
     merge _ [] _ = ([], [])
     merge current (item : rest) scopes = case item of
       ExportDeclItem {} -> next

@@ -23,6 +23,7 @@ module Aihc.Haddock.Comment
     claimNextAt,
     claimPrevWithin,
     claimBetween,
+    claimSections,
     namedChunkComments,
     unclaimedComments,
     spanOffsets,
@@ -51,7 +52,8 @@ data DocCommentKind
     DocCommentPrev
   | -- | @-- $name@: a named chunk referenced from the export list.
     DocCommentNamed Text
-  | -- | @-- *@, @-- **@ ...: a section heading in the export list.
+  | -- | @-- *@, @-- **@ ...: a section heading in the export list or the
+    -- module body.
     DocCommentSection Int
   deriving (Eq, Show)
 
@@ -253,6 +255,11 @@ claimBetween sp index =
    in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
   where
     sortBySpan = map snd . Map.toAscList . Map.fromList . map (\c -> (spanOffsets (docCommentSpan c), c))
+
+-- | Claim every section heading that is still unclaimed, in source order.
+-- After the export list, these are the headings in the module body.
+claimSections :: CommentIndex -> ([DocComment], CommentIndex)
+claimSections index = (indexSections index, index {indexSections = []})
 
 -- | Named chunks that were not consumed by an export list. They define the
 -- module's @$name@ chunks.

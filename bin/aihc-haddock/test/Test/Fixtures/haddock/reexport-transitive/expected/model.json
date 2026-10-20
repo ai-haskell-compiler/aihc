@@ -2,7 +2,7 @@
   "dependencies": [
     "bridge-0.1.0.0"
   ],
-  "format_version": 2,
+  "format_version": 3,
   "modules": [
     {
       "decls": [],
@@ -210,6 +210,7 @@
           "tag": "resolved_item"
         }
       ],
+      "sections": [],
       "warning": null
     }
   ],

@@ -1,0 +1,102 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {},
+   "doc_map": {
+    "$main$BodySections$Colour": {
+     "document": {
+      "document": {
+       "string": "A colour.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$BodySections$Shape": {
+     "document": {
+      "document": {
+       "string": "A shape.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$BodySections$area": {
+     "document": {
+      "document": {
+       "string": "The area of a shape.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$BodySections$twice": {
+     "document": {
+      "document": {
+       "string": "Double an area.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$BodySections$area",
+    "$main$BodySections$twice",
+    "$main$BodySections$Colour",
+    "$main$BodySections$Green",
+    "$main$BodySections$Red",
+    "$main$BodySections$Shape",
+    "$main$BodySections$Circle",
+    "$main$BodySections$Square"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$BodySections",
+   "options": [],
+   "visible_exports": [
+    "$main$BodySections$Shape",
+    "$main$BodySections$Circle",
+    "$main$BodySections$Square",
+    "$main$BodySections$area",
+    "$main$BodySections$twice",
+    "$main$BodySections$Colour",
+    "$main$BodySections$Green",
+    "$main$BodySections$Red"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$BodySections$Circle": "BodySections",
+  "$main$BodySections$Colour": "BodySections",
+  "$main$BodySections$Green": "BodySections",
+  "$main$BodySections$Red": "BodySections",
+  "$main$BodySections$Shape": "BodySections",
+  "$main$BodySections$Square": "BodySections",
+  "$main$BodySections$area": "BodySections",
+  "$main$BodySections$twice": "BodySections"
+ },
+ "package_info": "body-sections-0.1.0.0"
+}

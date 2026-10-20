@@ -74,6 +74,7 @@ buildModuleDoc input =
       moduleDocResolvedExports = [],
       moduleDocInterface = DocInterface (exportsFromEntries []),
       moduleDocDecls = decls,
+      moduleDocSections = sections,
       moduleDocInstances = reverse (stInstances finalState),
       moduleDocNamedChunks = chunks,
       moduleDocExtensions = map (T.pack . show) (buildExtensions input),
@@ -92,7 +93,7 @@ buildModuleDoc input =
           stDiagnostics = [],
           stRelativize = buildRelativize input
         }
-    ((description, info, exports, decls, chunks), finalState) = runState build initialState
+    ((description, info, exports, decls, sections, chunks), finalState) = runState build initialState
     unattached =
       [ "unattached documentation comment at " <> renderSpanStart (docCommentSpan c)
       | c <- unclaimedComments (stIndex finalState)
@@ -104,6 +105,7 @@ buildModuleDoc input =
       let (info', description') = moduleHeader headerComments
       exportItems <- traverse (buildExports headSpan) (moduleExports modu)
       declDocs <- concat <$> mapM buildTopDecl (moduleDecls modu)
+      sections' <- bodySections (moduleExports modu) (moduleDecls modu)
       chunkComments <- gets (namedChunkComments . stIndex)
       let chunks' = Map.fromList [(chunkName, parseDocText (docCommentText c)) | (chunkName, c) <- chunkComments]
       exportItems' <- traverse (mapM (resolveChunk chunks')) exportItems
@@ -115,7 +117,7 @@ buildModuleDoc input =
           (DeclKindFunction, Nothing) ->
             diagnostic ("no type signature for " <> declName decl <> "; inferred types need the type checker")
           _ -> pure ()
-      pure (description', info', exportItems', decls', chunks')
+      pure (description', info', exportItems', decls', sections', chunks')
 
     resolveChunk chunks' item =
       case item of
@@ -301,6 +303,32 @@ exportNamespace ns name =
         NameConId -> NamespaceType
         NameConSym -> NamespaceType
         _ -> NamespaceValue
+
+-- Body sections ----------------------------------------------------------------
+
+-- | Claim the section headings in the module body. Haddock uses them only for
+-- a module without an export list, and only between top-level declarations.
+-- In all other locations, Haddock ignores them without a warning.
+bodySections :: Maybe [ExportSpec] -> [Decl] -> Build [SectionDoc]
+bodySections exports decls = do
+  index <- gets stIndex
+  let (claimed, index') = claimSections index
+  modify' (\st -> st {stIndex = index'})
+  relativize <- gets stRelativize
+  pure $ case exports of
+    Just _ -> []
+    Nothing ->
+      [ SectionDoc level (parseInline (docCommentText c)) (locationFromSpan relativize (docCommentSpan c))
+      | c <- claimed,
+        not (any (encloses (docCommentSpan c)) declSpans),
+        DocCommentSection level <- [docCommentKind c]
+      ]
+  where
+    declSpans = mapMaybe (fst . peelDecl) decls
+    encloses comment declSpan =
+      let (cStart, _) = spanOffsets comment
+          (dStart, dEnd) = spanOffsets declSpan
+       in dStart <= cStart && cStart < dEnd
 
 -- Declarations -----------------------------------------------------------------
 

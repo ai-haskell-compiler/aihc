@@ -1,0 +1,751 @@
+{
+  "dependencies": [],
+  "format_version": 3,
+  "modules": [
+    {
+      "decls": [
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A shape.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "BodySections",
+            "name": "Shape",
+            "namespace": "type",
+            "package": "body-sections-0.1.0.0"
+          },
+          "kind": "data",
+          "location": {
+            "end_column": 43,
+            "end_line": 8,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 8
+          },
+          "name": "Shape",
+          "namespace": "type",
+          "signature": "Shape",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "BodySections",
+                "name": "Circle",
+                "namespace": "value",
+                "package": "body-sections-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 27,
+                "end_line": 8,
+                "file": "src/BodySections.hs",
+                "start_column": 14,
+                "start_line": 8
+              },
+              "name": "Circle",
+              "namespace": "value",
+              "signature": "Double -> Shape",
+              "subordinates": [],
+              "warning": null
+            },
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "BodySections",
+                "name": "Square",
+                "namespace": "value",
+                "package": "body-sections-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 43,
+                "end_line": 8,
+                "file": "src/BodySections.hs",
+                "start_column": 30,
+                "start_line": 8
+              },
+              "name": "Square",
+              "namespace": "value",
+              "signature": "Double -> Shape",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "The area of a shape.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "BodySections",
+            "name": "area",
+            "namespace": "value",
+            "package": "body-sections-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 24,
+            "end_line": 13,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 13
+          },
+          "name": "area",
+          "namespace": "value",
+          "signature": "Shape -> Double",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Double an area.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "BodySections",
+            "name": "twice",
+            "namespace": "value",
+            "package": "body-sections-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 26,
+            "end_line": 18,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 18
+          },
+          "name": "twice",
+          "namespace": "value",
+          "signature": "Double -> Double",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A colour.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "BodySections",
+            "name": "Colour",
+            "namespace": "type",
+            "package": "body-sections-0.1.0.0"
+          },
+          "kind": "data",
+          "location": {
+            "end_column": 26,
+            "end_line": 24,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 24
+          },
+          "name": "Colour",
+          "namespace": "type",
+          "signature": "Colour",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "BodySections",
+                "name": "Red",
+                "namespace": "value",
+                "package": "body-sections-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 18,
+                "end_line": 24,
+                "file": "src/BodySections.hs",
+                "start_column": 15,
+                "start_line": 24
+              },
+              "name": "Red",
+              "namespace": "value",
+              "signature": "Colour",
+              "subordinates": [],
+              "warning": null
+            },
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "BodySections",
+                "name": "Green",
+                "namespace": "value",
+                "package": "body-sections-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 26,
+                "end_line": 24,
+                "file": "src/BodySections.hs",
+                "start_column": 21,
+                "start_line": 24
+              },
+              "name": "Green",
+              "namespace": "value",
+              "signature": "Colour",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        }
+      ],
+      "description": {
+        "document": {
+          "document": {
+            "string": "A module without an export list. The section headings in the body give\n the structure of the documentation.",
+            "tag": "DocString"
+          },
+          "tag": "DocParagraph"
+        },
+        "meta": {
+          "version": null
+        }
+      },
+      "diagnostics": [],
+      "exports": null,
+      "exposed": true,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/BodySections.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "Circle",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "Circle",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "Green",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "Green",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "Red",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "Red",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "Square",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "Square",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "area",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "area",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "twice",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "twice",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "Colour",
+              "namespace": "type",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "Colour",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "BodySections",
+              "name": "Shape",
+              "namespace": "type",
+              "package": "body-sections-0.1.0.0"
+            }
+          },
+          "name": "Shape",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Red",
+            "Green"
+          ],
+          "name": "Colour",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "Circle",
+            "Square"
+          ],
+          "name": "Shape",
+          "tag": "constructors"
+        }
+      ],
+      "name": "BodySections",
+      "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Shapes",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A shape.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "BodySections",
+              "name": "Shape",
+              "namespace": "type",
+              "package": "body-sections-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 43,
+              "end_line": 8,
+              "file": "src/BodySections.hs",
+              "start_column": 1,
+              "start_line": 8
+            },
+            "name": "Shape",
+            "namespace": "type",
+            "signature": "Shape",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "BodySections",
+                  "name": "Circle",
+                  "namespace": "value",
+                  "package": "body-sections-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 27,
+                  "end_line": 8,
+                  "file": "src/BodySections.hs",
+                  "start_column": 14,
+                  "start_line": 8
+                },
+                "name": "Circle",
+                "namespace": "value",
+                "signature": "Double -> Shape",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "BodySections",
+                  "name": "Square",
+                  "namespace": "value",
+                  "package": "body-sections-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 43,
+                  "end_line": 8,
+                  "file": "src/BodySections.hs",
+                  "start_column": 30,
+                  "start_line": 8
+                },
+                "name": "Square",
+                "namespace": "value",
+                "signature": "Double -> Shape",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            2,
+            {
+              "string": "Areas",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "The area of a shape.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "BodySections",
+              "name": "area",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 24,
+              "end_line": 13,
+              "file": "src/BodySections.hs",
+              "start_column": 1,
+              "start_line": 13
+            },
+            "name": "area",
+            "namespace": "value",
+            "signature": "Shape -> Double",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Double an area.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "BodySections",
+              "name": "twice",
+              "namespace": "value",
+              "package": "body-sections-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 26,
+              "end_line": 18,
+              "file": "src/BodySections.hs",
+              "start_column": 1,
+              "start_line": 18
+            },
+            "name": "twice",
+            "namespace": "value",
+            "signature": "Double -> Double",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            1,
+            {
+              "string": "Colours",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A colour.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "BodySections",
+              "name": "Colour",
+              "namespace": "type",
+              "package": "body-sections-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 26,
+              "end_line": 24,
+              "file": "src/BodySections.hs",
+              "start_column": 1,
+              "start_line": 24
+            },
+            "name": "Colour",
+            "namespace": "type",
+            "signature": "Colour",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "BodySections",
+                  "name": "Red",
+                  "namespace": "value",
+                  "package": "body-sections-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 18,
+                  "end_line": 24,
+                  "file": "src/BodySections.hs",
+                  "start_column": 15,
+                  "start_line": 24
+                },
+                "name": "Red",
+                "namespace": "value",
+                "signature": "Colour",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "BodySections",
+                  "name": "Green",
+                  "namespace": "value",
+                  "package": "body-sections-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 26,
+                  "end_line": 24,
+                  "file": "src/BodySections.hs",
+                  "start_column": 21,
+                  "start_line": 24
+                },
+                "name": "Green",
+                "namespace": "value",
+                "signature": "Colour",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
+      "sections": [
+        {
+          "level": 1,
+          "location": {
+            "end_column": 12,
+            "end_line": 5,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 5
+          },
+          "title": {
+            "string": "Shapes",
+            "tag": "DocString"
+          }
+        },
+        {
+          "level": 2,
+          "location": {
+            "end_column": 12,
+            "end_line": 10,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 10
+          },
+          "title": {
+            "string": "Areas",
+            "tag": "DocString"
+          }
+        },
+        {
+          "level": 1,
+          "location": {
+            "end_column": 13,
+            "end_line": 21,
+            "file": "src/BodySections.hs",
+            "start_column": 1,
+            "start_line": 21
+          },
+          "title": {
+            "string": "Colours",
+            "tag": "DocString"
+          }
+        }
+      ],
+      "warning": null
+    }
+  ],
+  "name": "body-sections",
+  "version": "0.1.0.0"
+}
