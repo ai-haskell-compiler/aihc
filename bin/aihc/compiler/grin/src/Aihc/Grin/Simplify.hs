@@ -264,7 +264,12 @@ simplifyExpr env expression =
           simplifyExpr env selected
       | otherwise ->
           let simplified = map (simplifyAlternative env scrutinee binder) alternatives
-           in ( GrinCase scrutinee binder (map fst simplified),
+              -- A default-only case does not evaluate its input. Simplify
+              -- its body with the case facts before removal of the case.
+              result = case map fst simplified of
+                [GrinAlt GrinDefaultAlt [] rhs] -> bindCopies [(binder, scrutinee)] rhs
+                alternatives' -> GrinCase scrutinee binder alternatives'
+           in ( result,
                 freeValueVars scrutinee <> foldMap snd simplified
               )
     _ -> (expression, freeExprVars expression)
