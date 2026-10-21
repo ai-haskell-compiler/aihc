@@ -13,740 +13,726 @@
   "samples": {
     "baseline": [
       {
-        "wall_time_ns": 23947250,
-        "cpu_time_ns": 22509000,
-        "peak_rss_bytes": 17367040,
+        "wall_time_ns": 23907167,
+        "cpu_time_ns": 22458000,
+        "peak_rss_bytes": 17301504,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
           "gc_count": 12,
-          "gc_time_ns": 3147000,
-          "gc_max_pause_ns": 659000
+          "gc_time_ns": 3105000,
+          "gc_max_pause_ns": 653000
         },
         "stats_error": null,
-        "instructions": 251718856,
-        "cycles": 71787114
+        "instructions": 250763764,
+        "cycles": 71531422
       },
       {
-        "wall_time_ns": 24011250,
-        "cpu_time_ns": 22545000,
-        "peak_rss_bytes": 17350656,
+        "wall_time_ns": 24024083,
+        "cpu_time_ns": 22544000,
+        "peak_rss_bytes": 17317888,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
           "gc_count": 12,
-          "gc_time_ns": 3147000,
-          "gc_max_pause_ns": 649000
+          "gc_time_ns": 3138000,
+          "gc_max_pause_ns": 651000
         },
         "stats_error": null,
-        "instructions": 251507563,
-        "cycles": 72143251
+        "instructions": 250847845,
+        "cycles": 71830619
       },
       {
-        "wall_time_ns": 23924000,
-        "cpu_time_ns": 22469000,
-        "peak_rss_bytes": 17350656,
+        "wall_time_ns": 23903791,
+        "cpu_time_ns": 22473000,
+        "peak_rss_bytes": 17317888,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
           "gc_count": 12,
-          "gc_time_ns": 3149000,
-          "gc_max_pause_ns": 655000
-        },
-        "stats_error": null,
-        "instructions": 251548649,
-        "cycles": 71821006
-      },
-      {
-        "wall_time_ns": 24114875,
-        "cpu_time_ns": 22624000,
-        "peak_rss_bytes": 17350656,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3197000,
-          "gc_max_pause_ns": 668000
-        },
-        "stats_error": null,
-        "instructions": 251518385,
-        "cycles": 72289015
-      },
-      {
-        "wall_time_ns": 23896125,
-        "cpu_time_ns": 22406000,
-        "peak_rss_bytes": 17383424,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3146000,
-          "gc_max_pause_ns": 655000
-        },
-        "stats_error": null,
-        "instructions": 251512164,
-        "cycles": 71648381
-      },
-      {
-        "wall_time_ns": 24055167,
-        "cpu_time_ns": 22592000,
-        "peak_rss_bytes": 17367040,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3145000,
-          "gc_max_pause_ns": 656000
-        },
-        "stats_error": null,
-        "instructions": 251594843,
-        "cycles": 72245116
-      },
-      {
-        "wall_time_ns": 23951667,
-        "cpu_time_ns": 22489000,
-        "peak_rss_bytes": 17367040,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3153000,
-          "gc_max_pause_ns": 646000
-        },
-        "stats_error": null,
-        "instructions": 251674209,
-        "cycles": 71951214
-      },
-      {
-        "wall_time_ns": 24000875,
-        "cpu_time_ns": 22516000,
-        "peak_rss_bytes": 17367040,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3160000,
+          "gc_time_ns": 3123000,
           "gc_max_pause_ns": 654000
         },
         "stats_error": null,
-        "instructions": 251575539,
-        "cycles": 72012917
+        "instructions": 250783543,
+        "cycles": 71308614
       },
       {
-        "wall_time_ns": 23873625,
-        "cpu_time_ns": 22415000,
-        "peak_rss_bytes": 17383424,
+        "wall_time_ns": 24059708,
+        "cpu_time_ns": 22512000,
+        "peak_rss_bytes": 17301504,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3159000,
-          "gc_max_pause_ns": 648000
-        },
-        "stats_error": null,
-        "instructions": 251583574,
-        "cycles": 71610160
-      },
-      {
-        "wall_time_ns": 23952959,
-        "cpu_time_ns": 22488000,
-        "peak_rss_bytes": 17350656,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3140000,
-          "gc_max_pause_ns": 649000
-        },
-        "stats_error": null,
-        "instructions": 251640288,
-        "cycles": 71951473
-      },
-      {
-        "wall_time_ns": 25493542,
-        "cpu_time_ns": 23980000,
-        "peak_rss_bytes": 17334272,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3423000,
-          "gc_max_pause_ns": 706000
-        },
-        "stats_error": null,
-        "instructions": 251550798,
-        "cycles": 74458739
-      },
-      {
-        "wall_time_ns": 24038625,
-        "cpu_time_ns": 22555000,
-        "peak_rss_bytes": 17367040,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3154000,
-          "gc_max_pause_ns": 665000
-        },
-        "stats_error": null,
-        "instructions": 251605775,
-        "cycles": 72144524
-      },
-      {
-        "wall_time_ns": 23876583,
-        "cpu_time_ns": 22437000,
-        "peak_rss_bytes": 17350656,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3157000,
-          "gc_max_pause_ns": 650000
-        },
-        "stats_error": null,
-        "instructions": 251524836,
-        "cycles": 71704968
-      },
-      {
-        "wall_time_ns": 24051166,
-        "cpu_time_ns": 22565000,
-        "peak_rss_bytes": 17350656,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
           "gc_count": 12,
           "gc_time_ns": 3145000,
-          "gc_max_pause_ns": 656000
-        },
-        "stats_error": null,
-        "instructions": 251632623,
-        "cycles": 72132590
-      },
-      {
-        "wall_time_ns": 23796291,
-        "cpu_time_ns": 22365000,
-        "peak_rss_bytes": 17334272,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3131000,
-          "gc_max_pause_ns": 649000
-        },
-        "stats_error": null,
-        "instructions": 251504365,
-        "cycles": 71528257
-      },
-      {
-        "wall_time_ns": 24046708,
-        "cpu_time_ns": 22572000,
-        "peak_rss_bytes": 17367040,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3183000,
-          "gc_max_pause_ns": 662000
-        },
-        "stats_error": null,
-        "instructions": 251635249,
-        "cycles": 72199719
-      },
-      {
-        "wall_time_ns": 23926666,
-        "cpu_time_ns": 22480000,
-        "peak_rss_bytes": 17383424,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3166000,
-          "gc_max_pause_ns": 654000
-        },
-        "stats_error": null,
-        "instructions": 251609297,
-        "cycles": 71855996
-      },
-      {
-        "wall_time_ns": 24045125,
-        "cpu_time_ns": 22585000,
-        "peak_rss_bytes": 17350656,
-        "exit_code": 0,
-        "timed_out": false,
-        "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
-          "gc_count": 12,
-          "gc_time_ns": 3179000,
           "gc_max_pause_ns": 660000
         },
         "stats_error": null,
-        "instructions": 251610216,
-        "cycles": 72299833
+        "instructions": 250775090,
+        "cycles": 71759451
       },
       {
-        "wall_time_ns": 23908000,
-        "cpu_time_ns": 22441000,
-        "peak_rss_bytes": 17350656,
+        "wall_time_ns": 23930500,
+        "cpu_time_ns": 22432000,
+        "peak_rss_bytes": 17317888,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
           "gc_count": 12,
-          "gc_time_ns": 3167000,
+          "gc_time_ns": 3111000,
+          "gc_max_pause_ns": 646000
+        },
+        "stats_error": null,
+        "instructions": 250794727,
+        "cycles": 71400681
+      },
+      {
+        "wall_time_ns": 24261708,
+        "cpu_time_ns": 22675000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3180000,
+          "gc_max_pause_ns": 655000
+        },
+        "stats_error": null,
+        "instructions": 250995883,
+        "cycles": 72305877
+      },
+      {
+        "wall_time_ns": 23946875,
+        "cpu_time_ns": 22507000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3143000,
+          "gc_max_pause_ns": 655000
+        },
+        "stats_error": null,
+        "instructions": 251322441,
+        "cycles": 71691282
+      },
+      {
+        "wall_time_ns": 24308291,
+        "cpu_time_ns": 22830000,
+        "peak_rss_bytes": 17317888,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3170000,
+          "gc_max_pause_ns": 664000
+        },
+        "stats_error": null,
+        "instructions": 251305972,
+        "cycles": 72632239
+      },
+      {
+        "wall_time_ns": 24126625,
+        "cpu_time_ns": 22630000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3156000,
+          "gc_max_pause_ns": 659000
+        },
+        "stats_error": null,
+        "instructions": 251149738,
+        "cycles": 72044643
+      },
+      {
+        "wall_time_ns": 24150167,
+        "cpu_time_ns": 22574000,
+        "peak_rss_bytes": 17317888,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3131000,
           "gc_max_pause_ns": 657000
         },
         "stats_error": null,
-        "instructions": 251530854,
-        "cycles": 71709764
+        "instructions": 251193251,
+        "cycles": 71928758
       },
       {
-        "wall_time_ns": 23973542,
-        "cpu_time_ns": 22476000,
-        "peak_rss_bytes": 17367040,
+        "wall_time_ns": 23873416,
+        "cpu_time_ns": 22428000,
+        "peak_rss_bytes": 17334272,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6680736,
-          "allocated_bytes": 42628832,
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
           "gc_count": 12,
-          "gc_time_ns": 3137000,
-          "gc_max_pause_ns": 650000
+          "gc_time_ns": 3123000,
+          "gc_max_pause_ns": 653000
         },
         "stats_error": null,
-        "instructions": 251596536,
-        "cycles": 71837486
+        "instructions": 251233040,
+        "cycles": 71457714
+      },
+      {
+        "wall_time_ns": 24126375,
+        "cpu_time_ns": 22657000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3136000,
+          "gc_max_pause_ns": 652000
+        },
+        "stats_error": null,
+        "instructions": 250874328,
+        "cycles": 72226343
+      },
+      {
+        "wall_time_ns": 23957000,
+        "cpu_time_ns": 22484000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3138000,
+          "gc_max_pause_ns": 648000
+        },
+        "stats_error": null,
+        "instructions": 251043165,
+        "cycles": 71611568
+      },
+      {
+        "wall_time_ns": 24064542,
+        "cpu_time_ns": 22931000,
+        "peak_rss_bytes": 17317888,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3138000,
+          "gc_max_pause_ns": 666000
+        },
+        "stats_error": null,
+        "instructions": 250838227,
+        "cycles": 71996780
+      },
+      {
+        "wall_time_ns": 23990125,
+        "cpu_time_ns": 22474000,
+        "peak_rss_bytes": 17317888,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3148000,
+          "gc_max_pause_ns": 661000
+        },
+        "stats_error": null,
+        "instructions": 251022426,
+        "cycles": 71673814
+      },
+      {
+        "wall_time_ns": 24192333,
+        "cpu_time_ns": 22721000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3189000,
+          "gc_max_pause_ns": 665000
+        },
+        "stats_error": null,
+        "instructions": 251436193,
+        "cycles": 72326040
+      },
+      {
+        "wall_time_ns": 23963375,
+        "cpu_time_ns": 22521000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3175000,
+          "gc_max_pause_ns": 658000
+        },
+        "stats_error": null,
+        "instructions": 251266717,
+        "cycles": 71703327
+      },
+      {
+        "wall_time_ns": 24261875,
+        "cpu_time_ns": 22728000,
+        "peak_rss_bytes": 17317888,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3160000,
+          "gc_max_pause_ns": 659000
+        },
+        "stats_error": null,
+        "instructions": 251411374,
+        "cycles": 72432395
+      },
+      {
+        "wall_time_ns": 23992000,
+        "cpu_time_ns": 22528000,
+        "peak_rss_bytes": 17317888,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3170000,
+          "gc_max_pause_ns": 663000
+        },
+        "stats_error": null,
+        "instructions": 251092665,
+        "cycles": 71804774
+      },
+      {
+        "wall_time_ns": 28547875,
+        "cpu_time_ns": 26552000,
+        "peak_rss_bytes": 17301504,
+        "exit_code": 0,
+        "timed_out": false,
+        "runtime_stats": {
+          "peak_heap_bytes": 6612072,
+          "allocated_bytes": 42627312,
+          "gc_count": 12,
+          "gc_time_ns": 3732000,
+          "gc_max_pause_ns": 750000
+        },
+        "stats_error": null,
+        "instructions": 251249862,
+        "cycles": 81527037
       }
     ],
     "special": [
       {
-        "wall_time_ns": 25195041,
-        "cpu_time_ns": 23703000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 23467666,
+        "cpu_time_ns": 22002000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3290000,
-          "gc_max_pause_ns": 663000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2506000,
+          "gc_max_pause_ns": 352000
         },
         "stats_error": null,
-        "instructions": 257301801,
-        "cycles": 75775376
+        "instructions": 227713082,
+        "cycles": 70136166
       },
       {
-        "wall_time_ns": 25174708,
-        "cpu_time_ns": 23617000,
-        "peak_rss_bytes": 17072128,
+        "wall_time_ns": 23681000,
+        "cpu_time_ns": 22167000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3362000,
-          "gc_max_pause_ns": 677000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2531000,
+          "gc_max_pause_ns": 351000
         },
         "stats_error": null,
-        "instructions": 257110259,
-        "cycles": 75383149
+        "instructions": 227732224,
+        "cycles": 70569956
       },
       {
-        "wall_time_ns": 25202541,
-        "cpu_time_ns": 23717000,
-        "peak_rss_bytes": 17072128,
+        "wall_time_ns": 23548917,
+        "cpu_time_ns": 22090000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3317000,
-          "gc_max_pause_ns": 657000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2514000,
+          "gc_max_pause_ns": 347000
         },
         "stats_error": null,
-        "instructions": 257198194,
-        "cycles": 75886476
+        "instructions": 227801175,
+        "cycles": 70302846
       },
       {
-        "wall_time_ns": 24975667,
-        "cpu_time_ns": 23509000,
-        "peak_rss_bytes": 17088512,
+        "wall_time_ns": 23383833,
+        "cpu_time_ns": 22030000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3297000,
-          "gc_max_pause_ns": 665000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2504000,
+          "gc_max_pause_ns": 351000
         },
         "stats_error": null,
-        "instructions": 257182742,
-        "cycles": 75261008
+        "instructions": 227669385,
+        "cycles": 69669977
       },
       {
-        "wall_time_ns": 25190084,
-        "cpu_time_ns": 23711000,
-        "peak_rss_bytes": 17088512,
+        "wall_time_ns": 26075250,
+        "cpu_time_ns": 24297000,
+        "peak_rss_bytes": 16449536,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3317000,
-          "gc_max_pause_ns": 664000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2864000,
+          "gc_max_pause_ns": 422000
         },
         "stats_error": null,
-        "instructions": 257260884,
-        "cycles": 75909424
+        "instructions": 227913134,
+        "cycles": 75328576
       },
       {
-        "wall_time_ns": 24904917,
-        "cpu_time_ns": 23442000,
-        "peak_rss_bytes": 17121280,
+        "wall_time_ns": 23684416,
+        "cpu_time_ns": 22194000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3319000,
-          "gc_max_pause_ns": 656000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2540000,
+          "gc_max_pause_ns": 359000
         },
         "stats_error": null,
-        "instructions": 257201207,
-        "cycles": 75046085
+        "instructions": 227726248,
+        "cycles": 70585900
       },
       {
-        "wall_time_ns": 25191167,
-        "cpu_time_ns": 23677000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 23648375,
+        "cpu_time_ns": 22124000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3291000,
-          "gc_max_pause_ns": 661000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2509000,
+          "gc_max_pause_ns": 346000
         },
         "stats_error": null,
-        "instructions": 257239850,
-        "cycles": 75688626
+        "instructions": 228379032,
+        "cycles": 70462351
       },
       {
-        "wall_time_ns": 24994083,
-        "cpu_time_ns": 23506000,
-        "peak_rss_bytes": 17088512,
+        "wall_time_ns": 23485500,
+        "cpu_time_ns": 22048000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3319000,
-          "gc_max_pause_ns": 657000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2514000,
+          "gc_max_pause_ns": 345000
         },
         "stats_error": null,
-        "instructions": 257104795,
-        "cycles": 75146082
+        "instructions": 228147212,
+        "cycles": 70271033
       },
       {
-        "wall_time_ns": 25083542,
-        "cpu_time_ns": 23587000,
-        "peak_rss_bytes": 17088512,
+        "wall_time_ns": 23611167,
+        "cpu_time_ns": 22122000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3275000,
-          "gc_max_pause_ns": 671000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2544000,
+          "gc_max_pause_ns": 352000
         },
         "stats_error": null,
-        "instructions": 257196384,
-        "cycles": 75401954
+        "instructions": 228261799,
+        "cycles": 70474750
       },
       {
-        "wall_time_ns": 25007333,
-        "cpu_time_ns": 23532000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 23656459,
+        "cpu_time_ns": 22153000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3309000,
-          "gc_max_pause_ns": 670000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2546000,
+          "gc_max_pause_ns": 351000
         },
         "stats_error": null,
-        "instructions": 257188877,
-        "cycles": 75272253
+        "instructions": 228155370,
+        "cycles": 70569176
       },
       {
-        "wall_time_ns": 25788791,
-        "cpu_time_ns": 24235000,
-        "peak_rss_bytes": 17088512,
+        "wall_time_ns": 23709000,
+        "cpu_time_ns": 22177000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3284000,
-          "gc_max_pause_ns": 658000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2547000,
+          "gc_max_pause_ns": 364000
         },
         "stats_error": null,
-        "instructions": 257516805,
-        "cycles": 76773377
+        "instructions": 228141540,
+        "cycles": 70590863
       },
       {
-        "wall_time_ns": 25149584,
-        "cpu_time_ns": 23572000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 23389667,
+        "cpu_time_ns": 21942000,
+        "peak_rss_bytes": 16465920,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3304000,
-          "gc_max_pause_ns": 712000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2540000,
+          "gc_max_pause_ns": 359000
         },
         "stats_error": null,
-        "instructions": 257049167,
-        "cycles": 75381335
+        "instructions": 228117140,
+        "cycles": 69912460
       },
       {
-        "wall_time_ns": 25148167,
-        "cpu_time_ns": 23686000,
-        "peak_rss_bytes": 17121280,
+        "wall_time_ns": 23544083,
+        "cpu_time_ns": 22082000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3301000,
-          "gc_max_pause_ns": 665000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2543000,
+          "gc_max_pause_ns": 364000
         },
         "stats_error": null,
-        "instructions": 257272283,
-        "cycles": 75776236
+        "instructions": 227884866,
+        "cycles": 70342295
       },
       {
-        "wall_time_ns": 25017750,
-        "cpu_time_ns": 23570000,
-        "peak_rss_bytes": 17121280,
+        "wall_time_ns": 23475500,
+        "cpu_time_ns": 22031000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3332000,
-          "gc_max_pause_ns": 673000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2583000,
+          "gc_max_pause_ns": 369000
         },
         "stats_error": null,
-        "instructions": 257236808,
-        "cycles": 75457059
+        "instructions": 227900250,
+        "cycles": 70208025
       },
       {
-        "wall_time_ns": 25175458,
-        "cpu_time_ns": 23674000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 24681708,
+        "cpu_time_ns": 23101000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3313000,
-          "gc_max_pause_ns": 675000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2692000,
+          "gc_max_pause_ns": 413000
         },
         "stats_error": null,
-        "instructions": 257284884,
-        "cycles": 75682194
+        "instructions": 228828948,
+        "cycles": 72676993
       },
       {
-        "wall_time_ns": 25032250,
-        "cpu_time_ns": 23580000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 25005208,
+        "cpu_time_ns": 23530000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3310000,
-          "gc_max_pause_ns": 665000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2718000,
+          "gc_max_pause_ns": 387000
         },
         "stats_error": null,
-        "instructions": 257221250,
-        "cycles": 75416189
+        "instructions": 228144738,
+        "cycles": 72972054
       },
       {
-        "wall_time_ns": 25099083,
-        "cpu_time_ns": 23614000,
-        "peak_rss_bytes": 17072128,
+        "wall_time_ns": 23723583,
+        "cpu_time_ns": 22162000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3287000,
-          "gc_max_pause_ns": 660000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2544000,
+          "gc_max_pause_ns": 358000
         },
         "stats_error": null,
-        "instructions": 257184446,
-        "cycles": 75530066
+        "instructions": 228205669,
+        "cycles": 70453808
       },
       {
-        "wall_time_ns": 24948583,
-        "cpu_time_ns": 23508000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 23384458,
+        "cpu_time_ns": 21925000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3298000,
-          "gc_max_pause_ns": 670000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2526000,
+          "gc_max_pause_ns": 351000
         },
         "stats_error": null,
-        "instructions": 257142750,
-        "cycles": 75192106
+        "instructions": 228243242,
+        "cycles": 69828537
       },
       {
-        "wall_time_ns": 25161000,
-        "cpu_time_ns": 23680000,
-        "peak_rss_bytes": 17104896,
+        "wall_time_ns": 23535750,
+        "cpu_time_ns": 22021000,
+        "peak_rss_bytes": 16498688,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3302000,
-          "gc_max_pause_ns": 660000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2485000,
+          "gc_max_pause_ns": 347000
         },
         "stats_error": null,
-        "instructions": 257264750,
-        "cycles": 75756021
+        "instructions": 228062556,
+        "cycles": 69996114
       },
       {
-        "wall_time_ns": 24982333,
-        "cpu_time_ns": 23500000,
-        "peak_rss_bytes": 17088512,
+        "wall_time_ns": 24334917,
+        "cpu_time_ns": 22695000,
+        "peak_rss_bytes": 16482304,
         "exit_code": 0,
         "timed_out": false,
         "runtime_stats": {
-          "peak_heap_bytes": 6784984,
-          "allocated_bytes": 46744296,
-          "gc_count": 13,
-          "gc_time_ns": 3332000,
-          "gc_max_pause_ns": 685000
+          "peak_heap_bytes": 6233496,
+          "allocated_bytes": 41448752,
+          "gc_count": 11,
+          "gc_time_ns": 2639000,
+          "gc_max_pause_ns": 395000
         },
         "stats_error": null,
-        "instructions": 257260675,
-        "cycles": 75234525
+        "instructions": 228233384,
+        "cycles": 71424219
       }
     ]
   },
   "sizes": {
     "baseline": {
       "bytes": 9405608,
-      "sha256": "f1992d0e34d7097bcf5a186a424b65e18941ad620cca3c7caea32fb6402a06ee"
+      "sha256": "31fe7e83824e1db71f85b91582a8141697ae1f818eb7c52aa6349b4d4a81a1e4"
     },
     "special": {
-      "bytes": 10287448,
-      "sha256": "41e516d46190210c70be8dfe236afed8e66a0462ccc905b59387a2926b63893e"
+      "bytes": 9122648,
+      "sha256": "8b2099fcc1d4d92562891057288892bef3c026252e086520c5769a4fbf77d020"
     }
   },
   "medians": {
     "baseline": {
-      "wall_time_ns": 23963250.5,
-      "cpu_time_ns": 22499000.0,
-      "peak_rss_bytes": 17358848.0,
-      "instructions": 251589208.5,
-      "cycles": 71951343.5,
-      "peak_heap_bytes": 6680736.0,
-      "allocated_bytes": 42628832.0,
+      "wall_time_ns": 24041895.5,
+      "cpu_time_ns": 22536000.0,
+      "peak_rss_bytes": 17309696.0,
+      "instructions": 251067915.0,
+      "cycles": 71817696.5,
+      "peak_heap_bytes": 6612072.0,
+      "allocated_bytes": 42627312.0,
       "gc_count": 12.0,
-      "gc_time_ns": 3153500.0,
-      "gc_max_pause_ns": 655000.0
+      "gc_time_ns": 3144000.0,
+      "gc_max_pause_ns": 657500.0
     },
     "special": {
-      "wall_time_ns": 25123625.0,
-      "cpu_time_ns": 23600500.0,
-      "peak_rss_bytes": 17104896.0,
-      "instructions": 257211228.5,
-      "cycles": 75436624.0,
-      "peak_heap_bytes": 6784984.0,
-      "allocated_bytes": 46744296.0,
-      "gc_count": 13.0,
-      "gc_time_ns": 3306500.0,
-      "gc_max_pause_ns": 665000.0
+      "wall_time_ns": 23629771.0,
+      "cpu_time_ns": 22123000.0,
+      "peak_rss_bytes": 16482304.0,
+      "instructions": 228129340.0,
+      "cycles": 70458079.5,
+      "peak_heap_bytes": 6233496.0,
+      "allocated_bytes": 41448752.0,
+      "gc_count": 11.0,
+      "gc_time_ns": 2541500.0,
+      "gc_max_pause_ns": 355000.0
     }
   },
-  "date": "2026-10-20",
-  "flags": {
-    "baseline": [
-      "-O2",
-      "--target",
-      "apple-arm64"
-    ],
-    "special": [
-      "-O2",
-      "--super-specialise",
-      "--target",
-      "apple-arm64"
-    ]
-  },
-  "runtime": "default runtime from the same compiler build",
-  "binary_size": "file bytes as linked, without a separate strip step",
-  "compiler_commit": "b79d9c325983539619c67b226f9dfdc4442fccd2"
+  "date": "2026-10-21",
+  "compiler_commit": "a6ac517ec5aa23a45e774f0a545b84fc0c1749e1",
+  "main_commit": "e7984c55f"
 }
