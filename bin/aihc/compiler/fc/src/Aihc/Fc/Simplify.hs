@@ -84,7 +84,7 @@ import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLifte
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
-import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
+import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprMentionsAny, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (liftedRepName, wiredGhcTypes)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
@@ -642,9 +642,11 @@ isLambdaHead expr =
 -- continuation closures, such as the reads of the @Get@ monad, each hold
 -- every earlier value, so each value held twice doubles every closure.
 readFieldsInside :: Simpl -> Expr -> SimplM Expr
-readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
+readFieldsInside env body0 = fst <$> foldM readFields (body0, exprValueNames body0) (Map.toList (spLocals env))
   where
-    readFields body (name, application)
+    -- The names of the body change only when a read is added, so the set
+    -- is computed again only then.
+    readFields (body, used) (name, application)
       | Set.member name used,
         (ExVar con, args) <- collectSpine application,
         isConstructorName con,
@@ -658,10 +660,9 @@ readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
           binder <- freshLocal name
           let renamed = substExpr (Map.fromList (zip fields (map ExVar fresh))) body
               binders = zipWith Binder fresh fieldTypes
-          pure (ExCase (ExVar name) (Just (Binder binder conResult)) (Alt (AltData con) [] binders renamed NE.:| []))
-      | otherwise = pure body
-      where
-        used = exprValueNames body
+              result = ExCase (ExVar name) (Just (Binder binder conResult)) (Alt (AltData con) [] binders renamed NE.:| [])
+          pure (result, exprValueNames result)
+      | otherwise = pure (body, used)
     fieldVariable argument =
       case argument of
         ExVar var -> Just var
@@ -2980,11 +2981,26 @@ isReflexiveCoercion coercion =
 cancelsCoercion :: Coercion -> Coercion -> Bool
 cancelsCoercion left right = null (reduceCasts (castChain left <> castChain right))
 
--- | Whether the name occurs nowhere in the expression.
+-- | Whether the name occurs nowhere in the expression: 'occurrences'
+-- counts none. The walk stops at the first occurrence.
 unused :: Name -> Expr -> Bool
-unused name expr =
-  case occurrences name expr of
-    Occurrences count _ -> count == 0
+unused name = not . occurs
+  where
+    occurs expr =
+      case expr of
+        ExVar var -> var == name
+        ExLit {} -> False
+        ExApp function argument -> occurs function || occurs argument
+        ExTyApp function _ -> occurs function
+        ExLam _ body -> occurs body
+        ExTyLam _ body -> occurs body
+        ExLet bind body -> occurs (bindRhs bind) || occurs body
+        ExRec binds body -> any (occurs . bindRhs) binds || occurs body
+        ExCase scrutinee _ alternatives -> occurs scrutinee || any (occurs . altRhs) alternatives
+        ExAbsurd scrutinee _ -> occurs scrutinee
+        ExCast body coercion -> occurs body || name `elem` coercionVariables coercion
+        ExCoercion coercion -> name `elem` coercionVariables coercion
+        ExForeignCall _ _ arguments -> any occurs arguments
 
 -- | How many more value arguments a value takes before it does work.
 --
@@ -3369,29 +3385,35 @@ sinkGroup binds wrap body
 --
 -- The result tells whether the group entered a case or went away.
 sinkGroupWith :: SinkMode -> Set Name -> [Bind] -> (Expr -> Expr) -> Expr -> (Expr, Bool)
-sinkGroupWith mode rhsNames binds wrap = go
+sinkGroupWith mode rhsNames binds wrap expr0
+  | not (uses expr0) = (expr0, True)
+  | otherwise = go expr0
   where
     names = Set.fromList (map (binderName . bindBinder) binds)
-    uses expr = not (Set.disjoint names (exprValueNames expr))
+    uses = exprMentionsAny names
     safeBinder binder = Set.notMember (binderName binder) names && Set.notMember (binderName binder) rhsNames
     -- The moved expression, and whether the group entered a case or
-    -- went away.
-    go expr
+    -- went away. The expression uses the group. A let or a recursive
+    -- group that the move passes does not use it in its right-hand sides,
+    -- so the body after it uses the group too, and the walk does not test
+    -- the body again.
+    go expr =
+      case expr of
+        ExLet inner rest
+          | safeBinder (bindBinder inner),
+            not (uses (bindRhs inner)) ->
+              ExLet inner `first` go rest
+        ExRec inners rest
+          | all (safeBinder . bindBinder) inners,
+            not (any (uses . bindRhs) inners) ->
+              ExRec inners `first` go rest
+        ExCase scrutinee binder alternatives
+          | movable expr ->
+              (ExCase scrutinee binder (fmap (\alternative -> alternative {altRhs = fst (goAlternative (altRhs alternative))}) alternatives), True)
+        _ -> (wrap expr, False)
+    goAlternative expr
       | not (uses expr) = (expr, True)
-      | otherwise =
-          case expr of
-            ExLet inner rest
-              | safeBinder (bindBinder inner),
-                not (uses (bindRhs inner)) ->
-                  ExLet inner `first` go rest
-            ExRec inners rest
-              | all (safeBinder . bindBinder) inners,
-                not (any (uses . bindRhs) inners) ->
-                  ExRec inners `first` go rest
-            ExCase scrutinee binder alternatives
-              | movable expr ->
-                  (ExCase scrutinee binder (fmap (\alternative -> alternative {altRhs = fst (go (altRhs alternative))}) alternatives), True)
-            _ -> (wrap expr, False)
+      | otherwise = go expr
     -- Whether the group can enter a case.
     movable expr =
       case expr of
@@ -3404,19 +3426,19 @@ sinkGroupWith mode rhsNames binds wrap = go
               OneAlternative -> length (filter (uses . altRhs) alternatives) == 1
         _ -> False
     -- Whether a path through the expression does not use the group.
-    avoids expr
-      | not (uses expr) = True
-      | otherwise =
-          case expr of
-            ExLet inner rest
-              | safeBinder (bindBinder inner),
-                not (uses (bindRhs inner)) ->
-                  avoids rest
-            ExRec inners rest
-              | all (safeBinder . bindBinder) inners,
-                not (any (uses . bindRhs) inners) ->
-                  avoids rest
-            _ -> movable expr
+    avoids expr = not (uses expr) || avoidsUsed expr
+    -- The same for an expression that uses the group.
+    avoidsUsed expr =
+      case expr of
+        ExLet inner rest
+          | safeBinder (bindBinder inner),
+            not (uses (bindRhs inner)) ->
+              avoidsUsed rest
+        ExRec inners rest
+          | all (safeBinder . bindBinder) inners,
+            not (any (uses . bindRhs) inners) ->
+              avoidsUsed rest
+        _ -> movable expr
 
 -- | Accept a growth of the program: always when nothing grows, and in
 -- budget mode while the allowance and the site limit permit it.
