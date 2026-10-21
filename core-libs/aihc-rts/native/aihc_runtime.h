@@ -186,6 +186,11 @@ struct AihcInfo {
      table. Thus the table always gives the correct value. On 64-bit targets
      the byte uses padding, so the table stays 48 bytes. */
   uint8_t needs_eval;
+  /* The index of a constructor in its data declaration, and zero for every
+     other kind. A case with many alternatives selects its alternative from
+     this field. The field uses padding, so the table stays 48 bytes on a
+     64-bit target and 28 bytes on wasm32. */
+  uint16_t constructor_index;
 };
 
 struct AihcValue {

@@ -78,7 +78,7 @@ forwardedProgram = forwardedProgramWith []
 forwardedProgramWith :: [GrinFunction] -> GrinProgram
 forwardedProgramWith extra =
   GrinProgram
-    { grinConstructors = [pubConstructor "Unit" []],
+    { grinConstructors = [pubConstructor "Unit" 0 []],
       grinPrimitives = [],
       grinForeignCalls = [],
       grinGlobals = [pubGlobal "unit" (GrinNode (GrinConstructor "Unit" 0) [])],
@@ -175,7 +175,7 @@ assertCpsLint expected sourceProgram =
 program :: Int -> GrinProgram
 program fieldCount =
   GrinProgram
-    { grinConstructors = [pubConstructor "Unit" []],
+    { grinConstructors = [pubConstructor "Unit" 0 []],
       grinPrimitives = [],
       grinForeignCalls = [],
       grinGlobals = [pubGlobal "unit" (GrinNode (GrinConstructor "Unit" 0) [])],

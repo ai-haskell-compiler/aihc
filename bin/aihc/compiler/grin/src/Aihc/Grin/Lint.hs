@@ -47,6 +47,10 @@ data GrinLintError
   | GrinLintUnknownForeignCall !Text
   | GrinLintForeignCallDescriptorMismatch !Text
   | GrinLintConstructorLayout !Text ![GrinRep] ![GrinRep]
+  | -- | A data alternative gives a constructor index that is not the index
+    -- that the program declares for the constructor: the constructor, the
+    -- declared index, and the index of the alternative.
+    GrinLintConstructorIndex !Text !Int !Int
   | -- | An application supplies no argument group, or more groups than
     -- 'grinApplyGroupLimit' permits.
     GrinLintApplyGroupCount !Int
@@ -67,6 +71,7 @@ data LintEnv = LintEnv
     lintFunctionParameterReps :: !(Map FunctionName [GrinRep]),
     lintPrimitiveArities :: !(Map Text Int),
     lintConstructorLayouts :: !(Map Text [[GrinRep]]),
+    lintConstructorIndices :: !(Map Text Int),
     lintForeignCalls :: !(Map Text GrinForeignCall),
     lintForwardedResult :: !Bool
   }
@@ -225,6 +230,7 @@ lintProgramWith continuations frames program =
               ],
           lintPrimitiveArities = Map.fromList [(grinVarName var, arity) | (var, arity) <- grinPrimitives program],
           lintConstructorLayouts = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program],
+          lintConstructorIndices = Map.fromList [(grinConstructorName c, grinConstructorIndex c) | c <- grinConstructors program],
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
     -- The number of values that a thunk or closure node must supply.
@@ -428,7 +434,17 @@ bindRepresentationErrors env vars valueExpr =
 
 lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
 lintAlt env bound alt =
-  lintExpr env (Set.fromList (grinAltBinders alt) <> bound) (grinAltRhs alt)
+  indexErrors <> lintExpr env (Set.fromList (grinAltBinders alt) <> bound) (grinAltRhs alt)
+  where
+    -- An imported constructor has no declaration in the program, and its
+    -- index comes from the imports.
+    indexErrors =
+      case grinAltCon alt of
+        GrinDataAlt name index
+          | Just declared <- Map.lookup name (lintConstructorIndices env),
+            declared /= index ->
+              [GrinLintConstructorIndex name declared index]
+        _ -> []
 
 lintArgumentGroups :: Set GrinVar -> [[GrinValue]] -> [GrinLintError]
 lintArgumentGroups bound groups =

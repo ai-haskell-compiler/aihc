@@ -10,7 +10,9 @@ extern func @aihc_gc_allocate_pinned(ptr, i64) -> ptr cc c
 export data @aihc_byte_array_info align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
   i8 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
-  i8 @AIHC_NEEDS_EVAL_NONE
+  i8 @AIHC_NEEDS_EVAL_NONE,
+  i8 0,                   ; padding
+  i16 0                   ; constructor_index
 }
 
 ; unsafeFreezeByteArray# gives a byte array this table, and
@@ -21,7 +23,9 @@ export data @aihc_byte_array_info align 8 = {
 export data @aihc_frozen_byte_array_info align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
   i8 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
-  i8 @AIHC_NEEDS_EVAL_NONE
+  i8 @AIHC_NEEDS_EVAL_NONE,
+  i8 0,                   ; padding
+  i16 0                   ; constructor_index
 }
 
 extern func @aihc_fail(ptr) cc c

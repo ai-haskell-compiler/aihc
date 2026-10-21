@@ -190,8 +190,10 @@ arm64Backend =
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
          in pure (setup, BranchTest (\label -> pure [branchWhen test label]) (\label -> pure [branchUnless test label])),
-      nbCompareAndBranchEqual = \ctx ty register value label ->
-        compareWith ctx ty False register (OperandLiteral (LitInt value)) <> [arm64Instruction (ArmBCond ArmEq label)],
+      nbCompareAndBranches = \ctx ty register value branches ->
+        compareWith ctx ty False register (OperandLiteral (LitInt value))
+          <> [arm64Instruction (ArmBCond (switchCondition op) label) | (op, label) <- branches],
+      nbBranchTable = Just branchTable,
       nbCReturnFloat = \convention resultTypes ->
         case (convention, resultTypes) of
           (CConvention, [ty]) | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) 0 X0)]
@@ -582,6 +584,34 @@ conditionTest ctx fused condition =
        in (loads, TestNonZero register)
   where
     isZero operand = operand == OperandLiteral (LitInt 0)
+
+-- | The dispatch of a branch table of @b@ instructions, four bytes each:
+-- subtract the value of the first slot, go to the no-match label above the
+-- last slot, and branch to the address of the slot. The unsigned compare
+-- also sends a value below the first slot to the no-match label.
+branchTable :: Ctx Arm64Register -> Type -> Arm64Register -> Integer -> Int -> Name -> Name -> Maybe [Arm64Statement]
+branchTable ctx ty register low slots noMatch table
+  | low < 0 || low >= 4096 = Nothing
+  | otherwise =
+      Just
+        ( [arm64Instruction (ArmSub scratchLeft register (Arm64ImmediateValue low)) | low /= 0]
+            <> compareWith ctx ty False index (OperandLiteral (LitInt (toInteger slots - 1)))
+            <> [ arm64Instruction (ArmBCond ArmHi noMatch),
+                 arm64Instruction (ArmAdr scratchRight table),
+                 arm64Instruction (ArmAddShifted scratchRight scratchRight index 2),
+                 arm64Instruction (ArmBr scratchRight)
+               ]
+        )
+  where
+    index = if low == 0 then register else scratchLeft
+
+-- | The condition of one branch of a switch test. See 'nbCompareAndBranches'.
+switchCondition :: CompareOp -> Arm64Condition
+switchCondition op =
+  case op of
+    LtU -> ArmCc
+    GtU -> ArmHi
+    _ -> ArmEq
 
 compareWith :: Ctx Arm64Register -> Type -> Bool -> Arm64Register -> Operand -> [Arm64Statement]
 compareWith ctx ty signed left right =

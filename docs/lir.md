@@ -336,10 +336,11 @@ is the address of its info table. GC-GRIN emits one info table per object kind
 as a read-only data object, so every backend receives the same layout and emits
 it as bytes. No backend computes an info table of its own.
 
-An info table is five word-wide fields followed by five byte-wide fields. A
+An info table is five word-wide fields followed by five byte-wide fields,
+one byte of padding, and one `i16` field. A
 pointer field is `ptr` and a code field is `code`; a count or a kind is an
 `i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
-five words plus `j`, and the table is aligned to the word size, so the same
+five words plus `j`, the `i16` field at offset five words plus six, and the table is aligned to the word size, so the same
 text suits every target. The table is 48 bytes on a 64-bit target and 28
 bytes on wasm32. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
 It reads `object_kind` at `[%header + @AIHC_INFO_KIND_OFFSET]`. A field without a value is `ptr null`, `code null`,
@@ -347,7 +348,7 @@ or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `identity` | `ptr` | The saturated constructor table of a constructor. Case code compares this field. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
+| `identity` | `ptr` | The saturated constructor table of a constructor. A case with few constructor alternatives compares this field. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
@@ -357,6 +358,7 @@ or `0`. The fields are, in order:
 | `frame_kind` | `i8` | The continuation frame kind for stack unwinding. |
 | `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
 | `needs_eval` | `i8` | `@AIHC_NEEDS_EVAL_FOLLOW` (`2`) for an indirection, `@AIHC_NEEDS_EVAL_ENTER` (`1`) for a thunk and a blackhole, and `@AIHC_NEEDS_EVAL_NONE` (`0`) for every other kind. The inline evaluation check reads only this field, at `[%header + @AIHC_INFO_NEEDS_EVAL_OFFSET]`. |
+| `constructor_index` | `i16` | The index of a constructor in its data declaration, from zero, and `0` for every other object. Both tables of one constructor have the same index. A case with four constructor alternatives or more loads this field at `[%header + @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET]` and selects its alternative with a `switch`. A case with fewer alternatives compares the `identity` field. The lowering rejects a data type with more than 65536 constructors. |
 
 The `backend_entry` field has the signature
 `(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()` with the context of the

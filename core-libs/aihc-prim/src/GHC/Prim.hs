@@ -240,6 +240,8 @@ module GHC.Prim
     subIntC#,
     subWordC#,
     tagToEnum#,
+    dataToTagSmall#,
+    dataToTagLarge#,
     State#,
     StableName#,
     StablePtr#,
@@ -645,6 +647,15 @@ foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
 -- type must be an enumeration type constructor, and the tag must be in
 -- range; the compiler turns a use into a case over the tag.
 foreign import prim tagToEnum# :: forall a. Int# -> a
+
+-- | Give the zero-based index of the constructor of a value in its data
+-- declaration. The compiler evaluates the argument first, and then reads
+-- the index from the info table of the value. The two names have the same
+-- behavior: GHC selects one of them from the number of constructors.
+foreign import prim dataToTagSmall# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). a -> Int#
+
+-- | See 'dataToTagSmall#'.
+foreign import prim dataToTagLarge# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). a -> Int#
 
 infixr 0 `seq`
 

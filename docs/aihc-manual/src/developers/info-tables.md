@@ -28,6 +28,7 @@ Each info table contains these fields:
 | `frame_kind` | Identifies a continuation frame for stack unwind operations. |
 | `object_kind` | Identifies a node, closure, thunk, partial constructor, or special run-time object. |
 | `needs_eval` | Is `1` for a thunk, `2` for an indirection, and `0` for a value. A thunk under evaluation keeps the value `1`. |
+| `constructor_index` | Gives the index of a constructor in its data declaration, from zero. It is `0` for other objects. Two bytes: a data type has at most 65536 constructors. |
 
 The garbage collector uses `field_count` and `field_is_pointer` to find managed pointers.
 It reads only the first `field_count` bytes of the map.
@@ -35,6 +36,8 @@ The application code uses `remaining_arity` and `next` to apply one source argum
 The inline evaluation check uses only `needs_eval` to find a value or an indirection.
 The run-time evaluation code uses `object_kind` and `backend_entry` to enter an object.
 Exception code uses `frame_kind` to identify continuation frames.
+A case with four constructor alternatives or more uses `constructor_index` to select an alternative.
+A case with fewer alternatives compares `identity` with each constructor table.
 
 One source argument can use more than one machine field.
 For this reason, two adjacent tables can have field counts that differ by more than one.

@@ -319,7 +319,10 @@ data RuntimeInfo = RuntimeInfo
     infoEnter :: !(Maybe RuntimeEnter),
     infoFrameKind :: !(Maybe ContinuationFrameKind),
     infoObjectKind :: !Int,
-    infoSrt :: !(Maybe Symbol)
+    infoSrt :: !(Maybe Symbol),
+    -- | The index of a constructor in its data declaration, and zero for
+    -- every other object.
+    infoConstructorIndex :: !Int
   }
 
 -- | Function bodies are separate from the shared conversion metadata.
@@ -594,6 +597,11 @@ lowerEnvironment options gcProgram =
       [ (grinConstructorName constructor, grinConstructorLayouts constructor)
       | constructor <- grinConstructors program
       ]
+    constructorIndices =
+      Map.fromList
+        [ (grinConstructorName constructor, grinConstructorIndex constructor)
+        | constructor <- grinConstructors program
+        ]
     -- Only another unit that can name a constructor needs its tables by
     -- name. A whole program makes every constructor private.
     constructorLinkage =
@@ -637,7 +645,8 @@ lowerEnvironment options gcProgram =
               infoEnter = Nothing,
               infoFrameKind = Nothing,
               infoObjectKind = runtimeInfoKeyObjectKind key,
-              infoSrt = Nothing
+              infoSrt = Nothing,
+              infoConstructorIndex = Map.findWithDefault 0 name constructorIndices
             }
         )
       | (name, layouts) <- constructorLayouts,
@@ -666,7 +675,8 @@ lowerEnvironment options gcProgram =
               infoEnter = if name `Set.member` forwardingFunctions then Nothing else runtimeEnter target name key,
               infoFrameKind = Map.lookup name continuationFrames,
               infoObjectKind = runtimeInfoKeyObjectKind key,
-              infoSrt = Map.lookup name srtSymbols
+              infoSrt = Map.lookup name srtSymbols,
+              infoConstructorIndex = 0
             }
         )
       | (key, symbol) <- Map.toAscList infoSymbols,
@@ -949,6 +959,19 @@ loadInfoByte base header index = do
   let offset = toInteger (lowerWordSize target * infoWordFieldCount + index)
   value <- emitValue base I8 (LoadInvariant I8 (byteAddress header offset) (byteAlignment 1))
   emitValue base I64 (Convert ZExt I8 (typedOperand value) I64)
+
+-- | The constructor index of an info table. It follows the byte fields
+-- and one byte of padding. See 'infoConstructorIndexOffset'.
+loadInfoConstructorIndex :: Operand -> LowerM Typed
+loadInfoConstructorIndex header = do
+  target <- targetM
+  value <- emitValue "constructor_index" I16 (LoadInvariant I16 (byteAddress header (toInteger (infoConstructorIndexOffset target))) (byteAlignment 2))
+  emitValue "constructor_index" I64 (Convert ZExt I16 (typedOperand value) I64)
+
+-- | The byte offset of the constructor index in an info table: after the
+-- five word fields, the five byte fields, and one byte of padding.
+infoConstructorIndexOffset :: LowerTarget -> Int
+infoConstructorIndexOffset target = lowerWordSize target * infoWordFieldCount + infoByteFieldCount + 1
 
 -- | A @code@ field of an info table.
 loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
@@ -1344,6 +1367,8 @@ lowerInfo info = do
     failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> unSymbol (infoSymbol info)))
   when (infoRemainingArity info > infoByteFieldLimit) $
     failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
+  when (infoConstructorIndex info > infoConstructorIndexLimit) $
+    failWith (LowerUnsupportedValue ("a data type with more than 65536 constructors: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
   entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
@@ -1363,7 +1388,9 @@ lowerInfo info = do
                 byte (infoRemainingArity info),
                 byte (continuationFrameKindCode (infoFrameKind info)),
                 byte (infoObjectKind info),
-                DataInt I8 (objectKindNeedsEval (infoObjectKind info))
+                DataInt I8 (objectKindNeedsEval (infoObjectKind info)),
+                DataInt I8 0,
+                DataInt I16 (toInteger (infoConstructorIndex info))
               ]
           }
     )
@@ -1474,7 +1501,8 @@ continuationInfoItems spec = lowerInfo info
                 },
           infoFrameKind = Just (continuationFrame spec),
           infoObjectKind = runtimeObjectClosure,
-          infoSrt = Nothing
+          infoSrt = Nothing,
+          infoConstructorIndex = 0
         }
     -- Info tables carry pointer bitmaps, so recover a representation from
     -- the Lir type.
@@ -2710,6 +2738,14 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           operand <- word value
           result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt mask)))
           bind [result]
+    -- The argument is an evaluated value, so its info table is the one of
+    -- its constructor, and the table holds the constructor index.
+    (_, [value])
+      | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] -> do
+          object <- pointerValue ctx env value
+          header <- loadObjectInfo HeapRegion object
+          index <- loadInfoConstructorIndex (typedOperand header)
+          bind [index]
     ("not#", [value]) -> do
       operand <- word value
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
@@ -3655,15 +3691,24 @@ compileCase ctx env scrutinee binder alternatives = do
   if isPointer
     then do
       header <- loadObjectInfo HeapRegion (typedOperand typed)
-      identity <- loadInfoPointer "identity" (typedOperand header) 0
-      checks <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
+      constructors <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
         case grinAltCon alternative of
-          GrinDataAlt name -> do
+          GrinDataAlt name index -> pure (name, index, label)
+          _ -> failWith (LowerUnsupportedExpression "literal case on a lifted value")
+      if length constructors >= constructorSwitchThreshold
+        then do
+          let indices = [index | (_, index, _) <- constructors]
+          when (Set.size (Set.fromList indices) /= length indices) $
+            failWith (LowerUnsupportedExpression "two alternatives of one case give the same constructor index")
+          index <- loadInfoConstructorIndex (typedOperand header)
+          terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
+        else do
+          identity <- loadInfoPointer "identity" (typedOperand header) 0
+          checks <- forM constructors $ \(name, _, label) -> do
             let symbol = constructorInfoSymbol name 0
             unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
             pure (symbol, label)
-          _ -> failWith (LowerUnsupportedExpression "literal case on a lifted value")
-      pointerChecks identity checks fallback
+          pointerChecks identity checks fallback
     else do
       wordValue <- coerce I64 typed
       cases <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
@@ -3701,7 +3746,7 @@ compileCase ctx env scrutinee binder alternatives = do
           | otherwise = switchCase : go (Set.insert (switchCaseValue switchCase) seen) rest
     bindAlternative alternative typed env' =
       case grinAltCon alternative of
-        GrinDataAlt _ -> do
+        GrinDataAlt {} -> do
           let live = freeExprVars (grinAltRhs alternative)
           bound <- forM [(index, field) | (index, field) <- zip [0 :: Int ..] (grinAltBinders alternative), field `Set.member` live] $ \(index, field) -> do
             let ty = repType (grinVarRuntimeRep field)
@@ -3714,6 +3759,14 @@ compileCase ctx env scrutinee binder alternatives = do
             value <- coerceTo (repType (grinVarRuntimeRep field)) typed
             pure (field, value)
           pure (Map.fromList bound `Map.union` env')
+
+-- | A case with this many constructor alternatives or more selects its
+-- alternative from the constructor index of the info table. A case with
+-- fewer compares the identity of the info table with each constructor.
+-- An identity compare loads the address of the constructor table, and the
+-- index load is one load for the full case.
+constructorSwitchThreshold :: Int
+constructorSwitchThreshold = 4
 
 -- Executable entry
 
@@ -4154,6 +4207,14 @@ infoRemainingArityByte = 1
 infoFrameKindByte = 2
 infoObjectKindByte = 3
 infoNeedsEvalByte = 4
+
+-- | The number of byte fields of an info table.
+infoByteFieldCount :: Int
+infoByteFieldCount = 5
+
+-- | The largest constructor index that an info table holds.
+infoConstructorIndexLimit :: Int
+infoConstructorIndexLimit = 65535
 
 -- | The needs_eval byte of an info table: 'needsEvalFollow' for an
 -- indirection, 'needsEvalEnter' for a thunk and a blackhole, and 0 for a

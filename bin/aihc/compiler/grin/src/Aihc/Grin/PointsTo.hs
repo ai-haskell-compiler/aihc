@@ -977,6 +977,10 @@ generateExpr solver varsRef results expression =
         _
           | name == "raise#" || name == "raiseIO#" ->
               forM_ (catMaybes argumentNodes) (\exception -> addEdge solver exception raisedNode)
+        -- The constructor index of an evaluated value comes from its info
+        -- table. The call does not keep, enter, or change the value.
+        _
+          | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] -> unknownResults solver results
         _ -> unknownCall arguments
     GrinApply _ function arguments -> do
       vars <- readSTRef varsRef
@@ -994,7 +998,7 @@ generateExpr solver varsRef results expression =
       forM_ (zip alternatives alternativeSlots) $ \(alternative, slots) ->
         when (grinAltCon alternative == GrinDefaultAlt) $ mapM_ (flowValue solver vars scrutinee) slots
       when (pointerKind (grinValueRuntimeRep scrutinee) /= NotPointer) $ do
-        let dataSlots = [(name, slots) | (alternative, slots) <- zip alternatives alternativeSlots, GrinDataAlt name <- [grinAltCon alternative]]
+        let dataSlots = [(name, slots) | (alternative, slots) <- zip alternatives alternativeSlots, GrinDataAlt name _ <- [grinAltCon alternative]]
             byConstructor = Map.fromListWith (\_ first -> first) dataSlots
         withValue scrutinee (\node -> addTrigger solver node (TriggerCase byConstructor (concatMap snd dataSlots)))
       forM_ alternatives $ \alternative -> generateExpr solver varsRef results (grinAltRhs alternative)
@@ -1315,11 +1319,11 @@ rewriteExpr analysis declared vars = go
         forM (Map.keys (nodesOf location)) $ \case
           GrinConstructor name 0 -> Just name
           _ -> Nothing
-      let explicit = Set.fromList [name | GrinDataAlt name <- map grinAltCon alternatives]
+      let explicit = Set.fromList [name | GrinDataAlt name _ <- map grinAltCon alternatives]
           nameSet = Set.fromList names
           live alternative =
             case grinAltCon alternative of
-              GrinDataAlt name -> Set.member name nameSet
+              GrinDataAlt name _ -> Set.member name nameSet
               GrinDefaultAlt -> not (Set.null (nameSet `Set.difference` explicit))
               GrinLitAlt {} -> True
           kept = filter live alternatives

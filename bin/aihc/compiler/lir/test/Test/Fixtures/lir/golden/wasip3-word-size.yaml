@@ -29,7 +29,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 4 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
+  data @aihc_c_aihc_entry_Box_0 align 4 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_15: ptr, %hp_limit_16: ptr, %sp_17: ptr, %sp_limit_18: ptr, %value_19: ptr, %code_20: code, %words_21: i64, %srt_22: ptr) {
   entry:

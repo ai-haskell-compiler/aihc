@@ -417,6 +417,11 @@ primitiveTest gen test =
 -- | The @compare@ equations. A lifted field compares with @compare@ of its
 -- instance; an unlifted field compares with the less-than and equality
 -- operators of its type, as GHC does.
+--
+-- A datatype with many constructors compares the constructor indices of two
+-- different constructors, as GHC does. A case with one alternative for each
+-- earlier constructor would make the code quadratic in the number of
+-- constructors. An enumeration only compares the indices.
 ordItems :: Gen -> [(DataConInfo, [TcType])] -> TcM [InstanceDeclItem]
 ordItems gen constructors =
   case constructors of
@@ -429,6 +434,24 @@ ordItems gen constructors =
             "compare"
             [simpleMatch gen [constructorPattern gen constructor (map Just lefts), constructorPattern gen constructor (map Just rights)] (compareFields (zip3 lefts rights fieldTypes))]
         ]
+    _
+      | useIndices,
+        all (null . dciFields . fst) constructors -> do
+          left <- freshLocal gen "x"
+          right <- freshLocal gen "y"
+          leftIndex <- freshLocal gen "i"
+          rightIndex <- freshLocal gen "j"
+          let less first second = applyN gen (referenceExpr gen derivingIntLess) [localExpr gen first, localExpr gen second]
+              body =
+                bindIndex leftIndex left $
+                  bindIndex rightIndex right $
+                    caseOf
+                      gen
+                      (less leftIndex rightIndex)
+                      [ (intHashPattern gen 0, caseOf gen (less rightIndex leftIndex) [(intHashPattern gen 0, referenceExpr gen derivingEQ), (atPattern gen PWildcard, referenceExpr gen derivingGT)]),
+                        (atPattern gen PWildcard, referenceExpr gen derivingLT)
+                      ]
+          pure [methodBind gen "compare" [simpleMatch gen [atPattern gen (PVar left), atPattern gen (PVar right)] body]]
     _ -> do
       left <- freshLocal gen "x"
       right <- freshLocal gen "y"
@@ -436,6 +459,11 @@ ordItems gen constructors =
       pure [methodBind gen "compare" [simpleMatch gen [atPattern gen (PVar left), atPattern gen (PVar right)] (caseOf gen (localExpr gen left) alternatives)]]
   where
     lastIndex = length constructors - 1
+    -- The threshold is the one at which a case selects its alternative from
+    -- the constructor index.
+    useIndices = length constructors >= 4
+    constructorIndex value = applyN gen (referenceExpr gen derivingDataToTag) [localExpr gen value]
+    bindIndex index value body = caseOf gen (constructorIndex value) [(atPattern gen (PVar index), body)]
     -- The constructors before this one compare greater, the same
     -- constructor compares its fields, and every later one compares less.
     outerAlternative right (index, (constructor, fieldTypes)) = do
@@ -447,7 +475,20 @@ ordItems gen constructors =
             ]
           same = (constructorPattern gen constructor (map Just rights), compareFields (zip3 lefts rights fieldTypes))
           later = [(atPattern gen PWildcard, referenceExpr gen derivingLT) | index < lastIndex]
-      pure (constructorPattern gen constructor (map Just lefts), caseOf gen (localExpr gen right) (earlier <> [same] <> later))
+          -- The other constructor is earlier when its index is less.
+          different =
+            ( atPattern gen PWildcard,
+              caseOf
+                gen
+                (applyN gen (referenceExpr gen derivingIntLess) [constructorIndex right, intHashLiteral gen (toInteger index)])
+                [ (intHashPattern gen 0, referenceExpr gen derivingLT),
+                  (atPattern gen PWildcard, referenceExpr gen derivingGT)
+                ]
+            )
+          others
+            | useIndices && index > 0 && index < lastIndex = [different]
+            | otherwise = earlier <> later
+      pure (constructorPattern gen constructor (map Just lefts), caseOf gen (localExpr gen right) (same : others))
     compareFields fields =
       case fields of
         [] -> referenceExpr gen derivingEQ
@@ -716,11 +757,10 @@ boundedItems gen constructors
 -- could not write. The constructors are numbered from zero in declaration
 -- order, which is the numbering 'Bounded' and 'Ord' already agree with.
 --
--- The tag is an unboxed literal on both sides, so neither direction needs a
--- numeric class: @fromEnum@ answers one boxed literal per constructor, and
--- @toEnum@ switches on the unboxed tag. Both are one equation group per
--- constructor rather than a chain of comparisons, so a @200@-constructor
--- enumeration costs a single switch.
+-- The tag is unboxed on both sides, so neither direction needs a numeric
+-- class: @fromEnum@ boxes the constructor index of the value, and @toEnum@
+-- switches on the unboxed tag. Neither is a chain of comparisons, so a
+-- @200@-constructor enumeration costs at most a single switch.
 --
 -- An argument outside the enumeration matches no equation, which is the
 -- runtime failure the compiler already reports for a case without a
@@ -738,6 +778,7 @@ enumItems gen constructors
     all (null . dciFields) constructors = do
       let lastConstructor = last constructors
       toEnumTag <- freshLocal gen "t"
+      fromEnumValue <- freshLocal gen "x"
       fromValue <- freshLocal gen "x"
       thenFirst <- freshLocal gen "x"
       thenSecond <- freshLocal gen "y"
@@ -746,8 +787,10 @@ enumItems gen constructors
             ( [ methodBind
                   gen
                   "fromEnum"
-                  [ simpleMatch gen [constructorPattern gen constructor []] (intLiteral gen index)
-                  | (index, constructor) <- indexed
+                  [ simpleMatch
+                      gen
+                      [atPattern gen (PVar fromEnumValue)]
+                      (applyN gen (referenceExpr gen derivingIntCon) [applyN gen (referenceExpr gen derivingDataToTag) [localExpr gen fromEnumValue]])
                   ],
                 methodBind
                   gen
@@ -1672,11 +1715,11 @@ referencePattern gen select = atPattern gen (PCon (referenceSyntax gen select) [
 -- | A boxed @Int@ literal built from a primitive literal, so the value
 -- needs no numeric class.
 intLiteral :: Gen -> Integer -> Expr
-intLiteral gen value =
-  at gen $
-    EApp
-      (referenceExpr gen derivingIntCon)
-      (at gen (EAnn (primitiveIntTypeAnnotation gen) (EInt value TIntHash (T.pack (show value) <> "#"))))
+intLiteral gen value = at gen (EApp (referenceExpr gen derivingIntCon) (intHashLiteral gen value))
+
+-- | An unboxed @Int#@ literal.
+intHashLiteral :: Gen -> Integer -> Expr
+intHashLiteral gen value = at gen (EAnn (primitiveIntTypeAnnotation gen) (EInt value TIntHash (T.pack (show value) <> "#")))
 
 -- | An unboxed @Int#@ literal pattern, which matches a tag without the
 -- @Eq@ and @Num@ instances an overloaded literal pattern would ask for.

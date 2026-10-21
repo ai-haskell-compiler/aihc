@@ -39,7 +39,7 @@ module Aihc.Fc.Fold
   )
 where
 
-import Aihc.Fc.Name (nameText)
+import Aihc.Fc.Name (Sort (..), nameSort, nameText)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..), reduceType)
 import Control.Applicative ((<|>))
@@ -47,6 +47,7 @@ import Control.Monad (guard)
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.ByteString qualified as ByteString
 import Data.Char qualified as Char
+import Data.List (elemIndex)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -339,6 +340,38 @@ foldForeignCall env call types arguments =
     <|> negateBySubtraction env call types arguments
     <|> combineLiteralOffsets call types arguments
     <|> foldQuotRem env call types arguments
+    <|> foldConstructorIndex env call types arguments
+
+-- | Fold the constructor index of a known constructor to a literal:
+-- @dataToTagLarge# True@ is @1#@. The type argument names the data type,
+-- and the type environment gives its constructors in declaration order.
+foldConstructorIndex :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+foldConstructorIndex env call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  guard (nameText (foreignCallName call) `elem` ["dataToTagSmall#", "dataToTagLarge#"])
+  [_, dataType] <- Just types
+  [argument] <- Just arguments
+  ExVar constructor <- Just (applicationHead argument)
+  guard (nameSort constructor == SortDataConstructor)
+  TyCon typeName <- Just (typeHead (reduceType env dataType))
+  constructors <- Map.lookup typeName (teDataCons env)
+  index <- elemIndex constructor constructors
+  (resultRep, literalType) <- resultRepresentation 1 (dropForAlls (foreignCallType call))
+  Just (ExLit (LitInt resultRep (toInteger index)) literalType)
+  where
+    applicationHead expr =
+      case expr of
+        ExApp function _ -> applicationHead function
+        ExTyApp function _ -> applicationHead function
+        _ -> expr
+    typeHead ty =
+      case ty of
+        TyApp function _ -> typeHead function
+        _ -> ty
+    dropForAlls ty =
+      case ty of
+        TyForAll _ body -> dropForAlls body
+        _ -> ty
 
 -- | Fold a quotient and remainder of two literals to the unboxed pair of
 -- the two literals: @quotRemWord# 7## 2##@ is @(# 3##, 1## #)@. A

@@ -5,7 +5,7 @@ expected: |-
 
   pub constructor 1.Left [IntRep]
 
-  pub constructor 1.Right [IntRep]
+  pub constructor 1.Right%1 [IntRep]
 
   pub global 1.first = (P1.$first/1)
 
@@ -24,7 +24,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.Left (a :: IntRep) ->
         constant (a :: IntRep)
-      data 1.Right (b :: IntRep) ->
+      data 1.Right%1 (b :: IntRep) ->
         constant (b :: IntRep)
 extensions:
 - MagicHash
