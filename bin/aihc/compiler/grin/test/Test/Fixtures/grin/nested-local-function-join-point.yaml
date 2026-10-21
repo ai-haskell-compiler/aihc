@@ -19,7 +19,7 @@ expected: |-
 
   pub constructor 1.T []
 
-  pub constructor 1.F []
+  pub constructor 1.F%1 []
 
   pub constructor 1.P [IntRep, IntRep]
 
@@ -42,7 +42,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.T ->
         call @(BoxedRep Lifted) 1.$pick_closure (x1 :: IntRep) (z :: IntRep) (x :: IntRep)
-      data 1.F ->
+      data 1.F%1 ->
         argument :: IntRep <-
           primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
         call @(BoxedRep Lifted) 1.$pick_closure (x1 :: IntRep) (z :: IntRep) (argument :: IntRep)
@@ -53,7 +53,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.T ->
         call @(BoxedRep Lifted) 1.$pick_closure_2 (x1 :: IntRep) (z :: IntRep) (y :: BoxedRep Lifted) (z :: IntRep)
-      data 1.F ->
+      data 1.F%1 ->
         call @(BoxedRep Lifted) 1.$pick_closure_2 (x1 :: IntRep) (z :: IntRep) (y :: BoxedRep Lifted) (x1 :: IntRep)
 status: pass
 reason: a let-bound local function that only another local function calls is also a join point; the caller passes the captured values of the callee, and no closure is stored
