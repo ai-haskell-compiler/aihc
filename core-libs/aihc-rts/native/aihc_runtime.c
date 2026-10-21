@@ -1067,6 +1067,15 @@ void aihc_visit_capability_roots(AihcCapability *capability,
       aihc_visit_pointer(capability->io_requests_head, visitor, context);
   capability->io_requests_tail =
       aihc_visit_pointer(capability->io_requests_tail, visitor, context);
+  /* Only the capability links and unlinks its waiting requests, and it
+     does so without a write barrier. A request can be older than the
+     requests and the objects that it names. Thus the fields of each
+     waiting request are roots of the capability, as the fields of a thread
+     record are. A request is pinned, so it does not move. */
+  for (AihcIoRequest *request = capability->io_requests_head; request != NULL;
+       request = request->next) {
+    (void)aihc_visit_runtime_object((AihcValue *)request, visitor, context);
+  }
   aihc_visit_host_roots(capability, visitor, context);
 }
 
@@ -1270,8 +1279,11 @@ static AihcValue *aihc_copy_with_fields(AihcCapability *capability,
 }
 
 /* A thread record is in the global heap from the start: a ThreadId# can
-   move between capabilities, and the record never moves. */
-static AihcThread *aihc_thread_new(AihcCapability *capability) {
+   move between capabilities, and the record never moves. The new stack
+   goes into *stack: the head of the stack list of the machine is not the
+   new stack when another capability makes a thread at the same time. */
+static AihcThread *aihc_thread_new(AihcCapability *capability,
+                                   AihcStack **stack) {
   AihcThread *thread = (AihcThread *)aihc_gc_allocate_global(
       capability, aihc_record_words(sizeof(*thread)));
   thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
@@ -1286,7 +1298,7 @@ static AihcThread *aihc_thread_new(AihcCapability *capability) {
   thread->transaction = NULL;
   thread->queues = NULL;
   thread->capability = capability->index;
-  (void)aihc_stack_new(capability, thread);
+  *stack = aihc_stack_new(capability, thread);
   return thread;
 }
 
@@ -1503,8 +1515,9 @@ AihcCapability *aihc_machine_new(uint64_t global_count) {
   capability->machine->global_count = global_count;
   aihc_gc_ensure(capability, aihc_record_words(sizeof(AihcThread)), 0, NULL,
                  NULL);
-  capability->current_thread = aihc_thread_new(capability);
-  capability->stack_next = aihc_stack_base(capability->machine->stacks);
+  AihcStack *stack;
+  capability->current_thread = aihc_thread_new(capability, &stack);
+  capability->stack_next = aihc_stack_base(stack);
   capability->machine->program_started = 1;
   if (capability->machine->capability_count > 1) {
     aihc_workers_start(capability);
@@ -1717,7 +1730,9 @@ struct AihcStmWaiter {
    again, or raises BlockedIndefinitelyOnSTM when it is abandoned. The
    deadline store comes before the read of the idle flag, and the idle wait
    sets the flag before it reads the deadlines. Thus either the wait sees
-   the deadline, or this function wakes the capability. */
+   the deadline, or this function wakes the capability. The stores occur
+   under the lock: aihc_stm_wait_result removes a waiter under the lock,
+   and after that its request can be garbage. */
 static void aihc_stm_wake_waiters(AihcMachine *machine, int64_t mode) {
   if (machine->stm_wait_lock == NULL) {
     return;
@@ -1726,7 +1741,6 @@ static void aihc_stm_wake_waiters(AihcMachine *machine, int64_t mode) {
   AihcStmWaiter *waiter = machine->stm_waiters;
   machine->stm_waiters = NULL;
   machine->stm_forever_count = 0;
-  aihc_host_lock_release(machine->stm_wait_lock);
   while (waiter != NULL) {
     AihcStmWaiter *next = waiter->next;
     AihcIoRequest *request = waiter->request;
@@ -1739,6 +1753,7 @@ static void aihc_stm_wake_waiters(AihcMachine *machine, int64_t mode) {
     free(waiter);
     waiter = next;
   }
+  aihc_host_lock_release(machine->stm_wait_lock);
 }
 
 enum {
@@ -3160,9 +3175,10 @@ AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action) {
   if (capability->machine->thread_done_info == NULL) {
     aihc_fail("thread completion continuation is not initialized");
   }
-  AihcThread *child = aihc_thread_new(capability);
+  AihcStack *stack;
+  AihcThread *child = aihc_thread_new(capability, &stack);
   /* The new stack starts with the frame that ends the thread. */
-  AihcValue *done = (AihcValue *)aihc_stack_base(capability->machine->stacks);
+  AihcValue *done = (AihcValue *)aihc_stack_base(stack);
   done->header = (AihcSlot)(uintptr_t)capability->machine->thread_done_info;
   aihc_suspend_apply(child, action, done);
   aihc_enqueue_thread(capability, child);

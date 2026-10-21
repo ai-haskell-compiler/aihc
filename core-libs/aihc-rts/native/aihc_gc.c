@@ -1748,7 +1748,12 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
       aihc_pinned_foreign(context, block)) {
     return;
   }
-  unsigned promoted = generation == 0 ? context->young_target : generation + 1;
+  /* A fixed block ages as a copied object of its generation does. A local
+     collection with several capabilities thus keeps a gen1 block in gen1.
+     In gen2, the block could name local objects, and a collection without
+     a stop does not scan a gen2 object of the remembered set. */
+  unsigned promoted =
+      generation == 0 ? context->young_target : context->gen1_target;
   if (promoted < target) {
     promoted = target;
   }
