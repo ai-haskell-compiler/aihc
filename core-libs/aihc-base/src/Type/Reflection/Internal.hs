@@ -44,7 +44,7 @@ module Type.Reflection.Internal
   )
 where
 
-import Data.Bool (Bool (..), (&&))
+import Data.Bool (Bool (..), (&&), (||))
 import Data.Proxy (Proxy (..))
 import Data.Type.Equality ((:~~:) (..))
 import GHC.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
@@ -52,10 +52,10 @@ import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Magic.Dict (withDict)
 import GHC.Num qualified
-import GHC.Prim (seq)
+import GHC.Prim (Addr#, Int#, eqAddr#, indexWord8OffAddr#, ord#, seq, word2Int#, word8ToWord#, (+#), (==#))
 import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Prim.String (eqString)
-import GHC.Types (Char (..), KindRep (..), Levity (..), Module (..), RuntimeRep (..), TYPE, TrName (..), TyCon (..), Type, VecCount (..), VecElem (..), type (~~))
+import GHC.Types (Char (..), KindRep (..), Levity (..), Module (..), RuntimeRep (..), TYPE, TrName (..), TyCon (..), Type, VecCount (..), VecElem (..), isTrue#, type (~~))
 import GHC.Types qualified
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -128,10 +128,38 @@ eqTyCon (TyCon (Module leftPackage leftModule) leftName _ _) (TyCon (Module righ
     && eqTrName leftPackage rightPackage
 
 -- | Whether two names have the same text. The function stays a call, thus
--- each comparison in 'eqTyCon' is one line.
+-- each comparison in 'eqTyCon' is one line. Two literal names are compared
+-- byte by byte without a 'String', and the same address is equal at once.
 eqTrName :: TrName -> TrName -> Bool
-eqTrName left right = eqString (trNameString left) (trNameString right)
+eqTrName (TrNameS left) (TrNameS right) = isTrue# (eqAddr# left right) || eqCStrings left right 0#
+eqTrName (TrNameS left) (TrNameD right) = eqCStringString left 0# right
+eqTrName (TrNameD left) (TrNameS right) = eqCStringString right 0# left
+eqTrName (TrNameD left) (TrNameD right) = eqString left right
 {-# NOINLINE eqTrName #-}
+
+-- | Read one byte of a C string as an integer.
+cStringByte :: Addr# -> Int# -> Int#
+cStringByte address index = word2Int# (word8ToWord# (indexWord8OffAddr# address index))
+
+-- | Whether two NUL-terminated C strings have the same bytes from the index.
+eqCStrings :: Addr# -> Addr# -> Int# -> Bool
+eqCStrings left right index =
+  let byte = cStringByte left index
+   in if isTrue# (byte ==# cStringByte right index)
+        then isTrue# (byte ==# 0#) || eqCStrings left right (index +# 1#)
+        else False
+
+-- | Whether a NUL-terminated Latin-1 C string from the index has the same
+-- text as a 'String'. This agrees with 'unpackCString#'.
+eqCStringString :: Addr# -> Int# -> String -> Bool
+eqCStringString address index text =
+  let byte = cStringByte address index
+   in case text of
+        [] -> isTrue# (byte ==# 0#)
+        C# character : rest ->
+          if isTrue# (byte ==# 0#)
+            then False
+            else isTrue# (byte ==# ord# character) && eqCStringString address (index +# 1#) rest
 
 sameTypeReps :: [SomeTypeRep] -> [SomeTypeRep] -> Bool
 sameTypeReps [] [] = True
