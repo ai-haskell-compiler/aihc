@@ -45,7 +45,10 @@ data LowerEnv = LowerEnv
     lowerLocalFunctions :: !(Map Fc.Name LocalFunction),
     -- | The constructors that the program declares. A fetch names the
     -- layout of its constructor, which the program must declare.
-    lowerDeclaredConstructors :: !(Set Fc.Name)
+    lowerDeclaredConstructors :: !(Set Fc.Name),
+    -- | The let-bound lambdas that the code only calls, with the variables
+    -- that each one captures. See 'lowerLet'.
+    lowerKnownLocals :: !(Map Fc.Name (LocalFunction, [GrinVar]))
   }
 
 -- | A top-level function of this module. Its entry function is named before
@@ -105,7 +108,7 @@ lowerProgram primPackage program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors
+      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors Map.empty
       declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
       initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
@@ -886,6 +889,9 @@ lowerApplication env function argument = do
         length arguments <= arity ->
           lowerConstructorApplication env name (arity - length arguments) arguments
     (_, (Fc.ExVar name, arguments))
+      | Just known <- Map.lookup name (lowerKnownLocals env) ->
+          lowerKnownLocalApplication env resultRep known arguments
+    (_, (Fc.ExVar name, arguments))
       | Just localFunction <- Map.lookup name (lowerLocalFunctions env) ->
           lowerLocalFunctionApplication env resultRep name localFunction arguments
     -- A foreign call whose result is a function of more arguments, such as
@@ -1046,6 +1052,35 @@ lowerLocalFunctionApplication env resultRep name function arguments
     -- A function that forwards its result serves every call site: the
     -- value goes to the continuation this call site provides. A function
     -- with a layout is called directly only for that layout.
+    directCall =
+      localFunctionResultRep function == ResultForwarded
+        || localFunctionResultRep function == directResultRep
+    directResultRep
+      | null remainingArguments = resultRep
+      | otherwise = liftedResultRep
+
+-- | Call a let-bound lambda that the code only calls. The call gives the
+-- captured variables before the arguments, as the call of a known closure
+-- does after GRIN simplification. A call whose result layout is not the
+-- layout of the function builds the closure where it calls it.
+lowerKnownLocalApplication :: LowerEnv -> GrinResultRep -> (LocalFunction, [GrinVar]) -> [Fc.Expr] -> LowerM GrinExpr
+lowerKnownLocalApplication env resultRep (function, captures) arguments
+  | directCall =
+      lowerArguments env saturatedArguments $ \argumentValues ->
+        let call callRep = GrinCall callRep entry (map GrinVarValue captures <> argumentValues)
+         in case remainingArguments of
+              [] -> pure (call resultRep)
+              _ -> do
+                applied <- freshVar "function_application" liftedGrinRep
+                rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
+                pure (GrinBind [applied] (call liftedResultRep) rest)
+  | otherwise = do
+      closure <- freshVar "known_closure" liftedGrinRep
+      rest <- lowerDynamicApplication env resultRep (GrinVarValue closure) arguments
+      pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure entry (localFunctionLayouts function)) (map GrinVarValue captures))) rest)
+  where
+    entry = localFunctionEntry function
+    (saturatedArguments, remainingArguments) = splitAt (localFunctionArity function) arguments
     directCall =
       localFunctionResultRep function == ResultForwarded
         || localFunctionResultRep function == directResultRep
@@ -1241,7 +1276,7 @@ lowerLazy env0 hint expression0 continuation = do
       if suspends then suspend else floatBindings env expression
     floatBindings bindingEnv0 bindingExpression =
       case stripLazyWrappers bindingEnv0 bindingExpression of
-        (bindingEnv, Fc.ExLet binding body) -> lowerLetBinding bindingEnv binding (`floatBindings` body)
+        (bindingEnv, Fc.ExLet binding body) -> lowerLetWith bindingEnv binding body (`floatBindings` body)
         (bindingEnv, Fc.ExRec bindings body) -> lowerRecBindings bindingEnv bindings (`floatBindings` body)
         (bindingEnv, body) -> lowerLazy bindingEnv hint body continuation
     storeNode node = do
@@ -1425,7 +1460,66 @@ bindExpression env hint expression continuation = do
   pure (GrinBind variables valueExpression rest)
 
 lowerLet :: LowerEnv -> Fc.Bind -> Fc.Expr -> LowerM GrinExpr
-lowerLet env binding body = lowerLetBinding env binding (`lowerExpr` body)
+lowerLet env binding body = lowerLetWith env binding body (`lowerExpr` body)
+
+-- | Bind one let binding for a body, and continue with the environment
+-- that sees it.
+--
+-- A lambda that the body only calls with all its arguments is a function
+-- with its captured variables as the first parameters, and each call
+-- gives them. It gets no closure. A shared match failure and the other
+-- join points of System FC are such lambdas. A closure or a thunk that
+-- calls one captures its variables, not a pointer to it. Thus a join
+-- point that another join point calls also gets no closure.
+lowerLetWith :: LowerEnv -> Fc.Bind -> Fc.Expr -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerLetWith env binding body continuation
+  | arity > 0,
+    onlyCalls name arity body = do
+      let captures = capturedVariables env rhs
+      entry <- freshFunction "closure"
+      shape <- closureShape env rhs
+      loweredBody <- lowerExpr (closureBodyEnv shape) (closureBody shape)
+      emitFunction
+        GrinFunction
+          { grinFunctionName = entry,
+            grinFunctionParameters = captures <> concat (closureParameters shape),
+            grinFunctionResultRep = closureResultRep shape,
+            grinFunctionBody = loweredBody
+          }
+      let function = LocalFunction entry (closureLayouts shape) (closureResultRep shape) False
+          env' = extendTermBinder binder env
+      continuation env' {lowerKnownLocals = Map.insert name (function, captures) (lowerKnownLocals env')}
+  | otherwise = lowerLetBinding env binding continuation
+  where
+    binder = Fc.bindBinder binding
+    name = Fc.binderName binder
+    rhs = Fc.bindRhs binding
+    arity = functionArity rhs
+
+-- | Whether each occurrence of a name in an expression is the head of an
+-- application with at least the given number of arguments.
+onlyCalls :: Fc.Name -> Int -> Fc.Expr -> Bool
+onlyCalls name arity = go
+  where
+    go expression =
+      case collectApplications expression of
+        (Fc.ExVar head', arguments)
+          | head' == name -> length arguments >= arity && all go arguments
+        (callee, arguments@(_ : _)) -> go callee && all go arguments
+        _ -> case expression of
+          Fc.ExVar other -> other /= name
+          Fc.ExLit {} -> True
+          Fc.ExCoercion _ -> True
+          Fc.ExApp function argument -> go function && go argument
+          Fc.ExTyApp function _ -> go function
+          Fc.ExLam _ inner -> go inner
+          Fc.ExTyLam _ inner -> go inner
+          Fc.ExLet binding inner -> go (Fc.bindRhs binding) && go inner
+          Fc.ExRec bindings inner -> all (go . Fc.bindRhs) bindings && go inner
+          Fc.ExCase scrutinee _ alternatives -> go scrutinee && all (go . Fc.altRhs) alternatives
+          Fc.ExAbsurd scrutinee _ -> go scrutinee
+          Fc.ExCast inner _ -> go inner
+          Fc.ExForeignCall _ _ arguments -> all go arguments
 
 -- | Bind one let binding and continue with the environment that sees it.
 lowerLetBinding :: LowerEnv -> Fc.Bind -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
@@ -1672,11 +1766,12 @@ collectLambdas env expression =
 
 capturedVariables :: LowerEnv -> Fc.Expr -> [GrinVar]
 capturedVariables env expression =
-  concat
-    [ variables
-    | name <- Set.toAscList (freeVariables expression),
-      Just variables <- [Map.lookup name (lowerLocals env)]
-    ]
+  List.nub $
+    concat
+      [ variables
+      | name <- Set.toAscList (freeVariables expression),
+        Just variables <- [Map.lookup name (lowerLocals env) <|> (snd <$> Map.lookup name (lowerKnownLocals env))]
+      ]
 
 freeVariables :: Fc.Expr -> Set Fc.Name
 freeVariables expression =
