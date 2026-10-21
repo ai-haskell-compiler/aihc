@@ -179,5 +179,5 @@ atomicModifyMutVar# reference modify state =
 
 -- | Return the constructor index after the value is evaluated.
 dataToTag# :: forall a. a -> Int#
-dataToTag# value = dataToTagLarge# value
+dataToTag# = dataToTagLarge#
 {-# INLINE dataToTag# #-}
