@@ -82,7 +82,22 @@ expected: |-
       cBox @a (vtoggle @a $dToggle x{1})
 
   pub val 1.vrunBox :: tBox tFlag → tBox tFlag
-    = v$ssloop56 cOn
+    = let $sf : t$Dict$Toggle (tBox tFlag) =
+      v$fToggleBoxa @tFlag v$fToggleFlag;
+    rec {
+      $sstoggle48 : tBox tFlag → tBox tFlag =
+        let! c$Dict$Toggle ($ctoggle : tBox tFlag → tBox tFlag) = $sf;
+        $ctoggle;
+      $ssloop40 : tFlag → tBox tFlag → tBox tFlag =
+        λ(x : tFlag) (y : tBox tFlag).
+          case x of {
+            cOff →
+              y;
+            cOn →
+              $ssloop40 cOff ($sstoggle48 y)
+          }
+    } in
+    $ssloop40 cOn
 
   val 1.vloop :: ∀(a : sType). t$Dict$Toggle a → tFlag → a → a
     = Λ(a : sType). λ($dToggle : t$Dict$Toggle a) (x : tFlag) (y : a).
@@ -98,40 +113,19 @@ expected: |-
       vloop @a $dToggle
 
   pub val 1.vrun :: tFlag → tFlag
-    = v$ssloop95 cOn
+    = v$ssloop79 cOn
 
-  val 1.v$sstoggle48 :: tFlag → tFlag
+  val 1.v$sstoggle87 :: tFlag → tFlag
     = let! c$Dict$Toggle ($ctoggle : tFlag → tFlag) = v$fToggleFlag;
     $ctoggle
 
-  val 1.v$ss$fToggleBoxa$ctoggle40 :: tBox tFlag → tBox tFlag
-    = λ(x : tBox tFlag).
-      let! cBox (x{1} : tFlag) = x;
-      cBox @tFlag (v$sstoggle48 x{1})
-
-  val 1.v$ss$fToggleBoxa33 :: t$Dict$Toggle (tBox tFlag)
-    = c$Dict$Toggle @(tBox tFlag) v$ss$fToggleBoxa$ctoggle40
-
-  val 1.v$sstoggle64 :: tBox tFlag → tBox tFlag
-    = let! c$Dict$Toggle ($ctoggle : tBox tFlag → tBox tFlag) = v$ss$fToggleBoxa33;
-    $ctoggle
-
-  val 1.v$ssloop56 :: tFlag → tBox tFlag → tBox tFlag
-    = λ(x : tFlag) (y : tBox tFlag).
-      case x of {
-        cOff →
-          y;
-        cOn →
-          v$ssloop56 cOff (v$sstoggle64 y)
-      }
-
-  val 1.v$ssloop95 :: tFlag → tFlag → tFlag
+  val 1.v$ssloop79 :: tFlag → tFlag → tFlag
     = λ(x : tFlag) (y : tFlag).
       case x of {
         cOff →
           y;
         cOn →
-          v$ssloop95 cOff (v$sstoggle48 y)
+          v$ssloop79 cOff (v$sstoggle87 y)
       }
 status: pass
 reason: Distinct dictionary arguments still use indirect calls in top-level recursive functions.

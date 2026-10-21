@@ -162,6 +162,9 @@ freshTemplate binding = do
     _ -> pure binding
 
 specializeCall :: Definitions -> Set Name -> Bind -> [Arg] -> SpecM Expr
+-- Dictionary producers retain their shared identities for later consumer specialization.
+specializeCall _ _ binding arguments
+  | dictionaryResult (binderType (bindBinder binding)) = pure (rebuild (ExVar (binderName (bindBinder binding))) arguments)
 specializeCall definitions scope binding arguments =
   case selection definitions scope (bindRhs binding) arguments of
     Just choices -> do
@@ -287,6 +290,11 @@ dictionaryType :: Type -> Bool
 dictionaryType (TyApp function _) = dictionaryType function
 dictionaryType (TyCon name) = "$Dict$" `T.isPrefixOf` nameText name
 dictionaryType _ = False
+
+dictionaryResult :: Type -> Bool
+dictionaryResult (TyForAll _ body) = dictionaryResult body
+dictionaryResult (TyFun _ _ _ result) = dictionaryResult result
+dictionaryResult ty = dictionaryType ty
 
 functionType :: Type -> Bool
 functionType TyFun {} = True

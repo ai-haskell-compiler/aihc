@@ -1243,6 +1243,9 @@ The pass runs on merged System FC after the first small inliner.
 It runs before demand analysis and worker/wrapper.
 A small inliner follows the pass to remove dictionary projections and direct lambda applications.
 The existing local dictionary pass also runs after it.
+After late dictionary cleanup, the optional plan repeats demand analysis and simplification.
+This step evaluates strict arguments that late cleanup exposes.
+Common-subexpression elimination, full laziness, and constant lifting then restore sharing.
 
 The pass specializes functions on known dictionary and function references.
 It substitutes their actual evidence arguments, without instance resolution or Haskell type checks.
@@ -1251,6 +1254,8 @@ It does not make copies for type arguments alone.
 Each copy retains its unknown arguments.
 The generic function remains available for unknown calls.
 Subsequent passes remove unreachable functions.
+Dictionary-producing functions remain generic.
+Their shared identities let later passes specialize dictionary consumers without duplicate producers.
 
 A cache maps each original function and its static arguments to a copy.
 The key omits trailing dynamic argument positions.

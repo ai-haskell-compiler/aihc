@@ -94,8 +94,9 @@ optimizationPlan lto level =
     rounds = 4
 
 -- | Run specialization after the first small inliner and before demand analysis.
+-- Late cleanup exposes new strict calls. Repeat demand analysis and restore sharing afterward.
 withSuperSpecialisation :: OptimizationPlan -> OptimizationPlan
-withSuperSpecialisation plan = plan {planPasses = insert (planPasses plan)}
+withSuperSpecialisation plan = plan {planPasses = insert (planPasses plan) <> [Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassSimplify 0, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]}
   where
     insert (pass@(Fc.PassDemand _) : rest) = Fc.PassSuperSpecialise : Fc.PassSpecialise : Fc.PassInline Fc.shrinkPolicy 2 2 : pass : rest
     insert (pass : rest) = pass : insert rest
