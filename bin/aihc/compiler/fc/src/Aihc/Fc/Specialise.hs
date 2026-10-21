@@ -54,6 +54,7 @@ import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (substType, substTypes, typeEnvFromProgram)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
+import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, execState, get, modify', put, runState, state)
 import Data.Either (lefts, rights)
@@ -109,9 +110,14 @@ specialiseProgram program =
 -- nodes. The total allowance is one quarter of the input size, or 32
 -- nodes for a small program. Three rounds expose calls in new copies.
 -- The pipeline runs this pass once, after the main optimizer.
+--
+-- A copy is made for all the types and dictionaries of the prefix. When
+-- the calls of a function give more distinct prefixes than the copies
+-- that it can still get, its copies are made for the types that the
+-- dictionaries name, see 'dictionaryTypes'.
 specialiseTopProgram :: PackageId -> Program -> (Program, SpecialiseReport)
 specialiseTopProgram primPackage program =
-  let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty allowance mempty
+  let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty Set.empty allowance mempty
       (decls, final) = runState (rounds 3 (programDecls program)) initial
    in (tidyProgram program {programDecls = decls}, topReport final)
   where
@@ -125,23 +131,34 @@ specialiseTopProgram primPackage program =
     rounds 0 decls = pure decls
     rounds remaining decls = do
       current <- get
-      let calls = execState (mapM_ (onValue (walkCalls collect)) decls) Map.empty
+      let full = execState (mapM_ (onValue (walkCalls (collect (const False)))) decls) Map.empty
+          -- A function whose new prefixes do not fit its remaining copies
+          -- gets copies for the types that its dictionaries name.
+          crowded =
+            Map.keysSet
+              ( Map.filterWithKey
+                  (\name count -> count + Map.findWithDefault 0 name (topCounts current) > specialisationLimit)
+                  (Map.fromListWith (+) [(name, 1 :: Int) | (key@(name, _), _) <- Map.toList full, Map.notMember key (topCopies current)])
+              )
+          reduced = topReduced current <> crowded
+          calls = execState (mapM_ (onValue (walkCalls (collect (`Set.member` reduced)))) decls) Map.empty
           requests = List.sortOn (\(key, count) -> (negate count, key)) (Map.toList calls)
           unseen = filter (\(key, _) -> Map.notMember key (topCopies current)) requests
+      put current {topReduced = reduced}
       copies <- concat <$> mapM (makeCopy . fst) unseen
       if null copies
         then pure decls
         else do
           rewritten <- mapM (onValue (walkCalls rewrite)) (decls <> copies)
           rounds (remaining - 1) rewritten
-    collect :: Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
-    collect aliases function arguments = do
+    collect :: (Name -> Bool) -> Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
+    collect reduced aliases function arguments = do
       case function of
         ExVar name
           | Just (_, prefix, _) <- Map.lookup name candidates,
             let count = prefixLength prefix,
             length arguments >= count,
-            let key = staticArguments prefix (map (fmap (substExpr aliases)) (take count arguments)),
+            let key = staticArguments (staticTypes (reduced name) prefix) prefix (map (fmap (substExpr aliases)) (take count arguments)),
             staticKey Set.empty key ->
               modify' (Map.insertWith (+) (name, key) (1 :: Int))
         _ -> pure ()
@@ -152,15 +169,17 @@ specialiseTopProgram primPackage program =
       case Map.lookup name candidates of
         Just (declaration, prefix, inner)
           | Map.findWithDefault 0 name (topCounts current) < specialisationLimit,
-            Just copyType <- instantiateStatic prefix (valType declaration) (lefts arguments) -> do
-              let static = staticTypes prefix
-                  types = Map.fromList (zip (map binderName static) (lefts arguments))
+            -- A key with fewer types than the prefix is for the types that
+            -- the dictionaries name.
+            let static = staticTypes (length (lefts arguments) < length (prefixTypes prefix)) prefix,
+            Just copyType <- instantiateStatic static prefix (valType declaration) (lefts arguments) -> do
+              let types = Map.fromList (zip (map binderName static) (lefts arguments))
                   -- A let preserves lazy dictionary evaluation and prevents
                   -- substitution from duplicating an argument inside a copy.
                   bound = zip (prefixDictionaries prefix) (rights arguments)
                   substitutions = Map.fromList [(binderName binder, argument) | (binder, argument) <- bound, isTrivial argument]
                   lets = [(binder, argument) | (binder, argument) <- bound, not (isTrivial argument)]
-                  -- The type parameters that no dictionary names stay
+                  -- The type parameters that are not in the key stay
                   -- parameters of the copy.
                   kept = [binder {binderType = substTypes types (binderType binder)} | binder <- prefixTypes prefix, binderName binder `notElem` map binderName static]
                   body = foldr ExTyLam (substTypeExpr types (foldr (\(binder, argument) rest -> ExLet (Bind binder argument) rest) (substExpr substitutions inner) lets)) kept
@@ -182,6 +201,8 @@ specialiseTopProgram primPackage program =
                       }
                   pure [DeclVal declaration {valVis = Private, valName = copyName, valType = copyType, valBody = body'}]
         _ -> pure []
+    -- A call takes the copy for all its types when there is one, and
+    -- else the copy for the types that its dictionaries name.
     rewrite :: Map.Map Name Expr -> Expr -> [Arg] -> State TopState Expr
     rewrite aliases function arguments = do
       current <- get
@@ -190,58 +211,12 @@ specialiseTopProgram primPackage program =
           | Just (_, prefix, _) <- Map.lookup name candidates,
             let count = prefixLength prefix,
             length arguments >= count,
-            Just copy <- Map.lookup (name, staticArguments prefix (map (fmap (substExpr aliases)) (take count arguments))) (topCopies current) -> do
+            let given = map (fmap (substExpr aliases)) (take count arguments)
+                copyFor reduced = (,) reduced <$> Map.lookup (name, staticArguments (staticTypes reduced prefix) prefix given) (topCopies current),
+            Just (reduced, copy) <- copyFor False <|> copyFor True -> do
               modify' (\st -> st {topReport = topReport st <> SpecialiseReport 0 0 1})
-              pure (rebuildCall (ExVar copy) (keptArguments prefix (take count arguments) <> drop count arguments))
+              pure (rebuildCall (ExVar copy) (keptArguments (staticTypes reduced prefix) prefix (take count arguments) <> drop count arguments))
         _ -> pure (rebuildCall function arguments)
-
--- | The type parameters of a prefix that a dictionary parameter names. A
--- top-level copy is made for these types and the dictionaries. The other
--- type parameters stay parameters of the copy, so that the calls of a
--- function such as @pBind@ at many result types share one copy for each
--- dictionary.
-staticTypes :: Prefix -> [Binder]
-staticTypes prefix =
-  [binder | binder <- prefixTypes prefix, Set.member (binderName binder) named]
-  where
-    named = Set.unions (map (typeVariables . binderType) (prefixDictionaries prefix))
-
--- | The arguments of a call for the static types and the dictionaries of a
--- prefix: the key of a top-level copy.
-staticArguments :: Prefix -> [Arg] -> [Arg]
-staticArguments prefix arguments =
-  [argument | (binder, argument) <- zip (prefixTypes prefix) arguments, isStatic binder]
-    <> drop (length (prefixTypes prefix)) arguments
-  where
-    static = map binderName (staticTypes prefix)
-    isStatic binder = binderName binder `elem` static
-
--- | The type arguments of a call for the type parameters that a top-level
--- copy keeps.
-keptArguments :: Prefix -> [Arg] -> [Arg]
-keptArguments prefix arguments =
-  [argument | (binder, argument) <- zip (prefixTypes prefix) arguments, binderName binder `notElem` static]
-  where
-    static = map binderName (staticTypes prefix)
-
--- | The type of a top-level copy: the type of the function at the static
--- types of the prefix, with the other quantifiers kept and without the
--- arrows of the dictionaries. The quantifiers of the type and the type
--- lambdas of the body are in the same order.
-instantiateStatic :: Prefix -> Type -> [Type] -> Maybe Type
-instantiateStatic prefix ty0 = go ty0 (prefixTypes prefix)
-  where
-    static = map binderName (staticTypes prefix)
-    go ty binders types =
-      case (ty, binders) of
-        (TyForAll binder body, parameter : rest)
-          | binderName parameter `elem` static,
-            argument : more <- types ->
-              go (substType (binderName binder) argument body) rest more
-          | binderName parameter `elem` static -> Nothing
-          | otherwise -> TyForAll binder <$> go body rest types
-        (_, []) | null types -> instantiate ty [] (length (prefixDictionaries prefix))
-        _ -> Nothing
 
 -- | State shared by all rounds, so each limit applies to the whole pass.
 data TopState = TopState
@@ -249,9 +224,65 @@ data TopState = TopState
     topNames :: Set Name,
     topCopies :: Map.Map (Name, [Arg]) Name,
     topCounts :: Map.Map Name Int,
+    -- | The functions whose copies are for the types that their
+    -- dictionaries name.
+    topReduced :: Set Name,
     topBudget :: Int,
     topReport :: SpecialiseReport
   }
+
+-- | The type parameters of a prefix that a copy is made for: all of them,
+-- or with 'True' the ones that a dictionary parameter names. The other
+-- type parameters stay parameters of the copy, so that the calls of a
+-- function such as @pBind@ at many result types share one copy for each
+-- dictionary.
+staticTypes :: Bool -> Prefix -> [Binder]
+staticTypes reduced prefix
+  | reduced = dictionaryTypes prefix
+  | otherwise = prefixTypes prefix
+
+-- | The type parameters of a prefix that a dictionary parameter names.
+dictionaryTypes :: Prefix -> [Binder]
+dictionaryTypes prefix =
+  [binder | binder <- prefixTypes prefix, Set.member (binderName binder) named]
+  where
+    named = Set.unions (map (typeVariables . binderType) (prefixDictionaries prefix))
+
+-- | The arguments of a call for the given static types and the
+-- dictionaries of a prefix: the key of a top-level copy.
+staticArguments :: [Binder] -> Prefix -> [Arg] -> [Arg]
+staticArguments static prefix arguments =
+  [argument | (binder, argument) <- zip (prefixTypes prefix) arguments, binderName binder `elem` names]
+    <> drop (length (prefixTypes prefix)) arguments
+  where
+    names = map binderName static
+
+-- | The type arguments of a call for the type parameters that a top-level
+-- copy keeps: the ones that are not static.
+keptArguments :: [Binder] -> Prefix -> [Arg] -> [Arg]
+keptArguments static prefix arguments =
+  [argument | (binder, argument) <- zip (prefixTypes prefix) arguments, binderName binder `notElem` names]
+  where
+    names = map binderName static
+
+-- | The type of a top-level copy: the type of the function at the static
+-- types of the prefix, with the other quantifiers kept and without the
+-- arrows of the dictionaries. The quantifiers of the type and the type
+-- lambdas of the body are in the same order.
+instantiateStatic :: [Binder] -> Prefix -> Type -> [Type] -> Maybe Type
+instantiateStatic static prefix ty0 = go ty0 (prefixTypes prefix)
+  where
+    names = map binderName static
+    go ty binders types =
+      case (ty, binders) of
+        (TyForAll binder body, parameter : rest)
+          | binderName parameter `elem` names,
+            argument : more <- types ->
+              go (substType (binderName binder) argument body) rest more
+          | binderName parameter `elem` names -> Nothing
+          | otherwise -> TyForAll binder <$> go body rest types
+        (_, []) | null types -> instantiate ty [] (length (prefixDictionaries prefix))
+        _ -> Nothing
 
 -- | Select a name that no value declaration uses.
 freshTopName :: Set Name -> Name -> Int -> Name
