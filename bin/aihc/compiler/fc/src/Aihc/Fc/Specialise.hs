@@ -47,7 +47,7 @@ module Aihc.Fc.Specialise
 where
 
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isTrivial, maxLocalUnique, substExpr, substTypeExpr)
+import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isDictionaryType, isTrivial, maxLocalUnique, substExpr, substTypeExpr)
 import Aihc.Fc.Size (exprSize, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
@@ -141,7 +141,7 @@ specialiseTopProgram primPackage program =
           | Just (_, prefix, _) <- Map.lookup name candidates,
             let count = prefixLength prefix,
             length arguments >= count,
-            let key = map (fmap (substExpr aliases)) (take count arguments),
+            let key = staticArguments prefix (map (fmap (substExpr aliases)) (take count arguments)),
             staticKey Set.empty key ->
               modify' (Map.insertWith (+) (name, key) (1 :: Int))
         _ -> pure ()
@@ -152,14 +152,18 @@ specialiseTopProgram primPackage program =
       case Map.lookup name candidates of
         Just (declaration, prefix, inner)
           | Map.findWithDefault 0 name (topCounts current) < specialisationLimit,
-            Just copyType <- instantiate (valType declaration) (lefts arguments) (length (prefixDictionaries prefix)) -> do
-              let types = Map.fromList (zip (map binderName (prefixTypes prefix)) (lefts arguments))
+            Just copyType <- instantiateStatic prefix (valType declaration) (lefts arguments) -> do
+              let static = staticTypes prefix
+                  types = Map.fromList (zip (map binderName static) (lefts arguments))
                   -- A let preserves lazy dictionary evaluation and prevents
                   -- substitution from duplicating an argument inside a copy.
                   bound = zip (prefixDictionaries prefix) (rights arguments)
                   substitutions = Map.fromList [(binderName binder, argument) | (binder, argument) <- bound, isTrivial argument]
                   lets = [(binder, argument) | (binder, argument) <- bound, not (isTrivial argument)]
-                  body = substTypeExpr types (foldr (\(binder, argument) rest -> ExLet (Bind binder argument) rest) (substExpr substitutions inner) lets)
+                  -- The type parameters that no dictionary names stay
+                  -- parameters of the copy.
+                  kept = [binder {binderType = substTypes types (binderType binder)} | binder <- prefixTypes prefix, binderName binder `notElem` map binderName static]
+                  body = foldr ExTyLam (substTypeExpr types (foldr (\(binder, argument) rest -> ExLet (Bind binder argument) rest) (substExpr substitutions inner) lets)) kept
                   cost = 1 + exprSize env body
               if cost > 256 || cost > topBudget current
                 then pure []
@@ -186,10 +190,58 @@ specialiseTopProgram primPackage program =
           | Just (_, prefix, _) <- Map.lookup name candidates,
             let count = prefixLength prefix,
             length arguments >= count,
-            Just copy <- Map.lookup (name, map (fmap (substExpr aliases)) (take count arguments)) (topCopies current) -> do
+            Just copy <- Map.lookup (name, staticArguments prefix (map (fmap (substExpr aliases)) (take count arguments))) (topCopies current) -> do
               modify' (\st -> st {topReport = topReport st <> SpecialiseReport 0 0 1})
-              pure (rebuildCall (ExVar copy) (drop count arguments))
+              pure (rebuildCall (ExVar copy) (keptArguments prefix (take count arguments) <> drop count arguments))
         _ -> pure (rebuildCall function arguments)
+
+-- | The type parameters of a prefix that a dictionary parameter names. A
+-- top-level copy is made for these types and the dictionaries. The other
+-- type parameters stay parameters of the copy, so that the calls of a
+-- function such as @pBind@ at many result types share one copy for each
+-- dictionary.
+staticTypes :: Prefix -> [Binder]
+staticTypes prefix =
+  [binder | binder <- prefixTypes prefix, Set.member (binderName binder) named]
+  where
+    named = Set.unions (map (typeVariables . binderType) (prefixDictionaries prefix))
+
+-- | The arguments of a call for the static types and the dictionaries of a
+-- prefix: the key of a top-level copy.
+staticArguments :: Prefix -> [Arg] -> [Arg]
+staticArguments prefix arguments =
+  [argument | (binder, argument) <- zip (prefixTypes prefix) arguments, isStatic binder]
+    <> drop (length (prefixTypes prefix)) arguments
+  where
+    static = map binderName (staticTypes prefix)
+    isStatic binder = binderName binder `elem` static
+
+-- | The type arguments of a call for the type parameters that a top-level
+-- copy keeps.
+keptArguments :: Prefix -> [Arg] -> [Arg]
+keptArguments prefix arguments =
+  [argument | (binder, argument) <- zip (prefixTypes prefix) arguments, binderName binder `notElem` static]
+  where
+    static = map binderName (staticTypes prefix)
+
+-- | The type of a top-level copy: the type of the function at the static
+-- types of the prefix, with the other quantifiers kept and without the
+-- arrows of the dictionaries. The quantifiers of the type and the type
+-- lambdas of the body are in the same order.
+instantiateStatic :: Prefix -> Type -> [Type] -> Maybe Type
+instantiateStatic prefix ty0 = go ty0 (prefixTypes prefix)
+  where
+    static = map binderName (staticTypes prefix)
+    go ty binders types =
+      case (ty, binders) of
+        (TyForAll binder body, parameter : rest)
+          | binderName parameter `elem` static,
+            argument : more <- types ->
+              go (substType (binderName binder) argument body) rest more
+          | binderName parameter `elem` static -> Nothing
+          | otherwise -> TyForAll binder <$> go body rest types
+        (_, []) | null types -> instantiate ty [] (length (prefixDictionaries prefix))
+        _ -> Nothing
 
 -- | State shared by all rounds, so each limit applies to the whole pass.
 data TopState = TopState
@@ -392,14 +444,6 @@ staticPrefix rhs =
           | isDictionaryType (binderType binder) ->
               let (more, rest) = peelDictionaries body in (binder : more, rest)
         _ -> ([], expr)
-
--- | A class dictionary type: an application of a @$Dict$@ constructor.
-isDictionaryType :: Type -> Bool
-isDictionaryType ty =
-  case ty of
-    TyApp function _ -> isDictionaryType function
-    TyCon tyCon -> "$Dict$" `T.isPrefixOf` nameText tyCon
-    _ -> False
 
 -- | The first arguments of every call of a name, or 'Nothing' when some
 -- occurrence of the name is not a call with that many arguments.

@@ -46,6 +46,8 @@ data LowerEnv = LowerEnv
     -- | The constructors that the program declares. A fetch names the
     -- layout of its constructor, which the program must declare.
     lowerDeclaredConstructors :: !(Set Fc.Name),
+    -- | The index of each known constructor in its data declaration.
+    lowerConstructorIndices :: !(Map Fc.Name Int),
     -- | The let-bound lambdas that the code only calls, with the variables
     -- that each one captures. See 'lowerLet'.
     lowerKnownLocals :: !(Map Fc.Name (LocalFunction, [GrinVar]))
@@ -108,7 +110,7 @@ lowerProgram primPackage program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors Map.empty
+      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors (constructorIndexTable types) Map.empty
       declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
       initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
@@ -192,10 +194,10 @@ withCurrentValue name action = do
 -- refers to, so that @casMutVar#@ and pointer equality see one identity.
 lowerTypeDecl :: LowerEnv -> Fc.TypeDecl -> LowerM TopParts
 lowerTypeDecl env declaration = do
-  converted <- mapM lowerConstructor (Fc.typeCons declaration)
+  converted <- zipWithM lowerConstructor [0 ..] (Fc.typeCons declaration)
   pure mempty {topConstructors = concat converted}
   where
-    lowerConstructor constructor = do
+    lowerConstructor index constructor = do
       let name = Fc.conName constructor
           (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
           constructorEnv = foldl extendTypeBinder env typeBinders
@@ -208,7 +210,7 @@ lowerTypeDecl env declaration = do
           resultRep <- liftEither (runtimeRep constructorEnv resultType)
           case resultRep of
             TupleRep {} -> pure []
-            _ -> pure [GrinConstructorDecl (constructorTag name) fieldLayouts (lowerVis (Fc.conVis constructor))]
+            _ -> pure [GrinConstructorDecl (constructorTag name) fieldLayouts index (lowerVis (Fc.conVis constructor))]
 
 lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
@@ -584,7 +586,9 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
       -- A Bool argument is the index of its constructor: False is 0 and
       -- True is 1.
       | isLiftedRuntimeRep (grinValueRuntimeRep value),
-        Just (falseTag, trueTag) <- findBoolConstructors env axioms constructors sourceType = do
+        Just (falseName, trueName) <- findBoolConstructors env axioms constructors sourceType = do
+          falseAlt <- dataAlt env falseName
+          trueAlt <- dataAlt env trueName
           evaluated <- freshVar "foreign_box" liftedGrinRep
           caseBinder <- freshVar "foreign_box_case" liftedGrinRep
           index <- freshVar "foreign_index" expectedRep
@@ -599,13 +603,14 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
                     ( GrinCase
                         (GrinVarValue evaluated)
                         caseBinder
-                        [GrinAlt (GrinDataAlt falseTag) [] (literal 0), GrinAlt (GrinDataAlt trueTag) [] (literal 1)]
+                        [GrinAlt falseAlt [] (literal 0), GrinAlt trueAlt [] (literal 1)]
                     )
                     body
                 )
             )
       | isLiftedRuntimeRep (grinValueRuntimeRep value) = do
-          (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
+          (constructor, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
+          alternative <- dataAlt env constructor
           evaluated <- freshVar "foreign_box" liftedGrinRep
           caseBinder <- freshVar "foreign_box_case" liftedGrinRep
           field <- freshVar "foreign_field" fieldRep
@@ -618,7 +623,7 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
                 ( GrinCase
                     (GrinVarValue evaluated)
                     caseBinder
-                    [GrinAlt (GrinDataAlt tag) [field] body]
+                    [GrinAlt alternative [field] body]
                 )
             )
       | otherwise = throwLower ("GRIN cannot adapt a foreign argument representation: " <> show sourceType)
@@ -645,7 +650,7 @@ adaptForeignResult env axioms constructors sourceType sourceRep foreignRep forei
     Just (falseTag, trueTag) <- findBoolConstructors env axioms constructors sourceType = do
       result <- freshVar "foreign_result" foreignRep
       caseBinder <- freshVar "foreign_result_case" foreignRep
-      let store tag = GrinStore (GrinNode (GrinConstructor tag 0) [])
+      let store name = GrinStore (GrinNode (GrinConstructor (constructorTag name) 0) [])
       pure
         ( GrinBind
             [result]
@@ -660,11 +665,11 @@ adaptForeignResult env axioms constructors sourceType sourceRep foreignRep forei
       (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType foreignRep
       result <- freshVar "foreign_result" foreignRep
       body <- adaptForeignWidth foreignRep fieldRep (GrinVarValue result) $ \converted ->
-        pure (GrinStore (GrinNode (GrinConstructor tag 0) [converted]))
+        pure (GrinStore (GrinNode (GrinConstructor (constructorTag tag) 0) [converted]))
       pure (GrinBind [result] foreignExpression body)
   | otherwise = throwLower ("GRIN cannot adapt a foreign result representation: " <> show sourceType)
 
-findUnaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> LowerM (Text, GrinRep)
+findUnaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> LowerM (Fc.Name, GrinRep)
 findUnaryConstructor env axioms constructors resultType expectedRep =
   case listToMaybe (mapMaybe matchConstructor (foreignConstructorEntries env constructors)) of
     Just result -> pure result
@@ -678,16 +683,16 @@ findUnaryConstructor env axioms constructors resultType expectedRep =
             [fieldType] ->
               case runtimeRep env fieldType of
                 Right fieldRep
-                  | adaptableReps fieldRep expectedRep -> Just (constructorTag name, fieldRep)
+                  | adaptableReps fieldRep expectedRep -> Just (name, fieldRep)
                 _ -> Nothing
             _ -> Nothing
 
 -- | The two nullary constructors of a @Bool@ value, in declaration order,
 -- when the foreign dependencies name them for the type.
-findBoolConstructors :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> Maybe (Text, Text)
+findBoolConstructors :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> Maybe (Fc.Name, Fc.Name)
 findBoolConstructors env axioms constructors sourceType =
   case mapMaybe matchConstructor (foreignConstructorEntries env constructors) of
-    [falseTag, trueTag] -> Just (falseTag, trueTag)
+    [falseName, trueName] -> Just (falseName, trueName)
     _ -> Nothing
   where
     matchConstructor (name, constructorType)
@@ -695,7 +700,7 @@ findBoolConstructors env axioms constructors sourceType =
       | otherwise = do
           fieldTypes <- instantiateConstructorFields env axioms constructorType sourceType
           case fieldTypes of
-            [] -> Just (constructorTag name)
+            [] -> Just name
             _ -> Nothing
 
 -- | The constructor of a type with no fields, such as the unit constructor.
@@ -1681,7 +1686,7 @@ lowerAlt env alternative = do
 lowerAltCon :: LowerEnv -> Fc.AltCon -> LowerM GrinAltCon
 lowerAltCon env alternative =
   case alternative of
-    Fc.AltData name -> pure (GrinDataAlt (constructorTag name))
+    Fc.AltData name -> dataAlt env name
     Fc.AltLit literal -> GrinLitAlt <$> lowerLiteral env literal
     Fc.AltDefault -> pure GrinDefaultAlt
 
@@ -2034,6 +2039,24 @@ globalNameTable types =
     | name <- Map.keys (TypeOf.teHeaders types),
       Fc.nameSort name `elem` [Fc.SortValue, Fc.SortDataConstructor]
     ]
+
+-- | The index of each constructor in its data declaration. The type
+-- environment has the constructors of each data type that the program
+-- declares or imports, in declaration order.
+constructorIndexTable :: TypeOf.TypeEnv -> Map Fc.Name Int
+constructorIndexTable types =
+  Map.fromList
+    [ (constructor, index)
+    | constructors <- Map.elems (TypeOf.teDataCons types),
+      (index, constructor) <- zip [0 ..] constructors
+    ]
+
+-- | The case alternative of one constructor.
+dataAlt :: LowerEnv -> Fc.Name -> LowerM GrinAltCon
+dataAlt env name =
+  case Map.lookup name (lowerConstructorIndices env) of
+    Just index -> pure (GrinDataAlt (constructorTag name) index)
+    Nothing -> throwLower ("GRIN does not know the data declaration of the constructor " <> show name)
 
 constructorArityTable :: TypeOf.TypeEnv -> Map Fc.Name Int
 constructorArityTable types =

@@ -1,0 +1,68 @@
+program: |
+  constructor North []
+  constructor East%1 []
+  constructor South%2 []
+  constructor West%3 [IntRep]
+
+  $entry (value%1 :: BoxedRep Lifted) -> IntRep =
+    case (value%1 :: BoxedRep Lifted) as scrutinee%2 :: BoxedRep Lifted of
+      data North ->
+        constant (0 :: IntRep)
+      data East%1 ->
+        constant (1 :: IntRep)
+      data South%2 ->
+        constant (2 :: IntRep)
+      data West%3 (payload%3 :: IntRep) ->
+        constant (payload%3 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern func @aihc_no_match() cc c
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: ptr, %$cps_return_5: ptr) {
+  entry:
+    %header_word_11 = load i64 [%value_4] align 8 region heap
+    %info_word_12 = and i64 %header_word_11, -4
+    %header_13 = ptr.from_int %info_word_12
+    %constructor_index_14 = load.invariant i16 [%header_13 + 46] align 2
+    %constructor_index_15 = zext i16 %constructor_index_14 to i64
+    switch i64 %constructor_index_15 {
+      0 -> alt_6
+      1 -> alt_7
+      2 -> alt_8
+      3 -> alt_9
+      default -> no_match_10
+    }
+
+  no_match_10:
+    call @aihc_no_match()
+    trap "no matching case alternative"
+
+  alt_6:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
+
+  alt_7:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 1)
+
+  alt_8:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 2)
+
+  alt_9:
+    %payload_16 = load i64 [%value_4 + 8] align 8 region heap
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_16)
+  }
+
+  data @aihc_c_aihc_entry_North_0 align 8 = { ptr @aihc_c_aihc_entry_North_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+
+  data @aihc_c_aihc_entry_East_0 align 8 = { ptr @aihc_c_aihc_entry_East_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 1 }
+
+  data @aihc_c_aihc_entry_South_0 align 8 = { ptr @aihc_c_aihc_entry_South_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 2 }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_West_0 align 8 = { ptr @aihc_c_aihc_entry_West_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 3 }
+status: pass
+reason: |
+  A case with four constructor alternatives or more selects its alternative
+  from the constructor index of the info table. It does not compare the
+  identity of the info table with each constructor.

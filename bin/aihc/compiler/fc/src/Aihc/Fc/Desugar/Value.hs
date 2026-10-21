@@ -3513,22 +3513,13 @@ patSynBuilderName variable =
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
 desugarTermReference variable types evidence termArgumentTypes = do
   magic <- isPrimitiveTerm variable "tagToEnum#"
-  dataTag <- isDataToTagTerm variable
+  dataTag <- or <$> mapM (isPrimitiveTerm variable) ["dataToTagSmall#", "dataToTagLarge#"]
   if magic
     then desugarTagToEnum types
     else
       if dataTag
-        then desugarDataToTag types termArgumentTypes
+        then desugarDataToTag variable types evidence termArgumentTypes
         else desugarOrdinaryTermReference variable types evidence termArgumentTypes
-
--- | Identify the primitive declaration of the constructor tag operation.
-isDataToTagTerm :: Name -> ValueM Bool
-isDataToTagTerm variable
-  | nameText variable == "dataToTag#",
-    OriginTop package moduleName' <- nameOrigin variable = do
-      imports <- gets vsForeignImports
-      pure (Map.lookup (GlobalTerm package moduleName' (nameText variable)) imports == Just TcForeignPrimImport)
-  | otherwise = pure False
 
 -- | Whether the occurrence is of the named term of the wired-in @GHC.Prim@.
 isPrimitiveTerm :: Name -> Text -> ValueM Bool
@@ -3572,40 +3563,19 @@ desugarTagToEnum types =
         )
     _ -> failValue ("GHC.Prim.tagToEnum# has " <> show (length types) <> " type arguments")
 
--- | Return the zero-based constructor tag after the argument is evaluated.
-desugarDataToTag :: [Type] -> [TcType] -> ValueM Expr
-desugarDataToTag types termArgumentTypes =
-  case (types, termArgumentTypes) of
-    ([inputType], inputTcType : _) -> do
-      dataTypes <- gets vsTagDataTypes
-      constructors <-
-        case typeApplicationHead inputType of
-          TyCon name
-            | OriginTop package moduleName' <- nameOrigin name,
-              Just dataType <- Map.lookup (package, moduleName', nameText name) dataTypes ->
-                pure (dtiConstructors dataType)
-          _ -> failValue "GHC.Exts.dataToTag# needs a data type argument"
+-- | Return the zero-based constructor index after the argument is
+-- evaluated. The primitive call reads the index of an evaluated value, so
+-- the use evaluates the argument in a case first.
+desugarDataToTag :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
+desugarDataToTag variable types evidence termArgumentTypes = do
+  reference <- desugarOrdinaryTermReference variable types evidence termArgumentTypes
+  case reference of
+    ExLam evaluated call@ExForeignCall {} -> do
       package <- gets (cePrimPackage . vsConvertEnv)
-      kinds <- valueKinds
-      representation <- convertRuntimeRep (intRep kinds)
       resultType <- convertCheckedType (TcTyCon (mkTyConWithOrigin package "GHC.Prim" "Int#" 0) [])
-      argument <- freshBinderFromType "_dataToTag_argument" inputType
-      scrutinee <- freshBinderFromType "_dataToTag_scrut" inputType
-      alternatives <- mapM (alternative inputTcType representation resultType) (zip [0 :: Int ..] constructors)
-      pure (ExLam argument (caseFromList (ExVar (binderName argument)) (Just scrutinee) resultType alternatives))
-    _ -> failValue "GHC.Exts.dataToTag# needs one type argument and one term argument"
-  where
-    alternative inputTcType representation resultType (index, constructor) = do
-      let (package, moduleName') = dciOrigin constructor
-          existentials = dciExTyVars constructor
-          substitution = fromMaybe Map.empty (matchTypes [dciResTy constructor] [inputTcType])
-          reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields constructor]
-      typeBinders <- convertTypeBinders existentials
-      withTypeVariables existentials $ do
-        dictionaries <- mapM (freshDictionaryBinder . applySubstPred substitution) (dciTheta constructor)
-        fields <- concat <$> freshLeafBinders "_dataToTag_field" (zip (map dcfiLabel (dciFields constructor)) reps)
-        let constructorName = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
-        pure (Alt (AltData constructorName) typeBinders (dictionaries <> fields) (ExLit (LitInt representation (toInteger index)) resultType))
+      argument <- freshBinderFromType "_dataToTag_argument" (binderType evaluated)
+      pure (ExLam argument (caseFromList (ExVar (binderName argument)) (Just evaluated) resultType [Alt AltDefault [] [] call]))
+    _ -> failValue ("GHC.Prim." <> T.unpack (nameText variable) <> " needs one term argument")
 
 -- | The constructors of the enumeration type that @tagToEnum#@ builds.
 enumerationConstructors :: Type -> ValueM [DataConInfo]

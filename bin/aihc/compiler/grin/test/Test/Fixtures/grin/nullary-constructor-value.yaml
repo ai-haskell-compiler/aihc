@@ -16,7 +16,7 @@ expected: |-
 
   pub constructor 1.False []
 
-  pub constructor 1.True []
+  pub constructor 1.True%1 []
 
   pub constructor 1.Box [BoxedRep Lifted]
 
@@ -30,7 +30,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.False ->
         constant global-ref 1.True
-      data 1.True ->
+      data 1.True%1 ->
         constant global-ref 1.False
 
   1.$box (x :: BoxedRep Lifted) -> BoxedRep Lifted =
@@ -39,7 +39,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.False ->
         store (C1.Box global-ref 1.True)
-      data 1.True ->
+      data 1.True%1 ->
         store (C1.Box global-ref 1.False)
 status: pass
 reason: refers to the static node of a nullary constructor without an eval

@@ -198,8 +198,12 @@ amd64Backend =
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
          in pure (setup, BranchTest (branchWhen test) (branchUnless test)),
-      nbCompareAndBranchEqual = \ctx ty register value label ->
-        compareWith ctx ty False register (OperandLiteral (LitInt value)) <> [amd64Instruction (AmdJe label)],
+      nbCompareAndBranches = \ctx ty register value branches ->
+        compareWith ctx ty False register (OperandLiteral (LitInt value))
+          <> [amd64Instruction (switchJump op label) | (op, label) <- branches],
+      -- A jump on AMD64 is two or five bytes, so a table of jumps has no
+      -- fixed slot size.
+      nbBranchTable = Nothing,
       nbCReturnFloat = \convention resultTypes ->
         case (convention, resultTypes) of
           (CConvention, [F64]) -> [amd64Instruction (AmdMovqToXmm 0 RAX)]
@@ -643,6 +647,14 @@ floatFlags ctx op ty left right =
           Ne -> (ucomis a b, AmdNotEqual)
           _ -> (ucomis a b, AmdEqual)
    in (loads <> loads' <> order, flags)
+
+-- | The jump of one branch of a switch test. See 'nbCompareAndBranches'.
+switchJump :: CompareOp -> Name -> Amd64Instruction
+switchJump op label =
+  case op of
+    LtU -> AmdJcc AmdBelow label
+    GtU -> AmdJcc AmdAbove label
+    _ -> AmdJe label
 
 compareWith :: Ctx Amd64Register -> Type -> Bool -> Amd64Register -> Operand -> [Amd64Statement]
 compareWith ctx ty signed left right =

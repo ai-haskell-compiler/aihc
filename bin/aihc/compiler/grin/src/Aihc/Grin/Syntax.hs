@@ -191,7 +191,8 @@ data GrinVis
   deriving (Eq, Ord, Show, Read)
 
 -- | One constructor of the program: the runtime layout of each of its
--- logical fields, and whether another unit can name it.
+-- logical fields, its index in its data declaration, and whether another
+-- unit can name it.
 --
 -- A constructor is part of the interface of the module that declares it. Its
 -- info table is named wherever a value of it is built or matched, and a
@@ -201,13 +202,16 @@ data GrinVis
 data GrinConstructorDecl = GrinConstructorDecl
   { grinConstructorName :: !Text,
     grinConstructorLayouts :: ![[GrinRep]],
+    -- | The position of the constructor in its data declaration, from zero.
+    -- See 'GrinDataAlt'.
+    grinConstructorIndex :: !Int,
     grinConstructorVis :: !GrinVis
   }
   deriving (Eq, Show, Read)
 
 -- | A public constructor. See 'pubGlobal'.
-pubConstructor :: Text -> [[GrinRep]] -> GrinConstructorDecl
-pubConstructor name layouts = GrinConstructorDecl name layouts GrinPub
+pubConstructor :: Text -> Int -> [[GrinRep]] -> GrinConstructorDecl
+pubConstructor name index layouts = GrinConstructorDecl name layouts index GrinPub
 
 -- | One static object of the global table.
 --
@@ -424,8 +428,13 @@ data GrinAlt = GrinAlt
   }
   deriving (Eq, Show, Read)
 
+-- | A data alternative names its constructor and the index of the
+-- constructor in its data declaration. Every info table of the constructor
+-- holds the same index, so a backend can select an alternative from the
+-- index that the object holds. The index is a fact of the declaration, and
+-- a module that matches an imported constructor gets it from its imports.
 data GrinAltCon
-  = GrinDataAlt !Text
+  = GrinDataAlt !Text !Int
   | GrinLitAlt !GrinLiteral
   | GrinDefaultAlt
   deriving (Eq, Show, Read)
@@ -516,7 +525,7 @@ exprTagNames expression =
     altTagNames alternative = altConTagNames (grinAltCon alternative) <> exprTagNames (grinAltRhs alternative)
     altConTagNames altCon =
       case altCon of
-        GrinDataAlt name -> [name]
+        GrinDataAlt name _ -> [name]
         _ -> []
 
 nodeTagNames :: GrinNode -> [Text]

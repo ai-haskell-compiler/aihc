@@ -13,7 +13,7 @@ expected: |-
 
   pub constructor 1.Failure [IntRep]
 
-  pub constructor 1.Success [BoxedRep Lifted]
+  pub constructor 1.Success%1 [BoxedRep Lifted]
 
   pub global 1.mapResult = (P1.$mapResult/2)
 
@@ -28,7 +28,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.Failure (position :: IntRep) ->
         constant (case_value%1 :: BoxedRep Lifted)
-      data 1.Success (value :: BoxedRep Lifted) ->
+      data 1.Success%1 (value :: BoxedRep Lifted) ->
         argument :: BoxedRep Lifted <-
           store (F1.$mapResult_argument_thunk (value :: BoxedRep Lifted) (x :: BoxedRep Lifted))
         store (C1.Success (argument :: BoxedRep Lifted))

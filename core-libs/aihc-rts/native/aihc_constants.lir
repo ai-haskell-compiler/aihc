@@ -17,6 +17,7 @@ const @AIHC_INFO_ARITY_OFFSET = 5 words + 1
 const @AIHC_INFO_FRAME_OFFSET = 5 words + 2
 const @AIHC_INFO_KIND_OFFSET = 5 words + 3
 const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 4
+const @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET = 5 words + 6
 const @AIHC_INFO_BYTES = 5 words + 8
 
 

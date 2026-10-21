@@ -119,6 +119,13 @@ data DerivingReferences = DerivingReferences
     -- | The primitive @Int#@ type, which types the precedence literals of
     -- derived @Show@ instances.
     derivingIntPrimType :: !DerivingReference,
+    -- | @dataToTagLarge#@, which gives the constructor index of a value. A
+    -- derived @Ord@ or @Enum@ reads the index instead of a case with one
+    -- alternative for each constructor.
+    derivingDataToTag :: !DerivingReference,
+    -- | The @(<#)@ operator of @Int#@, which compares two constructor
+    -- indices.
+    derivingIntLess :: !DerivingReference,
     -- | The unlifted field types that a derived @Eq@ or @Ord@ compares
     -- with primitive operators, because no instance exists at them.
     derivingUnliftedFields :: ![UnliftedFieldReferences],
@@ -386,6 +393,8 @@ derivingReferenceList references =
     derivingJust references,
     derivingIntCon references,
     derivingIntPrimType references,
+    derivingDataToTag references,
+    derivingIntLess references,
     derivingGreaterOrEqual references,
     derivingCons references,
     derivingBind references,

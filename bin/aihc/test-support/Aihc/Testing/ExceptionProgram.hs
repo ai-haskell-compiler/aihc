@@ -13,7 +13,7 @@ import Aihc.Grin.Syntax
 synchronousExceptionProgram :: GrinProgram
 synchronousExceptionProgram =
   GrinProgram
-    { grinConstructors = [pubConstructor "Exception" []],
+    { grinConstructors = [pubConstructor "Exception" 0 []],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
       grinGlobals =

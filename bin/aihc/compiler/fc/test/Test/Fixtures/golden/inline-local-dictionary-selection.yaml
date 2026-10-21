@@ -1,0 +1,116 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  class Pick a where
+    pick :: a -> a -> a
+    -- The default method selects from the dictionary of its own
+    -- instance, which it binds by a let.
+    both :: a -> a -> a
+    both x y = pick x (pick y x)
+
+  newtype Wrap a = Wrap a
+
+  instance Pick a => Pick (Wrap a) where
+    pick (Wrap x) (Wrap y) = Wrap (pick x y)
+
+  instance Pick Bool where
+    pick a b = case a of
+      True -> b
+      False -> a
+
+  run :: Wrap Bool -> Wrap Bool -> Wrap Bool
+  run = both
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Pick (a : sType) :: sType {
+    1.c$Dict$Pick :: ∀(a : sType). (a → a → a) → (a → a → a) → t$Dict$Pick a
+  }
+
+  type 1.tWrap (a : sType) :: sType {}
+
+  axiom 1.$ax$Wrap (a : sType) : tWrap a ~R a
+
+  pub val 1.v$dmboth :: ∀(a : sType). t$Dict$Pick a → a → a → a
+    = Λ(a : sType). λ($dPick : t$Dict$Pick a) (x : a) (y : a).
+      let! c$Dict$Pick ($cpick : a → a → a) (unused $cboth : a → a → a) = $dPick;
+      $cpick x ($cpick y x)
+
+  pub val 1.v$fPickWrapa :: ∀(a : sType). t$Dict$Pick a → t$Dict$Pick (tWrap a)
+    = Λ(a : sType). λ($dPick : t$Dict$Pick a).
+      c$Dict$Pick @(tWrap a) (v$fPickWrapa$cpick @a $dPick) (v$fPickWrapa$cboth @a $dPick)
+
+  val 1.v$fPickWrapa$cpick :: ∀(a : sType). t$Dict$Pick a → tWrap a → tWrap a → tWrap a
+    = Λ(a : sType). λ($dPick : t$Dict$Pick a) (x : tWrap a) (y : tWrap a).
+      let! c$Dict$Pick ($cpick : a → a → a) (unused $cboth : a → a → a) = $dPick;
+      ($cpick (x ▷ axiom-co $ax$Wrap @a) (y ▷ axiom-co $ax$Wrap @a)) ▷ sym (axiom-co $ax$Wrap @a)
+
+  val 1.v$fPickWrapa$cboth :: ∀(a : sType). t$Dict$Pick a → tWrap a → tWrap a → tWrap a
+    = Λ(a : sType). λ($dPick : t$Dict$Pick a) (x : tWrap a) (y : tWrap a).
+      let! c$Dict$Pick ($cpick : a → a → a) (unused $cboth : a → a → a) = $dPick;
+      ($cpick (x ▷ axiom-co $ax$Wrap @a) ($cpick (y ▷ axiom-co $ax$Wrap @a) (x ▷ axiom-co $ax$Wrap @a))) ▷ sym (axiom-co $ax$Wrap @a)
+
+  pub val 1.v$fPickBool :: t$Dict$Pick tBool
+    = c$Dict$Pick @tBool v$fPickBool$cpick v$fPickBool$cboth
+
+  val 1.v$fPickBool$cpick :: tBool → tBool → tBool
+    = λ(x : tBool) (y : tBool).
+      case x of {
+        cTrue →
+          y;
+        cFalse →
+          x
+      }
+
+  val 1.v$fPickBool$cboth :: tBool → tBool → tBool
+    = λ(x : tBool) (y : tBool).
+      case x of {
+        cTrue →
+          case y of {
+            cTrue →
+              x;
+            cFalse →
+              y
+          };
+        cFalse →
+          x
+      }
+
+  pub val 1.vrun :: tWrap tBool → tWrap tBool → tWrap tBool
+    = λ(x : tWrap tBool) (y : tWrap tBool).
+      (case x ▷ axiom-co $ax$Wrap @tBool of {
+        cTrue →
+          case y ▷ axiom-co $ax$Wrap @tBool of {
+            cTrue →
+              x ▷ axiom-co $ax$Wrap @tBool;
+            cFalse →
+              y ▷ axiom-co $ax$Wrap @tBool
+          };
+        cFalse →
+          x ▷ axiom-co $ax$Wrap @tBool
+      }) ▷ sym (axiom-co $ax$Wrap @tBool)
+status: pass
+reason: A case on a local let of a dictionary function call selects the method. Before, the selections from the dictionary of a default method stayed unknown calls.
