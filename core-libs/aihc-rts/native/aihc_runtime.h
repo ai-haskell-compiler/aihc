@@ -367,6 +367,9 @@ struct AihcCapability {
      moves each block that is now in gen2 to the list of the machine. See
      aihc_sweep_pinned. */
   struct AihcPinnedBlock *young_pinned;
+  /* The earliest time of the next busy check. See aihc_busy_check in
+     aihc_runtime.c. */
+  uint64_t busy_check_ns;
 };
 
 /* The reason that starts a collection. The statistics report a count for

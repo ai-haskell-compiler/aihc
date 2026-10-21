@@ -532,6 +532,17 @@ the inbox of that capability, or into its own run queue when that is the
 same capability. Thus the capability field of a blocked thread stays valid
 while it is blocked. The blackhole protocol below depends on this rule.
 
+A capability polls its IO requests and its transaction waits only in its
+schedule. A long computation of its running thread then holds the threads
+that it woke, and other capabilities can stay idle for a long time. For
+example, a thread that reads a pipe for a waiting worker can wait for the
+full compilation of a module. Thus the block refill in `aihc_heap_collect`
+also does a busy check. When a capability is idle, and this capability has
+IO requests or runnable threads, the check polls the requests without a
+wait. Then it pushes the runnable threads to idle capabilities. It does
+this at most once each millisecond. A refill for the runtime itself does
+not do the check, because it can occur during an operation on a queue.
+
 In the end state a push is an escape. The stack of the pushed thread names
 objects of the local heap of the pushing capability, and the push must
 promote everything the stack reaches into gen2 first. A thread that has

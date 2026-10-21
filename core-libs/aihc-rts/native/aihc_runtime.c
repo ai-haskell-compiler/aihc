@@ -782,6 +782,8 @@ static AihcBackendEntry aihc_callback_create_locked(AihcCapability *capability,
 static void aihc_take_inbox(AihcCapability *capability);
 static void aihc_move_threads(AihcCapability *capability, uint64_t pushes);
 static uint64_t aihc_available_capabilities(AihcMachine *machine);
+static void aihc_busy_check(AihcCapability *capability, uint64_t root_count,
+                            AihcSlot *roots, const AihcSrt *srt);
 
 /* Before a safe foreign call, give the runnable threads of the capability
    to idle capabilities. They do not wait for the call. A thread that the
@@ -1125,9 +1127,13 @@ void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
   aihc_gc_ensure(capability, words, root_count, roots, srt);
 }
 
+/* The failed heap check of compiled code and of the helpers. Only the
+   mutator comes here, so the busy check can poll and push. A refill for
+   the runtime does not come here: it can be in an operation on a queue. */
 void aihc_heap_collect(AihcCapability *capability, uint64_t words,
                        uint64_t root_count, AihcSlot *roots,
                        const AihcSrt *srt) {
+  aihc_busy_check(capability, root_count, roots, srt);
   aihc_gc_refill(capability, words, root_count, roots, srt);
 }
 
@@ -1716,6 +1722,44 @@ static void aihc_move_threads(AihcCapability *capability, uint64_t pushes) {
     ++capability->push_count;
     --pushes;
   }
+}
+
+/* The interval between two busy checks of a capability. */
+#define AIHC_BUSY_CHECK_NS UINT64_C(1000000)
+
+/* A thread goes back to the capability that ran it: its IO requests, its
+   transaction waits, and its wakes from other capabilities. The worker
+   looks at them only in its schedule. Without a preemption tick, a long
+   computation of the running thread then holds these threads while other
+   capabilities are idle. Thus a failed heap check of the mutator polls the
+   IO requests without a wait and pushes the runnable threads to idle
+   capabilities. It does this only when a capability is idle and this one
+   has such a thread, and at most once in each interval. The foreign frame
+   publishes the roots and the SRT of the caller for the collection of the
+   push. */
+static void aihc_busy_check(AihcCapability *capability, uint64_t root_count,
+                            AihcSlot *roots, const AihcSrt *srt) {
+  AihcMachine *machine = capability->machine;
+  if (!machine->workers_active || capability->stop_depth != 0 ||
+      __atomic_load_n(&machine->idle_count, __ATOMIC_RELAXED) == 0) {
+    return;
+  }
+  if (capability->io_request_count == 0 &&
+      capability->run_queue_head == NULL &&
+      __atomic_load_n(&capability->inbox_head, __ATOMIC_RELAXED) == NULL) {
+    return;
+  }
+  uint64_t now = aihc_host_monotonic_ns();
+  if (now < capability->busy_check_ns) {
+    return;
+  }
+  capability->busy_check_ns = now + AIHC_BUSY_CHECK_NS;
+  AihcForeignFrame frame;
+  aihc_foreign_enter(capability, &frame, roots, root_count, srt,
+                     AIHC_FOREIGN_UNSAFE);
+  (void)machine->io_backend->poll(capability, 0);
+  aihc_move_runnable_threads(capability);
+  aihc_foreign_leave(capability, &frame);
 }
 
 typedef struct AihcStmWaiter AihcStmWaiter;
@@ -3096,7 +3140,7 @@ const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
      before this call copies them. */
   AihcSlot roots[2] = {(AihcSlot)(uintptr_t)function,
                        (AihcSlot)(uintptr_t)continuation};
-  aihc_heap_collect(capability, words, 2, roots, NULL);
+  aihc_gc_refill(capability, words, 2, roots, NULL);
   function = (AihcValue *)(uintptr_t)roots[0];
 
   AihcValue *captured = aihc_place_node(capability, &aihc_continuation_info,
