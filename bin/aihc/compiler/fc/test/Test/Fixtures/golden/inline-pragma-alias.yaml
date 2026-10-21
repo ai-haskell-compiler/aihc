@@ -1,0 +1,138 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  class Flag a where
+    flag :: a -> Bool
+
+  instance Flag Bool where
+    flag x = x
+
+  class Pick a where
+    pick :: a -> a -> a -> a
+
+  newtype Wrap a = Wrap a
+
+  helper :: Flag a => Wrap a -> Wrap a -> Wrap a -> Wrap a
+  helper (Wrap a) (Wrap b) (Wrap c) = case flag a of
+    True -> case flag b of
+      True -> Wrap c
+      False -> case flag c of
+        True -> Wrap b
+        False -> Wrap a
+    False -> case flag c of
+      True -> case flag b of
+        True -> Wrap a
+        False -> Wrap c
+      False -> Wrap b
+  {-# INLINE helper #-}
+
+  -- The method only calls the INLINE value with its dictionary. It keeps
+  -- the pragma of the value, and the value is not copied into it.
+  instance Flag a => Pick (Wrap a) where
+    pick = helper
+
+  run :: Wrap Bool -> Wrap Bool -> Wrap Bool
+  run x y = pick (Wrap True) x y
+passes:
+- eta
+- inline: shrink
+- inline:
+    policy: grow
+    value-growth: 0
+    value-slack: 0
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Flag (a : sType) :: sType {
+    1.c$Dict$Flag :: ∀(a : sType). (a → tBool) → t$Dict$Flag a
+  }
+
+  type 1.t$Dict$Pick (a : sType) :: sType {
+    1.c$Dict$Pick :: ∀(a : sType). (a → a → a → a) → t$Dict$Pick a
+  }
+
+  type 1.tWrap (a : sType) :: sType {}
+
+  axiom 1.$ax$Wrap (a : sType) : tWrap a ~R a
+
+  pub val 1.v$fFlagBool :: t$Dict$Flag tBool
+    = c$Dict$Flag @tBool v$fFlagBool$cflag
+
+  val 1.v$fFlagBool$cflag :: tBool → tBool
+    = λ(x : tBool).
+      x
+
+  pub val 1.v$fPickWrapa :: ∀(a : sType). t$Dict$Flag a → t$Dict$Pick (tWrap a)
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a).
+      c$Dict$Pick @(tWrap a) (v$fPickWrapa$cpick @a $dFlag)
+
+  val 1.v$fPickWrapa$cpick :: ∀(a : sType). t$Dict$Flag a → tWrap a → tWrap a → tWrap a → tWrap a
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (eta : tWrap a) (eta{1} : tWrap a) (eta{2} : tWrap a).
+      vhelper @a $dFlag eta eta{1} eta{2}
+
+  val 1.vhelper inline :: ∀(a : sType). t$Dict$Flag a → tWrap a → tWrap a → tWrap a → tWrap a
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : tWrap a) (y : tWrap a) (z : tWrap a).
+      let! c$Dict$Flag ($cflag : a → tBool) = $dFlag;
+      case $cflag (x ▷ axiom-co $ax$Wrap @a) of {
+        cTrue →
+          case $cflag (y ▷ axiom-co $ax$Wrap @a) of {
+            cTrue →
+              z;
+            cFalse →
+              case $cflag (z ▷ axiom-co $ax$Wrap @a) of {
+                cTrue →
+                  y;
+                cFalse →
+                  x
+              }
+          };
+        cFalse →
+          case $cflag (z ▷ axiom-co $ax$Wrap @a) of {
+            cTrue →
+              case $cflag (y ▷ axiom-co $ax$Wrap @a) of {
+                cTrue →
+                  x;
+                cFalse →
+                  z
+              };
+            cFalse →
+              y
+          }
+      }
+
+  pub val 1.vrun :: tWrap tBool → tWrap tBool → tWrap tBool
+    = λ(x : tWrap tBool) (y : tWrap tBool).
+      case x ▷ axiom-co $ax$Wrap @tBool of {
+        cTrue →
+          y;
+        cFalse →
+          case y ▷ axiom-co $ax$Wrap @tBool of {
+            cTrue →
+              x;
+            cFalse →
+              cTrue ▷ sym (axiom-co $ax$Wrap @tBool)
+          }
+      }
+status: pass
+reason: An instance method that only calls an INLINE value keeps the pragma of the value, and the value is not copied into it. Before, the value was copied into the method, so the method lost the pragma.
