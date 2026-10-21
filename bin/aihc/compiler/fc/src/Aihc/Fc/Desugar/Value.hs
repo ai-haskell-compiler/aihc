@@ -160,7 +160,11 @@ data ValueState = ValueState
     vsClassMethods :: !(Map GlobalName [Text]),
     -- | A match argument that is in scope everywhere in the current match.
     -- A shared failure takes it as the parameter of its join point.
-    vsJoinArgument :: !(Maybe (Binder, TcType))
+    vsJoinArgument :: !(Maybe (Binder, TcType)),
+    -- | The pattern synonym matchers that the module calls. A matcher
+    -- calls one of its continuations once, in tail position, thus a tail
+    -- of a continuation is a tail of the call.
+    vsMatchers :: !(Set Name)
   }
 
 data PreparedValueInterface = PreparedValueInterface
@@ -347,7 +351,8 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsForeignImports = preparedForeignImports interface,
             vsTagDataTypes = preparedTagDataTypes interface,
             vsClassMethods = preparedClassMethods interface,
-            vsJoinArgument = Nothing
+            vsJoinArgument = Nothing,
+            vsMatchers = Set.empty
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -548,7 +553,9 @@ patSynMatcherReference info annotation resultType = do
   resultRepresentation <- checkedRuntimeRep resultType
   convertedResultType <- convertCheckedType resultType
   let types = universalTypes <> [resultRepresentation, convertedResultType]
-  pure (foldl ExTyApp (ExVar (Name (patSynHelperName "$m" info) SortValue (OriginTop package moduleName'))) types)
+      matcherName = Name (patSynHelperName "$m" info) SortValue (OriginTop package moduleName')
+  modify' (\state -> state {vsMatchers = Set.insert matcherName (vsMatchers state)})
+  pure (foldl ExTyApp (ExVar matcherName) types)
 
 -- | The absurd expression that reports a failed match on one binder.
 emptyCaseFailure :: TcType -> Binder -> ValueM Expr
@@ -2028,12 +2035,14 @@ shareExpr resultType expression body
           joinArgument <- gets vsJoinArgument
           let name = binderName binder
           result <- body (ExVar name)
+          -- The body adds the matchers that it calls.
+          matchers <- gets vsMatchers
           case countUses name result of
             0 -> pure result
             1 -> pure (substituteVar name expression result)
             _
               | Just (argument, argumentType) <- joinArgument,
-                onlyTailUses name result -> do
+                onlyTailUses matchers name result -> do
                   joinType <- convertCheckedType (TcFunTy argumentType resultType)
                   parameter <- freshBinderFromType (nameText (binderName argument)) (binderType argument)
                   let call = ExApp (ExVar name) (ExVar (binderName argument))
@@ -2051,9 +2060,12 @@ isAtom expression =
     _ -> False
 
 -- | Whether each use of a variable is the whole of a tail of an expression.
--- A cast does not change the position of a use.
-onlyTailUses :: Name -> Expr -> Bool
-onlyTailUses name = go
+-- A cast does not change the position of a use. A call of a pattern
+-- synonym matcher gives its result in a tail of its continuation or of
+-- its failure, thus a tail of those lambdas is a tail of the call. The
+-- matcher calls only one of them, and only once.
+onlyTailUses :: Set Name -> Name -> Expr -> Bool
+onlyTailUses matchers name = go
   where
     go expression =
       case expression of
@@ -2062,7 +2074,34 @@ onlyTailUses name = go
         ExRec bindings inner -> all ((== 0) . countUses name . bindRhs) bindings && go inner
         ExCase scrutinee _ alternatives -> countUses name scrutinee == 0 && all (go . altRhs) alternatives
         ExCast inner _ -> go inner
-        _ -> countUses name expression == 0
+        _
+          | Just (arguments, continuations) <- matcherCall expression [] ->
+              all ((== 0) . countUses name) arguments && all (go . lambdaBody) continuations
+          | otherwise -> countUses name expression == 0
+    -- The arguments of a matcher call before the two continuations, and
+    -- the continuations. Each continuation is a lambda.
+    matcherCall expression arguments =
+      case expression of
+        ExApp function argument -> matcherCall function (argument : arguments)
+        ExTyApp function _ -> matcherCall function arguments
+        ExVar head'
+          | Set.member head' matchers,
+            (fixed, continuations@[_, _]) <- splitAt (length arguments - 2) arguments,
+            all isLambda continuations ->
+              Just (fixed, continuations)
+        _ -> Nothing
+    isLambda expression =
+      case expression of
+        ExLam {} -> True
+        ExTyLam {} -> True
+        _ -> False
+    -- The success continuation binds the existential type variables, the
+    -- provided dictionaries and the fields with lambdas.
+    lambdaBody expression =
+      case expression of
+        ExLam _ inner -> lambdaBody inner
+        ExTyLam _ inner -> lambdaBody inner
+        _ -> expression
 
 -- | Whether the code generator can lay out a value of this type. It cannot
 -- when the representation is still a type variable, which is how the result

@@ -1,0 +1,73 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data B = F | T
+  data L a = N | C a (L a)
+  pattern Head x <- C x _
+  pick :: L B -> B -> B
+  pick (Head T) d = d
+  pick xs F = pick xs T
+  pick _ d = d
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tB :: sType {
+    pub 1.cF :: tB;
+    pub 1.cT :: tB
+  }
+
+  pub type 1.tL (a : sType) :: sType {
+    pub 1.cN :: ∀(a : sType). tL a;
+    pub 1.cC :: ∀(a : sType). a → tL a → tL a
+  }
+
+  pub val 1.v$mHead :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tL a → (FUN @sLiftedRep @rep a r) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tL a) (y : FUN @sLiftedRep @rep a r)
+    (z : FUN @sLiftedRep @rep tUnit r).
+      case x of {
+        cC (x{1} : a) (unused _pat : tL a) →
+          y x{1};
+        _ →
+          z c()
+      }
+
+  pub val 1.vpick :: tL tB → tB → tB
+    = λ(x : tL tB) (y : tB).
+      let _fail : tL tB → tB =
+        λ(x{1} : tL tB).
+          case y as (_scrut : tB) of {
+            cF →
+              vpick x{1} cT;
+            _ →
+              _scrut
+          };
+      v$mHead @tB @sLiftedRep @tB x (λ(_pat : tB).
+        case _pat of {
+          cT →
+            y;
+          _ →
+            _fail x
+        }) (λ(unused _pattern_failure : tUnit).
+        _fail x)
+status: pass
+reason: A failure that the calls of a pattern synonym matcher name in the tails of their continuations is a join point of the match argument, not a lazy binding.
