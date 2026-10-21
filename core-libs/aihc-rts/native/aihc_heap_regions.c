@@ -36,7 +36,7 @@ typedef struct AihcRegionFreeRun {
 AihcRegionTop *aihc_region_top;
 static AihcRegionFreeRun *aihc_region_free_runs;
 static size_t aihc_region_free_count;
-/* The heap lock of a machine with workers, or null. */
+/* The lock of the region table on a machine with workers, or null. */
 static void *aihc_region_lock;
 
 void aihc_regions_set_lock(void *lock) { aihc_region_lock = lock; }

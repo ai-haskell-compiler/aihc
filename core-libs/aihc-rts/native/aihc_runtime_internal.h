@@ -295,8 +295,11 @@ static inline void aihc_pinned_set_generation(AihcPinnedBlock *block,
    the capability count. */
 static inline AihcPinnedBlock *aihc_pinned_list(const AihcMachine *machine,
                                                 uint64_t index) {
+  /* A capability adopts a block at the head of its young list without the
+     heap lock, so the head is an acquire load. */
   return index < machine->capability_count
-             ? machine->capabilities[index]->young_pinned
+             ? __atomic_load_n(&machine->capabilities[index]->young_pinned,
+                               __ATOMIC_ACQUIRE)
              : machine->pinned_blocks;
 }
 
@@ -460,7 +463,7 @@ void aihc_gc_walk_objects(AihcCapability *capability, AihcObjectVisitor visitor,
 /* The host side of the region table. Map count regions at a region
    boundary, or give null when the host has no room. The content of the
    mapping is unspecified. */
-/* Give the region table the heap lock of a machine with workers. */
+/* Give the region table its lock on a machine with workers. */
 void aihc_regions_set_lock(void *lock);
 uint8_t *aihc_host_map_regions(size_t count);
 /* Give a mapping back to the host. The result is zero when the memory is
@@ -820,6 +823,9 @@ _Noreturn void aihc_worker_run(AihcCapability *capability);
    object lock holder can take the heap lock and an inbox lock, but no
    holder of either lock collects. */
 void aihc_heap_lock(AihcMachine *machine);
+/* Make the locks of the region table and of the gen2 segment lists before
+   the workers start. */
+void aihc_gc_workers_init(void);
 void aihc_heap_unlock(AihcMachine *machine);
 void aihc_object_lock(AihcMachine *machine);
 void aihc_object_unlock(AihcMachine *machine);
