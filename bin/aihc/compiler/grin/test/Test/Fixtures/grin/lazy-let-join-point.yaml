@@ -19,7 +19,7 @@ expected: |-
 
   pub constructor 1.T []
 
-  pub constructor 1.F []
+  pub constructor 1.F%1 []
 
   pub constructor 1.P [IntRep, IntRep]
 
@@ -44,7 +44,7 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.T ->
         call @(BoxedRep Lifted) 1.$pick_closure (y :: IntRep) (z :: IntRep) (y :: IntRep)
-      data 1.F ->
+      data 1.F%1 ->
         call @(BoxedRep Lifted) 1.$pick_closure (y :: IntRep) (z :: IntRep) (z :: IntRep)
 
   1.$pick (x :: BoxedRep Lifted) (y :: IntRep) (z :: IntRep) -> BoxedRep Lifted =

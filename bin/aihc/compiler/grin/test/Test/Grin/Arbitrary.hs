@@ -45,6 +45,7 @@ genConstructorDecl =
   GrinConstructorDecl
     <$> genName
     <*> smallList (smallList genRuntimeRep)
+    <*> Gen.int (Range.linear 0 300)
     <*> genVis
 
 genVis :: Gen GrinVis
@@ -108,7 +109,7 @@ genAlt rhs = GrinAlt <$> genAltCon <*> smallList genVar <*> rhs
 genAltCon :: Gen GrinAltCon
 genAltCon =
   Gen.choice
-    [ GrinDataAlt <$> genName,
+    [ GrinDataAlt <$> genName <*> Gen.int (Range.linear 0 300),
       GrinLitAlt <$> genLiteral,
       pure GrinDefaultAlt
     ]

@@ -70,7 +70,7 @@ expected: |
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_40, %hp_limit_41, %sp_42, %sp_limit_43, %stored_47, %supplied_46)
   }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
 
   data @aihc_time_profile_name_0 align 1 = { bytes "$other", i8 0 }
 

@@ -2977,7 +2977,7 @@ matchAlt original inspected alt =
       Just (Map.fromList [(var, original) | var <- grinAltBinders alt])
     (GrinLitAlt expected, RuntimeLit actual)
       | expected == actual -> Just Map.empty
-    (GrinDataAlt expected, RuntimeNode (GrinConstructor actual 0) fields)
+    (GrinDataAlt expected _, RuntimeNode (GrinConstructor actual 0) fields)
       | expected == actual,
         length fields == length (grinAltBinders alt) ->
           Just (Map.fromList (zip (grinAltBinders alt) fields))

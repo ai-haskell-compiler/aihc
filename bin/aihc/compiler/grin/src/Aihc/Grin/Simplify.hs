@@ -301,10 +301,16 @@ simplifyAlternative env scrutinee binder alternative =
       | grinValueRuntimeRep scrutinee /= liftedGrinRep = env
       | otherwise =
           case grinAltCon alternative of
-            GrinDataAlt name ->
+            GrinDataAlt name _ ->
               let node = GrinNode (GrinConstructor name 0) (map GrinVarValue (grinAltBinders alternative))
                in List.foldl' (\current var -> know var node current) (forget matched env) matched
             _ -> List.foldl' (flip evaluated) (forget matched env) matched
+
+isDataAlt :: Text -> GrinAltCon -> Bool
+isDataAlt name altCon =
+  case altCon of
+    GrinDataAlt candidate _ -> candidate == name
+    _ -> False
 
 -- | The alternative a known scrutinee selects, with its binders bound to
 -- what they match. The binds are copies that the normalizer folds.
@@ -312,7 +318,7 @@ selectAlternative :: Env -> GrinValue -> GrinVar -> [GrinAlt] -> Maybe GrinExpr
 selectAlternative env scrutinee binder alternatives =
   case knownNode env scrutinee of
     Just (GrinNode (GrinConstructor name 0) fields) -> do
-      alternative <- List.find ((== GrinDataAlt name) . grinAltCon) alternatives <|> defaultAlternative
+      alternative <- List.find (isDataAlt name . grinAltCon) alternatives <|> defaultAlternative
       fieldBinds <-
         case grinAltCon alternative of
           GrinDataAlt {}

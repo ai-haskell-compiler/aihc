@@ -186,6 +186,11 @@ struct AihcInfo {
      table. Thus the table always gives the correct value. On 64-bit targets
      the byte uses padding, so the table stays 48 bytes. */
   uint8_t needs_eval;
+  /* The index of a constructor in its data declaration, and zero for every
+     other kind. A case with many alternatives selects its alternative from
+     this field. The field uses padding, so the table stays 48 bytes on a
+     64-bit target and 28 bytes on wasm32. */
+  uint16_t constructor_index;
 };
 
 struct AihcValue {
@@ -543,6 +548,8 @@ void aihc_stack_enter_chunk(AihcCapability *capability, const AihcValue *frame);
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
+_Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
+               "the info table layout must match the Lir lowering");
 
 /* Foreign frames protect suspended Haskell values across C callbacks. */
 void aihc_foreign_enter(AihcCapability *capability, AihcForeignFrame *frame,

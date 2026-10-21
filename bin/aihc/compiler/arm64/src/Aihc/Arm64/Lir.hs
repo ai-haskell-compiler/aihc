@@ -190,8 +190,9 @@ arm64Backend =
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
          in pure (setup, BranchTest (\label -> pure [branchWhen test label]) (\label -> pure [branchUnless test label])),
-      nbCompareAndBranchEqual = \ctx ty register value label ->
-        compareWith ctx ty False register (OperandLiteral (LitInt value)) <> [arm64Instruction (ArmBCond ArmEq label)],
+      nbCompareAndBranches = \ctx ty register value branches ->
+        compareWith ctx ty False register (OperandLiteral (LitInt value))
+          <> [arm64Instruction (ArmBCond (switchCondition op) label) | (op, label) <- branches],
       nbCReturnFloat = \convention resultTypes ->
         case (convention, resultTypes) of
           (CConvention, [ty]) | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) 0 X0)]
@@ -582,6 +583,14 @@ conditionTest ctx fused condition =
        in (loads, TestNonZero register)
   where
     isZero operand = operand == OperandLiteral (LitInt 0)
+
+-- | The condition of one branch of a switch test. See 'nbCompareAndBranches'.
+switchCondition :: CompareOp -> Arm64Condition
+switchCondition op =
+  case op of
+    LtU -> ArmCc
+    GtU -> ArmHi
+    _ -> ArmEq
 
 compareWith :: Ctx Arm64Register -> Type -> Bool -> Arm64Register -> Operand -> [Arm64Statement]
 compareWith ctx ty signed left right =

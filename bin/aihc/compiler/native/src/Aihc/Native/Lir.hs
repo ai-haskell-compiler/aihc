@@ -162,7 +162,10 @@ data NativeBackend statement register error = NativeBackend
     nbJump :: Name -> statement,
     nbCanFuseFloatCompare :: CompareOp -> Bool,
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
-    nbCompareAndBranchEqual :: Ctx register -> Type -> register -> Integer -> Name -> [statement],
+    -- | Compare a register with a constant once, then branch to the label
+    -- of the first comparison that holds. The comparisons are 'Eq', 'LtU',
+    -- and 'GtU'. When none holds, the code continues after the branches.
+    nbCompareAndBranches :: Ctx register -> Type -> register -> Integer -> [(CompareOp, Name)] -> [statement],
     nbCReturnFloat :: CallingConvention -> [Type] -> [statement],
     -- | Select a logical operation with a constant rotated right operand.
     nbRotatedBinary :: Maybe (BinaryOp -> Type -> register -> register -> register -> Int -> [statement]),
@@ -940,20 +943,22 @@ compileTerminator backend ctx next fused terminator =
             then pure (labelOf (switchCaseTarget switchCase))
             else freshLabel "case"
         pure (switchCase, label, moves)
-      fallbackLines <-
+      -- The tests go to the no-match label when no case matches. It is the
+      -- fallback block itself when the edge to it moves no value.
+      (noMatch, fallbackLines) <-
         case fallback of
           Just target -> do
             moves <- blockArgumentMoves backend ctx target
-            pure (moves <> branchTo target)
+            if null moves
+              then pure (labelOf target, branchTo target)
+              else do
+                label <- freshLabel "switch_default"
+                pure (label, nbLabel backend label : moves <> branchTo target)
           Nothing -> do
             stub <- trapLabel "switch without a matching case"
-            pure [nbJump backend stub]
-      let checks =
-            concat
-              [ nbCompareAndBranchEqual backend ctx ty register (resolvedSwitchCaseValue switchCase) label
-              | (switchCase, label, _) <- edges
-              ]
-          bodies =
+            pure (stub, [nbJump backend stub])
+      checks <- switchChecks backend ctx ty register noMatch [(canonicalInteger ty (resolvedSwitchCaseValue switchCase), label) | (switchCase, label, _) <- edges]
+      let bodies =
             concat
               [ nbLabel backend label : moves <> [nbJump backend (labelOf (switchCaseTarget switchCase))]
               | (switchCase, label, moves) <- edges,
@@ -982,6 +987,42 @@ compileTerminator backend ctx next fused terminator =
     labelOf target = ctxLabels ctx Map.! targetLabel target
     isNext target = Just (targetLabel target) == next
     branchTo target = [nbJump backend (labelOf target) | not (isNext target)]
+
+-- | The tests of a switch. They go to the label of the matching case. When
+-- no case matches, they go to the no-match label or continue after the
+-- tests, and the code after the tests goes to that label too. A switch with few
+-- cases compares the value with each case in turn. A switch with more cases
+-- does a binary search on the unsigned values: each step compares the value
+-- with the middle case once, and goes to that case, to the lower half, or to
+-- the upper half. Thus a switch of @n@ cases does about @log2 n@ compares.
+switchChecks :: NativeBackend statement register error -> Ctx register -> Type -> register -> Name -> [(Integer, Name)] -> NativeM error [statement]
+switchChecks backend ctx ty register noMatch cases = do
+  let sorted = Map.toAscList (Map.fromListWith (\_ first -> first) cases)
+  if length sorted < switchSearchThreshold
+    then pure (chain cases)
+    else search True sorted
+  where
+    chain entries = concat [nbCompareAndBranches backend ctx ty register value [(Eq, label)] | (value, label) <- entries]
+    search isLast entries
+      | length entries < switchSearchThreshold =
+          pure (chain entries <> [nbJump backend noMatch | not isLast])
+      | otherwise =
+          case splitAt (length entries `div` 2) entries of
+            (lower, (pivot, label) : upper) -> do
+              lowerLabel <- freshLabel "switch_lower"
+              upperLines <- search False upper
+              lowerLines <- search isLast lower
+              pure
+                ( nbCompareAndBranches backend ctx ty register pivot [(Eq, label), (LtU, lowerLabel)]
+                    <> upperLines
+                    <> [nbLabel backend lowerLabel]
+                    <> lowerLines
+                )
+            (lower, []) -> pure (chain lower <> [nbJump backend noMatch | not isLast])
+
+-- | A switch with this many distinct cases or more does a binary search.
+switchSearchThreshold :: Int
+switchSearchThreshold = 5
 
 blockArgumentMoves :: (Eq register) => NativeBackend statement register error -> Ctx register -> Target -> NativeM error [statement]
 blockArgumentMoves backend ctx (Target label arguments) = do
