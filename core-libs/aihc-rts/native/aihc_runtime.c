@@ -2647,8 +2647,25 @@ static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
     queue->thunk = value;
     queue->head = waiter;
     queue->tail = waiter;
-    queue->next = owner->queues;
-    owner->queues = queue;
+    /* The global queues of the owner come before its young queues. Another
+       capability walks the list only to a global queue, so it never reads
+       or writes a young queue, which a local collection of the owner copies
+       without the object lock. A young queue has a young thunk, so only the
+       capability of the owner adds it. */
+    AihcBlackholeQueue **link = &owner->queues;
+    AihcBlackholeQueue *previous = NULL;
+    if (aihc_value_is_young(capability->machine, queue)) {
+      while (*link != NULL &&
+             !aihc_value_is_young(capability->machine, *link)) {
+        previous = *link;
+        link = &previous->next;
+      }
+    }
+    if (previous != NULL) {
+      aihc_write_barrier(capability, (AihcValue *)previous);
+    }
+    queue->next = *link;
+    *link = queue;
     /* A global queue can name a younger queue of its owner and the waiter,
        so it goes into the remembered set. A young queue takes no entry. */
     aihc_write_barrier(capability, (AihcValue *)queue);
@@ -3247,10 +3264,13 @@ static void aihc_workers_start(AihcCapability *capability) {
      global first. */
   aihc_promote_all(capability, AIHC_GC_REASON_REQUEST, 0, NULL, NULL);
   machine->heap_lock = aihc_host_recursive_lock_new();
-  aihc_regions_set_lock(machine->heap_lock);
-  /* One recursive lock serves as both: a promotion under the heap lock
-     claims thunks, and an MVar operation under the object lock allocates,
-     so two locks would need opposite orders. */
+  /* The region table and the gen2 segment lists get locks of their own,
+     so a promotion does not wait for a collection that holds the heap
+     lock. */
+  aihc_gc_workers_init();
+  /* One recursive lock serves as both: a collection under the heap lock
+     claims thunks, and an MVar operation under the object lock can take
+     the heap lock, so two locks would need opposite orders. */
   machine->object_lock = machine->heap_lock;
   machine->stop_lock = aihc_host_lock_new();
   machine->stop_condition = aihc_host_condition_new();
