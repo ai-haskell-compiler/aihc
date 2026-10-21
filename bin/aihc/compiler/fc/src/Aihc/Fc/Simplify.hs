@@ -1992,15 +1992,36 @@ data Reduction
   deriving (Eq, Ord, Show)
 
 -- | The strongest reduction that a call gives its callee. See 'Reduction'.
+--
+-- A site of an @INLINE@ value that gives a known function to a parameter
+-- that the callee calls reduces strongly too. The copy calls the function
+-- directly, and the closure of the argument goes when the copy uses it
+-- once. A combinator of a continuation-passing monad, such as the bind of
+-- a parser, gets its continuations so: a known parser at the site is a
+-- lambda under the cast of its newtype.
 siteReduction :: Simpl -> Candidate -> [Arg] -> Reduction
 siteReduction env candidate args =
   List.foldl'
     max
     NoReduction
-    [ knownArgument env argument
-    | (binder, argument) <- valueArguments (candidateBody candidate) args,
-      parameterScrutinised (parameterGuidance candidate binder)
-    ]
+    ( [ knownArgument env argument
+      | (binder, argument) <- arguments,
+        parameterScrutinised (parameterGuidance candidate binder)
+      ]
+        <> [ StrongReduction
+           | candidateRequested candidate,
+             (binder, argument) <- arguments,
+             any (>= 1) (parameterCallArities (parameterGuidance candidate binder)),
+             knownFunction (underLets (fst (peelCasts argument)))
+           ]
+    )
+  where
+    arguments = valueArguments (candidateBody candidate) args
+    knownFunction argument =
+      case argument of
+        ExLam {} -> True
+        ExTyLam _ body -> knownFunction (fst (peelCasts body))
+        _ -> valueArity (spArity env) argument > 0
 
 -- | How an argument is known at a site. See 'Reduction'.
 knownArgument :: Simpl -> Expr -> Reduction

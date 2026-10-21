@@ -328,7 +328,7 @@ initialInliner config env decls supply =
     ruleReferences =
       Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
     escaping = roots <> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
-    aliases = templateAliases declarations
+    aliases = templateAliases (Map.withoutKeys declarations escaping) declarations
     dictionaryFunction declaration =
       functionArity (valBody declaration) > 0
         && isConstructorValue (valBody declaration)
@@ -346,9 +346,11 @@ initialInliner config env decls supply =
 -- into the alias. The alias thus stays a small template, and a site of the
 -- alias gets the template, as a site of the template does. When the
 -- template were copied into the alias, the alias would be a large value
--- without a pragma, and its sites would be decided by their growth.
-templateAliases :: Map Name ValDecl -> Map Name (Name, InlineSpec)
-templateAliases declarations = Map.mapMaybe alias declarations
+-- without a pragma, and its sites would be decided by their growth. A
+-- value that another scope can use is not an alias: no site in the
+-- program gets its copy, so the copy of the template goes into it.
+templateAliases :: Map Name ValDecl -> Map Name ValDecl -> Map Name (Name, InlineSpec)
+templateAliases candidates declarations = Map.mapMaybe alias candidates
   where
     alias declaration = do
       InlineDefault <- Just (valInline declaration)
