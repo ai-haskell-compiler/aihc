@@ -268,6 +268,14 @@ data Inliner = Inliner
     inSignatures :: !Signatures,
     -- | What the source said about inlining each value.
     inSpecs :: !(Map Name InlineSpec),
+    -- | The dictionary functions: values whose body is a dictionary
+    -- constructor under lambdas. A case on a call of one selects its
+    -- field through the known values, and no other site takes a copy:
+    -- a copy elsewhere builds the dictionary again at each evaluation,
+    -- and the call no longer names the dictionary for the specializer.
+    inDictionaryFunctions :: !(Set Name),
+    -- | The template that each alias calls. See 'templateAliases'.
+    inAliases :: !(Map Name Name),
     inRulesFired :: !Int
   }
 
@@ -297,7 +305,9 @@ initialInliner config env decls supply =
       inRoots = roots,
       inRules = ruleTable (inlinePhase config) decls,
       inSignatures = topLevelSignatures env decls,
-      inSpecs = Map.map valInline declarations,
+      inSpecs = Map.union (Map.map snd aliases) (Map.map valInline declarations),
+      inDictionaryFunctions = Map.keysSet (Map.filter dictionaryFunction declarations),
+      inAliases = Map.map fst aliases,
       inRulesFired = 0
     }
   where
@@ -318,6 +328,47 @@ initialInliner config env decls supply =
     ruleReferences =
       Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
     escaping = roots <> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
+    aliases = templateAliases declarations
+    dictionaryFunction declaration =
+      functionArity (valBody declaration) > 0
+        && isConstructorValue (valBody declaration)
+        && isDictionaryType (typeResult (valType declaration))
+    typeResult ty =
+      case ty of
+        TyForAll _ body -> typeResult body
+        TyFun _ _ _ result -> typeResult result
+        _ -> ty
+
+-- | The values without a pragma whose body only calls an @INLINE@ value
+-- with their own parameters, and the template each one calls with its
+-- pragma. An instance method such as @mplus = pPlus@ is such an alias. The
+-- alias takes the pragma of the template, and the template is not copied
+-- into the alias. The alias thus stays a small template, and a site of the
+-- alias gets the template, as a site of the template does. When the
+-- template were copied into the alias, the alias would be a large value
+-- without a pragma, and its sites would be decided by their growth.
+templateAliases :: Map Name ValDecl -> Map Name (Name, InlineSpec)
+templateAliases declarations = Map.mapMaybe alias declarations
+  where
+    alias declaration = do
+      InlineDefault <- Just (valInline declaration)
+      (ExVar template, args) <- Just (collectSpine (underBinders (valBody declaration)))
+      True <- Just (all trivialArgument args && template /= valName declaration)
+      target <- Map.lookup template declarations
+      spec@(InlineAlways _) <- Just (valInline target)
+      pure (template, spec)
+    underBinders body =
+      case body of
+        ExTyLam _ inner -> underBinders inner
+        ExLam _ inner -> underBinders inner
+        _ -> body
+    trivialArgument argument =
+      case argument of
+        Left _ -> True
+        Right (ExVar name) -> case nameOrigin name of
+          OriginLocal {} -> True
+          OriginTop {} -> False
+        Right _ -> False
 
 -- | Whether a value's pragma lets a phase copy it. Without a pragma the
 -- policy decides. @INLINE@ and @INLINABLE@ allow the phases their
@@ -426,6 +477,8 @@ simplifyValue config known diverging recursive inTemplates st name
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
+                    callee `Set.notMember` inDictionaryFunctions st,
+                    Map.lookup name (inAliases st) /= Just callee,
                     let spec = Map.findWithDefault InlineDefault callee (inSpecs st),
                     inliningAllowed (inlinePhase config) spec,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
@@ -466,6 +519,7 @@ simplifyValue config known diverging recursive inTemplates st name
                             spKnown = known,
                             spArity = arities,
                             spLocals = Map.empty,
+                            spLocalDictionaries = Map.empty,
                             spExcluded = Map.empty,
                             spCse = Map.empty,
                             spEvaluated = Set.empty,

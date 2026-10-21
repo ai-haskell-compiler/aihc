@@ -48,6 +48,8 @@ module Aihc.Fc.Simplify
     isConstructorName,
     isKnownConstructor,
     isKnownValue,
+    isConstructorValue,
+    isDictionaryType,
     isCheapValue,
     isInlinable,
     isTrivial,
@@ -135,6 +137,7 @@ simplifyProgram primPackage phase siteLimit program =
             spKnown = Map.filter isKnownValue bodies,
             spArity = arities,
             spLocals = Map.empty,
+            spLocalDictionaries = Map.empty,
             spExcluded = Map.empty,
             spCse = Map.empty,
             spEvaluated = Set.empty,
@@ -206,6 +209,14 @@ isConstructorValue expr =
       case collectSpine expr of
         (ExVar name, _) -> isConstructorName name
         _ -> False
+
+-- | A class dictionary type: an application of a @$Dict$@ constructor.
+isDictionaryType :: Type -> Bool
+isDictionaryType ty =
+  case ty of
+    TyApp function _ -> isDictionaryType function
+    TyCon tyCon -> "$Dict$" `T.isPrefixOf` nameText tyCon
+    _ -> False
 
 -- | A body that can be inlined: a function, which is inlined at a call
 -- that gives it an argument, a function under a cast, which is inlined
@@ -388,6 +399,11 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
+    -- | Local dictionary bindings whose right-hand side is a call of a
+    -- known top-level value, such as an instance function applied to
+    -- dictionaries. A case on such a binder selects a field as a case on
+    -- the call does, and the binding stays for the other uses.
+    spLocalDictionaries :: !(Map Name Expr),
     -- | Alternatives that a variable cannot select in this scope.
     spExcluded :: !(Map Expr (Set AltCon)),
     -- | Strict bindings in scope whose right-hand side is a pure
@@ -713,6 +729,7 @@ loopDictionary env binds =
       Set.notMember dictionary bound,
       isLocalName dictionary,
       Map.notMember dictionary (spLocals env),
+      Map.notMember dictionary (spLocalDictionaries env),
       -- The match in front of the loop marks the variable evaluated, also
       -- when the environment cannot record its constructor. The next walk
       -- over the group then does not match it again.
@@ -2085,6 +2102,10 @@ inlineCandidate env name candidate args = do
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
 bindingEnv env0 binder rhs
   | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
+  | isDictionaryType (binderType binder),
+    (ExVar function, _ : _) <- collectSpine rhs,
+    Map.member function (spKnown env) =
+      evaluatedEnv {spLocalDictionaries = Map.insert (binderName binder) rhs (spLocalDictionaries env)}
   | isStrictBinder (spEnv env) binder,
     isPurePrimitiveCall (spEnv env) rhs || isStateToken rhs,
     Map.notMember rhs (spCse env) =
@@ -2249,6 +2270,7 @@ shadowNames names env
       env
         { spEvaluated = List.foldl' (flip Set.delete) (spEvaluated env) names,
           spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
+          spLocalDictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names,
           spDone = List.foldl' (flip Map.delete) (spDone env) names,
           spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
           spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
@@ -4068,7 +4090,12 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
     -- A top-level value can hold a field that is not a cheap value. A
     -- copy of such a field would do its work again, so the alternative
     -- must not use it, and the case binder takes the value itself.
-    let shared = sharedValue scrutinee
+    let shared = sharedValue scrutinee || localDictionary
+        -- A local dictionary binding is shared like a top-level value.
+        localDictionary =
+          case scrutinee of
+            ExVar name -> Map.member name (spLocalDictionaries env)
+            _ -> False
         usesExpensiveField =
           or
             [ not (unused (binderName field) (altRhs alternative))
@@ -4141,6 +4168,11 @@ knownConstructor env expr = do
         | isConstructorName name -> pure (Just ([], name, lefts args, rights args, []))
         | Just body <- Map.lookup name (spLocals env) -> unfold body args
         | Just body <- Map.lookup name (spKnown env) -> unfoldShared body args
+        | null args,
+          Just rhs <- Map.lookup name (spLocalDictionaries env),
+          (ExVar function, callArgs) <- collectSpine rhs,
+          Just body <- Map.lookup function (spKnown env) ->
+            unfoldShared body callArgs
       _ -> pure Nothing
   pure $ do
     (binds, con, types, fields, innerCasts) <- known
