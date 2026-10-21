@@ -52,7 +52,7 @@ import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Magic.Dict (withDict)
 import GHC.Num qualified
-import GHC.Prim (Addr#, Int#, eqAddr#, indexWord8OffAddr#, ord#, seq, word2Int#, word8ToWord#, (+#), (==#))
+import GHC.Prim (Addr#, Int#, eqAddr#, indexWord8OffAddr#, ord#, seq, word2Int#, word8ToWord#, (+#), (/=#), (==#))
 import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Prim.String (eqString)
 import GHC.Types (Char (..), KindRep (..), Levity (..), Module (..), RuntimeRep (..), TYPE, TrName (..), TyCon (..), Type, VecCount (..), VecElem (..), isTrue#, type (~~))
@@ -145,9 +145,8 @@ cStringByte address index = word2Int# (word8ToWord# (indexWord8OffAddr# address 
 eqCStrings :: Addr# -> Addr# -> Int# -> Bool
 eqCStrings left right index =
   let byte = cStringByte left index
-   in if isTrue# (byte ==# cStringByte right index)
-        then isTrue# (byte ==# 0#) || eqCStrings left right (index +# 1#)
-        else False
+   in isTrue# (byte ==# cStringByte right index)
+        && (isTrue# (byte ==# 0#) || eqCStrings left right (index +# 1#))
 
 -- | Whether a NUL-terminated Latin-1 C string from the index has the same
 -- text as a 'String'. This agrees with 'unpackCString#'.
@@ -157,9 +156,9 @@ eqCStringString address index text =
    in case text of
         [] -> isTrue# (byte ==# 0#)
         C# character : rest ->
-          if isTrue# (byte ==# 0#)
-            then False
-            else isTrue# (byte ==# ord# character) && eqCStringString address (index +# 1#) rest
+          isTrue# (byte /=# 0#)
+            && isTrue# (byte ==# ord# character)
+            && eqCStringString address (index +# 1#) rest
 
 sameTypeReps :: [SomeTypeRep] -> [SomeTypeRep] -> Bool
 sameTypeReps [] [] = True
