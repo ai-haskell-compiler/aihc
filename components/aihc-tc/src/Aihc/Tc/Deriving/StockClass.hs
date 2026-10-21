@@ -125,7 +125,7 @@ data NewtypeDefaulting
 stockClasses :: [StockClass]
 stockClasses =
   [ (report "Eq" NewtypeAlways) {stockClassMethods = Just StockEqMethods, stockClassReferences = [derivingTrue, derivingFalse]},
-    (report "Ord" NewtypeAlways) {stockClassMethods = Just StockOrdMethods, stockClassReferences = [derivingLT, derivingEQ, derivingGT]},
+    (report "Ord" NewtypeAlways) {stockClassMethods = Just StockOrdMethods, stockClassReferences = [derivingLT, derivingEQ, derivingGT, derivingDataToTag, derivingIntLess]},
     (report "Show" NewtypeNever)
       { stockClassMethods = Just StockShowMethods,
         stockClassReferences = [derivingIntCon, derivingGreaterOrEqual, derivingCons]
@@ -154,7 +154,7 @@ stockClasses =
     (report "Bounded" NewtypeAlways) {stockClassMethods = Just StockBoundedMethods},
     (report "Enum" NewtypeWithGnd)
       { stockClassMethods = Just StockEnumMethods,
-        stockClassReferences = [derivingIntCon, derivingTrue, derivingFalse, derivingGreaterOrEqual]
+        stockClassReferences = [derivingIntCon, derivingTrue, derivingFalse, derivingGreaterOrEqual, derivingDataToTag]
       },
     report "Ix" NewtypeAlways,
     (extension "Functor" DeriveFunctor NewtypeWithGnd)

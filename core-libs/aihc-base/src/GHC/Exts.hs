@@ -1,4 +1,3 @@
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -179,4 +178,6 @@ atomicModifyMutVar# reference modify state =
             writtenState -> (# writtenState, extra #)
 
 -- | Return the constructor index after the value is evaluated.
-foreign import prim dataToTag# :: forall a. a -> Int#
+dataToTag# :: forall a. a -> Int#
+dataToTag# value = dataToTagLarge# value
+{-# INLINE dataToTag# #-}

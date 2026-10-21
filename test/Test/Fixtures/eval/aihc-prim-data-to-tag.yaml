@@ -5,7 +5,7 @@ modules:
   - |
     module Test where
 
-    import GHC.Exts (Int (..), dataToTag#)
+    import GHC.Exts (Int (..), dataToTag#, dataToTagLarge#, dataToTagSmall#)
     import Prelude
 
     data Colour = Red | Green | Blue
@@ -29,8 +29,14 @@ modules:
         && hiddenTag (Hidden (undefined :: Int)) == 0
         && I# (dataToTag# False) == 0
         && I# (dataToTag# True) == 1
+        && I# (dataToTagLarge# (head [Blue, Red])) == 2
+        && I# (dataToTagSmall# (choiceLater 3)) == 2
+
+    choiceLater :: Int -> Choice Int
+    choiceLater count = if count > 0 then Second count count else Empty
+    {-# NOINLINE choiceLater #-}
 expression: answer
 output: |
   True
 status: pass
-reason: dataToTag# returns the constructor index without an evaluation of constructor fields.
+reason: dataToTag#, dataToTagLarge#, and dataToTagSmall# evaluate the argument and return the constructor index without an evaluation of constructor fields.

@@ -2738,6 +2738,14 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           operand <- word value
           result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt mask)))
           bind [result]
+    -- The argument is an evaluated value, so its info table is the one of
+    -- its constructor, and the table holds the constructor index.
+    (_, [value])
+      | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] -> do
+          object <- pointerValue ctx env value
+          header <- loadObjectInfo HeapRegion object
+          index <- loadInfoConstructorIndex (typedOperand header)
+          bind [index]
     ("not#", [value]) -> do
       operand <- word value
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
