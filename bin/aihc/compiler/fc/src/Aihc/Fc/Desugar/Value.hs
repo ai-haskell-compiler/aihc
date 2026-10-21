@@ -5657,12 +5657,21 @@ desugarTypeableKind kind =
       construct (tyConName constructor) values
     runtimeValue ty = failValue ("runtime representation is not concrete: " <> show ty)
 
--- | A @GHC.Types.TrName@ holding a name. The dynamic form takes a list,
+-- | A @GHC.Types.TrName@ holding a name. A name of ASCII characters other
+-- than NUL is a static C string, thus a Typeable comparison reads its bytes
+-- and allocates no list. Any other name uses the dynamic form with a list,
 -- which is what 'desugarStringValue' builds.
 desugarTrName :: Text -> ValueM Expr
-desugarTrName value = do
-  constructor <- primitiveName "GHC.Types" "TrNameD" SortDataConstructor
-  ExApp (ExVar constructor) <$> desugarStringValue value
+desugarTrName value
+  | T.all (\character -> character >= '\1' && character <= '\127') value = do
+      constructor <- primitiveName "GHC.Types" "TrNameS" SortDataConstructor
+      addrHashType <- TyCon <$> primitiveName "GHC.Prim" "Addr#" SortTypeConstructor
+      representation <- convertRuntimeRep . addrRep =<< valueKinds
+      let bytes = BS.pack (map (fromIntegral . fromEnum) (T.unpack value))
+      pure (ExApp (ExVar constructor) (ExLit (LitAddr representation bytes) addrHashType))
+  | otherwise = do
+      constructor <- primitiveName "GHC.Types" "TrNameD" SortDataConstructor
+      ExApp (ExVar constructor) <$> desugarStringValue value
 
 desugarFcList :: Type -> [Expr] -> ValueM Expr
 desugarFcList elementType elements = do
