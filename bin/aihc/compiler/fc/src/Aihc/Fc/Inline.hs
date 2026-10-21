@@ -340,14 +340,21 @@ initialInliner config env decls supply =
         _ -> ty
 
 -- | The values without a pragma whose body only calls an @INLINE@ value
--- with their own parameters, and the template each one calls with its
--- pragma. An instance method such as @mplus = pPlus@ is such an alias. The
--- alias takes the pragma of the template, and the template is not copied
--- into the alias. The alias thus stays a small template, and a site of the
--- alias gets the template, as a site of the template does. When the
--- template were copied into the alias, the alias would be a large value
--- without a pragma, and its sites would be decided by their growth. A
--- value that another scope can use is not an alias: no site in the
+-- with their own parameters, the template each one calls, and the pragma
+-- of the alias. An instance method such as @mplus = pPlus@ is such an
+-- alias. The alias is a template in every phase, and the template is not
+-- copied into the alias. The alias thus stays small, and a site of the
+-- alias gets the call of the template, which the template then decides
+-- as its own site. When the template were copied into the alias, the
+-- alias would be a large value without a pragma, and its sites would be
+-- decided by their growth.
+--
+-- The alias does not take the activation of the template. The method
+-- @foldr@ of @Foldable []@ calls @foldr@, which is @INLINE [1]@, and a
+-- copy of the method in an earlier phase shows the call of @foldr@ to
+-- the fusion rules.
+--
+-- A value that another scope can use is not an alias: no site in the
 -- program gets its copy, so the copy of the template goes into it.
 templateAliases :: Map Name ValDecl -> Map Name ValDecl -> Map Name (Name, InlineSpec)
 templateAliases candidates declarations = Map.mapMaybe alias candidates
@@ -357,8 +364,8 @@ templateAliases candidates declarations = Map.mapMaybe alias candidates
       (ExVar template, args) <- Just (collectSpine (underBinders (valBody declaration)))
       True <- Just (all trivialArgument args && template /= valName declaration)
       target <- Map.lookup template declarations
-      spec@(InlineAlways _) <- Just (valInline target)
-      pure (template, spec)
+      InlineAlways _ <- Just (valInline target)
+      pure (template, InlineAlways AlwaysActive)
     underBinders body =
       case body of
         ExTyLam _ inner -> underBinders inner
