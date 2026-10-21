@@ -1744,8 +1744,7 @@ static void aihc_busy_check(AihcCapability *capability, uint64_t root_count,
       __atomic_load_n(&machine->idle_count, __ATOMIC_RELAXED) == 0) {
     return;
   }
-  if (capability->io_request_count == 0 &&
-      capability->run_queue_head == NULL &&
+  if (capability->io_request_count == 0 && capability->run_queue_head == NULL &&
       __atomic_load_n(&capability->inbox_head, __ATOMIC_RELAXED) == NULL) {
     return;
   }
