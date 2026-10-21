@@ -86,7 +86,8 @@ tests =
           testCase "keeps what a stale static thunk names at a cycle snapshot" (checkScript getDriver staleStaticSnapshotScript),
           testCase "drops a freed object from the remembered set of another capability" (checkScript getDriver remotePurgeScript),
           testCase "promotes a global object that names a young thunk without a collection" (checkScript getDriver globalPromotionScript),
-          testCase "grows the nursery after a local collection beside a young large array" (checkScript getDriver localGrowthScript)
+          testCase "grows the nursery after a local collection beside a young large array" (checkScript getDriver localGrowthScript),
+          testCase "updates a gen2 referrer of a bridge survivor in a later local collection" (checkScript getDriver bridgeSurvivorScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -143,6 +144,33 @@ localGrowthScript =
     CHeap 0,
     CRoot 0 (VHeap 2),
     CReserve 33
+  ]
+
+-- | A root and a frame of the first capability name objects of the second
+-- capability. A bridge collection reaches object 2 from the root first and
+-- object 3, which names object 2, from the frame. A frame of a bridge
+-- collection moves its referents into gen2, so object 3 goes into gen2. The
+-- next local collection of the second capability copies its gen1 and must
+-- update the field of object 3.
+bridgeSurvivorScript :: [Command]
+bridgeSurvivorScript =
+  [ CMachine 0 1 512 0,
+    CCapabilities 2,
+    CCurrentSrt Nothing,
+    CPush 1 FSStop,
+    CHeap 1,
+    CReserve 4,
+    CNew 2 KNode [] Nothing,
+    CNew 3 KNode [True] Nothing,
+    CSet 3 0 (VHeap 2),
+    CRoot 0 (VHeap 2),
+    CHeap 0,
+    CPush 4 (FSNormal [True] Nothing [VHeap 3]),
+    CCollectGeneration 2,
+    CHeap 1,
+    CGen2Limit 0,
+    CFill 0,
+    CReserve 1
   ]
 
 -- | The second capability stores into a gen2 object, which then dies. A
