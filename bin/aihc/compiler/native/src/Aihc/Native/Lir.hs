@@ -166,6 +166,14 @@ data NativeBackend statement register error = NativeBackend
     -- of the first comparison that holds. The comparisons are 'Eq', 'LtU',
     -- and 'GtU'. When none holds, the code continues after the branches.
     nbCompareAndBranches :: Ctx register -> Type -> register -> Integer -> [(CompareOp, Name)] -> [statement],
+    -- | The dispatch of a branch table: the type, the register, the value of the
+    -- first slot, the number of slots, the no-match label, and the label of
+    -- the table. The code goes to the no-match label when the value is
+    -- outside the slots, and otherwise to the jump of its slot. The table
+    -- that follows is one 'nbJump' for each slot, so a backend that has a
+    -- table needs jumps of one fixed size. 'Nothing' when the backend has no
+    -- table or cannot dispatch these slots.
+    nbBranchTable :: !(Maybe (Ctx register -> Type -> register -> Integer -> Int -> Name -> Name -> Maybe [statement])),
     nbCReturnFloat :: CallingConvention -> [Type] -> [statement],
     -- | Select a logical operation with a constant rotated right operand.
     nbRotatedBinary :: Maybe (BinaryOp -> Type -> register -> register -> register -> Int -> [statement]),
@@ -998,10 +1006,23 @@ compileTerminator backend ctx next fused terminator =
 switchChecks :: NativeBackend statement register error -> Ctx register -> Type -> register -> Name -> [(Integer, Name)] -> NativeM error [statement]
 switchChecks backend ctx ty register noMatch cases = do
   let sorted = Map.toAscList (Map.fromListWith (\_ first -> first) cases)
-  if length sorted < switchSearchThreshold
-    then pure (chain cases)
-    else search True sorted
+  case (sorted, nbBranchTable backend) of
+    ((low, _) : _, Just dispatch)
+      | length sorted >= switchTableThreshold,
+        let high = fst (last sorted),
+        high - low < toInteger (switchTableDensity * length sorted),
+        let slots = fromInteger (high - low + 1) -> do
+          table <- freshLabel "switch_table"
+          let targets = Map.fromList sorted
+              slotLabel value = Map.findWithDefault noMatch value targets
+          case dispatch ctx ty register low slots noMatch table of
+            Just lines' -> pure (lines' <> [nbLabel backend table] <> [nbJump backend (slotLabel value) | value <- [low .. high]])
+            Nothing -> searchOrChain sorted
+    _ -> searchOrChain sorted
   where
+    searchOrChain sorted
+      | length sorted < switchSearchThreshold = pure (chain cases)
+      | otherwise = search True sorted
     chain entries = concat [nbCompareAndBranches backend ctx ty register value [(Eq, label)] | (value, label) <- entries]
     search isLast entries
       | length entries < switchSearchThreshold =
@@ -1023,6 +1044,13 @@ switchChecks backend ctx ty register noMatch cases = do
 -- | A switch with this many distinct cases or more does a binary search.
 switchSearchThreshold :: Int
 switchSearchThreshold = 5
+
+-- | A switch with this many distinct cases or more uses a branch table when
+-- the backend has one and the cases are dense: the table has fewer than
+-- 'switchTableDensity' slots for each case.
+switchTableThreshold, switchTableDensity :: Int
+switchTableThreshold = 6
+switchTableDensity = 3
 
 blockArgumentMoves :: (Eq register) => NativeBackend statement register error -> Ctx register -> Target -> NativeM error [statement]
 blockArgumentMoves backend ctx (Target label arguments) = do

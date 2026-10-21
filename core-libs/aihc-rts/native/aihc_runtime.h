@@ -548,8 +548,6 @@ void aihc_stack_enter_chunk(AihcCapability *capability, const AihcValue *frame);
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
-_Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
-               "the info table layout must match the Lir lowering");
 
 /* Foreign frames protect suspended Haskell values across C callbacks. */
 void aihc_foreign_enter(AihcCapability *capability, AihcForeignFrame *frame,

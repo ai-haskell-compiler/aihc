@@ -201,6 +201,9 @@ amd64Backend =
       nbCompareAndBranches = \ctx ty register value branches ->
         compareWith ctx ty False register (OperandLiteral (LitInt value))
           <> [amd64Instruction (switchJump op label) | (op, label) <- branches],
+      -- A jump on AMD64 is two or five bytes, so a table of jumps has no
+      -- fixed slot size.
+      nbBranchTable = Nothing,
       nbCReturnFloat = \convention resultTypes ->
         case (convention, resultTypes) of
           (CConvention, [F64]) -> [amd64Instruction (AmdMovqToXmm 0 RAX)]

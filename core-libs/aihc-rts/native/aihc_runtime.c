@@ -33,7 +33,8 @@ _Static_assert(offsetof(AihcCapability, profile_frame) ==
                    8 * sizeof(void *) + 16,
                "capability profile_frame ABI");
 
-/* Five words and five bytes, rounded up to a word. This matches
+/* Five words, five bytes, one byte of padding, and a two-byte constructor
+   index, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
 _Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
                "info-table size ABI");
@@ -56,6 +57,8 @@ _Static_assert(offsetof(AihcInfo, object_kind) == 43,
                "info-table object-kind ABI");
 _Static_assert(offsetof(AihcInfo, needs_eval) == 44,
                "info-table needs-eval ABI");
+_Static_assert(offsetof(AihcInfo, constructor_index) == 46,
+               "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
@@ -90,6 +93,8 @@ _Static_assert(offsetof(AihcInfo, object_kind) == 23,
                "info-table object-kind ABI");
 _Static_assert(offsetof(AihcInfo, needs_eval) == 24,
                "info-table needs-eval ABI");
+_Static_assert(offsetof(AihcInfo, constructor_index) == 26,
+               "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
