@@ -153,6 +153,10 @@ typedef struct {
 
 typedef uint32_t wasi_cli_stderr_future_result_void_error_code_t;
 
+typedef struct {
+  bool is_err;
+} wasi_cli_exit_result_void_void_t;
+
 typedef uint64_t wasi_filesystem_types_filesize_t;
 
 typedef uint8_t wasi_filesystem_types_descriptor_flags_t;
@@ -670,6 +674,9 @@ extern wasi_cli_stdout_future_result_void_error_code_t wasi_cli_stdout_write_via
 // Imported Functions from `wasi:cli/stderr@0.3.0`
 extern wasi_cli_stderr_future_result_void_error_code_t wasi_cli_stderr_write_via_stream(wasi_cli_stdin_stream_u8_t data);
 
+// Imported Functions from `wasi:cli/exit@0.3.0`
+extern void wasi_cli_exit_exit(wasi_cli_exit_result_void_void_t *status);
+
 // Imported Functions from `wasi:filesystem/types@0.3.0`
 extern void wasi_filesystem_types_method_descriptor_read_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_filesize_t offset, wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t *ret);
 extern wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_write_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data, wasi_filesystem_types_filesize_t offset);
@@ -957,6 +964,8 @@ command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_cancel_w
 void wasi_cli_stderr_future_result_void_error_code_drop_readable(wasi_cli_stderr_future_result_void_error_code_t reader);
 void wasi_cli_stderr_future_result_void_error_code_drop_writable(wasi_cli_stderr_future_result_void_error_code_writer_t writer);
 
+
+void wasi_cli_exit_result_void_void_free(wasi_cli_exit_result_void_void_t *ptr);
 
 void wasi_filesystem_types_error_code_free(wasi_filesystem_types_error_code_t *ptr);
 

@@ -1165,5 +1165,12 @@ bool exports_wasi_cli_run_run(void) {
     command_waitable_set_wait(aihc_wasi_io.wait_set, &event);
     aihc_wasi_handle_event(&event, &finished);
   }
-  return aihc_get_exit_status(aihc_machine_initialize()) == 0;
+  /* All output of the program is complete here. Stop through wasi:cli/exit
+     and do not return from run. A host such as wasmtime then stops the
+     process at once. A return from run makes wasmtime free the compiled
+     code first, and on macOS that can take seconds for a large program. */
+  wasi_cli_exit_result_void_void_t status = {
+      .is_err = aihc_get_exit_status(aihc_machine_initialize()) != 0};
+  wasi_cli_exit_exit(&status);
+  return !status.is_err;
 }
