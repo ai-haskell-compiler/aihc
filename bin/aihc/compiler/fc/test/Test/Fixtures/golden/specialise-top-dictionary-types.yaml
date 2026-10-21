@@ -1,0 +1,99 @@
+---
+extensions: []
+modules:
+- |
+  module Test (use) where
+
+  import GHC.Types (Bool (..), Int, Char, Ordering)
+
+  class Flag a where
+    flag :: a -> Bool
+
+  instance Flag Bool where
+    flag _ = True
+
+  -- The dictionary names only the first type parameter, so the calls at
+  -- five result types share one copy.
+  choose :: Flag a => a -> b -> b -> b
+  choose x y z = case flag x of
+    True -> y
+    False -> z
+
+  data Results = Results Int Char Ordering () Bool
+
+  use :: Bool -> Int -> Char -> Ordering -> () -> Bool -> Results
+  use a b c d e f = Results (choose a b b) (choose a c c) (choose a d d) (choose a e e) (choose a f f)
+passes:
+- specialise-top
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cC#] 3.tChar :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cLT, 3.cEQ, 3.cGT] 3.tOrdering :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Flag (a : sType) :: sType {
+    1.c$Dict$Flag :: ∀(a : sType). (a → tBool) → t$Dict$Flag a
+  }
+
+  type 1.tResults :: sType {
+    pub 1.cResults :: tInt → tChar → tOrdering → tUnit → tBool → tResults
+  }
+
+  val 1.vflag :: ∀(a : sType). t$Dict$Flag a → a → tBool
+    = Λ(a : sType). λ($dFlag : t$Dict$Flag a).
+      let! c$Dict$Flag ($cflag : a → tBool) = $dFlag;
+      $cflag
+
+  pub val 1.v$fFlagBool :: t$Dict$Flag tBool
+    = c$Dict$Flag @tBool v$fFlagBool$cflag
+
+  val 1.v$fFlagBool$cflag :: tBool → tBool
+    = λ(unused x : tBool).
+      cTrue
+
+  val 1.vchoose :: ∀(a : sType) (b : sType). t$Dict$Flag a → a → b → b → b
+    = Λ(a : sType) (b : sType). λ($dFlag : t$Dict$Flag a) (x : a) (y : b) (z : b).
+      case vflag @a $dFlag x of {
+        cTrue →
+          y;
+        cFalse →
+          z
+      }
+
+  pub val 1.vuse :: tBool → tInt → tChar → tOrdering → tUnit → tBool → tResults
+    = λ(x : tBool) (y : tInt) (z : tChar) (x1 : tOrdering) (x2 : tUnit) (x3 : tBool).
+      cResults (v$schoose_0 @tInt x y y) (v$schoose_0 @tChar x z z) (v$schoose_0 @tOrdering x x1 x1) (v$schoose_0 @tUnit x x2 x2) (v$schoose_0 @tBool x x3 x3)
+
+  val 1.v$schoose_0 :: ∀(b : sType). tBool → b → b → b
+    = Λ(b : sType). λ(x : tBool) (y : b) (z : b).
+      case v$sflag_0 x of {
+        cTrue →
+          y;
+        cFalse →
+          z
+      }
+
+  val 1.v$sflag_0 :: tBool → tBool
+    = let! c$Dict$Flag ($cflag : tBool → tBool) = v$fFlagBool;
+    $cflag
+status: pass
+reason: A top-level copy is made for the type parameters that the dictionary names. Before, each result type made its own copy, and the fifth call stayed generic.
