@@ -35,7 +35,7 @@
   gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
   # These examples check that Haskell threads run on several OS threads. A
   # wasm32-wasip3 program has one capability, so they do not run there.
-  threadedExampleNames = ["fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "workers"];
+  threadedExampleNames = ["busy-capability" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "workers"];
   wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
