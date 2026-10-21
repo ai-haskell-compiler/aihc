@@ -215,6 +215,8 @@ data HeapCell
 
 data Machine = Machine
   { machineFunctions :: !(Map FunctionName GrinFunction),
+    -- | The index of each constructor in its data declaration.
+    machineConstructorIndices :: !(Map Text Int),
     machineGlobals :: !(Map Text RuntimeValue),
     machineHeap :: !(IntMap HeapCell),
     machineNextLocation :: !Int,
@@ -366,6 +368,11 @@ initialMachine streams program allocations =
         Map.fromList
           [ (grinFunctionName function, function)
           | function <- grinFunctions program
+          ],
+      machineConstructorIndices =
+        Map.fromList
+          [ (grinConstructorName declaration, grinConstructorIndex declaration)
+          | declaration <- grinConstructors program
           ],
       machineGlobals = globals,
       machineHeap =
@@ -1511,6 +1518,14 @@ evalPrimitive "casMutVar#" [mutVar, expected, replacement] = do
   let succeeded = current == expected
   when succeeded (liftEvalIO (writeIORef reference replacement))
   pure [intRuntimeValue (if succeeded then 0 else 1), if succeeded then replacement else current]
+evalPrimitive name [value]
+  | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] = do
+      inspected <- inspectCaseValue value
+      indices <- lift (gets machineConstructorIndices)
+      case inspected of
+        RuntimeNode (GrinConstructor constructor _) _
+          | Just index <- Map.lookup constructor indices -> pure [intRuntimeValue (toInteger index)]
+        _ -> throwInterpret (InterpretPrimitiveTypeError name value)
 evalPrimitive "reallyUnsafePtrEquality#" [left, right] =
   pure [intRuntimeValue (if left == right then 1 else 0)]
 evalPrimitive "sameMutVar#" [left, right] = do

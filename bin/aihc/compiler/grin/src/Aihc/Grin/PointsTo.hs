@@ -977,6 +977,10 @@ generateExpr solver varsRef results expression =
         _
           | name == "raise#" || name == "raiseIO#" ->
               forM_ (catMaybes argumentNodes) (\exception -> addEdge solver exception raisedNode)
+        -- The constructor index of an evaluated value comes from its info
+        -- table. The call does not keep, enter, or change the value.
+        _
+          | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] -> unknownResults solver results
         _ -> unknownCall arguments
     GrinApply _ function arguments -> do
       vars <- readSTRef varsRef
