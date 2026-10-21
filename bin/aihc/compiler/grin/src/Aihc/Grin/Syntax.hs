@@ -379,7 +379,7 @@ data GrinExpr
 -- shape of groups, and the code of a helper grows with the square of the
 -- group count. A longer application is a chain of applications.
 grinApplyGroupLimit :: Int
-grinApplyGroupLimit = 4
+grinApplyGroupLimit = 6
 
 -- | What an evaluation does with a thunk that it enters.
 data GrinEvalUpdate

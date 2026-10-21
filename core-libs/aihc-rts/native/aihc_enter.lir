@@ -20,9 +20,9 @@ include "aihc_object.lir"
 ; aihc_object.lir. A stored field is one eight-byte slot on every target,
 ; which is why it is loaded as i64 and converted.
 ;
-; V goes up to four because an application supplies at most four argument
-; groups (grinApplyGroupLimit), and each closure stage whose remaining
-; arity is at most four has an entry that takes all its remaining values.
+; V goes up to four. A closure stage whose remaining arity is at most
+; grinApplyGroupLimit has an entry that takes all its remaining values.
+; A stage that takes more than four values uses a generated stub.
 
 export func @aihc_lir_enter_0_0(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr, %continuation: ptr) {
 entry:
