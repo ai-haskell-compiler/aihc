@@ -229,7 +229,7 @@ keptArguments prefix arguments =
 -- arrows of the dictionaries. The quantifiers of the type and the type
 -- lambdas of the body are in the same order.
 instantiateStatic :: Prefix -> Type -> [Type] -> Maybe Type
-instantiateStatic prefix ty0 types0 = go ty0 (prefixTypes prefix) types0
+instantiateStatic prefix ty0 = go ty0 (prefixTypes prefix)
   where
     static = map binderName (staticTypes prefix)
     go ty binders types =
