@@ -38,11 +38,9 @@ expected: |-
       let $sf : b → a =
         λ(y{1} : b).
           x y{1};
-      rec {
-        $ssapply19 : b → a =
-          λ(y{1} : b).
-            $sf y{1}
-      } in
+      let $ssapply19 : b → a =
+        λ(y{1} : b).
+          $sf y{1};
       $ssapply19 y
 status: pass
 reason: Substitution can capture caller type variables when the callee uses the same names in a different order.

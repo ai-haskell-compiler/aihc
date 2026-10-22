@@ -10,6 +10,7 @@ import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (substType)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, get, modify', runState)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -119,7 +120,12 @@ walk definitions scope expression = case expression of
           template <- freshTemplate binding
           (lets, named) <- nameArguments definitions (bindRhs template) arguments'
           call <- specializeCall (List.foldl' (flip addDefinition) definitions lets) (scope <> Set.fromList (map (binderName . bindBinder) lets)) template named
-          pure (foldr ExLet call lets)
+          -- An unchanged call keeps its arguments in place. A named
+          -- argument hides a lambda from the inliner at this call.
+          pure $
+            if call == rebuild function' named
+              then rebuild function' arguments'
+              else foldr ExLet call lets
         _ -> pure (rebuild function' arguments')
 
 -- | Name an argument once. A local copy can then capture its shared reference.
@@ -129,7 +135,7 @@ nameArguments definitions (ExTyLam binder body) (Left ty : rest) = do
   pure (lets, Left ty : arguments)
 nameArguments definitions (ExLam binder body) (Right value : rest) = do
   (lets, arguments) <- nameArguments definitions body rest
-  if (functionType (binderType binder) || dictionaryType (binderType binder)) && staticExpression value
+  if (functionType (binderType binder) || (dictionaryType (binderType binder) && knownValue definitions value)) && staticExpression value
     then do
       state <- get
       let name = (binderName binder) {nameText = "$sf", nameOrigin = OriginLocal (Unique (nextUnique state))}
@@ -184,7 +190,7 @@ specializeCall definitions scope binding arguments =
               modify' (\s -> s {currentRegion = region})
               pure $ case reverse (regionCopies local) of
                 [] -> call
-                copies -> ExRec copies call
+                copies -> bindCopies copies call
     Nothing -> pure original
   where
     name = binderName (bindBinder binding)
@@ -234,7 +240,7 @@ selection definitions scope body arguments =
       | namesInScope (typeNames ty) = Just (Left ty) : choose (substTypeExpr (Map.singleton (binderName binder) ty) inner) rest
       | otherwise = Nothing : choose inner rest
     choose (ExLam binder inner) (Right value : rest) =
-      let known = (dictionaryType (binderType binder) || functionType (binderType binder)) && knownReference value
+      let known = ((dictionaryType (binderType binder) && knownValue definitions value) || functionType (binderType binder)) && knownReference value
        in (if known then Just (Right value) else Nothing) : choose inner rest
     choose _ _ = []
     staticValue (Just (Right _)) = True
@@ -331,3 +337,27 @@ typeNodes ty =
     TyForAll binder body -> typeNodes (binderType binder) + typeNodes body
     TyEq left right -> typeNodes left + typeNodes right
     _ -> 0
+
+-- | A dictionary is known only when no unknown value decides it. A copy on a
+-- dictionary that a parameter gives cannot select a method, and it makes the
+-- enclosing function too large for the inliner.
+knownValue :: Definitions -> Expr -> Bool
+knownValue definitions = go (16 :: Int)
+  where
+    go depth expression = case expression of
+      ExVar name
+        | not (localName name) -> True
+        | depth > 0, Just binding <- Map.lookup name definitions -> go (depth - 1) (bindRhs binding)
+        | otherwise -> False
+      ExTyApp inner _ -> go depth inner
+      ExApp function argument -> go depth function && go depth argument
+      ExCast inner _ -> go depth inner
+      _ -> False
+
+-- | Bind local copies in dependency order. Only a recursive group gets a
+-- recursive binding, because the inliner does not copy a recursive binding.
+bindCopies :: [Bind] -> Expr -> Expr
+bindCopies copies call = foldr wrap call (stronglyConnComp [(copy, binderName (bindBinder copy), Set.toList (exprFreeNames (bindRhs copy))) | copy <- copies])
+  where
+    wrap (AcyclicSCC copy) body = ExLet copy body
+    wrap (CyclicSCC group) body = ExRec group body

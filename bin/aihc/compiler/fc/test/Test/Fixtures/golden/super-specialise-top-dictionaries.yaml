@@ -84,10 +84,10 @@ expected: |-
   pub val 1.vrunBox :: tBox tFlag → tBox tFlag
     = let $sf : t$Dict$Toggle (tBox tFlag) =
       v$fToggleBoxa @tFlag v$fToggleFlag;
+    let $sstoggle48 : tBox tFlag → tBox tFlag =
+      let! c$Dict$Toggle ($ctoggle : tBox tFlag → tBox tFlag) = $sf;
+      $ctoggle;
     rec {
-      $sstoggle48 : tBox tFlag → tBox tFlag =
-        let! c$Dict$Toggle ($ctoggle : tBox tFlag → tBox tFlag) = $sf;
-        $ctoggle;
       $ssloop40 : tFlag → tBox tFlag → tBox tFlag =
         λ(x : tFlag) (y : tBox tFlag).
           case x of {

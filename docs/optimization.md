@@ -1264,12 +1264,21 @@ The pass reserves the name before it processes the body.
 Recursive calls and mutually recursive calls can then reuse that name.
 Calls in each new body can request further copies.
 
-A local copy remains at its call site in a recursive group.
+A local copy remains at its call site.
 It can capture local functions, runtime values, and existential type variables.
+Only copies that call each other go into a recursive group.
+Each other copy gets a non-recursive binding, because the inliner does not copy a recursive binding.
 The pass gives anonymous functions and dictionary or function applications a local name before specialization.
+If the pass does not change a call, the call keeps its original arguments.
+Thus, the inliner still sees an anonymous function at that call.
 It substitutes references, not arbitrary computations.
 Thus, shared dictionary thunks remain shared and evaluation does not occur early.
 Unknown existential evidence remains available at runtime.
+
+A dictionary is a known argument only if no parameter or other unknown value decides it.
+A copy on a dictionary that a parameter decides cannot select a method.
+Such a copy also makes the enclosing function larger.
+An inlining candidate, such as a small parser combinator, can then become too large to inline.
 
 The pass excludes functions that rewrite rules reference.
 It also excludes functions with phase-controlled pragmas and `NOINLINE` pragmas.
