@@ -609,15 +609,21 @@ lowerEnvironment options gcProgram =
         [ (grinConstructorName constructor, if grinConstructorVis constructor == GrinPub || lowerExposeFunctions options then Export else Internal)
         | constructor <- grinConstructors program
         ]
-    -- Public constructors need tables for other units. Private constructors
-    -- need tables only for nodes, static objects, and case tag comparisons.
-    -- A field fetch uses the layout without a reference to the table.
+    -- The program that declares a constructor defines its info tables even
+    -- when it builds no node of its own: another module that builds one has
+    -- only this program to link its node against.
     requiredConstructorInfos =
       Set.fromList
         ( concatMap declaredConstructorInfos constructorLayouts
-            <> concatMap requiredNodeConstructorInfos (programNodes program <> map staticObjectNode (programStaticObjects program))
-            <> concatMap (caseConstructorInfos . grinFunctionBody) (grinFunctions program)
+            <> concatMap (requiredNodeConstructorInfos . staticObjectNode) (programStaticObjects program)
+            <> concatMap requiredNodeConstructorInfos (programNodes program)
+            <> [ConstructorRuntimeInfo name SaturatedConstructor | name <- programIdentityCaseConstructors program]
         )
+    -- A constructor that another unit can name keeps its tables. A
+    -- constructor that no other unit can name gets a table only from the
+    -- items of this unit that name it: a node, a static object, and a case
+    -- that compares the identity of a table. A case that selects its
+    -- alternative from the constructor index names no table.
     declaredConstructorInfos (name, layouts)
       | Map.lookup name constructorLinkage == Just Internal = []
       | null layouts = [ConstructorRuntimeInfo name SaturatedConstructor]
@@ -4259,17 +4265,23 @@ exprNodes expression =
     GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
     _ -> []
 
--- | A case compares constructor identities. A fetch only reads fields.
-caseConstructorInfos :: GrinExpr -> [RuntimeInfoKey]
-caseConstructorInfos expression = case expression of
-  GrinBind _ value body -> caseConstructorInfos value <> caseConstructorInfos body
-  GrinStoreRec _ body -> caseConstructorInfos body
-  GrinStoreRecUnchecked _ body -> caseConstructorInfos body
-  GrinIfWhnf _ ready slow -> caseConstructorInfos ready <> caseConstructorInfos slow
-  GrinCase _ _ alternatives ->
-    [ConstructorRuntimeInfo name SaturatedConstructor | alternative <- alternatives, GrinDataAlt name <- [grinAltCon alternative]]
-      <> concatMap (caseConstructorInfos . grinAltRhs) alternatives
-  _ -> []
+-- | The constructors whose saturated table a case compares the identity of
+-- an object against. 'compileCase' does this when the case has fewer than
+-- 'constructorSwitchThreshold' constructor alternatives.
+programIdentityCaseConstructors :: GrinProgram -> [Text]
+programIdentityCaseConstructors program = concatMap (exprConstructors . grinFunctionBody) (grinFunctions program)
+  where
+    exprConstructors expression =
+      case expression of
+        GrinBind _ value body -> exprConstructors value <> exprConstructors body
+        GrinStoreRec _ body -> exprConstructors body
+        GrinStoreRecUnchecked _ body -> exprConstructors body
+        GrinIfWhnf _ ready slow -> exprConstructors ready <> exprConstructors slow
+        GrinCase _ _ alternatives ->
+          let names = [name | GrinDataAlt name _ <- map grinAltCon alternatives]
+           in [name | length names < constructorSwitchThreshold, name <- names]
+                <> concatMap (exprConstructors . grinAltRhs) alternatives
+        _ -> []
 
 programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =
