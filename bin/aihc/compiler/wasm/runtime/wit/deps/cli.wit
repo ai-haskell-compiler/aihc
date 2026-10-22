@@ -29,6 +29,10 @@ interface stderr {
   write-via-stream: func(data: stream<u8>) -> future<result<_, error-code>>;
 }
 
+interface exit {
+  exit: func(status: result);
+}
+
 interface run {
   run: async func() -> result;
 }

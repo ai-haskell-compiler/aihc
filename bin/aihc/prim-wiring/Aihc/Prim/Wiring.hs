@@ -182,6 +182,8 @@ primDerivingReferences prim =
       derivingJust = term "GHC.Prim.Base" NameConId "Just",
       derivingIntCon = term "GHC.Types" NameConId "I#",
       derivingIntPrimType = primType "Int#",
+      derivingDataToTag = term "GHC.Prim" NameVarId "dataToTagLarge#",
+      derivingIntLess = term "GHC.Prim" NameVarSym "<#",
       derivingUnliftedFields =
         [ unliftedField "Int#" NameVarSym "==#" "<#",
           unliftedField "Word#" NameVarId "eqWord#" "ltWord#",

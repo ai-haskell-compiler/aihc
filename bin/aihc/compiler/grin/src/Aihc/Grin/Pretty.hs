@@ -49,6 +49,7 @@ prettyConstructor scopes constructor =
   prettyVis (grinConstructorVis constructor)
     <> "constructor"
     <+> prettyName scopes (grinConstructorName constructor)
+    <> prettyIndex (grinConstructorIndex constructor)
     <+> "["
     <> hsep (punctuate comma (map prettyLayout (grinConstructorLayouts constructor)))
     <> "]"
@@ -57,6 +58,13 @@ prettyConstructor scopes constructor =
       case layout of
         [runtimeRep] -> prettyShow runtimeRep
         _ -> "[" <> hsep (punctuate comma (map prettyShow layout)) <> "]"
+
+-- | The index of a constructor in its data declaration. Index zero has no
+-- text, and the parser reads a name without an index as index zero.
+prettyIndex :: Int -> Doc ann
+prettyIndex index
+  | index == 0 = mempty
+  | otherwise = "%" <> pretty index
 
 prettyPrimitive :: (GrinVar, Int) -> Doc ann
 prettyPrimitive (var, arity) =
@@ -248,7 +256,7 @@ prettyAlt scopes alt =
 prettyAltCon :: Scopes -> GrinAltCon -> Doc ann
 prettyAltCon scopes altCon =
   case altCon of
-    GrinDataAlt name -> "data" <+> prettyName scopes name
+    GrinDataAlt name index -> "data" <+> prettyName scopes name <> prettyIndex index
     GrinLitAlt literal -> prettyLiteral literal
     GrinDefaultAlt -> "_"
 

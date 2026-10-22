@@ -114,7 +114,7 @@ tests =
 program :: GrinProgram
 program =
   GrinProgram
-    { grinConstructors = [pubConstructor "Unit" [], pubConstructor "Box" [[liftedGrinRep]], pubConstructor "Counter" [[IntRep]]],
+    { grinConstructors = [pubConstructor "Unit" 0 [], pubConstructor "Box" 0 [[liftedGrinRep]], pubConstructor "Counter" 0 [[IntRep]]],
       grinPrimitives = [],
       grinForeignCalls = [],
       grinGlobals =

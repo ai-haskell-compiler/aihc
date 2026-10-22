@@ -1,0 +1,28 @@
+; A switch with many dense cases uses a branch table on ARM64. A missing
+; value in the range goes to the default. AMD64 does a binary search.
+func @dense(%value: i64) -> i64 {
+entry:
+  switch i64 %value {
+    2 -> two
+    3 -> three
+    4 -> four
+    6 -> six
+    7 -> seven
+    8 -> eight
+    default -> other
+  }
+two:
+  return 20
+three:
+  return 30
+four:
+  return 40
+six:
+  return 60
+seven:
+  return 70
+eight:
+  return 80
+other:
+  return 0
+}

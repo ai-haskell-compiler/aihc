@@ -115,12 +115,13 @@ constructorDeclaration = do
   keyword "constructor"
   horizontal1
   constructorName <- scopedName
+  index <- constructorIndex
   legacyArity <- optional (MPC.char '/' *> natural)
   horizontal1
   fieldLayouts <- constructorLayouts
   lineEnd
   when (maybe False (/= length fieldLayouts) legacyArity) $ fail "constructor arity does not match its layout"
-  pure (TopConstructor (GrinConstructorDecl constructorName fieldLayouts vis))
+  pure (TopConstructor (GrinConstructorDecl constructorName fieldLayouts index vis))
 
 primitiveDeclaration :: Parser TopDeclaration
 primitiveDeclaration = do
@@ -280,11 +281,16 @@ alternativeAt indentation binder = do
 
 altConstructor :: GrinVar -> Parser GrinAltCon
 altConstructor binder =
-  MP.try (GrinDataAlt <$> (keyword "data" *> horizontal1 *> scopedName))
+  MP.try (GrinDataAlt <$> (keyword "data" *> horizontal1 *> scopedName) <*> constructorIndex)
     <|> GrinDefaultAlt <$ MPC.char '_'
     <|> MP.try (GrinLitAlt <$> grinLiteral)
     <|> MP.try (GrinLitAlt . GrinLitInt (grinVarRuntimeRep binder) <$> signedInteger)
-    <|> GrinDataAlt <$> scopedName
+    <|> GrinDataAlt <$> scopedName <*> constructorIndex
+
+-- | The index of a constructor in its data declaration. A name without an
+-- index has index zero.
+constructorIndex :: Parser Int
+constructorIndex = fromMaybe 0 <$> optional (MPC.char '%' *> natural)
 
 storeRecExpr :: Int -> Text -> ([(GrinVar, GrinNode)] -> GrinExpr -> GrinExpr) -> Parser GrinExpr
 storeRecExpr indentation expressionName constructor = do

@@ -132,7 +132,14 @@ When the only work of the machine is waits without a timer, each waiting transac
 With one capability, a transaction that retries lets the other threads run when they have work, and otherwise it waits for the earliest timer.
 As in GHC, `forkIO` catches an exception that the action does not catch, writes it to the standard error, and ends only that thread.
 A local collection does not stop the other capabilities.
-It holds the heap lock, which is also the object lock, so the local collections still run one at a time.
+It holds the heap lock, which is also the object lock, only while it visits its roots and while it sweeps.
+Between these two steps, it traces its local heap without a lock, so local collections on several capabilities trace at the same time.
+Each capability has its own collector worklists and its own set of the marked static objects and frames.
+The trace takes the stacks of the threads of its capability under the lock, because other capabilities add stacks to the list of the machine.
+It claims the global thunks of the update frames that it scans after it takes the lock again.
+The global blackhole queues of a thread come before its young queues, so another capability that walks the queues of a thread stops at a global queue.
+A promotion takes no heap lock: it copies into gen2 segments of its own capability, and only the segment lists of the size classes take a lock.
+The region table has a lock of its own.
 It visits the roots of its capability, the roots of its caller, and the roots of its own threads, and it does not visit the roots of the machine.
 It does not scan the global objects of its remembered set, because a store into a global object promotes the value.
 It drops these entries from the set. The kept stacks reach the frames that the waiters name, and each collection updates the links from the global queues of a thread to its young queues.
@@ -145,6 +152,9 @@ A lazy list whose producer ages into gen2 then promotes each new cell.
 Thus a local collection keeps its survivors in gen1, and it copies gen1 when gen1 has doubled since the last copy.
 The referents of a frame also stay local, and the chunk takes the youngest generation that its frames name.
 Only an escape, a push, and a bridge collection move objects into gen2.
+With several capabilities, a bridge collection moves every young survivor into gen2.
+A survivor that it kept in gen1 could have a referrer in gen2, and the remembered set of the leader would hold that referrer.
+The owner of the survivor does not scan that set, so its next local collection would move the survivor and leave a stale pointer.
 Before the workers start, a collection promotes the startup data, which the roots of the machine name.
 An install of new program arguments or a new environment takes an immovable copy outside the heap.
 The STM timers and their variables are global.
@@ -521,6 +531,17 @@ A woken thread goes back to its own capability. The waker pushes it into
 the inbox of that capability, or into its own run queue when that is the
 same capability. Thus the capability field of a blocked thread stays valid
 while it is blocked. The blackhole protocol below depends on this rule.
+
+A capability polls its IO requests and its transaction waits only in its
+schedule. A long computation of its running thread then holds the threads
+that it woke, and other capabilities can stay idle for a long time. For
+example, a thread that reads a pipe for a waiting worker can wait for the
+full compilation of a module. Thus the block refill in `aihc_heap_collect`
+also does a busy check. When a capability is idle, and this capability has
+IO requests or runnable threads, the check polls the requests without a
+wait. Then it pushes the runnable threads to idle capabilities. It does
+this at most once each millisecond. A refill for the runtime itself does
+not do the check, because it can occur during an operation on a queue.
 
 In the end state a push is an escape. The stack of the pushed thread names
 objects of the local heap of the pushing capability, and the push must

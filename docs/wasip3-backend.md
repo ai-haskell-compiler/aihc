@@ -104,6 +104,11 @@ waits for the host, such as one of the WASI 0.3 libc, is only allowed to in a
 task that may block. The bindings are generated with
 `--async=-export:wasi:cli/run@0.3.0#run` for this reason.
 
+When the program halts, the driver calls `wasi:cli/exit@0.3.0` and does not
+return from `run`. wasmtime then stops the process immediately. After a return
+from `run`, wasmtime frees the compiled code before it stops. On macOS, this
+step takes up to some seconds for a large program.
+
 Runtime info tables are ordinary relocatable data objects with 4-byte words.
 Function addresses in those tables become Wasm table indices when `wasm-ld`
 links the program and runtime. Heap pointers remain 32-bit Wasm addresses

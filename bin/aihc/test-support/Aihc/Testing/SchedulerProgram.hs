@@ -12,7 +12,7 @@ import Aihc.Grin.Syntax
 schedulerProgram :: GrinProgram
 schedulerProgram =
   GrinProgram
-    { grinConstructors = [pubConstructor "()" []],
+    { grinConstructors = [pubConstructor "()" 0 []],
       grinPrimitives =
         [ (GrinVar "fork#" 1 lifted, 2),
           (GrinVar "yield#" 2 lifted, 1)
@@ -68,7 +68,7 @@ schedulerProgram =
 stdioSchedulerProgram :: GrinProgram
 stdioSchedulerProgram =
   GrinProgram
-    { grinConstructors = [pubConstructor "()" []],
+    { grinConstructors = [pubConstructor "()" 0 []],
       grinPrimitives =
         [ (GrinVar "awaitIO#" 30 lifted, 2),
           (GrinVar "newPinnedByteArray#" 31 (BoxedRep Unlifted), 2),

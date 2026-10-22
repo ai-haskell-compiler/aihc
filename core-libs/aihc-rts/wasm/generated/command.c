@@ -44,6 +44,11 @@ extern int32_t __wasm_import_wasi_cli_stdout_write_via_stream(int32_t);
 __attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("write-via-stream")))
 extern int32_t __wasm_import_wasi_cli_stderr_write_via_stream(int32_t);
 
+// Imported Functions from `wasi:cli/exit@0.3.0`
+
+__attribute__((__import_module__("wasi:cli/exit@0.3.0"), __import_name__("exit")))
+extern void __wasm_import_wasi_cli_exit_exit(int32_t);
+
 // Imported Functions from `wasi:filesystem/types@0.3.0`
 
 __attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[method]descriptor.read-via-stream")))
@@ -421,6 +426,11 @@ void wasi_cli_stderr_future_result_void_error_code_drop_writable(wasi_cli_stderr
   wasi_cli_stderr_future_result_void_error_code__drop_writable(writer);
 }
 
+
+void wasi_cli_exit_result_void_void_free(wasi_cli_exit_result_void_void_t *ptr) {
+  if (!ptr->is_err) {
+  }
+}
 
 void wasi_filesystem_types_error_code_free(wasi_filesystem_types_error_code_t *ptr) {
   switch ((int32_t) ptr->tag) {
@@ -1226,6 +1236,16 @@ wasi_cli_stdout_future_result_void_error_code_t wasi_cli_stdout_write_via_stream
 wasi_cli_stderr_future_result_void_error_code_t wasi_cli_stderr_write_via_stream(wasi_cli_stdin_stream_u8_t data) {
   int32_t ret = __wasm_import_wasi_cli_stderr_write_via_stream(((int32_t) data));
   return ((uint32_t) ret);
+}
+
+void wasi_cli_exit_exit(wasi_cli_exit_result_void_void_t *status) {
+  int32_t result;
+  if ((*status).is_err) {
+    result = 1;
+  } else {
+    result = 0;
+  }
+  __wasm_import_wasi_cli_exit_exit(result);
 }
 
 void wasi_filesystem_types_method_descriptor_read_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_filesize_t offset, wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t *ret) {

@@ -1,0 +1,28 @@
+; A switch with many cases does a binary search on the unsigned values. The
+; negative case is the largest unsigned value, so it is in the upper half.
+func @pick(%value: i64) -> i64 {
+entry:
+  switch i64 %value {
+    7 -> seven
+    1 -> one
+    -3 -> negative
+    5 -> five
+    3 -> three
+    9 -> nine
+    default -> other
+  }
+one:
+  return 10
+three:
+  return 30
+five:
+  return 50
+seven:
+  return 70
+nine:
+  return 90
+negative:
+  return 100
+other:
+  return 0
+}

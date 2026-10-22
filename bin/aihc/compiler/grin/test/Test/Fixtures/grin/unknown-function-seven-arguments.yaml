@@ -1,0 +1,17 @@
+extensions: []
+source: |
+  module Test where
+  apply7 f a b c d e g h = f a b c d e g h
+expected: |-
+  scope 1 = "" Test
+
+  pub global 1.apply7 = (P1.$apply7/8)
+
+  1.$apply7 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) (x1 :: BoxedRep Lifted) (x2 :: BoxedRep Lifted) (x3 :: BoxedRep Lifted) (x4 :: BoxedRep Lifted) (x5 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    function_application :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) (x1 :: BoxedRep Lifted) (x2 :: BoxedRep Lifted) (x3 :: BoxedRep Lifted) (x4 :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x5 :: BoxedRep Lifted)
+status: pass
+reason: an unknown call with seven arguments applies six argument groups, then applies the result to the seventh

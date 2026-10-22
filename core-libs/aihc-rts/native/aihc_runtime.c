@@ -33,7 +33,8 @@ _Static_assert(offsetof(AihcCapability, profile_frame) ==
                    8 * sizeof(void *) + 16,
                "capability profile_frame ABI");
 
-/* Five words and five bytes, rounded up to a word. This matches
+/* Five words, five bytes, one byte of padding, and a two-byte constructor
+   index, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
 _Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
                "info-table size ABI");
@@ -56,6 +57,8 @@ _Static_assert(offsetof(AihcInfo, object_kind) == 43,
                "info-table object-kind ABI");
 _Static_assert(offsetof(AihcInfo, needs_eval) == 44,
                "info-table needs-eval ABI");
+_Static_assert(offsetof(AihcInfo, constructor_index) == 46,
+               "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
@@ -90,6 +93,8 @@ _Static_assert(offsetof(AihcInfo, object_kind) == 23,
                "info-table object-kind ABI");
 _Static_assert(offsetof(AihcInfo, needs_eval) == 24,
                "info-table needs-eval ABI");
+_Static_assert(offsetof(AihcInfo, constructor_index) == 26,
+               "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
@@ -782,6 +787,8 @@ static AihcBackendEntry aihc_callback_create_locked(AihcCapability *capability,
 static void aihc_take_inbox(AihcCapability *capability);
 static void aihc_move_threads(AihcCapability *capability, uint64_t pushes);
 static uint64_t aihc_available_capabilities(AihcMachine *machine);
+static void aihc_busy_check(AihcCapability *capability, uint64_t root_count,
+                            AihcSlot *roots, const AihcSrt *srt);
 
 /* Before a safe foreign call, give the runnable threads of the capability
    to idle capabilities. They do not wait for the call. A thread that the
@@ -1125,9 +1132,13 @@ void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
   aihc_gc_ensure(capability, words, root_count, roots, srt);
 }
 
+/* The failed heap check of compiled code and of the helpers. Only the
+   mutator comes here, so the busy check can poll and push. A refill for
+   the runtime does not come here: it can be in an operation on a queue. */
 void aihc_heap_collect(AihcCapability *capability, uint64_t words,
                        uint64_t root_count, AihcSlot *roots,
                        const AihcSrt *srt) {
+  aihc_busy_check(capability, root_count, roots, srt);
   aihc_gc_refill(capability, words, root_count, roots, srt);
 }
 
@@ -1716,6 +1727,43 @@ static void aihc_move_threads(AihcCapability *capability, uint64_t pushes) {
     ++capability->push_count;
     --pushes;
   }
+}
+
+/* The interval between two busy checks of a capability. */
+#define AIHC_BUSY_CHECK_NS UINT64_C(1000000)
+
+/* A thread goes back to the capability that ran it: its IO requests, its
+   transaction waits, and its wakes from other capabilities. The worker
+   looks at them only in its schedule. Without a preemption tick, a long
+   computation of the running thread then holds these threads while other
+   capabilities are idle. Thus a failed heap check of the mutator polls the
+   IO requests without a wait and pushes the runnable threads to idle
+   capabilities. It does this only when a capability is idle and this one
+   has such a thread, and at most once in each interval. The foreign frame
+   publishes the roots and the SRT of the caller for the collection of the
+   push. */
+static void aihc_busy_check(AihcCapability *capability, uint64_t root_count,
+                            AihcSlot *roots, const AihcSrt *srt) {
+  AihcMachine *machine = capability->machine;
+  if (!machine->workers_active || capability->stop_depth != 0 ||
+      __atomic_load_n(&machine->idle_count, __ATOMIC_RELAXED) == 0) {
+    return;
+  }
+  if (capability->io_request_count == 0 && capability->run_queue_head == NULL &&
+      __atomic_load_n(&capability->inbox_head, __ATOMIC_RELAXED) == NULL) {
+    return;
+  }
+  uint64_t now = aihc_host_monotonic_ns();
+  if (now < capability->busy_check_ns) {
+    return;
+  }
+  capability->busy_check_ns = now + AIHC_BUSY_CHECK_NS;
+  AihcForeignFrame frame;
+  aihc_foreign_enter(capability, &frame, roots, root_count, srt,
+                     AIHC_FOREIGN_UNSAFE);
+  (void)machine->io_backend->poll(capability, 0);
+  aihc_move_runnable_threads(capability);
+  aihc_foreign_leave(capability, &frame);
 }
 
 typedef struct AihcStmWaiter AihcStmWaiter;
@@ -2647,8 +2695,25 @@ static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
     queue->thunk = value;
     queue->head = waiter;
     queue->tail = waiter;
-    queue->next = owner->queues;
-    owner->queues = queue;
+    /* The global queues of the owner come before its young queues. Another
+       capability walks the list only to a global queue, so it never reads
+       or writes a young queue, which a local collection of the owner copies
+       without the object lock. A young queue has a young thunk, so only the
+       capability of the owner adds it. */
+    AihcBlackholeQueue **link = &owner->queues;
+    AihcBlackholeQueue *previous = NULL;
+    if (aihc_value_is_young(capability->machine, queue)) {
+      while (*link != NULL &&
+             !aihc_value_is_young(capability->machine, *link)) {
+        previous = *link;
+        link = &previous->next;
+      }
+    }
+    if (previous != NULL) {
+      aihc_write_barrier(capability, (AihcValue *)previous);
+    }
+    queue->next = *link;
+    *link = queue;
     /* A global queue can name a younger queue of its owner and the waiter,
        so it goes into the remembered set. A young queue takes no entry. */
     aihc_write_barrier(capability, (AihcValue *)queue);
@@ -3079,7 +3144,7 @@ const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
      before this call copies them. */
   AihcSlot roots[2] = {(AihcSlot)(uintptr_t)function,
                        (AihcSlot)(uintptr_t)continuation};
-  aihc_heap_collect(capability, words, 2, roots, NULL);
+  aihc_gc_refill(capability, words, 2, roots, NULL);
   function = (AihcValue *)(uintptr_t)roots[0];
 
   AihcValue *captured = aihc_place_node(capability, &aihc_continuation_info,
@@ -3247,10 +3312,13 @@ static void aihc_workers_start(AihcCapability *capability) {
      global first. */
   aihc_promote_all(capability, AIHC_GC_REASON_REQUEST, 0, NULL, NULL);
   machine->heap_lock = aihc_host_recursive_lock_new();
-  aihc_regions_set_lock(machine->heap_lock);
-  /* One recursive lock serves as both: a promotion under the heap lock
-     claims thunks, and an MVar operation under the object lock allocates,
-     so two locks would need opposite orders. */
+  /* The region table and the gen2 segment lists get locks of their own,
+     so a promotion does not wait for a collection that holds the heap
+     lock. */
+  aihc_gc_workers_init();
+  /* One recursive lock serves as both: a collection under the heap lock
+     claims thunks, and an MVar operation under the object lock can take
+     the heap lock, so two locks would need opposite orders. */
   machine->object_lock = machine->heap_lock;
   machine->stop_lock = aihc_host_lock_new();
   machine->stop_condition = aihc_host_condition_new();

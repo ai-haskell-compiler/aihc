@@ -186,6 +186,11 @@ struct AihcInfo {
      table. Thus the table always gives the correct value. On 64-bit targets
      the byte uses padding, so the table stays 48 bytes. */
   uint8_t needs_eval;
+  /* The index of a constructor in its data declaration, and zero for every
+     other kind. A case with many alternatives selects its alternative from
+     this field. The field uses padding, so the table stays 48 bytes on a
+     64-bit target and 28 bytes on wasm32. */
+  uint16_t constructor_index;
 };
 
 struct AihcValue {
@@ -367,6 +372,9 @@ struct AihcCapability {
      moves each block that is now in gen2 to the list of the machine. See
      aihc_sweep_pinned. */
   struct AihcPinnedBlock *young_pinned;
+  /* The earliest time of the next busy check. See aihc_busy_check in
+     aihc_runtime.c. */
+  uint64_t busy_check_ns;
 };
 
 /* The reason that starts a collection. The statistics report a count for
