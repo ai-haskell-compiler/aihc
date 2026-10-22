@@ -1233,6 +1233,10 @@ They use the common <code>AihcInfo</code> layout from the native run-time system
 <td><code>needs_eval</code></td>
 <td>Is <code>1</code> for a thunk, <code>2</code> for an indirection, and <code>0</code> for a value. A thunk under evaluation keeps the value <code>1</code>.</td>
 </tr>
+<tr>
+<td><code>constructor_index</code></td>
+<td>Gives the index of a constructor in its data declaration, from zero. It is <code>0</code> for other objects. Two bytes: a data type has at most 65536 constructors.</td>
+</tr>
 </tbody>
 </table>
 <p>The garbage collector uses <code>field_count</code> and <code>field_is_pointer</code> to find managed pointers.
@@ -1240,7 +1244,9 @@ It reads only the first <code>field_count</code> bytes of the map.
 The application code uses <code>remaining_arity</code> and <code>next</code> to apply one source argument.
 The inline evaluation check uses only <code>needs_eval</code> to find a value or an indirection.
 The run-time evaluation code uses <code>object_kind</code> and <code>backend_entry</code> to enter an object.
-Exception code uses <code>frame_kind</code> to identify continuation frames.</p>
+Exception code uses <code>frame_kind</code> to identify continuation frames.
+A case with four constructor alternatives or more uses <code>constructor_index</code> to select an alternative.
+A case with fewer alternatives compares <code>identity</code> with each constructor table.</p>
 <p>One source argument can use more than one machine field.
 For this reason, two adjacent tables can have field counts that differ by more than one.
 The map of a table gives the layout of the fields that the next source argument supplies.
