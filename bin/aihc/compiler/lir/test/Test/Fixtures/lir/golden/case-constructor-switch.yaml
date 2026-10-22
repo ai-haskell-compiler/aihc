@@ -51,18 +51,10 @@ expected: |
     %payload_16 = load i64 [%value_4 + 8] align 8 region heap
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_16)
   }
-
-  data @aihc_c_aihc_entry_North_0 align 8 = { ptr @aihc_c_aihc_entry_North_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
-
-  data @aihc_c_aihc_entry_East_0 align 8 = { ptr @aihc_c_aihc_entry_East_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 1 }
-
-  data @aihc_c_aihc_entry_South_0 align 8 = { ptr @aihc_c_aihc_entry_South_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 2 }
-
-  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
-
-  data @aihc_c_aihc_entry_West_0 align 8 = { ptr @aihc_c_aihc_entry_West_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 3 }
 status: pass
 reason: |
   A case with four constructor alternatives or more selects its alternative
   from the constructor index of the info table. It does not compare the
-  identity of the info table with each constructor.
+  identity of the info table with each constructor. Thus the case names
+  no info table. The program builds no node of a private constructor, so
+  the lowering emits no info table.
