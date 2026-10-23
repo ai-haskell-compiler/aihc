@@ -394,7 +394,7 @@ splitFunction types self declaredType workerName demands function =
   case plan of
     Nothing -> pure Nothing
     Just (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner) -> do
-      workerParameters <- sequence (zipWith (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters)
+      workerParameters <- zipWithM (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters
       wrapperBody <- wrapper tyBinders parameters castLayer result resultProduct
       replaced <- replaceCalls self wrapperBody inner
       inner' <- maybe (pure replaced) (\resultShape -> returnFields result resultShape replaced) resultProduct
@@ -609,7 +609,7 @@ splitFunction types self declaredType workerName demands function =
     -- the fields, and builds the result from what the worker returns. The
     -- parameters under a cast stay under it, with the cases inside them.
     wrapper tyBinders parameters castLayer result resultProduct = do
-      unpacked <- sequence (zipWith (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters)
+      unpacked <- zipWithM (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters
       scrutinees <- traverse (\(Prepared parameter _) -> case parameter of Unbox binder _ _ _ -> Just . (`Binder` binderType binder) <$> fresh "wrapped"; Keep _ -> pure Nothing) unpacked
       let call =
             List.foldl'
