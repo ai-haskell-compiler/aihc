@@ -69,6 +69,9 @@ superSpecialiseProgram program =
        in (next, DeclVal val {valBody = body})
     freshDeclaration supply decl = (supply, decl)
     onDecl definitions decl = case decl of
+      -- An INLINE body is a template. A larger body stops the inliner at
+      -- its calls, and each copy is specialised where it lands.
+      DeclVal val | InlineAlways _ <- valInline val -> pure decl
       DeclVal val -> do
         body <- walk definitions Set.empty (valBody val)
         pure (DeclVal val {valBody = body})
