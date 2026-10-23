@@ -2161,7 +2161,7 @@ localCandidateEnv env binder rhs body
     functionArity rhs > 0,
     Set.notMember name mentioned,
     any parameterScrutinised (guidanceParameters guidance),
-    not (largeJoinPoint (spEnv env) name rhs body) =
+    not (largeJoinPoint env name rhs body) =
       env
         { spInline = Map.insert name (Candidate rhs SitesReducing False guidance) (spInline env),
           spLocalCandidates = Map.insert name mentioned (spLocalCandidates env)
@@ -2175,17 +2175,20 @@ localCandidateEnv env binder rhs body
 -- | Whether a let binds a join point whose copies would be large: a
 -- function that the body calls more than once, always with all its
 -- arguments and in tail position, and whose body is larger than
--- 'joinSmallSize'.
-largeJoinPoint :: TypeEnv -> Name -> Expr -> Expr -> Bool
+-- 'joinSmallSize'. A call that gives a known constructor to a parameter
+-- that the body scrutinises counts the alternative that its copy keeps,
+-- as in 'joinCopyGrowth'. Such a join point is not large when its copies
+-- add little, so each call can take a copy that selects its alternative.
+largeJoinPoint :: Simpl -> Name -> Expr -> Expr -> Bool
 largeJoinPoint env name rhs body =
   case occurrences name body of
     Occurrences uses _ ->
       uses > 1
         && size > joinSmallSize
-        && (uses - 1) * size > joinCopyLimit
+        && joinCopyGrowth env name rhs body > joinCopyLimit
         && onlyTailCalls name (functionArity rhs) body
   where
-    size = exprSize env (lambdaBody rhs)
+    size = exprSize (spEnv env) (lambdaBody rhs)
     lambdaBody expr =
       case expr of
         ExLam _ inner -> lambdaBody inner
