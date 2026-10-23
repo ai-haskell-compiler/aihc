@@ -1,0 +1,78 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  data Len = One | Two | Three | Four
+
+  data Out = Out Bool Bool Bool
+
+  run :: Bool -> Bool -> Bool -> Out
+  run a b c =
+    let k l = case l of
+          One -> Out a b c
+          Two -> Out b c a
+          Three -> Out c a b
+          Four -> Out a a a
+     in case a of
+          True -> case b of
+            True -> k One
+            False -> k Two
+          False -> case c of
+            True -> k Three
+            False -> k Four
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tLen :: sType {
+    1.cOne :: tLen;
+    1.cTwo :: tLen;
+    1.cThree :: tLen;
+    1.cFour :: tLen
+  }
+
+  type 1.tOut :: sType {
+    pub 1.cOut :: tBool → tBool → tBool → tOut
+  }
+
+  pub val 1.vrun :: tBool → tBool → tBool → tOut
+    = λ(x : tBool) (y : tBool) (z : tBool).
+      case x of {
+        cTrue →
+          case y of {
+            cTrue →
+              cOut x y z;
+            cFalse →
+              cOut y z x
+          };
+        cFalse →
+          case z of {
+            cTrue →
+              cOut z x y;
+            cFalse →
+              cOut x x x
+          }
+      }
+status: pass
+reason: A join point that each tail call gives a known constructor is copied at the calls. Each copy selects its alternative, so no join point stays.
