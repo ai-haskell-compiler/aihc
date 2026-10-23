@@ -1,6 +1,8 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 {-# HLINT ignore "Use sequence_" #-}
 
@@ -215,6 +217,7 @@ import GHC.Real
     (^),
     (^^),
   )
+import GHC.ST (ST (..))
 import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
 import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
@@ -1073,7 +1076,32 @@ listTraverse f values = loop values
   where
     loop [] = pure []
     loop (value : rest) = fmap (:) (f value) <*> loop rest
-{-# INLINE listTraverse #-}
+{-# INLINE [1] listTraverse #-}
+
+-- The state traversal preserves all effects before it returns the lazy fold.
+listTraverseST :: (a -> ST s b) -> [a] -> ST s [b]
+listTraverseST = listFoldTraverseST (:) []
+{-# INLINE [0] listTraverseST #-}
+
+listFoldTraverseST :: (b -> c -> c) -> c -> (a -> ST s b) -> [a] -> ST s c
+listFoldTraverseST combine initial action values = ST (loop values)
+  where
+    loop [] state = (# state, initial #)
+    loop (value : rest) state =
+      case action value of
+        ST step -> case step state of
+          (# next, item #) -> case loop rest next of
+            (# final, items #) -> (# final, combine item items #)
+{-# INLINE listFoldTraverseST #-}
+
+{-# RULES
+"listTraverse/ST" [~1] forall (action :: a -> ST s b) values.
+  listTraverse action values =
+    listTraverseST action values
+"foldr/listTraverseST" forall combine initial (action :: a -> ST s b) values.
+  fmap (foldr combine initial) (listTraverseST action values) =
+    listFoldTraverseST combine initial action values
+  #-}
 
 instance Traversable Dual where
   traverse f (Dual value) = fmap Dual (f value)

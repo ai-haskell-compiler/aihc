@@ -300,6 +300,30 @@ data Parameter
   | -- | The worker takes the fields of the one constructor of the type.
     Unbox !Binder !Name ![Type] ![(Type, Type)]
 
+-- | A parameter and the fields that its worker receives.
+data Prepared = Prepared !Parameter ![Prepared]
+
+preparedBinder :: Prepared -> Binder
+preparedBinder (Prepared (Keep binder) _) = binder
+preparedBinder (Prepared (Unbox binder _ _ _) _) = binder
+
+preparedBinders :: Prepared -> [Binder]
+preparedBinders (Prepared (Keep binder) _) = [binder]
+preparedBinders (Prepared Unbox {} fields) = concatMap preparedBinders fields
+
+-- Preserve the external parameter shape for the shared type builder.
+preparedParameter :: Prepared -> (Parameter, [Binder])
+preparedParameter prepared@(Prepared parameter _) =
+  case parameter of
+    Keep _ -> (parameter, [])
+    Unbox binder con arguments _ ->
+      (Unbox binder con arguments (fieldTypes prepared), preparedBinders prepared)
+  where
+    fieldTypes (Prepared Keep {} _) = []
+    fieldTypes (Prepared (Unbox _ _ _ types) children) = concat (zipWith childTypes types children)
+    childTypes pair (Prepared Keep {} _) = [pair]
+    childTypes _ child = fieldTypes child
+
 -- | How the worker returns the result of the function.
 data ResultProduct
   = -- | The one constructor of the result, returned as its fields: the
@@ -370,7 +394,7 @@ splitFunction types self declaredType workerName demands function =
   case plan of
     Nothing -> pure Nothing
     Just (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner) -> do
-      workerParameters <- traverse workerParameter parameters
+      workerParameters <- sequence (zipWith (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters)
       wrapperBody <- wrapper tyBinders parameters castLayer result resultProduct
       replaced <- replaceCalls self wrapperBody inner
       inner' <- maybe (pure replaced) (\resultShape -> returnFields result resultShape replaced) resultProduct
@@ -378,11 +402,11 @@ splitFunction types self declaredType workerName demands function =
           (returnedType, arrows') = case resultProduct of
             Nothing -> (Just result, arrows)
             Just resultShape -> (fst <$> returnedOf env resultShape, maybe arrows (`setLastResultRep` arrows) (snd =<< returnedOf env resultShape))
-      case (,) <$> returnedType <*> (workerType env tyBinders workerParameters arrows' =<< returnedType) of
+      case (,) <$> returnedType <*> (workerType env tyBinders (map preparedParameter workerParameters) arrows' =<< returnedType) of
         Nothing -> pure Nothing
         Just (_, ty) ->
-          let rebox = foldr ExLet inner' [Bind binder (construct con arguments (map (ExVar . binderName) fields)) | (Unbox binder con arguments _, fields) <- workerParameters]
-              body = foldr ExTyLam (foldr ExLam rebox (concatMap parameterBinders workerParameters)) tyBinders
+          let rebox = foldr ExLet inner' (concatMap reboxBindings workerParameters)
+              body = foldr ExTyLam (foldr ExLam rebox (concatMap preparedBinders workerParameters)) tyBinders
            in pure (Just (Split wrapperBody ty body (length [() | Unbox {} <- parameters]) (isJust resultProduct)))
   where
     primPackage = tePrimPackage types
@@ -411,7 +435,7 @@ splitFunction types self declaredType workerName demands function =
       parameters <-
         sequence
           [ case (demand, productConstructor env (binderType binder)) of
-              (StrictProduct, Just (con, arguments, fields)) -> Unbox binder con arguments . zip fields <$> traverse (repOf env) fields
+              (d, Just (con, arguments, fields)) | productDemand d -> Unbox binder con arguments . zip fields <$> traverse (repOf env) fields
               _ -> Just (Keep binder)
           | (binder, demand) <- zip valueBinders demands
           ]
@@ -476,17 +500,38 @@ splitFunction types self declaredType workerName demands function =
         (ReturnTuple _ ty, _) -> Just (ty, repOf env ty)
         _ -> Nothing
     returnedOf env (ResultNested _ _ _ _ _ ty) = Just (ty, repOf env ty)
-    -- The fields of an unboxed parameter get fresh binders.
-    workerParameter parameter =
-      case parameter of
-        Keep _ -> pure (parameter, [])
-        Unbox binder _ _ fields -> do
-          binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh (nameText (binderName binder))) fields
-          pure (parameter, binders)
-    parameterBinders (parameter, fields) =
-      case parameter of
-        Keep binder -> [binder]
-        Unbox {} -> fields
+    productDemand StrictProduct = True
+    productDemand StrictFields {} = True
+    productDemand _ = False
+    -- Fields with a product demand receive their own worker parameters.
+    workerParameter env demand parameter = case parameter of
+      Keep _ -> pure (Prepared parameter [])
+      Unbox binder _ _ fields -> do
+        binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh (nameText (binderName binder))) fields
+        let demands' = case demand of
+              StrictFields ds -> ds <> repeat Lazy
+              _ -> repeat Lazy
+        children <-
+          sequence
+            [ case productConstructor env (binderType field) of
+                Just (con, arguments, tys)
+                  | productDemand d,
+                    Just reps <- traverse (repOf env) tys ->
+                      workerParameter env d (Unbox field con arguments (zip tys reps))
+                _ -> pure (Prepared (Keep field) [])
+            | (field, d) <- zip binders demands'
+            ]
+        pure (Prepared parameter children)
+    reboxBindings (Prepared (Keep _) _) = []
+    reboxBindings (Prepared (Unbox binder con arguments _) fields) =
+      concatMap reboxBindings fields <> [Bind binder (construct con arguments (map (ExVar . binderName . preparedBinder) fields))]
+    unpackParameter _ _ (Prepared (Keep _) _) inner = inner
+    unpackParameter result named (Prepared (Unbox binder con _ _) fields) inner =
+      caseFromList
+        (ExVar (binderName binder))
+        named
+        result
+        [Alt (AltData con) [] (map preparedBinder fields) (foldr (unpackParameter result Nothing) inner fields)]
     construct con arguments =
       List.foldl' ExApp (List.foldl' ExTyApp (ExVar con) arguments)
     -- What the worker returns for the fields. A result with one field
@@ -564,13 +609,13 @@ splitFunction types self declaredType workerName demands function =
     -- the fields, and builds the result from what the worker returns. The
     -- parameters under a cast stay under it, with the cases inside them.
     wrapper tyBinders parameters castLayer result resultProduct = do
-      unpacked <- traverse workerParameter parameters
-      scrutinees <- traverse (\(parameter, _) -> case parameter of Unbox binder _ _ _ -> Just . (`Binder` binderType binder) <$> fresh "wrapped"; Keep _ -> pure Nothing) unpacked
+      unpacked <- sequence (zipWith (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters)
+      scrutinees <- traverse (\(Prepared parameter _) -> case parameter of Unbox binder _ _ _ -> Just . (`Binder` binderType binder) <$> fresh "wrapped"; Keep _ -> pure Nothing) unpacked
       let call =
             List.foldl'
               ExApp
               (List.foldl' ExTyApp (ExVar workerName) [TyVar (binderName binder) | binder <- tyBinders])
-              (map (ExVar . binderName) (concatMap parameterBinders unpacked))
+              (map (ExVar . binderName) (concatMap preparedBinders unpacked))
       rebuilt <- case resultProduct of
         Nothing -> pure call
         Just (ResultProduct con arguments fields returned) ->
@@ -596,26 +641,14 @@ splitFunction types self declaredType workerName demands function =
               )
               components
           pure (caseFromList call Nothing result [Alt (AltData returnedCon) [] (concatMap fst pieces) (construct tupleCon tupleArguments (map snd pieces))])
-      let cases =
-            foldr
-              ( \((parameter, fields), scrutineeBinder) inner ->
-                  case (parameter, scrutineeBinder) of
-                    (Unbox binder con _ _, Just caseBinder) -> caseFromList (ExVar (binderName binder)) (Just caseBinder) result [Alt (AltData con) [] fields inner]
-                    _ -> inner
-              )
-              rebuilt
-              (zip unpacked scrutinees)
-          original = [originalBinder parameter | (parameter, _) <- unpacked]
+      let cases = foldr (\(parameter, named) -> unpackParameter result named parameter) rebuilt (zip unpacked scrutinees)
+          original = map preparedBinder unpacked
           lambdas = case castLayer of
             Nothing -> foldr ExLam cases original
             Just (coercion, innerCount) ->
               let (outer, inner) = splitAt (length original - innerCount) original
                in foldr ExLam (ExCast (foldr ExLam cases inner) coercion) outer
       pure (foldr ExTyLam lambdas tyBinders)
-    originalBinder parameter =
-      case parameter of
-        Keep binder -> binder
-        Unbox binder _ _ _ -> binder
     fresh text = state (\supply -> (Name text SortValue (OriginLocal (Unique supply)), supply + 1))
 
 -- | Whether every tail of a body is the constructor, a call of the
