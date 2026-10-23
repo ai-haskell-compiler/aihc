@@ -26,6 +26,7 @@ import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.FullLaziness (fullLazinessProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
+import Aihc.Fc.ListFusion (listFusionProgram)
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
@@ -43,6 +44,8 @@ data Pass
   = -- | Arity analysis, then eta expansion of every top-level value to
     -- the arity it finds.
     PassEtaExpand
+  | -- | Express local list producers with foldr/build.
+    PassListFusion
   | -- | The inliner under a policy, for at most the given number of
     -- rounds, in a phase.
     PassInline !InlinePolicy !Int !Int
@@ -90,6 +93,7 @@ data Pass
 passPhase :: Pass -> Maybe Int
 passPhase pass =
   case pass of
+    PassListFusion -> Nothing
     PassFullLaziness -> Nothing
     PassLiftConstants -> Nothing
     PassUnroll -> Nothing
@@ -117,6 +121,7 @@ data PassReport = PassReport
 passName :: Pass -> Text
 passName pass =
   case pass of
+    PassListFusion -> "list producers"
     PassFullLaziness -> "full laziness"
     PassLiftConstants -> "lift constants"
     PassUnroll -> "unroll"
@@ -138,6 +143,9 @@ passName pass =
 runPass :: PackageId -> Maybe [Name] -> Pass -> Program -> (Program, PassReport)
 runPass primPackage roots pass program =
   case pass of
+    PassListFusion ->
+      let (rewritten, sites) = listFusionProgram primPackage program
+       in (rewritten, PassReport (passName pass) (programSize primPackage program) (programSize primPackage rewritten) (count sites "producers"))
     PassFullLaziness ->
       let (floated, sites) = fullLazinessProgram primPackage program
        in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))

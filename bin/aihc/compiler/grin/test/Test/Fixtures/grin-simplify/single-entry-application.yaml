@@ -1,0 +1,62 @@
+program: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $pair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CPair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+
+  $partial (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$pair/2)
+    thunk :: BoxedRep Lifted <-
+      store (F$partial (f :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+    p :: BoxedRep Lifted <-
+      eval-once @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (p :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+
+  $shared (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$pair/2)
+    thunk :: BoxedRep Lifted <-
+      store (F$partial (f :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+    first :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    second :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    store (CPair (first :: BoxedRep Lifted) (second :: BoxedRep Lifted))
+
+  $fetched (p :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    x :: BoxedRep Lifted <-
+      fetch (P$pair/1) (p :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (p :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+expected: |-
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $pair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CPair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+
+  $partial (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CPair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+
+  $shared (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$pair/2)
+    thunk :: BoxedRep Lifted <-
+      store (F$partial (f :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+    first :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    second :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    store (CPair (first :: BoxedRep Lifted) (second :: BoxedRep Lifted))
+
+  $fetched (p :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    x :: BoxedRep Lifted <-
+      fetch (P$pair/1) (p :: BoxedRep Lifted)
+    store (CPair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+status: pass
+reason: A known single-entry application thunk must not allocate a thunk or a partial closure.

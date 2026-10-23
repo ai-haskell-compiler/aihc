@@ -34,9 +34,9 @@ data OptimizationPlan = OptimizationPlan
 -- | The plan of a level, under the @--lto@ flag.
 --
 -- @-O0@ runs nothing. @-Os@ runs the shrinking inliner. @-O1@ and @-O2@
--- run the shrinking inliner and then the growing one, so that @-Os@ is
--- a prefix of @-O2@ and the growing phase starts from the program that
--- @-Os@ would have produced. Eta expansion runs before the inliner, so
+-- share their initial shrinking passes with @-Os@.
+-- The growing inliner exposes calls before specialization in phase 2.
+-- Eta expansion runs before the inliner, so
 -- that a value it turns into a function is a saturated call for the
 -- inliner to take, and again after it, because a call of a class method
 -- hides the arity of the method until the selection is inlined. One
@@ -54,17 +54,16 @@ optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
   case level of
     O0 -> OptimizationPlan {planWholeProgram = lto, planPasses = [], planGrinPointsTo = False}
-    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> split <> grow <> specialise, planGrinPointsTo = False}
-    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> split <> grow <> specialise, planGrinPointsTo = True}
+    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> specialise <> split <> grow, planGrinPointsTo = False}
+    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> specialise <> split <> grow, planGrinPointsTo = True}
     Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
   where
-    -- The phases count down as GHC's do: the shrinking inliner is phase
-    -- 2, the growing one phase 1 and the final walk phase 0, so a rule
-    -- with a phase control fires where its author expects.
-    shrink = [Fc.PassEtaExpand, Fc.PassSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
-    -- Specialize residual dictionary calls after the main optimizer.
-    -- Shrink-only cleanup resolves methods without another growth phase.
-    specialise = [Fc.PassTopSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 0, Fc.PassSimplify 0]
+    -- The phases count down from 2 to 0.
+    -- Phase 2 keeps producer rules active until specialization finishes.
+    shrink = [Fc.PassListFusion, Fc.PassEtaExpand, Fc.PassSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
+    -- First expose dictionary calls while producer rules remain active.
+    -- Specialize before the final fusion and worker/wrapper passes.
+    specialise = [Fc.PassInline Fc.growPolicy rounds 2, Fc.PassTopSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
     -- The wrappers are small INLINE values, which the growing inliner
     -- copies at each call. The shrinking inliner would keep them as calls,
     -- so -Os does not split. A worker body is new, and the growing

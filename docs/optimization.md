@@ -57,6 +57,7 @@ after each pass under `--lint`.
 
 | Pass | What it does |
 | ---- | ------------ |
+| `PassListFusion` | Express structural list loops with `foldr` and `build`. This exposes producer rules before phase 1. `Aihc.Fc.ListFusion`. |
 | `PassEtaExpand` | Arity analysis, then eta expansion of every top-level value to the arity it finds. `Aihc.Fc.Arity`. |
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
@@ -68,10 +69,11 @@ after each pass under `--lint`.
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 | `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function without a pragma, or, in the late run, the local recursive functions and the top-level `INLINE` functions that another value calls. `Aihc.Fc.WorkerWrapper`. |
 | `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
+| `PassTopSpecialise` | Specialize closed dictionary calls before the final fusion and worker/wrapper passes. `Aihc.Fc.Specialise`. |
 | `PassCallPatterns phase` | Copy each local loop whose calls give a constructor in a position, with the fields in place of the parameter, in rounds with a simplifying walk in a phase. `Aihc.Fc.CallPattern`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
-inliner runs in phase 2, the growing inliner in phase 1, and the final
+inliner runs in phase 2, the growing inliner in phases 2 and 1, and the final
 simplifying walk in phase 0. Nothing else reads the phase: it decides which
 rewrite rules fire and which pragmas are active (see below). One round of
 the growing inliner runs in phase 0 before the final walk, because a value
@@ -87,15 +89,14 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, full laziness, lift constants |
+| `-O1` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, inline `growPolicy` [2], specialise top, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, full laziness, lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, full laziness, lift constants |
+| `-Os` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, full laziness, lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
 
-`-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
-program that `-Os` would have produced. The demand pass runs after the
+`-Os` and `-O2` share their initial shrinking passes. The demand pass runs after the
 shrinking inliner, so that the calls it sees are the calls that remain
 after the dictionary selections and the aliases are gone, and before the
 growing inliner, so that the cases it makes are in the program the
@@ -114,6 +115,32 @@ inliner so that a value it turns into a function is a saturated call, and
 after it because a call of a class method hides the arity of the method until
 the selection is inlined. The final simplifying walk reduces the applications
 and casts that the second expansion leaves behind.
+
+The phase 2 grow pass exposes dictionary calls before top-level specialization.
+Producer rules remain active in this phase.
+The later passes optimize the specialized copies, including their state-token loops.
+The existing specialization limits still bound code growth.
+
+The list-producer pass recognizes local structural folds over lists.
+It rejects a loop that uses its input tail outside its recursive call.
+It abstracts list constructors only at result positions.
+This preserves guard order, pattern failure, and lazy element evaluation.
+The pass checks the definitions of `build` and `foldr` before use.
+It does not transform those definitions.
+Without these definitions, it leaves the program unchanged.
+
+GRIN replaces a known single-entry thunk evaluation with a direct call.
+The heap analysis proves that the thunk has at most one evaluation and returns a value.
+GRIN also substitutes wrappers whose body is one application.
+Known closure fields then permit direct calls or direct partial-closure allocation.
+Shared thunks retain their update frames.
+
+A case-selected function can receive an effectful unlifted argument.
+GRIN puts a small call continuation in each case branch.
+At most four branches copy at most eight operations.
+At least one branch must expose a known closure.
+Only the selected branch evaluates the argument.
+This preserves evaluation order and removes the temporary function closure.
 
 The simplifier is its own module because it is a different thing from the
 inliner. It holds the rewrites that need no copy of a callee: beta reduction,

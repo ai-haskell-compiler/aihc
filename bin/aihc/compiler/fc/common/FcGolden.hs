@@ -221,6 +221,7 @@ parsePass value =
     Y.String "worker-wrapper" -> pure (PassWorkerWrapper SplitAllFunctions)
     Y.Object obj | Just (Y.String "late") <- KeyMap.lookup "worker-wrapper" obj -> pure (PassWorkerWrapper SplitLateFunctions)
     Y.String "specialise" -> pure PassSpecialise
+    Y.String "list-producers" -> pure PassListFusion
     Y.String "specialise-top" -> pure PassTopSpecialise
     Y.String "call-patterns" -> pure (PassCallPatterns 0 (policySiteLimit growPolicy))
     Y.String "demand" -> pure (PassDemand StrictLetsAndArguments)

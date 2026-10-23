@@ -1,0 +1,41 @@
+program: |
+  constructor Done []
+  primitive writeIntArray# :: TupleRep []/3
+
+  global done = (CDone)
+
+  $next (x :: IntRep) -> BoxedRep Lifted =
+    constant global-ref done
+
+  $run (choose :: IntRep) (array :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    function :: BoxedRep Lifted <-
+      case (choose :: IntRep) as selected :: IntRep of
+        (0 :: IntRep) ->
+          store (P$next/[[IntRep]])
+        _ ->
+          store (P$next/[[IntRep]])
+    () <-
+      primitive-call @(TupleRep []) writeIntArray# (array :: BoxedRep Unlifted) (0 :: IntRep) (1 :: IntRep)
+    apply @(BoxedRep Lifted) (function :: BoxedRep Lifted) (choose :: IntRep)
+expected: |-
+  constructor Done []
+
+  primitive writeIntArray# :: TupleRep []/3
+
+  global done = (CDone)
+
+  $next (x :: IntRep) -> BoxedRep Lifted =
+    constant global-ref done
+
+  $run (choose :: IntRep) (array :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    case (choose :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        () <-
+          primitive-call @(TupleRep []) writeIntArray# (array :: BoxedRep Unlifted) (0 :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $next (choose :: IntRep)
+      _ ->
+        () <-
+          primitive-call @(TupleRep []) writeIntArray# (array :: BoxedRep Unlifted) (0 :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $next (choose :: IntRep)
+status: pass
+reason: A case-selected closure must not allocate when a small continuation calls it after a primitive operation.

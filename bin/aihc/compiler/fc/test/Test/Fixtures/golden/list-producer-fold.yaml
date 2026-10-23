@@ -1,0 +1,120 @@
+extensions: [RankNTypes, MagicHash]
+modules:
+- |
+  module GHC.Base (build, foldr) where
+  build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
+  build g = g (:) []
+  {-# INLINE [1] build #-}
+  foldr :: (a -> b -> b) -> b -> [a] -> b
+  foldr f z xs = go xs
+    where
+      go [] = z
+      go (x : rest) = f x (go rest)
+  {-# INLINE [1] foldr #-}
+  {-# RULES "fold/build" forall f z (g :: forall b. (a -> b -> b) -> b -> b).
+        foldr f z (build g) = g f z #-}
+- |
+  module Test (select, raw) where
+  import GHC.Base (foldr)
+  import GHC.Types (Bool(..))
+  import GHC.Prim (Int#)
+  select :: (a -> Bool) -> (a -> b -> b) -> b -> [a] -> b
+  select predicate combine zero values = foldr combine zero [x | x <- values, predicate x]
+  raw :: [Bool] -> Int#
+  raw values = go values
+    where
+      go :: [Bool] -> Int#
+      go [] = 0#
+      go (_ : rest) = go rest
+passes:
+- list-producers
+- inline: shrink
+- inline: grow
+- simplify
+expected: |-
+  scope 1 = "" GHC.Base
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [4.cFalse, 4.cTrue] 4.tBool :: sType;
+    3.tInt# :: tTYPE cIntRep;
+    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: sType;
+    4.sLiftedRep :: tRuntimeRep;
+    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: sType;
+    4.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    4.sType :: sType;
+    constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
+    4.c: :: ∀(a : sType). a → t[] a → t[] a;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
+    4.cFalse :: tBool;
+    4.cIntRep :: tRuntimeRep;
+    4.cLifted :: tLevity;
+    4.cTrue :: tBool;
+    4.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    4.sLiftedRep = cBoxedRep cLifted;
+    4.sType = tTYPE sLiftedRep
+
+  pub val 1.vbuild inline [1] :: ∀(a : sType). (∀(b : sType). (a → b → b) → b → b) → t[] a
+    = Λ(a : sType). λ(x : ∀(b : sType). (a → b → b) → b → b).
+      x @(t[] a) (c: @a) (c[] @a)
+
+  pub val 1.vfoldr inline [1] :: ∀(a : sType) (b : sType). (a → b → b) → b → t[] a → b
+    = Λ(a : sType) (b : sType). λ(x : a → b → b) (y : b) (z : t[] a).
+      rec {
+        go : t[] a → b =
+          λ(x{1} : t[] a).
+            case x{1} of {
+              c[] →
+                y;
+              c: (x{2} : a) (rest : t[] a) →
+                x x{2} (go rest)
+            }
+      } in
+      go z
+
+  rule "fold/build" Λ(a : sType). Λ(b : sType). λ(f : a → b → b). λ(z : b). λ(g : ∀(b{1} : sType). (a → b{1} → b{1}) → b{1} → b{1}).
+    vfoldr @a @b f z (vbuild @a (Λ(b{1} : sType).
+      g @b{1}))
+   = g @b f z
+   :: b
+
+  pub val 2.vselect :: ∀(a : sType) (b : sType). (a → tBool) → (a → b → b) → b → t[] a → b
+    = Λ(a : sType) (b : sType). λ(x : a → tBool) (y : a → b → b) (z : b) (x1 : t[] a).
+      rec {
+        go : t[] a → b =
+          λ(x{1} : t[] a).
+            case x{1} of {
+              c[] →
+                z;
+              c: (x{2} : a) (rest : t[] a) →
+                let _fold_tail : b =
+                  go rest;
+                case x x{2} of {
+                  cTrue →
+                    y x{2} _fold_tail;
+                  cFalse →
+                    _fold_tail
+                }
+            }
+      } in
+      go x1
+
+  pub val 2.vraw :: FUN @sLiftedRep @cIntRep (t[] tBool) tInt#
+    = λ(x : t[] tBool).
+      rec {
+        go : FUN @sLiftedRep @cIntRep (t[] tBool) tInt# =
+          λ(x{1} : t[] tBool).
+            case x{1} of {
+              c[] →
+                lit (0#cIntRep) :: tInt#;
+              c: (unused _pat : tBool) (rest : t[] tBool) →
+                go rest
+            }
+      } in
+      go x
+status: pass
+reason: A fold over a guarded list comprehension must remove the intermediate list.

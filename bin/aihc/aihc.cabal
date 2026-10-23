@@ -184,6 +184,7 @@ library
     Aihc.Fc.Imports
     Aihc.Fc.Inline
     Aihc.Fc.Lint
+    Aihc.Fc.ListFusion
     Aihc.Fc.Merge
     Aihc.Fc.Name
     Aihc.Fc.Normalize

@@ -109,7 +109,7 @@ specialiseProgram program =
 -- Each function gets at most four copies. Each copy costs at most 256
 -- nodes. The total allowance is one quarter of the input size, or 32
 -- nodes for a small program. Three rounds expose calls in new copies.
--- The pipeline runs this pass once, after the main optimizer.
+-- The pipeline runs this pass before the final fusion and worker/wrapper passes.
 --
 -- A copy is made for all the types and dictionaries of the prefix. When
 -- the calls of a function give more distinct prefixes than the copies
