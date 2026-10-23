@@ -16,7 +16,7 @@ A level names what the build is for. Nothing else about it is fixed here.
 | ----- | ------- | ----- |
 | `-O0` | Finish as soon as possible. No pass runs that is not needed for correctness. | Each module on its own. |
 | `-O1` | Optimize without whole-program transformations. | Each module on its own, in a future version in import order with facts from the interfaces of its imports. |
-| `-O2` | Produce fast code. Every optimization is on. | The whole program, merged into one System FC program. |
+| `-O2` | Produce fast code with the standard optimization passes. | The whole program, merged into one System FC program. |
 | `-Os` | Produce a small executable, with the whole program in view. | The whole program. |
 
 `-O2` and `-Os` merge the System FC of every module of the program, drop the
@@ -1230,3 +1230,66 @@ The pass does not evaluate a computation before its original use.
 
 Full laziness can increase result lifetime.
 Benchmark checks must include heap use as well as execution time.
+
+## Optional super-specialization
+
+`aihc build -O2 --super-specialise` enables `PassSuperSpecialise`.
+`aihc install` accepts the same option.
+Other optimization levels reject the option.
+The default `-O2` plan does not change.
+The option changes package keys, backend keys, and manifest flags.
+
+The pass runs on merged System FC after the first small inliner.
+It runs before demand analysis and worker/wrapper.
+A small inliner follows the pass to remove dictionary projections and direct lambda applications.
+The existing local dictionary pass also runs after it.
+After late dictionary cleanup, the optional plan repeats demand analysis and simplification.
+This step evaluates strict arguments that late cleanup exposes.
+Common-subexpression elimination, full laziness, and constant lifting then restore sharing.
+
+The pass specializes functions on known dictionary and function references.
+It substitutes their actual evidence arguments, without instance resolution or Haskell type checks.
+It also substitutes the available type arguments.
+It does not make copies for type arguments alone.
+Each copy retains its unknown arguments.
+The generic function remains available for unknown calls.
+Subsequent passes remove unreachable functions.
+Dictionary-producing functions remain generic.
+Their shared identities let later passes specialize dictionary consumers without duplicate producers.
+
+A cache maps each original function and its static arguments to a copy.
+The key omits trailing dynamic argument positions.
+Thus, partial applications and full applications can share a copy.
+The pass reserves the name before it processes the body.
+Recursive calls and mutually recursive calls can then reuse that name.
+Calls in each new body can request further copies.
+
+A local copy remains at its call site.
+It can capture local functions, runtime values, and existential type variables.
+Only copies that call each other go into a recursive group.
+Each other copy gets a non-recursive binding, because the inliner does not copy a recursive binding.
+The pass gives anonymous functions and dictionary or function applications a local name before specialization.
+If the pass does not change a call, the call keeps its original arguments.
+Thus, the inliner still sees an anonymous function at that call.
+It substitutes references, not arbitrary computations.
+Thus, shared dictionary thunks remain shared and evaluation does not occur early.
+Unknown existential evidence remains available at runtime.
+
+A dictionary is a known argument only if no parameter or other unknown value decides it.
+A copy on a dictionary that a parameter decides cannot select a method.
+Such a copy also makes the enclosing function larger.
+An inlining candidate, such as a small parser combinator, can then become too large to inline.
+
+The pass excludes functions that rewrite rules reference.
+It also excludes functions with phase-controlled pragmas and `NOINLINE` pragmas.
+These exclusions preserve the original calls for subsequent phases.
+
+The pass permits sixteen copies per original function across all call sites.
+Its total copy budget is half the input syntax size, between 256 and 100000 nodes.
+A specialization key can contain at most 256 type and reference nodes.
+When a limit prevents a copy, the original call remains.
+The pass report gives copy, rewritten-call, and budget-rejection counts.
+
+This pass removes known higher-order arguments before closure conversion.
+It does not perform general defunctionalization.
+GRIN conversion and points-to analysis retain responsibility for residual closures and indirect applications.

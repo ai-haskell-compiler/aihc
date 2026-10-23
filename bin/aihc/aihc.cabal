@@ -198,6 +198,7 @@ library
     Aihc.Fc.Size
     Aihc.Fc.Specialise
     Aihc.Fc.StateToken
+    Aihc.Fc.SuperSpecialise
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf

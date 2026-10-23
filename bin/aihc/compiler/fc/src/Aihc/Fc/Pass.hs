@@ -31,6 +31,7 @@ import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram, specialiseTopProgram)
 import Aihc.Fc.StateToken (StateTokenReport (..), stateTokenProgram)
+import Aihc.Fc.SuperSpecialise (SuperReport (..), superSpecialiseProgram)
 import Aihc.Fc.Syntax (Program)
 import Aihc.Fc.Unroll (UnrollReport (..), unrollProgram)
 import Aihc.Fc.WorkerWrapper (SplitScope (..), WorkerWrapperReport (..), workerWrapperProgram)
@@ -76,6 +77,8 @@ data Pass
     -- dictionary, with the dictionary in place of the parameter.
     -- @Aihc.Fc.Specialise@.
     PassSpecialise
+  | -- | Specialize known dictionaries and function arguments within a code budget.
+    PassSuperSpecialise
   | -- | Specialize top-level dictionary calls within a code growth limit.
     PassTopSpecialise
   | -- | Copy each local loop whose calls give a constructor in a position,
@@ -98,6 +101,7 @@ passPhase pass =
     PassEtaExpand -> Nothing
     PassDemand _ -> Nothing
     PassWorkerWrapper _ -> Nothing
+    PassSuperSpecialise -> Nothing
     PassTopSpecialise -> Nothing
     PassSpecialise -> Nothing
     PassCallPatterns phase _ -> Just phase
@@ -126,6 +130,7 @@ passName pass =
     PassDemand StrictLetsAndArguments -> "demand arguments"
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
     PassWorkerWrapper SplitLateFunctions -> "worker/wrapper late"
+    PassSuperSpecialise -> "super-specialise"
     PassTopSpecialise -> "specialise top"
     PassSpecialise -> "specialise"
     PassCallPatterns phase _ -> "call patterns [" <> T.pack (show phase) <> "]"
@@ -200,6 +205,15 @@ runPass primPackage roots pass program =
                 reportAfter = programSize primPackage split,
                 reportDetail = count (reportWorkers report) "workers" <> ", " <> count (reportUnboxedParameters report) "unboxed parameters" <> ", " <> count (reportConstructedResults report) "constructed results"
               }
+          )
+    PassSuperSpecialise ->
+      let (specialised, report) = superSpecialiseProgram program
+       in ( specialised,
+            PassReport
+              (passName pass)
+              (programSize primPackage program)
+              (programSize primPackage specialised)
+              (count (superCopies report) "copies" <> ", " <> count (superCalls report) "calls" <> ", " <> count (superLimits report) "limits")
           )
     PassSpecialise ->
       let (specialised, report) = specialiseProgram program

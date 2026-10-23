@@ -106,7 +106,7 @@ buildWithConfig reporter options adjust = do
       targetDirectory = nativeTargetStoreDirectory target
       report = progressReport reporter
       verbose message = when (buildVerbose options) (report (ProgressLog message))
-  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options || buildProfileTime options) (buildOptimization options)
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options || buildProfileTime options) (buildOptimization options) (buildSuperSpecialise options)
   let config =
         adjust
           levelConfig
