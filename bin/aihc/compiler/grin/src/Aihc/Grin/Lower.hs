@@ -1252,7 +1252,7 @@ lowerLazy env0 hint expression0 continuation = do
       if suspends then suspend else floatBindings env expression
     floatBindings bindingEnv0 bindingExpression =
       case stripLazyWrappers bindingEnv0 bindingExpression of
-        (bindingEnv, Fc.ExLet binding body) -> lowerLetBinding bindingEnv binding (`floatBindings` body)
+        (bindingEnv, Fc.ExLet binding body) -> lowerLetWith bindingEnv binding body (`floatBindings` body)
         (bindingEnv, Fc.ExRec bindings body) -> lowerRecBindings bindingEnv bindings (`floatBindings` body)
         (bindingEnv, body) -> lowerLazy bindingEnv hint body continuation
     storeNode node = do
@@ -1436,7 +1436,43 @@ bindExpression env hint expression continuation = do
   pure (GrinBind variables valueExpression rest)
 
 lowerLet :: LowerEnv -> Fc.Bind -> Fc.Expr -> LowerM GrinExpr
-lowerLet env binding body = lowerLetBinding env binding (`lowerExpr` body)
+lowerLet env binding body = lowerLetWith env binding body (`lowerExpr` body)
+
+-- | Bind one let binding for a body, and continue with the environment
+-- that sees it.
+--
+-- A lambda that the body only calls with all its arguments is a function
+-- with its captured variables as the first parameters, and each call
+-- gives them. It gets no closure. A shared match failure and the other
+-- join points of System FC are such lambdas. A closure or a thunk that
+-- calls one captures its variables, not a pointer to it. Thus a join
+-- point that another join point calls also gets no closure.
+lowerLetWith :: LowerEnv -> Fc.Bind -> Fc.Expr -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerLetWith env binding body continuation
+  | arity > 0,
+    saturatedUses (Map.singleton name arity) body = do
+      let expand other = maybe [other] localFunctionCaptures (Map.lookup other (lowerLocalFunctions env))
+          captureNames = Set.toAscList (Set.fromList (concatMap expand (Set.toList (freeVariables rhs))))
+          captures = [other | other <- captureNames, Map.member other (lowerLocals env)]
+      entry <- freshFunction "closure"
+      shape <- closureShape env rhs
+      loweredBody <- lowerExpr (closureBodyEnv shape) (closureBody shape)
+      emitFunction
+        GrinFunction
+          { grinFunctionName = entry,
+            grinFunctionParameters = concatMap (lowerLocals env Map.!) captures <> concat (closureParameters shape),
+            grinFunctionResultRep = closureResultRep shape,
+            grinFunctionBody = loweredBody
+          }
+      let function = LocalFunction entry (closureLayouts shape) (closureResultRep shape) False captures
+          env' = extendTermBinder binder env
+      continuation env' {lowerLocalFunctions = Map.insert name function (lowerLocalFunctions env')}
+  | otherwise = lowerLetBinding env binding continuation
+  where
+    binder = Fc.bindBinder binding
+    name = Fc.binderName binder
+    rhs = Fc.bindRhs binding
+    arity = functionArity rhs
 
 -- | Bind one let binding and continue with the environment that sees it.
 lowerLetBinding :: LowerEnv -> Fc.Bind -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
