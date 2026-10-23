@@ -615,15 +615,18 @@ lowerEnvironment options gcProgram =
     requiredConstructorInfos =
       Set.fromList
         ( concatMap declaredConstructorInfos constructorLayouts
+            <> concatMap (requiredNodeConstructorInfos . staticObjectNode) (programStaticObjects program)
             <> concatMap requiredNodeConstructorInfos (programNodes program)
+            <> [ConstructorRuntimeInfo name SaturatedConstructor | name <- programIdentityCaseConstructors program]
         )
-    -- Every declared constructor keeps its saturated table, whatever its
-    -- visibility: a case alternative names it to compare a tag against
-    -- without building a node, and 'requiredNodeConstructorInfos' only reads
-    -- the nodes. Only a node or another unit names the partial table, so a
-    -- constructor that no other unit can name gets it only from its nodes.
+    -- A constructor that another unit can name keeps its tables. A
+    -- constructor that no other unit can name gets a table only from the
+    -- items of this unit that name it: a node, a static object, and a case
+    -- that compares the identity of a table. A case that selects its
+    -- alternative from the constructor index names no table.
     declaredConstructorInfos (name, layouts)
-      | null layouts || Map.lookup name constructorLinkage == Just Internal = [ConstructorRuntimeInfo name SaturatedConstructor]
+      | Map.lookup name constructorLinkage == Just Internal = []
+      | null layouts = [ConstructorRuntimeInfo name SaturatedConstructor]
       | otherwise = [ConstructorRuntimeInfo name SaturatedConstructor, ConstructorRuntimeInfo name PartialConstructor]
     -- One constructor needs at most two info tables: the saturated object,
     -- and one shared by every stage that still wants arguments. The partial
@@ -4261,6 +4264,24 @@ exprNodes expression =
     GrinIfWhnf _ ready slow -> exprNodes ready <> exprNodes slow
     GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
     _ -> []
+
+-- | The constructors whose saturated table a case compares the identity of
+-- an object against. 'compileCase' does this when the case has fewer than
+-- 'constructorSwitchThreshold' constructor alternatives.
+programIdentityCaseConstructors :: GrinProgram -> [Text]
+programIdentityCaseConstructors program = concatMap (exprConstructors . grinFunctionBody) (grinFunctions program)
+  where
+    exprConstructors expression =
+      case expression of
+        GrinBind _ value body -> exprConstructors value <> exprConstructors body
+        GrinStoreRec _ body -> exprConstructors body
+        GrinStoreRecUnchecked _ body -> exprConstructors body
+        GrinIfWhnf _ ready slow -> exprConstructors ready <> exprConstructors slow
+        GrinCase _ _ alternatives ->
+          let names = [name | GrinDataAlt name _ <- map grinAltCon alternatives]
+           in [name | length names < constructorSwitchThreshold, name <- names]
+                <> concatMap (exprConstructors . grinAltRhs) alternatives
+        _ -> []
 
 programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =

@@ -1,0 +1,66 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test (run) where
+
+  data Box a = Box a
+  class Base a where
+    base :: a -> a
+  instance Base a => Base (Box a) where
+    base (Box x) = Box (base x)
+  apply :: Base a => a -> a
+  apply x = base x
+  run :: Base a => Box a -> Box a
+  run x = apply x
+passes:
+- super-specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a → tBox a
+  }
+
+  type 1.t$Dict$Base (a : sType) :: sType {
+    1.c$Dict$Base :: ∀(a : sType). (a → a) → t$Dict$Base a
+  }
+
+  val 1.vbase :: ∀(a : sType). t$Dict$Base a → a → a
+    = Λ(a : sType). λ($dBase : t$Dict$Base a).
+      let! c$Dict$Base ($cbase : a → a) = $dBase;
+      $cbase
+
+  pub val 1.v$fBaseBoxa :: ∀(a : sType). t$Dict$Base a → t$Dict$Base (tBox a)
+    = Λ(a : sType). λ($dBase : t$Dict$Base a).
+      c$Dict$Base @(tBox a) (v$fBaseBoxa$cbase @a $dBase)
+
+  val 1.v$fBaseBoxa$cbase :: ∀(a : sType). t$Dict$Base a → tBox a → tBox a
+    = Λ(a : sType). λ($dBase : t$Dict$Base a) (x : tBox a).
+      let! cBox (x{1} : a) = x;
+      cBox @a (vbase @a $dBase x{1})
+
+  val 1.vapply :: ∀(a : sType). t$Dict$Base a → a → a
+    = Λ(a : sType). λ($dBase : t$Dict$Base a) (x : a).
+      vbase @a $dBase x
+
+  pub val 1.vrun :: ∀(a : sType). t$Dict$Base a → tBox a → tBox a
+    = Λ(a : sType). λ($dBase : t$Dict$Base a) (x : tBox a).
+      vapply @(tBox a) (v$fBaseBoxa @a $dBase) x
+status: pass
+reason: A dictionary that a parameter decides gives a copy that cannot select a method.

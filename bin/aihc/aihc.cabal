@@ -184,6 +184,7 @@ library
     Aihc.Fc.Imports
     Aihc.Fc.Inline
     Aihc.Fc.Lint
+    Aihc.Fc.ListFusion
     Aihc.Fc.Merge
     Aihc.Fc.Name
     Aihc.Fc.Normalize
@@ -198,6 +199,7 @@ library
     Aihc.Fc.Size
     Aihc.Fc.Specialise
     Aihc.Fc.StateToken
+    Aihc.Fc.SuperSpecialise
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf
@@ -208,6 +210,7 @@ library
     Aihc.Grin
     Aihc.Grin.Allocation
     Aihc.Grin.Anf
+    Aihc.Grin.ArrayLoops
     Aihc.Grin.Cps
     Aihc.Grin.Dce
     Aihc.Grin.Gc

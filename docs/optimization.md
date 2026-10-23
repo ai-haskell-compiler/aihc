@@ -16,7 +16,7 @@ A level names what the build is for. Nothing else about it is fixed here.
 | ----- | ------- | ----- |
 | `-O0` | Finish as soon as possible. No pass runs that is not needed for correctness. | Each module on its own. |
 | `-O1` | Optimize without whole-program transformations. | Each module on its own, in a future version in import order with facts from the interfaces of its imports. |
-| `-O2` | Produce fast code. Every optimization is on. | The whole program, merged into one System FC program. |
+| `-O2` | Produce fast code with the standard optimization passes. | The whole program, merged into one System FC program. |
 | `-Os` | Produce a small executable, with the whole program in view. | The whole program. |
 
 `-O2` and `-Os` merge the System FC of every module of the program, drop the
@@ -57,6 +57,7 @@ after each pass under `--lint`.
 
 | Pass | What it does |
 | ---- | ------------ |
+| `PassListFusion` | Express structural list loops with `foldr` and `build`. This exposes producer rules before phase 1. `Aihc.Fc.ListFusion`. |
 | `PassEtaExpand` | Arity analysis, then eta expansion of every top-level value to the arity it finds. `Aihc.Fc.Arity`. |
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
@@ -68,10 +69,11 @@ after each pass under `--lint`.
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 | `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function without a pragma, or, in the late run, the local recursive functions and the top-level `INLINE` functions that another value calls. `Aihc.Fc.WorkerWrapper`. |
 | `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
+| `PassTopSpecialise` | Specialize closed dictionary calls before the final fusion and worker/wrapper passes. `Aihc.Fc.Specialise`. |
 | `PassCallPatterns phase` | Copy each local loop whose calls give a constructor in a position, with the fields in place of the parameter, in rounds with a simplifying walk in a phase. `Aihc.Fc.CallPattern`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
-inliner runs in phase 2, the growing inliner in phase 1, and the final
+inliner runs in phase 2, the growing inliner in phases 2 and 1, and the final
 simplifying walk in phase 0. Nothing else reads the phase: it decides which
 rewrite rules fire and which pragmas are active (see below). One round of
 the growing inliner runs in phase 0 before the final walk, because a value
@@ -87,15 +89,14 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, full laziness, lift constants |
+| `-O1` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, inline `growPolicy` [2], specialise top, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, full laziness, lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, full laziness, lift constants |
+| `-Os` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, full laziness, lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
 
-`-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
-program that `-Os` would have produced. The demand pass runs after the
+`-Os` and `-O2` share their initial shrinking passes. The demand pass runs after the
 shrinking inliner, so that the calls it sees are the calls that remain
 after the dictionary selections and the aliases are gone, and before the
 growing inliner, so that the cases it makes are in the program the
@@ -114,6 +115,32 @@ inliner so that a value it turns into a function is a saturated call, and
 after it because a call of a class method hides the arity of the method until
 the selection is inlined. The final simplifying walk reduces the applications
 and casts that the second expansion leaves behind.
+
+The phase 2 grow pass exposes dictionary calls before top-level specialization.
+Producer rules remain active in this phase.
+The later passes optimize the specialized copies, including their state-token loops.
+The existing specialization limits still bound code growth.
+
+The list-producer pass recognizes local structural folds over lists.
+It rejects a loop that uses its input tail outside its recursive call.
+It abstracts list constructors only at result positions.
+This preserves guard order, pattern failure, and lazy element evaluation.
+The pass checks the definitions of `build` and `foldr` before use.
+It does not transform those definitions.
+Without these definitions, it leaves the program unchanged.
+
+GRIN replaces a known single-entry thunk evaluation with a direct call.
+The heap analysis proves that the thunk has at most one evaluation and returns a value.
+GRIN also substitutes wrappers whose body is one application.
+Known closure fields then permit direct calls or direct partial-closure allocation.
+Shared thunks retain their update frames.
+
+A case-selected function can receive an effectful unlifted argument.
+GRIN puts a small call continuation in each case branch.
+At most four branches copy at most eight operations.
+At least one branch must expose a known closure.
+Only the selected branch evaluates the argument.
+This preserves evaluation order and removes the temporary function closure.
 
 The simplifier is its own module because it is a different thing from the
 inliner. It holds the rewrites that need no copy of a callee: beta reduction,
@@ -1230,3 +1257,106 @@ The pass does not evaluate a computation before its original use.
 
 Full laziness can increase result lifetime.
 Benchmark checks must include heap use as well as execution time.
+
+## Optional super-specialization
+
+`aihc build -O2 --super-specialise` enables `PassSuperSpecialise`.
+`aihc install` accepts the same option.
+Other optimization levels reject the option.
+The default `-O2` plan does not change.
+The option changes package keys, backend keys, and manifest flags.
+
+The pass runs on merged System FC after the first small inliner.
+It runs before demand analysis and worker/wrapper.
+A small inliner follows the pass to remove dictionary projections and direct lambda applications.
+The existing local dictionary pass also runs after it.
+After late dictionary cleanup, the optional plan repeats demand analysis and simplification.
+This step evaluates strict arguments that late cleanup exposes.
+Common-subexpression elimination, full laziness, and constant lifting then restore sharing.
+
+The pass specializes functions on known dictionary and function references.
+It substitutes their actual evidence arguments, without instance resolution or Haskell type checks.
+It also substitutes the available type arguments.
+It does not make copies for type arguments alone.
+Each copy retains its unknown arguments.
+The generic function remains available for unknown calls.
+Subsequent passes remove unreachable functions.
+Dictionary-producing functions remain generic.
+Their shared identities let later passes specialize dictionary consumers without duplicate producers.
+
+A cache maps each original function and its static arguments to a copy.
+The key omits trailing dynamic argument positions.
+Thus, partial applications and full applications can share a copy.
+The pass reserves the name before it processes the body.
+Recursive calls and mutually recursive calls can then reuse that name.
+Calls in each new body can request further copies.
+
+A local copy remains at its call site.
+It can capture local functions, runtime values, and existential type variables.
+Only copies that call each other go into a recursive group.
+Each other copy gets a non-recursive binding, because the inliner does not copy a recursive binding.
+The pass gives anonymous functions and dictionary or function applications a local name before specialization.
+If the pass does not change a call, the call keeps its original arguments.
+Thus, the inliner still sees an anonymous function at that call.
+It substitutes references, not arbitrary computations.
+Thus, shared dictionary thunks remain shared and evaluation does not occur early.
+Unknown existential evidence remains available at runtime.
+
+A dictionary is a known argument only if no parameter or other unknown value decides it.
+A copy on a dictionary that a parameter decides cannot select a method.
+Such a copy also makes the enclosing function larger.
+An inlining candidate, such as a small parser combinator, can then become too large to inline.
+
+The pass excludes functions that rewrite rules reference.
+It also excludes functions with phase-controlled pragmas and `NOINLINE` pragmas.
+These exclusions preserve the original calls for subsequent phases.
+
+The pass permits sixteen copies per original function across all call sites.
+Its total copy budget is half the input syntax size, between 256 and 100000 nodes.
+A specialization key can contain at most 256 type and reference nodes.
+When a limit prevents a copy, the original call remains.
+The pass report gives copy, rewritten-call, and budget-rejection counts.
+
+This pass removes known higher-order arguments before closure conversion.
+It does not perform general defunctionalization.
+GRIN conversion and points-to analysis retain responsibility for residual closures and indirect applications.
+
+## Loop environments and nested fields
+
+GRIN conversion lifts local recursive functions when every use supplies all arguments.
+Each direct call supplies the captured values as explicit parameters.
+Nested closures also capture those values, rather than a recursive function closure.
+Mutually recursive functions share the same capture list.
+Functions with partial applications retain their original environments.
+This restriction avoids extra argument transfers and larger partial applications.
+
+The points-to rewrite also exposes known partial applications as closure nodes.
+The GRIN simplifier can remove these nodes when later operations use only their fields.
+This rewrite does not move intervening effects.
+
+Demand analysis records nested field demands from product cases that every path reaches.
+The worker/wrapper pass passes these fields directly and reconstructs products only where necessary.
+A field without a demand remains lazy.
+New field cases cannot move before state operations.
+
+## State traversal fusion
+
+The list traversal has a specialized `ST` producer.
+A pure `foldr` consumer can supply its combination function and initial value directly to this producer.
+The producer completes the state operations in their original order.
+It returns the fold result lazily.
+Thus, an unused result or an exception in the combination function cannot skip earlier state operations.
+This rule does not interleave two effectful traversals.
+
+## Bulk array fills
+
+After points-to simplification, the array pass recognizes uniform integer-array fill loops.
+Each accepted loop writes one element and increments its index by one.
+All other parameters remain unchanged on the back edge.
+The final continuation must not use the index or the comparison result.
+
+Zero and all-one fills can use `setByteArray#`.
+Runtime checks establish a nonnegative start, an ordered interval, and an end within the array.
+These checks also prevent overflow in the byte offset and byte count.
+Other values and invalid intervals use an unchanged copy of the original loop.
+The fallback has no additional checks on its back edge.

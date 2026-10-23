@@ -1250,6 +1250,21 @@ rewriteExpr analysis declared vars = go
           case continuation of
             Nothing -> pure fetched
             Just (binders, body) -> GrinBind binders fetched <$> go body
+      | Just (function, groups, resultRep, continuation) <- application expression,
+        resultRep == liftedResultRep,
+        Just tag@(GrinClosure functionName layouts) <- closureTag function,
+        length groups < length layouts,
+        map (map grinValueRuntimeRep) groups == take (length groups) layouts,
+        Just callee <- Map.lookup functionName declared,
+        let stored = length (grinFunctionParameters callee) - sum (map length layouts),
+        stored >= 0 = do
+          fields <- mapM freshLike (take stored (grinFunctionParameters callee))
+          let node = GrinNode (GrinClosure functionName (drop (length groups) layouts)) (map GrinVarValue fields <> concat groups)
+              result = GrinStore node
+              fetched = if null fields then result else GrinBind fields (GrinFetch tag function) result
+          case continuation of
+            Nothing -> pure fetched
+            Just (binders, body) -> GrinBind binders fetched <$> go body
       | otherwise = rewriteChildren expression
     rewriteChildren expression =
       case expression of

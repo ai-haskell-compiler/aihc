@@ -35,6 +35,7 @@ aihc build INPUT [OPTIONS]
 | `--executable NAME` | Build only the named executable of a package. |
 | `--target TARGET` | Select the target. See [Select a target](getting-started.md#select-a-target). |
 | `-O LEVEL` | Select the optimization level. See [Optimization levels](#optimization-levels). |
+| `--super-specialise` | Specialize known dictionaries and function arguments. Requires `-O2`. |
 | `--lto` | Compile each module to System FC only, and compile the merged program once. |
 | `--no-link` | Compile only. Write the objects and a `link.args` response file to a bundle directory. |
 | `--verbose` | Print each build step. |
@@ -91,7 +92,7 @@ The commands write the plan to `aihc.lock` in the package directory.
 | `-O0` | Run no System FC pass. |
 | `-Os` | Run the shrinking inliner. Compile the whole program at once. |
 | `-O1` | Run the shrinking inliner and the growing inliner. |
-| `-O2` | Run all passes. Compile the whole program at once. |
+| `-O2` | Run the standard optimization passes. Compile the whole program at once. |
 
 Clang receives the same level for C sources and for LLVM output.
 

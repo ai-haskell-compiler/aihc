@@ -1,0 +1,131 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test (run, runBox, generic) where
+
+  data Flag = Off | On
+  data Box a = Box a
+  class Toggle a where
+    toggle :: a -> a
+  instance Toggle Flag where
+    toggle Off = On
+    toggle On = Off
+  instance Toggle a => Toggle (Box a) where
+    toggle (Box x) = Box (toggle x)
+  runBox :: Box Flag -> Box Flag
+  runBox = loop On
+  loop :: Toggle a => Flag -> a -> a
+  loop Off x = x
+  loop On x = loop Off (toggle x)
+  generic :: Toggle a => Flag -> a -> a
+  generic = loop
+  run :: Flag -> Flag
+  run = loop On
+passes:
+- super-specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tFlag :: sType {
+    1.cOff :: tFlag;
+    1.cOn :: tFlag
+  }
+
+  type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a → tBox a
+  }
+
+  type 1.t$Dict$Toggle (a : sType) :: sType {
+    1.c$Dict$Toggle :: ∀(a : sType). (a → a) → t$Dict$Toggle a
+  }
+
+  val 1.vtoggle :: ∀(a : sType). t$Dict$Toggle a → a → a
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a).
+      let! c$Dict$Toggle ($ctoggle : a → a) = $dToggle;
+      $ctoggle
+
+  pub val 1.v$fToggleFlag :: t$Dict$Toggle tFlag
+    = c$Dict$Toggle @tFlag v$fToggleFlag$ctoggle
+
+  val 1.v$fToggleFlag$ctoggle :: tFlag → tFlag
+    = λ(x : tFlag).
+      case x of {
+        cOff →
+          cOn;
+        cOn →
+          cOff
+      }
+
+  pub val 1.v$fToggleBoxa :: ∀(a : sType). t$Dict$Toggle a → t$Dict$Toggle (tBox a)
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a).
+      c$Dict$Toggle @(tBox a) (v$fToggleBoxa$ctoggle @a $dToggle)
+
+  val 1.v$fToggleBoxa$ctoggle :: ∀(a : sType). t$Dict$Toggle a → tBox a → tBox a
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a) (x : tBox a).
+      let! cBox (x{1} : a) = x;
+      cBox @a (vtoggle @a $dToggle x{1})
+
+  pub val 1.vrunBox :: tBox tFlag → tBox tFlag
+    = let $sf : t$Dict$Toggle (tBox tFlag) =
+      v$fToggleBoxa @tFlag v$fToggleFlag;
+    let $sstoggle48 : tBox tFlag → tBox tFlag =
+      let! c$Dict$Toggle ($ctoggle : tBox tFlag → tBox tFlag) = $sf;
+      $ctoggle;
+    rec {
+      $ssloop40 : tFlag → tBox tFlag → tBox tFlag =
+        λ(x : tFlag) (y : tBox tFlag).
+          case x of {
+            cOff →
+              y;
+            cOn →
+              $ssloop40 cOff ($sstoggle48 y)
+          }
+    } in
+    $ssloop40 cOn
+
+  val 1.vloop :: ∀(a : sType). t$Dict$Toggle a → tFlag → a → a
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a) (x : tFlag) (y : a).
+      case x of {
+        cOff →
+          y;
+        cOn →
+          vloop @a $dToggle cOff (vtoggle @a $dToggle y)
+      }
+
+  pub val 1.vgeneric :: ∀(a : sType). t$Dict$Toggle a → tFlag → a → a
+    = Λ(a : sType). λ($dToggle : t$Dict$Toggle a).
+      vloop @a $dToggle
+
+  pub val 1.vrun :: tFlag → tFlag
+    = v$ssloop79 cOn
+
+  val 1.v$sstoggle87 :: tFlag → tFlag
+    = let! c$Dict$Toggle ($ctoggle : tFlag → tFlag) = v$fToggleFlag;
+    $ctoggle
+
+  val 1.v$ssloop79 :: tFlag → tFlag → tFlag
+    = λ(x : tFlag) (y : tFlag).
+      case x of {
+        cOff →
+          y;
+        cOn →
+          v$ssloop79 cOff (v$sstoggle87 y)
+      }
+status: pass
+reason: Distinct dictionary arguments still use indirect calls in top-level recursive functions.

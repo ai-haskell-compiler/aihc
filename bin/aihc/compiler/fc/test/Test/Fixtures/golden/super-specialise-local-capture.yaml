@@ -1,0 +1,69 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test (run) where
+
+  data Flag = Off | On
+  loop :: (Flag -> Flag) -> Flag -> Flag
+  loop f Off = f Off
+  loop f On = loop f Off
+  run :: Flag -> Flag -> Flag
+  run captured x = let f y = case y of { Off -> captured; On -> y } in loop f x
+passes:
+- super-specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tFlag :: sType {
+    1.cOff :: tFlag;
+    1.cOn :: tFlag
+  }
+
+  val 1.vloop :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      case y of {
+        cOff →
+          x cOff;
+        cOn →
+          vloop x cOff
+      }
+
+  pub val 1.vrun :: tFlag → tFlag → tFlag
+    = λ(x : tFlag) (y : tFlag).
+      let $sf : tFlag → tFlag =
+        λ(x{1} : tFlag).
+          case x{1} of {
+            cOff →
+              x;
+            cOn →
+              x{1}
+          };
+      rec {
+        $ssloop14 : tFlag → tFlag =
+          λ(y{1} : tFlag).
+            case y{1} of {
+              cOff →
+                $sf cOff;
+              cOn →
+                $ssloop14 cOff
+            }
+      } in
+      $ssloop14 y
+status: pass
+reason: A known local function with a captured value remains an indirect argument.

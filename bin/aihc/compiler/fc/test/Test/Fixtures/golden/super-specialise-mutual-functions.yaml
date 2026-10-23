@@ -1,0 +1,92 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test (run) where
+
+  data Flag = Off | On
+  turn :: Flag -> Flag
+  turn Off = On
+  turn On = Off
+  left :: (Flag -> Flag) -> Flag -> Flag
+  left f Off = f Off
+  left f On = right f Off
+  right :: (Flag -> Flag) -> Flag -> Flag
+  right f Off = f On
+  right f On = left f Off
+  run :: Flag -> Flag
+  run = left turn
+passes:
+- super-specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tFlag :: sType {
+    1.cOff :: tFlag;
+    1.cOn :: tFlag
+  }
+
+  val 1.vturn :: tFlag → tFlag
+    = λ(x : tFlag).
+      case x of {
+        cOff →
+          cOn;
+        cOn →
+          cOff
+      }
+
+  val 1.vleft :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      case y of {
+        cOff →
+          x cOff;
+        cOn →
+          vright x cOff
+      }
+
+  val 1.vright :: (tFlag → tFlag) → tFlag → tFlag
+    = λ(x : tFlag → tFlag) (y : tFlag).
+      case y of {
+        cOff →
+          x cOn;
+        cOn →
+          vleft x cOff
+      }
+
+  pub val 1.vrun :: tFlag → tFlag
+    = v$ssleft15
+
+  val 1.v$ssright22 :: tFlag → tFlag
+    = λ(y : tFlag).
+      case y of {
+        cOff →
+          vturn cOn;
+        cOn →
+          v$ssleft15 cOff
+      }
+
+  val 1.v$ssleft15 :: tFlag → tFlag
+    = λ(y : tFlag).
+      case y of {
+        cOff →
+          vturn cOff;
+        cOn →
+          v$ssright22 cOff
+      }
+status: pass
+reason: Mutually recursive functions retain known function arguments.

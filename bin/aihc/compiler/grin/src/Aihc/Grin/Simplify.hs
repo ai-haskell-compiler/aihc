@@ -213,8 +213,11 @@ bindResults env vars value =
     ([var], GrinEval {}) -> evaluated var rebound
     -- A fetch reads a node whose tag is known, so the pointer it reads
     -- is that node, with the fetched fields.
-    (_, GrinFetch tag@(GrinConstructor _ 0) (GrinVarValue pointer))
-      | pointer `notElem` vars -> know pointer (GrinNode tag (map GrinVarValue vars)) rebound
+    (_, GrinFetch tag (GrinVarValue pointer))
+      | pointer `notElem` vars,
+        let node = GrinNode tag (map GrinVarValue vars),
+        isValueNode node ->
+          know pointer node rebound
     _ -> rebound
   where
     rebound = forget vars env
@@ -232,6 +235,9 @@ isPureExpression expression =
 simplifyExpr :: Env -> GrinExpr -> (GrinExpr, Set GrinVar)
 simplifyExpr env expression =
   case expression of
+    GrinBind [function] (GrinCase scrutinee binder alternatives) body
+      | distributeCaseCall env function binder alternatives body ->
+          simplifyExpr env (GrinCase scrutinee binder [alt {grinAltRhs = GrinBind [function] (grinAltRhs alt) body} | alt <- alternatives])
     GrinBind vars valueExpression body ->
       let (value', valueFree) = simplifyExpr env valueExpression
        in bindSimplified vars (value', valueFree) (simplifyExpr (bindResults env vars value') body)
@@ -251,6 +257,11 @@ simplifyExpr env expression =
       | Just var <- knownPointer env node -> (GrinConstant [GrinVarValue var], Set.singleton var)
     GrinEval _ _ value
       | isEvaluated env value -> (GrinConstant [value], freeValueVars value)
+    -- Single-entry evaluation has no update frame and returns a value.
+    -- A known thunk can thus call its function without a heap object.
+    GrinEval EvalSingleEntry runtimeRep value
+      | Just (GrinNode (GrinThunk function) fields) <- knownNode env value ->
+          simplifyExpr env (GrinCall (ResultRep runtimeRep) function fields)
     GrinFetch tag value
       | Just (GrinNode tag' fields) <- knownNode env value,
         tag' == tag ->
@@ -273,6 +284,38 @@ simplifyExpr env expression =
                 freeValueVars scrutinee <> foldMap snd simplified
               )
     _ -> (expression, freeExprVars expression)
+
+-- | Move a small call continuation into branches that return functions.
+-- The selected branch still runs before each primitive operation in the continuation.
+-- At most four branches copy at most eight operations. At least one branch
+-- must expose a known closure. No branch binder may capture a free variable.
+distributeCaseCall :: Env -> GrinVar -> GrinVar -> [GrinAlt] -> GrinExpr -> Bool
+distributeCaseCall env function binder alternatives body =
+  length alternatives <= 4
+    && all simpleResult alternatives
+    && any knownClosureResult alternatives
+    && all (Set.disjoint continuationFree . Set.fromList . (binder :) . grinAltBinders) alternatives
+    && smallCall (8 :: Int) body
+  where
+    continuationFree = Set.delete function (freeExprVars body)
+    simpleResult alternative = case grinAltRhs alternative of
+      GrinStore (GrinNode GrinClosure {} _) -> True
+      GrinConstant [_] -> True
+      _ -> False
+    knownClosureResult alternative = case grinAltRhs alternative of
+      GrinStore (GrinNode GrinClosure {} _) -> True
+      GrinConstant [value] -> case knownNode env value of
+        Just (GrinNode GrinClosure {} _) -> True
+        _ -> False
+      _ -> False
+    smallCall remaining expression
+      | remaining <= 0 = False
+      | otherwise = case expression of
+          GrinApply _ (GrinVarValue callee) groups ->
+            callee == function && Set.notMember function (foldMap (foldMap freeValueVars) groups)
+          GrinBind vars operation@GrinPrimitiveCall {} rest ->
+            function `notElem` vars && Set.notMember function (freeExprVars operation) && smallCall (remaining - 1) rest
+          _ -> False
 
 -- | Rebuild a bind from its simplified value expression and body. A pure
 -- value expression whose results the body does not use is dropped, and a
@@ -383,6 +426,7 @@ functionUnfolding function =
     body@(GrinConstant values) | onlyVariables values -> placed body
     body@(GrinPrimitiveCall _ _ values) | onlyVariables values -> placed body
     body@(GrinCall _ _ values) | onlyVariables values -> Just (unfolding body)
+    body@(GrinApply _ callee groups) | onlyVariables (callee : concat groups) -> Just (unfolding body)
     _ -> Nothing
   where
     onlyVariables = all isVariable
@@ -416,6 +460,16 @@ inlineCall env visited resultRep functionName arguments = do
             GrinStore node -> Just (GrinStore (substituteNode node))
             GrinConstant values -> Just (GrinConstant (map substitute values))
             GrinPrimitiveCall runtimeRep name values -> Just (GrinPrimitiveCall runtimeRep name (map substitute values))
+            GrinApply calleeRep callee groups ->
+              let siteRep = if declared == ResultForwarded then resultRep else calleeRep
+                  callee' = substitute callee
+                  groups' = map (map substitute) groups
+               in case knownNode env callee' >>= (\node -> applyKnown env siteRep node groups') of
+                    Just (GrinCall rep target values) ->
+                      inlineCall env (Set.insert functionName visited) rep target values
+                        <|> Just (GrinCall rep target values)
+                    Just applied -> Just applied
+                    Nothing -> Just (GrinApply siteRep callee' groups')
             GrinCall calleeRep callee values ->
               -- A function that forwards its result forwards it to a
               -- callee that also forwards, so the callee serves the layout

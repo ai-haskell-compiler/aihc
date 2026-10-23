@@ -60,10 +60,9 @@
 -- worker/wrapper pass, "Aihc.Fc.WorkerWrapper", passes the fields of such
 -- a parameter in its place.
 --
--- What the analysis does not do: it does not track divergence, so a
--- branch that calls @error@ is a branch that evaluates nothing, and it
--- does not give demands to the fields of a constructor. Both are later
--- steps on the same lattice.
+-- Field demands describe product cases that every path reaches.
+-- The analysis does not track divergence. A branch that calls @error@
+-- therefore contributes no strictness facts.
 --
 -- == Where the result lives
 --
@@ -133,6 +132,8 @@ data Demand
     -- body takes it apart. Its type has one constructor, which
     -- 'productConstructor' can take apart and build again.
     StrictProduct
+  | -- | The body also evaluates these fields on every path.
+    StrictFields ![Demand]
   deriving (Eq, Ord, Show)
 
 -- | Whether a demand evaluates the parameter.
@@ -277,9 +278,58 @@ lambdaStrictness env expr =
         | Set.notMember (binderName binder) strict = Lazy
         | Just (con, _, _) <- productConstructor (envTypes inner) (binderType binder),
           takenApart inner (binderName binder) con body =
-            StrictProduct
+            productDemand inner (binderName binder) con body
         | otherwise = Strict
    in (Signature (map demand binders), strict `Set.difference` Set.fromList (map binderName binders))
+
+-- | Field demands from a case that every path reaches. A lazy binding
+-- contributes no field demand. Unknown calls retain only the outer demand.
+productDemand :: Env -> Name -> Name -> Expr -> Demand
+productDemand env name con body = maybe StrictProduct StrictFields (fields env (Set.singleton name) body)
+  where
+    fields current aliases expression = case expression of
+      ExCase scrutinee binder alternatives
+        | ExVar found <- scrutinee,
+          Set.member found aliases,
+          [alternative] <- NE.toList alternatives,
+          altCon alternative == AltData con ->
+            let inner = extendTypes current (altTypeBinders alternative)
+                demands = signatureDemands (lambdaSignature inner (foldr ExLam (altRhs alternative) (altBinders alternative)))
+             in Just [if beforeEffects current (binderName field) (altRhs alternative) then demand else Lazy | (field, demand) <- zip (altBinders alternative) demands]
+        | passive scrutinee ->
+            let inner = case scrutinee of
+                  ExVar found | Set.member found aliases -> aliases <> foldMap (Set.singleton . binderName) binder
+                  _ -> aliases
+             in foldl1 meetFields <$> traverse (fields current inner . altRhs) alternatives
+      ExLet (Bind binder rhs) inner
+        | not (isStrictBinder (envTypes current) binder) -> fields (lazySignature current binder rhs) aliases inner
+      ExRec binds inner -> fields (lazyRecursiveSignatures current binds) aliases inner
+      ExCast inner _ -> fields current aliases inner
+      _ -> Nothing
+    -- A new field case must not move before a state operation.
+    beforeEffects current field expression = case expression of
+      ExVar found -> found == field
+      ExCase (ExVar found) _ _ | found == field -> True
+      ExCase scrutinee _ alternatives | passive scrutinee -> all (beforeEffects current field . altRhs) alternatives
+      ExLet (Bind binder _) inner | not (isStrictBinder (envTypes current) binder) -> beforeEffects current field inner
+      ExRec _ inner -> beforeEffects current field inner
+      ExCast inner _ -> beforeEffects current field inner
+      _ -> False
+    passive ExVar {} = True
+    passive ExLit {} = True
+    passive _ = False
+    meetFields = zipWith meetDemand
+    meetDemand Lazy _ = Lazy
+    meetDemand _ Lazy = Lazy
+    meetDemand (StrictFields left) (StrictFields right) = StrictFields (meetFields left right)
+    meetDemand left right
+      | isProduct left && isProduct right = StrictProduct
+      | otherwise = Strict
+
+isProduct :: Demand -> Bool
+isProduct StrictProduct = True
+isProduct StrictFields {} = True
+isProduct _ = False
 
 -- | The type binders of a function, through lambdas and casts.
 lambdaTypeBinders :: Expr -> [Binder]
@@ -332,7 +382,7 @@ takenApart env0 name con = go env0 (Set.singleton name)
             ExVar callee
               | Just signature <- Map.lookup callee (envSignatures env),
                 length values >= length (signatureDemands signature) ->
-                  or [demand == StrictProduct && isAlias aliases value | (value, demand) <- zip values (signatureDemands signature)]
+                  or [isProduct demand && isAlias aliases value | (value, demand) <- zip values (signatureDemands signature)]
             _ -> False
        in given || go env aliases function || any (go env aliases) values
     -- A variable that a cast changes can have another type than the
