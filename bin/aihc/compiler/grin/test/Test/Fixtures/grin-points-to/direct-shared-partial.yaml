@@ -23,7 +23,7 @@ expected: |-
     function :: BoxedRep Lifted <-
       store (P$first/2)
     partial :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (function :: BoxedRep Lifted) global-ref Unit
+      store (P$first/1 global-ref Unit)
     a%1 :: BoxedRep Lifted <-
       fetch (P$first/1) (partial :: BoxedRep Lifted)
     call @(BoxedRep Lifted) $first (a%1 :: BoxedRep Lifted) (partial :: BoxedRep Lifted)
@@ -33,4 +33,4 @@ rewrites:
   direct-calls: 1
   single-entry-evals: 0
 status: pass
-reason: A partial application must remain when a later argument refers to it.
+reason: A shared partial application becomes an explicit closure node.
