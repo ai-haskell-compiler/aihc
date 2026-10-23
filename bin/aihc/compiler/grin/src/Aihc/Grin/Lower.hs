@@ -1042,6 +1042,10 @@ lowerLocalFunctionApplication env resultRep name function arguments
             applied <- freshVar "function_application" liftedGrinRep
             rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
             pure (GrinBind [applied] (GrinCall liftedResultRep entry (captures <> argumentValues)) rest)
+  | Fc.OriginLocal {} <- Fc.nameOrigin name = do
+      closure <- freshVar "local_function" liftedGrinRep
+      body <- lowerDynamicApplication env resultRep (GrinVarValue closure) arguments
+      pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure entry (localFunctionLayouts function)) captures)) body)
   | otherwise = do
       globalName <- valueGlobalName env name
       lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
@@ -1485,7 +1489,7 @@ lowerRec env bindings body
         else lowerRecBindings env bindings (`lowerExpr` body)
   | otherwise = lowerRecBindings env bindings (`lowerExpr` body)
 
--- All uses must supply the complete argument list. Thus no closure escapes.
+-- Lift only saturated calls. Partial applications can enlarge captured environments.
 saturatedUses :: Map Fc.Name Int -> Fc.Expr -> Bool
 saturatedUses arities expression =
   case collectApplications expression of

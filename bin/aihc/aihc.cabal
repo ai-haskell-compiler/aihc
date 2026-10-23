@@ -210,6 +210,7 @@ library
     Aihc.Grin
     Aihc.Grin.Allocation
     Aihc.Grin.Anf
+    Aihc.Grin.ArrayLoops
     Aihc.Grin.Cps
     Aihc.Grin.Dce
     Aihc.Grin.Gc

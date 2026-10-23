@@ -1320,3 +1320,43 @@ The pass report gives copy, rewritten-call, and budget-rejection counts.
 This pass removes known higher-order arguments before closure conversion.
 It does not perform general defunctionalization.
 GRIN conversion and points-to analysis retain responsibility for residual closures and indirect applications.
+
+## Loop environments and nested fields
+
+GRIN conversion lifts local recursive functions when every use supplies all arguments.
+Each direct call supplies the captured values as explicit parameters.
+Nested closures also capture those values, rather than a recursive function closure.
+Mutually recursive functions share the same capture list.
+Functions with partial applications retain their original environments.
+This restriction avoids extra argument transfers and larger partial applications.
+
+The points-to rewrite also exposes known partial applications as closure nodes.
+The GRIN simplifier can remove these nodes when later operations use only their fields.
+This rewrite does not move intervening effects.
+
+Demand analysis records nested field demands from product cases that every path reaches.
+The worker/wrapper pass passes these fields directly and reconstructs products only where necessary.
+A field without a demand remains lazy.
+New field cases cannot move before state operations.
+
+## State traversal fusion
+
+The list traversal has a specialized `ST` producer.
+A pure `foldr` consumer can supply its combination function and initial value directly to this producer.
+The producer completes the state operations in their original order.
+It returns the fold result lazily.
+Thus, an unused result or an exception in the combination function cannot skip earlier state operations.
+This rule does not interleave two effectful traversals.
+
+## Bulk array fills
+
+After points-to simplification, the array pass recognizes uniform integer-array fill loops.
+Each accepted loop writes one element and increments its index by one.
+All other parameters remain unchanged on the back edge.
+The final continuation must not use the index or the comparison result.
+
+Zero and all-one fills can use `setByteArray#`.
+Runtime checks establish a nonnegative start, an ordered interval, and an end within the array.
+These checks also prevent overflow in the byte offset and byte count.
+Other values and invalid intervals use an unchanged copy of the original loop.
+The fallback has no additional checks on its back edge.
