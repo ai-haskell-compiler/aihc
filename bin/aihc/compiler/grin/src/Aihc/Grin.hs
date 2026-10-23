@@ -2,6 +2,7 @@
 module Aihc.Grin
   ( module Aihc.Grin.Syntax,
     normalizeGrinProgram,
+    optimizeArrayLoops,
     normalizeGrinExpr,
     CpsGrinProgram,
     CpsGrinError (..),
@@ -45,6 +46,7 @@ module Aihc.Grin
 where
 
 import Aihc.Grin.Anf (normalizeGrinExpr, normalizeGrinProgram)
+import Aihc.Grin.ArrayLoops (optimizeArrayLoops)
 import Aihc.Grin.Cps
   ( ContinuationFrameKind (..),
     CpsGrinError (..),

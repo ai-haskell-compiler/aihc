@@ -3154,7 +3154,8 @@ optimizeGrinPointsTo verbose name program = do
       ((optimized, rewrites), rewriteNs) <- measureTime $ do
         let (rewritten, counts) = Grin.rewriteWithPointsTo result program
         finished <- either (ioError . userError . ("GRIN points-to rewrite failed: " <>)) pure (Grin.finishGrinProgram rewritten)
-        (,) finished <$> evaluate counts
+        arrays <- either (ioError . userError . ("GRIN array loop rewrite failed: " <>)) pure (Grin.finishGrinProgram (Grin.optimizeArrayLoops finished))
+        (,) arrays <$> evaluate counts
       verbose (renderPointsToReport name (Grin.pointsToStats result) rewrites analysisNs rewriteNs)
       pure optimized
 
