@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC this week: parallel threads, smaller arithmetic, faster starts](https://blog.aihc.app/posts/2026-10-16-aihc-highlights/)** (16 Oct 2026)
+**[AIHC this week: parser costs, lazy patterns, and a profiler correction](https://blog.aihc.app/posts/2026-10-23-aihc-highlights/)** (23 Oct 2026)
 
-Haskell threads run in parallel, Integer division sheds allocations, SHA uses narrower instructions, and the browser playground loads real core libraries.
+Source spans retain less memory, parser calls become direct, lazy do patterns keep their semantics, and macOS profiles lose a collection bias.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -49,16 +49,16 @@ Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 ## Performance
 
 <!-- AUTO-GENERATED: START perf-highlights -->
-Each number is the AIHC value divided by the GHC value, as a geometric mean over 10 benchmarks. Lower is better. 1.00× is parity.
+Each number is the AIHC value divided by the GHC value, as a geometric mean over 13 benchmarks. Lower is better. 1.00× is parity.
 
 | Metric | Native | LLVM | Wasm |
 | --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.36× | 0.32× | 0.78× |
-| Artifact size `-Os` | 0.61× | 0.54× | 0.84× |
-| Runtime `-O1` | 26.0× | 24.5× | 32.3× |
-| Runtime `-O2` | 2.69× | 2.39× | 2.28× |
+| Compile time `-O0` | 0.12× | 0.10× | 0.33× |
+| Artifact size `-Os` | 0.09× | 0.10× | 0.39× |
+| Runtime `-O1` | 11.4× | 12.2× | 12.6× |
+| Runtime `-O2` | 1.38× | 1.67× | 1.14× |
 
-Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`6fe0db81e`](https://github.com/ai-haskell-compiler/aihc/commit/6fe0db81e2959197f7cfb22bbdd2260a2ab0404b) (2026-10-16). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+Machine [`apple-m4-pro-542f1e`](https://perf.aihc.app/timeline.html?machine=apple-m4-pro-542f1e), commit [`8e45daba1`](https://github.com/ai-haskell-compiler/aihc/commit/8e45daba1641b068041f17468309b51d24fa7262) (2026-10-23). Get all results at [perf.aihc.app](https://perf.aihc.app/).
 <!-- AUTO-GENERATED: END perf-highlights -->
 
 
