@@ -9,7 +9,7 @@ modules:
 
   data Count = Count Int#
 
-  data Strict = Strict !Count
+  data Strict = Strict {-# NOUNPACK #-} !Count
 
   data Box = Box Count
 
