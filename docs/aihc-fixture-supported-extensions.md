@@ -5,8 +5,8 @@
 - Total Extensions: 87
 - Supported: 45
 - In Progress: 42
-- Fixtures (eval): 632
-- Fixtures (fc): 440
+- Fixtures (eval): 634
+- Fixtures (fc): 466
 
 ## Extension Status
 
@@ -32,7 +32,7 @@
 | EmptyCase                  |   🟢    | 7/7           |
 | EmptyDataDecls             |   🔴    | 3/4           |
 | EmptyDataDeriving          |   🔴    | 0/1           |
-| ExistentialQuantification  |   🟡    | 12/13         |
+| ExistentialQuantification  |   🟡    | 13/14         |
 | ExplicitForAll             |   🔴    | 13/17         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedDefaultRules       |   🔴    | 0/1           |
@@ -51,7 +51,7 @@
 | InterruptibleFFI           |   🟢    | 1/1           |
 | KindSignatures             |   🟡    | 66/68         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 307/309       |
+| MagicHash                  |   🟡    | 311/313       |
 | MonadComprehensions        |   🔴    | 0/2           |
 | MonoLocalBinds             |   🟢    | 1/1           |
 | MultiParamTypeClasses      |   🟡    | 41/44         |
@@ -67,16 +67,16 @@
 | PackageImports             |   🟢    | 1/1           |
 | ParallelListComp           |   🔴    | 0/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
-| PatternSynonyms            |   🟢    | 27/27         |
+| PatternSynonyms            |   🟢    | 28/28         |
 | PolyKinds                  |   🟢    | 52/52         |
 | PostfixOperators           |   🟢    | 1/1           |
 | QualifiedDo                |   🔴    | 0/2           |
 | QuantifiedConstraints      |   🟢    | 5/5           |
 | QuasiQuotes                |   🟢    | 1/1           |
-| RankNTypes                 |   🟡    | 44/45         |
+| RankNTypes                 |   🟡    | 45/46         |
 | RebindableSyntax           |   🔴    | 21/24         |
 | RecordWildCards            |   🟢    | 2/2           |
-| RecursiveDo                |   🟢    | 13/13         |
+| RecursiveDo                |   🟢    | 14/14         |
 | RequiredTypeArguments      |   🔴    | 0/1           |
 | RoleAnnotations            |   🟢    | 4/4           |
 | ScopedTypeVariables        |   🟡    | 55/58         |
