@@ -67,10 +67,10 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | integer-conversion | 0.1.1 | hackage:2 | bytestring, primitive, text |
 | random | 1.3.1 | hackage:0 | bytestring, deepseq, mtl, splitmix, transformers |
 | QuickCheck | 2.18.0.0 | hackage:0 | containers, deepseq, random, splitmix, transformers |
-| scientific | 0.3.9.0 | hackage:0 | binary, bytestring, containers, deepseq, hashable, integer-logarithms, primitive, text |
+| scientific | 0.3.10.0 | hackage:0 | binary, bytestring, containers, deepseq, hashable, integer-logarithms, primitive, text |
 | megaparsec | 9.8.3 | hackage:0 | array, bytestring, case-insensitive, containers, deepseq, mtl, parser-combinators, scientific, text, transformers |
 | aihc-cabal-syntax | 2.0.0.0 | hackage:0 | bytestring, containers, megaparsec, parser-combinators, text |
-| aihc-parser | 5.0.0.0 | hackage:0 | bytestring, containers, deepseq, megaparsec, prettyprinter, text |
+| aihc-parser | 5.0.1.0 | hackage:0 | bytestring, containers, deepseq, megaparsec, prettyprinter, text |
 | aihc-resolve | 0.1.0.0 | local:components/aihc-resolve | aihc-parser, containers, deepseq, text |
 | aihc-tc | 0.1.0.0 | local:components/aihc-tc | aihc-parser, aihc-resolve, containers, deepseq, text, transformers |
 | text-short | 0.1.6.1 | hackage:0 | binary, bytestring, deepseq, hashable, text |
