@@ -280,6 +280,8 @@ data Trigger
 data Solver s = Solver
   { solverNodeCount :: !(STRef s Int),
     solverSets :: !(STRef s (MV.MVector s IntSet)),
+    -- | Cache set sizes. IntSet.size traverses the set at each update.
+    solverSetSizes :: !(STRef s (MU.MVector s Int)),
     solverDeltas :: !(STRef s (MV.MVector s IntSet)),
     solverSuccessors :: !(STRef s (MV.MVector s IntSet)),
     -- | The number of set nodes with an edge to each set node.
@@ -442,6 +444,7 @@ newSolver limit = do
   Solver
     <$> newSTRef 0
     <*> (newSTRef =<< MV.replicate capacity IntSet.empty)
+    <*> (newSTRef =<< MU.replicate capacity 0)
     <*> (newSTRef =<< MV.replicate capacity IntSet.empty)
     <*> (newSTRef =<< MV.replicate capacity IntSet.empty)
     <*> (newSTRef =<< MU.replicate capacity 0)
@@ -490,6 +493,7 @@ newNode solver = do
   node <- readSTRef (solverNodeCount solver)
   writeSTRef (solverNodeCount solver) (node + 1)
   ensureSize (solverSets solver) IntSet.empty (node + 1)
+  ensureUnboxedSize (solverSetSizes solver) 0 (node + 1)
   ensureSize (solverDeltas solver) IntSet.empty (node + 1)
   ensureSize (solverSuccessors solver) IntSet.empty (node + 1)
   ensureSize (solverTriggers solver) [] (node + 1)
@@ -625,11 +629,13 @@ solve solver = do
           then escapeLocations solver new
           else do
             modifySTRef' (solverIterations solver) (+ 1)
-            merged <- mergedSet solver node current new
-            if node /= escapeNode && IntSet.size merged > solverWidenLimit solver
+            (merged, size) <- mergedSet solver node current new
+            if node /= escapeNode && size > solverWidenLimit solver
               then widen solver node merged
               else do
                 writeAt (solverSets solver) node merged
+                sizes <- readSTRef (solverSetSizes solver)
+                MU.write sizes node size
                 successors <- readAt (solverSuccessors solver) node
                 forM_ (IntSet.toList successors) $ \successor -> addPending solver successor new
                 triggers <- readAt (solverTriggers solver) node
@@ -644,18 +650,21 @@ solve solver = do
 -- predecessor as the same object, so a chain of copies holds one set.
 -- Most set nodes of a whole program are such nodes, and their sets were
 -- most of the memory of the solver.
-mergedSet :: Solver s -> Int -> IntSet -> IntSet -> ST s IntSet
+mergedSet :: Solver s -> Int -> IntSet -> IntSet -> ST s (IntSet, Int)
 mergedSet solver node current new = do
   counts <- readSTRef (solverPredecessorCount solver)
   count <- MU.read counts node
   ownInputs <- readSTRef (solverOwnInput solver)
   ownInput <- MU.read ownInputs node
+  sizes <- readSTRef (solverSetSizes solver)
   if count == 1 && not ownInput
     then do
       predecessors <- readSTRef (solverPredecessor solver)
       predecessor <- MU.read predecessors node
-      readAt (solverSets solver) predecessor
-    else pure (current <> new)
+      (,) <$> readAt (solverSets solver) predecessor <*> MU.read sizes predecessor
+    else do
+      size <- MU.read sizes node
+      pure (current <> new, size + IntSet.size new)
 
 -- | Widen a set node to the unknown location. The locations it held
 -- escape, so what code could do with them through this node is what the
@@ -668,6 +677,8 @@ widen solver node locations = do
   MU.write widenedNodes node True
   modifySTRef' (solverWidenedCount solver) (+ 1)
   writeAt (solverSets solver) node (IntSet.singleton unknownLocation)
+  sizes <- readSTRef (solverSetSizes solver)
+  MU.write sizes node 1
   escapeLocations solver locations
   successors <- readAt (solverSuccessors solver) node
   forM_ (IntSet.toList successors) $ \successor -> addLocation solver successor unknownLocation
