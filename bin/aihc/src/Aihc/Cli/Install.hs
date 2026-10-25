@@ -107,7 +107,7 @@ import Aihc.Cli.ModuleProvider
     providerResolved,
     providerTyped,
   )
-import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan, withSuperSpecialisation)
+import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), progressTaskObserver, quietProgress, withProgress)
@@ -484,7 +484,6 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
-    compileSuperSpecialise :: !Bool,
     compileTarget :: !NativeTarget,
     -- | Where the headers of the target are, for the C compiles of a
     -- package: its @c-sources@, the wrappers of its @capi@ imports and
@@ -633,7 +632,7 @@ installWith reporter options = do
     _ -> ioError (userError "The plan has no root")
   report (ProgressPlan (planProgressItems [plan]))
   buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
-  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (installLto options) (installOptimization options) (installSuperSpecialise options)
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (installLto options) (installOptimization options)
   let config =
         levelConfig
           { compileKeepCore = installKeepCore options,
@@ -664,12 +663,11 @@ installWith reporter options = do
 -- options ask for. The headers of the target go under the store and not
 -- under a build directory, because an immutable install writes no build
 -- directory at all.
-newModuleCompileConfig :: NativeTarget -> FilePath -> Bool -> OptimizationLevel -> Bool -> IO ModuleCompileConfig
-newModuleCompileConfig target storeTargetRoot lto level superSpecialise = do
-  when (superSpecialise && level /= O2) $ ioError (userError "--super-specialise requires -O2")
+newModuleCompileConfig :: NativeTarget -> FilePath -> Bool -> OptimizationLevel -> IO ModuleCompileConfig
+newModuleCompileConfig target storeTargetRoot lto level = do
   buildIdentity <- buildEnvironmentIdentity target
   headerDirectory <- ensureCompilerHeaders target storeTargetRoot
-  let plan = (if superSpecialise then withSuperSpecialisation else id) (optimizationPlan lto level)
+  let plan = optimizationPlan lto level
   pure
     ModuleCompileConfig
       { compileBuildIdentity = buildIdentity,
@@ -687,7 +685,6 @@ newModuleCompileConfig target storeTargetRoot lto level superSpecialise = do
         compileProfileUnit = False,
         compileNoCode = False,
         compileOptimization = level,
-        compileSuperSpecialise = superSpecialise,
         compileTarget = target,
         compileHeaderDirectory = headerDirectory,
         compileVerbose = const (pure ()),
@@ -1590,7 +1587,6 @@ compileFlagNames config =
         (compileLint config, "lint"),
         (compileCheckPrimBounds config, "check-prim-bounds"),
         (compileLto config, "lto"),
-        (compileSuperSpecialise config, "super-specialise"),
         (compileNoCode config, "no-code"),
         (compileOptimization config /= defaultOptimizationLevel, optimizationFlagName (compileOptimization config))
       ],
@@ -2017,7 +2013,7 @@ buildEnvironmentIdentity target = do
 -- that add or drop outputs, such as @--keep-core@, or that only check,
 -- such as @--lint@, are recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> superSpecialiseKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config)
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -2037,10 +2033,6 @@ optimizationKeyParts config
   | otherwise = [TE.encodeUtf8 (optimizationFlagName level)]
   where
     level = compileOptimization config
-
--- | Keep specialized artifacts separate from ordinary artifacts.
-superSpecialiseKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
-superSpecialiseKeyParts config = ["super-specialise" | compileSuperSpecialise config]
 
 -- | The name of a level in a manifest flag and a store key.
 optimizationFlagName :: OptimizationLevel -> Text
@@ -2072,7 +2064,6 @@ backendOptionsKey config =
         BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
       ]
         <> optimizationKeyParts config
-        <> superSpecialiseKeyParts config
         <> ltoKeyParts config
         <> checkPrimBoundsKeyParts config
         <> ["profile-allocations" | compileProfileAllocations config]
