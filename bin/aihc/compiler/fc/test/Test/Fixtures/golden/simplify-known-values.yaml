@@ -9,7 +9,7 @@ modules:
   import GHC.Prim ((*#), (+#), (<#), quotInt#)
   import GHC.Types (Int (..))
 
-  data Pair = Pair !Int !Int
+  data Pair = Pair {-# NOUNPACK #-} !Int {-# NOUNPACK #-} !Int
 
   data D = D Int (Int -> Int)
 

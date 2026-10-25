@@ -8,7 +8,7 @@ modules:
   import GHC.Prim ((+#))
   import GHC.Types (Int (..))
 
-  data Strict = Strict !Int
+  data Strict = Strict {-# NOUNPACK #-} !Int
 
   data Box = Box Int
 

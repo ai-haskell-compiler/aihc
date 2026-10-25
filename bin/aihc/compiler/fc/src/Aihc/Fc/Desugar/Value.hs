@@ -5632,16 +5632,28 @@ desugarTypeableTyCon (Ev.TypeableTyCon constructor arity kind) = do
 
 desugarTypeableInt :: Int -> ValueM Expr
 desugarTypeableInt value = do
-  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  ExApp (ExVar constructor) <$> desugarTypeableIntHash value
+
+desugarTypeableIntHash :: Int -> ValueM Expr
+desugarTypeableIntHash value = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   kinds <- valueKinds
   representation <- convertRuntimeRep (intRep kinds)
-  pure (ExApp (ExVar constructor) (ExLit (LitInt representation (fromIntegral value)) intHashType))
+  pure (ExLit (LitInt representation (fromIntegral value)) intHashType)
 
 desugarTypeableKind :: Ev.TypeableKind -> ValueM Expr
 desugarTypeableKind kind =
   case kind of
-    Ev.TypeableKindVar index -> construct "KindRepVar" . (: []) =<< desugarTypeableInt index
+    Ev.TypeableKindVar index -> do
+      -- The field of 'KindRepVar' is a strict 'Int', which aihc-tc can
+      -- unpack. The argument then is the 'Int#' itself.
+      constructor <- primitiveName "GHC.Types" "KindRepVar" SortDataConstructor
+      info <- constructorInfoByName constructor
+      argument <- case info of
+        Just constructorInfo' | not (all (repIsStored . dcfiRep) (dciFields constructorInfo')) -> desugarTypeableIntHash index
+        _ -> desugarTypeableInt index
+      pure (ExApp (ExVar constructor) argument)
     Ev.TypeableKindType representation -> construct "KindRepTYPE" . (: []) =<< runtimeValue representation
     Ev.TypeableKindFun argument result -> do
       left <- desugarTypeableKind argument

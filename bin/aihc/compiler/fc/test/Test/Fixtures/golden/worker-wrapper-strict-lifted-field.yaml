@@ -7,7 +7,7 @@ modules:
 
   import GHC.Types (Int (..))
 
-  data Pair = Pair !Int !Int
+  data Pair = Pair {-# NOUNPACK #-} !Int {-# NOUNPACK #-} !Int
 
   first :: Pair -> Int
   first p = case p of

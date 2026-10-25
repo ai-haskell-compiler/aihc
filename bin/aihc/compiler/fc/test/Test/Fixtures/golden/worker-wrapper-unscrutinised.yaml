@@ -7,7 +7,7 @@ modules:
 
   import GHC.Types (Int (..))
 
-  data Box = Box !Int
+  data Box = Box {-# NOUNPACK #-} !Int
 
   wrap :: Int -> Box
   wrap x = Box x

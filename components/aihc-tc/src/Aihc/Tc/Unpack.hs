@@ -140,19 +140,44 @@ storedField field = RepStored (dcfiType field) (dcfiStrict field)
 unpackRequested :: DataConFieldInfo -> Bool
 unpackRequested field = dcfiUnpack field == UnpackField && dcfiStrict field
 
+-- | Whether the field can be unpacked: it has a bang and no NOUNPACK
+-- pragma.
+unpackCandidate :: DataConFieldInfo -> Bool
+unpackCandidate field = dcfiStrict field && dcfiUnpack field /= NoUnpackField
+
+-- | The layout of one field.
+--
+-- A field with an UNPACK pragma is unpacked when it can be, and a warning
+-- tells why when it cannot. A strict field without a pragma is unpacked
+-- when its unpacked layout is one word, as with the GHC option
+-- @-funbox-small-strict-fields@. Thus a field such as @!Int@ stores its
+-- @Int#@, and the program does not allocate an @I#@ box for each new
+-- value of the field. Each heap slot is one word on every target, so one
+-- leaf is one word. A field with a layout of no leaf stays one pointer.
 decideField :: Map ConKey KnownCon -> KnownCon -> DataConFieldInfo -> MemoM FieldRep
-decideField known item field
-  | dcfiUnpack field /= UnpackField = pure (storedField field)
-  | knownNewtype item = keep "a newtype has no heap field"
-  | not (dcfiStrict field) = keep "the field is not strict"
-  | otherwise = do
-      acyclic <- lift (acyclicUnpack known Set.empty (dcfiType field))
-      if not acyclic
-        then keep "the field type is recursive"
-        else do
-          rep <- representationOf known (dcfiType field)
-          maybe (keep "the field type is not one product") pure rep
+decideField known item field =
+  case dcfiUnpack field of
+    UnpackField
+      | knownNewtype item -> keep "a newtype has no heap field"
+      | not (dcfiStrict field) -> keep "the field is not strict"
+      | otherwise -> unpacked unpackRequested >>= either keep pure
+    NoFieldUnpack
+      | dcfiStrict field && not (knownNewtype item) -> do
+          rep <- unpacked unpackCandidate
+          pure $ case rep of
+            Right small | length (repLeaves small) == 1 -> small
+            _ -> storedField field
+    _ -> pure (storedField field)
   where
+    -- The walk for a pragma follows only the other pragmas, as it did
+    -- before the small fields. The walk for a small field also follows
+    -- the fields that can unpack without a pragma, because each such
+    -- field decides its layout with the same rule.
+    unpacked follow = do
+      acyclic <- lift (acyclicUnpack follow known Set.empty (dcfiType field))
+      if not acyclic
+        then pure (Left "the field type is recursive")
+        else maybe (Left "the field type is not one product") Right <$> representationOf known (dcfiType field)
     keep reason = do
       let constructorName = T.unpack (dciName (knownInfo item))
       lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because " <> reason <> ".")))
@@ -164,20 +189,20 @@ decideField known item field
 -- local product. A constructor from an earlier component cannot name a
 -- local type, so the walk stops there. A walk that meets a constructor
 -- again marks a recursive field, which stays one pointer as in GHC.
-acyclicUnpack :: Map ConKey KnownCon -> Set ConKey -> TcType -> TcM Bool
-acyclicUnpack known seen ty = do
+acyclicUnpack :: (DataConFieldInfo -> Bool) -> Map ConKey KnownCon -> Set ConKey -> TcType -> TcM Bool
+acyclicUnpack follow known seen ty = do
   (_, classified) <- classifyType ty
   case classified of
     HeadOther -> pure True
     HeadNewtype info _ _ inner -> continue info [inner]
     HeadProduct info
       | maybe False knownLocal (Map.lookup (conKey info) known) ->
-          continue info [dcfiType field | field <- dciFields info, unpackRequested field]
+          continue info [dcfiType field | field <- dciFields info, follow field]
       | otherwise -> pure True
   where
     continue info types
       | conKey info `Set.member` seen = pure False
-      | otherwise = and <$> mapM (acyclicUnpack known (Set.insert (conKey info) seen)) types
+      | otherwise = and <$> mapM (acyclicUnpack follow known (Set.insert (conKey info) seen)) types
 
 -- | The layout of one unpacked field type. 'Nothing' means the type is not
 -- one product after newtype erasure. The walk must be acyclic.

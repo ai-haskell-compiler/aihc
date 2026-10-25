@@ -10,7 +10,7 @@ modules:
 
   data Ref = Ref Int#
 
-  data Handle = File Ref !Ref | Duplex Ref !Ref !Ref
+  data Handle = File Ref {-# NOUNPACK #-} !Ref | Duplex Ref {-# NOUNPACK #-} !Ref {-# NOUNPACK #-} !Ref
 
   data Four = Four Ref Ref Ref Ref
 
