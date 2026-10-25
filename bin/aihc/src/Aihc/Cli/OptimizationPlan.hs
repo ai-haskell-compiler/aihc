@@ -11,7 +11,6 @@
 module Aihc.Cli.OptimizationPlan
   ( OptimizationPlan (..),
     optimizationPlan,
-    withSuperSpecialisation,
   )
 where
 
@@ -50,13 +49,15 @@ data OptimizationPlan = OptimizationPlan
 -- scope at the other levels without changing their passes. @-O2@ and @-Os@
 -- also run the heap points-to analysis of GRIN on the whole program. Each of
 -- its rewrites removes code or replaces a runtime dispatch with a direct
--- jump, so it serves a small executable as well as a fast one.
+-- jump, so it serves a small executable as well as a fast one. Only @-O2@
+-- adds 'superSpecialisation', which makes copies of functions for known
+-- dictionaries and function arguments.
 optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
   case level of
     O0 -> OptimizationPlan {planWholeProgram = lto, planPasses = [], planGrinPointsTo = False}
     O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> specialise <> split <> grow, planGrinPointsTo = False}
-    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> specialise <> split <> grow, planGrinPointsTo = True}
+    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = superSpecialisation (shrink <> specialise <> split <> grow), planGrinPointsTo = True}
     Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
   where
     -- The phases count down from 2 to 0.
@@ -92,10 +93,12 @@ optimizationPlan lto level =
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     rounds = 4
 
--- | Run specialization after the first small inliner and before demand analysis.
--- Late cleanup exposes new strict calls. Repeat demand analysis and restore sharing afterward.
-withSuperSpecialisation :: OptimizationPlan -> OptimizationPlan
-withSuperSpecialisation plan = plan {planPasses = insert (planPasses plan) <> [Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassSimplify 0, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]}
+-- | The super-specialisation of @-O2@. It runs after the first shrinking
+-- inliner and before the first demand analysis. The passes at the end
+-- clean up after it: the specialised copies expose new strict calls, so
+-- demand analysis runs again, and sharing is restored after it.
+superSpecialisation :: [Fc.Pass] -> [Fc.Pass]
+superSpecialisation passes = insert passes <> [Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassSimplify 0, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
   where
     insert (pass@(Fc.PassDemand _) : rest) = Fc.PassSuperSpecialise : Fc.PassSpecialise : Fc.PassInline Fc.shrinkPolicy 2 2 : pass : rest
     insert (pass : rest) = pass : insert rest

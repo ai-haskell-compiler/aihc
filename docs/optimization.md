@@ -1258,19 +1258,16 @@ The pass does not evaluate a computation before its original use.
 Full laziness can increase result lifetime.
 Benchmark checks must include heap use as well as execution time.
 
-## Optional super-specialization
+## Super-specialization
 
-`aihc build -O2 --super-specialise` enables `PassSuperSpecialise`.
-`aihc install` accepts the same option.
-Other optimization levels reject the option.
-The default `-O2` plan does not change.
-The option changes package keys, backend keys, and manifest flags.
+The `-O2` plan runs `PassSuperSpecialise`.
+The other levels do not run it.
 
 The pass runs on merged System FC after the first small inliner.
 It runs before demand analysis and worker/wrapper.
 A small inliner follows the pass to remove dictionary projections and direct lambda applications.
 The existing local dictionary pass also runs after it.
-After late dictionary cleanup, the optional plan repeats demand analysis and simplification.
+After late dictionary cleanup, the plan repeats demand analysis and simplification.
 This step evaluates strict arguments that late cleanup exposes.
 Common-subexpression elimination, full laziness, and constant lifting then restore sharing.
 

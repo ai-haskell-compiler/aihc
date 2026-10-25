@@ -203,7 +203,6 @@ runFrontend options = do
             compileProfileUnit = False,
             compileNoCode = True,
             compileOptimization = defaultOptimizationLevel,
-            compileSuperSpecialise = False,
             compileTarget = target,
             compileHeaderDirectory = headerDirectory,
             compileVerbose = when (frontendVerbose options) . hPutStrLn stderr,
