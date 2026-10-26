@@ -195,6 +195,7 @@ amd64Backend =
       nbFloatFromVec = \_ty xmm dest -> [amd64Instruction (AmdMovqFromXmm dest xmm)],
       nbFloatToVec = \ty register xmm -> [toFloat ty xmm register],
       nbJump = amd64Instruction . AmdJmp . Amd64JumpLabel,
+      nbCanFuseBitTest = False,
       nbCanFuseFloatCompare = \op -> op `elem` [Eq, Ne, FLt, FLe, FGt, FGe],
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
@@ -611,6 +612,9 @@ data Test
 conditionTest :: Ctx Amd64Register -> Maybe Fused -> Operand -> ([Amd64Statement], Test)
 conditionTest ctx fused condition =
   case fused of
+    Just (FusedBit op ty value bit) ->
+      let (loads, register) = operandIn' ctx 0 ty scratchLeft value
+       in (loads <> [immediate scratchRight (2 ^ bit :: Integer), amd64Instruction (AmdTest (Amd64RmRegister register) scratchRight)], TestFlags (integerCondition op))
     Just (Fused op ty left right)
       | op `elem` [Eq, Ne],
         not (isFloatType ty),
