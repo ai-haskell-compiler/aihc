@@ -1,0 +1,22 @@
+; A call in a block that ends in a trap leaves no value live after it. The
+; block sits between the definition of the parameters and their last use,
+; so their intervals span the call, but the call does not clobber a live
+; value. The parameters must keep the registers they arrive in, with no move
+; to a preserved register and no frame on the path that does not trap. The
+; lowering of a case with no matching alternative gives this shape.
+extern func @report() cc c
+extern func @next(ptr, ptr, ptr, ptr, i64, i64)
+
+func @pick(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %tag: i64, %x: i64) {
+entry:
+  %zero = eq i64 %tag, 0
+  br %zero, missing, found
+
+missing:
+  call @report()
+  trap "no matching case alternative"
+
+found:
+  %y = add i64 %x, %tag
+  tailcall @next(%hp, %hp_limit, %sp, %sp_limit, %y, %x)
+}
