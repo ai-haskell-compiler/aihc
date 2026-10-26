@@ -4404,7 +4404,10 @@ programIdentityCaseConstructors program = concatMap (exprConstructors . grinFunc
         GrinIfWhnf _ ready slow -> exprConstructors ready <> exprConstructors slow
         GrinCase _ _ alternatives ->
           let names = [name | GrinDataAlt name _ <- map grinAltCon alternatives]
-           in [name | length names < constructorSwitchThreshold, name <- names]
+              tested
+                | any ((== GrinDefaultAlt) . grinAltCon) alternatives = names
+                | otherwise = take (length names - 1) names
+           in [name | length names < constructorSwitchThreshold, name <- tested]
                 <> concatMap (exprConstructors . grinAltRhs) alternatives
         _ -> []
 

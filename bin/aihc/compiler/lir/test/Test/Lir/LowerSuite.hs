@@ -16,8 +16,10 @@
 module Test.Lir.LowerSuite (tests) where
 
 import Aihc.Grin (lowerGc, parseProgram, renderParseError, toCpsGrin)
+import Aihc.Lir.Lint (itemDataReferences, renderLintError, unreferencedDataErrors)
 import Aihc.Lir.Lower (LowerTarget, ModuleSettings (..), appleArm64Target, lowerModule, posixTarget64, wasip3Target)
 import Aihc.Lir.Pretty (renderModule)
+import Aihc.Lir.Syntax (Module (..))
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (Parser, Value, parseEither, withObject)
 import Data.List (sort)
@@ -35,7 +37,8 @@ data LowerFixture = LowerFixture
     -- | Whether the lowering emits the primitive bounds checks and the
     -- allocation counters.
     fixtureSettings :: !ModuleSettings,
-    fixtureExpected :: !Text
+    fixtureExpected :: !Text,
+    fixtureCheckDataReferences :: !Bool
   }
 
 tests :: FilePath -> IO TestTree
@@ -79,6 +82,7 @@ parseFixture =
       <*> pure target
       <*> (ModuleSettings <$> object .:? "check-prim-bounds" .!= False <*> object .:? "profile-allocations" .!= False <*> object .:? "profile-time" .!= False)
       <*> object .: "expected"
+      <*> object .:? "check-data-references" .!= False
 
 -- | The GRIN pipeline a native target takes, stopping at the Lir text.
 lowerFixture :: LowerFixture -> Either String Text
@@ -86,4 +90,6 @@ lowerFixture fixture = do
   program <- either (Left . renderParseError) Right (parseProgram (fixtureProgram fixture))
   cps <- either (Left . show) Right (toCpsGrin program)
   lir <- either (Left . show) Right (lowerModule (fixtureTarget fixture) (fixtureSettings fixture) (lowerGc cps))
-  pure (T.stripEnd (renderModule lir))
+  case [err | fixtureCheckDataReferences fixture, err <- unreferencedDataErrors (moduleItems lir) (foldMap itemDataReferences (moduleItems lir))] of
+    [] -> pure (T.stripEnd (renderModule lir))
+    errors -> Left ("LIR data validation failed: " <> T.unpack (T.intercalate "\n" (map renderLintError errors)))
