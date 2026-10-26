@@ -17,104 +17,102 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern func @aihc_lir_enter_thunk_0(ptr, ptr, ptr, ptr, ptr, ptr)
-
   extern func @aihc_lir_eval(ptr, ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
 
-  func @aihc_f_aihc_entry___sdelayed(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
+  func @aihc_f_aihc_entry___sdelayed(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %thunk_5: ptr, %$cps_return_4: ptr) {
   entry:
-    %header_word_5 = load i64 [%$cps_return_4] align 8 region stack
-    %info_word_6 = and i64 %header_word_5, -4
-    %header_7 = ptr.from_int %info_word_6
-    %entry_8 = load.invariant code [%header_7 + 24] align 1 word
-    %chunk_word_9 = ptr.to_int %$cps_return_4
-    %chunk_last_10 = or i64 %chunk_word_9, 4095
-    %chunk_end_11 = add i64 %chunk_last_10, 1
-    %sp_limit_12 = ptr.from_int %chunk_end_11
-    %forward_16 = eq code %entry_8, null
-    br %forward_16, continue_slow_13, continue_chunk_14
+    %header_word_6 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_7 = and i64 %header_word_6, -4
+    %header_8 = ptr.from_int %info_word_7
+    %entry_9 = load.invariant code [%header_8 + 24] align 1 word
+    %chunk_word_10 = ptr.to_int %$cps_return_4
+    %chunk_last_11 = or i64 %chunk_word_10, 4095
+    %chunk_end_12 = add i64 %chunk_last_11, 1
+    %sp_limit_13 = ptr.from_int %chunk_end_12
+    %forward_17 = eq code %entry_9, null
+    br %forward_17, continue_slow_14, continue_chunk_15
 
-  continue_chunk_14:
-    %same_chunk_17 = eq ptr %sp_limit_12, %sp_limit_3
-    br %same_chunk_17, continue_enter_15, continue_slow_13
+  continue_chunk_15:
+    %same_chunk_18 = eq ptr %sp_limit_13, %sp_limit_3
+    br %same_chunk_18, continue_enter_16, continue_slow_14
 
-  cold continue_slow_13:
+  cold continue_slow_14:
     tailcall @aihc_lir_continue_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_entry_Nothing)
 
-  continue_enter_15:
-    tailcall.indirect %entry_8(%hp_0, %hp_limit_1, %$cps_return_4, %sp_limit_3, %$cps_return_4, null, @aihc_entry_Nothing) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  continue_enter_16:
+    tailcall.indirect %entry_9(%hp_0, %hp_limit_1, %$cps_return_4, %sp_limit_3, %$cps_return_4, null, @aihc_entry_Nothing) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
   }
 
-  func @aihc_f_aihc_entry___sentry(%hp_18: ptr, %hp_limit_19: ptr, %sp_20: ptr, %sp_limit_21: ptr, %value_22: ptr, %$cps_return_23: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_19: ptr, %hp_limit_20: ptr, %sp_21: ptr, %sp_limit_22: ptr, %value_23: ptr, %$cps_return_24: ptr) {
   entry:
-    jump eval_check_24(%value_22)
+    jump eval_check_25(%value_23)
 
-  eval_check_24(%current_27: ptr):
-    %header_word_28 = load.dependent i64 [%current_27] region heap
-    %info_word_29 = and i64 %header_word_28, -4
-    %header_30 = ptr.from_int %info_word_29
-    %needs_eval_31 = load.invariant i8 [%header_30 + 44] align 1
-    %needs_eval_32 = zext i8 %needs_eval_31 to i64
-    %not_value_33 = ne i64 %needs_eval_32, 0
-    br %not_value_33, eval_not_value_34, eval_ready_25
+  eval_check_25(%current_28: ptr):
+    %header_word_29 = load.dependent i64 [%current_28] region heap
+    %info_word_30 = and i64 %header_word_29, -4
+    %header_31 = ptr.from_int %info_word_30
+    %needs_eval_32 = load.invariant i8 [%header_31 + 44] align 1
+    %needs_eval_33 = zext i8 %needs_eval_32 to i64
+    %not_value_34 = ne i64 %needs_eval_33, 0
+    br %not_value_34, eval_not_value_35, eval_ready_26
 
-  cold eval_not_value_34:
-    %indirection_38 = eq i64 %needs_eval_32, 2
-    br %indirection_38, eval_follow_35, eval_thunk_36
+  cold eval_not_value_35:
+    %indirection_39 = eq i64 %needs_eval_33, 2
+    br %indirection_39, eval_follow_36, eval_thunk_37
 
-  cold eval_thunk_36:
-    %tag_39 = and i64 %header_word_28, 3
-    %claimed_40 = eq i64 %tag_39, 1
-    br %claimed_40, eval_owner_37, eval_slow_26
+  cold eval_thunk_37:
+    %tag_40 = and i64 %header_word_29, 3
+    %claimed_41 = eq i64 %tag_40, 1
+    br %claimed_41, eval_owner_38, eval_slow_27
 
-  cold eval_owner_37:
-    %word_41 = load.dependent ptr [%current_27 + 8] region heap
-    %header_word_42 = load.dependent i64 [%word_41] region heap
-    %info_word_43 = and i64 %header_word_42, -4
-    %header_44 = ptr.from_int %info_word_43
-    %word_kind_45 = load.invariant i8 [%header_44 + 43] align 1
-    %word_kind_46 = zext i8 %word_kind_45 to i64
-    %thread_47 = eq i64 %word_kind_46, 7
-    %queue_48 = eq i64 %word_kind_46, 15
-    %owned_49 = or i1 %thread_47, %queue_48
-    br %owned_49, eval_slow_26, eval_check_24(%word_41)
+  cold eval_owner_38:
+    %word_42 = load.dependent ptr [%current_28 + 8] region heap
+    %header_word_43 = load.dependent i64 [%word_42] region heap
+    %info_word_44 = and i64 %header_word_43, -4
+    %header_45 = ptr.from_int %info_word_44
+    %word_kind_46 = load.invariant i8 [%header_45 + 43] align 1
+    %word_kind_47 = zext i8 %word_kind_46 to i64
+    %thread_48 = eq i64 %word_kind_47, 7
+    %queue_49 = eq i64 %word_kind_47, 15
+    %owned_50 = or i1 %thread_48, %queue_49
+    br %owned_50, eval_slow_27, eval_check_25(%word_42)
 
-  cold eval_follow_35:
-    %next_50 = load.dependent ptr [%current_27 + 8] region heap
-    jump eval_check_24(%next_50)
+  cold eval_follow_36:
+    %next_51 = load.dependent ptr [%current_28 + 8] region heap
+    jump eval_check_25(%next_51)
 
-  eval_ready_25:
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_18, %hp_limit_19, %sp_20, %sp_limit_21, %$cps_return_23, %current_27)
+  eval_ready_26:
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_19, %hp_limit_20, %sp_21, %sp_limit_22, %$cps_return_24, %current_28)
 
-  eval_slow_26:
-    tailcall @aihc_lir_force_p(%hp_18, %hp_limit_19, %sp_20, %sp_limit_21, %current_27, @aihc_lir_info_0, %$cps_return_23)
+  eval_slow_27:
+    tailcall @aihc_lir_force_p(%hp_19, %hp_limit_20, %sp_21, %sp_limit_22, %current_28, @aihc_lir_info_0, %$cps_return_24)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_51: ptr, %hp_limit_52: ptr, %sp_53: ptr, %sp_limit_54: ptr, %$cps_return_55: ptr, %ready_56: ptr) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_52: ptr, %hp_limit_53: ptr, %sp_54: ptr, %sp_limit_55: ptr, %$cps_return_56: ptr, %ready_57: ptr) {
   entry:
-    %payload_57 = load i64 [%ready_56 + 8] align 8 region heap
-    %header_word_58 = load i64 [%$cps_return_55] align 8 region stack
-    %info_word_59 = and i64 %header_word_58, -4
-    %header_60 = ptr.from_int %info_word_59
-    %entry_61 = load.invariant code [%header_60 + 24] align 1 word
-    %chunk_word_62 = ptr.to_int %$cps_return_55
-    %chunk_last_63 = or i64 %chunk_word_62, 4095
-    %chunk_end_64 = add i64 %chunk_last_63, 1
-    %sp_limit_65 = ptr.from_int %chunk_end_64
-    %forward_69 = eq code %entry_61, null
-    br %forward_69, continue_slow_66, continue_chunk_67
+    %payload_58 = load i64 [%ready_57 + 8] align 8 region heap
+    %header_word_59 = load i64 [%$cps_return_56] align 8 region stack
+    %info_word_60 = and i64 %header_word_59, -4
+    %header_61 = ptr.from_int %info_word_60
+    %entry_62 = load.invariant code [%header_61 + 24] align 1 word
+    %chunk_word_63 = ptr.to_int %$cps_return_56
+    %chunk_last_64 = or i64 %chunk_word_63, 4095
+    %chunk_end_65 = add i64 %chunk_last_64, 1
+    %sp_limit_66 = ptr.from_int %chunk_end_65
+    %forward_70 = eq code %entry_62, null
+    br %forward_70, continue_slow_67, continue_chunk_68
 
-  continue_chunk_67:
-    %same_chunk_70 = eq ptr %sp_limit_65, %sp_limit_54
-    br %same_chunk_70, continue_enter_68, continue_slow_66
+  continue_chunk_68:
+    %same_chunk_71 = eq ptr %sp_limit_66, %sp_limit_55
+    br %same_chunk_71, continue_enter_69, continue_slow_67
 
-  cold continue_slow_66:
-    tailcall @aihc_lir_continue_i(%hp_51, %hp_limit_52, %sp_53, %sp_limit_54, %$cps_return_55, %payload_57)
+  cold continue_slow_67:
+    tailcall @aihc_lir_continue_i(%hp_52, %hp_limit_53, %sp_54, %sp_limit_55, %$cps_return_56, %payload_58)
 
-  continue_enter_68:
-    tailcall.indirect %entry_61(%hp_51, %hp_limit_52, %$cps_return_55, %sp_limit_54, %$cps_return_55, null, %payload_57) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  continue_enter_69:
+    tailcall.indirect %entry_62(%hp_52, %hp_limit_53, %$cps_return_56, %sp_limit_55, %$cps_return_56, null, %payload_58) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_1, zero 8 }
@@ -125,36 +123,36 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
 
-  func @aihc_lir_info_0_e(%hp_71: ptr, %hp_limit_72: ptr, %sp_73: ptr, %sp_limit_74: ptr, %object_75: ptr, %continuation_76: ptr, %supplied_77: ptr) {
+  func @aihc_lir_info_0_e(%hp_72: ptr, %hp_limit_73: ptr, %sp_74: ptr, %sp_limit_75: ptr, %object_76: ptr, %continuation_77: ptr, %supplied_78: ptr) {
   entry:
-    %stored_78 = load ptr [%object_75 + 8] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_71, %hp_limit_72, %sp_73, %sp_limit_74, %stored_78, %supplied_77)
+    %stored_79 = load ptr [%object_76 + 8] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_72, %hp_limit_73, %sp_74, %sp_limit_75, %stored_79, %supplied_78)
   }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x00" }
 
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_enter_thunk_0, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 0, i16 0 }
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sdelayed, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 0, i16 0 }
 
-  func @aihc_lir_force_p(%hp_79: ptr, %hp_limit_80: ptr, %sp_81: ptr, %sp_limit_82: ptr, %value_83: ptr, %info_84: ptr, %field_85: ptr) {
+  func @aihc_lir_force_p(%hp_80: ptr, %hp_limit_81: ptr, %sp_82: ptr, %sp_limit_83: ptr, %value_84: ptr, %info_85: ptr, %field_86: ptr) {
   entry:
-    %sp_86 = ptr.add %sp_81, 16
-    %stack_fits_87 = le.u ptr %sp_86, %sp_limit_82
-    br %stack_fits_87, stack_pushed_89(%sp_81, %sp_86, %sp_limit_82, %hp_limit_80), stack_grow_88
+    %sp_87 = ptr.add %sp_82, 16
+    %stack_fits_88 = le.u ptr %sp_87, %sp_limit_83
+    br %stack_fits_88, stack_pushed_90(%sp_82, %sp_87, %sp_limit_83, %hp_limit_81), stack_grow_89
 
-  cold stack_grow_88:
-    %capability_90 = load ptr [%sp_limit_82 - 4040] align 1 word
-    %result_91 = call @aihc_stack_grow(%capability_90, %sp_81, 2)
-    %sp_92 = ptr.add %result_91, 16
-    %sp_limit_93 = ptr.add %result_91, 4032
-    %hp_limit_94 = load ptr [%capability_90 + 24] align 1 word
-    jump stack_pushed_89(%result_91, %sp_92, %sp_limit_93, %hp_limit_94)
+  cold stack_grow_89:
+    %capability_91 = load ptr [%sp_limit_83 - 4040] align 1 word
+    %result_92 = call @aihc_stack_grow(%capability_91, %sp_82, 2)
+    %sp_93 = ptr.add %result_92, 16
+    %sp_limit_94 = ptr.add %result_92, 4032
+    %hp_limit_95 = load ptr [%capability_91 + 24] align 1 word
+    jump stack_pushed_90(%result_92, %sp_93, %sp_limit_94, %hp_limit_95)
 
-  stack_pushed_89(%frame_95: ptr, %sp_96: ptr, %sp_limit_97: ptr, %hp_limit_98: ptr):
-    store ptr %info_84, [%frame_95] align 8 region stack
-    store ptr %field_85, [%frame_95 + 8] align 8 region stack
-    tailcall @aihc_lir_eval(%hp_79, %hp_limit_98, %sp_96, %sp_limit_97, %value_83, %frame_95)
+  stack_pushed_90(%frame_96: ptr, %sp_97: ptr, %sp_limit_98: ptr, %hp_limit_99: ptr):
+    store ptr %info_85, [%frame_96] align 8 region stack
+    store ptr %field_86, [%frame_96 + 8] align 8 region stack
+    tailcall @aihc_lir_eval(%hp_80, %hp_limit_99, %sp_97, %sp_limit_98, %value_84, %frame_96)
   }
 status: pass
 reason: |
