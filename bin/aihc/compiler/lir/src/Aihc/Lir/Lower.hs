@@ -1420,7 +1420,7 @@ lowerInfo info = do
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
     failWith (LowerUnsupportedValue ("a data type with more than 65536 constructors: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
-  entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
+  entry <- traverse (enterFunction (infoSymbol info) (isJust (infoFrameKind info))) (infoEnter info)
   emitItem
     ( ItemData
         DataItem
@@ -1447,11 +1447,13 @@ lowerInfo info = do
 
 -- | The function that enters one object: a shared runtime function when the
 -- object has one of the shapes the runtime defines, and otherwise a stub of
--- this module.
-enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
-enterFunction _ enter | enterDirect enter = pure (enterTarget enter)
-enterFunction info enter =
-  case sharedEnterSymbol enter of
+-- this module. A continuation frame always gets a stub of its own. Its stub
+-- calls the code directly, so a return has one indirect call, and not a
+-- second one through the identity field.
+enterFunction :: Symbol -> Bool -> RuntimeEnter -> LowerM Symbol
+enterFunction _ _ enter | enterDirect enter = pure (enterTarget enter)
+enterFunction info frame enter =
+  case if frame then Nothing else sharedEnterSymbol enter of
     Just symbol -> do
       let signature = Signature (contextTypes <> [Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
       modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
@@ -1987,11 +1989,39 @@ callRuntime name parameters results arguments = do
       emit vars (Call symbol arguments)
       pure (OperandLiteral LitNull)
 
+-- | Give values to a continuation frame. The usual frame has an entry and is
+-- in the chunk of the stack pointer, and the code enters it here with one
+-- indirect call: this return site then has its own branch history. A
+-- forward frame, or a frame in a lower chunk, goes to the continue helper in
+-- a cold block.
 continueTransfer :: Operand -> [Typed] -> LowerM ()
 continueTransfer continuation values = do
-  continue <- requireHelper (HelperContinue (map typedType values))
-  running <- runningArguments
-  terminate (TailCall continue (running <> (continuation : map typedOperand values)))
+  let shape = map typedType values
+  continue <- requireHelper (HelperContinue shape)
+  context <- currentContext
+  header <- typedOperand <$> loadObjectInfo StackRegion continuation
+  entry <- loadInfoCode "entry" header infoBackendEntryIndex
+  stackLimit <- chunkEnd continuation
+  slow <- freshLabel "continue_slow"
+  checkChunk <- freshLabel "continue_chunk"
+  enter <- freshLabel "continue_enter"
+  isForward <- emitValue "forward" I1 (Compare Eq Code (typedOperand entry) (OperandLiteral LitNull))
+  terminate (Branch (typedOperand isForward) (Target slow []) (Target checkChunk []))
+  beginBlock checkChunk []
+  sameChunk <- emitValue "same_chunk" I1 (Compare Eq Ptr stackLimit (contextStackLimit context))
+  terminate (Branch (typedOperand sameChunk) (Target enter []) (Target slow []))
+  beginColdBlock slow []
+  terminate (TailCall continue (contextOperands context <> (continuation : map typedOperand values)))
+  beginBlock enter []
+  -- Entering a frame pops it and every frame above it: the frame is the
+  -- new stack pointer.
+  let entered = context {contextStack = continuation}
+  terminate
+    ( TailCallIndirect
+        (typedOperand entry)
+        (contextOperands entered <> (continuation : OperandLiteral LitNull : map typedOperand values))
+        (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
+    )
 
 -- | Give control to the scheduler. The C call that selected the resumption
 -- had the context of the capability, and the resumption loads the context of
@@ -4374,10 +4404,7 @@ programIdentityCaseConstructors program = concatMap (exprConstructors . grinFunc
         GrinIfWhnf _ ready slow -> exprConstructors ready <> exprConstructors slow
         GrinCase _ _ alternatives ->
           let names = [name | GrinDataAlt name _ <- map grinAltCon alternatives]
-              tested
-                | any ((== GrinDefaultAlt) . grinAltCon) alternatives = names
-                | otherwise = take (length names - 1) names
-           in [name | length names < constructorSwitchThreshold, name <- tested]
+           in [name | length names < constructorSwitchThreshold, name <- names]
                 <> concatMap (exprConstructors . grinAltRhs) alternatives
         _ -> []
 

@@ -29,7 +29,26 @@ expected: |
     %narrow_15_width_right = trunc i64 %result_10 to i32
     %narrow_15 = add i32 %narrow_12, %narrow_15_width_right
     %result_16 = zext i32 %narrow_15 to i64
+    %header_word_17 = load i64 [%$cps_return_6] align 8 region stack
+    %info_word_18 = and i64 %header_word_17, -4
+    %header_19 = ptr.from_int %info_word_18
+    %entry_20 = load.invariant code [%header_19 + 24] align 1 word
+    %chunk_word_21 = ptr.to_int %$cps_return_6
+    %chunk_last_22 = or i64 %chunk_word_21, 4095
+    %chunk_end_23 = add i64 %chunk_last_22, 1
+    %sp_limit_24 = ptr.from_int %chunk_end_23
+    %forward_28 = eq code %entry_20, null
+    br %forward_28, continue_slow_25, continue_chunk_26
+
+  continue_chunk_26:
+    %same_chunk_29 = eq ptr %sp_limit_24, %sp_limit_3
+    br %same_chunk_29, continue_enter_27, continue_slow_25
+
+  cold continue_slow_25:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, %result_16)
+
+  continue_enter_27:
+    tailcall.indirect %entry_20(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, null, %result_16) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: The left shift needs a result mask. The addition uses 32-bit operands and a 32-bit result.

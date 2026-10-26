@@ -33,7 +33,26 @@ expected: |
     %hp_19 = load ptr [%capability_10 + 16] align 1 word
     %hp_limit_20 = load ptr [%capability_10 + 24] align 1 word
     %foreign_root_21 = load ptr [%roots_8] align 8
+    %header_word_22 = load i64 [%foreign_root_21] align 8 region stack
+    %info_word_23 = and i64 %header_word_22, -4
+    %header_24 = ptr.from_int %info_word_23
+    %entry_25 = load.invariant code [%header_24 + 24] align 1 word
+    %chunk_word_26 = ptr.to_int %foreign_root_21
+    %chunk_last_27 = or i64 %chunk_word_26, 4095
+    %chunk_end_28 = add i64 %chunk_last_27, 1
+    %sp_limit_29 = ptr.from_int %chunk_end_28
+    %forward_33 = eq code %entry_25, null
+    br %forward_33, continue_slow_30, continue_chunk_31
+
+  continue_chunk_31:
+    %same_chunk_34 = eq ptr %sp_limit_29, %sp_limit_3
+    br %same_chunk_34, continue_enter_32, continue_slow_30
+
+  cold continue_slow_30:
     tailcall @aihc_lir_continue_i(%hp_19, %hp_limit_20, %sp_2, %sp_limit_3, %foreign_root_21, %result_18)
+
+  continue_enter_32:
+    tailcall.indirect %entry_25(%hp_19, %hp_limit_20, %foreign_root_21, %sp_limit_3, %foreign_root_21, null, %result_18) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: Apple ARM64 preserves narrow stack widths and extends narrow register arguments.

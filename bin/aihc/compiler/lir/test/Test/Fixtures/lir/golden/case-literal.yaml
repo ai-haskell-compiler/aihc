@@ -19,13 +19,70 @@ expected: |
     }
 
   alt_6:
+    %header_word_9 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_10 = and i64 %header_word_9, -4
+    %header_11 = ptr.from_int %info_word_10
+    %entry_12 = load.invariant code [%header_11 + 24] align 1 word
+    %chunk_word_13 = ptr.to_int %$cps_return_5
+    %chunk_last_14 = or i64 %chunk_word_13, 4095
+    %chunk_end_15 = add i64 %chunk_last_14, 1
+    %sp_limit_16 = ptr.from_int %chunk_end_15
+    %forward_20 = eq code %entry_12, null
+    br %forward_20, continue_slow_17, continue_chunk_18
+
+  continue_chunk_18:
+    %same_chunk_21 = eq ptr %sp_limit_16, %sp_limit_3
+    br %same_chunk_21, continue_enter_19, continue_slow_17
+
+  cold continue_slow_17:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 10)
 
+  continue_enter_19:
+    tailcall.indirect %entry_12(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 10) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_7:
+    %header_word_22 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_23 = and i64 %header_word_22, -4
+    %header_24 = ptr.from_int %info_word_23
+    %entry_25 = load.invariant code [%header_24 + 24] align 1 word
+    %chunk_word_26 = ptr.to_int %$cps_return_5
+    %chunk_last_27 = or i64 %chunk_word_26, 4095
+    %chunk_end_28 = add i64 %chunk_last_27, 1
+    %sp_limit_29 = ptr.from_int %chunk_end_28
+    %forward_33 = eq code %entry_25, null
+    br %forward_33, continue_slow_30, continue_chunk_31
+
+  continue_chunk_31:
+    %same_chunk_34 = eq ptr %sp_limit_29, %sp_limit_3
+    br %same_chunk_34, continue_enter_32, continue_slow_30
+
+  cold continue_slow_30:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 20)
 
+  continue_enter_32:
+    tailcall.indirect %entry_25(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 20) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_8:
+    %header_word_35 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_36 = and i64 %header_word_35, -4
+    %header_37 = ptr.from_int %info_word_36
+    %entry_38 = load.invariant code [%header_37 + 24] align 1 word
+    %chunk_word_39 = ptr.to_int %$cps_return_5
+    %chunk_last_40 = or i64 %chunk_word_39, 4095
+    %chunk_end_41 = add i64 %chunk_last_40, 1
+    %sp_limit_42 = ptr.from_int %chunk_end_41
+    %forward_46 = eq code %entry_38, null
+    br %forward_46, continue_slow_43, continue_chunk_44
+
+  continue_chunk_44:
+    %same_chunk_47 = eq ptr %sp_limit_42, %sp_limit_3
+    br %same_chunk_47, continue_enter_45, continue_slow_43
+
+  cold continue_slow_43:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 30)
+
+  continue_enter_45:
+    tailcall.indirect %entry_38(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 30) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: |

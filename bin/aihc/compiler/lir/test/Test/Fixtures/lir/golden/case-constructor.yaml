@@ -21,14 +21,56 @@ expected: |
     br %matches_12, alt_6, alt_7
 
   alt_6:
+    %header_word_13 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_14 = and i64 %header_word_13, -4
+    %header_15 = ptr.from_int %info_word_14
+    %entry_16 = load.invariant code [%header_15 + 24] align 1 word
+    %chunk_word_17 = ptr.to_int %$cps_return_5
+    %chunk_last_18 = or i64 %chunk_word_17, 4095
+    %chunk_end_19 = add i64 %chunk_last_18, 1
+    %sp_limit_20 = ptr.from_int %chunk_end_19
+    %forward_24 = eq code %entry_16, null
+    br %forward_24, continue_slow_21, continue_chunk_22
+
+  continue_chunk_22:
+    %same_chunk_25 = eq ptr %sp_limit_20, %sp_limit_3
+    br %same_chunk_25, continue_enter_23, continue_slow_21
+
+  cold continue_slow_21:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
 
+  continue_enter_23:
+    tailcall.indirect %entry_16(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 0) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_7:
-    %payload_13 = load i64 [%value_4 + 8] align 8 region heap
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_13)
+    %payload_26 = load i64 [%value_4 + 8] align 8 region heap
+    %header_word_27 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_28 = and i64 %header_word_27, -4
+    %header_29 = ptr.from_int %info_word_28
+    %entry_30 = load.invariant code [%header_29 + 24] align 1 word
+    %chunk_word_31 = ptr.to_int %$cps_return_5
+    %chunk_last_32 = or i64 %chunk_word_31, 4095
+    %chunk_end_33 = add i64 %chunk_last_32, 1
+    %sp_limit_34 = ptr.from_int %chunk_end_33
+    %forward_38 = eq code %entry_30, null
+    br %forward_38, continue_slow_35, continue_chunk_36
+
+  continue_chunk_36:
+    %same_chunk_39 = eq ptr %sp_limit_34, %sp_limit_3
+    br %same_chunk_39, continue_enter_37, continue_slow_35
+
+  cold continue_slow_35:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_26)
+
+  continue_enter_37:
+    tailcall.indirect %entry_30(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_26) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
 status: pass
 reason: |
   A case on a pointer with fewer than four constructor alternatives loads the

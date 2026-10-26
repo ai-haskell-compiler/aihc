@@ -35,7 +35,26 @@ expected: |
     store ptr @aihc_c_aihc_entry_Pair_0, [%hp_15] align 8 region heap
     store ptr %hp_11, [%hp_15 + 8] align 8 region heap
     store ptr %hp_13, [%hp_15 + 16] align 8 region heap
+    %header_word_17 = load i64 [%$cps_return$gc_10] align 8 region stack
+    %info_word_18 = and i64 %header_word_17, -4
+    %header_19 = ptr.from_int %info_word_18
+    %entry_20 = load.invariant code [%header_19 + 24] align 1 word
+    %chunk_word_21 = ptr.to_int %$cps_return$gc_10
+    %chunk_last_22 = or i64 %chunk_word_21, 4095
+    %chunk_end_23 = add i64 %chunk_last_22, 1
+    %sp_limit_24 = ptr.from_int %chunk_end_23
+    %forward_28 = eq code %entry_20, null
+    br %forward_28, continue_slow_25, continue_chunk_26
+
+  continue_chunk_26:
+    %same_chunk_29 = eq ptr %sp_limit_24, %sp_limit_3
+    br %same_chunk_29, continue_enter_27, continue_slow_25
+
+  cold continue_slow_25:
     tailcall @aihc_lir_continue_p(%hp_16, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_15)
+
+  continue_enter_27:
+    tailcall.indirect %entry_20(%hp_16, %hp_limit_12, %$cps_return$gc_10, %sp_limit_3, %$cps_return$gc_10, null, %hp_15) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -46,18 +65,18 @@ expected: |
 
   data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
-  func @aihc_lir_collect_replay_p(%hp_17: ptr, %hp_limit_18: ptr, %sp_19: ptr, %sp_limit_20: ptr, %value_21: ptr, %code_22: code, %words_23: i64, %srt_24: ptr) {
+  func @aihc_lir_collect_replay_p(%hp_30: ptr, %hp_limit_31: ptr, %sp_32: ptr, %sp_limit_33: ptr, %value_34: ptr, %code_35: code, %words_36: i64, %srt_37: ptr) {
   entry:
-    %roots_25 = stack.alloc 8 align 8
-    store ptr %value_21, [%roots_25] align 8
-    %capability_26 = load ptr [%sp_limit_20 - 4040] align 1 word
-    store ptr %hp_17, [%capability_26 + 16] align 1 word
-    store ptr %sp_19, [%capability_26 + 32] align 1 word
-    call @aihc_heap_collect(%capability_26, %words_23, 1, %roots_25, %srt_24)
-    %value_27 = load ptr [%roots_25] align 8
-    %hp_28 = load ptr [%capability_26 + 16] align 1 word
-    %hp_limit_29 = load ptr [%capability_26 + 24] align 1 word
-    tailcall.indirect %code_22(%hp_28, %hp_limit_29, %sp_19, %sp_limit_20, %value_27) : (ptr, ptr, ptr, ptr, ptr)
+    %roots_38 = stack.alloc 8 align 8
+    store ptr %value_34, [%roots_38] align 8
+    %capability_39 = load ptr [%sp_limit_33 - 4040] align 1 word
+    store ptr %hp_30, [%capability_39 + 16] align 1 word
+    store ptr %sp_32, [%capability_39 + 32] align 1 word
+    call @aihc_heap_collect(%capability_39, %words_36, 1, %roots_38, %srt_37)
+    %value_40 = load ptr [%roots_38] align 8
+    %hp_41 = load ptr [%capability_39 + 16] align 1 word
+    %hp_limit_42 = load ptr [%capability_39 + 24] align 1 word
+    tailcall.indirect %code_35(%hp_41, %hp_limit_42, %sp_32, %sp_limit_33, %value_40) : (ptr, ptr, ptr, ptr, ptr)
   }
 status: pass
 reason: |

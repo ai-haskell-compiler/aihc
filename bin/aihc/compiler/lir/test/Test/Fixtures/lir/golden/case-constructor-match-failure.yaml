@@ -24,7 +24,26 @@ expected: |
 
   alt_6:
     %payload_13 = load i64 [%value_4 + 8] align 8 region heap
+    %header_word_14 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_15 = and i64 %header_word_14, -4
+    %header_16 = ptr.from_int %info_word_15
+    %entry_17 = load.invariant code [%header_16 + 24] align 1 word
+    %chunk_word_18 = ptr.to_int %$cps_return_5
+    %chunk_last_19 = or i64 %chunk_word_18, 4095
+    %chunk_end_20 = add i64 %chunk_last_19, 1
+    %sp_limit_21 = ptr.from_int %chunk_end_20
+    %forward_25 = eq code %entry_17, null
+    br %forward_25, continue_slow_22, continue_chunk_23
+
+  continue_chunk_23:
+    %same_chunk_26 = eq ptr %sp_limit_21, %sp_limit_3
+    br %same_chunk_26, continue_enter_24, continue_slow_22
+
+  cold continue_slow_22:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_13)
+
+  continue_enter_24:
+    tailcall.indirect %entry_17(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_13) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
     call @aihc_no_match()
