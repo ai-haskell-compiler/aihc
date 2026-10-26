@@ -63,6 +63,7 @@ import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
@@ -1413,14 +1414,15 @@ amd64TailCall ctx callee convention parameterTypes arguments =
               OperandLiteral literal -> SourceLiteral ty literal
       stub <-
         case callee of
+          Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure Nothing
           Left _ -> pure Nothing
           Right _ -> Just <$> trapLabel "indirect call to a non-function"
       let targetLoad displacement =
-            case (callee, stub) of
-              (Right operand, Just label) ->
+            case callee of
+              Right operand ->
                 let (loads, register) = operandIn' ctx displacement Code scratchRight operand
-                 in loads <> move scratchRight register <> [testZero scratchRight, amd64Instruction (AmdJe label)]
-              _ -> []
+                 in loads <> move scratchRight register <> concat [[testZero scratchRight, amd64Instruction (AmdJe label)] | Just label <- [stub]]
+              Left _ -> []
       pure $
         if outgoing <= incoming
           then

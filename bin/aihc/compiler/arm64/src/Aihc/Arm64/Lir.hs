@@ -61,6 +61,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
@@ -583,7 +584,7 @@ conditionTest ctx fused condition =
       let (loads, register) = operandIn' ctx 0 I1 scratchLeft condition
        in (loads, TestNonZero register)
   where
-    isZero operand = operand == OperandLiteral (LitInt 0)
+    isZero operand = operand == OperandLiteral (LitInt 0) || operand == OperandLiteral LitNull
 
 -- | The dispatch of a branch table of @b@ instructions, four bytes each:
 -- subtract the value of the first slot, go to the no-match label above the
@@ -1293,14 +1294,15 @@ arm64TailCall ctx callee convention parameterTypes arguments =
               OperandLiteral literal -> SourceLiteral ty literal
       stub <-
         case callee of
+          Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure Nothing
           Left _ -> pure Nothing
           Right _ -> Just <$> trapLabel "indirect call to a non-function"
       let targetLoad displacement =
-            case (callee, stub) of
-              (Right operand, Just label) ->
+            case callee of
+              Right operand ->
                 let (loads, register) = operandIn' ctx displacement Code scratchTarget operand
-                 in loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget label)]
-              _ -> []
+                 in loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget label) | Just label <- [stub]]
+              Left _ -> []
       pure $
         if outgoing <= incoming
           then

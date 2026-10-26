@@ -262,7 +262,10 @@ data Ctx register = Ctx
     ctxIncomingOverflow :: Int,
     ctxReads :: !(Map Var Int),
     ctxRotations :: !(Map Var Int),
-    ctxFusions :: !(Map Var Fusion)
+    ctxFusions :: !(Map Var Fusion),
+    -- | The code values that the terminator of the current block knows are
+    -- not null. See 'nonNullCode'.
+    ctxNonNullCode :: !(Set Var)
   }
 
 -- | How instruction selection joins the instruction that defines a value
@@ -546,7 +549,7 @@ compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register
 compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
-    lowered = lowerWideDivision (isJust (nbQuotRemWide backend)) input
+    lowered = forwardCopies (lowerWideDivision (isJust (nbQuotRemWide backend)) input)
     (rotated, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
     (function, fusions) = selectFusions backend rotated
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
@@ -566,6 +569,7 @@ compileFunctionTo backend output signatures index input state =
           -- allocation numbers the instructions in the source order.
           firsts = scanl (+) 0 (map (length . blockInstructions) blocks)
           placed = layoutBlocks (zip blocks firsts)
+          nonNull = nonNullCode function
       forM_ (zip3 (True : repeat False) placed (map (Just . fst) (drop 1 placed) <> [Nothing])) $ \(entry, (block, first), next) -> do
         let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
             framed = hasBlockFrame ctx (blockLabel block)
@@ -574,8 +578,98 @@ compileFunctionTo backend output signatures index input state =
         forM_ (zip [first ..] instructions) $ \(number, instruction) ->
           native (coldCallSaves backend ctx number <$> compileInstruction backend ctx instruction) >>= emitStatements
         when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
-        native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
+        let terminatorCtx = ctx {ctxNonNullCode = Map.findWithDefault Set.empty (blockLabel block) nonNull}
+        native (compileTerminator backend terminatorCtx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
+
+-- | The code values that each block knows are not null. A value is known
+-- in a block when each path into the block takes the branch of a comparison
+-- of the value with null that excludes null. An indirect tail call of a known
+-- value needs no null check. The analysis meets the sets of the
+-- predecessors until no set changes. The entry block knows no value.
+nonNullCode :: Function -> Map Label (Set Var)
+nonNullCode function = Map.mapMaybe id (fixpoint (Map.fromList [(blockLabel block, Nothing) | block <- blocks]))
+  where
+    blocks = functionBlocks function
+    entryLabel = blockLabel <$> take 1 blocks
+    nullTests =
+      Map.fromList
+        [ (result, (op, tested))
+        | block <- blocks,
+          Instruction [result] (Compare op Code left right) <- blockInstructions block,
+          op == Eq || op == Ne,
+          Just tested <- [nullOperand left right]
+        ]
+    nullOperand left right = case (left, right) of
+      (OperandVar var, OperandLiteral LitNull) -> Just var
+      (OperandLiteral LitNull, OperandVar var) -> Just var
+      _ -> Nothing
+    edges terminator = case terminator of
+      Branch (OperandVar condition) whenTrue whenFalse
+        | Just (op, tested) <- Map.lookup condition nullTests,
+          targetLabel whenTrue /= targetLabel whenFalse ->
+            [ (targetLabel whenTrue, [tested | op == Ne]),
+              (targetLabel whenFalse, [tested | op == Eq])
+            ]
+      _ -> [(targetLabel target, []) | target <- terminatorTargets terminator]
+    predecessors =
+      Map.fromListWith
+        (<>)
+        [ (to, [(blockLabel block, Set.fromList proved)])
+        | block <- blocks,
+          (to, proved) <- edges (blockTerminator block)
+        ]
+    fixpoint known =
+      let next = Map.fromList [(blockLabel block, value known (blockLabel block)) | block <- blocks]
+       in if next == known then known else fixpoint next
+    value known label
+      | [label] == entryLabel = Just Set.empty
+      | otherwise =
+          case [Set.union proved set | (from, proved) <- Map.findWithDefault [] label predecessors, Just set <- [Map.findWithDefault Nothing from known]] of
+            [] -> Nothing
+            sets -> Just (foldr1 Set.intersection sets)
+
+-- | Read the source of a copy where the program reads the copy, and drop
+-- the copy. A copy is a conversion between a pointer and an integer, or a
+-- pointer addition of zero. On a native target a pointer and an integer are
+-- the same register, so the copy is a move. The register allocator cannot
+-- give the copy the register of its source when the source stays live, and
+-- then it emits the move. The function is in static single assignment form,
+-- so the source is defined at each read of the copy.
+forwardCopies :: Function -> Function
+forwardCopies function
+  | Map.null copies = function
+  | otherwise =
+      function
+        { functionBlocks =
+            [ block
+                { blockInstructions =
+                    [ Instruction results (mapOperation operand operation)
+                    | Instruction results operation <- blockInstructions block,
+                      not (any (`Map.member` copies) results)
+                    ],
+                  blockTerminator = mapTerminator operand id Return (blockTerminator block)
+                }
+            | block <- functionBlocks function
+            ]
+        }
+  where
+    copies =
+      Map.fromList
+        [ (result, source)
+        | block <- functionBlocks function,
+          Instruction [result] operation <- blockInstructions block,
+          Just source <- [copySource operation]
+        ]
+    copySource operation = case operation of
+      PtrToInt (OperandVar source) -> Just source
+      PtrFromInt (OperandVar source) -> Just source
+      PtrAdd (OperandVar source) (OperandLiteral (LitInt 0)) -> Just source
+      _ -> Nothing
+    resolve var = maybe var resolve (Map.lookup var copies)
+    operand value = case value of
+      OperandVar var -> OperandVar (resolve var)
+      _ -> value
 
 -- | Put the blocks in the order of emission: the entry block, then the
 -- other blocks that are not cold, then the cold blocks. Each group keeps the
@@ -615,7 +709,8 @@ prepareFunction backend signatures index function = do
               CConvention -> 0,
             ctxReads = readCounts function,
             ctxRotations = Map.empty,
-            ctxFusions = Map.empty
+            ctxFusions = Map.empty,
+            ctxNonNullCode = Set.empty
           }
   prologue <- functionPrologue backend ctx
   pure

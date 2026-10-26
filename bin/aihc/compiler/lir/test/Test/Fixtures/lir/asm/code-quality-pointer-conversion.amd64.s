@@ -1,7 +1,6 @@
 	.text
 	.p2align 4
 enter:
-	lea r14, [rdi]
 	mov r9, rdi
 	or r9, 0xfff
 	lea r15, [r9 + 1]
@@ -10,6 +9,7 @@ enter:
 	mov r10, r9
 	test r10, r10
 	je .Llir_trap_0
+	mov r14, rdi
 	mov rdx, rsi
 	xor esi, esi
 	jmp r10

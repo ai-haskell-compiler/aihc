@@ -1,14 +1,13 @@
 	.text
 	.p2align 2
 _enter:
-	add x22, x0, #0
-	mov x8, x0
-	orr x8, x8, #0xfff
+	orr x8, x0, #0xfff
 	add x23, x8, #1
 	ldr x8, [x0]
 	ldr x8, [x8, #24]
 	mov x14, x8
 	cbz x14, .Llir_trap_0_0
+	mov x22, x0
 	mov x2, x1
 	mov x1, xzr
 	br x14
