@@ -352,7 +352,7 @@ or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `identity` | `ptr` | The saturated constructor table of a constructor. A case with few constructor alternatives compares this field. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
+| `identity` | `ptr` | The saturated constructor table of a constructor. A partial constructor names the saturated table here. A case with few constructor alternatives compares the table address in the header, which is the saturated table for every constructor a case can see. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |

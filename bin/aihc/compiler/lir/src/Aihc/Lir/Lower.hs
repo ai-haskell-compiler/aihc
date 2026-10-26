@@ -3938,8 +3938,10 @@ compileCase ctx env scrutinee binder alternatives = do
               index <- loadInfoConstructorIndex (typedOperand header)
               terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
             else do
-              header <- loadObjectInfo HeapRegion (typedOperand typed)
-              identity <- loadInfoPointer "identity" (typedOperand header) 0
+              -- The header of a saturated constructor names its saturated
+              -- table, and a case only sees saturated constructors, so the
+              -- table address itself is the identity.
+              identity <- loadObjectInfo HeapRegion (typedOperand typed)
               checks <- forM constructors $ \(name, _, label) -> do
                 let symbol = constructorInfoSymbol name 0
                 unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
@@ -4000,9 +4002,9 @@ bindCaseAlternative alternative typed env' =
 
 -- | A case with this many constructor alternatives or more selects its
 -- alternative from the constructor index of the info table. A case with
--- fewer compares the identity of the info table with each constructor.
--- An identity compare loads the address of the constructor table, and the
--- index load is one load for the full case.
+-- fewer compares the table address in the header with each constructor.
+-- That compare needs no load of the table, and the index load is one load
+-- for the full case.
 constructorSwitchThreshold :: Int
 constructorSwitchThreshold = 4
 
