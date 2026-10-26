@@ -874,7 +874,9 @@ relaxBranches object section = do
                   advance index current
                     | index < count = do
                         start <- MU.unsafeRead starts index
-                        if start < offset
+                        -- An alignment can gain padding at this offset.
+                        -- The relocation follows that padding, like its label.
+                        if start <= offset
                           then MU.unsafeRead shifts index >>= advance (index + 1)
                           else pure (index, current)
                     | otherwise = pure (index, current)

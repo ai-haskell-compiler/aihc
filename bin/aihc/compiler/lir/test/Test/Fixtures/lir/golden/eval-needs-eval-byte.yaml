@@ -89,21 +89,25 @@ expected: |
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_19, %hp_limit_20, %sp_21, %sp_limit_22, %$cps_return_24, %current_28)
 
   eval_slow_27:
-    %kind_52 = load.invariant i8 [%header_31 + 43] align 1
-    %kind_53 = zext i8 %kind_52 to i64
-    %tag_54 = and i64 %header_word_29, 3
-    %thunk_55 = eq i64 %kind_53, 2
-    %unclaimed_56 = eq i64 %tag_54, 0
-    %plain_57 = and i1 %thunk_55, %unclaimed_56
-    %sp_58 = ptr.add %sp_21, 40
-    %stack_fits_59 = le.u ptr %sp_58, %sp_limit_22
-    %enter_60 = and i1 %plain_57, %stack_fits_59
-    br %enter_60, force_enter_61, force_helper_62
+    %tag_56 = and i64 %header_word_29, 1
+    %unclaimed_57 = eq i64 %tag_56, 0
+    br %unclaimed_57, force_thunk_52, force_helper_55
 
-  cold force_helper_62:
+  force_thunk_52:
+    %kind_58 = load.invariant i8 [%header_31 + 43] align 1
+    %kind_59 = zext i8 %kind_58 to i64
+    %thunk_60 = eq i64 %kind_59, 2
+    br %thunk_60, force_stack_53, force_helper_55
+
+  force_stack_53:
+    %sp_61 = ptr.add %sp_21, 40
+    %stack_fits_62 = le.u ptr %sp_61, %sp_limit_22
+    br %stack_fits_62, force_enter_54, force_helper_55
+
+  cold force_helper_55:
     tailcall @aihc_lir_force_p(%hp_19, %hp_limit_20, %sp_21, %sp_limit_22, %current_28, @aihc_lir_info_0, %$cps_return_24)
 
-  force_enter_61:
+  force_enter_54:
     store ptr @aihc_lir_info_0, [%sp_21] align 8 region stack
     store ptr %$cps_return_24, [%sp_21 + 8] align 8 region stack
     %update_63 = ptr.add %sp_21, 16
@@ -111,7 +115,7 @@ expected: |
     store ptr %sp_21, [%update_63 + 8] align 8 region stack
     store ptr %current_28, [%update_63 + 16] align 8 region stack
     %entry_64 = load.invariant code [%header_31 + 24] align 1 word
-    tailcall.indirect %entry_64(%hp_19, %hp_limit_20, %sp_58, %sp_limit_22, %current_28, %update_63) : (ptr, ptr, ptr, ptr, ptr, ptr)
+    tailcall.indirect %entry_64(%hp_19, %hp_limit_20, %sp_61, %sp_limit_22, %current_28, %update_63) : (ptr, ptr, ptr, ptr, ptr, ptr)
   }
 
   func @aihc_f_aihc_entry___sentry__ucont(%hp_65: ptr, %hp_limit_66: ptr, %sp_67: ptr, %sp_limit_68: ptr, %$cps_return_69: ptr, %ready_70: ptr) {

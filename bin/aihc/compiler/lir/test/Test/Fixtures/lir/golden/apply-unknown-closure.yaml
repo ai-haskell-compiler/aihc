@@ -1,0 +1,33 @@
+program: |
+  $entry (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+expected: |
+  extern func @aihc_lir_apply_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %f_4: ptr, %x_5: ptr, %$cps_return_6: ptr) {
+  entry:
+    %header_word_7 = load i64 [%f_4] align 8
+    %info_word_8 = and i64 %header_word_7, -4
+    %header_9 = ptr.from_int %info_word_8
+    %kind_10 = load.invariant i8 [%header_9 + 43] align 1
+    %kind_11 = zext i8 %kind_10 to i64
+    %arity_12 = load.invariant i8 [%header_9 + 41] align 1
+    %arity_13 = zext i8 %arity_12 to i64
+    %closure_14 = eq i64 %kind_11, 1
+    %saturated_15 = eq i64 %arity_13, 1
+    %fast_16 = and i1 %closure_14, %saturated_15
+    br %fast_16, apply_enter_17, apply_helper_18
+
+  cold apply_helper_18:
+    tailcall @aihc_lir_apply_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %f_4, %$cps_return_6, %x_5)
+
+  apply_enter_17:
+    %entry_19 = load.invariant code [%header_9 + 24] align 1 word
+    tailcall.indirect %entry_19(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %f_4, %$cps_return_6, %x_5) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  }
+status: pass
+reason: |
+  An application of an unknown function to one group tests the info table of
+  the function. A closure that takes exactly one group is entered at the call
+  site with one indirect call. Any other function goes to the shared apply
+  helper in a cold block.

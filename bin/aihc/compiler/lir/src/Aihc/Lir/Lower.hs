@@ -1844,8 +1844,29 @@ compileExpr ctx env expression =
       continuationOperand <- pointerValue ctx env continuation
       values <- mapM (mapM (materialize ctx env)) groups
       apply <- requireHelper (HelperApply (map (map typedType) values))
-      running <- runningArguments
-      terminate (TailCall apply (running <> (functionOperand : continuationOperand : map typedOperand (concat values))))
+      context <- currentContext
+      -- A closure that takes exactly these groups is entered here, with one
+      -- indirect call, so the call site has its own branch history. Any
+      -- other function goes to the apply helper of the shape.
+      header <- loadObjectInfo AnyRegion functionOperand
+      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+      arity <- loadInfoByte "arity" (typedOperand header) infoRemainingArityByte
+      closure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
+      saturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt (toInteger (length groups)))))
+      fast <- emitValue "fast" I1 (Binary And I1 (typedOperand closure) (typedOperand saturated))
+      enterLabel <- freshLabel "apply_enter"
+      helperLabel <- freshLabel "apply_helper"
+      terminate (Branch (typedOperand fast) (Target enterLabel []) (Target helperLabel []))
+      beginColdBlock helperLabel []
+      terminate (TailCall apply (contextOperands context <> (functionOperand : continuationOperand : map typedOperand (concat values))))
+      beginBlock enterLabel []
+      entry <- loadInfoCode "entry" (typedOperand header) infoBackendEntryIndex
+      terminate
+        ( TailCallIndirect
+            (typedOperand entry)
+            (contextOperands context <> (functionOperand : continuationOperand : map typedOperand (concat values)))
+            (Signature (contextTypes <> (Ptr : Ptr : map typedType (concat values))) [] AihcConvention)
+        )
     GrinContinue continuation values -> do
       continuationOperand <- pointerValue ctx env continuation
       typedValues <- mapM (materialize ctx env) values
@@ -1995,17 +2016,23 @@ compileForce ctx env var update node ready =
           EvalUpdate -> 3
           EvalSingleEntry -> 0
         stack = contextStack context
-    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
-    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
-    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
-    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
-    plain <- emitValue "plain" I1 (Binary And I1 (typedOperand isThunk) (typedOperand unclaimed))
-    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
-    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
-    enter <- emitValue "enter" I1 (Binary And I1 (typedOperand plain) (typedOperand fits))
+    thunkLabel <- freshLabel "force_thunk"
+    stackLabel <- freshLabel "force_stack"
     enterLabel <- freshLabel "force_enter"
     helperLabel <- freshLabel "force_helper"
-    terminate (Branch (typedOperand enter) (Target enterLabel []) (Target helperLabel []))
+    -- A heap forwarding header has bit one alone, but no mutator sees it.
+    -- Both claim states set bit zero. The object-kind check follows this test.
+    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 1)))
+    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
+    terminate (Branch (typedOperand unclaimed) (Target thunkLabel []) (Target helperLabel []))
+    beginBlock thunkLabel []
+    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
+    terminate (Branch (typedOperand isThunk) (Target stackLabel []) (Target helperLabel []))
+    beginBlock stackLabel []
+    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
+    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
+    terminate (Branch (typedOperand fits) (Target enterLabel []) (Target helperLabel []))
     beginColdBlock helperLabel []
     terminate (TailCall helper (contextOperands context <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
     beginBlock enterLabel []
