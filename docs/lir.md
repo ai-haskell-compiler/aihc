@@ -386,6 +386,10 @@ This change requires one closure shape and no direct callers.
 The stored and supplied types must match the original parameters.
 The shape must have at least one argument group and must not exceed `grinApplyGroupLimit`.
 Forward frames and externally exposed functions keep their existing entries.
+A thunk can also use its body as the `backend_entry`, when the body has no direct caller and no GC reservation.
+The body accepts the thunk and the continuation, and loads the free variables after the owner word.
+A thunk body with a reservation keeps its stub: a replay could not load the free variables again, because another capability can update the thunk in the meantime, and the collector does not scan the free variables of an evaluated thunk.
+
 A body with a GC reservation replays through its frame.
 The entry popped the frame, so the slow path of the reservation first moves the stack pointer back above the frame.
 It passes the frame as a root, so the collector relocates the slots of the frame.
