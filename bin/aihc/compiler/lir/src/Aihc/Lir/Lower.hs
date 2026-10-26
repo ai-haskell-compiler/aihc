@@ -2793,6 +2793,19 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           flag <- emitValue "flag" I1 (Compare op ty leftOperand rightOperand)
           result <- widen flag
           bind [result]
+    ("compareByteArrays#", [left, leftOffset, right, rightOffset, count])
+      | not checkPrimBounds -> do
+          leftArray <- pointerValue ctx env left
+          rightArray <- pointerValue ctx env right
+          leftContents <- loadSlot HeapRegion "left_contents" Ptr leftArray byteArrayContentsOffset
+          rightContents <- loadSlot HeapRegion "right_contents" Ptr rightArray byteArrayContentsOffset
+          leftIndex <- word leftOffset
+          rightIndex <- word rightOffset
+          leftBytes <- emitValue "left_bytes" Ptr (PtrAdd (typedOperand leftContents) leftIndex)
+          rightBytes <- emitValue "right_bytes" Ptr (PtrAdd (typedOperand rightContents) rightIndex)
+          lengthOperand <- word count
+          result <- callRuntime "aihc_memory_compare" [Ptr, Ptr, I64] [I64] [typedOperand leftBytes, typedOperand rightBytes, lengthOperand]
+          bind [Typed result I64]
     ("compareInt#", [left, right]) -> do
       leftOperand <- word left
       rightOperand <- word right
