@@ -284,7 +284,7 @@ arityType env expr =
     ExRec binds body ->
       floatIn
         (List.foldl' addCost IsCheap (map (exprCost env . bindRhs) binds))
-        (arityType (List.foldl' shadow env (map (binderName . bindBinder) binds)) body)
+        (arityType (recSigs env binds) body)
     ExCase scrutinee binder (NE.toList -> alternatives) ->
       case alternatives of
         [] -> topArityType
@@ -342,6 +342,9 @@ isCheap env expr =
     ExLet bind body ->
       isCheap env (bindRhs bind)
         && isCheap (extendSig env (binderName (bindBinder bind)) (arityType env (bindRhs bind))) body
+    ExRec binds body ->
+      let inner = recSigs env binds
+       in all (isCheap inner . bindRhs) binds && isCheap inner body
     ExCase scrutinee binder (NE.toList -> alternatives) ->
       isCheap env scrutinee && all cheapAlternative alternatives
       where
@@ -364,6 +367,22 @@ collectSpine = go []
         ExApp function argument -> go (Right argument : arguments) function
         ExTyApp function argument -> go (Left argument : arguments) function
         _ -> (expr, arguments)
+
+-- | The environment inside a recursive group. Each binding is taken at the
+-- arity its lambdas already show, as a top-level group is in
+-- 'valueSignatures'. That is always sound, and it lets a body such as
+--
+-- > lookup k = rec { look = λm. ... } in look
+--
+-- show the lambda of @look@, so that @lookup@ expands to two arguments.
+recSigs :: Env -> [Bind] -> Env
+recSigs env binds =
+  List.foldl'
+    (\current bind -> extendSig current (binderName (bindBinder bind)) (manifestArityType inner (bindRhs bind)))
+    inner
+    binds
+  where
+    inner = List.foldl' shadow env (map (binderName . bindBinder) binds)
 
 -- | The lambdas a body already has at the top, through type lambdas and
 -- casts. This is what an expansion has to beat.
