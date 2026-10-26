@@ -382,12 +382,14 @@ The body accepts the frame, an unused continuation parameter, and the supplied v
 It loads the stored fields from the frame before it executes the original body.
 This removes the entry stub without a second copy of the body.
 
-This change requires one closure shape, no direct callers, and no GC reservations in the body.
+This change requires one closure shape and no direct callers.
 The stored and supplied types must match the original parameters.
 The shape must have at least one argument group and must not exceed `grinApplyGroupLimit`.
 Forward frames and externally exposed functions keep their existing entries.
-A body with a GC reservation keeps its original ABI for GC replay.
-After collection, a popped frame cannot supply relocated fields for that replay.
+A body with a GC reservation replays through its frame.
+The entry popped the frame, so the slow path of the reservation first moves the stack pointer back above the frame.
+It passes the frame as a root, so the collector relocates the slots of the frame.
+Then the body runs again from its entry and loads the relocated fields.
 
 A frame with `AIHC_FRAME_FORWARD` has the ordinary closure object kind.
 Its first field holds its parent, and its pointer bitmap describes all captured values.
