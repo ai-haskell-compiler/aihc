@@ -173,6 +173,10 @@ rejects the three shapes the splice cannot serve:
 An inline function may call other inline functions, and a `stack.alloc` in its
 body allocates in the frame of each caller it is spliced into.
 
+A return of a constant jumps to the block after the call with that constant.
+When that block only branches on the result, the jump goes straight to the
+destination of the branch, so the constant needs no register and no test.
+
 ```text
 inline func @info_table(%object: ptr) -> ptr {
 entry:
@@ -906,6 +910,8 @@ The lowering keeps the control model of CPS-GRIN:
   Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
   The update frame has its own backend entry, `aihc_lir_cps_update_entry`, which reads the two fields of the frame.
+  When the thunk is young and no pause claimed it, and the result is a value, the entry does the update and returns to the parent continuation itself.
+  Every other case goes to `aihc_lir_cps_update`.
   A young thunk that no pause claimed gets the update with two stores in Lir: the result into field zero, and bit zero into the header.
   Every other thunk goes to the C function `aihc_update_blackhole`, which also wakes the waiters of its queue.
   A result that is a value goes directly to the parent continuation, and another result goes to `aihc_lir_eval`.

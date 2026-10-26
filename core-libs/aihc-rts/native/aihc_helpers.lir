@@ -840,6 +840,46 @@ entry:
   %outer = ptr.from_int %outer_word
   %blackhole_word = load i64 [%frame + 16] align 8
   %blackhole = ptr.from_int %blackhole_word
+  %header_word = call @aihc_object_header_word(%blackhole)
+  %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
+  %unclaimed = eq i64 %tag, 0
+  br %unclaimed, young_check, shared
+
+; The usual update: a young thunk that no pause claimed, and a result that
+; is a value. The update and the return to the parent continuation happen
+; here, as @aihc_lir_cps_update and @aihc_lir_continue_p do them. Any other
+; case goes to @aihc_lir_cps_update.
+young_check:
+  %capability = call @aihc_stack_capability(%sp_limit)
+  %young = call @aihc_object_is_young(%capability, %blackhole)
+  br %young, ready_check, shared
+
+ready_check:
+  %ready = call @aihc_result_ready(%result)
+  br %ready, update, shared
+
+update:
+  %result_word = ptr.to_int %result
+  store.atomic release i64 %result_word, [%blackhole + 8]
+  %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
+  store.atomic release i64 %evaluated_word, [%blackhole]
+  %outer_header = call @aihc_info_table(%outer)
+  %entry = call @aihc_info_entry(%outer_header)
+  %forward = eq code %entry, null
+  br %forward, continue, chunk
+
+chunk:
+  %entered_limit = call @aihc_stack_chunk_end(%outer)
+  %same_chunk = eq ptr %entered_limit, %sp_limit
+  br %same_chunk, enter, continue
+
+enter:
+  tailcall.indirect %entry(%hp, %hp_limit, %outer, %sp_limit, %outer, null, %result) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+
+cold continue:
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %outer, %result)
+
+cold shared:
   tailcall @aihc_lir_cps_update(%hp, %hp_limit, %sp, %sp_limit, %outer, %blackhole, %result)
 }
 
