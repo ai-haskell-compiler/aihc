@@ -48,7 +48,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, %result_16)
 
   continue_enter_27:
-    tailcall.indirect %entry_20(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, null, %result_16) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_20(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, %result_16) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: The left shift needs a result mask. The addition uses 32-bit operands and a 32-bit result.

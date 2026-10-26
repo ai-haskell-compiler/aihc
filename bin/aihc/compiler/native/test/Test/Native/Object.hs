@@ -136,7 +136,20 @@ bitBranches =
       check "the first larger forward displacement uses two instructions" False False Arm64.X0 0 32764 [0x37000040, 0x14002000],
       check "the smallest backward displacement uses one instruction" True False Arm64.X0 0 32768 [0x36040000],
       check "a smaller backward displacement uses two instructions" True False Arm64.X0 0 32772 [0x37000040, 0x17ffdffe],
-      check "bit 63 and nonzero polarity survive relaxation" False True Arm64.X3 63 0 [0xb7f80023]
+      check "bit 63 and nonzero polarity survive relaxation" False True Arm64.X3 63 0 [0xb7f80023],
+      testCase "a relocation follows new alignment padding" $ do
+        let target = Arm64.LocalName 0 "aligned"
+        bytes <-
+          assembled . Arm64.assembleMachO $
+            [ Arm64.arm64Section Arm64.TextSection,
+              Arm64.arm64Instruction (Arm64.ArmTbz False Arm64.X0 0 target),
+              Arm64.arm64Align 3,
+              Arm64.Arm64Label target,
+              Arm64.arm64QuadSymbol undefinedName
+            ]
+        -- The short branch needs four padding bytes before the pointer.
+        -- Its only relocation must name byte eight of the text section.
+        assertBool "the relocation did not move past the padding" (wordsBytes [8, 0x0e000000] `BS.isInfixOf` bytes)
     ]
   where
     check name backward nonzero register bit count expected = testCase name $ do

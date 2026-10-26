@@ -51,7 +51,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
 
   continue_enter_25:
-    tailcall.indirect %entry_18(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 0) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_18(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, 0) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
     %header_word_28 = load i64 [%$cps_return_5] align 8 region stack
@@ -73,7 +73,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 1)
 
   continue_enter_38:
-    tailcall.indirect %entry_31(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 1) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_31(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, 1) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_8:
     %header_word_41 = load i64 [%$cps_return_5] align 8 region stack
@@ -95,7 +95,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 2)
 
   continue_enter_51:
-    tailcall.indirect %entry_44(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 2) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_44(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, 2) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_9:
     %payload_54 = load i64 [%value_4 + 8] align 8 region heap
@@ -118,7 +118,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_54)
 
   continue_enter_65:
-    tailcall.indirect %entry_58(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_54) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_58(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_54) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: |

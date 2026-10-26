@@ -254,7 +254,7 @@ runPass primPackage roots pass program =
               }
           )
     PassEtaExpand ->
-      let (expanded, report) = etaExpandProgram primPackage program
+      let (expanded, report) = etaExpandProgram primPackage roots program
        in ( expanded,
             PassReport
               { reportPass = passName pass,
