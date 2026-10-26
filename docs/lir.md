@@ -385,7 +385,7 @@ The return dispatcher remains shared.
 
 This change requires one closure shape, no direct callers, and no GC reservations in the body.
 The stored and supplied types must match the original parameters.
-The shape must have one to four argument groups.
+The shape must have at least one argument group and must not exceed `grinApplyGroupLimit`.
 Forward frames and externally exposed functions keep their existing entries.
 A body with a GC reservation keeps its original ABI for GC replay.
 After collection, a popped frame cannot supply relocated fields for that replay.
