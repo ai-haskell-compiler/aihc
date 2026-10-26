@@ -1,0 +1,28 @@
+; The entry of a continuation, as a return does it. The return tests the
+; entry against null and goes to a helper when it is null. Thus each path to
+; the indirect tail call excludes null, also the path through the block that
+; enters a lower chunk. The tail call must not test the entry again.
+extern func @forward(ptr, ptr, ptr, ptr, ptr, ptr)
+extern func @enter_chunk(ptr) cc c
+
+func @return(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %value: ptr) {
+entry:
+  %header = load ptr [%frame] align 8
+  %code = load code [%header + 24] align 8
+  %missing = eq code %code, null
+  br %missing, slow, check
+
+check:
+  %same = eq ptr %frame, %sp_limit
+  br %same, enter, chunk
+
+chunk:
+  call @enter_chunk(%frame)
+  jump enter
+
+enter:
+  tailcall.indirect %code(%hp, %hp_limit, %frame, %sp_limit, %frame, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+
+slow:
+  tailcall @forward(%hp, %hp_limit, %sp, %sp_limit, %frame, %value)
+}
