@@ -381,7 +381,6 @@ A continuation can use its body as the `backend_entry` directly.
 The body accepts the frame, an unused continuation parameter, and the supplied values.
 It loads the stored fields from the frame before it executes the original body.
 This removes the entry stub without a second copy of the body.
-The return dispatcher remains shared.
 
 This change requires one closure shape, no direct callers, and no GC reservations in the body.
 The stored and supplied types must match the original parameters.
@@ -881,6 +880,15 @@ The lowering keeps the control model of CPS-GRIN:
   it. When the new `%sp_limit` differs from the old one, the frame is in a
   lower chunk, and a cold call to `aihc_stack_enter_chunk` makes that chunk
   young again for the collector.
+- Compiled code returns to a continuation inline. The return loads the
+  `backend_entry` of the frame and compares the end of the chunk of the
+  frame with `%sp_limit`. When the entry is not null and the chunk is the
+  same, the return makes the frame `%sp` and tail-calls the entry with one
+  indirect call. Thus each return site has its own branch history. A forward
+  frame, or a frame in a lower chunk, goes to the continue helper in a cold
+  block. Each continuation frame has an enter stub of its own, which calls
+  the code of the frame directly. A return thus does one indirect call, and
+  not a second one through the `identity` field of a shared enter function.
 - `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
   It does no allocation or suspension.
   A zero byte sends the object to its ready branch.
@@ -1005,7 +1013,8 @@ The units are:
 - `aihc_enter.lir` defines the shared enter functions `aihc_lir_enter_S_V`
   and `aihc_lir_enter_S_V_k` for `S` stored pointers up to eight and `V`
   supplied pointers up to four; the `_k` form passes the continuation to the
-  code. See "Info tables".
+  code. A continuation frame does not use them: it has an enter stub of its
+  own. See "Info tables".
 - `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
   and the bulk operations: copy, clone, shrink, and resize. The lowering
   emits the rest of the boxed-array primitives inline: the identity test is

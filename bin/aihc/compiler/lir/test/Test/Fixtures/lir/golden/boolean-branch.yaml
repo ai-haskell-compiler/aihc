@@ -17,10 +17,48 @@ expected: |
     br %flag_7, alt_9, alt_10
 
   alt_9:
+    %header_word_11 = load i64 [%$cps_return_6] align 8 region stack
+    %info_word_12 = and i64 %header_word_11, -4
+    %header_13 = ptr.from_int %info_word_12
+    %entry_14 = load.invariant code [%header_13 + 24] align 1 word
+    %chunk_word_15 = ptr.to_int %$cps_return_6
+    %chunk_last_16 = or i64 %chunk_word_15, 4095
+    %chunk_end_17 = add i64 %chunk_last_16, 1
+    %sp_limit_18 = ptr.from_int %chunk_end_17
+    %forward_22 = eq code %entry_14, null
+    br %forward_22, continue_slow_19, continue_chunk_20
+
+  continue_chunk_20:
+    %same_chunk_23 = eq ptr %sp_limit_18, %sp_limit_3
+    br %same_chunk_23, continue_enter_21, continue_slow_19
+
+  cold continue_slow_19:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, 11)
 
+  continue_enter_21:
+    tailcall.indirect %entry_14(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, null, 11) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_10:
+    %header_word_24 = load i64 [%$cps_return_6] align 8 region stack
+    %info_word_25 = and i64 %header_word_24, -4
+    %header_26 = ptr.from_int %info_word_25
+    %entry_27 = load.invariant code [%header_26 + 24] align 1 word
+    %chunk_word_28 = ptr.to_int %$cps_return_6
+    %chunk_last_29 = or i64 %chunk_word_28, 4095
+    %chunk_end_30 = add i64 %chunk_last_29, 1
+    %sp_limit_31 = ptr.from_int %chunk_end_30
+    %forward_35 = eq code %entry_27, null
+    br %forward_35, continue_slow_32, continue_chunk_33
+
+  continue_chunk_33:
+    %same_chunk_36 = eq ptr %sp_limit_31, %sp_limit_3
+    br %same_chunk_36, continue_enter_34, continue_slow_32
+
+  cold continue_slow_32:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, 22)
+
+  continue_enter_34:
+    tailcall.indirect %entry_27(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, null, 22) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: A Boolean comparison must reach its destinations without an integer switch.

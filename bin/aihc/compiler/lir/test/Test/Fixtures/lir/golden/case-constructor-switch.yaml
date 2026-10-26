@@ -32,17 +32,93 @@ expected: |
     }
 
   alt_6:
+    %header_word_15 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_16 = and i64 %header_word_15, -4
+    %header_17 = ptr.from_int %info_word_16
+    %entry_18 = load.invariant code [%header_17 + 24] align 1 word
+    %chunk_word_19 = ptr.to_int %$cps_return_5
+    %chunk_last_20 = or i64 %chunk_word_19, 4095
+    %chunk_end_21 = add i64 %chunk_last_20, 1
+    %sp_limit_22 = ptr.from_int %chunk_end_21
+    %forward_26 = eq code %entry_18, null
+    br %forward_26, continue_slow_23, continue_chunk_24
+
+  continue_chunk_24:
+    %same_chunk_27 = eq ptr %sp_limit_22, %sp_limit_3
+    br %same_chunk_27, continue_enter_25, continue_slow_23
+
+  cold continue_slow_23:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
 
+  continue_enter_25:
+    tailcall.indirect %entry_18(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 0) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_7:
+    %header_word_28 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_29 = and i64 %header_word_28, -4
+    %header_30 = ptr.from_int %info_word_29
+    %entry_31 = load.invariant code [%header_30 + 24] align 1 word
+    %chunk_word_32 = ptr.to_int %$cps_return_5
+    %chunk_last_33 = or i64 %chunk_word_32, 4095
+    %chunk_end_34 = add i64 %chunk_last_33, 1
+    %sp_limit_35 = ptr.from_int %chunk_end_34
+    %forward_39 = eq code %entry_31, null
+    br %forward_39, continue_slow_36, continue_chunk_37
+
+  continue_chunk_37:
+    %same_chunk_40 = eq ptr %sp_limit_35, %sp_limit_3
+    br %same_chunk_40, continue_enter_38, continue_slow_36
+
+  cold continue_slow_36:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 1)
 
+  continue_enter_38:
+    tailcall.indirect %entry_31(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 1) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_8:
+    %header_word_41 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_42 = and i64 %header_word_41, -4
+    %header_43 = ptr.from_int %info_word_42
+    %entry_44 = load.invariant code [%header_43 + 24] align 1 word
+    %chunk_word_45 = ptr.to_int %$cps_return_5
+    %chunk_last_46 = or i64 %chunk_word_45, 4095
+    %chunk_end_47 = add i64 %chunk_last_46, 1
+    %sp_limit_48 = ptr.from_int %chunk_end_47
+    %forward_52 = eq code %entry_44, null
+    br %forward_52, continue_slow_49, continue_chunk_50
+
+  continue_chunk_50:
+    %same_chunk_53 = eq ptr %sp_limit_48, %sp_limit_3
+    br %same_chunk_53, continue_enter_51, continue_slow_49
+
+  cold continue_slow_49:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 2)
 
+  continue_enter_51:
+    tailcall.indirect %entry_44(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 2) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+
   alt_9:
-    %payload_15 = load i64 [%value_4 + 8] align 8 region heap
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_15)
+    %payload_54 = load i64 [%value_4 + 8] align 8 region heap
+    %header_word_55 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_56 = and i64 %header_word_55, -4
+    %header_57 = ptr.from_int %info_word_56
+    %entry_58 = load.invariant code [%header_57 + 24] align 1 word
+    %chunk_word_59 = ptr.to_int %$cps_return_5
+    %chunk_last_60 = or i64 %chunk_word_59, 4095
+    %chunk_end_61 = add i64 %chunk_last_60, 1
+    %sp_limit_62 = ptr.from_int %chunk_end_61
+    %forward_66 = eq code %entry_58, null
+    br %forward_66, continue_slow_63, continue_chunk_64
+
+  continue_chunk_64:
+    %same_chunk_67 = eq ptr %sp_limit_62, %sp_limit_3
+    br %same_chunk_67, continue_enter_65, continue_slow_63
+
+  cold continue_slow_63:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_54)
+
+  continue_enter_65:
+    tailcall.indirect %entry_58(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_54) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: |

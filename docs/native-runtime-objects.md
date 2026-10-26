@@ -452,8 +452,9 @@ generations, so no chunk may be younger than a chunk above it: when a chunk
 takes a low age, the chunks above it take that age as well.
 
 A chunk becomes young again when the stack pointer enters it from above.
-The continue helpers compare the stack limit of the entered frame with the
-previous one and call `aihc_stack_enter_chunk` on a change. A resumed
+The continue helpers and the inline returns of compiled code compare the
+stack limit of the entered frame with the previous one. On a change, a
+continue helper calls `aihc_stack_enter_chunk`. A resumed
 thread makes the chunk of its continuation young in `aihc_lir_take_resume`,
 and a new or reused chunk starts young.
 
