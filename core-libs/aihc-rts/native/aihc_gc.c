@@ -2413,6 +2413,41 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
   }
 }
 
+/* The scan of a copied object of a heap generation. The kinds that compiled
+   code allocates have only pointer and word fields, so a young collection
+   scans their pointer fields here, without the cases of aihc_scan_object
+   for frames, static objects, claimed thunks, and runtime records. */
+static inline __attribute__((always_inline)) void
+aihc_scan_heap_object(AihcGcContext *context, AihcValue *object,
+                      unsigned generation) {
+  AihcSlot header = object->header;
+  const AihcInfo *info = aihc_value_info_table(object);
+  AihcObjectKind kind = info->object_kind;
+  const uint8_t *pointers = info->field_is_pointer;
+  if ((header & AIHC_HEADER_EVALUATING) == 0 && context->collected < 2 &&
+      pointers != NULL &&
+      (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+       kind == AIHC_OBJECT_THUNK)) {
+    AihcScanContext scan = {
+        .gc = context,
+        .target = generation,
+        .youngest = AIHC_GENERATION_STATIC,
+        .from_frame = 0,
+    };
+    uint64_t count = info->field_count;
+    for (uint64_t index = 0; index < count; ++index) {
+      if (pointers[index]) {
+        object->fields[index] = aihc_scan_slot(object->fields[index], &scan);
+      }
+    }
+    if (scan.youngest < generation) {
+      aihc_gc_keep(context, object);
+    }
+    return;
+  }
+  aihc_scan_object(context, object, generation);
+}
+
 /* Whether a generation has copied objects its cursor has not scanned. */
 static int aihc_generation_scan_pending(AihcGeneration *generation) {
   if (generation->scan_block == NULL) {
@@ -2479,7 +2514,7 @@ static void aihc_trace(AihcGcContext *context) {
          empty before the other lists are tested again. */
       do {
         AihcValue *object = work->gen2.items[--work->gen2.count];
-        aihc_scan_object(context, object, 2);
+        aihc_scan_heap_object(context, object, 2);
       } while (work->gen2.count != 0);
       continue;
     }
