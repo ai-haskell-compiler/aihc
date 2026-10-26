@@ -1974,6 +1974,76 @@ compileForce ctx env var update node ready =
     running <- runningArguments
     terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
 
+-- | The order of two byte ranges of one length, as minus one, zero, or one,
+-- with the sign of @memcmp@. The loop compares eight bytes at a time while
+-- eight or more remain, so it never reads past either range, and then one
+-- byte at a time. At the first word that differs, the lowest set bit of the
+-- difference gives the first byte that differs, because the loads are
+-- little endian.
+compareBytesInline :: Operand -> Operand -> Operand -> LowerM Operand
+compareBytesInline left right count = do
+  wordLoop <- freshLabel "compare_words"
+  wordBody <- freshLabel "compare_word"
+  wordNext <- freshLabel "compare_word_next"
+  wordDiff <- freshLabel "compare_word_diff"
+  byteLoop <- freshLabel "compare_bytes"
+  byteBody <- freshLabel "compare_byte"
+  byteNext <- freshLabel "compare_byte_next"
+  byteDiff <- freshLabel "compare_byte_diff"
+  done <- freshLabel "compare_done"
+  let int value = OperandLiteral (LitInt value)
+      at base index = do
+        address <- emitValue "address" Ptr (PtrAdd base index)
+        pure (byteAddress (typedOperand address) 0)
+  terminate (Jump (Target wordLoop [int 0]))
+  wordIndex <- fresh "index"
+  beginBlock wordLoop [(wordIndex, I64)]
+  remaining <- emitValue "remaining" I64 (Binary Sub I64 count (OperandVar wordIndex))
+  wide <- emitValue "wide" I1 (Compare GeU I64 (typedOperand remaining) (int 8))
+  terminate (Branch (typedOperand wide) (Target wordBody []) (Target byteLoop [OperandVar wordIndex]))
+  beginBlock wordBody []
+  leftAddress <- at left (OperandVar wordIndex)
+  rightAddress <- at right (OperandVar wordIndex)
+  leftWord <- emitValue "left_word" I64 (Load I64 leftAddress (byteAlignment 1))
+  rightWord <- emitValue "right_word" I64 (Load I64 rightAddress (byteAlignment 1))
+  sameWord <- emitValue "same_word" I1 (Compare Eq I64 (typedOperand leftWord) (typedOperand rightWord))
+  terminate (Branch (typedOperand sameWord) (Target wordNext []) (Target wordDiff []))
+  beginBlock wordNext []
+  nextWord <- emitValue "index" I64 (Binary Add I64 (OperandVar wordIndex) (int 8))
+  terminate (Jump (Target wordLoop [typedOperand nextWord]))
+  beginBlock wordDiff []
+  difference <- emitValue "difference" I64 (Binary Xor I64 (typedOperand leftWord) (typedOperand rightWord))
+  lowest <- emitValue "lowest" I64 (Unary Ctz I64 (typedOperand difference))
+  shift <- emitValue "shift" I64 (Binary And I64 (typedOperand lowest) (int (-8)))
+  leftShifted <- emitValue "left_shifted" I64 (Binary ShrU I64 (typedOperand leftWord) (typedOperand shift))
+  rightShifted <- emitValue "right_shifted" I64 (Binary ShrU I64 (typedOperand rightWord) (typedOperand shift))
+  leftDiffByte <- emitValue "left_byte" I64 (Binary And I64 (typedOperand leftShifted) (int 255))
+  rightDiffByte <- emitValue "right_byte" I64 (Binary And I64 (typedOperand rightShifted) (int 255))
+  wordLess <- emitValue "less" I1 (Compare LtU I64 (typedOperand leftDiffByte) (typedOperand rightDiffByte))
+  wordOrder <- emitValue "order" I64 (Select I64 (typedOperand wordLess) (int (-1)) (int 1))
+  terminate (Jump (Target done [typedOperand wordOrder]))
+  byteIndex <- fresh "index"
+  beginBlock byteLoop [(byteIndex, I64)]
+  finished <- emitValue "finished" I1 (Compare Eq I64 (OperandVar byteIndex) count)
+  terminate (Branch (typedOperand finished) (Target done [int 0]) (Target byteBody []))
+  beginBlock byteBody []
+  leftByteAddress <- at left (OperandVar byteIndex)
+  rightByteAddress <- at right (OperandVar byteIndex)
+  leftByte <- emitValue "left_byte" I8 (Load I8 leftByteAddress (byteAlignment 1))
+  rightByte <- emitValue "right_byte" I8 (Load I8 rightByteAddress (byteAlignment 1))
+  sameByte <- emitValue "same_byte" I1 (Compare Eq I8 (typedOperand leftByte) (typedOperand rightByte))
+  terminate (Branch (typedOperand sameByte) (Target byteNext []) (Target byteDiff []))
+  beginBlock byteNext []
+  nextByte <- emitValue "index" I64 (Binary Add I64 (OperandVar byteIndex) (int 1))
+  terminate (Jump (Target byteLoop [typedOperand nextByte]))
+  beginBlock byteDiff []
+  byteLess <- emitValue "less" I1 (Compare LtU I8 (typedOperand leftByte) (typedOperand rightByte))
+  byteOrder <- emitValue "order" I64 (Select I64 (typedOperand byteLess) (int (-1)) (int 1))
+  terminate (Jump (Target done [typedOperand byteOrder]))
+  order <- fresh "order"
+  beginBlock done [(order, I64)]
+  pure (OperandVar order)
+
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
 
@@ -2834,7 +2904,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           leftBytes <- emitValue "left_bytes" Ptr (PtrAdd (typedOperand leftContents) leftIndex)
           rightBytes <- emitValue "right_bytes" Ptr (PtrAdd (typedOperand rightContents) rightIndex)
           lengthOperand <- word count
-          result <- callRuntime "aihc_memory_compare" [Ptr, Ptr, I64] [I64] [typedOperand leftBytes, typedOperand rightBytes, lengthOperand]
+          result <- compareBytesInline (typedOperand leftBytes) (typedOperand rightBytes) lengthOperand
           bind [Typed result I64]
     ("compareInt#", [left, right]) -> do
       leftOperand <- word left
