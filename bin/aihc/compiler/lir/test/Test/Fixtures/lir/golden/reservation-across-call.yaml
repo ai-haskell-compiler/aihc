@@ -114,11 +114,11 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 3, i16 0 }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
 
@@ -129,7 +129,7 @@ expected: |
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_75, %hp_limit_76, %sp_77, %sp_limit_78, %stored_82, %stored_83, %supplied_81)
   }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0, i8 3, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_84: ptr, %hp_limit_85: ptr, %sp_86: ptr, %sp_limit_87: ptr, %value_88: ptr, %code_89: code, %words_90: i64, %srt_91: ptr) {
   entry:

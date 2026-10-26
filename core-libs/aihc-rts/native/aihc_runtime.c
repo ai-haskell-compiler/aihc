@@ -57,6 +57,7 @@ _Static_assert(offsetof(AihcInfo, object_kind) == 43,
                "info-table object-kind ABI");
 _Static_assert(offsetof(AihcInfo, needs_eval) == 44,
                "info-table needs-eval ABI");
+_Static_assert(offsetof(AihcInfo, gc_words) == 45, "info-table GC-words ABI");
 _Static_assert(offsetof(AihcInfo, constructor_index) == 46,
                "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
@@ -93,6 +94,7 @@ _Static_assert(offsetof(AihcInfo, object_kind) == 23,
                "info-table object-kind ABI");
 _Static_assert(offsetof(AihcInfo, needs_eval) == 24,
                "info-table needs-eval ABI");
+_Static_assert(offsetof(AihcInfo, gc_words) == 25, "info-table GC-words ABI");
 _Static_assert(offsetof(AihcInfo, constructor_index) == 26,
                "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");

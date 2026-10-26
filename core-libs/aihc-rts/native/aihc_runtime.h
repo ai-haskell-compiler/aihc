@@ -186,6 +186,9 @@ struct AihcInfo {
      table. Thus the table always gives the correct value. On 64-bit targets
      the byte uses padding, so the table stays 48 bytes. */
   uint8_t needs_eval;
+  /* The fixed object size in words, or zero for the general size path.
+     This byte replaces padding and does not change the table size. */
+  uint8_t gc_words;
   /* The index of a constructor in its data declaration, and zero for every
      other kind. A case with many alternatives selects its alternative from
      this field. The field uses padding, so the table stays 48 bytes on a

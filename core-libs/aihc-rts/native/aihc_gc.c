@@ -1807,6 +1807,10 @@ static int aihc_follows_to_field_zero(const AihcValue *value) {
    aihc_value_words. The collector asks once for each copy and once for
    each scanned gen1 object. */
 static inline uint64_t aihc_gc_words(const AihcValue *value) {
+  unsigned cached = aihc_value_info_table(value)->gc_words;
+  if (cached != 0) {
+    return cached;
+  }
   AihcObjectKind kind = aihc_value_kind(value);
   if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
       kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_INDIRECTION ||

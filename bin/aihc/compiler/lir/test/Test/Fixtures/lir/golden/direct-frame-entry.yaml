@@ -100,11 +100,11 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 2, i16 0 }
 
   data mut @aihc_lir_srt_0 align 8 = { i64 0, i64 0, i64 1, ptr @aihc_lir_srt_1 }
 

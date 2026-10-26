@@ -67,7 +67,7 @@ expected: |
     tailcall.indirect %entry_30(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_26) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 
-  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 1, i16 0 }
 status: pass
 reason: |
   A case on a pointer with fewer than four constructor alternatives loads the

@@ -95,11 +95,11 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 3, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_51: ptr, %hp_limit_52: ptr, %sp_53: ptr, %sp_limit_54: ptr, %value_55: ptr, %code_56: code, %words_57: i64, %srt_58: ptr) {
   entry:

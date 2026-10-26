@@ -1019,9 +1019,9 @@ loadInfoConstructorIndex header = do
   emitValue "constructor_index" I64 (Convert ZExt I16 (typedOperand value) I64)
 
 -- | The byte offset of the constructor index in an info table: after the
--- five word fields, the five byte fields, and one byte of padding.
+-- five word fields and the six byte fields.
 infoConstructorIndexOffset :: LowerTarget -> Int
-infoConstructorIndexOffset target = lowerWordSize target * infoWordFieldCount + infoByteFieldCount + 1
+infoConstructorIndexOffset target = lowerWordSize target * infoWordFieldCount + infoByteFieldCount
 
 -- | A @code@ field of an info table.
 loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
@@ -1439,7 +1439,7 @@ lowerInfo info = do
                 byte (continuationFrameKindCode (infoFrameKind info)),
                 byte (infoObjectKind info),
                 DataInt I8 (objectKindNeedsEval (infoObjectKind info)),
-                DataInt I8 0,
+                byte (infoGcWords info),
                 DataInt I16 (toInteger (infoConstructorIndex info))
               ]
           }
@@ -4338,7 +4338,7 @@ infoNeedsEvalByte = 4
 
 -- | The number of byte fields of an info table.
 infoByteFieldCount :: Int
-infoByteFieldCount = 5
+infoByteFieldCount = 6
 
 -- | The largest constructor index that an info table holds.
 infoConstructorIndexLimit :: Int
@@ -4356,6 +4356,19 @@ objectKindNeedsEval kind
 needsEvalEnter, needsEvalFollow :: Integer
 needsEvalEnter = 1
 needsEvalFollow = 2
+
+-- | Cache a fixed object size when it fits in one byte. Zero selects the
+-- general size path. A thunk needs one field even without free variables.
+infoGcWords :: RuntimeInfo -> Int
+infoGcWords info
+  | kind `elem` [runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk],
+    words' <= infoByteFieldLimit =
+      words'
+  | otherwise = 0
+  where
+    kind = infoObjectKind info
+    fields = length (infoFields info)
+    words' = 1 + if kind == runtimeObjectThunk then max 1 fields else fields
 
 -- | The largest count a byte field of an info table holds.
 infoByteFieldLimit :: Int
