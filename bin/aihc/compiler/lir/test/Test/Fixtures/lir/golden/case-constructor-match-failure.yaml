@@ -43,7 +43,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_13)
 
   continue_enter_24:
-    tailcall.indirect %entry_17(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_13) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_17(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_13) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
     call @aihc_no_match()

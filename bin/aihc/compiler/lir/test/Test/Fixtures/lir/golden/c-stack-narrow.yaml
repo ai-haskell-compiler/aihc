@@ -52,7 +52,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_19, %hp_limit_20, %sp_2, %sp_limit_3, %foreign_root_21, %result_18)
 
   continue_enter_32:
-    tailcall.indirect %entry_25(%hp_19, %hp_limit_20, %foreign_root_21, %sp_limit_3, %foreign_root_21, null, %result_18) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_25(%hp_19, %hp_limit_20, %foreign_root_21, %sp_limit_3, %foreign_root_21, %result_18) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: Apple ARM64 preserves narrow stack widths and extends narrow register arguments.

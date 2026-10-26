@@ -41,7 +41,7 @@ expected: |
     tailcall @aihc_lir_continue_p(%hp_13, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_11)
 
   continue_enter_24:
-    tailcall.indirect %entry_17(%hp_13, %hp_limit_12, %$cps_return$gc_10, %sp_limit_3, %$cps_return$gc_10, null, %hp_11) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+    tailcall.indirect %entry_17(%hp_13, %hp_limit_12, %$cps_return$gc_10, %sp_limit_3, %$cps_return$gc_10, %hp_11) : (ptr, ptr, ptr, ptr, ptr, ptr)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
