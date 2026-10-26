@@ -910,6 +910,11 @@ The lowering keeps the control model of CPS-GRIN:
   Every other thunk goes to the C function `aihc_update_blackhole`, which also wakes the waiters of its queue.
   A result that is a value goes directly to the parent continuation, and another result goes to `aihc_lir_eval`.
   Compiler modules contain no update-frame construction or synthetic update function.
+- An application of an unknown function tests the kind and the remaining
+  arity in the info table of the function. A closure that takes exactly the
+  supplied groups is entered at the call site with one indirect call, so
+  each call site has its own branch history. Any other function goes to the
+  apply helper of the shape in a cold block.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
   `[i64]`. The compiler emits local helpers for all other argument shapes.
