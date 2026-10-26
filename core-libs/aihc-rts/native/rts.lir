@@ -6,7 +6,7 @@
 ; and LLVM can inline it.
 ;
 ; The units keep their own files. Each one is a subject on its own -- the
-; evaluation helpers, the shared enter functions, the array primitives --
+; evaluation helpers, the array primitives, the runtime options --
 ; and each is still a Lir module that parses and lints by itself. What
 ; changes here is only how many objects they compile to.
 ;
@@ -24,7 +24,6 @@ include "aihc_object.lir"
 
 include "aihc_array.lir"
 include "aihc_byte_array.lir"
-include "aihc_enter.lir"
 include "aihc_helpers.lir"
 include "aihc_mutvar.lir"
 include "aihc_prompt_tag.lir"
