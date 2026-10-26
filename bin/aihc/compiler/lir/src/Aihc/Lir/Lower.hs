@@ -1962,17 +1962,23 @@ compileForce ctx env var update node ready =
           EvalUpdate -> 3
           EvalSingleEntry -> 0
         stack = contextStack context
-    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
-    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
-    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
-    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
-    plain <- emitValue "plain" I1 (Binary And I1 (typedOperand isThunk) (typedOperand unclaimed))
-    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
-    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
-    enter <- emitValue "enter" I1 (Binary And I1 (typedOperand plain) (typedOperand fits))
+    thunkLabel <- freshLabel "force_thunk"
+    stackLabel <- freshLabel "force_stack"
     enterLabel <- freshLabel "force_enter"
     helperLabel <- freshLabel "force_helper"
-    terminate (Branch (typedOperand enter) (Target enterLabel []) (Target helperLabel []))
+    -- A heap forwarding header has bit one alone, but no mutator sees it.
+    -- Both claim states set bit zero. The object-kind check follows this test.
+    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 1)))
+    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
+    terminate (Branch (typedOperand unclaimed) (Target thunkLabel []) (Target helperLabel []))
+    beginBlock thunkLabel []
+    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
+    terminate (Branch (typedOperand isThunk) (Target stackLabel []) (Target helperLabel []))
+    beginBlock stackLabel []
+    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
+    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
+    terminate (Branch (typedOperand fits) (Target enterLabel []) (Target helperLabel []))
     beginColdBlock helperLabel []
     terminate (TailCall helper (contextOperands context <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
     beginBlock enterLabel []
