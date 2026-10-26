@@ -34,7 +34,7 @@ metadata, or static objects.
 When a collection cannot bring the heap below the limit, the collector runs a
 full collection, and the program stops if the heap is still above it.
 
-The `-A<size>` option sets the size of the nursery, 4 MiB by default.
+The `-A<size>` option sets the size of the nursery, 8 MiB by default.
 The runtime rounds this size up to a power of two and aligns the nursery arena to that size.
 The machine owns the arena, and the capability keeps its allocation cursor.
 A smaller heap limit can reduce the allocation budget within an aligned window.

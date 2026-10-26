@@ -21,7 +21,7 @@
    factor since the last one, or at least to the minimum. RTS options -A, -B,
    and -F replace the first three. */
 #ifndef AIHC_NURSERY_BYTES
-#define AIHC_NURSERY_BYTES (UINT64_C(4) << 20)
+#define AIHC_NURSERY_BYTES (UINT64_C(8) << 20)
 #endif
 #define AIHC_NURSERY_BLOCK_BYTES (UINT64_C(32) << 10)
 #define AIHC_GEN1_COLLECTIONS UINT64_C(1)

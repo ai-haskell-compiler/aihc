@@ -280,7 +280,7 @@ least one chunk of stack growth.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `-A<size>` | Nursery size, rounded up to a power of two | Decided by measurement, 1 MiB or 4 MiB |
+| `-A<size>` | Nursery size, rounded up to a power of two | 8 MiB |
 | `-n<size>` | Nursery block size, zero selects the default | 32 KiB |
 | `-R<size>` | Barrier work between two collections of a capability | The nursery size |
 | `-B<count>` | Collections that a survivor stays in gen1, zero for none | 1 |
@@ -336,8 +336,6 @@ Each step leaves the compiler shippable and is its own PR series.
 
 ## Open points
 
-- The nursery default. The measurements of step 1 decide between 1 MiB and
-  4 MiB.
 - The pop detection. The compare in the continue helpers comes first. The
   underflow frame replaces it only if the compare is measurable.
 - The size classes of gen2 and the large object threshold. The object size
