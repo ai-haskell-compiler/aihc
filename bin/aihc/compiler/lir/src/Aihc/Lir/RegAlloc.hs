@@ -70,7 +70,7 @@ import Control.Monad.ST (ST, runST)
 import Data.Array.ST (STUArray, readArray, writeArray)
 import Data.Array.Unboxed (Array, UArray, elems, listArray, (!))
 import Data.Array.Unsafe (unsafeFreeze)
-import Data.Bits (complement, countTrailingZeros, shiftL, (.&.))
+import Data.Bits (complement, countTrailingZeros, shiftL, (.&.), (.|.))
 import Data.Foldable (traverse_)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -556,9 +556,9 @@ liveness encoded
 
 -- Allocation
 
--- | Which registers an interval may take, given the calls it lives across.
--- A call at the start of the interval defines it and a call at its end
--- consumes it; neither clobbers it.
+-- | Which registers an interval may take, given the calls it lives across
+-- (see 'callCrossings'). A call that defines the value or that is its last
+-- use does not clobber it.
 reachAny, reachPreserved, reachNone :: Int
 reachAny = 0
 reachPreserved = 1
@@ -581,9 +581,7 @@ runAllocation :: Encoded -> Int -> Int -> Bool -> Bool -> (UArray Int Int, UArra
 runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $ do
   let valueCount = encValues encoded
   (starts, ends, live) <- functionSpans encoded
-  aihcCalls <- callsBefore encoded (== callAihc)
-  cCalls <- callsBefore encoded (== callC)
-  coldCalls <- callsBefore encoded isColdCall
+  (crossed, coldCrossings) <- callCrossings encoded live
   earns <- earnedRegisters encoded preservedCost
   hints <- buildRows valueCount (forHints encoded)
   partners <- buildRows valueCount (\act -> forJumpPairs encoded act >> forJumpPairs encoded (flip act) >> forCopyPairs encoded act >> forCopyPairs encoded (flip act))
@@ -596,9 +594,10 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
   active <- newInts poolSize 0
   activeCount <- newInts 1 0
   let reachOf value
-        | crosses aihcCalls (starts ! value) (ends ! value) = reachNone
-        | crosses cCalls (starts ! value) (ends ! value) = reachPreserved
+        | crossed ! value .&. crossesAihc /= 0 = reachNone
+        | crossed ! value .&. crossesC /= 0 = reachPreserved
         | otherwise = reachAny
+      crossesCold value = coldCrossings ! value > 0
       -- Whether a value may live in the register at a pool index.
       {-# INLINE accepts #-}
       accepts value register = do
@@ -680,9 +679,9 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
       -- the saves cost: two moves, or one instruction when the backend
       -- pairs them. This factor gave the smallest examples.
       pays value register
-        | register >= volatileCount || not (crosses coldCalls (starts ! value) (ends ! value)) = pure True
+        | register >= volatileCount || not (crossesCold value) = pure True
         | otherwise = do
-            let crossings = coldCalls ! (ends ! value) - coldCalls ! (starts ! value + 1)
+            let crossings = coldCrossings ! value
                 own = countRow hints value register
             placed <- countPlaced value register
             let partnerHints = sumRow partners value (\partner -> countRow hints partner register)
@@ -704,7 +703,7 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
       -- each volatile register, so a hint is again the best choice.
       preferred value =
         hinted True value
-          `orElse` ( if crosses coldCalls (starts ! value) (ends ! value)
+          `orElse` ( if crossesCold value
                        then firstFree value volatileCount `orElse` hinted False value
                        else pure (-1)
                    )
@@ -836,28 +835,48 @@ sumRow rows index count = go (rowFrom rows index) 0
       | at >= rowTo rows index = total
       | otherwise = go (at + 1) (total + count (rowAt rows at))
 
--- | Whether a call sits inside an interval. A call at the start of the
--- interval defines it and a call at its end consumes it.
-{-# INLINE crosses #-}
-crosses :: UArray Int Int -> Int -> Int -> Bool
-crosses calls start end = end > start + 1 && calls ! end > calls ! (start + 1)
+-- | The calls each value lives across: a bit for a hot aihc call and a bit
+-- for a hot C call, and the number of the cold calls.
+--
+-- A value lives across a call when the call does not define it and the
+-- value is live after the call. The test uses the live-out sets and a walk
+-- back through each block, so it is exact where the interval is not. A
+-- value whose interval only spans a call is dead after it on every path
+-- through the call, so the call may clobber its register. A call that ends
+-- in a trap, such as the call that reports a missing case alternative,
+-- leaves nothing live and so restricts no value.
+callCrossings :: Encoded -> Maybe (Bits s, Bits s) -> ST s (UArray Int Int, UArray Int Int)
+callCrossings encoded live = do
+  let valueCount = encValues encoded
+  crossed <- newInts valueCount 0
+  cold <- newInts valueCount 0
+  scratch <- newBits 1 valueCount
+  forBlocks encoded $ \index -> do
+    let first = encBlockInstructions encoded ! index
+        end = encBlockInstructions encoded ! (index + 1)
+    when (any ((/= callNone) . (encInstructionCall encoded !)) [first .. end - 1]) $ do
+      clearRow scratch 0
+      traverse_ (\(_, liveOut) -> replaceRow scratch 0 liveOut index) live
+      forRow (encTerminatorReads encoded) index (setBit scratch 0)
+      forDownFrom (end - 1) first $ \number -> do
+        forRow (encResults encoded) number (clearBit scratch 0)
+        let convention = encInstructionCall encoded ! number
+        when (convention /= callNone) $
+          forBits scratch 0 $ \value ->
+            if isColdCall convention
+              then addTo cold value 1
+              else readArray crossed value >>= writeArray crossed value . (.|. if convention == callAihc then crossesAihc else crossesC)
+        forRow (encReads encoded) number (setBit scratch 0)
+  (,) <$> freezeInts crossed <*> freezeInts cold
+
+crossesAihc, crossesC :: Int
+crossesAihc = 1
+crossesC = 2
 
 -- | The first of two searches that finds a register.
 {-# INLINE orElse #-}
 orElse :: ST s Int -> ST s Int -> ST s Int
 orElse first second = first >>= \register -> if register >= 0 then pure register else second
-
--- | How many calls of the conventions a test accepts come before each
--- position.
-{-# INLINE callsBefore #-}
-callsBefore :: Encoded -> (Int -> Bool) -> ST s (UArray Int Int)
-callsBefore encoded accepts = do
-  counts <- newInts (encPositions encoded + 2) 0
-  forBlocks encoded $ \index ->
-    forBlockInstructions encoded index $ \number position ->
-      when (accepts (encInstructionCall encoded ! number)) (addTo counts (position + 1) 1)
-  scanSums counts (encPositions encoded + 1)
-  freezeInts counts
 
 -- | Whether a value earns the register it would take.
 --
