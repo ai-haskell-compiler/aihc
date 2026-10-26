@@ -119,6 +119,7 @@ relocationRecordCount = fmap sum . mapM count
       case relocationKind relocation of
         Absolute64 -> pure 1
         Arm64Branch26 -> pure (if relocationAddend relocation == 0 then 1 else 2)
+        Arm64BitBranch26 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         Arm64Page21 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         Arm64PageOffset12 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         Arm64GotPage21 -> pure 1
@@ -173,7 +174,7 @@ putSection section = do
   putWord32le 0
   where
     relocationEntries relocation
-      | relocationKind relocation `elem` [Arm64Branch26, Arm64Page21, Arm64PageOffset12], relocationAddend relocation /= 0 = 2
+      | relocationKind relocation `elem` [Arm64Branch26, Arm64BitBranch26, Arm64Page21, Arm64PageOffset12], relocationAddend relocation /= 0 = 2
       | otherwise = 1
 
 putBuildVersion :: Put
@@ -218,6 +219,7 @@ putSectionRelocations indexes section =
       case relocationKind relocation of
         Absolute64 -> putRecord relocation symbolIndex True False 3 0
         Arm64Branch26 -> putArmInstruction relocation symbolIndex True 2 2 addend
+        Arm64BitBranch26 -> putArmInstruction relocation symbolIndex True 2 2 addend
         Arm64Page21 -> putArmInstruction relocation symbolIndex True 2 3 addend
         Arm64PageOffset12 -> putArmInstruction relocation symbolIndex False 2 4 addend
         Arm64GotPage21 -> putRecord relocation symbolIndex True True 2 5

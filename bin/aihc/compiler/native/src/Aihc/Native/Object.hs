@@ -48,7 +48,7 @@ where
 import Control.Monad (filterM, when)
 import Control.Monad.ST (ST, runST)
 import Data.Array (listArray, (!))
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -81,6 +81,9 @@ data SectionRole
 
 data FixupKind
   = Arm64Branch26
+  | -- | A long bit branch: an inverse bit test skips this unconditional
+    -- branch. Relaxation replaces the pair when the bit test reaches.
+    Arm64BitBranch26
   | Arm64Branch19
   | Arm64Adr21
   | Arm64Page21
@@ -277,7 +280,7 @@ chunkMask = chunkBytes - 1
 -- label.
 --
 -- The events are the things that 'relaxBranches' must move when it makes a
--- branch shorter: the 'X86Branch32' fixups, and the labels and alignments
+-- branch shorter: the branch fixups, and the labels and alignments
 -- after the first of them. Nothing before the first such branch moves, so
 -- the section records no event until it has one. An event code is
 -- @payload * 4 + tag@ (see 'eventLocal').
@@ -307,7 +310,7 @@ counterSealed = 4
 counterEvents = 5
 
 -- | The event tags: a private label (payload: its number), a symbol (its
--- number), an 'X86Branch32' fixup (its row), and an alignment (its power).
+-- number), a relaxable branch fixup (its row), and an alignment (its power).
 eventLocal, eventSymbol, eventBranch, eventAlign :: Int
 eventLocal = 0
 eventSymbol = 1
@@ -630,7 +633,7 @@ emitItem object item = do
           row <- readPrimArray (sectionCounters section) counterFixups
           writePrimArray (sectionCounters section) counterFixups (row + 1)
           writeFixup section row (FixupRow size (fixupAddend fixup) target (fixupKind fixup))
-          when (fixupKind fixup == X86Branch32) (recordEvent section size eventBranch row)
+          when (fixupKind fixup `elem` [X86Branch32, Arm64BitBranch26]) (recordEvent section size eventBranch row)
           pure ok
 
 -- | Append a run of items to the current section.
@@ -720,8 +723,9 @@ resolveLocal object section fixup = do
           target <- readColumn (objectLocalOffsets object) identifier
           patchLocal section (localText identifier) target fixup
 
--- | Make each 'X86Branch32' jump of the events short when its private
--- label is in reach of a signed byte, and move the code after it.
+-- | Shorten branches when their private labels are in range. An x86 jump
+-- has a signed byte displacement. An ARM64 bit branch has a signed
+-- 14-bit word displacement. Move the code after each shorter branch.
 --
 -- Each jump that can be short starts short. A pass places the events with
 -- the jumps as they are, and each short jump that does not reach its label
@@ -745,6 +749,7 @@ relaxBranches object section = do
     lengths <- MU.replicate count 0
     targets <- MU.replicate count 0
     shorts <- MU.replicate count False
+    armBits <- MU.replicate count False
     -- The new start of each event, and the distance that the bytes after
     -- it move down.
     placed <- MU.new count
@@ -758,8 +763,14 @@ relaxBranches object section = do
             case code .&. 3 of
               tag
                 | tag == eventBranch -> do
+                    fixup <- readFixup section payload
+                    let armBit = fixupRowKind fixup == Arm64BitBranch26
+                    MU.unsafeWrite armBits index armBit
                     opcode <- readWordAt section (offset - 1) 1
-                    let long = if opcode == 0xe9 then 5 else 6
+                    let long
+                          | armBit = 8
+                          | opcode == 0xe9 = 5
+                          | otherwise = 6
                     MU.unsafeWrite starts index (offset + 4 - long)
                     MU.unsafeWrite lengths index long
                     target <- readColumn (fixupTargets section) payload
@@ -787,7 +798,8 @@ relaxBranches object section = do
                 | tag == eventBranch -> do
                     short <- MU.unsafeRead shorts index
                     long <- MU.unsafeRead lengths index
-                    pure (if short then shift + long - 2 else shift)
+                    armBit <- MU.unsafeRead armBits index
+                    pure (if short then shift + long - (if armBit then 4 else 2) else shift)
                 | otherwise -> do
                     padding <- MU.unsafeRead lengths index
                     pure (start + padding - (new + alignmentPadding payload new))
@@ -801,13 +813,15 @@ relaxBranches object section = do
                 then grow (index + 1) changed
                 else do
                   displacement <- branchDisplacement index
-                  if displacement >= -128 && displacement < 128
+                  armBit <- MU.unsafeRead armBits index
+                  if if armBit then displacement `mod` 4 == 0 && displacement >= -32768 && displacement < 32768 else displacement >= -128 && displacement < 128
                     then grow (index + 1) changed
                     else MU.unsafeWrite shorts index False >> grow (index + 1) True
         branchDisplacement index = do
           new <- MU.unsafeRead placed index
           target <- MU.unsafeRead targets index >>= readColumn (objectLocalOffsets object)
-          pure (target - (new + 2))
+          armBit <- MU.unsafeRead armBits index
+          pure (target - (new + if armBit then 0 else 2))
         relax = do
           place 0 0
           changed <- grow 0 False
@@ -828,13 +842,19 @@ relaxBranches object section = do
                   | tag == eventBranch && short -> do
                       moveWithin section destination source (start - source)
                       long <- MU.unsafeRead lengths index
-                      opcode <- readWordAt section (start + long - 5) 1
+                      armBit <- MU.unsafeRead armBits index
                       displacement <- branchDisplacement index
-                      -- @jmp rel32@ is @e9@ and @jmp rel8@ is @eb@. A
-                      -- @jcc rel32@ is @0f 8x@ and its @rel8@ form is @7x@.
-                      let short' = if long == 5 then 0xeb else 0x70 .|. (opcode .&. 0x0f)
-                      writeWordAt section new 2 (short' .|. (fromIntegral displacement .&. 0xff) `shiftL` 8)
-                      compact (index + 1) (start + long) (new + 2) fills
+                      if armBit
+                        then do
+                          opcode <- readWordAt section start 4
+                          let short' = (opcode `xor` 0x01000000) .&. 0xfff8001f
+                          writeWordAt section new 4 (short' .|. ((fromIntegral displacement `shiftR` 2) .&. 0x3fff) `shiftL` 5)
+                          compact (index + 1) (start + long) (new + 4) fills
+                        else do
+                          opcode <- readWordAt section (start + long - 5) 1
+                          let short' = if long == 5 then 0xeb else 0x70 .|. (opcode .&. 0x0f)
+                          writeWordAt section new 2 (short' .|. (fromIntegral displacement .&. 0xff) `shiftL` 8)
+                          compact (index + 1) (start + long) (new + 2) fills
                   | tag == eventAlign -> do
                       moveWithin section destination source (start - source)
                       padding <- MU.unsafeRead lengths index
@@ -860,7 +880,7 @@ relaxBranches object section = do
                     | otherwise = pure (index, current)
               (event', shift') <- advance event shift
               dropped <-
-                if fixupRowKind fixup == X86Branch32 && event' > 0
+                if fixupRowKind fixup `elem` [X86Branch32, Arm64BitBranch26] && event' > 0
                   then do
                     code <- MU.unsafeRead codes (event' - 1)
                     short <- MU.unsafeRead shorts (event' - 1)
@@ -901,6 +921,7 @@ canResolve :: FixupKind -> Bool
 canResolve kind =
   case kind of
     Arm64Branch26 -> True
+    Arm64BitBranch26 -> True
     Arm64Branch19 -> True
     Arm64Adr21 -> True
     X86Pc32 -> True
@@ -914,9 +935,9 @@ patchLocal section name target fixup = do
   word <- readWordAt section offset 4
   let instruction = fromIntegral word :: Word32
   case fixupRowKind fixup of
-    Arm64Branch26
-      | displacement `mod` 4 /= 0 || not (fitsSigned 28 displacement) -> outOfRange
-      | otherwise -> write (instruction .|. fromIntegral ((displacement `shiftR` 2) .&. 0x03ffffff))
+    kind
+      | kind `elem` [Arm64Branch26, Arm64BitBranch26], displacement `mod` 4 /= 0 || not (fitsSigned 28 displacement) -> outOfRange
+      | kind `elem` [Arm64Branch26, Arm64BitBranch26] -> write (instruction .|. fromIntegral ((displacement `shiftR` 2) .&. 0x03ffffff))
     Arm64Branch19
       | displacement `mod` 4 /= 0 || not (fitsSigned 21 displacement) -> outOfRange
       | otherwise -> write (instruction .|. fromIntegral (((displacement `shiftR` 2) .&. 0x7ffff) `shiftL` 5))

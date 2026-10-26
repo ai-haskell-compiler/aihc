@@ -173,6 +173,10 @@ rejects the three shapes the splice cannot serve:
 An inline function may call other inline functions, and a `stack.alloc` in its
 body allocates in the frame of each caller it is spliced into.
 
+A return of a constant jumps to the block after the call with that constant.
+When that block only branches on the result, the jump goes straight to the
+destination of the branch, so the constant needs no register and no test.
+
 ```text
 inline func @info_table(%object: ptr) -> ptr {
 entry:
@@ -876,7 +880,11 @@ The lowering keeps the control model of CPS-GRIN:
   `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry
   when `%hp` is above `%hp_limit`.
 - The slow branch of a WHNF test that pushes a frame and evaluates the value
-  is one `tailcall` of a shared helper `aihc_lir_force_<shape>`. It takes the
+  enters a thunk directly. When the value is a thunk with no tag bits and
+  the frame and the update frame fit in the stack chunk, the branch pushes
+  both frames and tail-calls the `backend_entry` of the thunk. A single-entry
+  evaluation pushes no update frame. Any other value, and a push that needs
+  a new chunk, goes to a shared helper `aihc_lir_force_<shape>`. It takes the
   value, the info table of the frame, and the fields of the frame. The
   helper pushes the frame and tail-calls the evaluation helper. The test,
   the cold blocks that follow indirections and evaluated thunks, and the
@@ -912,6 +920,8 @@ The lowering keeps the control model of CPS-GRIN:
   Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
   The update frame has its own backend entry, `aihc_lir_cps_update_entry`, which reads the two fields of the frame.
+  When the thunk is young and no pause claimed it, and the result is a value, the entry does the update and returns to the parent continuation itself.
+  Every other case goes to `aihc_lir_cps_update`.
   A young thunk that no pause claimed gets the update with two stores in Lir: the result into field zero, and bit zero into the header.
   Every other thunk goes to the C function `aihc_update_blackhole`, which also wakes the waiters of its queue.
   A result that is a value goes directly to the parent continuation, and another result goes to `aihc_lir_eval`.
@@ -1178,6 +1188,11 @@ rather than as a change of some object bytes. Run the suite with
   into its home. A comparison that only the branch of its block reads is not
   materialized: the block compares and branches on the flags, or on the
   register itself against zero.
+  A single-use bit mask followed by an equality test against zero uses
+  `tbz` or `tbnz`. The object writer starts with an inverse bit test and an
+  unconditional branch. It removes the second instruction when the exact
+  displacement fits the signed 14-bit word range. Each expansion keeps
+  the long branch, so this process stops without a function-size limit.
 - The arguments of a call, the values of a return, and the arguments of a
   jump are one parallel move each: every source is read before the
   destination it lives in is written, a cycle is broken through a scratch

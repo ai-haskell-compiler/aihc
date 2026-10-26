@@ -2968,12 +2968,17 @@ static int aihc_frame_is_live(const AihcCapability *capability,
    name it, so it must stay until a copy follows it. A frame is scanned at
    once with the frames below it in its chunk, when it is live and not
    scanned yet. */
-static void aihc_mark_old(AihcCapability *capability, AihcValue *value) {
-  if (value == NULL || aihc_in_any_nursery(capability->machine, value)) {
+static inline __attribute__((always_inline)) void
+aihc_mark_old(AihcCapability *capability, AihcValue *value) {
+  if (value == NULL) {
     return;
   }
   AihcRegionLocation location = aihc_region_location(value);
   switch (location.kind) {
+  case AIHC_REGION_NURSERY:
+    /* The region table identifies every nursery window. No owner lookup
+       is necessary because the marker does not scan nursery objects. */
+    return;
   case AIHC_REGION_GEN2:
     if (aihc_gen2_set_mark(capability, value, location.base)) {
       aihc_mark_push(value, 0);

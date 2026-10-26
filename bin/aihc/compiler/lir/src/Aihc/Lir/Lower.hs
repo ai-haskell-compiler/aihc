@@ -1960,11 +1960,11 @@ compileExpr ctx env expression =
 -- The blocks of that test are cold, so a native backend puts them after
 -- the hot code and the ready branch follows the check directly.
 compileIfWhnf :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> GrinExpr -> LowerM ()
-compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' -> compileExpr ctx env' slow)
+compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' _ -> compileExpr ctx env' slow)
 
 -- | A WHNF test whose slow branch the given action compiles, with the
 -- variable of the value bound to its target.
-compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> LowerM ()) -> LowerM ()
+compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> (Typed, Typed) -> LowerM ()) -> LowerM ()
 compileIfWhnfWith ctx env value ready slow = do
   object <- pointerValue ctx env value
   checkLabel <- freshLabel "eval_check"
@@ -2011,25 +2011,135 @@ compileIfWhnfWith ctx env value ready slow = do
   beginBlock readyLabel []
   branchWith (compileExpr ctx env' ready)
   beginBlock slowLabel []
-  branchWith (slow env')
+  branchWith (slow env' (headerWord, header))
 
 -- | A WHNF test whose slow branch pushes the frame of a continuation and
 -- evaluates the value. The test and the ready branch stay in the function,
--- as 'compileIfWhnf' compiles them. The slow branch
--- gives the value, the info table of the frame, and the fields to a shared
--- helper of their shape, which pushes the frame and evaluates the value.
--- Thus the push, its stack growth, and the stores of the frame are not in
--- each function.
+-- as 'compileIfWhnf' compiles them. When the value is a thunk that no
+-- thread claimed and the frames fit in the stack chunk, the slow branch
+-- pushes the frame of the continuation and the update frame, and enters
+-- the thunk with one indirect call. Thus each force site has its own branch
+-- history for the entry of the thunk. Any other value, and a push that
+-- needs a new chunk, goes to a shared helper of the shape of the fields,
+-- which pushes the frame and evaluates the value.
 compileForce :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> GrinNode -> GrinExpr -> LowerM ()
 compileForce ctx env var update node ready =
-  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' -> do
+  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' (headerWord, header) -> do
     object <- pointerValue ctx env' (GrinVarValue var)
     -- The fields have the types that 'initializeFields' stores them with.
     fields <- mapM (materialize ctx env') (grinNodeFields node)
     info <- nodeInfoSymbol (ctxEnv ctx) node
     helper <- requireHelper (HelperForce update (map typedType fields))
-    running <- runningArguments
-    terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
+    context <- currentContext
+    let frameWords = 1 + length fields
+        updateWords = case update of
+          EvalUpdate -> 3
+          EvalSingleEntry -> 0
+        stack = contextStack context
+    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
+    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
+    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
+    plain <- emitValue "plain" I1 (Binary And I1 (typedOperand isThunk) (typedOperand unclaimed))
+    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
+    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
+    enter <- emitValue "enter" I1 (Binary And I1 (typedOperand plain) (typedOperand fits))
+    enterLabel <- freshLabel "force_enter"
+    helperLabel <- freshLabel "force_helper"
+    terminate (Branch (typedOperand enter) (Target enterLabel []) (Target helperLabel []))
+    beginColdBlock helperLabel []
+    terminate (TailCall helper (contextOperands context <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
+    beginBlock enterLabel []
+    storeSlot StackRegion Ptr (OperandLiteral (LitSymbol info)) stack 0
+    forM_ (zip [0 :: Int ..] fields) $ \(index, field) ->
+      storeSlot StackRegion (typedType field) (typedOperand field) stack (toInteger (8 * (index + 1)))
+    continuation <- case update of
+      EvalSingleEntry -> pure stack
+      EvalUpdate -> do
+        let updateInfo = Symbol "aihc_lir_cps_update_info"
+        requireExternData updateInfo
+        frame <- typedOperand <$> emitValue "update" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger frameWords))))
+        storeSlot StackRegion Ptr (OperandLiteral (LitSymbol updateInfo)) frame 0
+        storeSlot StackRegion Ptr stack frame 8
+        storeSlot StackRegion Ptr object frame 16
+        pure frame
+    entry <- loadInfoCode "entry" (typedOperand header) infoBackendEntryIndex
+    terminate
+      ( TailCallIndirect
+          (typedOperand entry)
+          (contextOperands context {contextStack = typedOperand end} <> [object, continuation])
+          (Signature (contextTypes <> [Ptr, Ptr]) [] AihcConvention)
+      )
+
+-- | The order of two byte ranges of one length, as minus one, zero, or one,
+-- with the sign of @memcmp@. The loop compares eight bytes at a time while
+-- eight or more remain, so it never reads past either range, and then one
+-- byte at a time. At the first word that differs, the lowest set bit of the
+-- difference gives the first byte that differs, because the loads are
+-- little endian.
+compareBytesInline :: Operand -> Operand -> Operand -> LowerM Operand
+compareBytesInline left right count = do
+  wordLoop <- freshLabel "compare_words"
+  wordBody <- freshLabel "compare_word"
+  wordNext <- freshLabel "compare_word_next"
+  wordDiff <- freshLabel "compare_word_diff"
+  byteLoop <- freshLabel "compare_bytes"
+  byteBody <- freshLabel "compare_byte"
+  byteNext <- freshLabel "compare_byte_next"
+  byteDiff <- freshLabel "compare_byte_diff"
+  done <- freshLabel "compare_done"
+  let int value = OperandLiteral (LitInt value)
+      at base index = do
+        address <- emitValue "address" Ptr (PtrAdd base index)
+        pure (byteAddress (typedOperand address) 0)
+  terminate (Jump (Target wordLoop [int 0]))
+  wordIndex <- fresh "index"
+  beginBlock wordLoop [(wordIndex, I64)]
+  remaining <- emitValue "remaining" I64 (Binary Sub I64 count (OperandVar wordIndex))
+  wide <- emitValue "wide" I1 (Compare GeU I64 (typedOperand remaining) (int 8))
+  terminate (Branch (typedOperand wide) (Target wordBody []) (Target byteLoop [OperandVar wordIndex]))
+  beginBlock wordBody []
+  leftAddress <- at left (OperandVar wordIndex)
+  rightAddress <- at right (OperandVar wordIndex)
+  leftWord <- emitValue "left_word" I64 (Load I64 leftAddress (byteAlignment 1))
+  rightWord <- emitValue "right_word" I64 (Load I64 rightAddress (byteAlignment 1))
+  sameWord <- emitValue "same_word" I1 (Compare Eq I64 (typedOperand leftWord) (typedOperand rightWord))
+  terminate (Branch (typedOperand sameWord) (Target wordNext []) (Target wordDiff []))
+  beginBlock wordNext []
+  nextWord <- emitValue "index" I64 (Binary Add I64 (OperandVar wordIndex) (int 8))
+  terminate (Jump (Target wordLoop [typedOperand nextWord]))
+  beginBlock wordDiff []
+  difference <- emitValue "difference" I64 (Binary Xor I64 (typedOperand leftWord) (typedOperand rightWord))
+  lowest <- emitValue "lowest" I64 (Unary Ctz I64 (typedOperand difference))
+  shift <- emitValue "shift" I64 (Binary And I64 (typedOperand lowest) (int (-8)))
+  leftShifted <- emitValue "left_shifted" I64 (Binary ShrU I64 (typedOperand leftWord) (typedOperand shift))
+  rightShifted <- emitValue "right_shifted" I64 (Binary ShrU I64 (typedOperand rightWord) (typedOperand shift))
+  leftDiffByte <- emitValue "left_byte" I64 (Binary And I64 (typedOperand leftShifted) (int 255))
+  rightDiffByte <- emitValue "right_byte" I64 (Binary And I64 (typedOperand rightShifted) (int 255))
+  wordLess <- emitValue "less" I1 (Compare LtU I64 (typedOperand leftDiffByte) (typedOperand rightDiffByte))
+  wordOrder <- emitValue "order" I64 (Select I64 (typedOperand wordLess) (int (-1)) (int 1))
+  terminate (Jump (Target done [typedOperand wordOrder]))
+  byteIndex <- fresh "index"
+  beginBlock byteLoop [(byteIndex, I64)]
+  finished <- emitValue "finished" I1 (Compare Eq I64 (OperandVar byteIndex) count)
+  terminate (Branch (typedOperand finished) (Target done [int 0]) (Target byteBody []))
+  beginBlock byteBody []
+  leftByteAddress <- at left (OperandVar byteIndex)
+  rightByteAddress <- at right (OperandVar byteIndex)
+  leftByte <- emitValue "left_byte" I8 (Load I8 leftByteAddress (byteAlignment 1))
+  rightByte <- emitValue "right_byte" I8 (Load I8 rightByteAddress (byteAlignment 1))
+  sameByte <- emitValue "same_byte" I1 (Compare Eq I8 (typedOperand leftByte) (typedOperand rightByte))
+  terminate (Branch (typedOperand sameByte) (Target byteNext []) (Target byteDiff []))
+  beginBlock byteNext []
+  nextByte <- emitValue "index" I64 (Binary Add I64 (OperandVar byteIndex) (int 1))
+  terminate (Jump (Target byteLoop [typedOperand nextByte]))
+  beginBlock byteDiff []
+  byteLess <- emitValue "less" I1 (Compare LtU I8 (typedOperand leftByte) (typedOperand rightByte))
+  byteOrder <- emitValue "order" I64 (Select I64 (typedOperand byteLess) (int (-1)) (int 1))
+  terminate (Jump (Target done [typedOperand byteOrder]))
+  order <- fresh "order"
+  beginBlock done [(order, I64)]
+  pure (OperandVar order)
 
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
@@ -2896,7 +3006,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           leftBytes <- emitValue "left_bytes" Ptr (PtrAdd (typedOperand leftContents) leftIndex)
           rightBytes <- emitValue "right_bytes" Ptr (PtrAdd (typedOperand rightContents) rightIndex)
           lengthOperand <- word count
-          result <- callRuntime "aihc_memory_compare" [Ptr, Ptr, I64] [I64] [typedOperand leftBytes, typedOperand rightBytes, lengthOperand]
+          result <- compareBytesInline (typedOperand leftBytes) (typedOperand rightBytes) lengthOperand
           bind [Typed result I64]
     ("compareInt#", [left, right]) -> do
       leftOperand <- word left
