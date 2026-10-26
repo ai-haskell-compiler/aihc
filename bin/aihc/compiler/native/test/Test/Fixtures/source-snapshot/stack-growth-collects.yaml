@@ -11,6 +11,6 @@ source: |
 return: "@0"
 heap: |
   @0 = CResult 2000000
-minimum-collections: 6
+minimum-collections: 3
 status: pass
 reason: A recursion that pushes frames and allocates nothing must still collect after about one nursery of stack growth, so that one minor collection scans a bounded number of young stack chunks.

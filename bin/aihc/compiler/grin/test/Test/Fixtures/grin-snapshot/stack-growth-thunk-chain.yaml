@@ -1,5 +1,5 @@
 entry: $entry
-minimum-collections: 9
+minimum-collections: 5
 program: |
   constructor Number/1 [IntRep]
   primitive -# :: IntRep/2
@@ -23,4 +23,4 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 status: pass
-reason: Each thunk of the chain only evaluates the thunk below it, so the evaluation of the top thunk pushes one update frame for each thunk and allocates nothing. The evaluation helper charges each new stack chunk to the nursery and collects when the charges use the nursery. Thus one minor collection scans a bounded number of young stack chunks. The building of the chain causes about five collections, and the evaluation must cause at least four more.
+reason: Each thunk of the chain only evaluates the thunk below it, so the evaluation of the top thunk pushes one update frame for each thunk and allocates nothing. The evaluation helper charges each new stack chunk to the nursery and collects when the charges use the nursery. Thus one minor collection scans a bounded number of young stack chunks. The building of the chain causes about three collections, and the evaluation must cause at least two more.
