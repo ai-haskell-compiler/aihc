@@ -870,7 +870,11 @@ The lowering keeps the control model of CPS-GRIN:
   `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry
   when `%hp` is above `%hp_limit`.
 - The slow branch of a WHNF test that pushes a frame and evaluates the value
-  is one `tailcall` of a shared helper `aihc_lir_force_<shape>`. It takes the
+  enters a thunk directly. When the value is a thunk with no tag bits and
+  the frame and the update frame fit in the stack chunk, the branch pushes
+  both frames and tail-calls the `backend_entry` of the thunk. A single-entry
+  evaluation pushes no update frame. Any other value, and a push that needs
+  a new chunk, goes to a shared helper `aihc_lir_force_<shape>`. It takes the
   value, the info table of the frame, and the fields of the frame. The
   helper pushes the frame and tail-calls the evaluation helper. The test,
   the cold blocks that follow indirections and evaluated thunks, and the

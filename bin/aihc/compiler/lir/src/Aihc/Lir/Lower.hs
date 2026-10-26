@@ -1903,11 +1903,11 @@ compileExpr ctx env expression =
 -- The blocks of that test are cold, so a native backend puts them after
 -- the hot code and the ready branch follows the check directly.
 compileIfWhnf :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> GrinExpr -> LowerM ()
-compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' -> compileExpr ctx env' slow)
+compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' _ -> compileExpr ctx env' slow)
 
 -- | A WHNF test whose slow branch the given action compiles, with the
 -- variable of the value bound to its target.
-compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> LowerM ()) -> LowerM ()
+compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> (Typed, Typed) -> LowerM ()) -> LowerM ()
 compileIfWhnfWith ctx env value ready slow = do
   object <- pointerValue ctx env value
   checkLabel <- freshLabel "eval_check"
@@ -1954,25 +1954,65 @@ compileIfWhnfWith ctx env value ready slow = do
   beginBlock readyLabel []
   branchWith (compileExpr ctx env' ready)
   beginBlock slowLabel []
-  branchWith (slow env')
+  branchWith (slow env' (headerWord, header))
 
 -- | A WHNF test whose slow branch pushes the frame of a continuation and
 -- evaluates the value. The test and the ready branch stay in the function,
--- as 'compileIfWhnf' compiles them. The slow branch
--- gives the value, the info table of the frame, and the fields to a shared
--- helper of their shape, which pushes the frame and evaluates the value.
--- Thus the push, its stack growth, and the stores of the frame are not in
--- each function.
+-- as 'compileIfWhnf' compiles them. When the value is a thunk that no
+-- thread claimed and the frames fit in the stack chunk, the slow branch
+-- pushes the frame of the continuation and the update frame, and enters
+-- the thunk with one indirect call. Thus each force site has its own branch
+-- history for the entry of the thunk. Any other value, and a push that
+-- needs a new chunk, goes to a shared helper of the shape of the fields,
+-- which pushes the frame and evaluates the value.
 compileForce :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> GrinNode -> GrinExpr -> LowerM ()
 compileForce ctx env var update node ready =
-  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' -> do
+  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' (headerWord, header) -> do
     object <- pointerValue ctx env' (GrinVarValue var)
     -- The fields have the types that 'initializeFields' stores them with.
     fields <- mapM (materialize ctx env') (grinNodeFields node)
     info <- nodeInfoSymbol (ctxEnv ctx) node
     helper <- requireHelper (HelperForce update (map typedType fields))
-    running <- runningArguments
-    terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
+    context <- currentContext
+    let frameWords = 1 + length fields
+        updateWords = case update of
+          EvalUpdate -> 3
+          EvalSingleEntry -> 0
+        stack = contextStack context
+    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 3)))
+    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
+    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
+    plain <- emitValue "plain" I1 (Binary And I1 (typedOperand isThunk) (typedOperand unclaimed))
+    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
+    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
+    enter <- emitValue "enter" I1 (Binary And I1 (typedOperand plain) (typedOperand fits))
+    enterLabel <- freshLabel "force_enter"
+    helperLabel <- freshLabel "force_helper"
+    terminate (Branch (typedOperand enter) (Target enterLabel []) (Target helperLabel []))
+    beginColdBlock helperLabel []
+    terminate (TailCall helper (contextOperands context <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
+    beginBlock enterLabel []
+    storeSlot StackRegion Ptr (OperandLiteral (LitSymbol info)) stack 0
+    forM_ (zip [0 :: Int ..] fields) $ \(index, field) ->
+      storeSlot StackRegion (typedType field) (typedOperand field) stack (toInteger (8 * (index + 1)))
+    continuation <- case update of
+      EvalSingleEntry -> pure stack
+      EvalUpdate -> do
+        let updateInfo = Symbol "aihc_lir_cps_update_info"
+        requireExternData updateInfo
+        frame <- typedOperand <$> emitValue "update" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger frameWords))))
+        storeSlot StackRegion Ptr (OperandLiteral (LitSymbol updateInfo)) frame 0
+        storeSlot StackRegion Ptr stack frame 8
+        storeSlot StackRegion Ptr object frame 16
+        pure frame
+    entry <- loadInfoCode "entry" (typedOperand header) infoBackendEntryIndex
+    terminate
+      ( TailCallIndirect
+          (typedOperand entry)
+          (contextOperands context {contextStack = typedOperand end} <> [object, continuation])
+          (Signature (contextTypes <> [Ptr, Ptr]) [] AihcConvention)
+      )
 
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
