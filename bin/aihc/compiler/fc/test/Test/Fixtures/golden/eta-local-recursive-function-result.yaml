@@ -47,7 +47,7 @@ expected: |-
   }
 
   pub val 1.vrun :: tNat → tInt → tNat
-    = λ(x : tNat).
+    = λ(x : tNat) (eta{3} : tInt).
       let step : tNat → (tInt → tNat) → tInt → tNat =
         λ(x{1} : tNat) (y : tInt → tNat) (z : tInt).
           let! cI# (unused _pat : tInt#) = z;
@@ -62,6 +62,9 @@ expected: |-
           λ(x{1} : tNat) (eta{2} : tInt).
             step x{1} (go (cS x{1})) eta{2}
       } in
-      go x
+      go x eta{3}
 status: pass
-reason: The local loop calls a step of three arguments with two. Under the guess that the loop takes two arguments, its own call is a partial application, so the loop expands to two arguments and builds no closure for each step.
+reason: |
+  The local loop gains its second argument from the step function.
+  The enclosing function uses the loop's manifest arity and gains its second argument too.
+  Its call enters the loop directly, without a returned closure.

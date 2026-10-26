@@ -282,9 +282,12 @@ arityType env expr =
         (exprCost env (bindRhs bind))
         (arityType (extendSig env (binderName (bindBinder bind)) (arityType env (bindRhs bind))) body)
     ExRec binds body ->
-      floatIn
-        (List.foldl' addCost IsCheap (map (exprCost env . bindRhs) binds))
-        (arityType (List.foldl' shadow env (map (binderName . bindBinder) binds)) body)
+      -- Each explicit lambda proves an entry argument, also in a recursive group.
+      -- Keep this fact when the body returns a member of that group.
+      let inner = List.foldl' (\current bind -> extendSig current (binderName (bindBinder bind)) (manifestArityType env (bindRhs bind))) env binds
+       in floatIn
+            (List.foldl' addCost IsCheap (map (exprCost env . bindRhs) binds))
+            (arityType inner body)
     ExCase scrutinee binder (NE.toList -> alternatives) ->
       case alternatives of
         [] -> topArityType
