@@ -1,0 +1,35 @@
+; An inline function that gives a constant on one path, as the update of a
+; thunk in the runtime does. The splice joins the paths in the block after
+; the call, which branches on the result. The path with the constant must go
+; straight to its destination: no move of the constant and no test of it.
+extern func @slow(ptr) -> i1 cc c
+extern func @done(ptr, ptr, ptr, ptr, ptr)
+extern func @again(ptr, ptr, ptr, ptr, ptr)
+
+inline func @try(%object: ptr) -> i1 {
+entry:
+  %header = load i64 [%object] align 8
+  %tag = and i64 %header, 3
+  %plain = eq i64 %tag, 0
+  br %plain, fast, other
+
+fast:
+  store i64 1, [%object + 8] align 8
+  return 1
+
+other:
+  %result = call @slow(%object)
+  return %result
+}
+
+func @update(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %object: ptr) {
+entry:
+  %updated = call @try(%object)
+  br %updated, finished, retry
+
+finished:
+  tailcall @done(%hp, %hp_limit, %sp, %sp_limit, %object)
+
+retry:
+  tailcall @again(%hp, %hp_limit, %sp, %sp_limit, %object)
+}

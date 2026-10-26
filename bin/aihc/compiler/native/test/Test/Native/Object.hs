@@ -5,11 +5,13 @@ module Test.Native.Object (tests) where
 
 import Aihc.Amd64.Assemble qualified as Amd64
 import Aihc.Arm64.Assemble qualified as Arm64
+import Data.Bits (shiftR)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
+import Data.Word (Word32)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 
@@ -124,5 +126,42 @@ shortJumps =
       bytes <- jumps
       assertBool "the object does not hold the expected code" (expected `BS.isInfixOf` bytes)
 
+-- | The defect is a bit branch outside its signed 14-bit word range.
+-- These object bytes also check the polarity and the high bit number.
+bitBranches :: TestTree
+bitBranches =
+  testGroup
+    "ARM64 bit branches"
+    [ check "the largest forward displacement uses one instruction" False False Arm64.X0 0 32760 [0x3603ffe0],
+      check "the first larger forward displacement uses two instructions" False False Arm64.X0 0 32764 [0x37000040, 0x14002000],
+      check "the smallest backward displacement uses one instruction" True False Arm64.X0 0 32768 [0x36040000],
+      check "a smaller backward displacement uses two instructions" True False Arm64.X0 0 32772 [0x37000040, 0x17ffdffe],
+      check "bit 63 and nonzero polarity survive relaxation" False True Arm64.X3 63 0 [0xb7f80023],
+      testCase "a relocation follows new alignment padding" $ do
+        let target = Arm64.LocalName 0 "aligned"
+        bytes <-
+          assembled . Arm64.assembleMachO $
+            [ Arm64.arm64Section Arm64.TextSection,
+              Arm64.arm64Instruction (Arm64.ArmTbz False Arm64.X0 0 target),
+              Arm64.arm64Align 3,
+              Arm64.Arm64Label target,
+              Arm64.arm64QuadSymbol undefinedName
+            ]
+        -- The short branch needs four padding bytes before the pointer.
+        -- Its only relocation must name byte eight of the text section.
+        assertBool "the relocation did not move past the padding" (wordsBytes [8, 0x0e000000] `BS.isInfixOf` bytes)
+    ]
+  where
+    check name backward nonzero register bit count expected = testCase name $ do
+      let target = Arm64.LocalName 0 "target"
+          branch = Arm64.arm64Instruction (Arm64.ArmTbz nonzero register bit target)
+          label = Arm64.Arm64Label target
+          gap = Arm64.arm64Bytes (BS.replicate count 0xcc)
+          body = if backward then [label, gap, branch] else [branch, gap, label]
+      bytes <- assembled (Arm64.assembleMachO (Arm64.arm64Section Arm64.TextSection : body))
+      assertBool "the object has incorrect bit branch bytes" (wordsBytes expected `BS.isInfixOf` bytes)
+    wordsBytes :: [Word32] -> ByteString
+    wordsBytes = BS.pack . concatMap (\word -> [fromIntegral (word `shiftR` shift) | shift <- [0, 8, 16, 24]])
+
 tests :: TestTree
-tests = testGroup "object symbols" [format "mach-o" machO, format "elf" elf, shortJumps]
+tests = testGroup "object symbols" [format "mach-o" machO, format "elf" elf, shortJumps, bitBranches]

@@ -179,6 +179,7 @@ data Arm64Instruction
   | ArmB !Name
   | ArmBl !Text
   | ArmBCond !Arm64Condition !Name
+  | ArmTbz !Bool !Arm64Register !Int !Name
   | ArmCbz !Arm64Register !Name
   | ArmCbnz !Arm64Register !Name
   | ArmAdr !Arm64Register !Name
@@ -385,6 +386,9 @@ encodeInstruction instruction =
     ArmB target -> branchItem 0x14000000 Arm64Branch26 target
     ArmBl target -> branchItem 0x94000000 Arm64Branch26 (SymbolName target)
     ArmBCond condition target -> branchItem (0x54000000 .|. conditionCode condition) Arm64Branch19 target
+    ArmTbz nonzero source bit target ->
+      words32 [(if nonzero then 0x36000000 else 0x37000000) .|. (fromIntegral (bit `div` 32) `shiftL` 31) .|. (fromIntegral (bit `mod` 32) `shiftL` 19) .|. registerNumber (registerInfo source) .|. (2 `shiftL` 5)]
+        <> branchItem 0x14000000 Arm64BitBranch26 target
     ArmCbz source target -> compareBranch 0x34000000 source target
     ArmCbnz source target -> compareBranch 0x35000000 source target
     ArmAdr destination target -> fixupItem (0x10000000 .|. registerNumber (registerInfo destination)) Arm64Adr21 target

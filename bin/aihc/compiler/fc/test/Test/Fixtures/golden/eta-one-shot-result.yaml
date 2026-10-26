@@ -1,0 +1,69 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (action) where
+
+  import GHC.Prim ((+#))
+  import GHC.Types (Int (..))
+
+  newtype Fn = Fn (Int -> Int)
+
+  plus :: Int -> Int -> Int
+  plus (I# a) (I# b) = I# (a +# b)
+
+  step :: Int -> Int -> Fn
+  step a b = let total = plus a b in Fn (\x -> plus total x)
+
+  action :: Int -> Int
+  action x = case step x x of Fn f -> f x
+passes:
+- eta
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.tFn :: sType {}
+
+  axiom 1.$ax$Fn : tFn ~R tInt → tInt
+
+  val 1.vplus :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
+
+  val 1.vstep :: tInt → tInt → tFn
+    = λ(x : tInt) (y : tInt).
+      (λ(eta{2} : tInt).
+        let total : tInt =
+          vplus x y;
+        vplus total eta{2}) ▷ sym (axiom-co $ax$Fn)
+
+  pub val 1.vaction :: tInt → tInt
+    = λ(x : tInt).
+      ((vstep x x) ▷ axiom-co $ax$Fn) x
+status: pass
+reason: The value 'step' is private, and its only use applies its closure at once. Thus the result lambda is one-shot, and 'step' expands to three arguments although 'plus a b' is in front of the lambda. Compare eta-expensive-work-stays-shared, where the closure is a CAF.

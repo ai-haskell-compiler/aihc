@@ -173,6 +173,10 @@ rejects the three shapes the splice cannot serve:
 An inline function may call other inline functions, and a `stack.alloc` in its
 body allocates in the frame of each caller it is spliced into.
 
+A return of a constant jumps to the block after the call with that constant.
+When that block only branches on the result, the jump goes straight to the
+destination of the branch, so the constant needs no register and no test.
+
 ```text
 inline func @info_table(%object: ptr) -> ptr {
 entry:
@@ -348,7 +352,7 @@ or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `identity` | `ptr` | The saturated constructor table of a constructor. A case with few constructor alternatives compares this field. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
+| `identity` | `ptr` | The saturated constructor table of a constructor. A case with few constructor alternatives compares this field. A closure or a thunk stores the `code` of its function here: the heap snapshot tool maps that address to a name. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
@@ -361,34 +365,37 @@ or `0`. The fields are, in order:
 | `gc_words` | `i8` | The fixed object size in words, or zero for the general size path. The compiler caches node, closure, and thunk sizes that fit in one byte. An empty thunk has two words. |
 | `constructor_index` | `i16` | The index of a constructor in its data declaration, from zero, and `0` for every other object. Both tables of one constructor have the same index. A case with four constructor alternatives or more loads this field at `[%header + @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET]` and selects its alternative with a `switch`. A case with fewer alternatives compares the `identity` field. The lowering rejects a data type with more than 65536 constructors. |
 
-The `backend_entry` field has the signature
-`(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()` with the context of the
-running thread, the object, the continuation, and the supplied values. "Lowering from GC-GRIN" describes the context. The
-types `T...` are the Lir types of the supplied values, so a call site with
-`n` supplied values states a signature with `n` value parameters. A
-continuation object ignores the continuation parameter. The function loads
-the stored fields, takes the supplied values as parameters, and tail-calls
+An ordinary object uses the `backend_entry` signature
+`(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()`.
+The first four parameters carry the thread context.
+The next two parameters carry the object and its continuation.
+A frame uses `(ptr, ptr, ptr, ptr, ptr, T...) -> ()`.
+After the context, its entry accepts the frame and the supplied values.
+A frame entry has no continuation parameter.
+"Lowering from GC-GRIN" describes the context.
+Each supplied value uses its Lir type.
+The function loads the stored fields and tail-calls
 the code of the object. A closure stage takes the values of all its
 remaining argument groups. Only a closure stage with a remaining arity from
 one to four has an entry, because one application supplies at most four
-groups. When every stored field and every supplied value is
-a `ptr`, with at most eight stored fields and at most four supplied values,
-the field names a shared function of the runtime unit `aihc_enter.lir`,
-which reaches the code through the `identity` field. A thunk uses
-`aihc_lir_enter_thunk_S`, which loads its stored fields after the owner word.
-Every other shape gets one generated function per enterable object.
+groups. Each enterable object gets one generated function, which calls the
+code directly. Thus an entry through the info table is one indirect call, and
+each kind of object has its own branch history. A thunk stub loads its
+stored fields after the owner word.
 
 A continuation can use its body as the `backend_entry` directly.
-The body accepts the frame, an unused continuation parameter, and the supplied values.
+After the context, the body accepts the frame and the supplied values.
 It loads the stored fields from the frame before it executes the original body.
 This removes the entry stub without a second copy of the body.
 
-This change requires one closure shape, no direct callers, and no GC reservations in the body.
+This change requires one closure shape and no direct callers.
 The stored and supplied types must match the original parameters.
 The shape must have at least one argument group and must not exceed `grinApplyGroupLimit`.
 Forward frames and externally exposed functions keep their existing entries.
-A body with a GC reservation keeps its original ABI for GC replay.
-After collection, a popped frame cannot supply relocated fields for that replay.
+A body with a GC reservation replays through its frame.
+The entry popped the frame, so the slow path of the reservation first moves the stack pointer back above the frame.
+It passes the frame as a root, so the collector relocates the slots of the frame.
+Then the body runs again from its entry and loads the relocated fields.
 
 A frame with `AIHC_FRAME_FORWARD` has the ordinary closure object kind.
 Its first field holds its parent, and its pointer bitmap describes all captured values.
@@ -871,7 +878,11 @@ The lowering keeps the control model of CPS-GRIN:
   `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry
   when `%hp` is above `%hp_limit`.
 - The slow branch of a WHNF test that pushes a frame and evaluates the value
-  is one `tailcall` of a shared helper `aihc_lir_force_<shape>`. It takes the
+  enters a thunk directly. When the value is a thunk with no tag bits and
+  the frame and the update frame fit in the stack chunk, the branch pushes
+  both frames and tail-calls the `backend_entry` of the thunk. A single-entry
+  evaluation pushes no update frame. Any other value, and a push that needs
+  a new chunk, goes to a shared helper `aihc_lir_force_<shape>`. It takes the
   value, the info table of the frame, and the fields of the frame. The
   helper pushes the frame and tail-calls the evaluation helper. The test,
   the cold blocks that follow indirections and evaluated thunks, and the
@@ -887,9 +898,8 @@ The lowering keeps the control model of CPS-GRIN:
   same, the return makes the frame `%sp` and tail-calls the entry with one
   indirect call. Thus each return site has its own branch history. A forward
   frame, or a frame in a lower chunk, goes to the continue helper in a cold
-  block. Each continuation frame has an enter stub of its own, which calls
-  the code of the frame directly. A return thus does one indirect call, and
-  not a second one through the `identity` field of a shared enter function.
+  block. The enter stub of the frame calls the code of the frame directly,
+  so a return does one indirect call.
 - `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
   It does no allocation or suspension.
   A zero byte sends the object to its ready branch.
@@ -907,10 +917,17 @@ The lowering keeps the control model of CPS-GRIN:
   Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
   The update frame has its own backend entry, `aihc_lir_cps_update_entry`, which reads the two fields of the frame.
+  When the thunk is young and no pause claimed it, and the result is a value, the entry does the update and returns to the parent continuation itself.
+  Every other case goes to `aihc_lir_cps_update`.
   A young thunk that no pause claimed gets the update with two stores in Lir: the result into field zero, and bit zero into the header.
   Every other thunk goes to the C function `aihc_update_blackhole`, which also wakes the waiters of its queue.
   A result that is a value goes directly to the parent continuation, and another result goes to `aihc_lir_eval`.
   Compiler modules contain no update-frame construction or synthetic update function.
+- An application of an unknown function tests the kind and the remaining
+  arity in the info table of the function. A closure that takes exactly the
+  supplied groups is entered at the call site with one indirect call, so
+  each call site has its own branch history. Any other function goes to the
+  apply helper of the shape in a cold block.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
   `[i64]`. The compiler emits local helpers for all other argument shapes.
@@ -1011,11 +1028,6 @@ The units are:
   The executable entry retains its exit helper because that helper updates
   the executable halt flag.
 
-- `aihc_enter.lir` defines the shared enter functions `aihc_lir_enter_S_V`
-  and `aihc_lir_enter_S_V_k` for `S` stored pointers up to eight and `V`
-  supplied pointers up to four; the `_k` form passes the continuation to the
-  code. A continuation frame does not use them: it has an enter stub of its
-  own. See "Info tables".
 - `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
   and the bulk operations: copy, clone, shrink, and resize. The lowering
   emits the rest of the boxed-array primitives inline: the identity test is
@@ -1173,6 +1185,11 @@ rather than as a change of some object bytes. Run the suite with
   into its home. A comparison that only the branch of its block reads is not
   materialized: the block compares and branches on the flags, or on the
   register itself against zero.
+  A single-use bit mask followed by an equality test against zero uses
+  `tbz` or `tbnz`. The object writer starts with an inverse bit test and an
+  unconditional branch. It removes the second instruction when the exact
+  displacement fits the signed 14-bit word range. Each expansion keeps
+  the long branch, so this process stops without a function-size limit.
 - The arguments of a call, the values of a return, and the arguments of a
   jump are one parallel move each: every source is read before the
   destination it lives in is written, a cycle is broken through a scratch

@@ -66,7 +66,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_13, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %value_23)
 
   continue_enter_34:
-    tailcall.indirect %entry_27(%hp_13, %hp_limit_12, %$cps_return$gc_10, %sp_limit_3, %$cps_return$gc_10, null, %value_23) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_27(%hp_13, %hp_limit_12, %$cps_return$gc_10, %sp_limit_3, %$cps_return$gc_10, %value_23) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   func @aihc_lir_collect_replay_p(%hp_37: ptr, %hp_limit_38: ptr, %sp_39: ptr, %sp_limit_40: ptr, %value_41: ptr, %code_42: code, %words_43: i64, %srt_44: ptr) {

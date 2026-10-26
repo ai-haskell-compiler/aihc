@@ -482,9 +482,13 @@ data LowerState = LowerState
 -- the same values, so the code before the reservation reads the same values
 -- again. A read from a frame that the entry popped is not such a read,
 -- because a collection does not relocate the slots of that frame.
--- The fields are the code of the function and each argument with its type
--- and whether it is a root.
-data Replay = Replay !Symbol ![(Operand, Type, Bool)]
+-- The fields are the code of the function, each argument with its type and
+-- whether it is a root, and for a body that takes its frame directly, the
+-- frame and its size. Such a body runs after the entry popped its frame, so
+-- the collection pushes the frame again: the stack pointer goes back above
+-- the frame, and the frame is a root. The collection then relocates the
+-- slots of the frame, and the body loads them again.
+data Replay = Replay !Symbol ![(Operand, Type, Bool)] !(Maybe (Operand, Integer))
 
 -- | The block at a store safepoint and the roots it binds. When the barrier
 -- of the store asks for a collection, the cold path spills the roots,
@@ -727,9 +731,7 @@ lowerEnvironment options gcProgram =
         _ -> Nothing
 
 -- | A frame can enter its body when no direct call needs the original ABI.
--- A reservation can use that ABI for GC replay from relocated arguments.
--- A popped frame cannot supply relocated fields after collection.
--- Keep bodies with reservations unchanged, without larger collection paths.
+-- A body with a reservation replays through its frame: see 'Replay'.
 directFrameEntries :: Set FunctionName -> Set FunctionName -> Map FunctionName [Type] -> [RuntimeInfoKey] -> GrinProgram -> Map FunctionName Int
 directFrameEntries frames forwards parameters keys program =
   Map.fromList
@@ -738,7 +740,6 @@ directFrameEntries frames forwards parameters keys program =
       Set.member name frames,
       Set.notMember name forwards,
       Set.notMember name called,
-      Set.notMember name reserved,
       not (null layouts),
       length layouts <= grinApplyGroupLimit,
       Map.lookup name parameters == Just (map repType (fields <> concat layouts))
@@ -746,7 +747,6 @@ directFrameEntries frames forwards parameters keys program =
   where
     shapes = Map.fromListWith (<>) [(name, [key]) | key <- keys, Just name <- [runtimeInfoFunctionName key]]
     called = foldMap (calls . grinFunctionBody) (grinFunctions program)
-    reserved = Set.fromList [grinFunctionName function | function <- grinFunctions program, reservation (grinFunctionBody function)]
     children expression = case expression of
       GrinBind _ value body -> [value, body]
       GrinStoreRec _ body -> [body]
@@ -757,11 +757,6 @@ directFrameEntries frames forwards parameters keys program =
     calls expression = case expression of
       GrinCall _ name _ -> Set.singleton name
       _ -> foldMap calls (children expression)
-    reservation expression = case expression of
-      GrinEnsureHeap {} -> True
-      GrinAllocate {} -> True
-      GrinSafepoint {} -> True
-      _ -> any reservation (children expression)
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
@@ -1420,7 +1415,7 @@ lowerInfo info = do
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
     failWith (LowerUnsupportedValue ("a data type with more than 65536 constructors: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
-  entry <- traverse (enterFunction (infoSymbol info) (isJust (infoFrameKind info))) (infoEnter info)
+  entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
     ( ItemData
         DataItem
@@ -1445,58 +1440,17 @@ lowerInfo info = do
           }
     )
 
--- | The function that enters one object: a shared runtime function when the
--- object has one of the shapes the runtime defines, and otherwise a stub of
--- this module. A continuation frame always gets a stub of its own. Its stub
--- calls the code directly, so a return has one indirect call, and not a
--- second one through the identity field.
-enterFunction :: Symbol -> Bool -> RuntimeEnter -> LowerM Symbol
-enterFunction _ _ enter | enterDirect enter = pure (enterTarget enter)
-enterFunction info frame enter =
-  case if frame then Nothing else sharedEnterSymbol enter of
-    Just symbol -> do
-      let signature = Signature (contextTypes <> [Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
-      modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
-      pure symbol
-    Nothing -> do
-      let stub = Symbol (unSymbol info <> "_e")
-      lowerEnterStub stub enter
-      pure stub
-
--- | The shared enter function of the runtime for one object shape, when the
--- runtime defines one. @aihc_enter.lir@ defines @aihc_lir_enter_S_V@ and
--- @aihc_lir_enter_S_V_k@ for @S@ stored pointers up to 'sharedEnterMaxStored'
--- and @V@ supplied pointers from one up to 'sharedEnterMaxSupplied'; the @_k@
--- form passes the continuation to the code. It defines
--- @aihc_lir_enter_thunk_S@ for a thunk, whose stored fields start after the
--- owner word, and which takes no supplied value. Those functions load the stored
--- fields and tail-call the code through the identity field of the info
--- table, which is what a generated stub does for the same shape. Any value
--- that is not a pointer keeps a generated stub, since WebAssembly checks the
--- signature of an indirect call and a stub coerces such values.
-sharedEnterSymbol :: RuntimeEnter -> Maybe Symbol
-sharedEnterSymbol enter
-  | all (== Ptr) (enterStored enter),
-    all (== Ptr) (enterSupplied enter),
-    all (== Ptr) (enterTargetParameters enter),
-    length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
-    stored <= sharedEnterMaxStored,
-    supplied <= sharedEnterMaxSupplied =
-      case (enterStoredOffset enter, supplied, passesContinuation) of
-        (0, _, False) -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied)))
-        (0, _, True) | supplied > 0 -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> "_k")))
-        (offset, 0, True) | offset == thunkOwnerWords -> Just (Symbol (T.pack ("aihc_lir_enter_thunk_" <> show stored)))
-        _ -> Nothing
-  | otherwise = Nothing
-  where
-    stored = length (enterStored enter)
-    supplied = length (enterSupplied enter)
-    passesContinuation = enterPassesContinuation enter
-
--- | The shapes @aihc_enter.lir@ defines.
-sharedEnterMaxStored, sharedEnterMaxSupplied :: Int
-sharedEnterMaxStored = 8
-sharedEnterMaxSupplied = 4
+-- | The function that enters one object: the code itself when the code
+-- takes the object directly, and otherwise a stub of its own. The stub loads
+-- the stored fields and calls the code directly. Thus an entry through the
+-- info table is one indirect call, and each kind of object has its own
+-- branch history.
+enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
+enterFunction _ enter | enterDirect enter = pure (enterTarget enter)
+enterFunction info enter = do
+  let stub = Symbol (unSymbol info <> "_e")
+  lowerEnterStub stub enter
+  pure stub
 
 -- | The dynamic entry of one enterable object. It loads the stored fields,
 -- takes the supplied values as parameters, and tail-calls the code.
@@ -1515,7 +1469,8 @@ lowerEnterStub stub enter = do
     failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> unSymbol (enterTarget enter) <> T.pack (": " <> show (length parameters) <> " parameters, " <> show (length (enterStored enter)) <> " stored, " <> show (length (enterSupplied enter)) <> " supplied, continuation " <> show (enterPassesContinuation enter))))
   arguments <- zipWithM coerce parameters values
   terminate (TailCall (enterTarget enter) (contextOperands context <> arguments))
-  finishFunction stub Internal (contextParameters <> [(object, Ptr), (continuation, Ptr)] <> supplied) [] AihcConvention
+  -- Frame entries need only the frame and the supplied values after the context.
+  finishFunction stub Internal (contextParameters <> [(object, Ptr)] <> [(continuation, Ptr) | enterPassesContinuation enter] <> supplied) [] AihcConvention
 
 -- | A continuation object kind for an entry or a harness: the info table,
 -- and the stub that enters the target function with the stored fields and
@@ -1669,13 +1624,12 @@ lowerFunction env function = do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
   let direct = Map.lookup (grinFunctionName function) (envFrameEntries env)
-  (entryParameters, parameters) <- case direct of
+  (entryParameters, parameters, frameReplay) <- case direct of
     Nothing -> do
       beginBlock (Label "entry") []
-      pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters)
+      pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters, Nothing)
     Just count -> do
       object <- fresh "frame"
-      unused <- fresh "unused"
       beginBlock (Label "entry") []
       let (stored, supplied) = splitAt count originalParameters
       loaded <- forM (zip [1 :: Int ..] stored) $ \(index, (var, _, ty)) -> do
@@ -1683,7 +1637,14 @@ lowerFunction env function = do
         case typedOperand value of
           OperandVar name -> pure (var, name, ty)
           _ -> failWith (LowerUnsupportedExpression "frame field has no variable")
-      pure ((object, Ptr) : (unused, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied], loaded <> supplied)
+      let replayArguments =
+            (OperandVar object, Ptr, True)
+              : [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- supplied]
+      pure
+        ( (object, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied],
+          loaded <> supplied,
+          Just (Replay (functionSymbol (grinFunctionName function)) replayArguments (Just (OperandVar object, toInteger (8 * (count + 1)))))
+        )
   when (lowerProfileTime (envOptions env)) $
     storeProfileEntry (grinFunctionName function) (profileContinuation env function [lirVar | (_, lirVar, _) <- parameters])
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
@@ -1695,8 +1656,8 @@ lowerFunction env function = do
   codeSlot <- if hasForeignCall needsCodeSlot (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
-      replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters]
-  modify' (\state -> state {stateReplay = if isJust direct then Nothing else Just replay})
+      replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters] Nothing
+  modify' (\state -> state {stateReplay = Just (fromMaybe replay frameReplay)})
   compileExpr ctx valueEnv (grinFunctionBody function)
   modify' (\state -> state {stateContext = Nothing, stateReplay = Nothing})
   finishFunction
@@ -1828,8 +1789,29 @@ compileExpr ctx env expression =
       continuationOperand <- pointerValue ctx env continuation
       values <- mapM (mapM (materialize ctx env)) groups
       apply <- requireHelper (HelperApply (map (map typedType) values))
-      running <- runningArguments
-      terminate (TailCall apply (running <> (functionOperand : continuationOperand : map typedOperand (concat values))))
+      context <- currentContext
+      -- A closure that takes exactly these groups is entered here, with one
+      -- indirect call, so the call site has its own branch history. Any
+      -- other function goes to the apply helper of the shape.
+      header <- loadObjectInfo AnyRegion functionOperand
+      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+      arity <- loadInfoByte "arity" (typedOperand header) infoRemainingArityByte
+      closure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
+      saturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt (toInteger (length groups)))))
+      fast <- emitValue "fast" I1 (Binary And I1 (typedOperand closure) (typedOperand saturated))
+      enterLabel <- freshLabel "apply_enter"
+      helperLabel <- freshLabel "apply_helper"
+      terminate (Branch (typedOperand fast) (Target enterLabel []) (Target helperLabel []))
+      beginColdBlock helperLabel []
+      terminate (TailCall apply (contextOperands context <> (functionOperand : continuationOperand : map typedOperand (concat values))))
+      beginBlock enterLabel []
+      entry <- loadInfoCode "entry" (typedOperand header) infoBackendEntryIndex
+      terminate
+        ( TailCallIndirect
+            (typedOperand entry)
+            (contextOperands context <> (functionOperand : continuationOperand : map typedOperand (concat values)))
+            (Signature (contextTypes <> (Ptr : Ptr : map typedType (concat values))) [] AihcConvention)
+        )
     GrinContinue continuation values -> do
       continuationOperand <- pointerValue ctx env continuation
       typedValues <- mapM (materialize ctx env) values
@@ -1903,11 +1885,11 @@ compileExpr ctx env expression =
 -- The blocks of that test are cold, so a native backend puts them after
 -- the hot code and the ready branch follows the check directly.
 compileIfWhnf :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> GrinExpr -> LowerM ()
-compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' -> compileExpr ctx env' slow)
+compileIfWhnf ctx env value ready slow = compileIfWhnfWith ctx env value ready (\env' _ -> compileExpr ctx env' slow)
 
 -- | A WHNF test whose slow branch the given action compiles, with the
 -- variable of the value bound to its target.
-compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> LowerM ()) -> LowerM ()
+compileIfWhnfWith :: FunctionCtx -> ValueEnv -> GrinValue -> GrinExpr -> (ValueEnv -> (Typed, Typed) -> LowerM ()) -> LowerM ()
 compileIfWhnfWith ctx env value ready slow = do
   object <- pointerValue ctx env value
   checkLabel <- freshLabel "eval_check"
@@ -1954,25 +1936,141 @@ compileIfWhnfWith ctx env value ready slow = do
   beginBlock readyLabel []
   branchWith (compileExpr ctx env' ready)
   beginBlock slowLabel []
-  branchWith (slow env')
+  branchWith (slow env' (headerWord, header))
 
 -- | A WHNF test whose slow branch pushes the frame of a continuation and
 -- evaluates the value. The test and the ready branch stay in the function,
--- as 'compileIfWhnf' compiles them. The slow branch
--- gives the value, the info table of the frame, and the fields to a shared
--- helper of their shape, which pushes the frame and evaluates the value.
--- Thus the push, its stack growth, and the stores of the frame are not in
--- each function.
+-- as 'compileIfWhnf' compiles them. When the value is a thunk that no
+-- thread claimed and the frames fit in the stack chunk, the slow branch
+-- pushes the frame of the continuation and the update frame, and enters
+-- the thunk with one indirect call. Thus each force site has its own branch
+-- history for the entry of the thunk. Any other value, and a push that
+-- needs a new chunk, goes to a shared helper of the shape of the fields,
+-- which pushes the frame and evaluates the value.
 compileForce :: FunctionCtx -> ValueEnv -> GrinVar -> GrinEvalUpdate -> GrinNode -> GrinExpr -> LowerM ()
 compileForce ctx env var update node ready =
-  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' -> do
+  compileIfWhnfWith ctx env (GrinVarValue var) ready $ \env' (headerWord, header) -> do
     object <- pointerValue ctx env' (GrinVarValue var)
     -- The fields have the types that 'initializeFields' stores them with.
     fields <- mapM (materialize ctx env') (grinNodeFields node)
     info <- nodeInfoSymbol (ctxEnv ctx) node
     helper <- requireHelper (HelperForce update (map typedType fields))
-    running <- runningArguments
-    terminate (TailCall helper (running <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
+    context <- currentContext
+    let frameWords = 1 + length fields
+        updateWords = case update of
+          EvalUpdate -> 3
+          EvalSingleEntry -> 0
+        stack = contextStack context
+    thunkLabel <- freshLabel "force_thunk"
+    stackLabel <- freshLabel "force_stack"
+    enterLabel <- freshLabel "force_enter"
+    helperLabel <- freshLabel "force_helper"
+    -- A heap forwarding header has bit one alone, but no mutator sees it.
+    -- Both claim states set bit zero. The object-kind check follows this test.
+    tag <- emitValue "tag" I64 (Binary And I64 (typedOperand headerWord) (OperandLiteral (LitInt 1)))
+    unclaimed <- emitValue "unclaimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 0)))
+    terminate (Branch (typedOperand unclaimed) (Target thunkLabel []) (Target helperLabel []))
+    beginBlock thunkLabel []
+    kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+    isThunk <- emitValue "thunk" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectThunk))))
+    terminate (Branch (typedOperand isThunk) (Target stackLabel []) (Target helperLabel []))
+    beginBlock stackLabel []
+    end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
+    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
+    terminate (Branch (typedOperand fits) (Target enterLabel []) (Target helperLabel []))
+    beginColdBlock helperLabel []
+    terminate (TailCall helper (contextOperands context <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
+    beginBlock enterLabel []
+    storeSlot StackRegion Ptr (OperandLiteral (LitSymbol info)) stack 0
+    forM_ (zip [0 :: Int ..] fields) $ \(index, field) ->
+      storeSlot StackRegion (typedType field) (typedOperand field) stack (toInteger (8 * (index + 1)))
+    continuation <- case update of
+      EvalSingleEntry -> pure stack
+      EvalUpdate -> do
+        let updateInfo = Symbol "aihc_lir_cps_update_info"
+        requireExternData updateInfo
+        frame <- typedOperand <$> emitValue "update" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger frameWords))))
+        storeSlot StackRegion Ptr (OperandLiteral (LitSymbol updateInfo)) frame 0
+        storeSlot StackRegion Ptr stack frame 8
+        storeSlot StackRegion Ptr object frame 16
+        pure frame
+    entry <- loadInfoCode "entry" (typedOperand header) infoBackendEntryIndex
+    terminate
+      ( TailCallIndirect
+          (typedOperand entry)
+          (contextOperands context {contextStack = typedOperand end} <> [object, continuation])
+          (Signature (contextTypes <> [Ptr, Ptr]) [] AihcConvention)
+      )
+
+-- | The order of two byte ranges of one length, as minus one, zero, or one,
+-- with the sign of @memcmp@. The loop compares eight bytes at a time while
+-- eight or more remain, so it never reads past either range, and then one
+-- byte at a time. At the first word that differs, the lowest set bit of the
+-- difference gives the first byte that differs, because the loads are
+-- little endian.
+compareBytesInline :: Operand -> Operand -> Operand -> LowerM Operand
+compareBytesInline left right count = do
+  wordLoop <- freshLabel "compare_words"
+  wordBody <- freshLabel "compare_word"
+  wordNext <- freshLabel "compare_word_next"
+  wordDiff <- freshLabel "compare_word_diff"
+  byteLoop <- freshLabel "compare_bytes"
+  byteBody <- freshLabel "compare_byte"
+  byteNext <- freshLabel "compare_byte_next"
+  byteDiff <- freshLabel "compare_byte_diff"
+  done <- freshLabel "compare_done"
+  let int value = OperandLiteral (LitInt value)
+      at base index = do
+        address <- emitValue "address" Ptr (PtrAdd base index)
+        pure (byteAddress (typedOperand address) 0)
+  terminate (Jump (Target wordLoop [int 0]))
+  wordIndex <- fresh "index"
+  beginBlock wordLoop [(wordIndex, I64)]
+  remaining <- emitValue "remaining" I64 (Binary Sub I64 count (OperandVar wordIndex))
+  wide <- emitValue "wide" I1 (Compare GeU I64 (typedOperand remaining) (int 8))
+  terminate (Branch (typedOperand wide) (Target wordBody []) (Target byteLoop [OperandVar wordIndex]))
+  beginBlock wordBody []
+  leftAddress <- at left (OperandVar wordIndex)
+  rightAddress <- at right (OperandVar wordIndex)
+  leftWord <- emitValue "left_word" I64 (Load I64 leftAddress (byteAlignment 1))
+  rightWord <- emitValue "right_word" I64 (Load I64 rightAddress (byteAlignment 1))
+  sameWord <- emitValue "same_word" I1 (Compare Eq I64 (typedOperand leftWord) (typedOperand rightWord))
+  terminate (Branch (typedOperand sameWord) (Target wordNext []) (Target wordDiff []))
+  beginBlock wordNext []
+  nextWord <- emitValue "index" I64 (Binary Add I64 (OperandVar wordIndex) (int 8))
+  terminate (Jump (Target wordLoop [typedOperand nextWord]))
+  beginBlock wordDiff []
+  difference <- emitValue "difference" I64 (Binary Xor I64 (typedOperand leftWord) (typedOperand rightWord))
+  lowest <- emitValue "lowest" I64 (Unary Ctz I64 (typedOperand difference))
+  shift <- emitValue "shift" I64 (Binary And I64 (typedOperand lowest) (int (-8)))
+  leftShifted <- emitValue "left_shifted" I64 (Binary ShrU I64 (typedOperand leftWord) (typedOperand shift))
+  rightShifted <- emitValue "right_shifted" I64 (Binary ShrU I64 (typedOperand rightWord) (typedOperand shift))
+  leftDiffByte <- emitValue "left_byte" I64 (Binary And I64 (typedOperand leftShifted) (int 255))
+  rightDiffByte <- emitValue "right_byte" I64 (Binary And I64 (typedOperand rightShifted) (int 255))
+  wordLess <- emitValue "less" I1 (Compare LtU I64 (typedOperand leftDiffByte) (typedOperand rightDiffByte))
+  wordOrder <- emitValue "order" I64 (Select I64 (typedOperand wordLess) (int (-1)) (int 1))
+  terminate (Jump (Target done [typedOperand wordOrder]))
+  byteIndex <- fresh "index"
+  beginBlock byteLoop [(byteIndex, I64)]
+  finished <- emitValue "finished" I1 (Compare Eq I64 (OperandVar byteIndex) count)
+  terminate (Branch (typedOperand finished) (Target done [int 0]) (Target byteBody []))
+  beginBlock byteBody []
+  leftByteAddress <- at left (OperandVar byteIndex)
+  rightByteAddress <- at right (OperandVar byteIndex)
+  leftByte <- emitValue "left_byte" I8 (Load I8 leftByteAddress (byteAlignment 1))
+  rightByte <- emitValue "right_byte" I8 (Load I8 rightByteAddress (byteAlignment 1))
+  sameByte <- emitValue "same_byte" I1 (Compare Eq I8 (typedOperand leftByte) (typedOperand rightByte))
+  terminate (Branch (typedOperand sameByte) (Target byteNext []) (Target byteDiff []))
+  beginBlock byteNext []
+  nextByte <- emitValue "index" I64 (Binary Add I64 (OperandVar byteIndex) (int 1))
+  terminate (Jump (Target byteLoop [typedOperand nextByte]))
+  beginBlock byteDiff []
+  byteLess <- emitValue "less" I1 (Compare LtU I8 (typedOperand leftByte) (typedOperand rightByte))
+  byteOrder <- emitValue "order" I64 (Select I64 (typedOperand byteLess) (int (-1)) (int 1))
+  terminate (Jump (Target done [typedOperand byteOrder]))
+  order <- fresh "order"
+  beginBlock done [(order, I64)]
+  pure (OperandVar order)
 
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
@@ -2019,8 +2117,8 @@ continueTransfer continuation values = do
   terminate
     ( TailCallIndirect
         (typedOperand entry)
-        (contextOperands entered <> (continuation : OperandLiteral LitNull : map typedOperand values))
-        (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
+        (contextOperands entered <> (continuation : map typedOperand values))
+        (Signature (contextTypes <> (Ptr : shape)) [] AihcConvention)
     )
 
 -- | Give control to the scheduler. The C call that selected the resumption
@@ -2214,9 +2312,14 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   case replay of
     -- The code before the reservation only read values, so the function
     -- can run again from its entry after the collection. See 'Replay'.
-    Just (Replay code arguments) -> do
+    Just (Replay code arguments repush) -> do
       helper <- requireHelper (HelperCollectReplay [(ty, root) | (_, ty, root) <- arguments])
-      terminate (TailCall helper (contextOperands context <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', ctxSrt ctx]))
+      replayContext <- case repush of
+        Nothing -> pure context
+        Just (frame, bytes) -> do
+          stack <- emitValue "sp" Ptr (PtrAdd frame (OperandLiteral (LitInt bytes)))
+          pure context {contextStack = typedOperand stack}
+      terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', ctxSrt ctx]))
     Nothing -> do
       forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
         storeSlot AnyRegion Ptr root array (toInteger (8 * index))
@@ -2834,7 +2937,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           leftBytes <- emitValue "left_bytes" Ptr (PtrAdd (typedOperand leftContents) leftIndex)
           rightBytes <- emitValue "right_bytes" Ptr (PtrAdd (typedOperand rightContents) rightIndex)
           lengthOperand <- word count
-          result <- callRuntime "aihc_memory_compare" [Ptr, Ptr, I64] [I64] [typedOperand leftBytes, typedOperand rightBytes, lengthOperand]
+          result <- compareBytesInline (typedOperand leftBytes) (typedOperand rightBytes) lengthOperand
           bind [Typed result I64]
     ("compareInt#", [left, right]) -> do
       leftOperand <- word left
@@ -4118,8 +4221,8 @@ generateHelper env helper =
       terminate
         ( TailCallIndirect
             (typedOperand entry)
-            (contextOperands entered <> (OperandVar current : OperandLiteral LitNull : [OperandVar var | (var, _) <- values]))
-            (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
+            (contextOperands entered <> (OperandVar current : [OperandVar var | (var, _) <- values]))
+            (Signature (contextTypes <> (Ptr : shape)) [] AihcConvention)
         )
       finishFunction symbol Internal (contextParameters <> ((continuation, Ptr) : values)) [] AihcConvention
     HelperApply [shape] -> do
