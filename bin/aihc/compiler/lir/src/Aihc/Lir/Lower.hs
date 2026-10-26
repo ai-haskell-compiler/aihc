@@ -1828,8 +1828,29 @@ compileExpr ctx env expression =
       continuationOperand <- pointerValue ctx env continuation
       values <- mapM (mapM (materialize ctx env)) groups
       apply <- requireHelper (HelperApply (map (map typedType) values))
-      running <- runningArguments
-      terminate (TailCall apply (running <> (functionOperand : continuationOperand : map typedOperand (concat values))))
+      context <- currentContext
+      -- A closure that takes exactly these groups is entered here, with one
+      -- indirect call, so the call site has its own branch history. Any
+      -- other function goes to the apply helper of the shape.
+      header <- loadObjectInfo AnyRegion functionOperand
+      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+      arity <- loadInfoByte "arity" (typedOperand header) infoRemainingArityByte
+      closure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
+      saturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt (toInteger (length groups)))))
+      fast <- emitValue "fast" I1 (Binary And I1 (typedOperand closure) (typedOperand saturated))
+      enterLabel <- freshLabel "apply_enter"
+      helperLabel <- freshLabel "apply_helper"
+      terminate (Branch (typedOperand fast) (Target enterLabel []) (Target helperLabel []))
+      beginColdBlock helperLabel []
+      terminate (TailCall apply (contextOperands context <> (functionOperand : continuationOperand : map typedOperand (concat values))))
+      beginBlock enterLabel []
+      entry <- loadInfoCode "entry" (typedOperand header) infoBackendEntryIndex
+      terminate
+        ( TailCallIndirect
+            (typedOperand entry)
+            (contextOperands context <> (functionOperand : continuationOperand : map typedOperand (concat values)))
+            (Signature (contextTypes <> (Ptr : Ptr : map typedType (concat values))) [] AihcConvention)
+        )
     GrinContinue continuation values -> do
       continuationOperand <- pointerValue ctx env continuation
       typedValues <- mapM (materialize ctx env) values
