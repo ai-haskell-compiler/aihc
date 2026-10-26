@@ -1458,7 +1458,7 @@ lowerInfo info = do
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
     failWith (LowerUnsupportedValue ("a data type with more than 65536 constructors: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
-  entry <- traverse (enterFunction (infoSymbol info) (isJust (infoFrameKind info))) (infoEnter info)
+  entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
     ( ItemData
         DataItem
@@ -1483,58 +1483,17 @@ lowerInfo info = do
           }
     )
 
--- | The function that enters one object: a shared runtime function when the
--- object has one of the shapes the runtime defines, and otherwise a stub of
--- this module. A continuation frame always gets a stub of its own. Its stub
--- calls the code directly, so a return has one indirect call, and not a
--- second one through the identity field.
-enterFunction :: Symbol -> Bool -> RuntimeEnter -> LowerM Symbol
-enterFunction _ _ enter | enterDirect enter = pure (enterTarget enter)
-enterFunction info frame enter =
-  case if frame then Nothing else sharedEnterSymbol enter of
-    Just symbol -> do
-      let signature = Signature (contextTypes <> [Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
-      modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
-      pure symbol
-    Nothing -> do
-      let stub = Symbol (unSymbol info <> "_e")
-      lowerEnterStub stub enter
-      pure stub
-
--- | The shared enter function of the runtime for one object shape, when the
--- runtime defines one. @aihc_enter.lir@ defines @aihc_lir_enter_S_V@ and
--- @aihc_lir_enter_S_V_k@ for @S@ stored pointers up to 'sharedEnterMaxStored'
--- and @V@ supplied pointers from one up to 'sharedEnterMaxSupplied'; the @_k@
--- form passes the continuation to the code. It defines
--- @aihc_lir_enter_thunk_S@ for a thunk, whose stored fields start after the
--- owner word, and which takes no supplied value. Those functions load the stored
--- fields and tail-call the code through the identity field of the info
--- table, which is what a generated stub does for the same shape. Any value
--- that is not a pointer keeps a generated stub, since WebAssembly checks the
--- signature of an indirect call and a stub coerces such values.
-sharedEnterSymbol :: RuntimeEnter -> Maybe Symbol
-sharedEnterSymbol enter
-  | all (== Ptr) (enterStored enter),
-    all (== Ptr) (enterSupplied enter),
-    all (== Ptr) (enterTargetParameters enter),
-    length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
-    stored <= sharedEnterMaxStored,
-    supplied <= sharedEnterMaxSupplied =
-      case (enterStoredOffset enter, supplied, passesContinuation) of
-        (0, _, False) -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied)))
-        (0, _, True) | supplied > 0 -> Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> "_k")))
-        (offset, 0, True) | offset == thunkOwnerWords -> Just (Symbol (T.pack ("aihc_lir_enter_thunk_" <> show stored)))
-        _ -> Nothing
-  | otherwise = Nothing
-  where
-    stored = length (enterStored enter)
-    supplied = length (enterSupplied enter)
-    passesContinuation = enterPassesContinuation enter
-
--- | The shapes @aihc_enter.lir@ defines.
-sharedEnterMaxStored, sharedEnterMaxSupplied :: Int
-sharedEnterMaxStored = 8
-sharedEnterMaxSupplied = 4
+-- | The function that enters one object: the code itself when the code
+-- takes the object directly, and otherwise a stub of its own. The stub loads
+-- the stored fields and calls the code directly. Thus an entry through the
+-- info table is one indirect call, and each kind of object has its own
+-- branch history.
+enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
+enterFunction _ enter | enterDirect enter = pure (enterTarget enter)
+enterFunction info enter = do
+  let stub = Symbol (unSymbol info <> "_e")
+  lowerEnterStub stub enter
+  pure stub
 
 -- | The dynamic entry of one enterable object. It loads the stored fields,
 -- takes the supplied values as parameters, and tail-calls the code.

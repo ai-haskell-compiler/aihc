@@ -352,7 +352,7 @@ or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `identity` | `ptr` | The saturated constructor table of a constructor. A case with few constructor alternatives compares this field. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
+| `identity` | `ptr` | The saturated constructor table of a constructor. A case with few constructor alternatives compares this field. A closure or a thunk stores the `code` of its function here: the heap snapshot tool maps that address to a name. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
@@ -374,12 +374,10 @@ the stored fields, takes the supplied values as parameters, and tail-calls
 the code of the object. A closure stage takes the values of all its
 remaining argument groups. Only a closure stage with a remaining arity from
 one to four has an entry, because one application supplies at most four
-groups. When every stored field and every supplied value is
-a `ptr`, with at most eight stored fields and at most four supplied values,
-the field names a shared function of the runtime unit `aihc_enter.lir`,
-which reaches the code through the `identity` field. A thunk uses
-`aihc_lir_enter_thunk_S`, which loads its stored fields after the owner word.
-Every other shape gets one generated function per enterable object.
+groups. Each enterable object gets one generated function, which calls the
+code directly. Thus an entry through the info table is one indirect call, and
+each kind of object has its own branch history. A thunk stub loads its
+stored fields after the owner word.
 
 A continuation can use its body as the `backend_entry` directly.
 The body accepts the frame, an unused continuation parameter, and the supplied values.
@@ -900,9 +898,8 @@ The lowering keeps the control model of CPS-GRIN:
   same, the return makes the frame `%sp` and tail-calls the entry with one
   indirect call. Thus each return site has its own branch history. A forward
   frame, or a frame in a lower chunk, goes to the continue helper in a cold
-  block. Each continuation frame has an enter stub of its own, which calls
-  the code of the frame directly. A return thus does one indirect call, and
-  not a second one through the `identity` field of a shared enter function.
+  block. The enter stub of the frame calls the code of the frame directly,
+  so a return does one indirect call.
 - `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
   It does no allocation or suspension.
   A zero byte sends the object to its ready branch.
@@ -1026,11 +1023,6 @@ The units are:
   The executable entry retains its exit helper because that helper updates
   the executable halt flag.
 
-- `aihc_enter.lir` defines the shared enter functions `aihc_lir_enter_S_V`
-  and `aihc_lir_enter_S_V_k` for `S` stored pointers up to eight and `V`
-  supplied pointers up to four; the `_k` form passes the continuation to the
-  code. A continuation frame does not use them: it has an enter stub of its
-  own. See "Info tables".
 - `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
   and the bulk operations: copy, clone, shrink, and resize. The lowering
   emits the rest of the boxed-array primitives inline: the identity test is
