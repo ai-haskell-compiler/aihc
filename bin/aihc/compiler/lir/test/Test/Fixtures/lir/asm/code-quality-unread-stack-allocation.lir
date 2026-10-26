@@ -1,0 +1,22 @@
+; A function with a heap reservation whose collection replays through its
+; arguments, as the lowering gives it. The array for the roots of a
+; collection has no reader. The function then needs no frame: the path that
+; allocates and the path that collects are tail calls without a prologue.
+extern func @next(ptr, ptr, ptr, ptr, ptr, ptr)
+extern func @replay(ptr, ptr, ptr, ptr, ptr, ptr)
+
+func @cons(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %head: ptr, %tail: ptr) {
+entry:
+  %roots = stack.alloc 16 align 8
+  %end = ptr.add %hp, 24
+  %fits = le.u ptr %end, %hp_limit
+  br %fits, allocate, collect
+
+allocate:
+  store ptr %head, [%hp + 8] align 8
+  store ptr %tail, [%hp + 16] align 8
+  tailcall @next(%end, %hp_limit, %sp, %sp_limit, %hp, %tail)
+
+cold collect:
+  tailcall @replay(%hp, %hp_limit, %sp, %sp_limit, %head, %tail)
+}
