@@ -364,13 +364,16 @@ or `0`. The fields are, in order:
 | `needs_eval` | `i8` | `@AIHC_NEEDS_EVAL_FOLLOW` (`2`) for an indirection, `@AIHC_NEEDS_EVAL_ENTER` (`1`) for a thunk and a blackhole, and `@AIHC_NEEDS_EVAL_NONE` (`0`) for every other kind. The inline evaluation check reads only this field, at `[%header + @AIHC_INFO_NEEDS_EVAL_OFFSET]`. |
 | `constructor_index` | `i16` | The index of a constructor in its data declaration, from zero, and `0` for every other object. Both tables of one constructor have the same index. A case with four constructor alternatives or more loads this field at `[%header + @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET]` and selects its alternative with a `switch`. A case with fewer alternatives compares the `identity` field. The lowering rejects a data type with more than 65536 constructors. |
 
-The `backend_entry` field has the signature
-`(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()` with the context of the
-running thread, the object, the continuation, and the supplied values. "Lowering from GC-GRIN" describes the context. The
-types `T...` are the Lir types of the supplied values, so a call site with
-`n` supplied values states a signature with `n` value parameters. A
-continuation object ignores the continuation parameter. The function loads
-the stored fields, takes the supplied values as parameters, and tail-calls
+An ordinary object uses the `backend_entry` signature
+`(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()`.
+The first four parameters carry the thread context.
+The next two parameters carry the object and its continuation.
+A frame uses `(ptr, ptr, ptr, ptr, ptr, T...) -> ()`.
+After the context, its entry accepts the frame and the supplied values.
+A frame entry has no continuation parameter.
+"Lowering from GC-GRIN" describes the context.
+Each supplied value uses its Lir type.
+The function loads the stored fields and tail-calls
 the code of the object. A closure stage takes the values of all its
 remaining argument groups. Only a closure stage with a remaining arity from
 one to four has an entry, because one application supplies at most four
@@ -380,7 +383,7 @@ each kind of object has its own branch history. A thunk stub loads its
 stored fields after the owner word.
 
 A continuation can use its body as the `backend_entry` directly.
-The body accepts the frame, an unused continuation parameter, and the supplied values.
+After the context, the body accepts the frame and the supplied values.
 It loads the stored fields from the frame before it executes the original body.
 This removes the entry stub without a second copy of the body.
 

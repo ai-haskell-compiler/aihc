@@ -44,7 +44,7 @@ expected: |
     tailcall @aihc_lir_continue_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_entry_Nothing)
 
   continue_enter_16:
-    tailcall.indirect %entry_9(%hp_0, %hp_limit_1, %$cps_return_4, %sp_limit_3, %$cps_return_4, null, @aihc_entry_Nothing) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+    tailcall.indirect %entry_9(%hp_0, %hp_limit_1, %$cps_return_4, %sp_limit_3, %$cps_return_4, @aihc_entry_Nothing) : (ptr, ptr, ptr, ptr, ptr, ptr)
   }
 
   func @aihc_f_aihc_entry___sentry(%hp_19: ptr, %hp_limit_20: ptr, %sp_21: ptr, %sp_limit_22: ptr, %value_23: ptr, %$cps_return_24: ptr) {
@@ -140,7 +140,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_65, %hp_limit_66, %sp_67, %sp_limit_68, %$cps_return_69, %payload_71)
 
   continue_enter_82:
-    tailcall.indirect %entry_75(%hp_65, %hp_limit_66, %$cps_return_69, %sp_limit_68, %$cps_return_69, null, %payload_71) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_75(%hp_65, %hp_limit_66, %$cps_return_69, %sp_limit_68, %$cps_return_69, %payload_71) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_1, zero 8 }
@@ -151,7 +151,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
 
-  func @aihc_lir_info_0_e(%hp_85: ptr, %hp_limit_86: ptr, %sp_87: ptr, %sp_limit_88: ptr, %object_89: ptr, %continuation_90: ptr, %supplied_91: ptr) {
+  func @aihc_lir_info_0_e(%hp_85: ptr, %hp_limit_86: ptr, %sp_87: ptr, %sp_limit_88: ptr, %object_89: ptr, %supplied_91: ptr) {
   entry:
     %stored_92 = load ptr [%object_89 + 8] align 8
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_85, %hp_limit_86, %sp_87, %sp_limit_88, %stored_92, %supplied_91)

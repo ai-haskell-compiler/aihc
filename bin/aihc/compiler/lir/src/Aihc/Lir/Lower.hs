@@ -1512,7 +1512,8 @@ lowerEnterStub stub enter = do
     failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> unSymbol (enterTarget enter) <> T.pack (": " <> show (length parameters) <> " parameters, " <> show (length (enterStored enter)) <> " stored, " <> show (length (enterSupplied enter)) <> " supplied, continuation " <> show (enterPassesContinuation enter))))
   arguments <- zipWithM coerce parameters values
   terminate (TailCall (enterTarget enter) (contextOperands context <> arguments))
-  finishFunction stub Internal (contextParameters <> [(object, Ptr), (continuation, Ptr)] <> supplied) [] AihcConvention
+  -- Frame entries need only the frame and the supplied values after the context.
+  finishFunction stub Internal (contextParameters <> [(object, Ptr)] <> [(continuation, Ptr) | enterPassesContinuation enter] <> supplied) [] AihcConvention
 
 -- | A continuation object kind for an entry or a harness: the info table,
 -- and the stub that enters the target function with the stored fields and
@@ -1683,7 +1684,6 @@ lowerFunction env function = do
       pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters, Nothing)
     (Just count, _) -> do
       object <- fresh "frame"
-      unused <- fresh "unused"
       beginBlock (Label "entry") []
       let (stored, supplied) = splitAt count originalParameters
       loaded <- forM (zip [1 :: Int ..] stored) $ \(index, (var, _, ty)) -> do
@@ -1693,10 +1693,9 @@ lowerFunction env function = do
           _ -> failWith (LowerUnsupportedExpression "frame field has no variable")
       let replayArguments =
             (OperandVar object, Ptr, True)
-              : (OperandVar unused, Ptr, False)
               : [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- supplied]
       pure
-        ( (object, Ptr) : (unused, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied],
+        ( (object, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied],
           loaded <> supplied,
           Just (Replay (functionSymbol (grinFunctionName function)) replayArguments (Just (OperandVar object, toInteger (8 * (count + 1)))))
         )
@@ -2172,8 +2171,8 @@ continueTransfer continuation values = do
   terminate
     ( TailCallIndirect
         (typedOperand entry)
-        (contextOperands entered <> (continuation : OperandLiteral LitNull : map typedOperand values))
-        (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
+        (contextOperands entered <> (continuation : map typedOperand values))
+        (Signature (contextTypes <> (Ptr : shape)) [] AihcConvention)
     )
 
 -- | Give control to the scheduler. The C call that selected the resumption
@@ -4276,8 +4275,8 @@ generateHelper env helper =
       terminate
         ( TailCallIndirect
             (typedOperand entry)
-            (contextOperands entered <> (OperandVar current : OperandLiteral LitNull : [OperandVar var | (var, _) <- values]))
-            (Signature (contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
+            (contextOperands entered <> (OperandVar current : [OperandVar var | (var, _) <- values]))
+            (Signature (contextTypes <> (Ptr : shape)) [] AihcConvention)
         )
       finishFunction symbol Internal (contextParameters <> ((continuation, Ptr) : values)) [] AihcConvention
     HelperApply [shape] -> do

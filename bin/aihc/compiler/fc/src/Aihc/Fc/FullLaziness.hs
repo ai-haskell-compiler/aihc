@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Share closed computations across function calls.
-module Aihc.Fc.FullLaziness (fullLazinessProgram) where
+module Aihc.Fc.FullLaziness (fullLazinessProgram, sharedAtTop) where
 
 import Aihc.Fc.Imports (exprReferences, typeReferences)
 import Aihc.Fc.Name
@@ -16,7 +16,7 @@ import Control.Monad.Trans.State.Strict (State, get, modify', runState)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -88,6 +88,11 @@ walk env owner inside expr
       _ -> pure expr
   where
     child = walk env owner inside
+
+-- | Whether the pass moves an expression under a lambda to a shared
+-- thunk.
+sharedAtTop :: TypeEnv -> Expr -> Bool
+sharedAtTop env = isJust . candidateType env
 
 -- | A shared thunk needs a lifted result and no free local names.
 -- Constructor expressions remain with the constant lift pass.

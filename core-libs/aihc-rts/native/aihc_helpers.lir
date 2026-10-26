@@ -409,7 +409,7 @@ cold enter_chunk:
   jump enter_frame
 
 enter_frame:
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current) : (ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_continue_i(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
@@ -447,7 +447,7 @@ cold enter_chunk:
   jump enter_frame
 
 enter_frame:
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, %value) : (ptr, ptr, ptr, ptr, ptr, i64)
 }
 
 export func @aihc_lir_continue_p(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: ptr) {
@@ -485,7 +485,7 @@ cold enter_chunk:
   jump enter_frame
 
 enter_frame:
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, %value) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 ; Arity counts application stages, not the number of Lir values.
@@ -832,7 +832,7 @@ cold collect:
 
 ; The backend entry of the update frame. A continue helper enters the frame
 ; with the result, and this entry reads the two stored fields itself.
-export func @aihc_lir_cps_update_entry(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %continuation: ptr, %result: ptr) {
+export func @aihc_lir_cps_update_entry(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %result: ptr) {
 entry:
   %outer_word = load i64 [%frame + 8] align 8
   %outer = ptr.from_int %outer_word
@@ -872,7 +872,7 @@ chunk:
   br %same_chunk, enter, continue
 
 enter:
-  tailcall.indirect %entry(%hp, %hp_limit, %outer, %sp_limit, %outer, null, %result) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %outer, %sp_limit, %outer, %result) : (ptr, ptr, ptr, ptr, ptr, ptr)
 
 cold continue:
   tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %outer, %result)

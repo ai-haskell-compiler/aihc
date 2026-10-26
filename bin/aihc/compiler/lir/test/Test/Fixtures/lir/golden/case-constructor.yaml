@@ -41,7 +41,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
 
   continue_enter_23:
-    tailcall.indirect %entry_16(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, 0) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_16(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, 0) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
     %payload_26 = load i64 [%value_4 + 8] align 8 region heap
@@ -64,7 +64,7 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_26)
 
   continue_enter_37:
-    tailcall.indirect %entry_30(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, null, %payload_26) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %entry_30(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_26) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
