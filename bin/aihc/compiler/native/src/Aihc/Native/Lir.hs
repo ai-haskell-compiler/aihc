@@ -675,7 +675,9 @@ forwardCopies function
 -- each function with a heap reservation an array for the roots of a
 -- collection, and a function whose collections all replay through the
 -- arguments never reads it. Such an allocation still needs a frame, so it
--- costs a frame setup on each path through the function.
+-- costs a frame setup on each path through the function. An allocation
+-- with an alignment that the frame cannot give stays, so that the backend
+-- still reports it.
 dropUnreadStackAllocations :: Function -> Function
 dropUnreadStackAllocations function
   | any unread allocations = function {functionBlocks = map dropBlock (functionBlocks function)}
@@ -690,7 +692,7 @@ dropUnreadStackAllocations function
             [ instruction
             | instruction <- blockInstructions block,
               case instruction of
-                Instruction [result] (StackAlloc _ _) -> not (unread result)
+                Instruction [result] (StackAlloc _ alignment) -> not (unread result) || alignmentInBytes wordBytes alignment > 16
                 _ -> True
             ]
         }
