@@ -2,6 +2,7 @@
 -- repeated computations before register allocation.
 module Aihc.Lir.Simplify
   ( simplifyBooleanBranches,
+    threadConstantBranches,
     simplifyRotations,
     simplifyWidths,
     simplifyMultiplications,
@@ -43,6 +44,43 @@ simplifyBooleanBranches function =
         _ -> block
     literalCase (SwitchCase value target) = Just (value, target)
     literalCase (SwitchCaseConstant _ _) = Nothing
+
+-- | Send a jump that gives a constant to a block that only branches on that
+-- constant straight to the destination of the branch. An inline function
+-- that returns a constant on one path gives this shape: its returns jump to
+-- the block after the call, which branches on the result. The block keeps
+-- its other predecessors.
+threadConstantBranches :: Function -> Function
+threadConstantBranches function
+  | Map.null deciders = function
+  | otherwise = function {functionBlocks = map threadBlock (functionBlocks function)}
+  where
+    deciders =
+      Map.fromList
+        [ (blockLabel block, (index, map fst (blockParameters block), whenTrue, whenFalse))
+        | block <- drop 1 (functionBlocks function),
+          null (blockInstructions block),
+          Branch (OperandVar condition) whenTrue whenFalse <- [blockTerminator block],
+          Just index <- [lookup condition (zip (map fst (blockParameters block)) [0 :: Int ..])]
+        ]
+    threadBlock block = block {blockTerminator = threadTerminator (blockTerminator block)}
+      where
+        threadTerminator terminator = case terminator of
+          Jump target -> Jump (thread target)
+          Branch condition whenTrue whenFalse -> Branch condition (thread whenTrue) (thread whenFalse)
+          Switch ty scrutinee cases fallback -> Switch ty scrutinee [switchCase {switchCaseTarget = thread (switchCaseTarget switchCase)} | switchCase <- cases] (fmap thread fallback)
+          other -> other
+    thread target = case Map.lookup (targetLabel target) deciders of
+      Just (index, parameters, whenTrue, whenFalse)
+        | length (targetArguments target) == length parameters,
+          OperandLiteral (LitInt value) <- targetArguments target !! index ->
+            let chosen = if value /= 0 then whenTrue else whenFalse
+                substitution = Map.fromList (zip parameters (targetArguments target))
+                substitute operand = case operand of
+                  OperandVar var -> Map.findWithDefault operand var substitution
+                  _ -> operand
+             in chosen {targetArguments = map substitute (targetArguments chosen)}
+      _ -> target
 
 -- | Replace complementary constant shifts with a rotate before register allocation.
 -- A wide expression can use a narrow rotate only when its source has zero high bits.
