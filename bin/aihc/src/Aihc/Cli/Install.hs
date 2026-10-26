@@ -3183,7 +3183,9 @@ renderPointsToReport name stats rewrites analysisNs rewriteNs =
     <> show (Grin.rewritesDirectCalls rewrites)
     <> " direct calls, "
     <> show (Grin.rewritesSingleEntryEvals rewrites)
-    <> " single-entry evals)"
+    <> " single-entry evals, "
+    <> show (Grin.rewritesFetchedCases rewrites)
+    <> " fetched cases)"
 
 -- | Lower System FC modules to objects: GRIN, then Lir, then the object of
 -- the target. A module with no declarations gets an empty object. Returns

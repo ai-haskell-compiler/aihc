@@ -9,6 +9,8 @@ module Aihc.Grin.Syntax
     GrinVecCount (..),
     GrinVecElem (..),
     liftedGrinRep,
+    matchFailureAlternative,
+    isMatchFailure,
     GrinResultRep (..),
     liftedResultRep,
     resultRepComponents,
@@ -370,7 +372,11 @@ data GrinExpr
     GrinHalt ![GrinValue]
   | -- | Terminate the process with an already-unboxed machine status.
     GrinExit !GrinValue
-  | -- | Match a value that is already in weak-head normal form.
+  | -- | Match a value that is already in weak-head normal form. A case
+    -- without a default alternative matches each value that gets to it,
+    -- so a backend can select its last alternative with no test. A case
+    -- that can match no alternative has 'matchFailureAlternative'. A case
+    -- without alternatives fails on each value.
     GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue
   | GrinCatch !GrinRep !GrinValue !GrinValue ![GrinValue]
@@ -427,6 +433,19 @@ data GrinAlt = GrinAlt
     grinAltRhs :: !GrinExpr
   }
   deriving (Eq, Show, Read)
+
+-- | The default alternative of a case that can match no alternative. It
+-- is a case on the same value without alternatives, so it fails on the
+-- value that the case did not match.
+matchFailureAlternative :: GrinValue -> GrinVar -> GrinAlt
+matchFailureAlternative value binder = GrinAlt GrinDefaultAlt [] (GrinCase value binder [])
+
+-- | Whether an expression is the failure of 'matchFailureAlternative'.
+isMatchFailure :: GrinExpr -> Bool
+isMatchFailure expression =
+  case expression of
+    GrinCase _ _ [] -> True
+    _ -> False
 
 -- | A data alternative names its constructor and the index of the
 -- constructor in its data declaration. Every info table of the constructor

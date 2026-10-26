@@ -41,14 +41,12 @@ expected: |-
   pub global entry = (F$entry)
 
   $fromMaybe (m :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case (m :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-      data Just (x :: BoxedRep Lifted) ->
-        constant (x :: BoxedRep Lifted)
+    x :: BoxedRep Lifted <-
+      fetch (CJust) (m :: BoxedRep Lifted)
+    constant (x :: BoxedRep Lifted)
 
   $isJust (m :: BoxedRep Lifted) -> IntRep =
-    case (m :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-      data Just (x :: BoxedRep Lifted) ->
-        constant (1 :: IntRep)
+    constant (1 :: IntRep)
 
   $entry -> BoxedRep Lifted =
     one :: BoxedRep Lifted <-
@@ -63,5 +61,6 @@ rewrites:
   evals-of-values: 3
   direct-calls: 0
   single-entry-evals: 0
+  fetched-cases: 2
 status: pass
-reason: only Just values reach the cases, so the Nothing alternative and the default alternative are dead, and every eval sees a value
+reason: only Just values reach the cases, so the Nothing alternative and the default alternative are dead, each case keeps one data alternative and becomes a fetch of its fields, and every eval sees a value

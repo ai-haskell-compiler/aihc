@@ -3678,6 +3678,16 @@ identityPrimitives =
 -- Case
 
 compileCase :: FunctionCtx -> ValueEnv -> GrinValue -> GrinVar -> [GrinAlt] -> LowerM ()
+-- A case without alternatives fails on each value.
+compileCase _ _ _ _ [] = do
+  _ <- callRuntime "aihc_no_match" [] [] []
+  terminate (Trap "no matching case alternative")
+-- A case of one alternative matches each value with no test.
+compileCase ctx env scrutinee binder [alternative] = do
+  typed <- materialize ctx env scrutinee
+  binderValue <- coerceTo (repType (grinVarRuntimeRep binder)) typed
+  env' <- bindCaseAlternative alternative typed (Map.insert binder binderValue env)
+  compileExpr ctx env' (grinAltRhs alternative)
 compileCase ctx env scrutinee binder alternatives = do
   typed <- materialize ctx env scrutinee
   binderValue <- coerceTo (repType (grinVarRuntimeRep binder)) typed
@@ -3686,49 +3696,53 @@ compileCase ctx env scrutinee binder alternatives = do
   targets <- forM alternatives $ \alternative -> do
     label <- freshLabel "alt"
     pure (alternative, label)
-  let defaultTargets = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
-  fallback <-
-    case defaultTargets of
-      label : _ -> pure label
-      [] -> freshLabel "no_match"
+  let explicit = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
+      -- A case without a default matches each value that gets to it, so
+      -- its last alternative needs no test.
+      (fallback, tested) =
+        case [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt] of
+          label : _ -> (label, explicit)
+          [] -> (snd (last explicit), init explicit)
   if isPointer
     then do
-      header <- loadObjectInfo HeapRegion (typedOperand typed)
-      constructors <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
+      constructors <- forM tested $ \(alternative, label) ->
         case grinAltCon alternative of
           GrinDataAlt name index -> pure (name, index, label)
           _ -> failWith (LowerUnsupportedExpression "literal case on a lifted value")
-      if length constructors >= constructorSwitchThreshold
-        then do
-          let indices = [index | (_, index, _) <- constructors]
-          when (Set.size (Set.fromList indices) /= length indices) $
-            failWith (LowerUnsupportedExpression "two alternatives of one case give the same constructor index")
-          index <- loadInfoConstructorIndex (typedOperand header)
-          terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
-        else do
-          identity <- loadInfoPointer "identity" (typedOperand header) 0
-          checks <- forM constructors $ \(name, _, label) -> do
-            let symbol = constructorInfoSymbol name 0
-            unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
-            pure (symbol, label)
-          pointerChecks identity checks fallback
+      if null constructors
+        then terminate (Jump (Target fallback []))
+        else
+          if length explicit >= constructorSwitchThreshold
+            then do
+              let indices = [index | (_, index, _) <- constructors]
+              when (Set.size (Set.fromList indices) /= length indices) $
+                failWith (LowerUnsupportedExpression "two alternatives of one case give the same constructor index")
+              header <- loadObjectInfo HeapRegion (typedOperand typed)
+              index <- loadInfoConstructorIndex (typedOperand header)
+              terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
+            else do
+              header <- loadObjectInfo HeapRegion (typedOperand typed)
+              identity <- loadInfoPointer "identity" (typedOperand header) 0
+              checks <- forM constructors $ \(name, _, label) -> do
+                let symbol = constructorInfoSymbol name 0
+                unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
+                pure (symbol, label)
+              pointerChecks identity checks fallback
     else do
       wordValue <- coerce I64 typed
-      cases <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
+      cases <- forM tested $ \(alternative, label) ->
         case grinAltCon alternative of
           GrinLitAlt literal ->
             case normalizedLiteralInteger literal of
               Just integer -> pure (SwitchCase integer (Target label []))
               Nothing -> failWith (LowerUnsupportedValue "string case alternative")
           _ -> failWith (LowerUnsupportedExpression "constructor case on an unboxed value")
-      terminate (Switch I64 wordValue (firstCases cases) (Just (Target fallback [])))
-  when (null defaultTargets) $ do
-    beginBlock fallback []
-    _ <- callRuntime "aihc_no_match" [] [] []
-    terminate (Trap "no matching case alternative")
+      if null cases
+        then terminate (Jump (Target fallback []))
+        else terminate (Switch I64 wordValue (firstCases cases) (Just (Target fallback [])))
   forM_ targets $ \(alternative, label) -> branchWith $ do
     beginBlock label []
-    env'' <- bindAlternative alternative typed env'
+    env'' <- bindCaseAlternative alternative typed env'
     compileExpr ctx env'' (grinAltRhs alternative)
   where
     pointerChecks identity checks fallback =
@@ -3747,21 +3761,25 @@ compileCase ctx env scrutinee binder alternatives = do
         go seen (switchCase : rest)
           | switchCaseValue switchCase `Set.member` seen = go seen rest
           | otherwise = switchCase : go (Set.insert (switchCaseValue switchCase) seen) rest
-    bindAlternative alternative typed env' =
-      case grinAltCon alternative of
-        GrinDataAlt {} -> do
-          let live = freeExprVars (grinAltRhs alternative)
-          bound <- forM [(index, field) | (index, field) <- zip [0 :: Int ..] (grinAltBinders alternative), field `Set.member` live] $ \(index, field) -> do
-            let ty = repType (grinVarRuntimeRep field)
-            value <- loadSlot HeapRegion (varBase field) ty (typedOperand typed) (toInteger (8 * (index + 1)))
-            pure (field, value)
-          pure (Map.fromList bound `Map.union` env')
-        GrinLitAlt _ -> pure env'
-        GrinDefaultAlt -> do
-          bound <- forM (grinAltBinders alternative) $ \field -> do
-            value <- coerceTo (repType (grinVarRuntimeRep field)) typed
-            pure (field, value)
-          pure (Map.fromList bound `Map.union` env')
+
+-- | The environment of an alternative: its fields, loaded from the
+-- scrutinee when the alternative uses them.
+bindCaseAlternative :: GrinAlt -> Typed -> ValueEnv -> LowerM ValueEnv
+bindCaseAlternative alternative typed env' =
+  case grinAltCon alternative of
+    GrinDataAlt {} -> do
+      let live = freeExprVars (grinAltRhs alternative)
+      bound <- forM [(index, field) | (index, field) <- zip [0 :: Int ..] (grinAltBinders alternative), field `Set.member` live] $ \(index, field) -> do
+        let ty = repType (grinVarRuntimeRep field)
+        value <- loadSlot HeapRegion (varBase field) ty (typedOperand typed) (toInteger (8 * (index + 1)))
+        pure (field, value)
+      pure (Map.fromList bound `Map.union` env')
+    GrinLitAlt _ -> pure env'
+    GrinDefaultAlt -> do
+      bound <- forM (grinAltBinders alternative) $ \field -> do
+        value <- coerceTo (repType (grinVarRuntimeRep field)) typed
+        pure (field, value)
+      pure (Map.fromList bound `Map.union` env')
 
 -- | A case with this many constructor alternatives or more selects its
 -- alternative from the constructor index of the info table. A case with

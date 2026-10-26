@@ -79,19 +79,19 @@ expected: |-
     constant (x :: BoxedRep Lifted)
 
   $g (v :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-      data I# (n :: IntRep) ->
-        store (CI# (n :: IntRep))
+    n :: IntRep <-
+      fetch (CI#) (v :: BoxedRep Lifted)
+    store (CI# (n :: IntRep))
 
   $h (v :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-      data I# (n :: IntRep) ->
-        store (CI# (n :: IntRep))
+    n :: IntRep <-
+      fetch (CI#) (v :: BoxedRep Lifted)
+    store (CI# (n :: IntRep))
 
   $k (v :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-      data I# (n :: IntRep) ->
-        store (CI# (n :: IntRep))
+    n :: IntRep <-
+      fetch (CI#) (v :: BoxedRep Lifted)
+    store (CI# (n :: IntRep))
 
   $callIt (f :: BoxedRep Lifted) (arg :: BoxedRep Lifted) -> BoxedRep Lifted =
     apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (arg :: BoxedRep Lifted)
@@ -129,5 +129,6 @@ rewrites:
   evals-of-values: 4
   direct-calls: 0
   single-entry-evals: 0
+  fetched-cases: 3
 status: pass
 reason: with the default widening limit the same program gives the evals of the parameters that only values reach and removes the J alternatives that no location of their scrutinees holds

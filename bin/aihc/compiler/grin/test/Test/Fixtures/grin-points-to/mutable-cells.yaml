@@ -82,10 +82,8 @@ expected: |-
       primitive-call @(TupleRep []) writeMutVar# (cell :: BoxedRep Unlifted) (second :: BoxedRep Lifted)
     read :: BoxedRep Lifted <-
       primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (cell :: BoxedRep Unlifted)
-    field :: BoxedRep Lifted <-
-      case (read :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-        data Just (x :: BoxedRep Lifted) ->
-          constant (x :: BoxedRep Lifted)
+    x :: BoxedRep Lifted <-
+      fetch (CJust) (read :: BoxedRep Lifted)
     lazy :: BoxedRep Lifted <-
       store (F$delayed)
     lazyCell :: BoxedRep Unlifted <-
@@ -102,11 +100,12 @@ expected: |-
       primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (escaped :: BoxedRep Unlifted)
     escapedValue :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (escapedRead :: BoxedRep Lifted)
-    store (CTriple (field :: BoxedRep Lifted) (lazyValue :: BoxedRep Lifted) (escapedValue :: BoxedRep Lifted))
+    store (CTriple (x :: BoxedRep Lifted) (lazyValue :: BoxedRep Lifted) (escapedValue :: BoxedRep Lifted))
 rewrites:
   dead-alternatives: 0
   evals-of-values: 2
   direct-calls: 0
   single-entry-evals: 0
+  fetched-cases: 1
 status: pass
 reason: a read of a cell gives only the values that the program put in it, but a cell that escapes can hold any value

@@ -40,15 +40,15 @@ expected: |-
     store (CI# (1 :: IntRep))
 
   $readTwice (p :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case (p :: BoxedRep Lifted) as whole :: BoxedRep Lifted of
-      data Box (t :: BoxedRep Lifted) ->
-        a :: BoxedRep Lifted <-
-          eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
-        case (whole :: BoxedRep Lifted) as again :: BoxedRep Lifted of
-          data Box (u :: BoxedRep Lifted) ->
-            b :: BoxedRep Lifted <-
-              eval @(BoxedRep Lifted) (u :: BoxedRep Lifted)
-            store (CPair (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+    t :: BoxedRep Lifted <-
+      fetch (CBox) (p :: BoxedRep Lifted)
+    a :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    u :: BoxedRep Lifted <-
+      fetch (CBox) (p :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (u :: BoxedRep Lifted)
+    store (CPair (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
 
   $entry -> BoxedRep Lifted =
     t :: BoxedRep Lifted <-
@@ -61,5 +61,6 @@ rewrites:
   evals-of-values: 1
   direct-calls: 0
   single-entry-evals: 0
+  fetched-cases: 2
 status: pass
 reason: a case binder is another name for the scrutinee, so a second case on it reads the thunk field again, and the thunk keeps its update frame

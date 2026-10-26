@@ -1589,7 +1589,11 @@ lowerCase env scrutinee binder alternatives = do
               pure (GrinBind [caseBinder] (GrinConstant [value]) fetched)
             Nothing -> do
               loweredAlternatives <- mapM (lowerAlt binderEnv) alternatives
-              pure (GrinCase value caseBinder loweredAlternatives)
+              failure <-
+                if coversEveryConstructor env scrutineeType alternatives
+                  then pure []
+                  else (: []) . matchFailureAlternative value <$> freshVar "no_match" representation
+              pure (GrinCase value caseBinder (loweredAlternatives <> failure))
         _ -> throwLower "GRIN case expected one scrutinee value"
   where
     constructorTagOf alternative =
@@ -1613,6 +1617,24 @@ onlyConstructorAlternative env scrutineeType alternatives =
           Just alternative
     _ -> Nothing
 
+-- | Whether each value of the scrutinee type matches an alternative. A
+-- default matches each value. Otherwise the alternatives must name each
+-- constructor of the data declaration. A literal never covers its type.
+coversEveryConstructor :: LowerEnv -> Fc.Type -> [Fc.Alt] -> Bool
+coversEveryConstructor env scrutineeType alternatives
+  | any ((== Fc.AltDefault) . Fc.altCon) alternatives = True
+  | otherwise =
+      case (TypeOf.typeHead (reduce env scrutineeType), traverse dataName alternatives) of
+        (Just typeName, Just names)
+          | Just constructors <- Map.lookup typeName (TypeOf.teDataCons (lowerTypes env)) ->
+              Set.fromList constructors `Set.isSubsetOf` Set.fromList names
+        _ -> False
+  where
+    dataName alternative =
+      case Fc.altCon alternative of
+        Fc.AltData name -> Just name
+        _ -> Nothing
+
 lowerSumCase :: LowerEnv -> [GrinRep] -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerSumCase env representations scrutinee binder alternatives = do
   let layout = sumLayout representations
@@ -1623,8 +1645,17 @@ lowerSumCase env representations scrutinee binder alternatives = do
       let binderEnv = maybe env (\named -> bindLocal env named variables) binder
       caseTag <- freshVar "sum_tag" IntRep
       alternatives' <- mapM (lowerSumAlt binderEnv layout slots) alternatives
-      pure (GrinBind variables scrutinee' (GrinCase (GrinVarValue tag) caseTag alternatives'))
+      failure <-
+        if coversEverySumAlternative
+          then pure []
+          else (: []) . matchFailureAlternative (GrinVarValue tag) <$> freshVar "no_match" IntRep
+      pure (GrinBind variables scrutinee' (GrinCase (GrinVarValue tag) caseTag (alternatives' <> failure)))
     [] -> throwLower "unboxed sum has no tag slot"
+  where
+    -- A sum of n alternatives has the tags 1 to n.
+    coversEverySumAlternative =
+      any ((== Fc.AltDefault) . Fc.altCon) alternatives
+        || Set.fromList [1 .. length representations] `Set.isSubsetOf` Set.fromList [ordinal | Fc.AltData name <- map Fc.altCon alternatives, Fc.UnboxedSumConstructor ordinal _ <- [constructorRepresentation env name]]
 
 lowerSumAlt :: LowerEnv -> SumLayout -> [GrinVar] -> Fc.Alt -> LowerM GrinAlt
 lowerSumAlt env layout slots alternative = do

@@ -100,6 +100,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Vector qualified as V
@@ -156,7 +157,10 @@ data PointsToRewrites = PointsToRewrites
   { rewritesDeadAlternatives :: !Int,
     rewritesEvaluatedEvals :: !Int,
     rewritesDirectCalls :: !Int,
-    rewritesSingleEntryEvals :: !Int
+    rewritesSingleEntryEvals :: !Int,
+    -- | Cases that only one constructor can reach, which became a fetch of
+    -- the fields of that constructor.
+    rewritesFetchedCases :: !Int
   }
   deriving (Eq, Show)
 
@@ -166,6 +170,7 @@ totalPointsToRewrites rewrites =
     + rewritesEvaluatedEvals rewrites
     + rewritesDirectCalls rewrites
     + rewritesSingleEntryEvals rewrites
+    + rewritesFetchedCases rewrites
 
 pointsToStats :: PointsTo -> PointsToStats
 pointsToStats = resultStats
@@ -1239,15 +1244,16 @@ rewriteWithPointsTo analysis program =
     (functions, finalState) =
       runState
         (mapM rewriteFunction (grinFunctions program))
-        (RewriteState (PointsToRewrites 0 0 0 0) (maximumProgramVarUnique program + 1))
+        (RewriteState (PointsToRewrites 0 0 0 0 0) (maximumProgramVarUnique program + 1))
     declared = Map.fromList [(grinFunctionName function, function) | function <- grinFunctions program]
     rewriteFunction function = do
       let vars = Map.findWithDefault Map.empty (grinFunctionName function) (resultVariables analysis)
-      body <- rewriteExpr analysis declared vars (grinFunctionBody function)
+      body <- rewriteExpr analysis declared constructors vars (grinFunctionBody function)
       pure function {grinFunctionBody = body}
+    constructors = Set.fromList (map grinConstructorName (grinConstructors program))
 
-rewriteExpr :: PointsTo -> Map FunctionName GrinFunction -> Map GrinVar Int -> GrinExpr -> RewriteM GrinExpr
-rewriteExpr analysis declared vars = go
+rewriteExpr :: PointsTo -> Map FunctionName GrinFunction -> Set Text -> Map GrinVar Int -> GrinExpr -> RewriteM GrinExpr
+rewriteExpr analysis declared constructors vars = go
   where
     go expression
       | Just (function, groups, resultRep, continuation) <- applicationChain expression,
@@ -1287,7 +1293,20 @@ rewriteExpr analysis declared vars = go
               count (\counts -> counts {rewritesDeadAlternatives = rewritesDeadAlternatives counts + length alternatives - length live})
               pure live
             Nothing -> pure alternatives
-          GrinCase scrutinee binder <$> mapM (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> go (grinAltRhs alternative)) kept
+          case kept of
+            -- A case without a default matches each value that gets to
+            -- it, so the value of a case with one data alternative is
+            -- that constructor. A fetch needs the declaration of the
+            -- constructor.
+            [GrinAlt (GrinDataAlt name _) fields rhs]
+              | Set.member name constructors -> do
+                  count (\counts -> counts {rewritesFetchedCases = rewritesFetchedCases counts + 1})
+                  rhs' <- go rhs
+                  let fetched
+                        | Set.disjoint (Set.fromList fields) (freeExprVars rhs') = rhs'
+                        | otherwise = GrinBind fields (GrinFetch (GrinConstructor name 0) scrutinee) rhs'
+                  pure (GrinBind [binder] (GrinConstant [scrutinee]) fetched)
+            _ -> GrinCase scrutinee binder <$> mapM (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> go (grinAltRhs alternative)) kept
         GrinEval EvalUpdate runtimeRep value@(GrinVarValue var)
           | Just locations <- locationsOf value,
             all isValue (IntSet.toList locations),
