@@ -64,7 +64,4 @@ expected: |-
       } in
       go x eta{3}
 status: pass
-reason: |
-  The local loop gains its second argument from the step function.
-  The enclosing function uses the loop's manifest arity and gains its second argument too.
-  Its call enters the loop directly, without a returned closure.
+reason: The local loop calls a step of three arguments with two. Under the guess that the loop takes two arguments, its own call is a partial application, so the loop expands to two arguments and builds no closure for each step. The body of run is the recursive group, which shows the lambdas of the loop, so run also expands to two arguments and builds no closure for the loop.
