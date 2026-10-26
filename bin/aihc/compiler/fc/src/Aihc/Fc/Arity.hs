@@ -87,6 +87,7 @@ import Aihc.Fc.TypeOf
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
+import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -192,7 +193,10 @@ data Env = Env
     envSigs :: !(Map Name ArityType),
     -- | The representational axioms that unfold a newtype, by the type
     -- constructor at the head of their left-hand side.
-    envNewtypes :: !(Map Name [AxiomDecl])
+    envNewtypes :: !(Map Name [AxiomDecl]),
+    -- | The top-level values whose result closures are each applied at
+    -- most once. See 'oneShotResults'.
+    envOneShotResults :: !(Set Name)
   }
 
 extendSig :: Env -> Name -> ArityType -> Env
@@ -369,8 +373,8 @@ collectSpine = go []
         _ -> (expr, arguments)
 
 -- | The environment inside a recursive group. Each binding is taken at the
--- arity its lambdas already show, as a top-level group is in
--- 'valueSignatures'. That is always sound, and it lets a body such as
+-- arity its lambdas already show. That is always sound, and it lets a body
+-- such as
 --
 -- > lookup k = rec { look = λm. ... } in look
 --
@@ -397,14 +401,228 @@ manifestArityType env expr =
 manifestArity :: Env -> Expr -> Int
 manifestArity env expr = let AT lams = manifestArityType env expr in length lams
 
+-- * One-shot results
+
+-- | The arity type of a top-level value, with the lambdas after its
+-- manifest lambdas one-shot when the value is in 'envOneShotResults'.
+oneShotResult :: Env -> Name -> Expr -> ArityType -> ArityType
+oneShotResult env name body at@(AT lams)
+  | Set.member name (envOneShotResults env) =
+      let (manifest, result) = splitAt (manifestArity env body) lams
+       in AT (manifest <> [(cost, OneShot) | (cost, _) <- result])
+  | otherwise = at
+
+-- | How often a path runs an expression: zero times, once, or more.
+data Count = Zero | One | Many
+  deriving (Eq, Ord, Show)
+
+addCount :: Count -> Count -> Count
+addCount Zero count = count
+addCount count Zero = count
+addCount _ _ = Many
+
+-- | Where an expression stands. In the tail of a top-level value of the
+-- set, a lambda is a lambda of the result of that value.
+data Position = Tail !Name | Applied | Inner
+  deriving (Eq, Show)
+
+-- | The top-level values whose result closures are each applied at most
+-- once, the call arity of GHC in a small form. Such a value takes its
+-- manifest lambdas and returns a function, often under the cast of a
+-- newtype, as a value of a state monad does:
+--
+-- > tcExpr = λd x y. let loc = getSLoc y in (λs. ...) ▷ sym co
+--
+-- The work before the result lambda is not cheap, so 'safeArity' stops at
+-- that lambda: an expansion would repeat the work at each application of
+-- one closure. When each closure is applied once, there is nothing to
+-- repeat, and the lambda is one-shot.
+--
+-- A value is in the set when it is not a root, no rule names it, its type
+-- shows more arrows than its manifest lambdas, and each occurrence of it in
+-- the program
+--
+-- * takes more arguments than its manifest lambdas, so the closure is
+--   applied at once,
+-- * takes exactly its manifest arguments in the tail of a value of the
+--   set, which returns the closure to a caller that applies it once, or
+-- * takes at most its manifest arguments as the right-hand side of a let
+--   whose binder each path applies at most once, with the arguments that
+--   are missing and one more.
+--
+-- A use under a lambda counts as many uses, unless the lambda is a result
+-- lambda of a value of the set, or the body of a join point: a lambda in a
+-- let that the body only calls in its tail. A join point that each call
+-- gives more arguments than its lambdas, as a pattern match failure
+-- continuation in a state monad gets them, applies the result of its body
+-- at once. The set is the greatest one
+-- with these properties: it starts with every candidate and drops each
+-- value with another occurrence until nothing changes.
+oneShotResults :: Env -> Set Name -> [Decl] -> Set Name
+oneShotResults env roots decls = fixpoint candidates
+  where
+    values = [declaration | DeclVal declaration <- decls]
+    arities = Map.fromList [(valName declaration, manifestArity env (valBody declaration)) | declaration <- values]
+    ruled = foldMap (\rule -> valueReferences (ruleLhs rule) <> valueReferences (ruleRhs rule)) [rule | DeclRule rule <- decls]
+    candidates =
+      Set.fromList
+        [ name
+        | declaration <- values,
+          let name = valName declaration,
+          Set.notMember name roots,
+          Set.notMember name ruled,
+          typeArity env (valType declaration) > Map.findWithDefault 0 name arities
+        ]
+    fixpoint set =
+      let next = Set.difference set (foldMap (\declaration -> occurrenceViolations arities set (valName declaration) (valBody declaration)) values)
+       in if next == set then set else fixpoint next
+
+-- | The values of the set with an occurrence in a body that 'oneShotResults'
+-- does not accept.
+occurrenceViolations :: Map Name Int -> Set Name -> Name -> Expr -> Set Name
+occurrenceViolations arities set self body = walk (Tail self) (afterManifest body)
+  where
+    afterManifest expr =
+      case expr of
+        ExTyLam _ inner -> afterManifest inner
+        ExLam _ inner -> afterManifest inner
+        ExCast inner _ -> afterManifest inner
+        _ -> expr
+    candidate name = Set.member name set
+    walk position expr =
+      case spine expr of
+        (ExVar name, arguments)
+          | candidate name ->
+              let accepted =
+                    valueCount arguments > arity name
+                      || (valueCount arguments == arity name && isResultTail position)
+               in (if accepted then Set.empty else Set.singleton name) <> foldMap (walk Inner) (rights arguments)
+        (ExVar _, arguments) -> foldMap (walk Inner) (rights arguments)
+        (function, arguments@(_ : _)) -> walk Inner function <> foldMap (walk Inner) (rights arguments)
+        _ -> case expr of
+          ExLet bind inner ->
+            let binder = binderName (bindBinder bind)
+                rhs = bindRhs bind
+                rhsViolations = case spine rhs of
+                  (ExVar name, arguments)
+                    | candidate name,
+                      valueCount arguments <= arity name,
+                      appliedOnce (arity name - valueCount arguments + 1) position binder inner ->
+                        foldMap (walk Inner) (rights arguments)
+                  _
+                    | Just (joinBody', over) <- joinBody binder rhs inner -> walk (if over then Applied else position) joinBody'
+                    | otherwise -> walk Inner rhs
+             in rhsViolations <> walk position inner
+          ExRec binds inner -> foldMap (walk Inner . bindRhs) binds <> walk position inner
+          ExCase scrutinee _ alternatives -> walk Inner scrutinee <> foldMap (walk position . altRhs) alternatives
+          ExCast inner _ -> walk position inner
+          ExTyLam _ inner -> walk position inner
+          ExLam _ inner -> walk Inner inner
+          ExAbsurd scrutinee _ -> walk Inner scrutinee
+          ExForeignCall _ _ arguments -> foldMap (walk Inner) arguments
+          _ -> Set.empty
+    arity name = Map.findWithDefault 0 name arities
+    isResultTail position = case position of
+      Tail owner -> Set.member owner set
+      Applied -> True
+      Inner -> False
+    -- Whether each path applies the binder at most once, and every use
+    -- applies it.
+    appliedOnce needed position binder inner =
+      let (count, applied) = occurrences needed position binder inner
+       in count <= One && applied
+    occurrences needed position binder expr =
+      case spine expr of
+        (ExVar name, arguments)
+          | name == binder ->
+              let (count, applied) = combine (map (occurrences needed Inner binder) (rights arguments))
+               in (addCount One count, applied && valueCount arguments >= needed)
+        (ExVar _, arguments) -> combine (map (occurrences needed Inner binder) (rights arguments))
+        (function, arguments@(_ : _)) -> combine (occurrences needed Inner binder function : map (occurrences needed Inner binder) (rights arguments))
+        _ -> case expr of
+          ExLet bind inner
+            | binderName (bindBinder bind) == binder -> occurrences needed Inner binder (bindRhs bind)
+            | Just (joinBody', over) <- joinBody (binderName (bindBinder bind)) (bindRhs bind) inner ->
+                combine [occurrences needed (if over then Applied else position) binder joinBody', occurrences needed position binder inner]
+            | otherwise -> combine [occurrences needed Inner binder (bindRhs bind), occurrences needed position binder inner]
+          ExRec binds inner
+            | any ((== binder) . binderName . bindBinder) binds -> (Zero, True)
+            | otherwise ->
+                let (count, applied) = combine (map (occurrences needed Inner binder . bindRhs) binds)
+                 in combine [(if count == Zero then Zero else Many, applied), occurrences needed position binder inner]
+          ExCase scrutinee caseBinder alternatives
+            | any ((== binder) . binderName) caseBinder -> occurrences needed Inner binder scrutinee
+            | otherwise ->
+                let branches = [occurrences needed position binder (altRhs alternative) | alternative <- NE.toList alternatives, binder `notElem` map binderName (altBinders alternative)]
+                 in combine [occurrences needed Inner binder scrutinee, (maximum (Zero : map fst branches), all snd branches)]
+          ExCast inner _ -> occurrences needed position binder inner
+          ExTyLam _ inner -> occurrences needed position binder inner
+          ExLam lambda inner
+            | binderName lambda == binder -> (Zero, True)
+            | otherwise ->
+                let (count, applied) = occurrences needed Inner binder inner
+                 in (if isResultTail position || count == Zero then count else Many, applied)
+          ExAbsurd scrutinee _ -> occurrences needed Inner binder scrutinee
+          ExForeignCall _ _ arguments -> combine (map (occurrences needed Inner binder) arguments)
+          _ -> (Zero, True)
+    combine results = (List.foldl' addCount Zero (map fst results), all snd results)
+    -- The body of a join point: a let of lambdas whose binder the body
+    -- only calls in its tail, with all the arguments of the lambdas.
+    joinBody binder rhs inner =
+      let (lambdas, joinBody') = joinLambdas rhs
+       in case tailCalls binder lambdas inner of
+            Just over | lambdas > 0 -> Just (joinBody', over)
+            _ -> Nothing
+    joinLambdas expr =
+      case expr of
+        ExLam _ inner -> let (count, body') = joinLambdas inner in (count + 1, body')
+        ExTyLam _ inner -> joinLambdas inner
+        _ -> (0 :: Int, expr)
+    -- 'Just' when the body only calls the binder in its tail, with at
+    -- least the arguments of its lambdas. 'True' when no call gives exactly
+    -- those arguments, so that each call applies the result.
+    tailCalls binder lambdas expr =
+      case spine expr of
+        (ExVar name, arguments)
+          | name == binder ->
+              if valueCount arguments >= lambdas && not (any (mentions binder) (rights arguments))
+                then Just (valueCount arguments > lambdas)
+                else Nothing
+        (function, arguments) | not (null arguments) || isVar function -> absent (function : rights arguments)
+        _ -> case expr of
+          ExLet bind inner -> absent [bindRhs bind] >> tailCalls binder lambdas inner
+          ExRec binds inner -> absent (map bindRhs binds) >> tailCalls binder lambdas inner
+          ExCase scrutinee _ alternatives -> absent [scrutinee] >> (and <$> traverse (tailCalls binder lambdas . altRhs) (NE.toList alternatives))
+          ExCast inner _ -> tailCalls binder lambdas inner
+          _ -> absent [expr]
+      where
+        absent exprs = if any (mentions binder) exprs then Nothing else Just True
+    isVar expr = case expr of
+      ExVar _ -> True
+      _ -> False
+    mentions binder expr = Set.member binder (valueReferences expr)
+    valueCount arguments = length [() | Right _ <- arguments]
+    -- The head of an application and its arguments, through casts on the
+    -- function.
+    spine = go []
+      where
+        go arguments expr =
+          case expr of
+            ExApp function argument -> go (Right argument : arguments) function
+            ExTyApp function argument -> go (Left argument : arguments) function
+            ExCast function _ | not (null arguments) -> go arguments function
+            _ -> (expr, arguments)
+
 -- * The pass
 
 -- | Eta expand every top-level value and every local binding of a program
 -- to the arity its body supports.
-etaExpandProgram :: PackageId -> Program -> (Program, EtaReport)
-etaExpandProgram primPackage program =
+etaExpandProgram :: PackageId -> Maybe [Name] -> Program -> (Program, EtaReport)
+etaExpandProgram primPackage roots program =
   let types = typeEnvFromProgram primPackage program
-      env0 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types}
+      env1 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty}
+      rootSet = maybe (Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub]) Set.fromList roots
+      env0 = env1 {envOneShotResults = oneShotResults env1 rootSet (programDecls program)}
       env = valueSignatures env0 (programDecls program)
       supply = maxLocalUnique program + 1
       (decls, (_, report)) = runState (traverse (expandDecl env) (programDecls program)) (supply, EtaReport 0 0 0)
@@ -415,8 +633,11 @@ etaExpandProgram primPackage program =
 
 -- | The arity type of every top-level value, in dependency order: a value
 -- is analysed after the values it names, so a call of one knows how many
--- arguments it still takes. A value in a recursive group is taken at the
--- arity its lambdas already show, which is always sound.
+-- arguments it still takes. The values of a recursive group get their
+-- arities from the iteration of 'groupArities', as a local group does.
+-- A group of state monad functions calls its members in the tails of
+-- result closures. Under the guess that each member takes the state, such
+-- a call is short of the state and is a cheap partial application.
 valueSignatures :: Env -> [Decl] -> Env
 valueSignatures env decls = List.foldl' addComponent env (stronglyConnComp graph)
   where
@@ -432,13 +653,14 @@ valueSignatures env decls = List.foldl' addComponent env (stronglyConnComp graph
           extendSig current (valName declaration) (declarationArityType current declaration)
         CyclicSCC members ->
           List.foldl'
-            (\inner declaration -> extendSig inner (valName declaration) (manifestArityType inner (valBody declaration)))
+            (\inner (name, at) -> extendSig inner name at)
             current
-            members
+            (Map.toList (groupArities current [(valName declaration, valType declaration, valBody declaration) | declaration <- members] (\inner name ty body -> safeArity (oneShotResult inner name body (trimArityType (typeArity inner ty) (arityType inner body))))))
     declarationArityType current declaration =
-      trimArityType
-        (typeArity current (valType declaration))
-        (arityType current (valBody declaration))
+      oneShotResult current (valName declaration) (valBody declaration) $
+        trimArityType
+          (typeArity current (valType declaration))
+          (arityType current (valBody declaration))
 
 -- | Cut an arity type down to the arrows its type can expose. An
 -- expansion cannot reveal an arrow the type does not have, so a longer
@@ -472,7 +694,7 @@ expandDecl env decl =
   case decl of
     DeclVal declaration -> do
       body <- expandLocals env (valBody declaration)
-      expanded <- expandBinding env (valType declaration) body
+      expanded <- expandBindingWith (oneShotResult env (valName declaration) body) env (valType declaration) body
       case expanded of
         Nothing -> pure (DeclVal declaration {valBody = body})
         Just (body', added) -> do
@@ -493,7 +715,11 @@ expandDecl env decl =
 -- method @enumFromTo = enumIntFromTo@ became @λa b. build ...@, and a
 -- @foldr@ over @[x .. y]@ never met that @build@.
 expandBinding :: Env -> Type -> Expr -> ExpandM (Maybe (Expr, Int))
-expandBinding env ty body
+expandBinding = expandBindingWith id
+
+-- | 'expandBinding', with a change to the arity type of the body.
+expandBindingWith :: (ArityType -> ArityType) -> Env -> Type -> Expr -> ExpandM (Maybe (Expr, Int))
+expandBindingWith adjust env ty body
   | isAlias body = pure Nothing
   | wanted <= manifest = pure Nothing
   | otherwise = do
@@ -502,7 +728,7 @@ expandBinding env ty body
         Just body' | body' /= body -> Just (body', wanted - manifest)
         _ -> Nothing
   where
-    wanted = safeArity (trimArityType (typeArity env ty) (arityType env body))
+    wanted = safeArity (adjust (trimArityType (typeArity env ty) (arityType env body)))
     manifest = manifestArity env body
 
 -- | A variable under type applications, type lambdas and casts.
@@ -648,25 +874,30 @@ coercionBetween env unfolded source target
 -- member is that number of cheap lambdas, which is what the expanded
 -- member is.
 recursiveArities :: Env -> [Bind] -> Map Name ArityType
-recursiveArities env binds = loop (0 :: Int) (Map.fromList [(binderName binder, typeArity env (binderType binder)) | binder <- binders])
+recursiveArities env binds =
+  groupArities env [(binderName (bindBinder bind), binderType (bindBinder bind), bindRhs bind) | bind <- binds] (\current _ ty rhs -> safeArity (trimArityType (typeArity current ty) (arityType current rhs)))
+
+-- | The arity types of a recursive group, given as names, types and right
+-- sides, by the iteration of 'recursiveArities'. The last argument gives
+-- the arity that a right side supports under the current guesses.
+groupArities :: Env -> [(Name, Type, Expr)] -> (Env -> Name -> Type -> Expr -> Int) -> Map Name ArityType
+groupArities env members supported = loop (0 :: Int) (Map.fromList [(name, typeArity env ty) | (name, ty, _) <- members])
   where
-    binders = map bindBinder binds
-    bound = 1 + sum [typeArity env (binderType binder) | binder <- binders]
+    bound = 1 + sum [typeArity env ty | (_, ty, _) <- members]
     loop iteration guesses
-      | iteration > bound = signatures (Map.fromList [(binderName (bindBinder bind), manifestArity env (bindRhs bind)) | bind <- binds])
+      | iteration > bound = signatures (Map.fromList [(name, manifestArity env rhs) | (name, _, rhs) <- members])
       | next == guesses = signatures guesses
       | otherwise = loop (iteration + 1) next
       where
         current = List.foldl' (\inner (name, at) -> extendSig inner name at) env (Map.toList (signatures guesses))
-        next = Map.fromList [(binderName (bindBinder bind), settle guesses bind (arity current bind)) | bind <- binds]
-    arity current bind = safeArity (bindingArityType current (bindBinder bind) (bindRhs bind))
-    settle guesses bind found =
-      max (manifestArity env (bindRhs bind)) (min found (Map.findWithDefault 0 (binderName (bindBinder bind)) guesses))
+        next = Map.fromList [(name, settle guesses name rhs (supported current name ty rhs)) | (name, ty, rhs) <- members]
+    settle guesses name rhs found =
+      max (manifestArity env rhs) (min found (Map.findWithDefault 0 name guesses))
     signatures guesses =
       Map.fromList
-        [ (binderName binder, AT [(IsCheap, oneShot) | oneShot <- take n (typeOneShots env (binderType binder))])
-        | binder <- binders,
-          let n = Map.findWithDefault 0 (binderName binder) guesses
+        [ (name, AT [(IsCheap, oneShot) | oneShot <- take n (typeOneShots env ty)])
+        | (name, ty, _) <- members,
+          let n = Map.findWithDefault 0 name guesses
         ]
 
 -- | Expand the local bindings inside a right side, then the right side
