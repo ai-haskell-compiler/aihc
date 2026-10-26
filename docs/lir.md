@@ -1037,6 +1037,9 @@ The units are:
   failed check calls `aihc_byte_array_bounds_fail`. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which
   are `memcpy` and `memmove` behind a signature that states its length as
   an `i64`.
+  Without `--check-prim-bounds`, `compareByteArrays#` loads the contents pointers,
+  adds the offsets, and calls `aihc_memory_compare` directly.
+  With that option, it calls `aihc_byte_array_compare`, which checks both ranges.
 - `aihc_runtime_options.lir` holds the RTS option parser, the environment
   parser, and the program arguments. The host flattens `argv` into one buffer
   of zero-terminated strings in C, because the width of a C pointer is the
