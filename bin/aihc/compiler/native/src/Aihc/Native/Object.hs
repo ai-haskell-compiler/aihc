@@ -767,7 +767,10 @@ relaxBranches object section = do
                     let armBit = fixupRowKind fixup == Arm64BitBranch26
                     MU.unsafeWrite armBits index armBit
                     opcode <- readWordAt section (offset - 1) 1
-                    let long = if armBit then 8 else if opcode == 0xe9 then 5 else 6
+                    let long
+                          | armBit = 8
+                          | opcode == 0xe9 = 5
+                          | otherwise = 6
                     MU.unsafeWrite starts index (offset + 4 - long)
                     MU.unsafeWrite lengths index long
                     target <- readColumn (fixupTargets section) payload

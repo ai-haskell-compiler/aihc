@@ -315,7 +315,7 @@ instructionEffect instruction =
     ArmBl _ -> Forgets
     ArmBlr _ -> Forgets
     ArmBCond _ _ -> Writes []
-    ArmTbz _ _ _ _ -> Writes []
+    ArmTbz {} -> Writes []
     ArmCbz _ _ -> Writes []
     ArmCbnz _ _ -> Writes []
     ArmCmp _ _ -> Writes []
