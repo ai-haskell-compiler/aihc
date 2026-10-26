@@ -1030,13 +1030,6 @@ loadInfoCode base header index = do
   let width = lowerWordSize target
   emitValue base Code (LoadInvariant Code (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
--- | A @ptr@ field of an info table.
-loadInfoPointer :: Text -> Operand -> Int -> LowerM Typed
-loadInfoPointer base header index = do
-  target <- targetM
-  let width = lowerWordSize target
-  emitValue base Ptr (LoadInvariant Ptr (byteAddress header (toInteger (width * index))) (wordAlignment 1))
-
 -- | A word-sized integer field of a data object.
 wordField :: LowerTarget -> Integer -> DataField
 wordField target = DataInt (wordType target)
