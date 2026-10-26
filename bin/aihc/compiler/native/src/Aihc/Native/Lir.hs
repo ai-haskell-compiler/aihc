@@ -681,9 +681,9 @@ dropUnreadStackAllocations function
   | any unread allocations = function {functionBlocks = map dropBlock (functionBlocks function)}
   | otherwise = function
   where
-    reads = readCounts function
+    readers = readCounts function
     allocations = [result | block <- functionBlocks function, Instruction [result] (StackAlloc _ _) <- blockInstructions block]
-    unread result = Map.findWithDefault 0 result reads == 0
+    unread result = Map.findWithDefault 0 result readers == 0
     dropBlock block =
       block
         { blockInstructions =
