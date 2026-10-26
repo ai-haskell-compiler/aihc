@@ -17,8 +17,6 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern func @aihc_lir_enter_thunk_0(ptr, ptr, ptr, ptr, ptr, ptr)
-
   extern func @aihc_lir_eval(ptr, ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
@@ -159,26 +157,31 @@ expected: |
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x00" }
 
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_enter_thunk_0, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 0, i16 0 }
-
-  func @aihc_lir_force_p(%hp_92: ptr, %hp_limit_93: ptr, %sp_94: ptr, %sp_limit_95: ptr, %value_96: ptr, %info_97: ptr, %field_98: ptr) {
+  func @aihc_lir_info_1_e(%hp_92: ptr, %hp_limit_93: ptr, %sp_94: ptr, %sp_limit_95: ptr, %object_96: ptr, %continuation_97: ptr) {
   entry:
-    %sp_99 = ptr.add %sp_94, 16
-    %stack_fits_100 = le.u ptr %sp_99, %sp_limit_95
-    br %stack_fits_100, stack_pushed_102(%sp_94, %sp_99, %sp_limit_95, %hp_limit_93), stack_grow_101
+    tailcall @aihc_f_aihc_entry___sdelayed(%hp_92, %hp_limit_93, %sp_94, %sp_limit_95, %continuation_97)
+  }
 
-  cold stack_grow_101:
-    %capability_103 = load ptr [%sp_limit_95 - 4040] align 1 word
-    %result_104 = call @aihc_stack_grow(%capability_103, %sp_94, 2)
-    %sp_105 = ptr.add %result_104, 16
-    %sp_limit_106 = ptr.add %result_104, 4032
-    %hp_limit_107 = load ptr [%capability_103 + 24] align 1 word
-    jump stack_pushed_102(%result_104, %sp_105, %sp_limit_106, %hp_limit_107)
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_info_1_e, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 0, i16 0 }
 
-  stack_pushed_102(%frame_108: ptr, %sp_109: ptr, %sp_limit_110: ptr, %hp_limit_111: ptr):
-    store ptr %info_97, [%frame_108] align 8 region stack
-    store ptr %field_98, [%frame_108 + 8] align 8 region stack
-    tailcall @aihc_lir_eval(%hp_92, %hp_limit_111, %sp_109, %sp_limit_110, %value_96, %frame_108)
+  func @aihc_lir_force_p(%hp_98: ptr, %hp_limit_99: ptr, %sp_100: ptr, %sp_limit_101: ptr, %value_102: ptr, %info_103: ptr, %field_104: ptr) {
+  entry:
+    %sp_105 = ptr.add %sp_100, 16
+    %stack_fits_106 = le.u ptr %sp_105, %sp_limit_101
+    br %stack_fits_106, stack_pushed_108(%sp_100, %sp_105, %sp_limit_101, %hp_limit_99), stack_grow_107
+
+  cold stack_grow_107:
+    %capability_109 = load ptr [%sp_limit_101 - 4040] align 1 word
+    %result_110 = call @aihc_stack_grow(%capability_109, %sp_100, 2)
+    %sp_111 = ptr.add %result_110, 16
+    %sp_limit_112 = ptr.add %result_110, 4032
+    %hp_limit_113 = load ptr [%capability_109 + 24] align 1 word
+    jump stack_pushed_108(%result_110, %sp_111, %sp_limit_112, %hp_limit_113)
+
+  stack_pushed_108(%frame_114: ptr, %sp_115: ptr, %sp_limit_116: ptr, %hp_limit_117: ptr):
+    store ptr %info_103, [%frame_114] align 8 region stack
+    store ptr %field_104, [%frame_114 + 8] align 8 region stack
+    tailcall @aihc_lir_eval(%hp_98, %hp_limit_117, %sp_115, %sp_limit_116, %value_102, %frame_114)
   }
 status: pass
 reason: |

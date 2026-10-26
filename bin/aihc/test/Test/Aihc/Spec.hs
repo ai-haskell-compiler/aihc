@@ -1393,7 +1393,7 @@ test_installRuntimePackage getStore = do
         assertFileExists (cbits </> object)
       -- The Lir units are one object: rts.lir includes them, and only it is
       -- named by x-aihc-lir-sources.
-      forM_ ["native_aihc_constants.o", "native_aihc_helpers.o", "native_aihc_enter.o", "native_aihc_array.o"] $ \object ->
+      forM_ ["native_aihc_constants.o", "native_aihc_helpers.o", "native_aihc_array.o"] $ \object ->
         assertFileDoesNotExist (cbits </> object)
       case target of
         Wasm32Wasip3 -> do

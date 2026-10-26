@@ -831,9 +831,7 @@ cold collect:
 }
 
 ; The backend entry of the update frame. A continue helper enters the frame
-; with the result, and this entry reads the two stored fields itself. Thus
-; the result does not go through a shared enter function and the identity
-; field.
+; with the result, and this entry reads the two stored fields itself.
 export func @aihc_lir_cps_update_entry(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %continuation: ptr, %result: ptr) {
 entry:
   %outer_word = load i64 [%frame + 8] align 8
