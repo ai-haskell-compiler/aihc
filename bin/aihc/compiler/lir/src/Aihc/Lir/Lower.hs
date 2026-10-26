@@ -300,7 +300,9 @@ data RuntimeEnter = RuntimeEnter
     enterStored :: ![Type],
     enterSupplied :: ![Type],
     enterTargetParameters :: ![Type],
-    enterPassesContinuation :: !Bool
+    enterPassesContinuation :: !Bool,
+    -- | The target loads its fields from the frame.
+    enterDirect :: !Bool
   }
 
 data RuntimeInfo = RuntimeInfo
@@ -333,6 +335,8 @@ data LowerEnv = LowerEnv
     envFunctionSymbols :: !(Map FunctionName Symbol),
     envFunctionParameters :: !(Map FunctionName [Type]),
     envContinuationFunctions :: !(Set FunctionName),
+    -- | The field count of each body that accepts a frame directly.
+    envFrameEntries :: !(Map FunctionName Int),
     -- | The continuation parameter of each function that takes one.
     envFunctionContinuations :: !(Map FunctionName GrinVar),
     envForwardingFunctions :: !(Set FunctionName),
@@ -572,6 +576,7 @@ lowerEnvironment options gcProgram =
       envFunctionSymbols = functionSymbols,
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
+      envFrameEntries = frameEntries,
       envFunctionContinuations = gcFunctionContinuations gcProgram,
       envForwardingFunctions = forwardingFunctions,
       envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
@@ -686,6 +691,9 @@ lowerEnvironment options gcProgram =
         Just name <- [runtimeInfoFunctionName key],
         Just target <- [Map.lookup name functionSymbols]
       ]
+    frameEntries
+      | lowerExposeFunctions options = Map.empty
+      | otherwise = directFrameEntries continuationFunctions forwardingFunctions functionParameters infoKeys program
     targetParameters name = Map.findWithDefault [] name functionParameters
     -- A closure stage takes all its remaining groups in one entry. An
     -- application supplies at most 'grinApplyGroupLimit' groups, so a stage
@@ -702,7 +710,8 @@ lowerEnvironment options gcProgram =
                     enterStored = map repType fields,
                     enterSupplied = map repType (concat layouts),
                     enterTargetParameters = targetParameters name,
-                    enterPassesContinuation = name `Set.notMember` continuationFunctions
+                    enterPassesContinuation = name `Set.notMember` continuationFunctions,
+                    enterDirect = Map.member name frameEntries
                   }
         ThunkRuntimeInfo _ fields ->
           Just
@@ -712,9 +721,47 @@ lowerEnvironment options gcProgram =
                 enterStored = map repType fields,
                 enterSupplied = [],
                 enterTargetParameters = targetParameters name,
-                enterPassesContinuation = True
+                enterPassesContinuation = True,
+                enterDirect = False
               }
         _ -> Nothing
+
+-- | A frame can enter its body when no direct call needs the original ABI.
+-- A reservation can use that ABI for GC replay from relocated arguments.
+-- A popped frame cannot supply relocated fields after collection.
+-- Keep bodies with reservations unchanged, without larger collection paths.
+directFrameEntries :: Set FunctionName -> Set FunctionName -> Map FunctionName [Type] -> [RuntimeInfoKey] -> GrinProgram -> Map FunctionName Int
+directFrameEntries frames forwards parameters keys program =
+  Map.fromList
+    [ (name, length fields)
+    | (name, [ClosureRuntimeInfo _ fields layouts]) <- Map.toList shapes,
+      Set.member name frames,
+      Set.notMember name forwards,
+      Set.notMember name called,
+      Set.notMember name reserved,
+      not (null layouts),
+      length layouts <= grinApplyGroupLimit,
+      Map.lookup name parameters == Just (map repType (fields <> concat layouts))
+    ]
+  where
+    shapes = Map.fromListWith (<>) [(name, [key]) | key <- keys, Just name <- [runtimeInfoFunctionName key]]
+    called = foldMap (calls . grinFunctionBody) (grinFunctions program)
+    reserved = Set.fromList [grinFunctionName function | function <- grinFunctions program, reservation (grinFunctionBody function)]
+    children expression = case expression of
+      GrinBind _ value body -> [value, body]
+      GrinStoreRec _ body -> [body]
+      GrinStoreRecUnchecked _ body -> [body]
+      GrinIfWhnf _ ready slow -> [ready, slow]
+      GrinCase _ _ alternatives -> map grinAltRhs alternatives
+      _ -> []
+    calls expression = case expression of
+      GrinCall _ name _ -> Set.singleton name
+      _ -> foldMap calls (children expression)
+    reservation expression = case expression of
+      GrinEnsureHeap {} -> True
+      GrinAllocate {} -> True
+      GrinSafepoint {} -> True
+      _ -> any reservation (children expression)
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
@@ -1402,6 +1449,7 @@ lowerInfo info = do
 -- object has one of the shapes the runtime defines, and otherwise a stub of
 -- this module.
 enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
+enterFunction _ enter | enterDirect enter = pure (enterTarget enter)
 enterFunction info enter =
   case sharedEnterSymbol enter of
     Just symbol -> do
@@ -1500,7 +1548,8 @@ continuationInfoItems spec = lowerInfo info
                   enterStored = continuationStored spec,
                   enterSupplied = continuationSupplied spec,
                   enterTargetParameters = continuationStored spec <> continuationSupplied spec,
-                  enterPassesContinuation = False
+                  enterPassesContinuation = False,
+                  enterDirect = False
                 },
           infoFrameKind = Just (continuationFrame spec),
           infoObjectKind = runtimeObjectClosure,
@@ -1614,10 +1663,25 @@ lowerFunction :: LowerEnv -> GrinFunction -> LowerM ()
 lowerFunction env function = do
   (context, contextParameters) <- freshContext
   setContext context
-  parameters <- forM (grinFunctionParameters function) $ \var -> do
+  originalParameters <- forM (grinFunctionParameters function) $ \var -> do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
-  beginBlock (Label "entry") []
+  let direct = Map.lookup (grinFunctionName function) (envFrameEntries env)
+  (entryParameters, parameters) <- case direct of
+    Nothing -> do
+      beginBlock (Label "entry") []
+      pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters)
+    Just count -> do
+      object <- fresh "frame"
+      unused <- fresh "unused"
+      beginBlock (Label "entry") []
+      let (stored, supplied) = splitAt count originalParameters
+      loaded <- forM (zip [1 :: Int ..] stored) $ \(index, (var, _, ty)) -> do
+        value <- loadSlot StackRegion "stored" ty (OperandVar object) (toInteger (8 * index))
+        case typedOperand value of
+          OperandVar name -> pure (var, name, ty)
+          _ -> failWith (LowerUnsupportedExpression "frame field has no variable")
+      pure ((object, Ptr) : (unused, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied], loaded <> supplied)
   when (lowerProfileTime (envOptions env)) $
     storeProfileEntry (grinFunctionName function) (profileContinuation env function [lirVar | (_, lirVar, _) <- parameters])
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
@@ -1630,13 +1694,13 @@ lowerFunction env function = do
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
       replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters]
-  modify' (\state -> state {stateReplay = Just replay})
+  modify' (\state -> state {stateReplay = if isJust direct then Nothing else Just replay})
   compileExpr ctx valueEnv (grinFunctionBody function)
   modify' (\state -> state {stateContext = Nothing, stateReplay = Nothing})
   finishFunction
     (functionSymbol (grinFunctionName function))
     (if lowerExposeFunctions (envOptions env) then Export else Internal)
-    (contextParameters <> [(lirVar, ty) | (_, lirVar, ty) <- parameters])
+    (contextParameters <> entryParameters)
     []
     AihcConvention
 

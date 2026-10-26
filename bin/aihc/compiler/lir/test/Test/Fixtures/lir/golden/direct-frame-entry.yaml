@@ -1,0 +1,92 @@
+program: |
+  constructor Box/1 [IntRep]
+  global value = (CBox (7 :: IntRep))
+
+  $other -> BoxedRep Lifted =
+    constant global-ref value
+
+  $entry -> IntRep =
+    (result%1 :: BoxedRep Lifted) <- call @(BoxedRep Lifted) $other
+    (value%2 :: IntRep) <- fetch (CBox) (result%1 :: BoxedRep Lifted)
+    constant (value%2 :: IntRep)
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
+
+  extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
+
+  func @aihc_f_aihc_entry___sother(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
+  entry:
+    tailcall @aihc_lir_continue_p(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, @aihc_entry_value)
+  }
+
+  func @aihc_f_aihc_entry___sentry(%hp_5: ptr, %hp_limit_6: ptr, %sp_7: ptr, %sp_limit_8: ptr, %$cps_return_9: ptr) {
+  entry:
+    %roots_10 = stack.alloc 8 align 8
+    %heap_fits_11 = le.u ptr %hp_5, %hp_limit_6
+    br %heap_fits_11, gc_reserved_13(%$cps_return_9, %hp_5, %hp_limit_6), gc_collect_12
+
+  cold gc_collect_12:
+    tailcall @aihc_lir_collect_replay_p(%hp_5, %hp_limit_6, %sp_7, %sp_limit_8, %$cps_return_9, @aihc_f_aihc_entry___sentry, 0, @aihc_lir_srt_0)
+
+  gc_reserved_13(%$cps_return$gc_14: ptr, %hp_15: ptr, %hp_limit_16: ptr):
+    %sp_17 = ptr.add %sp_7, 16
+    %stack_fits_18 = le.u ptr %sp_17, %sp_limit_8
+    br %stack_fits_18, stack_pushed_20(%sp_7, %sp_17, %sp_limit_8, %hp_limit_16), stack_grow_19
+
+  cold stack_grow_19:
+    %capability_21 = load ptr [%sp_limit_8 - 4040] align 1 word
+    %result_22 = call @aihc_stack_grow(%capability_21, %sp_7, 2)
+    %sp_23 = ptr.add %result_22, 16
+    %sp_limit_24 = ptr.add %result_22, 4032
+    %hp_limit_25 = load ptr [%capability_21 + 24] align 1 word
+    jump stack_pushed_20(%result_22, %sp_23, %sp_limit_24, %hp_limit_25)
+
+  stack_pushed_20(%frame_26: ptr, %sp_27: ptr, %sp_limit_28: ptr, %hp_limit_29: ptr):
+    store ptr @aihc_lir_info_0, [%frame_26] align 8 region stack
+    store ptr %$cps_return$gc_14, [%frame_26 + 8] align 8 region stack
+    tailcall @aihc_f_aihc_entry___sother(%hp_15, %hp_limit_29, %sp_27, %sp_limit_28, %frame_26)
+  }
+
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_30: ptr, %hp_limit_31: ptr, %sp_32: ptr, %sp_limit_33: ptr, %frame_36: ptr, %unused_37: ptr, %result_35: ptr) {
+  entry:
+    %stored_38 = load ptr [%frame_36 + 8] align 8 region stack
+    %value_39 = load i64 [%result_35 + 8] align 8 region heap
+    tailcall @aihc_lir_continue_i(%hp_30, %hp_limit_31, %sp_32, %sp_limit_33, %stored_38, %value_39)
+  }
+
+  data mut @aihc_entry_value align 8 = { ptr @aihc_c_aihc_entry_Box_0, i64 7 }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
+
+  data mut @aihc_lir_srt_0 align 8 = { i64 0, i64 0, i64 1, ptr @aihc_lir_srt_1 }
+
+  data mut @aihc_lir_srt_1 align 8 = { i64 0, i64 1, i64 0, ptr @aihc_entry_value }
+
+  func @aihc_lir_collect_replay_p(%hp_40: ptr, %hp_limit_41: ptr, %sp_42: ptr, %sp_limit_43: ptr, %value_44: ptr, %code_45: code, %words_46: i64, %srt_47: ptr) {
+  entry:
+    %roots_48 = stack.alloc 8 align 8
+    store ptr %value_44, [%roots_48] align 8
+    %capability_49 = load ptr [%sp_limit_43 - 4040] align 1 word
+    store ptr %hp_40, [%capability_49 + 16] align 1 word
+    store ptr %sp_42, [%capability_49 + 32] align 1 word
+    call @aihc_heap_collect(%capability_49, %words_46, 1, %roots_48, %srt_47)
+    %value_50 = load ptr [%roots_48] align 8
+    %hp_51 = load ptr [%capability_49 + 16] align 1 word
+    %hp_limit_52 = load ptr [%capability_49 + 24] align 1 word
+    tailcall.indirect %code_45(%hp_51, %hp_limit_52, %sp_42, %sp_limit_43, %value_50) : (ptr, ptr, ptr, ptr, ptr)
+  }
+status: pass
+reason: |
+  The pointer-result frame enters its body without a shared entry stub.
+  The body has no direct caller and no GC reservation.
+  It loads its parent from the frame and returns the constructor field.

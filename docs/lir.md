@@ -377,6 +377,19 @@ which reaches the code through the `identity` field. A thunk uses
 `aihc_lir_enter_thunk_S`, which loads its stored fields after the owner word.
 Every other shape gets one generated function per enterable object.
 
+A continuation can use its body as the `backend_entry` directly.
+The body accepts the frame, an unused continuation parameter, and the supplied values.
+It loads the stored fields from the frame before it executes the original body.
+This removes the entry stub without a second copy of the body.
+The return dispatcher remains shared.
+
+This change requires one closure shape, no direct callers, and no GC reservations in the body.
+The stored and supplied types must match the original parameters.
+The shape must have at least one argument group and must not exceed `grinApplyGroupLimit`.
+Forward frames and externally exposed functions keep their existing entries.
+A body with a GC reservation keeps its original ABI for GC replay.
+After collection, a popped frame cannot supply relocated fields for that replay.
+
 A frame with `AIHC_FRAME_FORWARD` has the ordinary closure object kind.
 Its first field holds its parent, and its pointer bitmap describes all captured values.
 Its `identity` and `backend_entry` fields are null.
