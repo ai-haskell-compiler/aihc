@@ -2968,7 +2968,8 @@ static int aihc_frame_is_live(const AihcCapability *capability,
    name it, so it must stay until a copy follows it. A frame is scanned at
    once with the frames below it in its chunk, when it is live and not
    scanned yet. */
-static void aihc_mark_old(AihcCapability *capability, AihcValue *value) {
+static inline __attribute__((always_inline)) void
+aihc_mark_old(AihcCapability *capability, AihcValue *value) {
   if (value == NULL) {
     return;
   }
