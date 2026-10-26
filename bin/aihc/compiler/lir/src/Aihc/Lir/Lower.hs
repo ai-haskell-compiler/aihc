@@ -482,9 +482,13 @@ data LowerState = LowerState
 -- the same values, so the code before the reservation reads the same values
 -- again. A read from a frame that the entry popped is not such a read,
 -- because a collection does not relocate the slots of that frame.
--- The fields are the code of the function and each argument with its type
--- and whether it is a root.
-data Replay = Replay !Symbol ![(Operand, Type, Bool)]
+-- The fields are the code of the function, each argument with its type and
+-- whether it is a root, and for a body that takes its frame directly, the
+-- frame and its size. Such a body runs after the entry popped its frame, so
+-- the collection pushes the frame again: the stack pointer goes back above
+-- the frame, and the frame is a root. The collection then relocates the
+-- slots of the frame, and the body loads them again.
+data Replay = Replay !Symbol ![(Operand, Type, Bool)] !(Maybe (Operand, Integer))
 
 -- | The block at a store safepoint and the roots it binds. When the barrier
 -- of the store asks for a collection, the cold path spills the roots,
@@ -727,9 +731,7 @@ lowerEnvironment options gcProgram =
         _ -> Nothing
 
 -- | A frame can enter its body when no direct call needs the original ABI.
--- A reservation can use that ABI for GC replay from relocated arguments.
--- A popped frame cannot supply relocated fields after collection.
--- Keep bodies with reservations unchanged, without larger collection paths.
+-- A body with a reservation replays through its frame: see 'Replay'.
 directFrameEntries :: Set FunctionName -> Set FunctionName -> Map FunctionName [Type] -> [RuntimeInfoKey] -> GrinProgram -> Map FunctionName Int
 directFrameEntries frames forwards parameters keys program =
   Map.fromList
@@ -738,7 +740,6 @@ directFrameEntries frames forwards parameters keys program =
       Set.member name frames,
       Set.notMember name forwards,
       Set.notMember name called,
-      Set.notMember name reserved,
       not (null layouts),
       length layouts <= grinApplyGroupLimit,
       Map.lookup name parameters == Just (map repType (fields <> concat layouts))
@@ -746,7 +747,6 @@ directFrameEntries frames forwards parameters keys program =
   where
     shapes = Map.fromListWith (<>) [(name, [key]) | key <- keys, Just name <- [runtimeInfoFunctionName key]]
     called = foldMap (calls . grinFunctionBody) (grinFunctions program)
-    reserved = Set.fromList [grinFunctionName function | function <- grinFunctions program, reservation (grinFunctionBody function)]
     children expression = case expression of
       GrinBind _ value body -> [value, body]
       GrinStoreRec _ body -> [body]
@@ -757,11 +757,6 @@ directFrameEntries frames forwards parameters keys program =
     calls expression = case expression of
       GrinCall _ name _ -> Set.singleton name
       _ -> foldMap calls (children expression)
-    reservation expression = case expression of
-      GrinEnsureHeap {} -> True
-      GrinAllocate {} -> True
-      GrinSafepoint {} -> True
-      _ -> any reservation (children expression)
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
@@ -1628,10 +1623,10 @@ lowerFunction env function = do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
   let direct = Map.lookup (grinFunctionName function) (envFrameEntries env)
-  (entryParameters, parameters) <- case direct of
+  (entryParameters, parameters, frameReplay) <- case direct of
     Nothing -> do
       beginBlock (Label "entry") []
-      pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters)
+      pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters, Nothing)
     Just count -> do
       object <- fresh "frame"
       unused <- fresh "unused"
@@ -1642,7 +1637,15 @@ lowerFunction env function = do
         case typedOperand value of
           OperandVar name -> pure (var, name, ty)
           _ -> failWith (LowerUnsupportedExpression "frame field has no variable")
-      pure ((object, Ptr) : (unused, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied], loaded <> supplied)
+      let replayArguments =
+            (OperandVar object, Ptr, True)
+              : (OperandVar unused, Ptr, False)
+              : [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- supplied]
+      pure
+        ( (object, Ptr) : (unused, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied],
+          loaded <> supplied,
+          Just (Replay (functionSymbol (grinFunctionName function)) replayArguments (Just (OperandVar object, toInteger (8 * (count + 1)))))
+        )
   when (lowerProfileTime (envOptions env)) $
     storeProfileEntry (grinFunctionName function) (profileContinuation env function [lirVar | (_, lirVar, _) <- parameters])
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
@@ -1654,8 +1657,8 @@ lowerFunction env function = do
   codeSlot <- if hasForeignCall needsCodeSlot (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
-      replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters]
-  modify' (\state -> state {stateReplay = if isJust direct then Nothing else Just replay})
+      replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters] Nothing
+  modify' (\state -> state {stateReplay = Just (fromMaybe replay frameReplay)})
   compileExpr ctx valueEnv (grinFunctionBody function)
   modify' (\state -> state {stateContext = Nothing, stateReplay = Nothing})
   finishFunction
@@ -2283,9 +2286,14 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   case replay of
     -- The code before the reservation only read values, so the function
     -- can run again from its entry after the collection. See 'Replay'.
-    Just (Replay code arguments) -> do
+    Just (Replay code arguments repush) -> do
       helper <- requireHelper (HelperCollectReplay [(ty, root) | (_, ty, root) <- arguments])
-      terminate (TailCall helper (contextOperands context <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', ctxSrt ctx]))
+      replayContext <- case repush of
+        Nothing -> pure context
+        Just (frame, bytes) -> do
+          stack <- emitValue "sp" Ptr (PtrAdd frame (OperandLiteral (LitInt bytes)))
+          pure context {contextStack = typedOperand stack}
+      terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', ctxSrt ctx]))
     Nothing -> do
       forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
         storeSlot AnyRegion Ptr root array (toInteger (8 * index))

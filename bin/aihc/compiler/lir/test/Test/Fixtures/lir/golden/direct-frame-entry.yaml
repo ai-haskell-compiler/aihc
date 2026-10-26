@@ -126,5 +126,5 @@ expected: |
 status: pass
 reason: |
   The pointer-result frame enters its body without a shared entry stub.
-  The body has no direct caller and no GC reservation.
+  The body has no direct caller.
   It loads its parent from the frame and returns the constructor field.
