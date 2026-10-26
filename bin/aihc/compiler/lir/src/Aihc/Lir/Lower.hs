@@ -1353,11 +1353,14 @@ coerceTo ty typed = (`Typed` ty) <$> coerce ty typed
 lowerUnitItems :: LowerUnit -> LowerM ()
 lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program)
 
--- | Each action produces one function or data item, or an info table and stub.
+-- | An action emits a function, data, or an entry stub with its body or table.
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram _ _ _ _ functions) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
-    <> [lowerFunction env function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
+    <> [ mapM_ lowerAdjacentEntry (Map.lookup (functionSymbol (grinFunctionName function)) adjacentInfos) >> lowerFunction env function
+       | function <- functions,
+         grinFunctionName function `Set.notMember` envForwardingFunctions env
+       ]
     <> map (lowerStaticObject env) (programStaticObjects program)
     <> map lowerInfo (envInfos env)
     <> [lowerCallbackPool call signature | call <- grinForeignCalls program, GrinForeignWrapper signature <- [grinForeignCallTarget call]]
@@ -1365,6 +1368,14 @@ lowerUnitActions env program@(GrinProgram _ _ _ _ functions) =
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
     <> [lowerAllocationProfile | lowerProfileAllocations (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
     <> [lowerTimeProfile env functions | lowerProfileTime (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
+  where
+    -- Put each unique entry stub beside its body without a second copy.
+    bodies = Set.fromList [functionSymbol (grinFunctionName function) | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
+    entries = Map.fromListWith (<>) [(enterTarget entry, [info]) | info <- envInfos env, Just entry <- [infoEnter info], not (enterDirect entry), enterTarget entry `Set.member` bodies]
+    adjacentInfos = Map.mapMaybe single entries
+    lowerAdjacentEntry info = mapM_ (enterFunction (infoSymbol info) (isJust (infoFrameKind info))) (infoEnter info)
+    single [info] = Just info
+    single _ = Nothing
 
 -- | Aggregate representations describe results, never individual slots.
 validateSlotRep :: GrinRep -> LowerM ()
@@ -1460,7 +1471,8 @@ enterFunction info frame enter =
       pure symbol
     Nothing -> do
       let stub = Symbol (unSymbol info <> "_e")
-      lowerEnterStub stub enter
+      defined <- gets (Set.member stub . stateDefined)
+      unless defined (lowerEnterStub stub enter)
       pure stub
 
 -- | The shared enter function of the runtime for one object shape, when the

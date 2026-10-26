@@ -116,29 +116,35 @@ expected: |
     tailcall.indirect %entry_63(%hp_18, %hp_limit_19, %sp_57, %sp_limit_21, %current_27, %update_62) : (ptr, ptr, ptr, ptr, ptr, ptr)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_64: ptr, %hp_limit_65: ptr, %sp_66: ptr, %sp_limit_67: ptr, %$cps_return_68: ptr, %ready_69: ptr) {
+  func @aihc_lir_info_0_e(%hp_64: ptr, %hp_limit_65: ptr, %sp_66: ptr, %sp_limit_67: ptr, %object_68: ptr, %continuation_69: ptr, %supplied_70: ptr) {
   entry:
-    %payload_70 = load i64 [%ready_69 + 8] align 8 region heap
-    %header_word_71 = load i64 [%$cps_return_68] align 8 region stack
-    %info_word_72 = and i64 %header_word_71, -4
-    %header_73 = ptr.from_int %info_word_72
-    %entry_74 = load.invariant code [%header_73 + 24] align 1 word
-    %chunk_word_75 = ptr.to_int %$cps_return_68
-    %chunk_last_76 = or i64 %chunk_word_75, 4095
-    %chunk_end_77 = add i64 %chunk_last_76, 1
-    %sp_limit_78 = ptr.from_int %chunk_end_77
-    %forward_82 = eq code %entry_74, null
-    br %forward_82, continue_slow_79, continue_chunk_80
+    %stored_71 = load ptr [%object_68 + 8] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_64, %hp_limit_65, %sp_66, %sp_limit_67, %stored_71, %supplied_70)
+  }
 
-  continue_chunk_80:
-    %same_chunk_83 = eq ptr %sp_limit_78, %sp_limit_67
-    br %same_chunk_83, continue_enter_81, continue_slow_79
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_72: ptr, %hp_limit_73: ptr, %sp_74: ptr, %sp_limit_75: ptr, %$cps_return_76: ptr, %ready_77: ptr) {
+  entry:
+    %payload_78 = load i64 [%ready_77 + 8] align 8 region heap
+    %header_word_79 = load i64 [%$cps_return_76] align 8 region stack
+    %info_word_80 = and i64 %header_word_79, -4
+    %header_81 = ptr.from_int %info_word_80
+    %entry_82 = load.invariant code [%header_81 + 24] align 1 word
+    %chunk_word_83 = ptr.to_int %$cps_return_76
+    %chunk_last_84 = or i64 %chunk_word_83, 4095
+    %chunk_end_85 = add i64 %chunk_last_84, 1
+    %sp_limit_86 = ptr.from_int %chunk_end_85
+    %forward_90 = eq code %entry_82, null
+    br %forward_90, continue_slow_87, continue_chunk_88
 
-  cold continue_slow_79:
-    tailcall @aihc_lir_continue_i(%hp_64, %hp_limit_65, %sp_66, %sp_limit_67, %$cps_return_68, %payload_70)
+  continue_chunk_88:
+    %same_chunk_91 = eq ptr %sp_limit_86, %sp_limit_75
+    br %same_chunk_91, continue_enter_89, continue_slow_87
 
-  continue_enter_81:
-    tailcall.indirect %entry_74(%hp_64, %hp_limit_65, %$cps_return_68, %sp_limit_67, %$cps_return_68, null, %payload_70) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  cold continue_slow_87:
+    tailcall @aihc_lir_continue_i(%hp_72, %hp_limit_73, %sp_74, %sp_limit_75, %$cps_return_76, %payload_78)
+
+  continue_enter_89:
+    tailcall.indirect %entry_82(%hp_72, %hp_limit_73, %$cps_return_76, %sp_limit_75, %$cps_return_76, null, %payload_78) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_1, zero 8 }
@@ -148,12 +154,6 @@ expected: |
   data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
-
-  func @aihc_lir_info_0_e(%hp_84: ptr, %hp_limit_85: ptr, %sp_86: ptr, %sp_limit_87: ptr, %object_88: ptr, %continuation_89: ptr, %supplied_90: ptr) {
-  entry:
-    %stored_91 = load ptr [%object_88 + 8] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_84, %hp_limit_85, %sp_86, %sp_limit_87, %stored_91, %supplied_90)
-  }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
 
@@ -180,6 +180,7 @@ expected: |
     store ptr %field_98, [%frame_108 + 8] align 8 region stack
     tailcall @aihc_lir_eval(%hp_92, %hp_limit_111, %sp_109, %sp_limit_110, %value_96, %frame_108)
   }
+
 status: pass
 reason: |
   The inline evaluation check loads the header, removes the two evaluation
