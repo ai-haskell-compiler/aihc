@@ -87,6 +87,7 @@ import Aihc.Fc.TypeOf
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
+import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -495,9 +496,9 @@ occurrenceViolations arities set self body = walk (Tail self) (afterManifest bod
               let accepted =
                     valueCount arguments > arity name
                       || (valueCount arguments == arity name && isResultTail position)
-               in (if accepted then Set.empty else Set.singleton name) <> foldMap (walk Inner) [argument | Right argument <- arguments]
-        (ExVar _, arguments) -> foldMap (walk Inner) [argument | Right argument <- arguments]
-        (function, arguments@(_ : _)) -> walk Inner function <> foldMap (walk Inner) [argument | Right argument <- arguments]
+               in (if accepted then Set.empty else Set.singleton name) <> foldMap (walk Inner) (rights arguments)
+        (ExVar _, arguments) -> foldMap (walk Inner) (rights arguments)
+        (function, arguments@(_ : _)) -> walk Inner function <> foldMap (walk Inner) (rights arguments)
         _ -> case expr of
           ExLet bind inner ->
             let binder = binderName (bindBinder bind)
@@ -507,7 +508,7 @@ occurrenceViolations arities set self body = walk (Tail self) (afterManifest bod
                     | candidate name,
                       valueCount arguments <= arity name,
                       appliedOnce (arity name - valueCount arguments + 1) position binder inner ->
-                        foldMap (walk Inner) [argument | Right argument <- arguments]
+                        foldMap (walk Inner) (rights arguments)
                   _
                     | Just (joinBody', over) <- joinBody binder rhs inner -> walk (if over then Applied else position) joinBody'
                     | otherwise -> walk Inner rhs
@@ -534,10 +535,10 @@ occurrenceViolations arities set self body = walk (Tail self) (afterManifest bod
       case spine expr of
         (ExVar name, arguments)
           | name == binder ->
-              let (count, applied) = combine (map (occurrences needed Inner binder) [argument | Right argument <- arguments])
+              let (count, applied) = combine (map (occurrences needed Inner binder) (rights arguments))
                in (addCount One count, applied && valueCount arguments >= needed)
-        (ExVar _, arguments) -> combine (map (occurrences needed Inner binder) [argument | Right argument <- arguments])
-        (function, arguments@(_ : _)) -> combine (occurrences needed Inner binder function : map (occurrences needed Inner binder) [argument | Right argument <- arguments])
+        (ExVar _, arguments) -> combine (map (occurrences needed Inner binder) (rights arguments))
+        (function, arguments@(_ : _)) -> combine (occurrences needed Inner binder function : map (occurrences needed Inner binder) (rights arguments))
         _ -> case expr of
           ExLet bind inner
             | binderName (bindBinder bind) == binder -> occurrences needed Inner binder (bindRhs bind)
@@ -584,10 +585,10 @@ occurrenceViolations arities set self body = walk (Tail self) (afterManifest bod
       case spine expr of
         (ExVar name, arguments)
           | name == binder ->
-              if valueCount arguments >= lambdas && not (any (mentions binder) [argument | Right argument <- arguments])
+              if valueCount arguments >= lambdas && not (any (mentions binder) (rights arguments))
                 then Just (valueCount arguments > lambdas)
                 else Nothing
-        (function, arguments) | not (null arguments) || isVar function -> absent (function : [argument | Right argument <- arguments])
+        (function, arguments) | not (null arguments) || isVar function -> absent (function : rights arguments)
         _ -> case expr of
           ExLet bind inner -> absent [bindRhs bind] >> tailCalls binder lambdas inner
           ExRec binds inner -> absent (map bindRhs binds) >> tailCalls binder lambdas inner
