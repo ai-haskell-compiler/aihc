@@ -549,7 +549,7 @@ compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register
 compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
-    lowered = forwardCopies (lowerWideDivision (isJust (nbQuotRemWide backend)) input)
+    lowered = dropUnreadStackAllocations (forwardCopies (lowerWideDivision (isJust (nbQuotRemWide backend)) input))
     (rotated, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
     (function, fusions) = selectFusions backend rotated
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
@@ -670,6 +670,32 @@ forwardCopies function
     operand value = case value of
       OperandVar var -> OperandVar (resolve var)
       _ -> value
+
+-- | Drop a stack allocation that no instruction reads. The lowering gives
+-- each function with a heap reservation an array for the roots of a
+-- collection, and a function whose collections all replay through the
+-- arguments never reads it. Such an allocation still needs a frame, so it
+-- costs a frame setup on each path through the function. An allocation
+-- with an alignment that the frame cannot give stays, so that the backend
+-- still reports it.
+dropUnreadStackAllocations :: Function -> Function
+dropUnreadStackAllocations function
+  | any unread allocations = function {functionBlocks = map dropBlock (functionBlocks function)}
+  | otherwise = function
+  where
+    readers = readCounts function
+    allocations = [result | block <- functionBlocks function, Instruction [result] (StackAlloc _ _) <- blockInstructions block]
+    unread result = Map.findWithDefault 0 result readers == 0
+    dropBlock block =
+      block
+        { blockInstructions =
+            [ instruction
+            | instruction <- blockInstructions block,
+              case instruction of
+                Instruction [result] (StackAlloc _ alignment) -> not (unread result) || alignmentInBytes wordBytes alignment > 16
+                _ -> True
+            ]
+        }
 
 -- | Put the blocks in the order of emission: the entry block, then the
 -- other blocks that are not cold, then the cold blocks. Each group keeps the
