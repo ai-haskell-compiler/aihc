@@ -160,6 +160,7 @@ data NativeBackend statement register error = NativeBackend
     nbFloatFromVec :: Type -> Int -> register -> [statement],
     nbFloatToVec :: Type -> register -> Int -> [statement],
     nbJump :: Name -> statement,
+    nbCanFuseBitTest :: !Bool,
     nbCanFuseFloatCompare :: CompareOp -> Bool,
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
     -- | Compare a register with a constant once, then branch to the label
@@ -296,7 +297,7 @@ data MoveSource register
   deriving (Eq, Show)
 
 -- | A comparison that the branch of the block consumes directly.
-data Fused = Fused !CompareOp !Type !Operand !Operand
+data Fused = Fused !CompareOp !Type !Operand !Operand | FusedBit !CompareOp !Type !Operand !Int
 
 -- | Where the contents of a register last came from.
 data Source
@@ -1029,6 +1030,17 @@ displaceSource displacement source =
 fuseCompare :: NativeBackend statement register error -> Ctx register -> [Instruction] -> Terminator -> ([Instruction], Maybe Fused)
 fuseCompare backend ctx instructions terminator =
   case (reverse instructions, terminator) of
+    (Instruction [var] (Compare op ty (OperandVar masked) (OperandLiteral (LitInt 0))) : Instruction [maskVar] (Binary And maskTy value (OperandLiteral (LitInt mask))) : before, Branch (OperandVar condition) _ _)
+      | nbCanFuseBitTest backend,
+        op `elem` [Eq, Ne],
+        condition == var,
+        masked == maskVar,
+        ty == maskTy,
+        ty `elem` [I32, I64],
+        Map.lookup var (ctxReads ctx) == Just 1,
+        Map.lookup masked (ctxReads ctx) == Just 1,
+        Just bit <- lookup mask [(2 ^ n, n) | n <- [0 .. if ty == I32 then 31 else 63]] ->
+          (reverse before, Just (FusedBit op ty value bit))
     (Instruction [var] (Compare op ty left right) : before, Branch (OperandVar condition) _ _)
       | condition == var,
         Map.lookup var (ctxReads ctx) == Just 1,

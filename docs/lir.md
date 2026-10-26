@@ -1172,6 +1172,11 @@ rather than as a change of some object bytes. Run the suite with
   into its home. A comparison that only the branch of its block reads is not
   materialized: the block compares and branches on the flags, or on the
   register itself against zero.
+  A single-use bit mask followed by an equality test against zero uses
+  `tbz` or `tbnz`. The object writer starts with an inverse bit test and an
+  unconditional branch. It removes the second instruction when the exact
+  displacement fits the signed 14-bit word range. Each expansion keeps
+  the long branch, so this process stops without a function-size limit.
 - The arguments of a call, the values of a return, and the arguments of a
   jump are one parallel move each: every source is read before the
   destination it lives in is written, a cycle is broken through a scratch

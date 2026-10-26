@@ -187,6 +187,7 @@ arm64Backend =
       nbFloatFromVec = \ty slot dest -> [arm64Instruction (ArmFmovFromFloat (ty == F64) dest slot)],
       nbFloatToVec = \ty register slot -> [arm64Instruction (ArmFmovToFloat (ty == F64) slot register)],
       nbJump = arm64Instruction . ArmB,
+      nbCanFuseBitTest = True,
       nbCanFuseFloatCompare = const True,
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
@@ -314,6 +315,7 @@ instructionEffect instruction =
     ArmBl _ -> Forgets
     ArmBlr _ -> Forgets
     ArmBCond _ _ -> Writes []
+    ArmTbz _ _ _ _ -> Writes []
     ArmCbz _ _ -> Writes []
     ArmCbnz _ _ -> Writes []
     ArmCmp _ _ -> Writes []
@@ -554,13 +556,17 @@ tshow :: (Show value) => value -> Text
 tshow = T.pack . show
 
 data Test
-  = TestNonZero !Arm64Register
+  = TestBit !Bool !Arm64Register !Int
+  | TestNonZero !Arm64Register
   | TestZero !Arm64Register
   | TestFlags !Arm64Condition
 
 conditionTest :: Ctx Arm64Register -> Maybe Fused -> Operand -> ([Arm64Statement], Test)
 conditionTest ctx fused condition =
   case fused of
+    Just (FusedBit op ty value bit) ->
+      let (loads, register) = operandIn' ctx 0 ty scratchLeft value
+       in (loads, TestBit (op == Ne) register bit)
     Just (Fused op ty left right)
       | op `elem` [Eq, Ne],
         not (isFloatType ty),
@@ -636,11 +642,13 @@ compareWith ctx ty signed left right =
 branchUnless, branchWhen :: Test -> Name -> Arm64Statement
 branchUnless test label =
   case test of
+    TestBit nonzero register bit -> arm64Instruction (ArmTbz (not nonzero) register bit label)
     TestNonZero register -> arm64Instruction (ArmCbz register label)
     TestZero register -> arm64Instruction (ArmCbnz register label)
     TestFlags condition -> arm64Instruction (ArmBCond (inverseCondition condition) label)
 branchWhen test label =
   case test of
+    TestBit nonzero register bit -> arm64Instruction (ArmTbz nonzero register bit label)
     TestNonZero register -> arm64Instruction (ArmCbnz register label)
     TestZero register -> arm64Instruction (ArmCbz register label)
     TestFlags condition -> arm64Instruction (ArmBCond condition label)

@@ -68,6 +68,7 @@ instruction code =
     ArmB target -> "b " <> T.unpack (nameText target)
     ArmBl target -> "bl " <> T.unpack target
     ArmBCond condition target -> "b." <> cond condition <> " " <> T.unpack (nameText target)
+    ArmTbz nonzero register bit target -> (if nonzero then "tbnz " else "tbz ") <> reg register <> ", #" <> show bit <> ", " <> T.unpack (nameText target)
     ArmCbz register target -> "cbz " <> reg register <> ", " <> T.unpack (nameText target)
     ArmCbnz register target -> "cbnz " <> reg register <> ", " <> T.unpack (nameText target)
     ArmAdr register target -> "adr " <> reg register <> ", " <> T.unpack (nameText target)
