@@ -66,7 +66,9 @@ module Aihc.Fc.Arity
   )
 where
 
+import Aihc.Fc.Diverge (Diverging, diverges, divergingValues)
 import Aihc.Fc.Fold (isCheapPrimitive)
+import Aihc.Fc.FullLaziness (sharedAtTop)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
@@ -196,7 +198,10 @@ data Env = Env
     envNewtypes :: !(Map Name [AxiomDecl]),
     -- | The top-level values whose result closures are each applied at
     -- most once. See 'oneShotResults'.
-    envOneShotResults :: !(Set Name)
+    envOneShotResults :: !(Set Name),
+    -- | The top-level values that diverge. An alternative that diverges
+    -- does not limit the arity of a case.
+    envDiverging :: !Diverging
   }
 
 extendSig :: Env -> Name -> ArityType -> Env
@@ -294,11 +299,17 @@ arityType env expr =
         [] -> topArityType
         first : rest ->
           let inner = foldl' (\current named -> shadow current (binderName named)) env binder
-              alternativeArity alternative =
-                arityType
-                  (List.foldl' shadow (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative)) (map binderName (altBinders alternative)))
-                  (altRhs alternative)
-              alternativesArity = List.foldl' andArityType (alternativeArity first) (map alternativeArity rest)
+              alternativeEnv alternative =
+                List.foldl' shadow (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative)) (map binderName (altBinders alternative))
+              alternativeArity alternative = arityType (alternativeEnv alternative) (altRhs alternative)
+              -- An alternative that diverges takes any number of
+              -- arguments, as GHC's bottoming arity type does. An
+              -- expansion makes it a lambda that diverges when it is
+              -- applied.
+              returning alternative = not (diverges (envTypes (alternativeEnv alternative)) (envDiverging env) (altRhs alternative))
+              alternativesArity = case filter returning alternatives of
+                [] -> List.foldl' andArityType (alternativeArity first) (map alternativeArity rest)
+                kept : others -> List.foldl' andArityType (alternativeArity kept) (map alternativeArity others)
            in -- A scrutinee that is not cheap has to be evaluated where it
               -- stands, so its work would be repeated by an expansion.
               if isCheap env scrutinee then alternativesArity else addWork alternativesArity
@@ -319,6 +330,13 @@ exprCost env expr = if isCheap env expr then IsCheap else IsExpensive
 --
 -- may move under a lambda: a call then chooses again, which is not work
 -- that a partial application shared.
+--
+-- A closed computation that the full laziness pass moves to a shared
+-- thunk is cheap too. That pass runs after each eta expansion of a plan,
+-- so the expansion does not repeat the work. A string literal is such a
+-- computation, for example in the call stack that a call gives:
+--
+-- > PushCallStack (unpackLatin1From "tcExprAp"# 0#) loc stack
 isCheap :: Env -> Expr -> Bool
 isCheap env expr =
   case expr of
@@ -335,8 +353,8 @@ isCheap env expr =
           | nameSort name == SortDataConstructor -> all cheapArgument arguments
           | otherwise ->
               let AT lams = fromMaybe topArityType (Map.lookup name (envSigs env))
-               in length [() | Right _ <- arguments] < length lams && all cheapArgument arguments
-        _ -> False
+               in (length [() | Right _ <- arguments] < length lams && all cheapArgument arguments) || sharedAtTop (envTypes env) expr
+        _ -> sharedAtTop (envTypes env) expr
     -- A primitive call that does one machine operation on cheap
     -- arguments costs no more to repeat than to share.
     ExForeignCall call [] arguments ->
@@ -620,7 +638,7 @@ occurrenceViolations arities set self body = walk (Tail self) (afterManifest bod
 etaExpandProgram :: PackageId -> Maybe [Name] -> Program -> (Program, EtaReport)
 etaExpandProgram primPackage roots program =
   let types = typeEnvFromProgram primPackage program
-      env1 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty}
+      env1 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty, envDiverging = divergingValues types [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]}
       rootSet = maybe (Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub]) Set.fromList roots
       env0 = env1 {envOneShotResults = oneShotResults env1 rootSet (programDecls program)}
       env = valueSignatures env0 (programDecls program)
