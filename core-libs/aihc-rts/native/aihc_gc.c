@@ -3368,7 +3368,27 @@ static void aihc_mark_slice(AihcCapability *capability, uint64_t budget) {
     }
     if (aihc_mark_stack.count != 0) {
       AihcMarkEntry entry = aihc_mark_stack.items[--aihc_mark_stack.count];
-      done += aihc_mark_scan(capability, entry.object, entry.start);
+      AihcValue *object = entry.object;
+      const AihcInfo *info = aihc_value_info_table(object);
+      AihcObjectKind kind = info->object_kind;
+      const uint8_t *pointers = info->field_is_pointer;
+      if ((object->header & AIHC_HEADER_EVALUATING) == 0 && pointers != NULL &&
+          (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+           kind == AIHC_OBJECT_THUNK)) {
+        /* The ordinary objects of compiled code, as aihc_mark_plain_object
+           marks them, without a call for each object. */
+        aihc_walk_srt(info->srt);
+        uint64_t count = info->field_count;
+        for (uint64_t index = 0; index < count; ++index) {
+          if (pointers[index]) {
+            aihc_mark_old(capability,
+                          (AihcValue *)(uintptr_t)object->fields[index]);
+          }
+        }
+        done += sizeof(AihcSlot) * aihc_gc_words(object);
+        continue;
+      }
+      done += aihc_mark_scan(capability, object, entry.start);
       continue;
     }
     AihcStack *stack = capability->machine->stacks;
