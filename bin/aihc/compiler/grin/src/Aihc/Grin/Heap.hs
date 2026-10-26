@@ -100,7 +100,8 @@ normalizeExpr expression =
           )
     GrinCase scrutinee binder alts ->
       let normalized = map normalizeAlternative alts
-          requiredWords = alternatives (map fst normalized)
+          -- A match failure allocates nothing and does not return.
+          requiredWords = alternatives [branchWords | (branchWords, (alt, _)) <- normalized, not (isMatchFailure (grinAltRhs alt))]
        in ( requiredWords,
             \covered ->
               GrinCase

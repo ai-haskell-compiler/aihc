@@ -41,9 +41,9 @@ expected: |-
     throw (exception :: BoxedRep Lifted)
 
   $handler (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case (exception :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
-      data Just (x :: BoxedRep Lifted) ->
-        constant (x :: BoxedRep Lifted)
+    x :: BoxedRep Lifted <-
+      fetch (CJust) (exception :: BoxedRep Lifted)
+    constant (x :: BoxedRep Lifted)
 
   $entry -> BoxedRep Lifted =
     catch @(BoxedRep Lifted) global-ref action global-ref handler
@@ -52,5 +52,6 @@ rewrites:
   evals-of-values: 2
   direct-calls: 0
   single-entry-evals: 0
+  fetched-cases: 1
 status: pass
 reason: a raised value goes only to the handlers of catch, so a handler knows the values that the program raises

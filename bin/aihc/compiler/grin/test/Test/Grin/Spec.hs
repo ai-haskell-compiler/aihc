@@ -220,7 +220,7 @@ checkPointsToFixture path = do
                   if actual == T.strip expected
                     then pure ()
                     else assertFailure ("output mismatch\nexpected:\n" <> T.unpack expected <> "\nactual:\n" <> T.unpack actual)
-                  let counts = [rewritesDeadAlternatives rewrites, rewritesEvaluatedEvals rewrites, rewritesDirectCalls rewrites, rewritesSingleEntryEvals rewrites]
+                  let counts = [rewritesDeadAlternatives rewrites, rewritesEvaluatedEvals rewrites, rewritesDirectCalls rewrites, rewritesSingleEntryEvals rewrites, rewritesFetchedCases rewrites]
                   if counts == expectedRewrites
                     then pure ()
                     else assertFailure ("rewrite counts: expected " <> show expectedRewrites <> ", actual " <> show counts)
@@ -248,7 +248,8 @@ checkPointsToFixture path = do
                       [ counts .: "dead-alternatives",
                         counts .: "evals-of-values",
                         counts .: "direct-calls",
-                        counts .: "single-entry-evals"
+                        counts .: "single-entry-evals",
+                        counts .:? "fetched-cases" .!= 0
                       ]
                 )
                 rewrites

@@ -17,26 +17,19 @@ program: |
 expected: |
   extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
 
-  extern func @aihc_no_match() cc c
-
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: ptr, %$cps_return_5: ptr) {
   entry:
-    %header_word_11 = load i64 [%value_4] align 8 region heap
-    %info_word_12 = and i64 %header_word_11, -4
-    %header_13 = ptr.from_int %info_word_12
-    %constructor_index_14 = load.invariant i16 [%header_13 + 46] align 2
-    %constructor_index_15 = zext i16 %constructor_index_14 to i64
-    switch i64 %constructor_index_15 {
+    %header_word_10 = load i64 [%value_4] align 8 region heap
+    %info_word_11 = and i64 %header_word_10, -4
+    %header_12 = ptr.from_int %info_word_11
+    %constructor_index_13 = load.invariant i16 [%header_12 + 46] align 2
+    %constructor_index_14 = zext i16 %constructor_index_13 to i64
+    switch i64 %constructor_index_14 {
       0 -> alt_6
       1 -> alt_7
       2 -> alt_8
-      3 -> alt_9
-      default -> no_match_10
+      default -> alt_9
     }
-
-  no_match_10:
-    call @aihc_no_match()
-    trap "no matching case alternative"
 
   alt_6:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
@@ -48,8 +41,8 @@ expected: |
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 2)
 
   alt_9:
-    %payload_16 = load i64 [%value_4 + 8] align 8 region heap
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_16)
+    %payload_15 = load i64 [%value_4 + 8] align 8 region heap
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_15)
   }
 status: pass
 reason: |
@@ -57,4 +50,5 @@ reason: |
   from the constructor index of the info table. It does not compare the
   identity of the info table with each constructor. Thus the case names
   no info table. The program builds no node of a private constructor, so
-  the lowering emits no info table.
+  the lowering emits no info table. The case has no default, so it matches
+  each value, and the last alternative is the default of the switch.

@@ -173,9 +173,11 @@ transformTail parent bound resultRep continuation expression =
         -- One copy of the body already stands where the call would stand,
         -- so sharing pays for itself once the copies the other alternatives
         -- need cost more than the calls that would replace them.
+        -- A match failure does not run the body, so it needs no copy.
+        copies = length (filter (not . isMatchFailure . grinAltRhs) alternatives)
         worthSharing =
-          length alternatives > 1
-            && (length alternatives - 1) * grinExprSize body > length alternatives * callSize
+          copies > 1
+            && (copies - 1) * grinExprSize body > copies * callSize
     GrinBind resultVars valueExpression body
       | isDirectExpression valueExpression -> do
           transformedBody <-

@@ -1,0 +1,27 @@
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Left [IntRep]
+
+  pub constructor 1.Right%1 [IntRep]
+
+  pub global 1.left = (P1.$left/1)
+
+  1.$left (x :: BoxedRep Lifted) -> IntRep =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
+      data 1.Left (a :: IntRep) ->
+        constant (a :: IntRep)
+      _ ->
+        case (case_value :: BoxedRep Lifted) as no_match :: BoxedRep Lifted of
+extensions:
+- MagicHash
+reason: a case that does not name each constructor of its type gets a default that fails on the scrutinee, so a backend can select the last alternative of a case without a default with no test
+source: |
+  module Test where
+  import GHC.Prim
+  data Choice = Left Int# | Right Int#
+  left :: Choice -> Int#
+  left c = case c of Left a -> a
+status: pass

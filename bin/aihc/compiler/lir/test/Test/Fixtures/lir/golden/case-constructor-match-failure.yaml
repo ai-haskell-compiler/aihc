@@ -1,0 +1,42 @@
+program: |
+  constructor Nothing/0 []
+  constructor Just/1 [IntRep]
+
+  $entry (value%1 :: BoxedRep Lifted) -> IntRep =
+    case (value%1 :: BoxedRep Lifted) as scrutinee%2 :: BoxedRep Lifted of
+      data Just%1 (payload%3 :: IntRep) ->
+        constant (payload%3 :: IntRep)
+      _ ->
+        case (value%1 :: BoxedRep Lifted) as no_match%4 :: BoxedRep Lifted of
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern func @aihc_no_match() cc c
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: ptr, %$cps_return_5: ptr) {
+  entry:
+    %header_word_8 = load i64 [%value_4] align 8 region heap
+    %info_word_9 = and i64 %header_word_8, -4
+    %header_10 = ptr.from_int %info_word_9
+    %identity_11 = load.invariant ptr [%header_10] align 1 word
+    %matches_12 = eq ptr %identity_11, @aihc_c_aihc_entry_Just_0
+    br %matches_12, alt_6, alt_7
+
+  alt_6:
+    %payload_13 = load i64 [%value_4 + 8] align 8 region heap
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_13)
+
+  alt_7:
+    call @aihc_no_match()
+    trap "no matching case alternative"
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+status: pass
+reason: |
+  A case that can match no alternative has a default that is a case without
+  alternatives. The last data alternative thus keeps its comparison, and a
+  value that it does not match calls aihc_no_match and traps. The failure
+  does not load the header of the object again.

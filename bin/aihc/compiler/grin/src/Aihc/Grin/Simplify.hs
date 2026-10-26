@@ -238,6 +238,9 @@ simplifyExpr env expression =
     GrinBind [function] (GrinCase scrutinee binder alternatives) body
       | distributeCaseCall env function binder alternatives body ->
           simplifyExpr env (GrinCase scrutinee binder [alt {grinAltRhs = GrinBind [function] (grinAltRhs alt) body} | alt <- alternatives])
+    -- A match failure does not return, so nothing after it runs.
+    GrinBind _ valueExpression _
+      | isMatchFailure valueExpression -> (valueExpression, freeExprVars valueExpression)
     GrinBind vars valueExpression body ->
       let (value', valueFree) = simplifyExpr env valueExpression
        in bindSimplified vars (value', valueFree) (simplifyExpr (bindResults env vars value') body)
@@ -301,7 +304,7 @@ distributeCaseCall env function binder alternatives body =
     simpleResult alternative = case grinAltRhs alternative of
       GrinStore (GrinNode GrinClosure {} _) -> True
       GrinConstant [_] -> True
-      _ -> False
+      rhs -> isMatchFailure rhs
     knownClosureResult alternative = case grinAltRhs alternative of
       GrinStore (GrinNode GrinClosure {} _) -> True
       GrinConstant [value] -> case knownNode env value of
