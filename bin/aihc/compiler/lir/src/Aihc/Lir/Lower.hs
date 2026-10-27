@@ -337,6 +337,9 @@ data LowerEnv = LowerEnv
     envContinuationFunctions :: !(Set FunctionName),
     -- | The field count of each body that accepts a frame directly.
     envFrameEntries :: !(Map FunctionName Int),
+    -- | The stored field count of each thunk body that takes its thunk
+    -- directly.
+    envThunkEntries :: !(Map FunctionName Int),
     -- | The continuation parameter of each function that takes one.
     envFunctionContinuations :: !(Map FunctionName GrinVar),
     envForwardingFunctions :: !(Set FunctionName),
@@ -581,6 +584,7 @@ lowerEnvironment options gcProgram =
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
       envFrameEntries = frameEntries,
+      envThunkEntries = thunkEntries,
       envFunctionContinuations = gcFunctionContinuations gcProgram,
       envForwardingFunctions = forwardingFunctions,
       envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
@@ -698,6 +702,9 @@ lowerEnvironment options gcProgram =
     frameEntries
       | lowerExposeFunctions options = Map.empty
       | otherwise = directFrameEntries continuationFunctions forwardingFunctions functionParameters infoKeys program
+    thunkEntries
+      | lowerExposeFunctions options = Map.empty
+      | otherwise = directThunkEntries functionParameters infoKeys program
     targetParameters name = Map.findWithDefault [] name functionParameters
     -- A closure stage takes all its remaining groups in one entry. An
     -- application supplies at most 'grinApplyGroupLimit' groups, so a stage
@@ -726,7 +733,7 @@ lowerEnvironment options gcProgram =
                 enterSupplied = [],
                 enterTargetParameters = targetParameters name,
                 enterPassesContinuation = True,
-                enterDirect = False
+                enterDirect = Map.member name thunkEntries
               }
         _ -> Nothing
 
@@ -757,6 +764,42 @@ directFrameEntries frames forwards parameters keys program =
     calls expression = case expression of
       GrinCall _ name _ -> Set.singleton name
       _ -> foldMap calls (children expression)
+
+-- | A thunk can enter its body directly when no direct call needs the
+-- original ABI and the body has no reservation. The body then takes the
+-- thunk and the continuation, and loads the free variables itself. A body
+-- with a reservation keeps its stub: a replay could not load the free
+-- variables again, because another capability can update the thunk in the
+-- meantime, and the collector does not scan the free variables of an
+-- evaluated thunk.
+directThunkEntries :: Map FunctionName [Type] -> [RuntimeInfoKey] -> GrinProgram -> Map FunctionName Int
+directThunkEntries parameters keys program =
+  Map.fromList
+    [ (name, length fields)
+    | (name, [ThunkRuntimeInfo _ fields]) <- Map.toList shapes,
+      Set.notMember name called,
+      Set.notMember name reserved,
+      Map.lookup name parameters == Just (map repType fields <> [Ptr])
+    ]
+  where
+    shapes = Map.fromListWith (<>) [(name, [key]) | key <- keys, Just name <- [runtimeInfoFunctionName key]]
+    called = foldMap (calls . grinFunctionBody) (grinFunctions program)
+    reserved = Set.fromList [grinFunctionName function | function <- grinFunctions program, reservation (grinFunctionBody function)]
+    children expression = case expression of
+      GrinBind _ value body -> [value, body]
+      GrinStoreRec _ body -> [body]
+      GrinStoreRecUnchecked _ body -> [body]
+      GrinIfWhnf _ ready slow -> [ready, slow]
+      GrinCase _ _ alternatives -> map grinAltRhs alternatives
+      _ -> []
+    calls expression = case expression of
+      GrinCall _ name _ -> Set.singleton name
+      _ -> foldMap calls (children expression)
+    reservation expression = case expression of
+      GrinEnsureHeap {} -> True
+      GrinAllocate {} -> True
+      GrinSafepoint {} -> True
+      _ -> any reservation (children expression)
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
@@ -1617,11 +1660,22 @@ lowerFunction env function = do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
   let direct = Map.lookup (grinFunctionName function) (envFrameEntries env)
-  (entryParameters, parameters, frameReplay) <- case direct of
-    Nothing -> do
+      thunk = Map.lookup (grinFunctionName function) (envThunkEntries env)
+  (entryParameters, parameters, frameReplay) <- case (direct, thunk) of
+    (Nothing, Just count) -> do
+      object <- fresh "thunk"
+      beginBlock (Label "entry") []
+      let (stored, rest) = splitAt count originalParameters
+      loaded <- forM (zip [0 :: Int ..] stored) $ \(index, (var, _, ty)) -> do
+        value <- loadSlot HeapRegion "stored" ty (OperandVar object) (toInteger (8 * (index + 1 + thunkOwnerWords)))
+        case typedOperand value of
+          OperandVar name -> pure (var, name, ty)
+          _ -> failWith (LowerUnsupportedExpression "thunk field has no variable")
+      pure ((object, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- rest], loaded <> rest, Nothing)
+    (Nothing, Nothing) -> do
       beginBlock (Label "entry") []
       pure ([(lirVar, ty) | (_, lirVar, ty) <- originalParameters], originalParameters, Nothing)
-    Just count -> do
+    (Just count, _) -> do
       object <- fresh "frame"
       beginBlock (Label "entry") []
       let (stored, supplied) = splitAt count originalParameters
