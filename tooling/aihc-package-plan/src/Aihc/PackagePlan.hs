@@ -33,6 +33,7 @@ module Aihc.PackagePlan
     dependencyVersionsFromManifests,
     coreProviders,
     coreProviderSourcePath,
+    sourceTreeDigest,
     aihcRtsProvider,
     CoreProvider (..),
     lookupCoreProvider,
@@ -70,12 +71,16 @@ import Aihc.Hackage.Release (BootLibrary (..), GhcRelease (..), emulatedGhc, loo
 import Aihc.Hackage.Source (HackageRelease (..), HackageSource (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
+import Aihc.PackagePlan.EmbeddedCoreLibs (embeddedCoreLibs)
 import Aihc.PackagePlan.Lock
 import Aihc.PackagePlan.Solver
+import Control.Exception (IOException, throwIO, try)
 import Control.Monad (forM, forM_, unless, when)
+import Crypto.Hash.SHA256 qualified as SHA256
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
-import Data.List (intercalate, sort)
+import Data.List (intercalate, isPrefixOf, sort, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -84,13 +89,22 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
+import Numeric (showHex)
 import System.Directory
-  ( doesDirectoryExist,
+  ( XdgDirectory (XdgCache),
+    createDirectoryIfMissing,
+    doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
+    getXdgDirectory,
+    listDirectory,
+    removeDirectoryRecursive,
+    removeFile,
+    renameDirectory,
   )
 import System.Environment (lookupEnv)
 import System.FilePath (normalise, takeDirectory, (</>))
+import System.IO (hClose, openBinaryTempFile)
 
 -- | One package of a plan, with the plans of its dependencies.
 data PackagePlan = PackagePlan
@@ -671,12 +685,19 @@ dependencyVersionsFromManifests manifests =
         [(value, "")] -> Just value
         _ -> Nothing
 
+-- | The source directory of a core library. @AIHC_CORE_LIBS_ROOT@ names
+-- the directory that holds @core-libs@ when it is set. Otherwise a release
+-- build uses the sources in its executable, and a development build looks
+-- for @core-libs@ in the current directory and in each parent directory.
+-- A release build does not look in the current directory, because a
+-- checkout there can have sources that are different from its own.
 coreProviderSourcePath :: CoreProvider -> IO FilePath
 coreProviderSourcePath provider = do
   override <- lookupEnv "AIHC_CORE_LIBS_ROOT"
-  case override of
-    Just root -> pure (root </> coreProviderSourceRel provider)
-    Nothing -> do
+  case (override, embeddedCoreLibs) of
+    (Just root, _) -> pure (root </> providerRel)
+    (Nothing, Just files) -> (</> providerRel) <$> extractEmbeddedCoreLibs files
+    (Nothing, Nothing) -> do
       cwd <- getCurrentDirectory
       findAncestorContaining providerMarker cwd
   where
@@ -692,3 +713,65 @@ coreProviderSourcePath provider = do
           if parent == dir
             then ioError (userError ("Could not find local core library " <> providerRel <> " from current directory"))
             else findAncestorContaining marker parent
+
+-- | Write the core-libs sources of the executable to the cache, unless
+-- they are there, and give the directory that holds @core-libs@. The
+-- directory name is the hash of the sources, so two executables with the
+-- same sources share one directory. The files go into a temporary
+-- directory first and a rename publishes them, so that a process never
+-- sees a part of the files.
+extractEmbeddedCoreLibs :: [(FilePath, BS.ByteString)] -> IO FilePath
+extractEmbeddedCoreLibs files = do
+  cacheRoot <- (</> "core-libs") <$> getXdgDirectory XdgCache "aihc"
+  let digest = take 16 (sourceFilesDigest files)
+      root = cacheRoot </> digest
+  published <- doesDirectoryExist root
+  unless published $ do
+    createDirectoryIfMissing True cacheRoot
+    (temporaryRoot, handle) <- openBinaryTempFile cacheRoot (".tmp-" <> digest <> "-")
+    hClose handle
+    removeFile temporaryRoot
+    forM_ files $ \(relative, bytes) -> do
+      let path = temporaryRoot </> "core-libs" </> relative
+      createDirectoryIfMissing True (takeDirectory path)
+      BS.writeFile path bytes
+    result <- try (renameDirectory temporaryRoot root)
+    case result of
+      Right () -> pure ()
+      Left err -> do
+        -- Another process can publish the same sources first.
+        removeDirectoryRecursive temporaryRoot
+        other <- doesDirectoryExist root
+        unless other (throwIO (err :: IOException))
+  pure root
+
+-- | The SHA-256 of each file under a directory, with its path relative to
+-- that directory, in hex. A core library is identified by its sources
+-- together with the compiler, so the store keys of a core library use this
+-- digest. Names that start with a dot are not sources, such as the
+-- @.aihc-target@ directory of a local build.
+sourceTreeDigest :: FilePath -> IO String
+sourceTreeDigest root = sourceFilesDigest <$> go ""
+  where
+    go relative = do
+      names <- filter (not . isPrefixOf ".") <$> listDirectory (root </> relative)
+      concat
+        <$> forM
+          names
+          ( \name -> do
+              let path = relative </> name
+              directory <- doesDirectoryExist (root </> path)
+              if directory
+                then go path
+                else (\bytes -> [(path, bytes)]) <$> BS.readFile (root </> path)
+          )
+
+-- | The SHA-256 of the paths and the contents of the files, in hex. The
+-- order of the files has no effect.
+sourceFilesDigest :: [(FilePath, BS.ByteString)] -> String
+sourceFilesDigest files =
+  concatMap hex (BS.unpack (SHA256.finalize (SHA256.updates SHA256.init (concatMap fields (sortOn fst files)))))
+  where
+    fields (relative, bytes) = concatMap field [BS8.pack relative, bytes]
+    field bytes = [BS8.pack (show (BS.length bytes) <> ":"), bytes]
+    hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
