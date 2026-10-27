@@ -133,9 +133,24 @@ echo "=== Transpile the component with jco ==="
 "$tools/bin/aihc-play-transpile" "$work/aihc-play.wasm" "$work/out"
 # wasm-opt makes the core module a third of its size. The build goes on
 # without it when it is not installed.
+# Do not use --all-features. With it, binaryen 132 writes compact imports
+# and exact reference types, and browsers do not accept them. Give only the
+# features that the compiler output uses.
+wasm_features=(
+  --mvp-features
+  --enable-sign-ext
+  --enable-mutable-globals
+  --enable-nontrapping-float-to-int
+  --enable-bulk-memory
+  --enable-bulk-memory-opt
+  --enable-multivalue
+  --enable-reference-types
+  --enable-tail-call
+  --enable-threads
+)
 if command -v wasm-opt >/dev/null; then
   echo "=== Shrinking the core module with wasm-opt ==="
-  wasm-opt -Oz --all-features -o "$work/out/aihc-play-component.core.opt.wasm" "$work/out/aihc-play-component.core.wasm"
+  wasm-opt -Oz "${wasm_features[@]}" -o "$work/out/aihc-play-component.core.opt.wasm" "$work/out/aihc-play-component.core.wasm"
   mv "$work/out/aihc-play-component.core.opt.wasm" "$work/out/aihc-play-component.core.wasm"
 else
   echo "wasm-opt is not on the PATH; the core module stays unoptimized" >&2
