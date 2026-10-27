@@ -147,7 +147,7 @@ expected: |
 
   data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }
 
-  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 1, i16 0 }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
 
@@ -157,7 +157,7 @@ expected: |
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_84, %hp_limit_85, %sp_86, %sp_limit_87, %stored_91, %supplied_90)
   }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 0, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 2, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x00" }
 
@@ -166,7 +166,7 @@ expected: |
     tailcall @aihc_f_aihc_entry___sdelayed(%hp_92, %hp_limit_93, %sp_94, %sp_limit_95, %continuation_97)
   }
 
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_info_1_e, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 0, i16 0 }
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_info_1_e, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 2, i16 0 }
 
   func @aihc_lir_force_p(%hp_98: ptr, %hp_limit_99: ptr, %sp_100: ptr, %sp_limit_101: ptr, %value_102: ptr, %info_103: ptr, %field_104: ptr) {
   entry:
