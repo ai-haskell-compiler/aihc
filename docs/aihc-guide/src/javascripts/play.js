@@ -497,7 +497,31 @@ function buildPlayground(root) {
     output.setAttribute("aria-label", "Program output");
     status.textContent = "Select Run to compile the module.";
     let builder, program, activeId = 0, active = false, phase, count;
-    let stdout, stderr;
+    let stdout, stderr, warming = false;
+    const startBuilder = () => {
+      builder = new Worker(new URL("helper/run.js", PLAY_ROOT), { type: "module" });
+      playWorkers.add(builder);
+    };
+    // The first build in a worker is slow. Thus the worker builds the seed
+    // once, with id 0, when the playground comes into view. A Run waits for
+    // that build and then uses the warm worker.
+    const warmUp = () => {
+      if (builder) return;
+      startBuilder();
+      warming = true;
+      const worker = builder;
+      worker.addEventListener("message", ({ data }) => {
+        if (data.id === 0 && worker === builder && ["warm", "error", "diagnostics"].includes(data.type)) warming = false;
+      });
+      worker.postMessage({ id: 0, source: seed, warm: true });
+    };
+    const visibility = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        visibility.disconnect();
+        warmUp();
+      }
+    });
+    visibility.observe(root);
     const destroy = (worker) => {
       worker?.terminate();
       playWorkers.delete(worker);
@@ -571,11 +595,8 @@ function buildPlayground(root) {
       phase = "build";
       run.disabled = true;
       stop.disabled = false;
-      status.textContent = builder ? "Compile the module." : "Load the compiler.";
-      if (!builder) {
-        builder = new Worker(new URL("helper/run.js", PLAY_ROOT), { type: "module" });
-        playWorkers.add(builder);
-      }
+      status.textContent = builder && !warming ? "Compile the module." : "Load the compiler.";
+      if (!builder) startBuilder();
       watch(builder, activeId);
       builder.postMessage({ id: activeId, source: editor.value });
     });

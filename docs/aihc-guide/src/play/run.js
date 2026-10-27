@@ -56,7 +56,11 @@ async function compiler() {
   return (source) => ask("compile", encoder.encode(source));
 }
 
-const fromBase64 = (text) => Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
+// Uint8Array.fromBase64 decodes the runtime in milliseconds. The fallback
+// takes about one second. Chrome 137 to 139 have JSPI but no fromBase64.
+const fromBase64 = (text) => Uint8Array.fromBase64
+  ? Uint8Array.fromBase64(text)
+  : Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
 
 async function loadTools() {
   const response = await fetch(new URL("tools.json", import.meta.url));
@@ -73,11 +77,26 @@ async function loadRuntime() {
   };
 }
 
-// The page sends one build at a time. Program execution has a separate worker.
-onmessage = async ({ data: { id, source } }) => {
+// The worker does one build at a time, in the order of the requests.
+// Program execution has a separate worker.
+let queue = Promise.resolve();
+onmessage = ({ data }) => {
+  queue = queue.then(() => build(data));
+};
+
+// A warm request builds the program and keeps only the warm state. The first
+// compile in a new worker is about five times slower than the next ones,
+// mostly because the WebAssembly engine optimizes the compiler while it runs. The
+// page sends a warm request when the playground comes into view.
+async function build({ id, source, warm }) {
   requestId = id;
   try {
     if (typeof WebAssembly.Suspending !== "function") throw new Error("This browser needs JavaScript Promise Integration.");
+    // The tools and the runtime download while the compiler loads and runs.
+    toolsPromise ??= loadTools();
+    runtimePromise ??= loadRuntime();
+    toolsPromise.catch(() => {});
+    runtimePromise.catch(() => {});
     report("status", "Load the compiler.");
     const compile = await (compilePromise ??= compiler());
     report("status", "Compile the module.");
@@ -88,8 +107,8 @@ onmessage = async ({ data: { id, source } }) => {
       return;
     }
     report("status", "Assemble and link the program.");
-    const { commands, componentNew, transpile } = await (toolsPromise ??= loadTools());
-    const runtime = await (runtimePromise ??= loadRuntime());
+    const { commands, componentNew, transpile } = await toolsPromise;
+    const runtime = await runtimePromise;
     // Each build gets a new file map. Cached library bytes remain in this worker.
     let files = { ...runtime.files };
     const objects = Object.keys(files).filter((name) => name.endsWith(".o")).sort();
@@ -115,10 +134,14 @@ onmessage = async ({ data: { id, source } }) => {
       name: "program", instantiation: { tag: "async" }, noNodejsCompat: true, noTypescript: true,
       asyncMode: { tag: "jspi", val: { imports: [], exports: [] } },
     });
+    if (warm) {
+      postMessage({ id, type: "warm" });
+      return;
+    }
     // Only the new program leaves this worker. Do not transfer cached inputs.
     const transfers = [...new Set(result.files.map(([, bytes]) => bytes.buffer))];
     postMessage({ id, type: "program", files: result.files }, transfers);
   } catch (error) {
     report("error", String(error?.message ?? error));
   }
-};
+}
