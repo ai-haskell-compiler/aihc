@@ -149,10 +149,14 @@ fi
 # a version constraint on them could make cabal compile them again.
 global_packages="$(ghc-pkg list --global --simple-output --names-only | tr ' ' '\n')"
 
-# The project file is in the work directory, so dist-newstyle is also there.
+# The project is the work directory, so dist-newstyle is also there.
 project_file="$work_directory/cabal.project"
 {
+	# Cabal resolves the dependencies of all components of a local package.
+	# The aihc-dev executable needs aihc-testing and the fuzz library of
+	# aihc-tc. The build of exe:aihc does not compile them.
 	echo "packages:"
+	echo "  $repo_root/tooling/aihc-testing"
 	while IFS=$'\t' read -r _ _ source; do
 		case "$source" in
 		local:*) echo "  $repo_root/${source#local:}" ;;
@@ -161,6 +165,7 @@ project_file="$work_directory/cabal.project"
 	echo
 	echo "constraints:"
 	echo "  aihc -hackage -pretty-ui"
+	echo "  , aihc-tc +fuzz"
 	while IFS=$'\t' read -r name version source; do
 		case "$source" in
 		hackage:*)
@@ -183,7 +188,7 @@ project_file="$work_directory/cabal.project"
 
 cabal_build() {
 	cabal --store-dir="$work_directory/store" build \
-		--project-file="$project_file" exe:aihc "$@"
+		--project-dir="$work_directory" exe:aihc "$@"
 }
 
 echo "Updating the package index"
@@ -201,7 +206,7 @@ if [ -n "$time_file" ]; then
 fi
 
 executable="$(cabal --store-dir="$work_directory/store" list-bin \
-	--project-file="$project_file" exe:aihc)"
+	--project-dir="$work_directory" exe:aihc)"
 mkdir -p "$(dirname "$output")"
 cp "$executable" "$output"
 echo "Wrote $output"
