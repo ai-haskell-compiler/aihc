@@ -148,10 +148,12 @@ import Aihc.PackagePlan
     aihcRtsProvider,
     coreProviderSourcePath,
     dependencyVersionsFromManifests,
+    lookupCoreProvider,
     parseConstraint,
     parseSourcePackageDescriptionAt,
     planBuildContext,
     planPackages,
+    sourceTreeDigest,
   )
 import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, isCppWarning, renderHumanDiagnostic)
 import Aihc.PackagePlan.Lock (lockFileName)
@@ -1327,7 +1329,11 @@ data PackageInputs = PackageInputs
     -- | The configure script of a @build-type: Configure@ package.
     inputConfigureScript :: !(Maybe FilePath),
     -- | The headers the package expects its configure script to write.
-    inputAutogenIncludes :: ![FilePath]
+    inputAutogenIncludes :: ![FilePath],
+    -- | The digest of every file of a core library. A Hackage release
+    -- never changes, but the sources of a core library can change while
+    -- the compiler stays the same.
+    inputSourceDigest :: !(Maybe String)
   }
 
 -- | Read what the installer needs from a planned package. The @.cabal@ file
@@ -1348,6 +1354,12 @@ readPackageInputs config plan = do
       pure (Just script)
     _ -> pure Nothing
   cCompileInfo <- either (ioError . userError . ((cabalFile <> ": ") <>)) pure (HackageCabal.collectLibraryCCompileInfoIn context gpd root)
+  -- A core library counts as one also when the plan installs it from its
+  -- directory, as @aihc install core-libs/aihc-prim@ does.
+  sourceDigest <-
+    if isJust (lookupCoreProvider (unPackageName (planName plan)))
+      then Just <$> sourceTreeDigest root
+      else pure Nothing
   pure
     PackageInputs
       { inputCabalFile = cabalFile,
@@ -1357,7 +1369,8 @@ readPackageInputs config plan = do
         inputSources = files,
         inputCCompileInfo = cCompileInfo,
         inputConfigureScript = configureScript,
-        inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd
+        inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd,
+        inputSourceDigest = sourceDigest
       }
 
 -- | Prepare an immutable package for the store, unless the store has it.
@@ -1896,9 +1909,10 @@ dependencyPrimIdentity resolvePackage dependencies =
 --
 -- The fingerprint is a function of the plan: the package name and version,
 -- the cabal flags and revision the plan decided, the compiler, the target,
--- and the identities of the dependencies. It does not read the sources, so
--- a consumer computes it without them. A Hackage release never changes,
--- and a core library is identified by the compiler it ships with.
+-- and the identities of the dependencies. It does not read the sources of
+-- a Hackage release, because a release never changes. It reads the sources
+-- of a core library, because @AIHC_CORE_LIBS_ROOT@ can give one compiler
+-- different core-libs sources.
 storePackageIdentity :: ModuleCompileConfig -> [InstalledPackage] -> PackageInputs -> IO (FilePath, Text)
 storePackageIdentity config dependencies inputs = do
   let (unitIdentity, packageNameText, packageVersionText) = packageUnitIdentity inputs
@@ -1924,7 +1938,8 @@ storePackageIdentity config dependencies inputs = do
                   : packageNameText
                   : packageVersionText
                   : packageFlagsKey inputs
-                  : sortOn id (map installedIdentity dependencies)
+                  : maybe [] (pure . T.pack) (inputSourceDigest inputs)
+                    <> sortOn id (map installedIdentity dependencies)
               )
           )
   pure (T.unpack unitIdentity <> "-" <> take 16 fingerprint, unitIdentity)

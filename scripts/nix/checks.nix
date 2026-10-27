@@ -127,14 +127,11 @@
     # takes the same sysroot the seed store derivation used.
     export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
     export AIHC_WASM_SYSROOT=${wasmSysroot}
+    # The store key of a core library includes the digest of its sources,
+    # so the tests read the same files that the seed store was built from.
     coreLibsRoot="$TMPDIR/aihc-core-libs-root"
-    mkdir -p "$coreLibsRoot/core-libs"
-    ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
-    ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
-    ln -sfn ${sources.rtsSrc pkgs} "$coreLibsRoot/core-libs/aihc-rts"
-    ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
-    ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
-    ln -sfn ${sources.systemCxxStdLibSrc pkgs} "$coreLibsRoot/core-libs/system-cxx-std-lib"
+    mkdir -p "$coreLibsRoot"
+    ln -sfn ${coreLibrariesSource}/core-libs "$coreLibsRoot/core-libs"
     export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
     export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
     export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"

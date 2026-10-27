@@ -12,6 +12,14 @@ extra-source-files:
   test/fixtures/locks/index/dep/1.0/dep.cabal
   test/fixtures/locks/local/root.cabal
 
+flag embed-core-libs
+  description:
+    Put the core-libs sources into the library, for a release executable
+    that needs no checkout. The build must have the repository checkout.
+
+  default: False
+  manual: True
+
 library
   exposed-modules:
     Aihc.PackagePlan
@@ -19,6 +27,9 @@ library
     Aihc.PackagePlan.Lock
     Aihc.PackagePlan.Solver
     Aihc.PackagePlan.Source
+
+  other-modules:
+    Aihc.PackagePlan.EmbeddedCoreLibs
 
   hs-source-dirs: src
   build-depends:
@@ -41,6 +52,13 @@ library
   default-extensions: OverloadedStrings
   ghc-options: -Wall
   default-language: GHC2021
+
+  if flag(embed-core-libs)
+    hs-source-dirs: src-embedded
+    build-depends:
+      file-embed >=0.0.15 && <0.1
+  else
+    hs-source-dirs: src-not-embedded
 
 test-suite spec
   type: exitcode-stdio-1.0
