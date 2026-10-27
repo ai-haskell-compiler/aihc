@@ -412,13 +412,21 @@ backendCompiler target =
       -- arguments, usually an unwrapped Clang named by AIHC_APPLE_CLANG.
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_APPLE_CLANG"
       sdk <- lookupEnv "AIHC_APPLE_SDK"
-      pure (compiler, ["--target=" <> nativeTargetTriple target] <> maybe [] (\root -> ["-isysroot", root]) sdk)
+      pure (compiler, ["--target=" <> nativeTargetTriple target, appleMinimumVersionArgument] <> maybe [] (\root -> ["-isysroot", root]) sdk)
     LinuxAmd64 -> nativeCompiler
   where
     -- An ELF linker removes unreachable code one section at a time, so
     -- Clang puts each function and each variable in its own section. A
     -- Mach-O object is divided at its symbols instead.
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target] <> elfSectionArguments)
+
+-- | The oldest macOS that the objects of the Apple target run on. The triple
+-- has no macOS version. On a macOS host, Clang then uses the version of the
+-- host. On a Linux host, Clang uses a macOS version older than 10.7, and
+-- that version has no thread-local storage. macOS 11 is the first macOS on
+-- arm64, so the objects are the same on each host.
+appleMinimumVersionArgument :: String
+appleMinimumVersionArgument = "-mmacos-version-min=11.0"
 
 -- | The Clang arguments that give each function and each variable its own
 -- ELF section.
