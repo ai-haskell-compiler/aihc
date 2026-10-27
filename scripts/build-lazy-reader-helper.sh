@@ -135,7 +135,8 @@ echo "=== Transpile the component with jco ==="
 # without it when it is not installed.
 # Do not use --all-features. With it, binaryen 132 writes compact imports
 # and exact reference types, and browsers do not accept them. Give only the
-# features that the compiler output uses.
+# features that the compiler output uses, and gc. The output does not use
+# gc, but without it the optimized code section is 38% larger.
 wasm_features=(
   --mvp-features
   --enable-sign-ext
@@ -147,6 +148,7 @@ wasm_features=(
   --enable-reference-types
   --enable-tail-call
   --enable-threads
+  --enable-gc
 )
 if command -v wasm-opt >/dev/null; then
   echo "=== Shrinking the core module with wasm-opt ==="
