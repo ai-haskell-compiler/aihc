@@ -14,10 +14,6 @@ on:
   schedule:
     - cron: "37 2 * * 0"
   workflow_dispatch:
-  # Temporary: measure once on the PR branch. Remove before the merge.
-  push:
-    branches:
-      - claude/aihc-compile-perf-workflow-898b15
 
 permissions:
   contents: write
@@ -94,6 +90,8 @@ jobs:
             --target "$TARGET" \
             -O "$OPTIMIZATION"
 
+      # The step also writes the table to the log, which a reader can see
+      # without a GitHub sign-in.
       - name: Update the README
         run: |
           set -euo pipefail
@@ -115,11 +113,10 @@ jobs:
             echo
             sed -n '/START self-compile-perf/,/END self-compile-perf/p' README.md |
               sed '1d;$d'
-          } >>"$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The action updates the open PR on the same branch. It does not open a second PR.
       - name: Open pull request for the README
-        if: github.event_name != 'push'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.AUTOMATION_PR_TOKEN }}
