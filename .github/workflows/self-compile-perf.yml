@@ -54,7 +54,7 @@ jobs:
       - name: Get the build tools
         run: |
           nix develop --quiet --command ghc --version
-          nix build .#self-compile-stage --no-link
+          nix run .#self-compile-stage -- --help >/dev/null
 
       - name: Restore the cabal downloads
         uses: actions/cache@v6
