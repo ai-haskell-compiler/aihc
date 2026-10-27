@@ -1696,31 +1696,62 @@ static void aihc_push_threads(AihcCapability *capability) {
       capability->run_queue_head->next == NULL) {
     return;
   }
+  /* The count stops at the number of idle capabilities, so a long queue
+     costs no walk at each schedule. */
+  uint64_t available = aihc_available_capabilities(machine);
   uint64_t surplus = 0;
   for (const AihcThread *thread = capability->run_queue_head->next;
-       thread != NULL; thread = thread->next) {
+       thread != NULL && surplus < available; thread = thread->next) {
     ++surplus;
   }
-  uint64_t available = aihc_available_capabilities(machine);
-  aihc_move_threads(capability, surplus < available ? surplus : available);
+  aihc_move_threads(capability, surplus);
+}
+
+/* Promote the closure of a thread that has not run since its fork, and
+   give zero when the thread can reach more than its closure. Its stack then
+   holds only the frame that ends the thread, which has no fields. The
+   promotion copies the closure and needs no collection, unless the closure
+   reaches a mutable object. */
+static int aihc_promote_unstarted_thread(AihcCapability *capability,
+                                         AihcThread *thread) {
+  AihcValue *continuation = thread->resume_continuation;
+  if (thread->resume_kind != AIHC_RESUME_APPLY || continuation == NULL ||
+      thread->transaction != NULL || thread->queues != NULL ||
+      (uint8_t *)continuation != aihc_stack_base(aihc_stack_of(continuation))) {
+    return 0;
+  }
+  capability->pause_top = NULL;
+  AihcSlot function = aihc_escape(capability, (const AihcValue *)thread,
+                                  (AihcSlot)(uintptr_t)thread->resume_function);
+  if (function == AIHC_ESCAPE_COLLECT) {
+    return 0;
+  }
+  aihc_write_barrier(capability, (AihcValue *)thread);
+  thread->resume_function = (AihcValue *)(uintptr_t)function;
+  return 1;
 }
 
 /* Move at most a number of threads from the end of the run queue to idle
-   capabilities, one thread to each. A collection first moves each young
-   survivor of the local heap into gen2, so a moved thread names no object
-   of this local heap. */
+   capabilities, one thread to each. A moved thread must name no object of
+   this local heap. A thread that has not run gets a copy of its closure.
+   For each other thread, a collection first moves each young survivor of
+   the local heap into gen2. That collection walks every stack of the
+   machine, so a push of each new thread of a large fork took seconds. */
 static void aihc_move_threads(AihcCapability *capability, uint64_t pushes) {
   AihcMachine *machine = capability->machine;
-  if (pushes == 0) {
-    return;
-  }
-  aihc_promote_all(capability, AIHC_GC_REASON_PUSH, 0, NULL, NULL);
+  int promoted = 0;
   for (uint64_t index = 0; index < machine->capability_count && pushes != 0 &&
                            capability->run_queue_head != NULL;
        ++index) {
     AihcCapability *target = machine->capabilities[index];
     if (!aihc_capability_available(target)) {
       continue;
+    }
+    /* The thread stays on the queue, which is a root of the collection. */
+    if (!promoted && !aihc_promote_unstarted_thread(
+                         capability, capability->run_queue_tail)) {
+      aihc_promote_all(capability, AIHC_GC_REASON_PUSH, 0, NULL, NULL);
+      promoted = 1;
     }
     AihcThread *thread = aihc_dequeue_last_thread(capability);
     thread->capability = target->index;

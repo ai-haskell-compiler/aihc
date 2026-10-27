@@ -557,7 +557,10 @@ struct AihcStack {
      and releases the stack when the thread is not retained. */
   AihcThread *thread;
   AihcStackChunk *base;
+  /* The links of the machine list of stacks. With the link to the stack
+     before it, a release of one stack does not walk the list. */
   AihcStack *next;
+  AihcStack *previous;
   /* The top frame of the stack when its thread suspended last. The frames
      at or below it are live while the thread is not running. */
   AihcValue *top;
