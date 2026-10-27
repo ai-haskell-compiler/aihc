@@ -20,6 +20,10 @@ Usage: scripts/self-compile-stage.sh --work-dir DIR --output FILE [OPTION]...
                   (default: 2)
   --timeout SECONDS
                   Stop the build after SECONDS (default: 18000)
+  --time-file FILE
+                  Write the build time in seconds to FILE. The time
+                  includes the aihc-base install and the aihc build. It
+                  does not include the source downloads.
   --help          Show this message
 
 The compiler is taken from $AIHC, and defaults to `aihc` on PATH.
@@ -34,6 +38,7 @@ list_file=""
 target="linux-amd64"
 level="2"
 build_timeout="18000"
+time_file=""
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -63,6 +68,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--timeout)
 		build_timeout="${2:?--timeout needs a number of seconds}"
+		shift 2
+		;;
+	--time-file)
+		time_file="${2:?--time-file needs a file}"
 		shift 2
 		;;
 	--help)
@@ -192,6 +201,8 @@ run_with_timeout() {
 	fi
 }
 
+build_start="$(date +%s)"
+
 # The level is part of the identity of an installed package, so aihc-base is
 # installed at the level of the build.
 echo "Installing aihc-base for $target at -O$level"
@@ -215,6 +226,11 @@ if [ "$status" -ne 0 ]; then
 		echo "The build timed out after $build_timeout seconds." >&2
 	fi
 	exit "$status"
+fi
+
+if [ -n "$time_file" ]; then
+	mkdir -p "$(dirname "$time_file")"
+	echo "$(($(date +%s) - build_start))" >"$time_file"
 fi
 
 mkdir -p "$(dirname "$output")"
