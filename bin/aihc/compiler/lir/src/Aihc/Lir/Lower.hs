@@ -1025,13 +1025,6 @@ loadInfoCode base header index = do
   let width = lowerWordSize target
   emitValue base Code (LoadInvariant Code (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
--- | A @ptr@ field of an info table.
-loadInfoPointer :: Text -> Operand -> Int -> LowerM Typed
-loadInfoPointer base header index = do
-  target <- targetM
-  let width = lowerWordSize target
-  emitValue base Ptr (LoadInvariant Ptr (byteAddress header (toInteger (width * index))) (wordAlignment 1))
-
 -- | A word-sized integer field of a data object.
 wordField :: LowerTarget -> Integer -> DataField
 wordField target = DataInt (wordType target)
@@ -3931,8 +3924,10 @@ compileCase ctx env scrutinee binder alternatives = do
               index <- loadInfoConstructorIndex (typedOperand header)
               terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
             else do
-              header <- loadObjectInfo HeapRegion (typedOperand typed)
-              identity <- loadInfoPointer "identity" (typedOperand header) 0
+              -- The header of a saturated constructor names its saturated
+              -- table, and a case only sees saturated constructors, so the
+              -- table address itself is the identity.
+              identity <- loadObjectInfo HeapRegion (typedOperand typed)
               checks <- forM constructors $ \(name, _, label) -> do
                 let symbol = constructorInfoSymbol name 0
                 unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
@@ -3993,9 +3988,9 @@ bindCaseAlternative alternative typed env' =
 
 -- | A case with this many constructor alternatives or more selects its
 -- alternative from the constructor index of the info table. A case with
--- fewer compares the identity of the info table with each constructor.
--- An identity compare loads the address of the constructor table, and the
--- index load is one load for the full case.
+-- fewer compares the table address in the header with each constructor.
+-- That compare needs no load of the table, and the index load is one load
+-- for the full case.
 constructorSwitchThreshold :: Int
 constructorSwitchThreshold = 4
 

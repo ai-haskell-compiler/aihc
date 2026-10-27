@@ -17,54 +17,53 @@ expected: |
     %header_word_8 = load i64 [%value_4] align 8 region heap
     %info_word_9 = and i64 %header_word_8, -4
     %header_10 = ptr.from_int %info_word_9
-    %identity_11 = load.invariant ptr [%header_10] align 1 word
-    %matches_12 = eq ptr %identity_11, @aihc_c_aihc_entry_Nothing_0
-    br %matches_12, alt_6, alt_7
+    %matches_11 = eq ptr %header_10, @aihc_c_aihc_entry_Nothing_0
+    br %matches_11, alt_6, alt_7
 
   alt_6:
-    %header_word_13 = load i64 [%$cps_return_5] align 8 region stack
-    %info_word_14 = and i64 %header_word_13, -4
-    %header_15 = ptr.from_int %info_word_14
-    %entry_16 = load.invariant code [%header_15 + 24] align 1 word
-    %chunk_word_17 = ptr.to_int %$cps_return_5
-    %chunk_last_18 = or i64 %chunk_word_17, 4095
-    %chunk_end_19 = add i64 %chunk_last_18, 1
-    %sp_limit_20 = ptr.from_int %chunk_end_19
-    %forward_24 = eq code %entry_16, null
-    br %forward_24, continue_slow_21, continue_chunk_22
+    %header_word_12 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_13 = and i64 %header_word_12, -4
+    %header_14 = ptr.from_int %info_word_13
+    %entry_15 = load.invariant code [%header_14 + 24] align 1 word
+    %chunk_word_16 = ptr.to_int %$cps_return_5
+    %chunk_last_17 = or i64 %chunk_word_16, 4095
+    %chunk_end_18 = add i64 %chunk_last_17, 1
+    %sp_limit_19 = ptr.from_int %chunk_end_18
+    %forward_23 = eq code %entry_15, null
+    br %forward_23, continue_slow_20, continue_chunk_21
 
-  continue_chunk_22:
-    %same_chunk_25 = eq ptr %sp_limit_20, %sp_limit_3
-    br %same_chunk_25, continue_enter_23, continue_slow_21
+  continue_chunk_21:
+    %same_chunk_24 = eq ptr %sp_limit_19, %sp_limit_3
+    br %same_chunk_24, continue_enter_22, continue_slow_20
 
-  cold continue_slow_21:
+  cold continue_slow_20:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
 
-  continue_enter_23:
-    tailcall.indirect %entry_16(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, 0) : (ptr, ptr, ptr, ptr, ptr, i64)
+  continue_enter_22:
+    tailcall.indirect %entry_15(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, 0) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
-    %payload_26 = load i64 [%value_4 + 8] align 8 region heap
-    %header_word_27 = load i64 [%$cps_return_5] align 8 region stack
-    %info_word_28 = and i64 %header_word_27, -4
-    %header_29 = ptr.from_int %info_word_28
-    %entry_30 = load.invariant code [%header_29 + 24] align 1 word
-    %chunk_word_31 = ptr.to_int %$cps_return_5
-    %chunk_last_32 = or i64 %chunk_word_31, 4095
-    %chunk_end_33 = add i64 %chunk_last_32, 1
-    %sp_limit_34 = ptr.from_int %chunk_end_33
-    %forward_38 = eq code %entry_30, null
-    br %forward_38, continue_slow_35, continue_chunk_36
+    %payload_25 = load i64 [%value_4 + 8] align 8 region heap
+    %header_word_26 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_27 = and i64 %header_word_26, -4
+    %header_28 = ptr.from_int %info_word_27
+    %entry_29 = load.invariant code [%header_28 + 24] align 1 word
+    %chunk_word_30 = ptr.to_int %$cps_return_5
+    %chunk_last_31 = or i64 %chunk_word_30, 4095
+    %chunk_end_32 = add i64 %chunk_last_31, 1
+    %sp_limit_33 = ptr.from_int %chunk_end_32
+    %forward_37 = eq code %entry_29, null
+    br %forward_37, continue_slow_34, continue_chunk_35
 
-  continue_chunk_36:
-    %same_chunk_39 = eq ptr %sp_limit_34, %sp_limit_3
-    br %same_chunk_39, continue_enter_37, continue_slow_35
+  continue_chunk_35:
+    %same_chunk_38 = eq ptr %sp_limit_33, %sp_limit_3
+    br %same_chunk_38, continue_enter_36, continue_slow_34
 
-  cold continue_slow_35:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_26)
+  cold continue_slow_34:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_25)
 
-  continue_enter_37:
-    tailcall.indirect %entry_30(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_26) : (ptr, ptr, ptr, ptr, ptr, i64)
+  continue_enter_36:
+    tailcall.indirect %entry_29(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_25) : (ptr, ptr, ptr, ptr, ptr, i64)
   }
 
   data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 1, i16 0 }
