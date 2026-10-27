@@ -1057,9 +1057,9 @@ loadInfoConstructorIndex header = do
   emitValue "constructor_index" I64 (Convert ZExt I16 (typedOperand value) I64)
 
 -- | The byte offset of the constructor index in an info table: after the
--- five word fields, the five byte fields, and one byte of padding.
+-- five word fields and the six byte fields.
 infoConstructorIndexOffset :: LowerTarget -> Int
-infoConstructorIndexOffset target = lowerWordSize target * infoWordFieldCount + infoByteFieldCount + 1
+infoConstructorIndexOffset target = lowerWordSize target * infoWordFieldCount + infoByteFieldCount
 
 -- | A @code@ field of an info table.
 loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
@@ -1067,13 +1067,6 @@ loadInfoCode base header index = do
   target <- targetM
   let width = lowerWordSize target
   emitValue base Code (LoadInvariant Code (byteAddress header (toInteger (width * index))) (wordAlignment 1))
-
--- | A @ptr@ field of an info table.
-loadInfoPointer :: Text -> Operand -> Int -> LowerM Typed
-loadInfoPointer base header index = do
-  target <- targetM
-  let width = lowerWordSize target
-  emitValue base Ptr (LoadInvariant Ptr (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
 -- | A word-sized integer field of a data object.
 wordField :: LowerTarget -> Integer -> DataField
@@ -1477,7 +1470,7 @@ lowerInfo info = do
                 byte (continuationFrameKindCode (infoFrameKind info)),
                 byte (infoObjectKind info),
                 DataInt I8 (objectKindNeedsEval (infoObjectKind info)),
-                DataInt I8 0,
+                byte (infoGcWords info),
                 DataInt I16 (toInteger (infoConstructorIndex info))
               ]
           }
@@ -3985,8 +3978,10 @@ compileCase ctx env scrutinee binder alternatives = do
               index <- loadInfoConstructorIndex (typedOperand header)
               terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
             else do
-              header <- loadObjectInfo HeapRegion (typedOperand typed)
-              identity <- loadInfoPointer "identity" (typedOperand header) 0
+              -- The header of a saturated constructor names its saturated
+              -- table, and a case only sees saturated constructors, so the
+              -- table address itself is the identity.
+              identity <- loadObjectInfo HeapRegion (typedOperand typed)
               checks <- forM constructors $ \(name, _, label) -> do
                 let symbol = constructorInfoSymbol name 0
                 unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
@@ -4047,9 +4042,9 @@ bindCaseAlternative alternative typed env' =
 
 -- | A case with this many constructor alternatives or more selects its
 -- alternative from the constructor index of the info table. A case with
--- fewer compares the identity of the info table with each constructor.
--- An identity compare loads the address of the constructor table, and the
--- index load is one load for the full case.
+-- fewer compares the table address in the header with each constructor.
+-- That compare needs no load of the table, and the index load is one load
+-- for the full case.
 constructorSwitchThreshold :: Int
 constructorSwitchThreshold = 4
 
@@ -4495,7 +4490,7 @@ infoNeedsEvalByte = 4
 
 -- | The number of byte fields of an info table.
 infoByteFieldCount :: Int
-infoByteFieldCount = 5
+infoByteFieldCount = 6
 
 -- | The largest constructor index that an info table holds.
 infoConstructorIndexLimit :: Int
@@ -4513,6 +4508,19 @@ objectKindNeedsEval kind
 needsEvalEnter, needsEvalFollow :: Integer
 needsEvalEnter = 1
 needsEvalFollow = 2
+
+-- | Cache a fixed object size when it fits in one byte. Zero selects the
+-- general size path. A thunk needs one field even without free variables.
+infoGcWords :: RuntimeInfo -> Int
+infoGcWords info
+  | kind `elem` [runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk],
+    words' <= infoByteFieldLimit =
+      words'
+  | otherwise = 0
+  where
+    kind = infoObjectKind info
+    fields = length (infoFields info)
+    words' = 1 + if kind == runtimeObjectThunk then max 1 fields else fields
 
 -- | The largest count a byte field of an info table holds.
 infoByteFieldLimit :: Int

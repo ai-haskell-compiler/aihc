@@ -18,32 +18,31 @@ expected: |
     %header_word_8 = load i64 [%value_4] align 8 region heap
     %info_word_9 = and i64 %header_word_8, -4
     %header_10 = ptr.from_int %info_word_9
-    %identity_11 = load.invariant ptr [%header_10] align 1 word
-    %matches_12 = eq ptr %identity_11, @aihc_c_aihc_entry_Just_0
-    br %matches_12, alt_6, alt_7
+    %matches_11 = eq ptr %header_10, @aihc_c_aihc_entry_Just_0
+    br %matches_11, alt_6, alt_7
 
   alt_6:
-    %payload_13 = load i64 [%value_4 + 8] align 8 region heap
-    %header_word_14 = load i64 [%$cps_return_5] align 8 region stack
-    %info_word_15 = and i64 %header_word_14, -4
-    %header_16 = ptr.from_int %info_word_15
-    %entry_17 = load.invariant code [%header_16 + 24] align 1 word
-    %chunk_word_18 = ptr.to_int %$cps_return_5
-    %chunk_last_19 = or i64 %chunk_word_18, 4095
-    %chunk_end_20 = add i64 %chunk_last_19, 1
-    %sp_limit_21 = ptr.from_int %chunk_end_20
-    %forward_25 = eq code %entry_17, null
-    br %forward_25, continue_slow_22, continue_chunk_23
+    %payload_12 = load i64 [%value_4 + 8] align 8 region heap
+    %header_word_13 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_14 = and i64 %header_word_13, -4
+    %header_15 = ptr.from_int %info_word_14
+    %entry_16 = load.invariant code [%header_15 + 24] align 1 word
+    %chunk_word_17 = ptr.to_int %$cps_return_5
+    %chunk_last_18 = or i64 %chunk_word_17, 4095
+    %chunk_end_19 = add i64 %chunk_last_18, 1
+    %sp_limit_20 = ptr.from_int %chunk_end_19
+    %forward_24 = eq code %entry_16, null
+    br %forward_24, continue_slow_21, continue_chunk_22
 
-  continue_chunk_23:
-    %same_chunk_26 = eq ptr %sp_limit_21, %sp_limit_3
-    br %same_chunk_26, continue_enter_24, continue_slow_22
+  continue_chunk_22:
+    %same_chunk_25 = eq ptr %sp_limit_20, %sp_limit_3
+    br %same_chunk_25, continue_enter_23, continue_slow_21
 
-  cold continue_slow_22:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_13)
+  cold continue_slow_21:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_12)
 
-  continue_enter_24:
-    tailcall.indirect %entry_17(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_13) : (ptr, ptr, ptr, ptr, ptr, i64)
+  continue_enter_23:
+    tailcall.indirect %entry_16(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_12) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
     call @aihc_no_match()
@@ -52,7 +51,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
 status: pass
 reason: |
   A case that can match no alternative has a default that is a case without
