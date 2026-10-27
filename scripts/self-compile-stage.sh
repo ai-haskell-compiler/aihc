@@ -21,9 +21,10 @@ Usage: scripts/self-compile-stage.sh --work-dir DIR --output FILE [OPTION]...
   --timeout SECONDS
                   Stop the build after SECONDS (default: 18000)
   --time-file FILE
-                  Write the build time in seconds to FILE. The time
-                  includes the aihc-base install and the aihc build. It
-                  does not include the source downloads.
+                  Install aihc-base and each Hackage package of the list
+                  first. Then build the local packages and the aihc
+                  executable, and write the time of that build in seconds
+                  to FILE.
   --help          Show this message
 
 The compiler is taken from $AIHC, and defaults to `aihc` on PATH.
@@ -201,8 +202,6 @@ run_with_timeout() {
 	fi
 }
 
-build_start="$(date +%s)"
-
 # The level is part of the identity of an installed package, so aihc-base is
 # installed at the level of the build.
 echo "Installing aihc-base for $target at -O$level"
@@ -214,7 +213,27 @@ if ! "$aihc" install core-libs/aihc-base \
 	exit 1
 fi
 
+# A build root keeps the packages that an install puts in place. Thus, the
+# build of aihc compiles only the packages that the build root does not have.
+if [ -n "$time_file" ]; then
+	while IFS=$'\t' read -r name version source; do
+		case "$source" in
+		hackage:*) ;;
+		*) continue ;;
+		esac
+		echo "Installing $name-$version for $target at -O$level"
+		if ! "$aihc" install "$workspace/$name" \
+			--store "$work_directory/store" --build-root "$work_directory/build" \
+			--target "$target" -O "$level" \
+			>>"$log_dir/dependencies.log" 2>&1; then
+			tail -n 50 "$log_dir/dependencies.log" >&2
+			exit 1
+		fi
+	done <<<"$packages"
+fi
+
 echo "Building the aihc executable of $root_name for $target at -O$level"
+build_start="$(date +%s)"
 status=0
 run_with_timeout "$aihc" build "$workspace/$root_name" --executable aihc \
 	--constraint "aihc -hackage -pretty-ui" \

@@ -55,8 +55,10 @@ trap cleanup EXIT
 {
 	echo "The [Self-Compile Performance workflow]($workflow_url) compiles aihc three times."
 	echo "Each build starts with an empty package store."
+	echo "Before the time starts, the build installs all dependencies of aihc."
+	echo "Thus, each time is for the local packages of this repository and the \`aihc\` executable."
+	echo "GHC compiles at its default level \`-O1\`."
 	echo "Each aihc build uses the native backend at \`-O2\` for \`linux-amd64\`."
-	echo "The aihc build times include the \`aihc-base\` install."
 	echo "Lower is better."
 	echo
 	echo "| Stage | Compiler | Build time | Relative to stage0 | Executable size |"

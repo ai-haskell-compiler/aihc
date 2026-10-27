@@ -2,10 +2,13 @@ name: Self-Compile Performance
 
 # Measure the time of each stage of the aihc self-compile. GHC compiles stage
 # 0 from an empty package store. Stage 0 compiles stage 1, and stage 1
-# compiles stage 2, each from an empty package store. Each stage after stage 0
-# uses the native backend at -O2. GHC also compiles at -O2. Each stage uses
-# the minimal configuration of aihc: no `hackage` flag and no `pretty-ui`
-# flag. The workflow opens a PR that puts the times in the README.
+# compiles stage 2, each from an empty package store. GHC compiles at its
+# default level -O1. Each stage after stage 0 uses the native backend at -O2.
+# Each stage uses the minimal configuration of aihc: no `hackage` flag and no
+# `pretty-ui` flag. The workflow opens a PR that puts the times in the README.
+#
+# Each stage installs the dependencies of aihc before the time starts. Thus,
+# each time is for the local packages and the aihc executable only.
 #
 # All stages run in one job, so all stages use the same machine. The cache
 # keeps only the source downloads of cabal, and not the compiled packages.
@@ -14,6 +17,10 @@ on:
   schedule:
     - cron: "37 2 * * 0"
   workflow_dispatch:
+  # Temporary: measure once on the PR branch. Remove before the merge.
+  push:
+    branches:
+      - claude/aihc-compile-perf-workflow-898b15
 
 permissions:
   contents: write
@@ -65,8 +72,7 @@ jobs:
           nix develop --quiet --command scripts/self-compile-ghc-stage.sh \
             --work-dir "$RUNNER_TEMP/ghc-stage0" \
             --output "$RUNNER_TEMP/stages/aihc-stage0" \
-            --time-file "$RUNNER_TEMP/times/stage0" \
-            -O "$OPTIMIZATION"
+            --time-file "$RUNNER_TEMP/times/stage0"
           nix develop --quiet --command ghc --numeric-version >"$RUNNER_TEMP/times/ghc-version"
 
       - name: Compile stage 1 with stage 0
@@ -117,6 +123,7 @@ jobs:
 
       # The action updates the open PR on the same branch. It does not open a second PR.
       - name: Open pull request for the README
+        if: github.event_name != 'push'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.AUTOMATION_PR_TOKEN }}

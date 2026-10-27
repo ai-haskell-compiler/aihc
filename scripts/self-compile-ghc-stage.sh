@@ -17,11 +17,11 @@ Usage: scripts/self-compile-ghc-stage.sh --work-dir DIR --output FILE [OPTION]..
   --list FILE     Read the package table from FILE
                   (default: docs/self-hosting-packages.md)
   -O LEVEL        Compile each package at GHC optimization level LEVEL:
-                  0, 1 or 2 (default: 2)
+                  0, 1 or 2 (default: 1, the default of cabal)
   --time-file FILE
-                  Write the build time in seconds to FILE. The time does
-                  not include the package index update and the source
-                  downloads.
+                  Write the build time in seconds to FILE. The time is for
+                  the local packages and the aihc executable only. The
+                  script builds the dependencies before it starts the time.
   --help          Show this message
 
 The package store is DIR/store. Thus, cabal compiles each dependency.
@@ -35,7 +35,7 @@ USAGE
 work_directory=""
 output=""
 list_file=""
-level="2"
+level="1"
 time_file=""
 
 while [ "$#" -gt 0 ]; do
@@ -194,8 +194,8 @@ cabal_build() {
 echo "Updating the package index"
 cabal update 2>&1 | tee "$log_dir/cabal-update.log"
 
-echo "Downloading the package sources"
-cabal_build --only-download 2>&1 | tee "$log_dir/download.log"
+echo "Building the dependencies with GHC $(ghc --numeric-version) at -O$level"
+cabal_build --only-dependencies 2>&1 | tee "$log_dir/dependencies.log"
 
 echo "Building the aihc executable with GHC $(ghc --numeric-version) at -O$level"
 build_start="$(date +%s)"
