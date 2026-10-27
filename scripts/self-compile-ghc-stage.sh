@@ -186,9 +186,20 @@ project_file="$work_directory/cabal.project"
 	echo "  executable-profiling: False"
 } >"$project_file"
 
+# The library of each local package and the aihc executable. With
+# --only-dependencies, cabal builds the packages below these targets and not
+# the targets themselves. Thus, the dependency step builds no local package.
+targets=()
+while IFS=$'\t' read -r name _ source; do
+	case "$source" in
+	local:*) targets+=("lib:$name") ;;
+	esac
+done <<<"$packages"
+targets+=("exe:aihc")
+
 cabal_build() {
 	cabal --store-dir="$work_directory/store" build \
-		--project-dir="$work_directory" exe:aihc "$@"
+		--project-dir="$work_directory" "$@" "${targets[@]}"
 }
 
 echo "Updating the package index"
