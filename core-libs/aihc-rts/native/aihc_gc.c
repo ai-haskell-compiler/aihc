@@ -1181,6 +1181,10 @@ static AihcStack *aihc_stack_new_unlocked(AihcCapability *capability,
   stack->thread = thread;
   stack->base = aihc_stack_chunk_new(capability, stack);
   stack->next = capability->machine->stacks;
+  stack->previous = NULL;
+  if (stack->next != NULL) {
+    stack->next->previous = stack;
+  }
   stack->top = NULL;
   stack->pending = NULL;
   stack->pending_count = 0;
@@ -1228,14 +1232,16 @@ void aihc_stack_move(AihcThread *thread, AihcCapability *capability) {
 
 static void aihc_stack_release_unlocked(AihcCapability *capability,
                                         AihcStack *stack) {
-  AihcStack **link = &capability->machine->stacks;
-  while (*link != stack) {
-    if (*link == NULL) {
-      aihc_fail("released stack is not registered");
-    }
-    link = &(*link)->next;
+  if (stack->previous != NULL) {
+    stack->previous->next = stack->next;
+  } else if (capability->machine->stacks == stack) {
+    capability->machine->stacks = stack->next;
+  } else {
+    aihc_fail("released stack is not registered");
   }
-  *link = stack->next;
+  if (stack->next != NULL) {
+    stack->next->previous = stack->previous;
+  }
   AihcStackChunk *chunk = stack->base;
   while (chunk != NULL) {
     AihcStackChunk *above = chunk->above;
