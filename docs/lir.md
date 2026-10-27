@@ -363,7 +363,7 @@ or `0`. The fields are, in order:
 | `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
 | `needs_eval` | `i8` | `@AIHC_NEEDS_EVAL_FOLLOW` (`2`) for an indirection, `@AIHC_NEEDS_EVAL_ENTER` (`1`) for a thunk and a blackhole, and `@AIHC_NEEDS_EVAL_NONE` (`0`) for every other kind. The inline evaluation check reads only this field, at `[%header + @AIHC_INFO_NEEDS_EVAL_OFFSET]`. |
 | `gc_words` | `i8` | The fixed object size in words, or zero for the general size path. The compiler caches node, closure, and thunk sizes that fit in one byte. An empty thunk has two words. |
-| `constructor_index` | `i16` | The index of a constructor in its data declaration, from zero, and `0` for every other object. Both tables of one constructor have the same index. A case with four constructor alternatives or more loads this field at `[%header + @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET]` and selects its alternative with a `switch`. A case with fewer alternatives compares the `identity` field. The lowering rejects a data type with more than 65536 constructors. |
+| `constructor_index` | `i16` | The index of a constructor in its data declaration, from zero, and `0` for every other object. Both tables of one constructor have the same index. A case with four constructor alternatives or more loads this field at `[%header + @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET]` and selects its alternative with a `switch`. A case with fewer alternatives compares the table address in the header. The lowering rejects a data type with more than 65536 constructors. |
 
 An ordinary object uses the `backend_entry` signature
 `(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()`.
