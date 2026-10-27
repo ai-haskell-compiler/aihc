@@ -17,10 +17,6 @@ on:
   schedule:
     - cron: "37 2 * * 0"
   workflow_dispatch:
-  # Temporary: measure once on the PR branch. Remove before the merge.
-  push:
-    branches:
-      - claude/aihc-compile-perf-workflow-898b15
 
 permissions:
   contents: write
@@ -123,7 +119,6 @@ jobs:
 
       # The action updates the open PR on the same branch. It does not open a second PR.
       - name: Open pull request for the README
-        if: github.event_name != 'push'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.AUTOMATION_PR_TOKEN }}
