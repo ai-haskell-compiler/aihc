@@ -128,9 +128,9 @@ closedReferences = go Set.empty
             OriginLocal {} -> Set.member name bound
         )
     go bound expr = case expr of
-      ExLam binder body -> scoped bound [binder] (\inner -> go inner body)
-      ExTyLam binder body -> scoped bound [binder] (\inner -> go inner body)
-      ExLet bind body -> go bound (bindRhs bind) && scoped bound [bindBinder bind] (\inner -> go inner body)
+      ExLam binder body -> scoped bound [binder] (`go` body)
+      ExTyLam binder body -> scoped bound [binder] (`go` body)
+      ExLet bind body -> go bound (bindRhs bind) && scoped bound [bindBinder bind] (`go` body)
       ExRec binds body -> scoped bound (map bindBinder binds) (\inner -> all (go inner . bindRhs) binds && go inner body)
       ExCase scrutinee binder alternatives -> go bound scrutinee && scoped bound (foldr (:) [] binder) (\inner -> all (alternative inner) alternatives)
       ExApp function argument -> go bound function && go bound argument
