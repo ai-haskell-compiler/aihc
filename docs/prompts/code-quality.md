@@ -52,7 +52,6 @@ Scan every Haskell module in these trees:
 - `bin/aihc/compiler/`
 - `bin/aihc/src/`
 - `bin/aihc/dev/`
-- `bin/aihc-fmt/`
 - `tooling/`
 
 Do not scan `core-libs/`.

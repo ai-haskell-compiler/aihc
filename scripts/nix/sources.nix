@@ -259,14 +259,6 @@ in rec {
     ".sh"
   ];
 
-  fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
-    ".hs"
-    ".hs-boot"
-    ".cabal"
-    ".yaml"
-    ".yml"
-  ];
-
   # The helper uses the shared compiler library.
   playSrc = mkRootSubsetSrc [
     "bin/aihc-play/"
