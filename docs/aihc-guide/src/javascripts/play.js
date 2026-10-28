@@ -129,7 +129,8 @@ async function fetchText(path) {
 // aihc-prim and aihc-base, written by the helper build. The file is gzip,
 // inflated here, so the size on the wire does not depend on the server.
 async function loadBundle() {
-  const response = await fetch(new URL("helper/core.bundle.gz", PLAY_ROOT));
+  const { cachedFetch } = await import(new URL("cache.js", PLAY_ROOT));
+  const response = await cachedFetch(new URL("helper/core.bundle.gz", PLAY_ROOT));
   if (!response.ok) throw new Error("cannot fetch the bundle of the core libraries: " + response.status);
   const inflated = response.body.pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(inflated).arrayBuffer());
@@ -495,7 +496,6 @@ function buildPlayground(root) {
     root.querySelector(".lazy-pane-input").append(el("div", { class: "lazy-run-controls" }, [run, stop]));
     status.setAttribute("role", "status");
     output.setAttribute("aria-label", "Program output");
-    status.textContent = "Select Run to compile the module.";
     let builder, program, activeId = 0, active = false, phase, count;
     let stdout, stderr, warming = false;
     const startBuilder = () => {
@@ -509,19 +509,65 @@ function buildPlayground(root) {
       if (builder) return;
       startBuilder();
       warming = true;
+      if (!active) status.textContent = "Download and start the compiler.";
       const worker = builder;
       worker.addEventListener("message", ({ data }) => {
-        if (data.id === 0 && worker === builder && ["warm", "error", "diagnostics"].includes(data.type)) warming = false;
+        if (data.id !== 0 || worker !== builder || !["warm", "error", "diagnostics"].includes(data.type)) return;
+        warming = false;
+        if (active) return;
+        if (data.type === "error") {
+          status.textContent = data.text;
+          resetBuilder();
+        } else {
+          status.textContent = "Select Run to compile the module.";
+        }
       });
       worker.postMessage({ id: 0, source: seed, warm: true });
     };
-    const visibility = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        visibility.disconnect();
-        warmUp();
-      }
+    // The playground downloads tens of megabytes. Thus it stays locked until
+    // the reader enables it. If the browser has all the files from an earlier
+    // visit, the playground starts without the question.
+    const panes = [...root.querySelectorAll(".lazy-pane")];
+    const enable = el("button", { type: "button", class: "lazy-run lazy-enable", text: "Enable the compiler in this browser" });
+    const note = el("p", { class: "lazy-consent-note", text: "Find the download size." });
+    const consent = el("div", { class: "lazy-consent" }, [enable, note]);
+    root.classList.add("lazy-locked");
+    for (const pane of panes) pane.inert = true;
+    root.append(consent);
+    const unlock = () => {
+      root.classList.remove("lazy-locked");
+      for (const pane of panes) pane.inert = false;
+      consent.remove();
+      status.textContent = "Select Run to compile the module.";
+    };
+    enable.addEventListener("click", () => {
+      unlock();
+      warmUp();
     });
-    visibility.observe(root);
+    import(new URL("cache.js", PLAY_ROOT))
+      .then((cache) => cache.downloadSize())
+      .then(({ missing }) => {
+        if (missing > 0) {
+          const size = Math.max(1, Math.round(missing / 1e6)) + " MB";
+          enable.textContent = "Enable the compiler in this browser (" + size + ")";
+          note.textContent =
+            "The compiler and the linker run in your browser. This button downloads " + size +
+            " of files. The browser keeps the files for your next visit.";
+          return;
+        }
+        unlock();
+        // The first build in a worker is slow, so do it before the first Run.
+        const visibility = new IntersectionObserver((entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            visibility.disconnect();
+            warmUp();
+          }
+        });
+        visibility.observe(root);
+      })
+      .catch(() => {
+        note.textContent = "The compiler and the linker run in your browser. This button downloads their files.";
+      });
     const destroy = (worker) => {
       worker?.terminate();
       playWorkers.delete(worker);
