@@ -70,7 +70,7 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
       -- The whole program is known here, so the inliner keeps only the
       -- entry and what it reaches.
-      optimized <- optimizeFcProgram (Fc.programEnv primPackage [entryName]) config verbose "program" merged
+      optimized <- optimizeFcProgram (Fc.programEnv primPackage [entryName]) config (compileProgramPasses config) verbose "program" merged
       -- Inlining drops the values that its copies made dead, and with them
       -- the last reference to a type or a constructor. Prune again, so that
       -- those constructors emit no info table. No pass comes after this

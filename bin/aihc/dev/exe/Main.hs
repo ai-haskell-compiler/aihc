@@ -348,7 +348,12 @@ runCommand (FcPasses primPackage paths level shown) = do
       let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
       TIO.hPutStrLn stderr ("merged " <> T.pack (show (length programs)) <> " modules, " <> T.pack (show (length (Fc.programDecls merged))) <> " reachable declarations")
       pure (merged, Fc.programEnv primPackage [entryName])
-  let passes = planPasses (optimizationPlan True level)
+  -- The passes of the layer that the paths name: the module layer for one
+  -- module, and the program layer for a merged program.
+  let plan = optimizationPlan True level
+      passes = case paths of
+        [_] -> planModulePasses plan
+        _ -> planModulePasses plan <> planProgramPasses plan
       showDecls label next =
         mapM_
           (\(name, text) -> when (maybe False ((`elem` map T.pack shown) . Fc.nameText) name) (TIO.putStrLn ("-- " <> label) >> TIO.putStrLn text))

@@ -373,7 +373,7 @@ renderFcCase tc =
             let grafted = graftInterfaces primPackage (take index interfaces) program
                 env = PassEnv primPackage (declaredHome program) Nothing
                 optimized = fst (runPasses env (casePasses tc) (graftedProgram grafted))
-             in stripInterfaces primPackage grafted optimized
+             in stripInterfaces primPackage (declaredHome program) grafted optimized
           results = zipWith optimize [0 ..] programs
        in case traverse renderResult results of
             Left renderError -> Left renderError

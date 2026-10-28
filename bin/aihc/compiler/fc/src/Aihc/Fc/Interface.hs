@@ -48,7 +48,7 @@ import Aihc.Fc.Imports (exprReferences, restrictProgram)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (ruleHeadName)
-import Aihc.Fc.Simplify (isInlinable)
+import Aihc.Fc.Simplify (isInlinable, substExpr)
 import Aihc.Fc.Size (exprSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (typeEnvFromProgram)
@@ -268,11 +268,17 @@ graftInterfaces primPackage interfaces program =
 -- value is left to fire it. A rule of an imported value stays; nothing
 -- lowers a rule, so it reaches no object.
 --
+-- A copy that stays becomes a value of this module, and its name says
+-- so. A whole-program build merges this program with the program of the
+-- module that the copy came from, and the two must not declare one name.
+-- The rename comes after the removal, because the rules above read the
+-- names that the graft gave.
+--
 -- The declarations that are not values stay as they are. The types of a
 -- module are its own, and the module emits them whether a value of it
 -- names them or not.
-stripInterfaces :: PackageId -> Grafted -> Program -> Program
-stripInterfaces primPackage grafted program = restrictProgram primPackage keep program
+stripInterfaces :: PackageId -> Home -> Grafted -> Program -> Program
+stripInterfaces primPackage home grafted program = rename (restrictProgram primPackage keep program)
   where
     removed = graftedExported grafted
     values = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls program, Set.notMember (valName declaration) removed]
@@ -295,6 +301,30 @@ stripInterfaces primPackage grafted program = restrictProgram primPackage keep p
         DeclVal declaration -> Set.member (valName declaration) reachable
         DeclRule rule -> keepsRule rule
         _ -> True
+    -- A copy that this module keeps becomes a value of this module. Its
+    -- name says so, because a whole-program build merges this program
+    -- with the program of the module that the copy came from, and the two
+    -- must not declare one name. Two consumers of one private value also
+    -- keep one copy each.
+    renamings =
+      Map.fromList
+        [ (name, derivedTopName home name (nameText name))
+        | name <- Set.toList (Set.intersection (graftedPrivate grafted) reachable)
+        ]
+    rename current
+      | Map.null renamings = current
+      | otherwise = current {programDecls = map renameDecl (programDecls current)}
+    substitution = Map.map ExVar renamings
+    renameDecl decl =
+      case decl of
+        DeclVal declaration ->
+          DeclVal
+            declaration
+              { valName = Map.findWithDefault (valName declaration) (valName declaration) renamings,
+                valBody = substExpr substitution (valBody declaration)
+              }
+        DeclRule rule -> DeclRule rule {ruleLhs = substExpr substitution (ruleLhs rule), ruleRhs = substExpr substitution (ruleRhs rule)}
+        _ -> decl
 
 -- | The value names that a declaration names.
 declValueNames :: Decl -> Set Name

@@ -21,26 +21,41 @@ data OptimizationPlan = OptimizationPlan
   { -- | Whether the modules of the program stop at System FC, to be
     -- merged and compiled once as one program.
     planWholeProgram :: !Bool,
-    -- | The System FC passes, in order. They run on each module at a
-    -- per-module scope, and on the merged program at a whole-program
-    -- scope.
-    planPasses :: ![Fc.Pass],
+    -- | The System FC passes of each module, in order. They run on one
+    -- module at a time, in the order the modules import each other, with
+    -- the optimizer interfaces of the modules each one imports.
+    planModulePasses :: ![Fc.Pass],
+    -- | The System FC passes of the whole program, in order. They run
+    -- once, on the merged program of a whole-program plan, after the
+    -- passes of each module.
+    planProgramPasses :: ![Fc.Pass],
     -- | Whether the whole program gets the heap points-to analysis of GRIN
     -- and the rewrites that its result permits.
     planGrinPointsTo :: !Bool,
     -- | Whether each module publishes its optimizer interface, and reads
-    -- the interfaces of the modules it imports. Only a plan that
-    -- optimizes each module on its own has a use for them: a
-    -- whole-program plan already sees every module, and a plan without
-    -- passes copies nothing. See "Aihc.Fc.Interface".
+    -- the interfaces of the modules it imports. A plan whose module
+    -- passes copy nothing has no use for them. See "Aihc.Fc.Interface".
     planModuleInterfaces :: !Bool
   }
   deriving (Eq, Show)
 
 -- | The plan of a level, under the @--lto@ flag.
 --
--- @-O0@ runs nothing. @-Os@ runs the shrinking inliner. @-O1@ and @-O2@
--- share their initial shrinking passes with @-Os@.
+-- A plan has two layers. The module layer runs on one module at a time,
+-- in the order the modules import each other, and each module reads the
+-- optimizer interfaces of the modules it imports. The program layer runs
+-- once, on the merged program of a whole-program plan, after the module
+-- layer of every module.
+--
+-- @-O2@ is @-O1@ and one layer above it: the two share their module
+-- layer, and only @-O2@ has a program layer. The program layer holds the
+-- passes that need the whole program, and the passes that clean up after
+-- them. The module layer already made the copies that the growing
+-- inliner makes, so the program layer does not run it again.
+--
+-- @-O0@ runs nothing. @-Os@ runs the shrinking inliner on the whole
+-- program. @-O1@ and @-O2@ share their initial shrinking passes with
+-- @-Os@.
 -- The growing inliner exposes calls before specialization in phase 2.
 -- Eta expansion runs before the inliner, so
 -- that a value it turns into a function is a saturated call for the
@@ -55,22 +70,40 @@ data OptimizationPlan = OptimizationPlan
 -- scope at the other levels without changing their passes. @-O2@ and @-Os@
 -- also run the heap points-to analysis of GRIN on the whole program. Each of
 -- its rewrites removes code or replaces a runtime dispatch with a direct
--- jump, so it serves a small executable as well as a fast one. Only @-O2@
--- adds 'superSpecialisation', which makes copies of functions for known
--- dictionaries and function arguments.
+-- jump, so it serves a small executable as well as a fast one.
 optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
   withInterfaces $ case level of
-    O0 -> plan {planWholeProgram = lto, planPasses = []}
-    O1 -> plan {planWholeProgram = lto, planPasses = shrink <> specialise <> split <> grow}
-    O2 -> plan {planWholeProgram = True, planPasses = superSpecialisation (shrink <> specialise <> split <> grow), planGrinPointsTo = True}
-    Os -> plan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
+    O0 -> plan {planWholeProgram = lto}
+    -- With @--lto@ the modules of @-O1@ merge, and the merged program
+    -- gets the same passes, as it did before the plan had two layers.
+    O1 -> plan {planWholeProgram = lto, planModulePasses = modulePasses, planProgramPasses = if lto then modulePasses else []}
+    O2 -> plan {planWholeProgram = True, planModulePasses = modulePasses, planProgramPasses = programPasses, planGrinPointsTo = True}
+    Os -> plan {planWholeProgram = True, planProgramPasses = shrink <> finish, planGrinPointsTo = True}
   where
-    plan = OptimizationPlan {planWholeProgram = False, planPasses = [], planGrinPointsTo = False, planModuleInterfaces = False}
-    -- The interfaces serve the plans that optimize each module on its
-    -- own. A whole-program plan sees every module already, and a plan
-    -- without passes copies nothing.
-    withInterfaces current = current {planModuleInterfaces = not (planWholeProgram current) && not (null (planPasses current))}
+    plan =
+      OptimizationPlan
+        { planWholeProgram = False,
+          planModulePasses = [],
+          planProgramPasses = [],
+          planGrinPointsTo = False,
+          planModuleInterfaces = False
+        }
+    -- A plan whose module layer is empty copies nothing from an
+    -- interface, so it reads none and writes none.
+    withInterfaces current = current {planModuleInterfaces = not (null (planModulePasses current))}
+    -- The module layer of @-O1@ and @-O2@.
+    modulePasses = shrink <> specialise <> split <> grow
+    -- The program layer of @-O2@: the module layer again, on the whole
+    -- program, and super-specialisation, which makes copies for known
+    -- dictionaries and function arguments.
+    --
+    -- Each pass of the module layer sees more in the whole program than
+    -- in one module: the interface of a module offers the bodies within
+    -- its limits, and the merged program holds every body. The layer thus
+    -- runs again rather than only once per module, and the module layer
+    -- below it leaves it less to do.
+    programPasses = superSpecialisation modulePasses
     -- The phases count down from 2 to 0.
     -- Phase 2 keeps producer rules active until specialization finishes.
     shrink = [Fc.PassListFusion, Fc.PassEtaExpand, Fc.PassSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
@@ -104,10 +137,11 @@ optimizationPlan lto level =
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     rounds = 4
 
--- | The super-specialisation of @-O2@. It runs after the first shrinking
--- inliner and before the first demand analysis. The passes at the end
--- clean up after it: the specialised copies expose new strict calls, so
--- demand analysis runs again, and sharing is restored after it.
+-- | The super-specialisation of the program layer of @-O2@. It runs after
+-- the first shrinking inliner and before the first demand analysis. The
+-- passes at the end clean up after it: the specialised copies expose new
+-- strict calls, so demand analysis runs again, and sharing is restored
+-- after it.
 superSpecialisation :: [Fc.Pass] -> [Fc.Pass]
 superSpecialisation passes = insert passes <> [Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassSimplify 0, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
   where

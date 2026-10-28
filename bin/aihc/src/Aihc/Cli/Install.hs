@@ -472,9 +472,13 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- the whole program and compiles it once. @--lto@ sets this, and so
     -- does a level that optimizes.
     compileLto :: !Bool,
-    -- | The System FC passes of the plan, in order. They run on each
-    -- module, or on the merged program of a whole-program build.
-    compilePasses :: ![Fc.Pass],
+    -- | The System FC passes of each module, in order. They run on one
+    -- module at a time, whatever the scope of the plan.
+    compileModulePasses :: ![Fc.Pass],
+    -- | The System FC passes of the whole program, in order. They run
+    -- once, on the merged program of a whole-program build, after the
+    -- passes of each module.
+    compileProgramPasses :: ![Fc.Pass],
     -- | Run the heap points-to analysis of GRIN and its rewrites on each
     -- program that the backend lowers. Only a whole-program plan sets it.
     compileGrinPointsTo :: !Bool,
@@ -692,7 +696,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileLint = False,
         compileCheckPrimBounds = False,
         compileLto = planWholeProgram plan,
-        compilePasses = planPasses plan,
+        compileModulePasses = planModulePasses plan,
+        compileProgramPasses = planProgramPasses plan,
         compileGrinPointsTo = planGrinPointsTo plan,
         compileModuleInterfaces = planModuleInterfaces plan,
         compileProfileAllocations = False,
@@ -3092,9 +3097,11 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
                   )
               )
           )
-    -- A @--lto@ build keeps the System FC of every module: it is what the
-    -- executable compiles.
-    when (keepCore || lto) (mapM_ writeFcModule fcModules)
+    -- The backend writes the System FC that it lowers, which is the
+    -- program of the module layer. Without a backend task there is no
+    -- such program, so a @--keep-core@ build keeps the program of the
+    -- desugarer.
+    when (keepCore && noCode) (mapM_ writeFcModule fcModules)
     -- The interface of a module comes from the program of the desugarer,
     -- and not from the optimized program: the body that an INLINE pragma
     -- offers is the body of the source, as it is in GHC. The modules
@@ -3106,7 +3113,7 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
   where
     keepCore = compileKeepCore config
     lint = compileLint config
-    lto = compileLto config
+    noCode = compileNoCode config
     interfaces = compileModuleInterfaces config
 
     writeInterface fcModule = do
@@ -3127,25 +3134,30 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
 -- state of the unit is gone.
 compileUnitFcModules :: PackageId -> ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [Fc.Program] -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
 compileUnitFcModules primPackage config capiOptions verbose outputPaths interfaces pending = do
+  -- The module layer runs whatever the scope of the plan: a whole-program
+  -- build merges the modules that it optimized, and not the modules that
+  -- the desugarer gave.
+  --
+  -- The modules of a unit are optimized in the order the unit holds them,
+  -- and each one reads the interfaces of the modules it imports. A module
+  -- of the same unit is in a cycle with this one, so it offers nothing:
+  -- its own passes have not run.
+  optimized <- forM (pendingFcModules pending) $ \fcModule -> do
+    let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
+        grafted = Fc.graftInterfaces primPackage interfaces (fcProgram fcModule)
+    unless (null interfaces) $
+      verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedExported grafted) + Set.size (Fc.graftedPrivate grafted)) <> " values")
+    program <- optimizeFcProgram env config (compileModulePasses config) verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
+    let stripped = Fc.stripInterfaces primPackage (fcModuleHome fcModule) grafted program
+    lintOptimized primPackage config "strip interfaces" (fcModuleName fcModule) stripped
+    pure fcModule {fcProgram = stripped}
+  -- A @--lto@ build keeps the System FC of every module: it is what the
+  -- executable compiles. A @--keep-core@ build keeps it to be read.
+  when (keepCore || lto) (mapM_ writeFcModule optimized)
   (grinNs, nativeNs) <-
     if lto
       then pure (0, 0)
-      else do
-        -- Each module is inlined on its own: the program is not known here.
-        -- The modules of a unit are optimized in the order the unit holds
-        -- them, and each one reads the interfaces of the modules it
-        -- imports. A module of the same unit is in a cycle with this one,
-        -- so it offers nothing: its own passes have not run.
-        optimized <- forM (pendingFcModules pending) $ \fcModule -> do
-          let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
-              grafted = Fc.graftInterfaces primPackage interfaces (fcProgram fcModule)
-          unless (null interfaces) $
-            verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedExported grafted) + Set.size (Fc.graftedPrivate grafted)) <> " values")
-          program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
-          let stripped = Fc.stripInterfaces primPackage grafted program
-          lintOptimized primPackage config "strip interfaces" (fcModuleName fcModule) stripped
-          pure fcModule {fcProgram = stripped}
-        compileFcModules primPackage config verbose outputPaths optimized
+      else compileFcModules primPackage config verbose outputPaths optimized
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
   (capiOutputs, capiNs) <- measureTime (concat <$> mapM (uncurry buildCapiStub) (pendingCapiStubs pending))
@@ -3160,7 +3172,12 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
     )
   where
     lto = compileLto config
+    keepCore = compileKeepCore config
     target = compileTarget config
+
+    writeFcModule fcModule = do
+      Fc.writeProgramFile (outputFcPath (outputPaths (fcModuleName fcModule))) (fcProgram fcModule)
+      verbose ("Write FC: " <> T.unpack (fcModuleName fcModule))
 
     -- The C wrappers of a module's capi imports are compiled beside its
     -- object and archived with it, so a module that declares none must leave
@@ -3190,19 +3207,19 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
           headers <- filter (/= source') <$> mapM canonicalizePath (parseDependencyFile recorded)
           pure [CapiStubOutput name (sortOn id (nub headers))]
 
--- | Run the System FC passes of the plan on a program, in order. The
--- environment names the scope: the module of a per-module plan, or the
--- roots of a whole program. Each pass is logged under @--verbose@ and the
+-- | Run the given System FC passes on a program, in order. The
+-- environment names the scope: the module of a module layer, or the roots
+-- of a whole program. Each pass is logged under @--verbose@ and the
 -- program is linted after each under @--lint@.
 --
--- The passes come from the plan of the level; nothing here reads the
--- level. See @docs/optimization.md@.
+-- The passes are one layer of the plan of the level; nothing here reads
+-- the level. See @docs/optimization.md@.
 --
 -- The passes copy foreign calls, so the result gets the canonical foreign
 -- call types: equal calls are equal values.
-optimizeFcProgram :: Fc.PassEnv -> ModuleCompileConfig -> (String -> IO ()) -> Text -> Fc.Program -> IO Fc.Program
-optimizeFcProgram env config verbose name input =
-  Fc.canonicalForeignCalls <$> foldM step input (compilePasses config)
+optimizeFcProgram :: Fc.PassEnv -> ModuleCompileConfig -> [Fc.Pass] -> (String -> IO ()) -> Text -> Fc.Program -> IO Fc.Program
+optimizeFcProgram env config passes verbose name input =
+  Fc.canonicalForeignCalls <$> foldM step input passes
   where
     primPackage = Fc.envPrimPackage env
     step program pass = do
