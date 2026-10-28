@@ -121,10 +121,6 @@ else
   cp -R "$tools/assets/." "$output/tools/$version/"
   tools_url="./tools/$version/tools.js"
 fi
-node --input-type=module - "$output/tools.json" "$tools_url" <<'JS'
-import { writeFile } from "node:fs/promises";
-await writeFile(process.argv[2], JSON.stringify({ url: process.argv[3] }));
-JS
 cp "$root/docs/aihc-guide/src/play/run.js" "$output/run.js"
 cp "$root/docs/aihc-guide/src/play/host.js" "$output/host.js"
 cp "$root/docs/aihc-guide/src/play/program.js" "$output/program.js"
@@ -161,6 +157,9 @@ cp "$work/out/aihc-play-component.js" "$output/"
 for core in "$work/out/"*.wasm; do
   gzip -9 -n -c "$core" > "$output/$(basename "$core").gz"
 done
+# tools.json lists the downloads of the program playground. Write it after
+# all the files are in the output directory.
+node "$root/scripts/write-play-manifest.mjs" "$output" "$tools_url" "$tools/assets"
 for asset in "$output/"*; do
   [[ -f "$asset" ]] || continue
   if [[ $(wc -c < "$asset") -gt 26214400 ]]; then
