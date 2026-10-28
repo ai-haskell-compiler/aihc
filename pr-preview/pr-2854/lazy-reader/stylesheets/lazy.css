@@ -691,3 +691,40 @@
 .lazy-program-stderr {
   color: var(--lazy-bad, #b33);
 }
+
+/* The program playground stays locked until the reader enables it. */
+.lazy-play {
+  position: relative;
+}
+
+.lazy-locked > .lazy-pane {
+  filter: grayscale(1);
+  opacity: 0.35;
+}
+
+.lazy-consent {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 1rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--lazy-surface) 75%, transparent);
+  text-align: center;
+}
+
+.lazy-run.lazy-enable {
+  padding: 0.6rem 1.4rem;
+  border-color: var(--lazy-accent);
+  font-weight: 600;
+}
+
+.md-typeset .lazy-consent-note {
+  max-width: 28rem;
+  margin: 0;
+  color: var(--lazy-ink);
+  font-size: 0.85em;
+}

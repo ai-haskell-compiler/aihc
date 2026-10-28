@@ -1,3 +1,9 @@
+import { cachedFetch, manifest } from "../cache.js";
+
+// The browser tools fetch their files with the global fetch. With this
+// fetch, the browser keeps the files for the next visit.
+globalThis.fetch = cachedFetch;
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let requestId;
@@ -63,10 +69,7 @@ const fromBase64 = (text) => Uint8Array.fromBase64
   : Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
 
 async function loadTools() {
-  const response = await fetch(new URL("tools.json", import.meta.url));
-  if (!response.ok) throw new Error("Cannot load the tool configuration: " + response.status);
-  const config = await response.json();
-  return import(new URL(config.url, import.meta.url).href);
+  return import((await manifest()).url);
 }
 
 async function loadRuntime() {
