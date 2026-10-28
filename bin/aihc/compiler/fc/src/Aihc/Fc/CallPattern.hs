@@ -49,11 +49,12 @@ where
 import Aihc.Fc.Demand (productConstructor)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (collectSpine, exprValueNames, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall, simplifyProgram, substExpr)
+import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall, simplifyProgram, substExpr)
 import Aihc.Fc.Size (isLiftedBinder, isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, repOf, substType, typeEnvFromProgram)
+import Aihc.Fc.Views (exprMentionsAny)
 import Aihc.Fc.WorkerWrapper (Parameter (..), instantiate, splitLambdas, takeArrows, workerType)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
@@ -283,7 +284,7 @@ specialiseLoop env (Bind binder rhs) body =
       case parameter of
         Keep param -> [param]
         Unbox {} -> fields
-    mentions var expr = Set.member var (exprValueNames expr)
+    mentions var = exprMentionsAny (Set.singleton var)
 
 -- | The calls of a loop in an expression that give it all its value
 -- arguments: the type arguments and the value arguments of each.
