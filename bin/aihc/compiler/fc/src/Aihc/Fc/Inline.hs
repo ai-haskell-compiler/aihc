@@ -322,10 +322,35 @@ closedApplication expression =
 
 -- * Driver
 
+-- | Strict metadata prevents cache entries from retaining earlier inliner states.
+data CandidateVersion = CandidateVersion !Int !CandidateSites !Bool !Bool
+  deriving (Eq)
+
+-- | Inputs and state changes of a visit that left the body unchanged.
+-- Body versions replace expression comparisons. Dependencies include candidate
+-- bodies, known values, and rule results. Rules stay fixed throughout the pass.
+-- A cache hit preserves counters and the fresh-name supply.
+data StableVisit = StableVisit
+  { visitCandidates :: !(Map Name CandidateVersion),
+    visitReferences :: !(Set Name),
+    visitKnown :: !(Map Name Int),
+    visitArities :: !(Map Name Int),
+    visitDiverging :: !Diverging,
+    visitCredit :: !Int,
+    visitAllowance :: !Int,
+    visitSupply :: !Int,
+    visitSites :: !Int,
+    visitRules :: !Int,
+    visitExempt :: !Int
+  }
+
 data Inliner = Inliner
   { inEnv :: !TypeEnv,
     inDecls :: !(Map Name ValDecl),
     inBodies :: !(Map Name Expr),
+    inVersions :: !(Map Name Int),
+    inVisits :: !(Map Name StableVisit),
+    inRuleRefs :: !(Map Name (Set Name)),
     -- | The uses of each top-level value in each body.
     inBodyUses :: !(Map Name (Map Name Int)),
     -- | The calls in each body use the arities at the start of the round.
@@ -398,6 +423,9 @@ initialInliner config env decls supply =
     { inEnv = env,
       inDecls = declarations,
       inBodies = bodies,
+      inVersions = Map.map (const 0) bodies,
+      inVisits = Map.empty,
+      inRuleRefs = Map.map (Set.unions . map (exprValueNames . ruleRhs)) rules,
       inBodyUses = uses,
       inBodyCalls = calls,
       inBodyArities = arities,
@@ -416,7 +444,7 @@ initialInliner config env decls supply =
       inSites = 0,
       inChanged = False,
       inRoots = roots,
-      inRules = ruleTable (inlinePhase config) decls,
+      inRules = rules,
       inSignatures = topLevelSignatures env decls,
       inSpecs = Map.union (Map.map snd aliases) (Map.map valInline declarations),
       inDictionaryFunctions = Map.keysSet (Map.filter dictionaryFunction declarations),
@@ -424,6 +452,7 @@ initialInliner config env decls supply =
       inRulesFired = 0
     }
   where
+    rules = ruleTable (inlinePhase config) decls
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
     arities = Map.map functionArity bodies
@@ -550,6 +579,8 @@ inlineRound config st0 = List.foldl' step st0 sccs
     graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
+    -- Known values use the round-start bodies, so their versions must match.
+    knownVersions = Map.restrictKeys (inVersions st0) (Map.keysSet known)
     diverging = divergingValues (inEnv st0) (Map.toList (inBodies st0))
     recursive = Set.fromList (concat [names | CyclicSCC names <- sccs])
     -- The uses that the copies of the templates add. A template is copied
@@ -566,8 +597,8 @@ inlineRound config st0 = List.foldl' step st0 sccs
         ]
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config known diverging recursive inTemplates st name
-        CyclicSCC names -> List.foldl' (simplifyValue config known diverging recursive inTemplates) st names
+        AcyclicSCC name -> simplifyValue config known knownVersions diverging recursive inTemplates st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known knownVersions diverging recursive inTemplates) st names
 
 -- | Whether a value is a template: its @INLINE@ pragma asks for a copy at
 -- every call in the phases it names, so its body is what every call gets.
@@ -578,8 +609,8 @@ isTemplate st name =
     _ -> False
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Expr -> Diverging -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
-simplifyValue config known diverging recursive inTemplates st name
+simplifyValue :: InlineConfig -> Map Name Expr -> Map Name Int -> Diverging -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
+simplifyValue config known knownVersions diverging recursive inTemplates st name
   | name `Set.member` inDead st = st
   | otherwise =
       case Map.lookup name (inBodies st) of
@@ -621,6 +652,61 @@ simplifyValue config known diverging recursive inTemplates st name
                     -- copy together replaces it or its pragma asks for it.
                     every || requested || withinLimit
                   ]
+              candidateVersions =
+                Map.mapWithKey
+                  ( \callee candidate ->
+                      CandidateVersion
+                        (inVersions st Map.! callee)
+                        (candidateSites candidate)
+                        (candidateRequested candidate)
+                        (guidanceTailsKnown (candidateGuidanceOf candidate))
+                  )
+                  candidates
+              oldSize = guidanceSize (inGuidance st Map.! name)
+              credit = Map.findWithDefault 0 name (inCallArities st)
+              allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
+              sameVisit previous =
+                visitCandidates previous == candidateVersions
+                  && visitCredit previous == credit
+                  && visitAllowance previous == allowance
+                  && visitKnown previous == Map.restrictKeys knownVersions (visitReferences previous)
+                  && visitArities previous == Map.restrictKeys arities (visitReferences previous)
+                  && visitDiverging previous == Map.restrictKeys diverging (visitReferences previous)
+              cached = Map.lookup name (inVisits st) >>= \previous -> if sameVisit previous then Just previous else Nothing
+              -- Follow only bodies that the simplifier can expose at this visit.
+              -- Ordinary callees outside the candidate map remain opaque.
+              dependencies = close Set.empty (Set.toList initialReferences)
+                where
+                  initialReferences =
+                    Map.keysSet (inBodyUses st Map.! name)
+                      <> Map.keysSet candidates
+                      <> Set.unions [Map.keysSet (inBodyUses st Map.! callee) | callee <- Map.keys candidates]
+                  close visited pending = case pending of
+                    [] -> visited
+                    callee : rest
+                      | Set.member callee visited -> close visited rest
+                      | otherwise ->
+                          close
+                            (Set.insert callee visited)
+                            ( Set.toList
+                                ( maybe Set.empty exprValueNames (Map.lookup callee known)
+                                    <> Map.findWithDefault Set.empty callee (inRuleRefs st)
+                                )
+                                <> rest
+                            )
+              visit simplState =
+                StableVisit
+                  candidateVersions
+                  dependencies
+                  (Map.restrictKeys knownVersions dependencies)
+                  (Map.restrictKeys arities dependencies)
+                  (Map.restrictKeys diverging dependencies)
+                  credit
+                  allowance
+                  (ssSupply simplState - inSupply st)
+                  (ssInlined simplState)
+                  (ssRulesFired simplState)
+                  (ssExempt simplState)
               -- A body that references no candidate, scrutinises nothing
               -- known, and binds no local function that a call can reduce
               -- is left alone.
@@ -630,64 +716,65 @@ simplifyValue config known diverging recursive inTemplates st name
                   && not (hasLocalCandidate body)
                   && not (hasLiteralPrimitiveCall body)
                   && not (any (`Map.member` inRules st) (Set.toList (exprValueNames body)))
-           in if skip
-                then st
-                else
-                  let oldSize = guidanceSize (inGuidance st Map.! name)
-                      simpl =
-                        Simpl
-                          { spEnv = inEnv st,
-                            spInline = candidates,
-                            spKnown = known,
-                            spArity = arities,
-                            spLocals = Map.empty,
-                            spLocalDictionaries = Map.empty,
-                            spExcluded = Map.empty,
-                            spCse = Map.empty,
-                            spEvaluated = Set.empty,
-                            spDone = Map.empty,
-                            spSiteLimit = policySiteLimit policy,
-                            spRequestedSiteLimit = policyRequestedSiteLimit policy,
-                            spReducingSiteLimit = policyReducingSiteLimit policy,
-                            spDiscount = policyFunctionArgumentDiscount policy,
-                            spRules = inRules st,
-                            spSignatures = inSignatures st,
-                            spCredit = credit,
-                            spInside = False,
-                            spCredits = snd (callArityAnalysis credit False body),
-                            spSpeculative = False,
-                            spLazyField = False,
-                            spCaseContext = Nothing,
-                            spLocalCandidates = Map.empty,
-                            spInTemplate = isTemplate st name,
-                            spFacts = emptyFacts,
-                            spEscapes = True,
-                            spDiverging = diverging
-                          }
-                      credit = Map.findWithDefault 0 name (inCallArities st)
-                      -- What this value may still grow by: its limit less
-                      -- its size now. A value that shrank in an earlier
-                      -- round may grow back to the limit.
-                      allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
-                      (body', simplState) =
-                        runState (simplifyExpr simpl body) (initialSimplState (inSupply st) allowance)
-                      changed = body' /= body
-                      updated = if changed then updateBody st name body' else st
-                      oldUses = inBodyUses st Map.! name
-                      newUses = inBodyUses updated Map.! name
-                      counts' = Map.unionWith (+) (Map.unionWith (+) (inCounts st) newUses) (Map.map negate oldUses)
-                      calls' = Map.unionWith (+) (Map.unionWith (+) (inCalls st) (inBodyCalls updated Map.! name)) (Map.map negate (inBodyCalls st Map.! name))
-                   in killDead
-                        updated
-                          { inLimits = Map.adjust (+ ssExempt simplState) name (inLimits st),
-                            inCounts = counts',
-                            inCalls = calls',
-                            inSupply = ssSupply simplState,
-                            inSites = inSites st + ssInlined simplState,
-                            inRulesFired = inRulesFired st + ssRulesFired simplState,
-                            inChanged = inChanged st || changed
-                          }
-                        (Map.keys oldUses)
+           in case cached of
+                Just previous ->
+                  killDead
+                    st
+                      { inSupply = inSupply st + visitSupply previous,
+                        inSites = inSites st + visitSites previous,
+                        inRulesFired = inRulesFired st + visitRules previous,
+                        inLimits = Map.adjust (+ visitExempt previous) name (inLimits st)
+                      }
+                    (Map.keys (inBodyUses st Map.! name))
+                Nothing ->
+                  if skip
+                    then st
+                    else
+                      let simpl =
+                            Simpl
+                              { spEnv = inEnv st,
+                                spInline = candidates,
+                                spLocals = Map.empty,
+                                spLocalDictionaries = Map.empty,
+                                spExcluded = Map.empty,
+                                spCse = Map.empty,
+                                spEvaluated = Set.empty,
+                                spDone = Map.empty,
+                                spCredit = credit,
+                                spInside = False,
+                                spCredits = snd (callArityAnalysis credit False body),
+                                spSpeculative = False,
+                                spLazyField = False,
+                                spCaseContext = Nothing,
+                                spLocalCandidates = Map.empty,
+                                spFacts = emptyFacts,
+                                spEscapes = True,
+                                spFixed = SimplFixed {spKnown = known, spArity = arities, spSiteLimit = policySiteLimit policy, spRequestedSiteLimit = policyRequestedSiteLimit policy, spReducingSiteLimit = policyReducingSiteLimit policy, spDiscount = policyFunctionArgumentDiscount policy, spRules = inRules st, spSignatures = inSignatures st, spInTemplate = isTemplate st name, spDiverging = diverging}
+                              }
+                          (body', simplState) =
+                            runState (simplifyExpr simpl body) (initialSimplState (inSupply st) allowance)
+                          changed = body' /= body
+                          visits
+                            | inlineRounds config <= 1 = inVisits st
+                            | changed = Map.delete name (inVisits st)
+                            | otherwise = Map.insert name (visit simplState) (inVisits st)
+                          updated = if changed then updateBody st name body' else st
+                          oldUses = inBodyUses st Map.! name
+                          newUses = inBodyUses updated Map.! name
+                          counts' = Map.unionWith (+) (Map.unionWith (+) (inCounts st) newUses) (Map.map negate oldUses)
+                          calls' = Map.unionWith (+) (Map.unionWith (+) (inCalls st) (inBodyCalls updated Map.! name)) (Map.map negate (inBodyCalls st Map.! name))
+                       in killDead
+                            updated
+                              { inVisits = visits,
+                                inLimits = Map.adjust (+ ssExempt simplState) name (inLimits st),
+                                inCounts = counts',
+                                inCalls = calls',
+                                inSupply = ssSupply simplState,
+                                inSites = inSites st + ssInlined simplState,
+                                inRulesFired = inRulesFired st + ssRulesFired simplState,
+                                inChanged = inChanged st || changed
+                              }
+                            (Map.keys oldUses)
   where
     policy = inlinePolicy config
     arities = inBodyArities st
@@ -725,6 +812,8 @@ updateBody st name body =
       updateKnown
         st
           { inBodies = Map.insert name body (inBodies st),
+            inVersions = Map.adjust (+ 1) name (inVersions st),
+            inVisits = Map.delete name (inVisits st),
             inBodyUses = Map.insert name (countTopUses body) (inBodyUses st),
             inBodyCalls = Map.insert name (countTopCalls (inArities st) body) (inBodyCalls st),
             inBodyArities = arities,
@@ -787,6 +876,8 @@ dropUnused :: Inliner -> Inliner
 dropUnused st =
   st
     { inBodies = live,
+      inVersions = Map.restrictKeys (inVersions st) reachable,
+      inVisits = Map.restrictKeys (inVisits st) reachable,
       inBodyUses = uses,
       inBodyCalls = calls,
       inBodyArities = arities,

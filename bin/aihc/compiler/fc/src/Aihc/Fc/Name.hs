@@ -8,6 +8,7 @@ module Aihc.Fc.Name
     nameClass,
     Origin (..),
     Name (..),
+    lexicalNameKey,
     Vis (..),
     derivedLocalText,
     constructorWrapperName,
@@ -74,8 +75,31 @@ data Name = Name
     nameSort :: Sort,
     nameOrigin :: Origin
   }
-  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving stock (Show, Read, Generic)
   deriving anyclass (NFData)
+
+-- Compare origins before text. Different local uniques need no text comparison.
+instance Eq Name where
+  left == right =
+    nameOrigin left == nameOrigin right
+      && nameSort left == nameSort right
+      && nameText left == nameText right
+
+-- Local uniques distinguish most local names without a text comparison.
+-- Top-level names keep their lexical order.
+instance Ord Name where
+  compare left right =
+    case (nameOrigin left, nameOrigin right) of
+      (OriginLocal unique, OriginLocal other) ->
+        compare unique other <> compare (nameText left) (nameText right) <> compare (nameSort left) (nameSort right)
+      (OriginLocal {}, OriginTop {}) -> LT
+      (OriginTop {}, OriginLocal {}) -> GT
+      (OriginTop {}, OriginTop {}) ->
+        compare (nameText left) (nameText right) <> compare (nameSort left) (nameSort right) <> compare (nameOrigin left) (nameOrigin right)
+
+-- | The lexical order for emitted layouts and ordered transformations.
+lexicalNameKey :: Name -> (Text, Sort, Origin)
+lexicalNameKey name = (nameText name, nameSort name, nameOrigin name)
 
 -- | Export visibility.
 data Vis
