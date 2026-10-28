@@ -1,0 +1,155 @@
+name: Self-Compile Performance
+
+# Measure the time of each stage of the aihc self-compile. GHC compiles stage
+# 0 from an empty package store. Stage 0 compiles stage 1, and stage 1
+# compiles stage 2, each from an empty package store. GHC compiles at its
+# default level -O1. Each stage after stage 0 uses the native backend at -O2.
+# Each stage uses the minimal configuration of aihc: no `hackage` flag and no
+# `pretty-ui` flag. The workflow opens a PR that puts the times in the README.
+#
+# Each stage installs the dependencies of aihc before the time starts. Thus,
+# each time is for the local packages and the aihc executable only.
+#
+# All stages run in one job, so all stages use the same machine. The job uses
+# a Blacksmith runner with 8 vCPUs. The cache keeps only the source downloads
+# of cabal, and not the compiled packages.
+
+on:
+  schedule:
+    - cron: "37 2 * * 0"
+  workflow_dispatch:
+  # Temporary: measure once on the PR branch. Remove before the merge.
+  push:
+    branches:
+      - claude/aihc-compile-perf-workflow-898b15
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: self-compile-perf
+  cancel-in-progress: false
+
+env:
+  TARGET: linux-amd64
+  OPTIMIZATION: "2"
+  WORK_DIR: /tmp/aihc-self-compile-perf
+  CABAL_DIR: /tmp/aihc-self-compile-perf-cabal
+
+jobs:
+  measure:
+    name: Time the self-compile stages
+    # Blacksmith counts an 8 vCPU minute as 4 free minutes. The free tier has
+    # 3000 minutes each month, so a weekly run must stay below 150 minutes.
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      # Get the tools before the timed builds, so the times do not include them.
+      - name: Get the build tools
+        run: |
+          nix develop --quiet --command ghc --version
+          nix run .#self-compile-stage -- --help >/dev/null
+
+      - name: Restore the cabal downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CABAL_DIR }}/packages
+          key: self-compile-perf-cabal-${{ hashFiles('docs/self-hosting-packages.md') }}
+          restore-keys: |
+            self-compile-perf-cabal-
+
+      - name: Compile stage 0 with GHC
+        run: |
+          nix develop --quiet --command scripts/self-compile-ghc-stage.sh \
+            --work-dir "$RUNNER_TEMP/ghc-stage0" \
+            --output "$RUNNER_TEMP/stages/aihc-stage0" \
+            --time-file "$RUNNER_TEMP/times/stage0"
+          nix develop --quiet --command ghc --numeric-version >"$RUNNER_TEMP/times/ghc-version"
+
+      - name: Compile stage 1 with stage 0
+        run: |
+          AIHC="$RUNNER_TEMP/stages/aihc-stage0" nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage1" \
+            --time-file "$RUNNER_TEMP/times/stage1" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION"
+
+      # The stages use the same work directory path, as in the Self-Compile
+      # workflow. Thus, stage 1 and stage 2 can be identical.
+      - name: Compile stage 2 with stage 1
+        run: |
+          rm -rf "$WORK_DIR"
+          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage2" \
+            --time-file "$RUNNER_TEMP/times/stage2" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION"
+
+      # The step also writes the table to the log, which a reader can see
+      # without a GitHub sign-in.
+      - name: Update the README
+        run: |
+          set -euo pipefail
+          stages="$RUNNER_TEMP/stages"
+          times="$RUNNER_TEMP/times"
+          results="$RUNNER_TEMP/self-compile-perf.tsv"
+          {
+            printf 'stage0\tGHC %s\t%s\t%s\n' "$(cat "$times/ghc-version")" \
+              "$(cat "$times/stage0")" "$(stat -c %s "$stages/aihc-stage0")"
+            printf 'stage1\taihc stage0\t%s\t%s\n' \
+              "$(cat "$times/stage1")" "$(stat -c %s "$stages/aihc-stage1")"
+            printf 'stage2\taihc stage1\t%s\t%s\n' \
+              "$(cat "$times/stage2")" "$(stat -c %s "$stages/aihc-stage2")"
+          } >"$results"
+          COMMIT="$GITHUB_SHA" RUNNER="$ImageOS ($(nproc) cores)" \
+            scripts/update-readme-self-compile-perf.sh "$results" README.md
+          {
+            echo "### Self-compile performance"
+            echo
+            sed -n '/START self-compile-perf/,/END self-compile-perf/p' README.md |
+              sed '1d;$d'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The action updates the open PR on the same branch. It does not open a second PR.
+      - name: Open pull request for the README
+        if: github.event_name != 'push'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          commit-message: "docs(readme): update the self-compile performance results"
+          add-paths: |
+            README.md
+          branch: "automation/readme-self-compile-perf"
+          title: "docs(readme): update the self-compile performance results"
+          body: |
+            The weekly Self-Compile Performance workflow made this PR automatically.
+
+            GHC compiles stage 0 of aihc. Stage 0 compiles stage 1, and stage 1 compiles stage 2.
+            Each build starts with an empty package store.
+            The README table gives the build time of each stage, relative to the GHC build time.
+
+      - name: Upload the logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: self-compile-perf-logs
+          path: |
+            ${{ runner.temp }}/ghc-stage0/logs
+            /tmp/aihc-self-compile-perf/logs
+          retention-days: 14
+          if-no-files-found: ignore
