@@ -9,6 +9,7 @@ modules:
   setSecond :: Pair a -> a -> Pair a
   setSecond (Pair x _) y = Pair x y
 passes:
+- inline: grow
 - simplify
 expected: |-
   scope 1 = "" Test
@@ -30,6 +31,11 @@ expected: |-
   pub type 1.tPair (a : sType) :: sType {
     pub strict [0] 1.cPair :: ∀(a : sType). a → a → tPair a
   }
+
+  pub val 1.v$WPair :: ∀(a : sType). a → a → tPair a
+    = Λ(a : sType). λ(_strict_field : a) (_field : a).
+      let! _ = _strict_field;
+      cPair @a _strict_field _field
 
   pub val 1.vsetSecond :: ∀(a : sType). tPair a → a → tPair a
     = Λ(a : sType). λ(x : tPair a) (y : a).

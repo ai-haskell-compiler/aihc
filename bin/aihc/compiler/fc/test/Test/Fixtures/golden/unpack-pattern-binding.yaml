@@ -38,6 +38,12 @@ expected: |-
     pub 1.cMkT :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tT)
   }
 
+  pub val 1.v$WMkT :: tInt → tInt → tT
+    = λ(_strict_field : tInt) (_strict_field{1} : tInt).
+      let! cI# (_unpack_leaf0 : tInt#) = _strict_field;
+      let! cI# (_unpack_leaf1 : tInt#) = _strict_field{1};
+      cMkT _unpack_leaf0 _unpack_leaf1
+
   pub val 1.vsecond :: tT → tInt
     = λ(x : tT).
       let! cMkT (unused _unpack_leaf0 : tInt#) (n : tInt#) = x;

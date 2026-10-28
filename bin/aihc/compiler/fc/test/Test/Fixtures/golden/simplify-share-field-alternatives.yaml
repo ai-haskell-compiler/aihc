@@ -79,6 +79,17 @@ expected: |-
     pub 1.cFour :: tRef → tRef → tRef → tRef → tFour
   }
 
+  val 1.v$WDuplex :: tRef → tRef → tRef → tHandle
+    = λ(_field : tRef) (_strict_field : tRef) (_strict_field{1} : tRef).
+      let! _ = _strict_field;
+      let! _ = _strict_field{1};
+      cDuplex _field _strict_field _strict_field{1}
+
+  val 1.v$WFile :: tRef → tRef → tHandle
+    = λ(_field : tRef) (_strict_field : tRef).
+      let! _ = _strict_field;
+      cFile _field _strict_field
+
   pub val 1.vsize :: FUN @sLiftedRep @cIntRep tNumber tInt#
     = λ(x : tNumber).
       case x of {

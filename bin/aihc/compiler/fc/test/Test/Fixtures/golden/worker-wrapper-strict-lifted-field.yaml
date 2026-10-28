@@ -36,6 +36,12 @@ expected: |-
     pub strict [0, 1] 1.cPair :: tInt → tInt → tPair
   }
 
+  val 1.v$WPair :: tInt → tInt → tPair
+    = λ(_strict_field : tInt) (_strict_field{1} : tInt).
+      let! _ = _strict_field;
+      let! _ = _strict_field{1};
+      cPair _strict_field _strict_field{1}
+
   pub val 1.vfirst :: tPair → tInt
     = λ(x : tPair).
       let! cPair (a : tInt) (unused _pat : tInt) = x;

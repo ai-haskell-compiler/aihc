@@ -62,12 +62,21 @@ expected: |-
       let! cBox (unused inner0 : tInt#) (unused inner1 : tInt#) (size : tInt#) = $record;
       cI# size
 
+  pub val 1.v$WBox :: tPair → tInt → tBox
+    = λ(inner : tPair) (size : tInt).
+      let! cPair (inner0 : tInt#) (inner1 : tInt#) = inner;
+      let! cI# (size{1} : tInt#) = size;
+      cBox inner0 inner1 size{1}
+
+  pub val 1.v$WPair :: tInt → tInt → tPair
+    = λ(_strict_field : tInt) (_strict_field{1} : tInt).
+      let! cI# (_unpack_leaf0 : tInt#) = _strict_field;
+      let! cI# (_unpack_leaf1 : tInt#) = _strict_field{1};
+      cPair _unpack_leaf0 _unpack_leaf1
+
   pub val 1.vbuild :: tPair → tInt → tBox
     = λ(x : tPair) (y : tInt).
-      (λ(inner : tPair) (size : tInt).
-        let! cPair (inner0 : tInt#) (inner1 : tInt#) = inner;
-        let! cI# (size{1} : tInt#) = size;
-        cBox inner0 inner1 size{1}) x y
+      v$WBox x y
 
   pub val 1.vsizeOf :: tBox → tInt
     = λ(x : tBox).
@@ -77,10 +86,7 @@ expected: |-
   pub val 1.vresize :: tBox → tInt → tBox
     = λ(x : tBox) (y : tInt).
       let! cBox (inner0 : tInt#) (inner1 : tInt#) (unused size : tInt#) = x;
-      (λ(inner : tPair) (size{1} : tInt).
-        let! cPair (inner0{1} : tInt#) (inner1{1} : tInt#) = inner;
-        let! cI# (size{2} : tInt#) = size{1};
-        cBox inner0{1} inner1{1} size{2}) (cPair inner0 inner1) y
+      v$WBox (cPair inner0 inner1) y
 
   pub val 1.vnested :: (tInt → tInt → tInt) → tInt → tInt
     = λ(x : tInt → tInt → tInt) (y : tInt).

@@ -62,6 +62,11 @@ expected: |-
       let! c$Dict$Vec ($cfreeze : ∀(s{1} : sType). tMutable v s{1} a → v a) = $dVec;
       $cfreeze @s
 
+  pub val 1.v$WMVector :: ∀(s : sType) (a : sType). tRef s → a → tMVector s a
+    = Λ(s : sType) (a : sType). λ(_strict_field : tRef s) (_field : a).
+      let! cRef (_unpack_leaf0 : s) = _strict_field;
+      cMVector @s @a _unpack_leaf0 _field
+
   pub val 1.v$fVecVectora :: ∀(a : sType). t$Dict$Vec tVector a
     = Λ(a : sType).
       c$Dict$Vec @tVector @a (v$fVecVectora$cfreeze @a)
