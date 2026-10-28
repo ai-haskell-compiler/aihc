@@ -555,7 +555,9 @@ writeAt ref index value = do
 modifyAt :: STRef s (MV.MVector s a) -> Int -> (a -> a) -> ST s ()
 modifyAt ref index f = do
   vector <- readSTRef ref
-  MV.modify vector f index
+  old <- MV.read vector index
+  let new = f old
+  new `seq` MV.write vector index new
 
 lookupFunction :: Solver s -> FunctionName -> ST s (Maybe FunctionInfo)
 lookupFunction solver name = Map.lookup name <$> readSTRef (solverFunctions solver)
