@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, SplitScope (..), decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
+import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), PassEnv (..), Program, SplitScope (..), decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -332,7 +332,7 @@ renderFcCase tc =
     -- them, and the passes of the fixture run on it in order with every
     -- public value as a root.
     lintAndRenderOptimized programs =
-      let inlined = fst (runPasses (packageId primitivePackage) Nothing (casePasses tc) (mergePrograms programs))
+      let inlined = fst (runPasses (PassEnv (packageId primitivePackage) Nothing Nothing) (casePasses tc) (mergePrograms programs))
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->

@@ -15,6 +15,7 @@ module Aihc.Fc
     tidyProgram,
     shareProgram,
     mergePrograms,
+    declaredHome,
     pruneProgram,
     dropRules,
     canonicalForeignCalls,
@@ -32,6 +33,9 @@ module Aihc.Fc
     InlineReport (..),
     SimplifyReport (..),
     Pass (..),
+    PassEnv (..),
+    moduleEnv,
+    programEnv,
     PassReport (..),
     SplitScope (..),
     passName,
@@ -39,6 +43,7 @@ module Aihc.Fc
     runPasses,
     programSize,
     desugarModuleFc,
+    resolvedModuleOrigin,
     DesugarConfig (..),
     moduleDesugarConfig,
     allPublicDesugarConfig,
@@ -55,13 +60,14 @@ import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.Binary (decodeProgram, encodeProgram, programFileName, readProgramFile, writeProgramFile)
 import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
-import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
+import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig, resolvedModuleOrigin)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Merge (mergePrograms)
+import Aihc.Fc.Origins (declaredHome)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
-import Aihc.Fc.Pass (Pass (..), PassReport (..), passName, runPass, runPasses)
+import Aihc.Fc.Pass (Pass (..), PassEnv (..), PassReport (..), moduleEnv, passName, programEnv, runPass, runPasses)
 import Aihc.Fc.Pretty (renderProgram, renderProgramSections)
 import Aihc.Fc.Prune (dropRules, pruneProgram)
 import Aihc.Fc.Share (shareProgram)

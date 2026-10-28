@@ -3,6 +3,7 @@
 -- | The modules that the top names of a System FC program come from.
 module Aihc.Fc.Origins
   ( programOrigins,
+    declaredHome,
   )
 where
 
@@ -20,6 +21,17 @@ import Data.Text (Text)
 programOrigins :: Program -> Set (PackageId, Text)
 programOrigins program =
   importsOrigins (programImports program) <> foldMap declOrigins (programDecls program)
+
+-- | The module that every value declaration of a program belongs to.
+--
+-- The program of one module gives that module. A merged program gives
+-- 'Nothing', because its declarations come from many modules and each one
+-- keeps the module it came from.
+declaredHome :: Program -> Home
+declaredHome program =
+  case Set.toList (Set.fromList [nameOrigin (valName declaration) | DeclVal declaration <- programDecls program]) of
+    [origin@OriginTop {}] -> Just origin
+    _ -> Nothing
 
 importsOrigins :: Imports -> Set (PackageId, Text)
 importsOrigins imports =

@@ -41,7 +41,9 @@ data Region = Region
   }
 
 data Supply = Supply
-  { nextUnique :: !Int,
+  { -- | The module that the top-level copies belong to.
+    homeModule :: !Home,
+    nextUnique :: !Int,
     remainingNodes :: !Int,
     copyCounts :: !(Map Name Int),
     currentRegion :: !Region,
@@ -52,13 +54,13 @@ type SpecM = State Supply
 
 -- | The node budget is half the input size, between 256 and 100000 nodes.
 -- Each original function permits at most sixteen copies across all regions.
-superSpecialiseProgram :: Program -> (Program, SuperReport)
-superSpecialiseProgram program =
+superSpecialiseProgram :: Home -> Program -> (Program, SuperReport)
+superSpecialiseProgram home program =
   let (supply, declarations) = List.mapAccumL freshDeclaration (maxLocalUnique program + 1) (programDecls program)
       protected = foldMap ruleNames declarations
       definitions = Map.fromList [(valName val, Bind (Binder (valName val) (valType val)) (valBody val)) | DeclVal val <- declarations, eligible protected val]
       size = sum [nodes (valBody val) | DeclVal val <- declarations]
-      initial = Supply supply (min 100000 (max 256 (size `div` 2))) Map.empty (Region Set.empty False Map.empty []) (SuperReport 0 0 0)
+      initial = Supply home supply (min 100000 (max 256 (size `div` 2))) Map.empty (Region Set.empty False Map.empty []) (SuperReport 0 0 0)
       (rewritten, final) = runState (mapM (onDecl definitions) declarations) initial
       copies = [DeclVal (ValDecl Private (binderName binder) (binderType binder) body InlineDefault) | Bind binder body <- reverse (regionCopies (currentRegion final))]
    in (tidyProgram program {programDecls = rewritten <> copies}, report final)
@@ -219,7 +221,9 @@ request definitions binding choices arguments = do
           pure original
       | Just ty <- specializeType choices (binderType (bindBinder binding)) -> do
           let unique = nextUnique state
-              copy = name {nameText = "$ss" <> nameText name <> T.pack (show unique), nameOrigin = if regionLocal region then OriginLocal (Unique unique) else nameOrigin name}
+              copy
+                | regionLocal region = name {nameText = "$ss" <> nameText name <> T.pack (show unique), nameOrigin = OriginLocal (Unique unique)}
+                | otherwise = derivedTopName (homeModule state) name ("$ss" <> nameText name <> T.pack (show unique))
               body = specializeBody choices (bindRhs binding)
               (freshBody, supply) = freshenExprFrom (unique + 1) body
           modify' (\s -> s {nextUnique = supply, remainingNodes = remainingNodes s - cost, copyCounts = Map.insertWith (+) name 1 (copyCounts s), currentRegion = region {regionCache = Map.insert key copy (regionCache region)}, report = (report s) {superCopies = superCopies (report s) + 1}})

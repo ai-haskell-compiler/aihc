@@ -364,11 +364,15 @@ data ModuleOutputPaths = ModuleOutputPaths
 
 data FcModule = FcModule
   { fcModuleName :: !Text,
+    -- | The module that the passes of a per-module plan make new
+    -- top-level values in. The merged program of a whole-program plan has
+    -- no home module.
+    fcModuleHome :: !Fc.Home,
     fcProgram :: !Fc.Program
   }
 
 instance NFData FcModule where
-  rnf (FcModule name program) = rnf name `seq` rnf program
+  rnf (FcModule name home program) = rnf name `seq` rnf home `seq` rnf program
 
 -- | What the type-check task of a unit checks: the modules as the resolve
 -- task resolved them, or the parsed modules when the resolve artifacts were
@@ -3013,7 +3017,8 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
     -- The FC waits in memory for the backend, so equal names and types
     -- are made one object each before it is kept.
-    let fcModules = zipWith FcModule moduleNames (map (Fc.shareProgram . dsProgram) desugarResults)
+    let homes = [Just (Fc.OriginTop package name) | checked <- checkedModules, let (package, name) = Fc.resolvedModuleOrigin checked]
+        fcModules = zipWith3 FcModule moduleNames homes (map (Fc.shareProgram . dsProgram) desugarResults)
     fcErrors <-
       fmap concat $
         forM fcModules $ \fcModule -> do
@@ -3060,7 +3065,8 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths pending 
       else do
         -- Each module is inlined on its own: the program is not known here.
         optimized <- forM (pendingFcModules pending) $ \fcModule -> do
-          program <- optimizeFcProgram primPackage config verbose Nothing (fcModuleName fcModule) (fcProgram fcModule)
+          let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
+          program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (fcProgram fcModule)
           pure fcModule {fcProgram = program}
         compileFcModules primPackage config verbose outputPaths optimized
   -- The wrappers are part of the native phase: they are the last objects the
@@ -3108,21 +3114,22 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths pending 
           pure [CapiStubOutput name (sortOn id (nub headers))]
 
 -- | Run the System FC passes of the plan on a program, in order. The
--- roots are the values the program must keep, or 'Nothing' to keep every
--- public value. Each pass is logged under @--verbose@ and the program is
--- linted after each under @--lint@.
+-- environment names the scope: the module of a per-module plan, or the
+-- roots of a whole program. Each pass is logged under @--verbose@ and the
+-- program is linted after each under @--lint@.
 --
 -- The passes come from the plan of the level; nothing here reads the
 -- level. See @docs/optimization.md@.
 --
 -- The passes copy foreign calls, so the result gets the canonical foreign
 -- call types: equal calls are equal values.
-optimizeFcProgram :: PackageId -> ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
-optimizeFcProgram primPackage config verbose roots name input =
+optimizeFcProgram :: Fc.PassEnv -> ModuleCompileConfig -> (String -> IO ()) -> Text -> Fc.Program -> IO Fc.Program
+optimizeFcProgram env config verbose name input =
   Fc.canonicalForeignCalls <$> foldM step input (compilePasses config)
   where
+    primPackage = Fc.envPrimPackage env
     step program pass = do
-      let (program', report) = Fc.runPass primPackage roots pass program
+      let (program', report) = Fc.runPass env pass program
       verbose (renderPassReport name report)
       lintOptimized primPackage config (T.unpack (Fc.reportPass report)) name program'
       pure program'
