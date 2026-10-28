@@ -99,7 +99,7 @@ sharedAtTop env = isJust . candidateType env
 candidateType :: TypeEnv -> Expr -> Maybe Type
 candidateType env expr = do
   guard (not (isTrivial expr) && computation expr)
-  guard (all isTop (freeReferences expr))
+  guard (closedReferences expr)
   guard (pureExpr env expr)
   ty <- exprType env expr
   guard (isLiftedType env ty && isNothing (viewFun env ty) && isNothing (viewForAll env ty))
@@ -116,23 +116,30 @@ candidateType env expr = do
       OriginTop {} -> True
       OriginLocal {} -> False
 
--- | Remove a binder only from the expression that it scopes over.
--- Type and coercion references also constrain the new scope.
-freeReferences :: Expr -> Set Name
-freeReferences expr = case expr of
-  ExLam binder body -> scoped [binder] (freeReferences body)
-  ExTyLam binder body -> scoped [binder] (freeReferences body)
-  ExLet bind body -> freeReferences (bindRhs bind) <> scoped [bindBinder bind] (freeReferences body)
-  ExRec binds body -> scoped (map bindBinder binds) (foldMap (freeReferences . bindRhs) binds <> freeReferences body)
-  ExCase scrutinee binder alternatives -> freeReferences scrutinee <> scoped (foldr (:) [] binder) (foldMap alternative alternatives)
-  ExApp function argument -> freeReferences function <> freeReferences argument
-  ExTyApp function ty -> freeReferences function <> typeReferences ty
-  ExCast body proof -> freeReferences body <> exprReferences (ExCoercion proof)
-  ExAbsurd body ty -> freeReferences body <> typeReferences ty
-  ExForeignCall call types arguments -> exprReferences (ExForeignCall call types []) <> foldMap freeReferences arguments
-  _ -> exprReferences expr
+-- | Check closure without a reference set for each expression.
+-- Stop at the first free local name. Type and coercion names also count.
+closedReferences :: Expr -> Bool
+closedReferences = go Set.empty
   where
-    alternative alt = patternReferences (altCon alt) <> scoped (altTypeBinders alt <> altBinders alt) (freeReferences (altRhs alt))
+    allowed bound =
+      all
+        ( \name -> case nameOrigin name of
+            OriginTop {} -> True
+            OriginLocal {} -> Set.member name bound
+        )
+    go bound expr = case expr of
+      ExLam binder body -> scoped bound [binder] (\inner -> go inner body)
+      ExTyLam binder body -> scoped bound [binder] (\inner -> go inner body)
+      ExLet bind body -> go bound (bindRhs bind) && scoped bound [bindBinder bind] (\inner -> go inner body)
+      ExRec binds body -> scoped bound (map bindBinder binds) (\inner -> all (go inner . bindRhs) binds && go inner body)
+      ExCase scrutinee binder alternatives -> go bound scrutinee && scoped bound (foldr (:) [] binder) (\inner -> all (alternative inner) alternatives)
+      ExApp function argument -> go bound function && go bound argument
+      ExTyApp function ty -> go bound function && allowed bound (typeReferences ty)
+      ExCast body proof -> go bound body && allowed bound (exprReferences (ExCoercion proof))
+      ExAbsurd body ty -> go bound body && allowed bound (typeReferences ty)
+      ExForeignCall call types arguments -> allowed bound (exprReferences (ExForeignCall call types [])) && all (go bound) arguments
+      _ -> allowed bound (exprReferences expr)
+    alternative bound alt = allowed bound (patternReferences (altCon alt)) && scoped bound (altTypeBinders alt <> altBinders alt) (\inner -> go inner (altRhs alt))
     patternReferences con = case con of
       AltData name -> Set.singleton name
       AltLit literal -> case literal of
@@ -140,7 +147,9 @@ freeReferences expr = case expr of
         LitChar rep _ -> typeReferences rep
         LitAddr rep _ -> typeReferences rep
       AltDefault -> Set.empty
-    scoped binders refs = foldr (\binder rest -> typeReferences (binderType binder) <> Set.delete (binderName binder) rest) refs binders
+    scoped bound binders action = case binders of
+      [] -> action bound
+      binder : rest -> allowed bound (typeReferences (binderType binder)) && scoped (Set.insert (binderName binder) bound) rest action
 
 pureExpr :: TypeEnv -> Expr -> Bool
 pureExpr env expr = case expr of
