@@ -3140,7 +3140,7 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
           let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
               grafted = Fc.graftInterfaces primPackage interfaces (fcProgram fcModule)
           unless (null interfaces) $
-            verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedValues grafted)) <> " values")
+            verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedExported grafted) + Set.size (Fc.graftedPrivate grafted)) <> " values")
           program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
           let stripped = Fc.stripInterfaces primPackage grafted program
           lintOptimized primPackage config "strip interfaces" (fcModuleName fcModule) stripped

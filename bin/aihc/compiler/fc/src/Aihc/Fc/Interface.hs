@@ -187,14 +187,22 @@ data Grafted = Grafted
   { -- | The program with the values and the rules of the interfaces in
     -- it.
     graftedProgram :: !Program,
-    -- | The values the interfaces gave. 'stripInterfaces' removes them.
-    graftedValues :: !(Set Name)
+    -- | The values that the modules of the interfaces make public. A call
+    -- of one of them is a call of that module, so 'stripInterfaces'
+    -- removes the value again.
+    graftedExported :: !(Set Name),
+    -- | The values that the modules of the interfaces keep private.
+    -- Nothing outside those modules can name one, so a program that still
+    -- reaches such a value keeps its own copy of it.
+    graftedPrivate :: !(Set Name)
   }
 
 -- | Put the values and the rules that a program reaches into it.
 --
--- A value of an interface comes in as a private value, so that it is no
--- root of the program and the passes drop it once no call of it is left.
+-- A value of an interface comes in as a private value, whatever it is in
+-- the module that declares it. Thus it is no root of this program, and
+-- the passes drop it once no call of it is left.
+--
 -- The program keeps its own declaration of a name that an interface also
 -- declares.
 --
@@ -209,10 +217,21 @@ data Grafted = Grafted
 graftInterfaces :: PackageId -> [Program] -> Program -> Grafted
 graftInterfaces primPackage interfaces program =
   Grafted
-    { graftedProgram = mergePrograms (program : map restrict interfaces),
-      graftedValues = wanted
+    { graftedProgram = mergePrograms (program : map (demote . restrict) interfaces),
+      graftedExported = Set.filter exported wanted,
+      graftedPrivate = Set.filter (not . exported) wanted
     }
   where
+    exported name = maybe False ((== Pub) . valVis) (Map.lookup name offered)
+    demote interface =
+      interface
+        { programDecls =
+            [ case decl of
+                DeclVal declaration -> DeclVal declaration {valVis = Private}
+                _ -> decl
+            | decl <- programDecls interface
+            ]
+        }
     own = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
     offered = Map.unions [Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls interface, Set.notMember (valName declaration) own] | interface <- interfaces]
     reached = foldMap declValueNames (programDecls program)
@@ -234,14 +253,16 @@ graftInterfaces primPackage interfaces program =
         DeclRule rule -> maybe False (`Set.member` heads) (ruleHeadName rule)
         _ -> False
 
--- | Remove the values that the interfaces gave, and name each one that a
--- call still reaches as an import.
+-- | Remove the public values that the interfaces gave, and name each one
+-- that a call still reaches as an import.
 --
--- A value that the passes made from a grafted value stays when the
--- program still reaches it: it belongs to this module, and this module
--- defines it. A specialised copy of an imported value is such a value. A
--- private value that only a grafted value reached goes, such as the
--- worker of a grafted value that the passes split.
+-- A value that the module of the interface keeps private stays when the
+-- program still reaches it. Nothing outside that module can name such a
+-- value, so this module keeps its own copy and defines it. A value that
+-- the passes made from a grafted value stays on the same rule, such as a
+-- specialised copy of an imported value. A private value that only a
+-- removed value reached goes, such as the worker of a grafted value that
+-- the passes split.
 --
 -- A rule that names a removed value goes too, because no call of that
 -- value is left to fire it. A rule of an imported value stays; nothing
@@ -253,7 +274,7 @@ graftInterfaces primPackage interfaces program =
 stripInterfaces :: PackageId -> Grafted -> Program -> Program
 stripInterfaces primPackage grafted program = restrictProgram primPackage keep program
   where
-    removed = graftedValues grafted
+    removed = graftedExported grafted
     values = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls program, Set.notMember (valName declaration) removed]
     -- The values that the module must keep: its public values, the values
     -- a kept rule names, and the private values that those reach.
