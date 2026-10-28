@@ -309,10 +309,11 @@ through `aihc_stack_enter_chunk`. The list keeps every pending frame,
 because a scan stops at the first chunk that the cycle scanned, and the
 chunks below that chunk can still wait for a scan. A pop can pass a frame
 without a read, because a forward frame gives its values to its parent.
-Thus `aihc_stack_enter_chunk` removes the pending frames at or above the
-frame that it enters, scans the entered frame at once, and a slice never
-scans a frame that new frames replaced. The pending list holds live frames
-only.
+The snapshot reached such a frame, so the cycle must keep what it names.
+Thus `aihc_stack_enter_chunk` scans and removes the pending frames at or
+above the frame that it enters, while their slots are intact. Then it
+scans the entered frame, and a slice never scans a frame that new frames
+replaced. The pending list holds live frames only.
 The exception walk and
 the continuation capture read frames they pop, so they scan them first
 through `aihc_gc_frame_read`. A frame named by a heap object is scanned

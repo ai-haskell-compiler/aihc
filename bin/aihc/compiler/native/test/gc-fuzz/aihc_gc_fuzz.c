@@ -1067,11 +1067,14 @@ static void report_collection(void) {
   for (size_t index = 0; index < entry_capacity; ++index) {
     Entry *entry = &entries[index];
     if (entry->indirection && entry->address != NULL &&
-        is_object_start(entry->address)) {
+        is_object_start(entry->address) && is_indirection(entry->address)) {
       /* An indirection of an old generation stays until a collection of
          that generation, and the remembered set keeps its target alive
          while it is there. The model needs its age for that, so the driver
-         reports the age of the indirection without its object. */
+         reports the age of the indirection without its object. The end of
+         a gen2 cycle can free the slot of the indirection, and a new
+         object can take the slot. That object is not an indirection, so
+         the entry goes. */
       printf("age %zu %u\n", index, generation_of_address(entry->address));
       continue;
     }
