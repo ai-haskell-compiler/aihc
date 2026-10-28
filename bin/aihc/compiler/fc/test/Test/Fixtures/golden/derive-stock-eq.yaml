@@ -50,8 +50,6 @@ expected: |-
 
   val 1.v$fEqTreea$c== :: ∀(a : sType). t$Dict$Eq a → tTree a → tTree a → tBool
     = Λ(a : sType). λ($dEq : t$Dict$Eq a) (x : tTree a) (y : tTree a).
-      let $dEq{1} : t$Dict$Eq (tTree a) =
-        v$fEqTreea @a $dEq;
       case x of {
         cLeaf (a1 : a) →
           case y of {
@@ -63,9 +61,9 @@ expected: |-
         cBranch (a1 : tTree a) (a2 : tTree a) →
           case y of {
             cBranch (b1 : tTree a) (b2 : tTree a) →
-              case v== @(tTree a) $dEq{1} a1 b1 of {
+              case v== @(tTree a) (v$fEqTreea @a $dEq) a1 b1 of {
                 cTrue →
-                  v== @(tTree a) $dEq{1} a2 b2;
+                  v== @(tTree a) (v$fEqTreea @a $dEq) a2 b2;
                 cFalse →
                   cFalse
               };

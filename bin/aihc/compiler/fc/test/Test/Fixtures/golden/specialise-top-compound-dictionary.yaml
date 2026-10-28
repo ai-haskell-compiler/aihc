@@ -76,7 +76,7 @@ expected: |-
           vflag @a $dFlag x{1}
       }
 
-  val 1.v$dFlag$1 :: t$Dict$Flag (t[] tBool)
+  val 1.v$dFlag$1 inline :: t$Dict$Flag (t[] tBool)
     = v$fFlagList @tBool v$fFlagBool
 
   pub val 1.vallFlag :: ∀(a : sType). t$Dict$Flag a → t[] a → tBool

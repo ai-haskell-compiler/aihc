@@ -246,16 +246,13 @@ data Dictionary = Dictionary
     dictionaryBinder :: !Binder
   }
 
--- | The superclass projections and the dictionary applications that one
--- binding body shares. A projection is a chain of cases on a dictionary,
--- and an application builds a new dictionary each time it runs. A body
--- that uses the same evidence many times becomes much smaller when each
--- one has a name. A closed dictionary goes to the module instead, see
--- 'shareDictionary'.
+-- | The superclass projections that one binding body shares. A projection is
+-- a chain of cases on a dictionary, so a body that selects the same
+-- superclass many times becomes much smaller when each chain has a name.
 --
--- The scope holds only evidence that the enclosing body can bind. A
+-- The scope holds only projections that the enclosing body can bind. A
 -- construct that brings a new dictionary or type variable into scope opens
--- its own scope, so shared evidence never leaves the scope of its binder.
+-- its own scope, so a projection never leaves the scope of its binder.
 data EvidenceScope = EvidenceScope
   { evidenceCache :: !(Map Ev.EvTerm Binder),
     evidenceBindsRev :: ![Bind]
@@ -5330,11 +5327,9 @@ desugarEvidence evidence =
             pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
       -- A dictionary function applied to dictionaries builds a new
       -- dictionary each time the application runs. Each occurrence of a
-      -- class method has its own evidence term, so one binding builds the
-      -- same dictionary at many sites. Give the application a name in the
-      -- evidence scope, as a superclass projection gets, so that the
-      -- binding builds it once. A dictionary without sub-evidence is a
-      -- global already.
+      -- class method has its own evidence term, so a module builds the
+      -- same dictionary at many sites. A dictionary without sub-evidence
+      -- is a global already.
       case instantiatedDictionaryType declaredType types subEvidence of
         Just dictionaryType -> shareDictionary evidence dictionaryType build
         Nothing -> build
@@ -5369,7 +5364,7 @@ desugarEvidence evidence =
         case drop fieldIndex fieldTypes of
           fieldType : _ -> pure fieldType
           [] -> failValue "superclass field type index is outside the dictionary layout"
-      shareEvidence evidence resultPredicateType (desugarSuperClass evidence)
+      shareSuperClass evidence resultPredicateType (desugarSuperClass evidence)
     Ev.EvCast inner coercion -> do
       expression <- desugarEvidence inner
       withCoercion coercion (pure . ExCast expression)
@@ -6314,9 +6309,8 @@ withAlternativeScope bindsTypeVariables additions action
   | not bindsTypeVariables && null additions = action
   | otherwise = withDictionaryScope additions action
 
--- | Give an expression its own evidence scope. A superclass projection or a
--- dictionary application that the expression uses more than once becomes
--- one @let@ around it.
+-- | Give an expression its own evidence scope. A superclass projection that
+-- the expression selects more than once becomes one @let@ around it.
 evidenceScope :: ValueM Expr -> ValueM Expr
 evidenceScope action = do
   previous <- gets vsEvidenceScope
@@ -6326,10 +6320,10 @@ evidenceScope action = do
   modify' (\state -> state {vsEvidenceScope = previous})
   pure (bindSharedEvidence binds result)
 
--- | Bind the shared evidence around a body.
+-- | Bind the shared projections around a body.
 --
 -- A projection is a short case chain, and a binding for it costs a closure.
--- A name therefore pays only from the second use, so put the evidence back
+-- A name therefore pays only from the second use, so put a projection back
 -- where it stands when the body names it once, and drop it when the body
 -- does not name it at all.
 --
@@ -6383,43 +6377,60 @@ instantiatedDictionaryType declaredType types subEvidence
         TcQualTy {} -> True
         _ -> False
 
--- | Give a dictionary application a name.
+-- | Give a closed dictionary application a name.
 --
 -- A dictionary that names no local variable and no type variable is the
 -- same value everywhere in the module. It becomes one private top-level
 -- value, as GHC does at @-O0@, and each occurrence names that value. The
--- dictionary is built once for the whole program run. The optimizer puts
--- the application back at each use before it decides anything, see
--- 'Aihc.Fc.Inline.expandDictionaries'. Any other dictionary
--- gets a name in the evidence scope of the binding, see 'shareEvidence'.
+-- dictionary is built once for the whole program run. The value is
+-- @INLINE@: the optimizer puts the application back at each use before it
+-- decides anything, see 'Aihc.Fc.Inline.expandDictionaries'. Any other
+-- dictionary stays where the type checker put it.
 --
--- The build runs without an evidence scope. Then the sub-evidence of a
--- closed dictionary is a top-level value or a global, not a local binding
--- of the scope, and the closed test sees it.
+-- The build runs without an evidence scope. Then the sub-evidence of the
+-- dictionary is a top-level value or a global, not a local binding of the
+-- scope.
 shareDictionary :: Ev.EvTerm -> TcType -> ValueM Expr -> ValueM Expr
-shareDictionary evidence dictionaryType build = do
-  known <- gets (Map.lookup evidence . vsModuleDictionaries)
-  scope <- gets vsEvidenceScope
-  let scoped = scope >>= Map.lookup evidence . evidenceCache
-  case (known, scoped) of
-    (Just name, _) -> pure (ExVar name)
-    (_, Just binder) -> pure (ExVar (binderName binder))
-    (Nothing, Nothing) -> do
-      expression <- withoutEvidenceScope build
-      if closedDictionary expression
-        then do
-          converted <- convertCheckedType dictionaryType
-          origin <- gets vsModuleOrigin
-          count <- gets (Map.size . vsModuleDictionaries)
-          let name = topName origin (evidenceBinderText converted <> "$" <> T.pack (show (count + 1)))
-              declaration = ValDecl Private name converted expression InlineDefault
-          modify' $ \state ->
-            state
-              { vsModuleDictionaries = Map.insert evidence name (vsModuleDictionaries state),
-                vsModuleDictionaryDeclsRev = declaration : vsModuleDictionaryDeclsRev state
-              }
-          pure (ExVar name)
-        else shareEvidence evidence dictionaryType (pure expression)
+shareDictionary evidence dictionaryType build
+  | not (closedEvidence evidence) = build
+  | otherwise = do
+      known <- gets (Map.lookup evidence . vsModuleDictionaries)
+      case known of
+        Just name -> pure (ExVar name)
+        Nothing -> do
+          expression <- withoutEvidenceScope build
+          if closedDictionary expression
+            then do
+              converted <- convertCheckedType dictionaryType
+              origin <- gets vsModuleOrigin
+              count <- gets (Map.size . vsModuleDictionaries)
+              let name = topName origin (evidenceBinderText converted <> "$" <> T.pack (show (count + 1)))
+                  declaration = ValDecl Private name converted expression (InlineAlways AlwaysActive)
+              modify' $ \state ->
+                state
+                  { vsModuleDictionaries = Map.insert evidence name (vsModuleDictionaries state),
+                    vsModuleDictionaryDeclsRev = declaration : vsModuleDictionaryDeclsRev state
+                  }
+              pure (ExVar name)
+            else pure expression
+
+-- | Whether an evidence term is a dictionary application of closed types
+-- and closed sub-dictionaries only. A type form that this does not know
+-- counts as open.
+closedEvidence :: Ev.EvTerm -> Bool
+closedEvidence evidence =
+  case evidence of
+    Ev.EvDict _ _ types subEvidence -> all closedType types && all closedEvidence subEvidence
+    _ -> False
+  where
+    closedType ty =
+      case ty of
+        TcTyCon _ arguments -> all closedType arguments
+        TcArrowTy -> True
+        TcFunTy argument result -> closedType argument && closedType result
+        TcAppTy function argument -> closedType function && closedType argument
+        TcTyLit _ -> True
+        _ -> False
 
 -- | Whether a dictionary expression is an application of globals to
 -- closed types and closed dictionaries only.
@@ -6445,10 +6456,10 @@ closedDictionary expression =
         TyLit {} -> True
         _ -> False
 
--- | Give an evidence term a name, and reuse the name when the same term
--- appears again in the same scope.
-shareEvidence :: Ev.EvTerm -> TcType -> ValueM Expr -> ValueM Expr
-shareEvidence evidence resultType build = do
+-- | Give a superclass projection a name, and reuse the name when the same
+-- projection appears again in the same scope.
+shareSuperClass :: Ev.EvTerm -> TcType -> ValueM Expr -> ValueM Expr
+shareSuperClass evidence resultType build = do
   scope <- gets vsEvidenceScope
   case scope of
     Nothing -> build

@@ -207,11 +207,12 @@ inlineProgram primPackage config program =
   where
     size0 = programSize primPackage program
 
--- | Put the body of each closed top-level dictionary at its uses.
+-- | Put the body of each @INLINE@ dictionary application value at its uses.
 --
 -- The desugarer gives each closed dictionary application of a module a
--- private top-level value, so that code without the optimizer builds the
--- dictionary once. The optimizer instead decides from the application
+-- private @INLINE@ top-level value, so that code without the optimizer
+-- builds the dictionary once. A value has no arguments, so no call
+-- decides a copy of it, and this step copies it at each use instead. The optimizer instead decides from the application
 -- at each use: a case on it selects a method, and a specializer keys a
 -- copy on it. GHC treats a dictionary function application the same way.
 -- Thus the inliner first puts the application back at each use, and the
@@ -226,8 +227,10 @@ expandDictionaries decls
       Map.fromList
         [ (valName declaration, valBody declaration)
         | DeclVal declaration <- decls,
-          valVis declaration == Private,
+          InlineAlways _ <- [valInline declaration],
           isDictionaryType (valType declaration),
+          (ExVar function, _ : _) <- [collectSpine (valBody declaration)],
+          not (isConstructorName function),
           closedApplication (valBody declaration)
         ]
     -- A body names the values of its sub-dictionaries. The application is
