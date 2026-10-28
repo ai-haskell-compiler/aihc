@@ -1,5 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
-
 -- | Views of System FC expressions that several passes share: the spine
 -- of an application, the value names an expression uses, and the largest
 -- local unique of a program.

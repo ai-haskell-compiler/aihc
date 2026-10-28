@@ -284,7 +284,7 @@ specialiseLoop env (Bind binder rhs) body =
       case parameter of
         Keep param -> [param]
         Unbox {} -> fields
-    mentions var expr = exprMentionsAny (Set.singleton var) expr
+    mentions var = exprMentionsAny (Set.singleton var)
 
 -- | The calls of a loop in an expression that give it all its value
 -- arguments: the type arguments and the value arguments of each.
