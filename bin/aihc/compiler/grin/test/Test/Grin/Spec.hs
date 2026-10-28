@@ -4,7 +4,7 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinConstructorDecl (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), PointsToRewrites (..), analyzePointsTo, analyzePointsToWith, finishGrinProgram, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo, widenLimit)
+import Aihc.Grin (GrinConstructorDecl (..), GrinExternFunction (..), GrinFunction (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), PointsToRewrites (..), analyzePointsTo, analyzePointsToWith, finishGrinProgram, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo, widenLimit)
 import Aihc.Grin.Cps (toCpsGrin)
 import Aihc.Grin.Dce (sweptGrinProgram)
 import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
@@ -426,8 +426,13 @@ appendGrinProgram core fixture =
       grinPrimitives = grinPrimitives core <> grinPrimitives fixture,
       grinForeignCalls = grinForeignCalls core <> grinForeignCalls fixture,
       grinGlobals = grinGlobals core <> grinGlobals fixture,
-      grinFunctions = grinFunctions core <> grinFunctions fixture
+      grinFunctions = functions,
+      -- The fixture calls the entries of the core directly.
+      grinExternFunctions = [extern | extern <- grinExternFunctions core <> grinExternFunctions fixture, grinExternName extern `notElem` map grinFunctionName functions],
+      grinExportedFunctions = grinExportedFunctions core <> grinExportedFunctions fixture
     }
+  where
+    functions = grinFunctions core <> grinFunctions fixture
 
 prepareEvalProgram :: Text -> Fc.Program -> Either String (Fc.Program, Text -> Text)
 prepareEvalProgram sourceName program =

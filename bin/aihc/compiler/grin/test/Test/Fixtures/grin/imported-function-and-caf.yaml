@@ -3,24 +3,24 @@ expected: |-
 
   pub constructor 1.Box [IntRep]
 
-  pub global 1.identity = (P1.$identity/1)
+  pub global 1.identity = (P1.$identity$p$p/1)
 
   pub global 1.caf = (C1.Box (7 :: IntRep))
 
-  1.$identity (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$identity$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
   scope 1 = "" Dependency
 
   scope 2 = "" Target
+
+  extern 1.$identity$p$p [BoxedRep Lifted] -> BoxedRep Lifted for 1.identity
 
   pub global 2.useFunction = (F2.$useFunction_thunk)
 
   pub global 2.useCaf = (F2.$useCaf_thunk)
 
   2.$useFunction_thunk -> BoxedRep Lifted =
-    function_whnf :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) global-ref 1.identity
-    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 1.caf
+    call @(BoxedRep Lifted) 1.$identity$p$p global-ref 1.caf
 
   2.$useCaf_thunk -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) global-ref 1.caf

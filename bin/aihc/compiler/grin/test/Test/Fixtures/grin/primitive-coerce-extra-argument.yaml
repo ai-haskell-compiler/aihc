@@ -1,9 +1,9 @@
 expected: |-
   scope 1 = "" Test
 
-  pub global 1.apply = (P1.$apply/[[BoxedRep Lifted], []])
+  pub global 1.apply = (P1.$apply$p_$tteie/[[BoxedRep Lifted], []])
 
-  1.$apply (x :: BoxedRep Lifted) -> TupleRep [TupleRep [],IntRep] =
+  pub 1.$apply$p_$tteie (x :: BoxedRep Lifted) -> TupleRep [TupleRep [],IntRep] =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     apply @(TupleRep [TupleRep [],IntRep]) (function_whnf :: BoxedRep Lifted) ()

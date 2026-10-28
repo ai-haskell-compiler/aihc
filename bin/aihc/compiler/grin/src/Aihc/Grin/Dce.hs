@@ -80,20 +80,25 @@ sweptGrinProgram program
       concatMap (grinNodeFunctionNames . grinGlobalNode) (grinGlobals swept)
         <> concatMap (grinExprFunctionNames . grinFunctionBody) (grinFunctions swept)
 
--- | Keep the definitions that a public global reaches, and drop the rest.
+-- | Keep the definitions that a public global or an exported function
+-- reaches, and drop the rest.
 dceGrinProgram :: GrinProgram -> GrinProgram
 dceGrinProgram program =
   program
     { grinGlobals = filter (reaches . GlobalKey . grinGlobalName) (grinGlobals program),
       grinFunctions = filter (reaches . FunctionKey . grinFunctionName) (grinFunctions program),
-      grinConstructors = filter (reaches . ConstructorKey . grinConstructorName) (grinConstructors program)
+      grinConstructors = filter (reaches . ConstructorKey . grinConstructorName) (grinConstructors program),
+      grinExternFunctions = filter (reaches . FunctionKey . grinExternName) (grinExternFunctions program)
     }
   where
     reaches key = Set.member key reachable
     reachable =
       close
         Set.empty
-        (map GlobalKey (grinGlobalRoots program) <> map ConstructorKey (grinConstructorRoots program))
+        ( map GlobalKey (grinGlobalRoots program)
+            <> map ConstructorKey (grinConstructorRoots program)
+            <> map FunctionKey (grinExportedFunctions program)
+        )
     close :: Set Key -> [Key] -> Set Key
     close visited pending =
       case pending of

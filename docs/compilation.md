@@ -581,13 +581,17 @@ Each module object must contain:
 - Writable static objects for CAFs and other mutable static values.
 - Unwind or debug sections when the selected compiler options request them.
 
-The object must use one uniform value ABI. References to external Haskell values are object addresses used through `eval` and `apply`.
+The object must use one uniform value ABI. References to external Haskell values are object addresses used through `eval` and `apply`, or direct calls of public entries.
 
 Each backend defines its native symbol encoding and other target-specific object conventions.
 
 The backend must derive each external value symbol from its definition identity. Defined and undefined symbols must use the same encoding.
 
 Cross-module Haskell values use `eval` and `apply`. Constructor tests inspect constructor identities in the current info tables.
+
+A saturated call of an imported value is a direct call of the public entry of that value. The declared type of the value gives the entry: one parameter group for each arrow after the quantifiers, and the result after the last arrow. The module that declares the value and each module that imports it calculate the same entry from the type. Thus no module needs more facts from another module. The name of the entry contains the runtime layouts of its parameters and its result. If two modules do not agree on the layouts, the link fails.
+
+The module that declares a public value exports its public entry. If the code of the value has the shape of the entry, the entry is that code. If not, the module emits a wrapper that evaluates the value and applies it to the arguments. A partial application of an imported value still uses `eval` and `apply`.
 
 The object does not need constructor, primitive, reachability, defined-symbol, or required-symbol metadata in a separate file.
 
@@ -610,6 +614,10 @@ This design does not require a CAF initializer. It also does not require a per-m
 An evaluated CAF holds the value it produced, so treating every static object as a root keeps everything any CAF has ever produced. Static reference tables give the collector a basis for deciding which static objects are live instead. The runtime does not yet use them by default; see the RTS notes for the current state.
 
 Emit one static reference table for each function whose code reaches a static object that needs marking. The table names the static objects the function's code mentions directly, and the tables of the functions it calls by name.
+
+The table of an imported entry is in another object. A direct call of an imported entry thus names the public value of the entry as a static object. That object is a closure or a thunk, and its info table names the table of its code.
+
+Emit a table only if an info table, a safepoint of the function, or another emitted table names it. An exported entry that only another module calls, and that has no safepoint, needs no table.
 
 Tables are chained rather than flattened. The reachable set is the same as a transitive closure over known calls, but every reference stays an ordinary relocation and the analysis never needs the whole program.
 

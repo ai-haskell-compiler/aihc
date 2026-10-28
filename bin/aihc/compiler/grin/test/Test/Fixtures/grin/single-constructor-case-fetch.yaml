@@ -7,18 +7,18 @@ expected: |-
 
   pub constructor 1.Right%1 [IntRep]
 
-  pub global 1.first = (P1.$first/1)
+  pub global 1.first = (P1.$first$p$i/1)
 
-  pub global 1.pick = (P1.$pick/1)
+  pub global 1.pick = (P1.$pick$p$i/1)
 
-  1.$first (x :: BoxedRep Lifted) -> IntRep =
+  pub 1.$first$p$i (x :: BoxedRep Lifted) -> IntRep =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     a :: IntRep, _pat :: IntRep <-
       fetch (C1.Pair) (case_value :: BoxedRep Lifted)
     constant (a :: IntRep)
 
-  1.$pick (x :: BoxedRep Lifted) -> IntRep =
+  pub 1.$pick$p$i (x :: BoxedRep Lifted) -> IntRep =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of

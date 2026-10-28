@@ -91,7 +91,7 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     renderLinkedPartialConstructorInfoSymbol,
   )
-import Control.Monad (foldM, forM, forM_, unless, when, zipWithM)
+import Control.Monad (foldM, forM, forM_, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
@@ -100,7 +100,7 @@ import Data.Foldable (for_)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -343,6 +343,9 @@ data LowerEnv = LowerEnv
     -- | The continuation parameter of each function that takes one.
     envFunctionContinuations :: !(Map FunctionName GrinVar),
     envForwardingFunctions :: !(Set FunctionName),
+    -- | The functions that another unit calls directly. Their symbols are
+    -- exported.
+    envExportedFunctions :: !(Set FunctionName),
     envInfoSymbols :: !(Map RuntimeInfoKey Symbol),
     envInfos :: ![RuntimeInfo],
     envStaticReferences :: !StaticReferences,
@@ -472,7 +475,10 @@ data LowerState = LowerState
     stateSafepoint :: !(Maybe Safepoint),
     -- | How to run the function again from its entry, while the code so far
     -- has no effect. See 'Replay'.
-    stateReplay :: !(Maybe Replay)
+    stateReplay :: !(Maybe Replay),
+    -- | The static reference tables that a function of the unit passes to
+    -- the runtime. See 'lowerStaticReferenceTables'.
+    stateSrtUses :: !(Set Symbol)
   }
 
 -- | The entry of the function under construction and its arguments. While
@@ -557,7 +563,12 @@ initialLowerState options gcProgram =
       stateProfileAllocations = lowerProfileAllocations options,
       stateProfileTime = lowerProfileTime options,
       stateProfileSites = Map.empty,
-      stateExterns = Map.empty,
+      -- An extern function of the program is an entry of another unit.
+      stateExterns =
+        Map.fromList
+          [ (functionSymbol (grinExternName extern), Signature (contextTypes <> map repType (grinExternParameters extern)) [] AihcConvention)
+          | extern <- grinExternFunctions (gcGrinProgram gcProgram)
+          ],
       stateExternData = Set.empty,
       stateHelpers = Set.empty,
       stateBitmaps = Map.empty,
@@ -568,7 +579,8 @@ initialLowerState options gcProgram =
       stateOpen = Nothing,
       stateContext = Nothing,
       stateSafepoint = Nothing,
-      stateReplay = Nothing
+      stateReplay = Nothing,
+      stateSrtUses = Set.empty
     }
 
 externItems :: LowerState -> [Item]
@@ -587,6 +599,7 @@ lowerEnvironment options gcProgram =
       envThunkEntries = thunkEntries,
       envFunctionContinuations = gcFunctionContinuations gcProgram,
       envForwardingFunctions = forwardingFunctions,
+      envExportedFunctions = Set.fromList (grinExportedFunctions program),
       envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
       envInfos = map snd (constructorEntries <> functionEntries),
       envStaticReferences = staticReferences,
@@ -598,8 +611,12 @@ lowerEnvironment options gcProgram =
     continuationFunctions = gcContinuationFunctions gcProgram
     continuationFrames = gcContinuationFrames gcProgram
     forwardingFunctions = Map.keysSet (Map.filter (== ContinuationFrameForward) continuationFrames)
-    functionSymbols = Map.fromList [(grinFunctionName function, functionSymbol (grinFunctionName function)) | function <- grinFunctions program]
-    functionParameters = Map.fromList [(grinFunctionName function, map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) | function <- grinFunctions program]
+    functionSymbols = Map.fromList [(name, functionSymbol name) | name <- map grinFunctionName (grinFunctions program) <> map grinExternName (grinExternFunctions program)]
+    functionParameters =
+      Map.fromList
+        ( [(grinFunctionName function, map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) | function <- grinFunctions program]
+            <> [(grinExternName extern, map repType (grinExternParameters extern)) | extern <- grinExternFunctions program]
+        )
     staticReferences = programStaticReferences program
     srtSymbols =
       Map.fromList
@@ -1242,7 +1259,8 @@ escapeCollectWhen ctx flag = do
     storeSlot AnyRegion Ptr root array (toInteger (8 * index))
   capability <- capabilityOperand context
   storeContext capability context
-  _ <- callRuntime "aihc_escape_collect" [Ptr, I64, Ptr, Ptr] [] [capability, OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+  srt <- useSrt ctx
+  _ <- callRuntime "aihc_escape_collect" [Ptr, I64, Ptr, Ptr] [] [capability, OperandLiteral (LitInt (toInteger (length roots))), array, srt]
   relocated <- forM (zip [0 :: Int ..] roots) $ \(index, _) ->
     loadSlot AnyRegion "root" Ptr array (toInteger (8 * index))
   collected <- loadHeapContext capability context
@@ -1386,7 +1404,7 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 
 -- | Each action produces one function or data item, or an info table and stub.
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
-lowerUnitActions env program@(GrinProgram _ _ _ _ functions) =
+lowerUnitActions env program@(GrinProgram _ _ _ _ functions _ _) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
     <> [lowerFunction env function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
     <> map (lowerStaticObject env) (programStaticObjects program)
@@ -1613,11 +1631,36 @@ addrLiteralSymbol :: LowerEnv -> BS.ByteString -> LowerM Symbol
 addrLiteralSymbol env bytes =
   maybe (failWith (LowerUnsupportedValue "unregistered Addr# literal")) pure (Map.lookup bytes (envAddrLiterals env))
 
+-- | The table of the running function, which the code passes to the
+-- runtime. Only a table that something names is emitted.
+useSrt :: FunctionCtx -> LowerM Operand
+useSrt ctx = do
+  case ctxSrt ctx of
+    OperandLiteral (LitSymbol symbol) -> modify' (\state -> state {stateSrtUses = Set.insert symbol (stateSrtUses state)})
+    _ -> pure ()
+  pure (ctxSrt ctx)
+
+-- | Emit the static reference tables that the unit names: the table of an
+-- info table, the table that a function passes to the runtime, and the
+-- children of these tables. A function that only another unit calls, and
+-- that never passes its table to the runtime, needs no table: the caller
+-- names the public value of the function instead.
 lowerStaticReferenceTables :: LowerEnv -> LowerM ()
 lowerStaticReferenceTables env = do
   target <- targetM
-  forM_ (Map.toList (staticReferenceTables (envStaticReferences env))) $ \(name, table) ->
-    forM_ (Map.lookup name (envSrtSymbols env)) $ \symbol -> do
+  uses <- gets stateSrtUses
+  let tables = staticReferenceTables (envStaticReferences env)
+      symbolTables = Map.fromList [(symbol, table) | (name, table) <- Map.toList tables, Just symbol <- [Map.lookup name (envSrtSymbols env)]]
+      tableChildren table = [child | name' <- srtChildren table, Just child <- [Map.lookup name' (envSrtSymbols env)]]
+      named = close Set.empty (Set.toList uses <> mapMaybe infoSrt (envInfos env))
+      close seen pending =
+        case pending of
+          [] -> seen
+          symbol : rest
+            | Set.member symbol seen -> close seen rest
+            | otherwise -> close (Set.insert symbol seen) (foldMap tableChildren (Map.lookup symbol symbolTables) <> rest)
+  forM_ (Map.toList tables) $ \(name, table) ->
+    forM_ (mfilter (`Set.member` named) (Map.lookup name (envSrtSymbols env))) $ \symbol -> do
       let objects = map globalSymbol (srtObjects table)
           children = [child | name' <- srtChildren table, Just child <- [Map.lookup name' (envSrtSymbols env)]]
           word = wordField target
@@ -1709,7 +1752,7 @@ lowerFunction env function = do
   modify' (\state -> state {stateContext = Nothing, stateReplay = Nothing})
   finishFunction
     (functionSymbol (grinFunctionName function))
-    (if lowerExposeFunctions (envOptions env) then Export else Internal)
+    (if lowerExposeFunctions (envOptions env) || grinFunctionName function `Set.member` envExportedFunctions env then Export else Internal)
     (contextParameters <> entryParameters)
     []
     AihcConvention
@@ -2253,7 +2296,8 @@ compileBinding ctx env vars expression =
         context <- currentContext
         capability <- capabilityOperand context
         storeContext capability context
-        address <- callRuntime "aihc_heap_allocate" [Ptr, I64, I64, I64, Ptr, Ptr] [Ptr] [capability, words', pinned', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+        srt <- useSrt ctx
+        address <- callRuntime "aihc_heap_allocate" [Ptr, I64, I64, I64, Ptr, Ptr] [Ptr] [capability, words', pinned', OperandLiteral (LitInt (toInteger (length roots))), array, srt]
         moved <- forM (zip [0 :: Int ..] relocated) $ \(index, var) ->
           (var,) <$> loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
         collected <- loadHeapContext capability context
@@ -2366,7 +2410,8 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
         Just (frame, bytes) -> do
           stack <- emitValue "sp" Ptr (PtrAdd frame (OperandLiteral (LitInt bytes)))
           pure context {contextStack = typedOperand stack}
-      terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', ctxSrt ctx]))
+      srt <- useSrt ctx
+      terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), words', srt]))
     Nothing -> do
       forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
         storeSlot AnyRegion Ptr root array (toInteger (8 * index))
@@ -2376,7 +2421,8 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
       -- behalf of a running compiled function.
       capability <- capabilityOperand context
       storeContext capability context
-      _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
+      srt <- useSrt ctx
+      _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [capability, words', OperandLiteral (LitInt (toInteger (length roots))), array, srt]
       relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
         loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
       collected <- loadHeapContext capability context
@@ -2702,12 +2748,13 @@ protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
     -- back as it found it, so only the heap context comes back.
     capability <- currentCapability
     syncCapability capability
+    srt <- useSrt ctx
     _ <-
       callRuntime
         "aihc_foreign_enter"
         [Ptr, Ptr, Ptr, I64, Ptr, I64]
         []
-        [capability, frame, array, OperandLiteral (LitInt (toInteger (length roots))), ctxSrt ctx, OperandLiteral (LitInt (if allowed then 1 else 0))]
+        [capability, frame, array, OperandLiteral (LitInt (toInteger (length roots))), srt, OperandLiteral (LitInt (if allowed then 1 else 0))]
     results <- compileForeignCall ctx env call arguments
     _ <- callRuntime "aihc_foreign_leave" [Ptr, Ptr] [] [capability, frame]
     reloadHeap capability

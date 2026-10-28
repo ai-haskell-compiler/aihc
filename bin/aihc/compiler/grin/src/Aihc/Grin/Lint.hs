@@ -196,6 +196,7 @@ lintProgramWith continuations frames program =
   duplicateFunctionErrors
     <> duplicateGlobalErrors
     <> continuationParameterErrors
+    <> [GrinLintUnknownFunction name | name <- grinExportedFunctions program, name `notElem` functionNames]
     <> concatMap (lintGlobal env) (grinGlobals program)
     <> concatMap lintFunctionFrame (grinFunctions program)
   where
@@ -204,6 +205,7 @@ lintProgramWith continuations frames program =
        in [GrinLintInvalidForward | isForward, isNothing (forwardedResultUses (grinFunctionBody function))]
             <> lintFunction (env {lintForwardedResult = isForward}) function
     functions = grinFunctions program
+    externs = grinExternFunctions program
     globals = grinGlobals program
     functionNames = map grinFunctionName functions
     globalNames = map grinGlobalName globals
@@ -214,15 +216,21 @@ lintProgramWith continuations frames program =
         { lintForwardedResult = False,
           lintFunctionArities =
             Map.fromList
-              [ (grinFunctionName function, length (grinFunctionParameters function))
-              | function <- functions
-              ],
+              ( [ (grinFunctionName function, length (grinFunctionParameters function))
+                | function <- functions
+                ]
+                  <> [(grinExternName extern, length (grinExternParameters extern)) | extern <- externs]
+              ),
           lintFunctionResults =
             Map.fromList
-              [(grinFunctionName function, grinFunctionResultRep function) | function <- functions],
+              ( [(grinFunctionName function, grinFunctionResultRep function) | function <- functions]
+                  <> [(grinExternName extern, grinExternResultRep extern) | extern <- externs]
+              ),
           lintFunctionParameterReps =
             Map.fromList
-              [(grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function)) | function <- functions],
+              ( [(grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function)) | function <- functions]
+                  <> [(grinExternName extern, grinExternParameters extern) | extern <- externs]
+              ),
           lintFunctionNodeArities =
             Map.fromList
               [ (grinFunctionName function, semanticFunctionArity function)

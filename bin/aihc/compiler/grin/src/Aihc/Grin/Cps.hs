@@ -99,7 +99,13 @@ toCpsGrin sourceProgram = do
           program
             { grinFunctions =
                 functions
-                  <> reverse (cpsGeneratedFunctionsRev finalState)
+                  <> reverse (cpsGeneratedFunctionsRev finalState),
+              -- An extern function is a computation entry of its own unit,
+              -- so it takes the continuation as its last parameter too.
+              grinExternFunctions =
+                [ extern {grinExternParameters = grinExternParameters extern <> [liftedGrinRep]}
+                | extern <- grinExternFunctions program
+                ]
             },
         cpsContinuationFunctions = Map.keysSet continuationFrames,
         cpsContinuationFrames = continuationFrames,
@@ -111,7 +117,7 @@ toCpsGrin sourceProgram = do
     initialState =
       CpsState
         { cpsNextVarUnique = 1 + maximumProgramVarUnique program,
-          cpsUsedFunctionNames = functionNamesFrom (Set.fromList (map grinFunctionName sourceFunctions)),
+          cpsUsedFunctionNames = functionNamesFrom (Set.fromList (map grinFunctionName sourceFunctions <> map grinExternName (grinExternFunctions program))),
           cpsGeneratedFunctionsRev = [],
           cpsContinuationFramesState = Map.empty,
           cpsComputationContinuations = Map.empty

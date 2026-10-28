@@ -12,9 +12,9 @@ expected: |-
 
   pub constructor 1.Box [BoxedRep Lifted]
 
-  pub global 1.copyBox = (P1.$copyBox/1)
+  pub global 1.copyBox = (P1.$copyBox$p$p/1)
 
-  1.$copyBox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$copyBox$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     value :: BoxedRep Lifted <-

@@ -24,6 +24,9 @@ expected: |-
       fetch (C1.$Dict$Arrow) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($csecond :: BoxedRep Lifted)
 
+  pub 1.$second$p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.second (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted)
+
   1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
@@ -42,6 +45,9 @@ expected: |-
     function_application :: BoxedRep Lifted <-
       call @(BoxedRep Lifted) 1.$second global-ref 1."$fArrow(->)"
     apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  pub 1.$apply$p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.apply (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted)
 extensions: []
 reason: a method of an instance for the function arrow has the function type,
   so the System FC lint accepts its application to a function

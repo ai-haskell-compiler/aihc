@@ -5,9 +5,9 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  pub global 1.apply7 = (P1.$apply7/8)
+  pub global 1.apply7 = (P1.$apply7$p_p_p_p_p_p_p_p$p/8)
 
-  1.$apply7 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) (x1 :: BoxedRep Lifted) (x2 :: BoxedRep Lifted) (x3 :: BoxedRep Lifted) (x4 :: BoxedRep Lifted) (x5 :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$apply7$p_p_p_p_p_p_p_p$p (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) (x1 :: BoxedRep Lifted) (x2 :: BoxedRep Lifted) (x3 :: BoxedRep Lifted) (x4 :: BoxedRep Lifted) (x5 :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     function_application :: BoxedRep Lifted <-

@@ -17,6 +17,8 @@ schedulerProgram =
         [ (GrinVar "fork#" 1 lifted, 2),
           (GrinVar "yield#" 2 lifted, 1)
         ],
+      grinExternFunctions = [],
+      grinExportedFunctions = [],
       grinForeignCalls = [putcharCall],
       grinGlobals =
         [ pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) []),
@@ -80,6 +82,8 @@ stdioSchedulerProgram =
           (GrinVar "stdoutIOHandle#" 47 (BoxedRep Unlifted), 0),
           (GrinVar "takeIOResult#" 48 IntRep, 1)
         ],
+      grinExternFunctions = [],
+      grinExportedFunctions = [],
       grinForeignCalls = [],
       grinGlobals = [pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =

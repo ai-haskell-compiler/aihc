@@ -10,6 +10,7 @@ import Data.ByteString qualified as BS
 import Data.Char (chr, isPrint, isSpace)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Prettyprinter (Doc, comma, hardline, hsep, indent, parens, pretty, punctuate, space, vsep, (<+>))
 
@@ -33,10 +34,15 @@ prettyProgramSections program =
     <> [(Just (grinConstructorName constructor), prettyConstructor scopes constructor) | constructor <- grinConstructors program]
     <> map ((Nothing,) . prettyPrimitive) (grinPrimitives program)
     <> map ((Nothing,) . prettyForeign scopes) (grinForeignCalls program)
+    <> map ((Nothing,) . prettyExtern scopes) (grinExternFunctions program)
     <> [(Just (grinGlobalName global), prettyGlobal scopes global) | global <- grinGlobals program]
-    <> [(Just (unFunctionName (grinFunctionName function)), prettyFunction scopes function) | function <- grinFunctions program]
+    <> [(Just (unFunctionName (grinFunctionName function)), prettyFunction scopes (exportVis function) function) | function <- grinFunctions program]
   where
     scopes = programScopes program
+    exported = Set.fromList (grinExportedFunctions program)
+    exportVis function
+      | grinFunctionName function `Set.member` exported = GrinPub
+      | otherwise = GrinPrivate
 
 prettyScopes :: Scopes -> [Doc ann]
 prettyScopes (Scopes numbers) =
@@ -74,6 +80,19 @@ prettyForeign :: Scopes -> GrinForeignCall -> Doc ann
 prettyForeign scopes foreignCall =
   "foreign" <+> prettyForeignCall scopes foreignCall
 
+-- | @extern name [reps] -> result for global@.
+prettyExtern :: Scopes -> GrinExternFunction -> Doc ann
+prettyExtern scopes extern =
+  "extern"
+    <+> prettyFunctionName scopes (grinExternName extern)
+    <+> "["
+    <> hsep (punctuate comma (map prettyShow (grinExternParameters extern)))
+    <> "]"
+    <+> "->"
+    <+> prettyResultRep (grinExternResultRep extern)
+    <+> "for"
+    <+> prettyName scopes (grinExternGlobal extern)
+
 prettyGlobal :: Scopes -> GrinGlobal -> Doc ann
 prettyGlobal scopes global =
   prettyVis (grinGlobalVis global)
@@ -90,9 +109,10 @@ prettyVis vis =
     GrinPub -> "pub" <> space
     GrinPrivate -> mempty
 
-prettyFunction :: Scopes -> GrinFunction -> Doc ann
-prettyFunction scopes function =
-  prettyFunctionName scopes (grinFunctionName function)
+prettyFunction :: Scopes -> GrinVis -> GrinFunction -> Doc ann
+prettyFunction scopes vis function =
+  prettyVis vis
+    <> prettyFunctionName scopes (grinFunctionName function)
     <> foldMap ((space <>) . prettyVarAtom) (grinFunctionParameters function)
     <+> "->"
     <+> prettyResultRep (grinFunctionResultRep function)

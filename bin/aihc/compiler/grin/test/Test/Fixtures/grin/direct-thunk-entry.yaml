@@ -15,33 +15,33 @@ expected: |-
 
   pub constructor 1.$Dict$Cls [BoxedRep Lifted, BoxedRep Lifted]
 
-  pub global 1.one = (P1.$one/1)
+  pub global 1.one = (P1.$one$p$p/1)
 
-  pub global 1.two = (P1.$two/1)
+  pub global 1.two = (P1.$two$p$p/1)
 
-  pub global 1.$dmtwo = (P1.$$dmtwo/1)
+  pub global 1.$dmtwo = (P1.$$dmtwo$p$p/1)
 
   pub global 1.$fClsT = (C1.$Dict$Cls global-ref 1.$fClsT$cone global-ref 1.$fClsT$ctwo)
 
   global 1.$fClsT$cone = (C1.T)
 
-  global 1.$fClsT$ctwo = (F1.$$dmtwo global-ref 1.$fClsT)
+  global 1.$fClsT$ctwo = (F1.$$dmtwo$p$p global-ref 1.$fClsT)
 
-  1.$one ($dCls :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$one$p$p ($dCls :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($dCls :: BoxedRep Lifted)
     $cone :: BoxedRep Lifted, $ctwo :: BoxedRep Lifted <-
       fetch (C1.$Dict$Cls) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($cone :: BoxedRep Lifted)
 
-  1.$two ($dCls :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$two$p$p ($dCls :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($dCls :: BoxedRep Lifted)
     $cone :: BoxedRep Lifted, $ctwo :: BoxedRep Lifted <-
       fetch (C1.$Dict$Cls) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($ctwo :: BoxedRep Lifted)
 
-  1.$$dmtwo ($dCls :: BoxedRep Lifted) -> BoxedRep Lifted =
-    call @(BoxedRep Lifted) 1.$one ($dCls :: BoxedRep Lifted)
+  pub 1.$$dmtwo$p$p ($dCls :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) 1.$one$p$p ($dCls :: BoxedRep Lifted)
 status: pass
 reason: suspends a saturated call on the callee itself instead of a forwarding thunk function

@@ -5,14 +5,14 @@ expected: |-
 
   primitive +# :: IntRep/2
 
-  pub global 1.visible = (P1.$visible/[[IntRep]])
+  pub global 1.visible = (P1.$visible$i$i/[[IntRep]])
 
   1.$helper (x :: IntRep) -> IntRep =
     argument :: IntRep <-
       primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
     primitive-call @IntRep *# (argument :: IntRep) (2 :: IntRep)
 
-  1.$visible (x :: IntRep) -> IntRep =
+  pub 1.$visible$i$i (x :: IntRep) -> IntRep =
     argument :: IntRep <-
       call @IntRep 1.$helper (x :: IntRep)
     call @IntRep 1.$helper (argument :: IntRep)

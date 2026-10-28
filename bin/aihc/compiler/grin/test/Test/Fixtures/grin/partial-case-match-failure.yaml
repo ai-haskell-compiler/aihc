@@ -5,9 +5,9 @@ expected: |-
 
   pub constructor 1.Right%1 [IntRep]
 
-  pub global 1.left = (P1.$left/1)
+  pub global 1.left = (P1.$left$p$i/1)
 
-  1.$left (x :: BoxedRep Lifted) -> IntRep =
+  pub 1.$left$p$i (x :: BoxedRep Lifted) -> IntRep =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of

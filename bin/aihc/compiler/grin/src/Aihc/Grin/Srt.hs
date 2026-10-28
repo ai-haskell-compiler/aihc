@@ -153,9 +153,18 @@ programStaticReferences program =
       Map.fromList
         [ (grinFunctionName function, objects)
         | function <- grinFunctions program,
-          let objects = functionDirectObjects untracedNames function,
+          let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function))),
           not (null objects)
         ]
+    -- The table of an extern function is in its own unit. The public value
+    -- of the function is a static object that names that table, so a call
+    -- names the object instead.
+    externGlobals = Map.fromList [(grinExternName extern, grinExternGlobal extern) | extern <- grinExternFunctions program]
+    externObjects function =
+      [ global
+      | name <- Set.toList (bodyReferences (grinFunctionBody function)),
+        Just global <- [Map.lookup name externGlobals]
+      ]
     directCalls =
       Map.fromList
         [ (grinFunctionName function, callees)

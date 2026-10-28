@@ -45,6 +45,8 @@ entryGcProgram =
       GrinProgram
         { grinConstructors = [],
           grinPrimitives = [],
+          grinExternFunctions = [],
+          grinExportedFunctions = [],
           grinForeignCalls = [],
           grinGlobals = [],
           grinFunctions = []

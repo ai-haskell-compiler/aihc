@@ -20,11 +20,11 @@ expected: |-
 
   pub constructor 1.Box [BoxedRep Lifted]
 
-  pub global 1.not = (P1.$not/1)
+  pub global 1.not = (P1.$not$p$p/1)
 
-  pub global 1.box = (P1.$box/1)
+  pub global 1.box = (P1.$box$p$p/1)
 
-  1.$not (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$not$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
@@ -33,7 +33,7 @@ expected: |-
       data 1.True%1 ->
         constant global-ref 1.False
 
-  1.$box (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$box$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
