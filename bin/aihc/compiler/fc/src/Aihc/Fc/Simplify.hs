@@ -1509,7 +1509,7 @@ unboxedFieldCase env scrutinee binder alternatives
             bodyCon == con,
             [argument] <- rights bodyArgs,
             isCheapValue (spArity env) argument,
-            Set.disjoint bound (exprValueNames argument) ->
+            not (exprMentionsAny bound argument) ->
               Just argument
         _ -> Nothing
     rewrite con fieldType bound expr =
@@ -2390,7 +2390,7 @@ alternativeEnv env0 scrutinee binder alternatives alternative =
     -- A fact about the scrutinee holds inside the alternative only when
     -- no binder of the alternative binds a name of the scrutinee again.
     facts
-      | any ((`Set.member` exprValueNames scrutinee) . binderName) (foldr (:) [] binder <> altBinders alternative) = spFacts env
+      | exprMentionsAny (Set.fromList (map binderName (foldr (:) [] binder <> altBinders alternative))) scrutinee = spFacts env
       | otherwise = learnAlternative scrutinee (binderName <$> binder) (map altCon alternatives) (altCon alternative) (spFacts env)
     exclusions
       | AltDefault <- altCon alternative,

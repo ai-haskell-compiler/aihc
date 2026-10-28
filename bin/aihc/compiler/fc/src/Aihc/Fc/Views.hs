@@ -17,7 +17,6 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Tc.Types (Unique (..))
-import Data.List.NonEmpty qualified as NE
 import Data.Set (Set)
 import Data.Set qualified as Set
 
@@ -53,29 +52,29 @@ castedSpine = go []
 
 -- | The value-class names an expression uses.
 exprValueNames :: Expr -> Set Name
-exprValueNames = go
+exprValueNames = go Set.empty
   where
-    go expr =
+    go !names expr =
       case expr of
-        ExVar name -> Set.singleton name
-        ExLit {} -> Set.empty
-        ExCoercion {} -> Set.empty
-        ExApp function argument -> go function <> go argument
-        ExTyApp function _ -> go function
-        ExLam _ body -> go body
-        ExTyLam _ body -> go body
-        ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> foldMap (go . bindRhs) binds <> go body
-        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
-        ExAbsurd scrutinee _ -> go scrutinee
-        ExCast body _ -> go body
-        ExForeignCall _ _ arguments -> foldMap go arguments
+        ExVar name -> Set.insert name names
+        ExLit {} -> names
+        ExCoercion {} -> names
+        ExApp function argument -> go (go names function) argument
+        ExTyApp function _ -> go names function
+        ExLam _ body -> go names body
+        ExTyLam _ body -> go names body
+        ExLet bind body -> go (go names (bindRhs bind)) body
+        ExRec binds body -> go (foldl' (\used bind -> go used (bindRhs bind)) names binds) body
+        ExCase scrutinee _ alternatives -> foldl' (\used alternative -> go used (altRhs alternative)) (go names scrutinee) alternatives
+        ExAbsurd scrutinee _ -> go names scrutinee
+        ExCast body _ -> go names body
+        ExForeignCall _ _ arguments -> foldl' go names arguments
 
 -- | Whether an expression uses one of the given value-class names. This is
 -- @not (Set.disjoint names (exprValueNames expr))@ without the set of the
 -- expression: the walk stops at the first use.
 exprMentionsAny :: Set Name -> Expr -> Bool
-exprMentionsAny names = go
+exprMentionsAny names = if Set.null names then const False else go
   where
     go expr =
       case expr of
