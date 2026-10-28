@@ -227,8 +227,8 @@ expandDictionaries decls
       Map.fromList
         [ (valName declaration, valBody declaration)
         | DeclVal declaration <- decls,
-          InlineAlways _ <- [valInline declaration],
           isDictionaryType (valType declaration),
+          InlineAlways _ <- [valInline declaration],
           (ExVar function, _ : _) <- [collectSpine (valBody declaration)],
           not (isConstructorName function),
           closedApplication (valBody declaration)
