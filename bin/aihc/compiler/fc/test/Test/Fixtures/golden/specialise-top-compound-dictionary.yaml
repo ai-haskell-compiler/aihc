@@ -76,6 +76,9 @@ expected: |-
           vflag @a $dFlag x{1}
       }
 
+  val 1.v$dFlag$1 inline :: t$Dict$Flag (t[] tBool)
+    = v$fFlagList @tBool v$fFlagBool
+
   pub val 1.vallFlag :: ∀(a : sType). t$Dict$Flag a → t[] a → tBool
     = Λ(a : sType). λ($dFlag : t$Dict$Flag a) (x : t[] a).
       case x of {
@@ -95,9 +98,7 @@ expected: |-
       v$sallFlag_0 x
 
   val 1.v$sallFlag_0 :: t[] (t[] tBool) → tBool
-    = let $dFlag : t$Dict$Flag (t[] tBool) =
-      v$fFlagList @tBool v$fFlagBool;
-    λ(x : t[] (t[] tBool)).
+    = λ(x : t[] (t[] tBool)).
       case x of {
         c[] →
           cTrue;
@@ -111,9 +112,7 @@ expected: |-
       }
 
   val 1.v$sflag_0 :: t[] tBool → tBool
-    = let $dFlag : t$Dict$Flag (t[] tBool) =
-      v$fFlagList @tBool v$fFlagBool;
-    let! c$Dict$Flag ($cflag : t[] tBool → tBool) = $dFlag;
+    = let! c$Dict$Flag ($cflag : t[] tBool → tBool) = v$dFlag$1;
     $cflag
 status: pass
 reason: Recursive calls reuse the specialized copy when the dictionary is an application with a local alias.

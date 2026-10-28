@@ -186,7 +186,7 @@ inlineProgram :: PackageId -> InlineConfig -> Program -> (Program, InlineReport)
 inlineProgram primPackage config program =
   let env = typeEnvFromProgram primPackage program
       supply0 = maxLocalUnique program + 1
-      lifted = programDecls program
+      lifted = expandDictionaries (programDecls program)
       state0 = initialInliner config env lifted supply0
       final = runRounds config (inlineRounds config) state0
       decls = rebuildDecls lifted final
@@ -206,6 +206,73 @@ inlineProgram primPackage config program =
    in (result, report)
   where
     size0 = programSize primPackage program
+
+-- | Put the body of each @INLINE@ dictionary application value at its uses.
+--
+-- The desugarer gives each closed dictionary application of a module a
+-- private @INLINE@ top-level value, so that code without the optimizer
+-- builds the dictionary once. A value has no arguments, so no call
+-- decides a copy of it, and this step copies it at each use instead. The optimizer instead decides from the application
+-- at each use: a case on it selects a method, and a specializer keys a
+-- copy on it. GHC treats a dictionary function application the same way.
+-- Thus the inliner first puts the application back at each use, and the
+-- value goes away. A later pass that lifts constants can share the
+-- applications that stay.
+expandDictionaries :: [Decl] -> [Decl]
+expandDictionaries decls
+  | Map.null dictionaries = decls
+  | otherwise = mapMaybe expand decls
+  where
+    dictionaries =
+      Map.fromList
+        [ (valName declaration, valBody declaration)
+        | DeclVal declaration <- decls,
+          isDictionaryType (valType declaration),
+          InlineAlways _ <- [valInline declaration],
+          (ExVar function, _ : _) <- [collectSpine (valBody declaration)],
+          not (isConstructorName function),
+          closedApplication (valBody declaration)
+        ]
+    -- A body names the values of its sub-dictionaries. The application is
+    -- closed, so the chain ends at globals, and each body expands once.
+    expanded = Map.map substitute dictionaries
+    substitute expression =
+      case expression of
+        ExVar name -> Map.findWithDefault expression name expanded
+        ExApp function argument -> ExApp (substitute function) (substitute argument)
+        ExTyApp function ty -> ExTyApp (substitute function) ty
+        ExLam binder body -> ExLam binder (substitute body)
+        ExTyLam binder body -> ExTyLam binder (substitute body)
+        ExLet binding body -> ExLet (substituteBind binding) (substitute body)
+        ExRec bindings body -> ExRec (map substituteBind bindings) (substitute body)
+        ExCase scrutinee binder alternatives -> ExCase (substitute scrutinee) binder (NE.map substituteAlt alternatives)
+        ExAbsurd scrutinee ty -> ExAbsurd (substitute scrutinee) ty
+        ExCast body coercion -> ExCast (substitute body) coercion
+        ExForeignCall call types arguments -> ExForeignCall call types (map substitute arguments)
+        ExLit {} -> expression
+        ExCoercion {} -> expression
+    substituteBind binding = binding {bindRhs = substitute (bindRhs binding)}
+    substituteAlt alternative = alternative {altRhs = substitute (altRhs alternative)}
+    expand decl =
+      case decl of
+        DeclVal declaration
+          | Map.member (valName declaration) dictionaries -> Nothing
+          | otherwise -> Just (DeclVal declaration {valBody = substitute (valBody declaration)})
+        DeclRule rule -> Just (DeclRule rule {ruleLhs = substitute (ruleLhs rule), ruleRhs = substitute (ruleRhs rule)})
+        _ -> Just decl
+
+-- | Whether an expression applies top-level values to types and to other
+-- top-level values only.
+closedApplication :: Expr -> Bool
+closedApplication expression =
+  case expression of
+    ExVar name ->
+      case nameOrigin name of
+        OriginTop {} -> True
+        OriginLocal {} -> False
+    ExTyApp function _ -> closedApplication function
+    ExApp function argument -> closedApplication function && closedApplication argument
+    _ -> False
 
 -- * Driver
 
