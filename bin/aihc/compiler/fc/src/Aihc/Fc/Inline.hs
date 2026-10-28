@@ -49,7 +49,7 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv, typeEnvFromProgram)
 import Aihc.Resolve (PackageId)
-import Control.Monad.Trans.State.Strict (runState)
+import Control.Monad.Trans.State.Strict (runState, state)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -185,8 +185,7 @@ data InlineReport = InlineReport
 inlineProgram :: PackageId -> InlineConfig -> Program -> (Program, InlineReport)
 inlineProgram primPackage config program =
   let env = typeEnvFromProgram primPackage program
-      supply0 = maxLocalUnique program + 1
-      lifted = expandDictionaries (programDecls program)
+      (lifted, supply0) = expandConstructorWrappers (maxLocalUnique program + 1) (expandDictionaries (programDecls program))
       state0 = initialInliner config env lifted supply0
       final = runRounds config (inlineRounds config) state0
       decls = rebuildDecls lifted final
@@ -206,6 +205,53 @@ inlineProgram primPackage config program =
    in (result, report)
   where
     size0 = programSize primPackage program
+
+-- | Put the body of each constructor wrapper at its uses.
+--
+-- The desugarer gives each constructor that needs a wrapper one @$W@
+-- function, so that code without the optimizer has one copy of the code
+-- that evaluates the strict fields. The optimizer instead decides from the
+-- construction at each use, as GHC does with its wrappers. Thus the inliner
+-- first puts a copy of the wrapper body at each use. Each copy gets fresh
+-- binders, from the given unique on. The result has the next free unique.
+-- A wrapper body names no other wrapper, so one step expands all uses.
+expandConstructorWrappers :: Int -> [Decl] -> ([Decl], Int)
+expandConstructorWrappers supply0 decls
+  | Map.null wrappers = (decls, supply0)
+  | otherwise = runState (mapM expand decls) supply0
+  where
+    wrappers =
+      Map.fromList
+        [ (valName declaration, valBody declaration)
+        | DeclVal declaration <- decls,
+          isConstructorWrapperName (valName declaration)
+        ]
+    substitute expression =
+      case expression of
+        ExVar name
+          | Just body <- Map.lookup name wrappers -> state (`freshenExprFrom` body)
+          | otherwise -> pure expression
+        ExApp function argument -> ExApp <$> substitute function <*> substitute argument
+        ExTyApp function ty -> (`ExTyApp` ty) <$> substitute function
+        ExLam binder body -> ExLam binder <$> substitute body
+        ExTyLam binder body -> ExTyLam binder <$> substitute body
+        ExLet binding body -> ExLet <$> substituteBind binding <*> substitute body
+        ExRec bindings body -> ExRec <$> mapM substituteBind bindings <*> substitute body
+        ExCase scrutinee binder alternatives -> ExCase <$> substitute scrutinee <*> pure binder <*> mapM substituteAlt alternatives
+        ExAbsurd scrutinee ty -> (`ExAbsurd` ty) <$> substitute scrutinee
+        ExCast body coercion -> (`ExCast` coercion) <$> substitute body
+        ExForeignCall call types arguments -> ExForeignCall call types <$> mapM substitute arguments
+        ExLit {} -> pure expression
+        ExCoercion {} -> pure expression
+    substituteBind binding = (\rhs -> binding {bindRhs = rhs}) <$> substitute (bindRhs binding)
+    substituteAlt alternative = (\rhs -> alternative {altRhs = rhs}) <$> substitute (altRhs alternative)
+    expand decl =
+      case decl of
+        DeclVal declaration
+          | isConstructorWrapperName (valName declaration) -> pure decl
+          | otherwise -> (\body -> DeclVal declaration {valBody = body}) <$> substitute (valBody declaration)
+        DeclRule rule -> (\lhs rhs -> DeclRule rule {ruleLhs = lhs, ruleRhs = rhs}) <$> substitute (ruleLhs rule) <*> substitute (ruleRhs rule)
+        _ -> pure decl
 
 -- | Put the body of each @INLINE@ dictionary application value at its uses.
 --
