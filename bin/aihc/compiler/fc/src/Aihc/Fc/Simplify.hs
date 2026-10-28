@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -97,6 +98,7 @@ import Data.Bifunctor (first)
 import Data.Either (isLeft, isRight, lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -658,8 +660,14 @@ isLambdaHead expr =
 -- continuation closures, such as the reads of the @Get@ monad, each hold
 -- every earlier value, so each value held twice doubles every closure.
 readFieldsInside :: Simpl -> Expr -> SimplM Expr
-readFieldsInside env body0 = fst <$> foldM readFields (body0, exprValueNames body0) (Map.toList (spLocals env))
+readFieldsInside env body0
+  | Map.null (spLocals env) = pure body0
+  | otherwise = fst <$> foldM readFields (body0, used0) (Map.toList candidates)
   where
+    used0 = exprValueNames body0
+    -- A read adds only fresh names. Thus, it cannot add a local candidate
+    -- that the original body did not use. Keep the original name order.
+    candidates = Map.restrictKeys (spLocals env) used0
     -- The names of the body change only when a read is added, so the set
     -- is computed again only then.
     readFields (body, used) (name, application)
@@ -3824,14 +3832,31 @@ joinCalls name arity = go
 -- each occurrence. A copy that counts such a binder as one node would
 -- otherwise look free and bring the whole right-hand side with it.
 expandedSize :: Simpl -> Expr -> Int
-expandedSize env expr =
-  exprSize (spEnv env) expr
-    + sum
-      [ count * exprSize (spEnv env) rhs
-      | (name, rhs) <- Map.toList (spDone env),
-        Occurrences count _ <- [occurrences name expr],
-        count > 0
-      ]
+expandedSize env expr
+  | Map.null (spDone env) = exprSize (spEnv env) expr
+  | otherwise = exprSize (spEnv env) expr + go 0 expr
+  where
+    -- Share each size across uses, but do not evaluate unused bodies.
+    sizes = LazyMap.map (exprSize (spEnv env)) (spDone env)
+    weight name = Map.findWithDefault 0 name sizes
+    -- Count all expression and coercion uses, as 'occurrences' does.
+    -- One scan replaces a separate scan for each name in 'spDone'.
+    go !size body =
+      case body of
+        ExVar name -> size + weight name
+        ExLit {} -> size
+        ExApp function argument -> go (go size function) argument
+        ExTyApp function _ -> go size function
+        ExLam _ inner -> go size inner
+        ExTyLam _ inner -> go size inner
+        ExLet bind inner -> go (go size (bindRhs bind)) inner
+        ExRec binds inner -> go (List.foldl' (\total bind -> go total (bindRhs bind)) size binds) inner
+        ExCase scrutinee _ alternatives -> List.foldl' (\total alternative -> go total (altRhs alternative)) (go size scrutinee) alternatives
+        ExAbsurd scrutinee _ -> go size scrutinee
+        ExCast inner coercion -> coercionSize (go size inner) coercion
+        ExCoercion coercion -> coercionSize size coercion
+        ExForeignCall _ _ arguments -> List.foldl' go size arguments
+    coercionSize size coercion = List.foldl' (\total name -> total + weight name) size (coercionVariables coercion)
 
 -- | Put the join points of a pushed case in their uses, and simplify
 -- each right-hand side there, once. The walk follows the tails of the
