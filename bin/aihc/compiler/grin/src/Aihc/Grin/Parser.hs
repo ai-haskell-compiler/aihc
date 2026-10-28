@@ -48,8 +48,9 @@ data TopDeclaration
   = TopConstructor GrinConstructorDecl
   | TopPrimitive (GrinVar, Int)
   | TopForeign GrinForeignCall
+  | TopExtern GrinExternFunction
   | TopGlobal GrinGlobal
-  | TopFunction GrinFunction
+  | TopFunction GrinVis GrinFunction
 
 programParser :: Parsec Void Text GrinProgram
 programParser = do
@@ -84,6 +85,8 @@ emptyProgram =
   GrinProgram
     { grinConstructors = [],
       grinPrimitives = [],
+      grinExternFunctions = [],
+      grinExportedFunctions = [],
       grinForeignCalls = [],
       grinGlobals = [],
       grinFunctions = []
@@ -95,8 +98,13 @@ addDeclaration program declaration =
     TopConstructor value -> program {grinConstructors = grinConstructors program <> [value]}
     TopPrimitive value -> program {grinPrimitives = grinPrimitives program <> [value]}
     TopForeign value -> program {grinForeignCalls = grinForeignCalls program <> [value]}
+    TopExtern value -> program {grinExternFunctions = grinExternFunctions program <> [value]}
     TopGlobal value -> program {grinGlobals = grinGlobals program <> [value]}
-    TopFunction value -> program {grinFunctions = grinFunctions program <> [value]}
+    TopFunction vis value ->
+      program
+        { grinFunctions = grinFunctions program <> [value],
+          grinExportedFunctions = grinExportedFunctions program <> [grinFunctionName value | vis == GrinPub, grinFunctionName value `notElem` grinExportedFunctions program]
+        }
 
 topDeclaration :: Parser TopDeclaration
 topDeclaration = do
@@ -105,8 +113,9 @@ topDeclaration = do
     [ MP.try constructorDeclaration,
       MP.try primitiveDeclaration,
       MP.try foreignDeclaration,
+      MP.try externDeclaration,
       MP.try (TopGlobal <$> globalDeclaration),
-      TopFunction <$> functionDeclaration
+      TopFunction <$> optionalPub <*> functionDeclaration
     ]
 
 constructorDeclaration :: Parser TopDeclaration
@@ -140,6 +149,24 @@ foreignDeclaration = do
   foreignCall <- foreignCallDefinition
   lineEnd
   pure (TopForeign foreignCall)
+
+externDeclaration :: Parser TopDeclaration
+externDeclaration = do
+  keyword "extern"
+  horizontal1
+  externName <- FunctionName <$> scopedName
+  horizontal1
+  parameters <- runtimeRepList
+  horizontal1
+  _ <- MPC.string "->"
+  horizontal1
+  resultRep <- grinResultRep
+  horizontal1
+  keyword "for"
+  horizontal1
+  global <- scopedName
+  lineEnd
+  pure (TopExtern (GrinExternFunction externName parameters resultRep global))
 
 globalDeclaration :: Parser GrinGlobal
 globalDeclaration = do

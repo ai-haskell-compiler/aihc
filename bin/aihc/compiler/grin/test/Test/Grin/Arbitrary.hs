@@ -9,6 +9,7 @@ import Aihc.Grin.Parser (parseProgram, renderParseError)
 import Aihc.Grin.Pretty (prettyProgram)
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
+import Data.List (nub)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
@@ -32,13 +33,33 @@ prop_grinPrettyRoundTrip = property $ do
       show reparsed === show program
 
 genGrinProgram :: Gen GrinProgram
-genGrinProgram =
-  GrinProgram
-    <$> smallList genConstructorDecl
-    <*> smallList ((,) <$> genVar <*> genInt)
-    <*> smallList genForeignCall
-    <*> smallList genGlobal
-    <*> smallList genFunction
+genGrinProgram = do
+  constructors <- smallList genConstructorDecl
+  primitives <- smallList ((,) <$> genVar <*> genInt)
+  foreignCalls <- smallList genForeignCall
+  globals <- smallList genGlobal
+  -- The text marks an exported function at its definition, so the program
+  -- exports some of its own functions, in the order of their definitions.
+  functions <- smallList ((,) <$> genVis <*> genFunction)
+  externs <- smallList genExternFunction
+  pure
+    GrinProgram
+      { grinConstructors = constructors,
+        grinPrimitives = primitives,
+        grinForeignCalls = foreignCalls,
+        grinGlobals = globals,
+        grinFunctions = map snd functions,
+        grinExternFunctions = externs,
+        grinExportedFunctions = nub [grinFunctionName function | (GrinPub, function) <- functions]
+      }
+
+genExternFunction :: Gen GrinExternFunction
+genExternFunction =
+  GrinExternFunction
+    <$> genFunctionName
+    <*> smallList genRuntimeRep
+    <*> genResultRep
+    <*> genName
 
 genConstructorDecl :: Gen GrinConstructorDecl
 genConstructorDecl =

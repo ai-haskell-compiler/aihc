@@ -12,5 +12,8 @@ expected: |-
 
   1.$pairWith (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     store (C1.Pair/1 (x :: BoxedRep Lifted))
+
+  pub 1.$pairWith$p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.pairWith (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted)
 status: pass
 reason: stores a partially applied constructor directly with its remaining arity

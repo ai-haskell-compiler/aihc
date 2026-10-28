@@ -18,7 +18,7 @@ expected: |-
 
   foreign 1.identityInt = unsafe "identity_int" :: (int) -> int ! real-world
 
-  pub global 1.run = (P1.$run/1)
+  pub global 1.run = (P1.$run$p$p/1)
 
   1.$run_identityInt_foreign (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
     foreign_box :: BoxedRep Lifted <-
@@ -29,7 +29,7 @@ expected: |-
           foreign-call 1.identityInt = unsafe "identity_int" :: (int) -> int ! real-world with (foreign_field :: IntRep)
         store (C1.I# (foreign_result :: IntRep))
 
-  1.$run (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$run$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     store (P1.$run_identityInt_foreign/[[]] (x :: BoxedRep Lifted))
 reason: uses only the adapters named by the System FC foreign call
 status: pass

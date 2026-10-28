@@ -29,7 +29,7 @@ expected: |-
 
   primitive +# :: IntRep/2
 
-  pub global 1.pick = (P1.$pick/[[BoxedRep Lifted], [IntRep], [IntRep]])
+  pub global 1.pick = (P1.$pick$p_i_i$p/[[BoxedRep Lifted], [IntRep], [IntRep]])
 
   1.$pick_closure (y :: IntRep) (z :: IntRep) (x :: IntRep) -> BoxedRep Lifted =
     argument :: IntRep <-
@@ -47,7 +47,7 @@ expected: |-
       data 1.F%1 ->
         call @(BoxedRep Lifted) 1.$pick_closure (y :: IntRep) (z :: IntRep) (z :: IntRep)
 
-  1.$pick (x :: BoxedRep Lifted) (y :: IntRep) (z :: IntRep) -> BoxedRep Lifted =
+  pub 1.$pick$p_i_i$p (x :: BoxedRep Lifted) (y :: IntRep) (z :: IntRep) -> BoxedRep Lifted =
     argument :: BoxedRep Lifted <-
       store (F1.$pick_argument_thunk (x :: BoxedRep Lifted) (y :: IntRep) (z :: IntRep))
     store (C1.Q (argument :: BoxedRep Lifted))

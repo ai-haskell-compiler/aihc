@@ -13,13 +13,13 @@ expected: |-
 
   pub global 1.lift2 = (P1.$lift2/1)
 
-  pub global 1.$dmlift2 = (P1.$$dmlift2/4)
+  pub global 1.$dmlift2 = (P1.$$dmlift2$p_p_p_p$p/4)
 
   pub global 1."$fFun(->)r" = (C1.$Dict$Fun global-ref 1."$fFun(->)r$cfmap'")
 
   pub global 1."$fAp(->)r" = (C1.$Dict$Ap global-ref 1."$fFun(->)r" global-ref 1."$fAp(->)r$cunit" global-ref 1."$fAp(->)r$cap" global-ref 1."$fAp(->)r$clift2")
 
-  global 1."$fAp(->)r$clift2" = (P1.$$dmlift2/3 global-ref 1."$fAp(->)r")
+  global 1."$fAp(->)r$clift2" = (P1.$$dmlift2$p_p_p_p$p/3 global-ref 1."$fAp(->)r")
 
   global 1."$fAp(->)r$cap" = (P1."$$fAp(->)r$cap"/3)
 
@@ -34,12 +34,18 @@ expected: |-
       fetch (C1.$Dict$Fun) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($cfmap' :: BoxedRep Lifted)
 
+  pub 1.$fmap'$p_p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.fmap' (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted)
+
   1.$unit ($dAp :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($dAp :: BoxedRep Lifted)
     $dFun :: BoxedRep Lifted, $cunit :: BoxedRep Lifted, $cap :: BoxedRep Lifted, $clift2 :: BoxedRep Lifted <-
       fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($cunit :: BoxedRep Lifted)
+
+  pub 1.$unit$p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.unit (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted)
 
   1.$ap ($dAp :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
@@ -48,12 +54,18 @@ expected: |-
       fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($cap :: BoxedRep Lifted)
 
+  pub 1.$ap$p_p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.ap (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted)
+
   1.$lift2 ($dAp :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($dAp :: BoxedRep Lifted)
     $dFun :: BoxedRep Lifted, $cunit :: BoxedRep Lifted, $cap :: BoxedRep Lifted, $clift2 :: BoxedRep Lifted <-
       fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) ($clift2 :: BoxedRep Lifted)
+
+  pub 1.$lift2$p_p_p_p$p (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted) (argument%3 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref 1.lift2 (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted) (argument%3 :: BoxedRep Lifted)
 
   1.$$dmlift2_argument_thunk_2 ($dAp :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
@@ -69,7 +81,7 @@ expected: |-
       call @(BoxedRep Lifted) 1.$fmap' (argument :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted)
 
-  1.$$dmlift2 ($dAp :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+  pub 1.$$dmlift2$p_p_p_p$p ($dAp :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_application :: BoxedRep Lifted <-
       call @(BoxedRep Lifted) 1.$ap ($dAp :: BoxedRep Lifted)
     argument :: BoxedRep Lifted <-

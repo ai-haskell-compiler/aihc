@@ -80,6 +80,8 @@ forwardedProgramWith extra =
   GrinProgram
     { grinConstructors = [pubConstructor "Unit" 0 []],
       grinPrimitives = [],
+      grinExternFunctions = [],
+      grinExportedFunctions = [],
       grinForeignCalls = [],
       grinGlobals = [pubGlobal "unit" (GrinNode (GrinConstructor "Unit" 0) [])],
       grinFunctions =
@@ -177,6 +179,8 @@ program fieldCount =
   GrinProgram
     { grinConstructors = [pubConstructor "Unit" 0 []],
       grinPrimitives = [],
+      grinExternFunctions = [],
+      grinExportedFunctions = [],
       grinForeignCalls = [],
       grinGlobals = [pubGlobal "unit" (GrinNode (GrinConstructor "Unit" 0) [])],
       grinFunctions =

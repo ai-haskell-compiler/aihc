@@ -15,6 +15,8 @@ synchronousExceptionProgram =
   GrinProgram
     { grinConstructors = [pubConstructor "Exception" 0 []],
       grinPrimitives = [],
+      grinExternFunctions = [],
+      grinExportedFunctions = [],
       grinForeignCalls = [putcharCall],
       grinGlobals =
         [ pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) []),

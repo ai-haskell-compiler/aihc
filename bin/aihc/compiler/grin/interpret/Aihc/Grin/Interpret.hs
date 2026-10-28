@@ -336,7 +336,7 @@ interpretProgramBindingWith enterValue streams name program = withMachine stream
 -- that gives anything but literals is a type error here.
 evalLiteralPrimitive :: Text -> [GrinLiteral] -> IO (Either InterpretError [GrinLiteral])
 evalLiteralPrimitive name arguments =
-  withMachine streams (GrinProgram [] [] [] [] []) $ \machine -> do
+  withMachine streams (GrinProgram [] [] [] [] [] [] []) $ \machine -> do
     (result, _) <- runStateT (runExceptT action) machine
     pure $ case result of
       Right literals -> Right literals

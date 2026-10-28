@@ -24,6 +24,7 @@ module Aihc.Grin.Syntax
     grinGlobalRoots,
     grinConstructorRoots,
     GrinFunction (..),
+    GrinExternFunction (..),
     FunctionName (..),
     GrinVar (..),
     GrinExpr (..),
@@ -175,7 +176,15 @@ data GrinProgram = GrinProgram
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
     grinGlobals :: ![GrinGlobal],
-    grinFunctions :: ![GrinFunction]
+    grinFunctions :: ![GrinFunction],
+    -- | The functions of other units that the program calls directly. See
+    -- 'GrinExternFunction'.
+    grinExternFunctions :: ![GrinExternFunction],
+    -- | The functions of the program that another unit can call directly.
+    -- Each one is the entry of a public value, and its name comes from the
+    -- type of that value. The importing unit calls it as an extern
+    -- function.
+    grinExportedFunctions :: ![FunctionName]
   }
   deriving (Eq, Show, Read)
 
@@ -221,8 +230,9 @@ pubConstructor name index layouts = GrinConstructorDecl name layouts index GrinP
 -- declaration goes without only when it is a private function or a
 -- constructor of one field or more — so the public globals name every entry
 -- another unit can take into this one. A function is reached from the tag of
--- the node that names it and never on its own, so it needs no visibility of
--- its own and is always internal to the object that defines it.
+-- the node that names it, or by a direct call. Only the entry of a public
+-- value can get a direct call from another unit: see
+-- 'grinExportedFunctions'.
 data GrinGlobal = GrinGlobal
   { grinGlobalName :: !Text,
     grinGlobalNode :: !GrinNode,
@@ -249,6 +259,19 @@ grinConstructorRoots program =
   | constructor <- grinConstructors program,
     grinConstructorVis constructor == GrinPub
   ]
+
+-- | A function of another unit that the program calls directly: the entry
+-- of a public value, which that unit exports. The parameters are the flat
+-- runtime values of the call. The global is the public value itself. A call
+-- of the function keeps the global alive, because the collector reaches
+-- the static references of the function through it.
+data GrinExternFunction = GrinExternFunction
+  { grinExternName :: !FunctionName,
+    grinExternParameters :: ![GrinRep],
+    grinExternResultRep :: !GrinResultRep,
+    grinExternGlobal :: !Text
+  }
+  deriving (Eq, Show, Read)
 
 -- | A first-order code definition. Closures and thunks refer to functions by
 -- name and carry their environment as node fields.
@@ -513,6 +536,7 @@ grinProgramScopes program =
       map grinConstructorName (grinConstructors program)
         <> map grinGlobalName (grinGlobals program)
         <> map grinForeignCallName (grinForeignCalls program)
+        <> map grinExternGlobal (grinExternFunctions program)
         <> grinProgramGlobalReferences program
         <> concatMap (nodeTagNames . grinGlobalNode) (grinGlobals program)
         <> concatMap (exprTagNames . grinFunctionBody) (grinFunctions program)
@@ -523,6 +547,7 @@ grinProgramScopes program =
 grinProgramFunctionNames :: GrinProgram -> [FunctionName]
 grinProgramFunctionNames program =
   map grinFunctionName (grinFunctions program)
+    <> map grinExternName (grinExternFunctions program)
     <> concatMap (grinNodeFunctionNames . grinGlobalNode) (grinGlobals program)
     <> concatMap (grinExprFunctionNames . grinFunctionBody) (grinFunctions program)
 

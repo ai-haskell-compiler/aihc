@@ -403,6 +403,13 @@ runAnalysis limit program = runST $ do
     zipWithM_ (\field fieldNode -> flowValue solver Map.empty field (Slot fieldNode (pointerKind (grinValueRuntimeRep field)))) fields fieldNodes
     connectThunk solver tag fieldNodes
     when (grinGlobalVis global == GrinPub) (addLocation solver escapeNode location)
+  -- Another unit can call an exported function with any arguments, and it
+  -- gets the results.
+  forM_ (grinExportedFunctions program) $ \name -> do
+    known <- lookupFunction solver name
+    for_ known $ \info -> do
+      mapM_ (unknownSlot solver) (functionParameters info)
+      escapeResults solver (functionResults info)
   variables <- fmap Map.fromList $ forM (grinFunctions program) $ \function -> do
     let name = grinFunctionName function
     info <- lookupFunction solver name

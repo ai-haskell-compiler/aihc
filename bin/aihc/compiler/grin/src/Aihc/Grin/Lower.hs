@@ -47,7 +47,30 @@ data LowerEnv = LowerEnv
     -- layout of its constructor, which the program must declare.
     lowerDeclaredConstructors :: !(Set Fc.Name),
     -- | The index of each known constructor in its data declaration.
-    lowerConstructorIndices :: !(Map Fc.Name Int)
+    lowerConstructorIndices :: !(Map Fc.Name Int),
+    -- | The top-level values that the program declares. Every other value
+    -- with a top-level name is imported.
+    lowerDeclaredValues :: !(Set Fc.Name),
+    -- | The entry of each public value of the program. See 'PublicEntry'.
+    lowerPublicEntries :: !(Map Fc.Name PublicEntry)
+  }
+
+-- | The function that another unit calls directly for a saturated use of a
+-- public value.
+--
+-- Its shape comes from the declared type of the value alone: one parameter
+-- group for each arrow after the quantifiers, and the result after the last
+-- arrow. Thus the unit that declares the value and the unit that imports it
+-- find the same entry without more facts. The name gives the shape too, so
+-- two units that do not agree on the shape do not link.
+--
+-- The entry of a function whose code has this shape is the function itself.
+-- Any other public value with an arrow in its type gets a wrapper that
+-- applies the value to the arguments. See 'publicWrapper'.
+data PublicEntry = PublicEntry
+  { publicEntryName :: !FunctionName,
+    publicEntryLayouts :: ![[GrinRep]],
+    publicEntryResultRep :: !GrinResultRep
   }
 
 -- | A top-level function of this module. Its entry function is named before
@@ -83,7 +106,9 @@ data LowerState = LowerState
     lowerForeignFunctions :: !(Map Text FunctionName),
     -- | The static closure of each private function that the module uses as
     -- a value, by the name of its global. See 'valueGlobalName'.
-    lowerValueGlobals :: !(Map Text GrinNode)
+    lowerValueGlobals :: !(Map Text GrinNode),
+    -- | The entries of other units that the module calls, by name.
+    lowerExternFunctions :: !(Map FunctionName GrinExternFunction)
   }
 
 type LowerM = StateT LowerState (Either String)
@@ -108,10 +133,22 @@ lowerProgram primPackage program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors (constructorIndexTable types)
+      declaredValues = Set.fromList [Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls program]
+      typeEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors (constructorIndexTable types) declaredValues Map.empty
+      publicEntries =
+        Map.fromList
+          [ (Fc.valName declaration, entry)
+          | Fc.DeclVal declaration <- Fc.programDecls program,
+            Fc.valVis declaration == Fc.Pub,
+            Just entry <- [publicEntry typeEnv (Fc.valName declaration) (Fc.valType declaration)]
+          ]
+      baseEnv = typeEnv {lowerPublicEntries = publicEntries}
       declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
-      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
+      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
+    -- The public entries take their names first: another unit spells the
+    -- same names, so no other function of the module can have one.
+    mapM_ (claimExactFunctionName . publicEntryName) (Map.elems publicEntries)
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
@@ -126,7 +163,9 @@ lowerProgram primPackage program = do
             -- function of this module is used as a value, so no
             -- other module can name it.
             <> [GrinGlobal name node GrinPrivate | (name, node) <- Map.toList (lowerValueGlobals finalState)],
-        grinFunctions = reverse (lowerFunctionsRev finalState)
+        grinFunctions = reverse (lowerFunctionsRev finalState),
+        grinExternFunctions = Map.elems (lowerExternFunctions finalState),
+        grinExportedFunctions = map publicEntryName (Map.elems publicEntries)
       }
 
 -- | Simplify a program, drop what nothing reaches, and renumber its
@@ -223,11 +262,95 @@ lowerValueDecl env declaration = do
         case Map.lookup (Fc.valName declaration) (lowerLocalFunctions env) of
           Just function -> makeClosure env (Just (localFunctionEntry function)) (Fc.valBody declaration)
           Nothing -> lazyNode env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
+      case Map.lookup (Fc.valName declaration) (lowerPublicEntries env) of
+        Just entry
+          | (localFunctionEntry <$> Map.lookup (Fc.valName declaration) (lowerLocalFunctions env)) /= Just (publicEntryName entry) ->
+              publicWrapper env (Fc.valName declaration) entry
+        _ -> pure ()
       if hasGlobal env (Fc.valName declaration)
         then do
           globalName <- lookupGlobalName env (Fc.valName declaration)
           pure mempty {topGlobals = [GrinGlobal globalName node (lowerVis (Fc.valVis declaration))]}
         else pure mempty
+
+-- | The public entry of a value whose code does not have the shape of the
+-- entry: a thunk, or a function of other arguments. It applies the value to
+-- the arguments of the entry, as a call site in another unit did before it
+-- knew the entry.
+publicWrapper :: LowerEnv -> Fc.Name -> PublicEntry -> LowerM ()
+publicWrapper env name entry = do
+  globalName <- lookupGlobalName env name
+  groups <- mapM (mapM (freshVar "argument")) (publicEntryLayouts entry)
+  function <- freshVar "function_whnf" liftedGrinRep
+  applied <- applyArgumentGroups (publicEntryResultRep entry) (GrinVarValue function) (map (map GrinVarValue) groups)
+  emitFunction
+    GrinFunction
+      { grinFunctionName = publicEntryName entry,
+        grinFunctionParameters = concat groups,
+        grinFunctionResultRep = publicEntryResultRep entry,
+        grinFunctionBody = GrinBind [function] (GrinEval EvalUpdate liftedGrinRep (GrinGlobalValue globalName)) applied
+      }
+
+-- | The public entry of a value with this declared type, or 'Nothing' when
+-- the type has no arrow or a parameter or the result has no fixed layout.
+-- The program of the value and every program that imports it compute it in
+-- the same way, from the type alone.
+publicEntry :: LowerEnv -> Fc.Name -> Fc.Type -> Maybe PublicEntry
+publicEntry env name sourceType =
+  case Fc.nameOrigin name of
+    Fc.OriginTop (PackageId packageName) moduleName
+      | not (null argumentTypes) -> do
+          layouts <- traverse (either (const Nothing) Just . runtimeComponents entryEnv) argumentTypes
+          resultRep <- either (const Nothing) Just (typeResultRep entryEnv resultType)
+          pure
+            PublicEntry
+              { publicEntryName = FunctionName (grinScopedName packageName moduleName ("$" <> Fc.nameText name <> "$" <> shapeText layouts resultRep)),
+                publicEntryLayouts = layouts,
+                publicEntryResultRep = resultRep
+              }
+    _ -> Nothing
+  where
+    -- A type binder of an enclosing type lambda must not rename a binder of
+    -- the type.
+    (entryEnv, argumentTypes, resultType) = splitArrows env {lowerTypeSubstitution = Map.empty} sourceType
+    splitArrows current ty =
+      case reduce current ty of
+        Fc.TyForAll binder body -> splitArrows (extendTypeBinder current binder) body
+        Fc.TyFun _ _ argument result ->
+          let (resultEnv, arguments, final) = splitArrows current result
+           in (resultEnv, argument : arguments, final)
+        other -> (current, [], other)
+
+-- | The shape of a public entry in its name: the layout of each parameter
+-- group, and the result.
+shapeText :: [[GrinRep]] -> GrinResultRep -> Text
+shapeText layouts resultRep =
+  T.intercalate "_" (map (T.concat . map repCode) layouts) <> "$" <> resultCode
+  where
+    resultCode =
+      case resultRep of
+        ResultRep runtimeRep -> repCode runtimeRep
+        ResultForwarded -> "x"
+    repCode runtimeRep =
+      case runtimeRep of
+        BoxedRep Lifted -> "p"
+        BoxedRep Unlifted -> "u"
+        IntRep -> "i"
+        Int8Rep -> "i8"
+        Int16Rep -> "i16"
+        Int32Rep -> "i32"
+        Int64Rep -> "i64"
+        WordRep -> "w"
+        Word8Rep -> "w8"
+        Word16Rep -> "w16"
+        Word32Rep -> "w32"
+        Word64Rep -> "w64"
+        AddrRep -> "a"
+        FloatRep -> "f"
+        DoubleRep -> "d"
+        SumRep fields -> "s" <> T.concat (map repCode fields) <> "e"
+        TupleRep fields -> "t" <> T.concat (map repCode fields) <> "e"
+        VecRep count element -> "v" <> T.pack (show count) <> T.pack (show element)
 
 -- | GRIN inherits the export visibility of the declaration a global comes
 -- from, so that the roots of reachability are the same names another unit
@@ -894,6 +1017,13 @@ lowerApplication env function argument = do
     (_, (Fc.ExVar name, arguments))
       | Just localFunction <- Map.lookup name (lowerLocalFunctions env) ->
           lowerLocalFunctionApplication env resultRep name localFunction arguments
+    (_, (Fc.ExVar name, arguments))
+      | Just entry <- importedEntry env name,
+        let arity = length (publicEntryLayouts entry),
+        length arguments >= arity,
+        publicEntryResultRep entry == ResultForwarded
+          || publicEntryResultRep entry == (if length arguments == arity then resultRep else liftedResultRep) ->
+          lowerImportedApplication env resultRep name entry arguments
     -- A foreign call whose result is a function of more arguments, such as
     -- an @IO@ action applied to the state token, takes them in one call.
     (_, (Fc.ExForeignCall call types callArguments, arguments)) ->
@@ -1063,6 +1193,33 @@ lowerLocalFunctionApplication env resultRep name function arguments
     directResultRep
       | null remainingArguments = resultRep
       | otherwise = liftedResultRep
+
+-- | The public entry of a value of another program. See 'PublicEntry'.
+importedEntry :: LowerEnv -> Fc.Name -> Maybe PublicEntry
+importedEntry env name
+  | Fc.nameSort name /= Fc.SortValue = Nothing
+  | Set.member name (lowerDeclaredValues env) = Nothing
+  | Map.member name (lowerConstructorArities env) = Nothing
+  | Map.member (Fc.nameText name) specialPrimitiveArities = Nothing
+  | otherwise = TypeOf.lookupHeaderType (lowerTypes env) name >>= publicEntry env name
+
+-- | A call of the public entry of an imported value. It takes the arguments
+-- of the entry. The result, if it is a function, takes the rest.
+lowerImportedApplication :: LowerEnv -> GrinResultRep -> Fc.Name -> PublicEntry -> [Fc.Expr] -> LowerM GrinExpr
+lowerImportedApplication env resultRep name entry arguments = do
+  globalName <- lookupGlobalName env name
+  let extern = GrinExternFunction (publicEntryName entry) (concat (publicEntryLayouts entry)) (publicEntryResultRep entry) globalName
+      (now, later) = splitAt (length (publicEntryLayouts entry)) arguments
+  modify' (\state -> state {lowerExternFunctions = Map.insert (publicEntryName entry) extern (lowerExternFunctions state)})
+  lowerArgumentGroups env now $ \groups -> do
+    when (map (map grinValueRuntimeRep) groups /= publicEntryLayouts entry) $
+      throwLower ("GRIN arguments do not match the public entry of " <> show name)
+    case later of
+      [] -> pure (GrinCall resultRep (publicEntryName entry) (concat groups))
+      _ -> do
+        applied <- freshVar "function_application" liftedGrinRep
+        rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) later
+        pure (GrinBind [applied] (GrinCall liftedResultRep (publicEntryName entry) (concat groups)) rest)
 
 -- | Apply a function value in weak-head normal form to arguments. Each
 -- argument is one group, and one application takes all the groups, so that
@@ -2103,8 +2260,14 @@ localFunctionTable env program =
   Map.fromList
     <$> sequence
       [ withLowerContext ("value " <> show (Fc.valName declaration)) $ do
-          entry <- withCurrentValue (Fc.valName declaration) (freshFunction "")
           shape <- closureShape env (Fc.valBody declaration)
+          -- A function of the shape of its public entry is that entry.
+          entry <- case Map.lookup (Fc.valName declaration) (lowerPublicEntries env) of
+            Just public
+              | publicEntryLayouts public == closureLayouts shape,
+                publicEntryResultRep public == closureResultRep shape ->
+                  pure (publicEntryName public)
+            _ -> withCurrentValue (Fc.valName declaration) (freshFunction "")
           pure
             ( Fc.valName declaration,
               LocalFunction entry (closureLayouts shape) (closureResultRep shape) (Fc.valVis declaration == Fc.Pub) []
@@ -2228,6 +2391,15 @@ freshFunction hint = do
       (candidate, names) = claimFunctionName scopedName (lowerUsedFunctions state)
   modify' (\current' -> current' {lowerUsedFunctions = names})
   pure candidate
+
+-- | Claim a name that another unit spells too, so it must not get a number.
+claimExactFunctionName :: FunctionName -> LowerM ()
+claimExactFunctionName name = do
+  names <- gets lowerUsedFunctions
+  case claimFunctionName (unFunctionName name) names of
+    (claimed, names')
+      | claimed == name -> modify' (\state -> state {lowerUsedFunctions = names'})
+      | otherwise -> throwLower ("GRIN function name is in use: " <> show name)
 
 -- | Put the value name in front of the hint. A hint that already starts with
 -- the value name keeps its own text, so that no name repeats itself.

@@ -27,7 +27,7 @@ expected: |-
 
   primitive +# :: IntRep/2
 
-  pub global 1.pick = (P1.$pick/[[BoxedRep Lifted], [BoxedRep Lifted], [IntRep], [IntRep]])
+  pub global 1.pick = (P1.$pick$p_p_i_i$p/[[BoxedRep Lifted], [BoxedRep Lifted], [IntRep], [IntRep]])
 
   1.$pick_closure (x1 :: IntRep) (z :: IntRep) (x :: IntRep) -> BoxedRep Lifted =
     argument :: IntRep <-
@@ -47,7 +47,7 @@ expected: |-
           primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
         call @(BoxedRep Lifted) 1.$pick_closure (x1 :: IntRep) (z :: IntRep) (argument :: IntRep)
 
-  1.$pick (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: IntRep) (x1 :: IntRep) -> BoxedRep Lifted =
+  pub 1.$pick$p_p_i_i$p (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: IntRep) (x1 :: IntRep) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
