@@ -276,6 +276,8 @@ data Inliner = Inliner
     inDictionaryFunctions :: !(Set Name),
     -- | The template that each alias calls. See 'templateAliases'.
     inAliases :: !(Map Name Name),
+    -- | The top-level dictionaries. See 'topLevelDictionaries'.
+    inTopDictionaries :: !(Map Name Expr),
     inRulesFired :: !Int
   }
 
@@ -308,6 +310,7 @@ initialInliner config env decls supply =
       inSpecs = Map.union (Map.map snd aliases) (Map.map valInline declarations),
       inDictionaryFunctions = Map.keysSet (Map.filter dictionaryFunction declarations),
       inAliases = Map.map fst aliases,
+      inTopDictionaries = topLevelDictionaries (Map.filter isKnownValue bodies) decls,
       inRulesFired = 0
     }
   where
@@ -528,7 +531,7 @@ simplifyValue config known diverging recursive inTemplates st name
                             spKnown = known,
                             spArity = arities,
                             spLocals = Map.empty,
-                            spLocalDictionaries = Map.empty,
+                            spLocalDictionaries = inTopDictionaries st,
                             spExcluded = Map.empty,
                             spCse = Map.empty,
                             spEvaluated = Set.empty,

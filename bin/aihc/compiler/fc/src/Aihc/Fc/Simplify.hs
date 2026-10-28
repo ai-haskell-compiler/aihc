@@ -50,6 +50,7 @@ module Aihc.Fc.Simplify
     isKnownValue,
     isConstructorValue,
     isDictionaryType,
+    topLevelDictionaries,
     isCheapValue,
     isInlinable,
     isTrivial,
@@ -137,7 +138,7 @@ simplifyProgram primPackage phase siteLimit program =
             spKnown = Map.filter isKnownValue bodies,
             spArity = arities,
             spLocals = Map.empty,
-            spLocalDictionaries = Map.empty,
+            spLocalDictionaries = topLevelDictionaries (Map.filter isKnownValue bodies) (programDecls program),
             spExcluded = Map.empty,
             spCse = Map.empty,
             spEvaluated = Set.empty,
@@ -209,6 +210,21 @@ isConstructorValue expr =
       case collectSpine expr of
         (ExVar name, _) -> isConstructorName name
         _ -> False
+
+-- | The top-level values of a dictionary type whose body is a call of a
+-- known top-level value, by name. The desugarer gives each closed
+-- dictionary application of a module such a value, so that the module
+-- builds the dictionary once. A case on the value selects a field as a
+-- case on the call does, as for a local dictionary binding.
+topLevelDictionaries :: Map Name Expr -> [Decl] -> Map Name Expr
+topLevelDictionaries known decls =
+  Map.fromList
+    [ (valName declaration, valBody declaration)
+    | DeclVal declaration <- decls,
+      isDictionaryType (valType declaration),
+      (ExVar function, _ : _) <- [collectSpine (valBody declaration)],
+      Map.member function known
+    ]
 
 -- | A class dictionary type: an application of a @$Dict$@ constructor.
 isDictionaryType :: Type -> Bool
@@ -399,10 +415,11 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
-    -- | Local dictionary bindings whose right-hand side is a call of a
-    -- known top-level value, such as an instance function applied to
+    -- | Dictionary bindings whose right-hand side is a call of a known
+    -- top-level value, such as an instance function applied to
     -- dictionaries. A case on such a binder selects a field as a case on
-    -- the call does, and the binding stays for the other uses.
+    -- the call does, and the binding stays for the other uses. The
+    -- top-level dictionaries of 'topLevelDictionaries' are here too.
     spLocalDictionaries :: !(Map Name Expr),
     -- | Alternatives that a variable cannot select in this scope.
     spExcluded :: !(Map Expr (Set AltCon)),
