@@ -4,7 +4,6 @@
 }: let
   checkedPackageNames = [
     "aihc"
-    "aihc-fmt"
     "aihc-haddock"
     "aihc-play"
     "aihc-resolve"
@@ -98,13 +97,6 @@
         extraCabal2nixOptions = "--subpath bin/aihc";
         srcModifier = src: src;
       };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-fmt = {
-      src = sources.fmtSrc;
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;

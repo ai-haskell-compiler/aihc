@@ -504,10 +504,6 @@
       }
     ]
   );
-  fmtTests = mkTestRunner {
-    drv = hsPkgs.aihc-fmt;
-    src = sources.fmtSrc pkgs;
-  };
   haddockTests = mkTestRunner {
     drv = hsPkgs.aihc-haddock;
     src = sources.haddockSrc pkgs;
@@ -1305,7 +1301,6 @@ in {
     tc-tests = tcTests;
     testing-tests = testingTests;
     aihc-tests = aihcTests;
-    fmt-tests = fmtTests;
     play-tests = playTests;
     haddock-tests = haddockTests;
     unicode-generated = unicodeGenerated;

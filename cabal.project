@@ -7,7 +7,6 @@ packages:
   bin/aihc
   components/aihc-resolve
   components/aihc-tc
-  bin/aihc-fmt
   bin/aihc-haddock
   bin/aihc-play
   tooling/aihc-hackage
