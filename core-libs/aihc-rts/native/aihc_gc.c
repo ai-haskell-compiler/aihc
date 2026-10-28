@@ -1308,23 +1308,32 @@ void aihc_stack_resume_after(AihcCapability *capability,
   aihc_stack_enter_chunk(capability, frame);
 }
 
-/* Remove the deferred frames at or above a frame that the stack pointer
-   enters. The entry pops the frames above it, and a pop can pass a frame
-   without a read: a forward frame gives its values to its parent. New
-   frames then take their place, so a slice must not scan them. The entered
-   frame itself is scanned at once by the caller, so its entry goes too:
-   the code of the frame pops it next, and the list holds live frames
-   only. */
-static void aihc_stack_drop_pending_above(AihcStack *stack,
+/* Scan and remove the deferred frames at or above a frame that the stack
+   pointer enters. The entry pops the frames above it, and a pop can pass a
+   frame without a read: a forward frame gives its values to its parent.
+   The snapshot reached the passed frames, so the cycle must keep what they
+   name. Their slots are intact until new frames take their place, so they
+   are scanned now, and a slice must not scan them later. A scan can defer
+   a lower frame that the pop passes too, so the walk repeats until no
+   passed frame is left. The entered frame itself is scanned at once by the
+   caller, so its entry goes too: the code of the frame pops it next, and
+   the list holds live frames only. */
+static void aihc_stack_scan_passed_frames(AihcCapability *capability,
+                                          AihcStack *stack,
                                           const AihcValue *frame) {
-  size_t kept = 0;
-  for (size_t index = 0; index < stack->pending_count; ++index) {
+  size_t index = 0;
+  while (index < stack->pending_count) {
     AihcValue *pending = stack->pending[index];
     if (aihc_frame_above(frame, pending)) {
-      stack->pending[kept++] = pending;
+      ++index;
+      continue;
+    }
+    stack->pending[index] = stack->pending[--stack->pending_count];
+    if (pending != frame) {
+      aihc_mark_frames(capability, pending);
+      index = 0;
     }
   }
-  stack->pending_count = kept;
 }
 
 static void aihc_stack_enter_chunk_unlocked(AihcCapability *capability,
@@ -1333,7 +1342,7 @@ static void aihc_stack_enter_chunk_unlocked(AihcCapability *capability,
   chunk->capability = capability;
   aihc_chunk_set_generation(chunk, 0);
   if (capability->machine->gen2_cycle_active) {
-    aihc_stack_drop_pending_above(chunk->stack, frame);
+    aihc_stack_scan_passed_frames(capability, chunk->stack, frame);
     /* The frames above the entered one are gone. The entered frame and
        the frames below it in the chunk are read from now on, so the cycle
        scans them before the mutator overwrites any of them. */
@@ -3670,6 +3679,14 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
   AihcMachine *machine = capability->machine;
   uint64_t capability_count = machine->capability_count;
   AihcCapability *only = local && collected < 2 ? capability : NULL;
+  /* A bridge collection with several capabilities promotes every young
+     survivor into gen2, and gen1 too. A minor collection would leave gen1
+     in place, and a promoted nursery survivor can name a gen1 object of
+     another capability. That capability does not scan the gen2 referrer,
+     so its next local collection would leave the referrer stale. */
+  if (only == NULL && capability_count > 1 && collected == 0) {
+    collected = 1;
+  }
   aihc_gc_record_peak(capability);
   /* Everything the mutators took from the nurseries they are about to
      leave. */

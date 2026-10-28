@@ -87,7 +87,9 @@ tests =
           testCase "drops a freed object from the remembered set of another capability" (checkScript getDriver remotePurgeScript),
           testCase "promotes a global object that names a young thunk without a collection" (checkScript getDriver globalPromotionScript),
           testCase "grows the nursery after a local collection beside a young large array" (checkScript getDriver localGrowthScript),
-          testCase "updates a gen2 referrer of a bridge survivor in a later local collection" (checkScript getDriver bridgeSurvivorScript)
+          testCase "updates a gen2 referrer of a bridge survivor in a later local collection" (checkScript getDriver bridgeSurvivorScript),
+          testCase "keeps what a frame names when a pop passes the frame in a cycle" (checkScript getDriver passedFrameScript),
+          testCase "promotes gen1 at a bridge collection with several capabilities" (checkScript getDriver bridgeGen1Script)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -171,6 +173,51 @@ bridgeSurvivorScript =
     CGen2Limit 0,
     CFill 0,
     CReserve 1
+  ]
+
+-- | The update of static thunk 0 promotes a copy of object 2, and the root
+-- keeps the original. Forward frame 8 names the static thunk. The frames
+-- above it fill its chunk and start a new chunk, so the snapshot of the
+-- cycle defers the frames of the lower chunk. The entry of frame 8
+-- continues into frame 2 and passes frame 8 without a read. The cycle must
+-- keep the copy that the static thunk names, because the snapshot reached
+-- it.
+passedFrameScript :: [Command]
+passedFrameScript =
+  [ CMachine 0 2 128 64,
+    CCapabilities 2,
+    CPush 1 FSStop,
+    CReserve 1,
+    CNew 2 KNode [] Nothing,
+    CRoot 1 (VHeap 2),
+    CSUpdate 0 (VHeap 2),
+    CPush 2 (FSNormal [] Nothing []),
+    CPush 8 (FSForward [True] Nothing [VStatic 0])
+  ]
+    <> [CPush fid (FSNormal (replicate 200 False) Nothing (replicate 200 (VWord 0))) | fid <- [10 .. 12]]
+    <> [CCycle, CEnter 8 Nothing, CCollect]
+
+-- | Object 2 is in the gen1 of the first capability, and object 3 in its
+-- nursery names object 2. A reservation of the second capability empties
+-- every nursery in a bridge collection, which promotes object 3 into gen2.
+-- The stable name of object 2 then collects the first capability. A gen2
+-- object must not name the gen1 object, because that collection does not
+-- update the gen2 object.
+bridgeGen1Script :: [Command]
+bridgeGen1Script =
+  [ CMachine 0 1 128 0,
+    CCapabilities 2,
+    CPush 1 FSStop,
+    CReserve 5,
+    CNew 2 KNode [] Nothing,
+    CRoot 0 (VHeap 2),
+    CReserve 56,
+    CNew 3 KNode [True] Nothing,
+    CSet 3 0 (VHeap 2),
+    CRoot 0 (VHeap 3),
+    CHeap 1,
+    CReserve 57,
+    CStable (VHeap 2)
   ]
 
 -- | The second capability stores into a gen2 object, which then dies. A
@@ -1432,7 +1479,7 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
                 -- from the bytes of gen2 too.
                 generations = case command of
                   CReserve _ | mGen2Limit model -> []
-                  _ -> generationProblems (escapeCollection model command) command report
+                  _ -> generationProblems (mCapabilities model > 1) (escapeCollection model command) command report
                 problems = generations <> checkReport scope checked report
                 -- The report says where each survivor lives. The model
                 -- takes the ages for the next report, and the snapshot of
@@ -1471,10 +1518,17 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
     isPromote CPromote {} = True
     isPromote _ = False
     escapeCollection model command = mEscapeCollected (applyCommand command model {mEscapeCollected = False})
-    generationProblems escaped command report = case command of
+    -- With several capabilities, a bridge collection copies gen1 too: an
+    -- explicit collection, and a reservation that empties every nursery.
+    -- Otherwise a promoted nursery survivor could name a gen1 object of
+    -- another capability.
+    generationProblems several escaped command report = case command of
       CCollectGeneration generation
-        | rCollected report /= generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show generation]
+        | rCollected report /= bridged generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show (bridged generation)]
       CCollectGeneration _ -> []
+      CCollect
+        | rCollected report /= bridged 0 -> ["a minor collection collected generation " <> show (rCollected report) <> " instead of " <> show (bridged 0)]
+      CCollect -> []
       CCycle
         | rCollected report /= 1 -> ["cycle collected generation " <> show (rCollected report) <> " instead of 1"]
       CCycle -> []
@@ -1487,8 +1541,15 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
             ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
         | escaped || isPromote command -> []
       _
+        | rBridge report,
+          rCollected report /= bridged 0 ->
+            ["a bridge reservation collected generation " <> show (rCollected report) <> " instead of " <> show (bridged 0)]
+        | rBridge report -> []
         | rCollected report /= 0 -> ["a reservation collected generation " <> show (rCollected report)]
         | otherwise -> []
+      where
+        bridged :: Int -> Int
+        bridged generation = if several then max 1 generation else generation
 
 matchesValue :: Value -> RValue -> Bool
 matchesValue VNull RNull = True

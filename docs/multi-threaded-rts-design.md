@@ -153,6 +153,8 @@ Thus a local collection keeps its survivors in gen1, and it copies gen1 when gen
 The referents of a frame also stay local, and the chunk takes the youngest generation that its frames name.
 Only an escape, a push, and a bridge collection move objects into gen2.
 With several capabilities, a bridge collection moves every young survivor into gen2.
+It copies gen1 too, also when it is a minor collection.
+Otherwise a nursery survivor that it moves into gen2 could name a gen1 object of another capability.
 A survivor that it kept in gen1 could have a referrer in gen2, and the remembered set of the leader would hold that referrer.
 The owner of the survivor does not scan that set, so its next local collection would move the survivor and leave a stale pointer.
 Before the workers start, a collection promotes the startup data, which the roots of the machine name.
