@@ -49,13 +49,12 @@ modules:
   use :: Int -> Int
   use x = case table of D _ f -> f x
 passes:
+- inline: shrink
 - simplify
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Prim.Integer
-  scope 4 = "aihc-prim" GHC.Prim.Num
-  scope 5 = "aihc-prim" GHC.Types
+  scope 3 = "aihc-prim" GHC.Types
 
   import prims
     *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
@@ -64,26 +63,21 @@ expected: |-
     quotInt# = 2.vquotInt# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
-    constructors [4.c$Dict$Num] 4.t$Dict$Num :: ∀(a : sType). sType;
-    constructors [5.cI#] 5.tInt :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
     2.tInt# :: tTYPE cIntRep;
-    constructors [3.cIS, 3.cIP, 3.cIN] 3.tInteger :: sType;
-    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: sType;
-    5.sLiftedRep :: tRuntimeRep;
-    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: sType;
-    5.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    5.sType :: sType;
-    4.v$fNumInt :: t$Dict$Num tInt;
-    5.cBoxedRep :: tLevity → tRuntimeRep;
-    5.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
-    3.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
-    5.cIntRep :: tRuntimeRep;
-    5.cLifted :: tLevity;
-    4.vfromInteger :: ∀(a : sType). t$Dict$Num a → tInteger → a
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    5.sLiftedRep = cBoxedRep cLifted;
-    5.sType = tTYPE sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
   pub type 1.tPair :: sType {
     pub strict [0, 1] 1.cPair :: tInt → tInt → tPair
@@ -92,6 +86,12 @@ expected: |-
   pub type 1.tD :: sType {
     pub 1.cD :: tInt → (tInt → tInt) → tD
   }
+
+  pub val 1.v$WPair :: tInt → tInt → tPair
+    = λ(_strict_field : tInt) (_strict_field{1} : tInt).
+      let! _ = _strict_field;
+      let! _ = _strict_field{1};
+      cPair _strict_field _strict_field{1}
 
   pub val 1.vpick :: tInt → tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
@@ -142,11 +142,6 @@ expected: |-
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       cI# (prim *# x{1} x{1})
-
-  val 1.vtable :: tD
-    = cD (vexpensive (vfromInteger @tInt v$fNumInt (cIS lit (3#cIntRep) :: tInt#))) (λ(x : tInt).
-      let! cI# (x{1} : tInt#) = x;
-      cI# (prim +# x{1} lit (1#cIntRep) :: tInt#))
 
   pub val 1.vuse :: tInt → tInt
     = λ(x : tInt).

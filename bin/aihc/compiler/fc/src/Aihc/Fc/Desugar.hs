@@ -158,7 +158,9 @@ data HeaderSource
   | HeaderSynonym !TyConInfo
   | HeaderNewtype !DataTypeInfo
   | HeaderInstance !InstanceInfo
-  | HeaderDefaultMethod !Name !TypeScheme
+  | -- | A term that the desugarer makes, such as a default method worker
+    -- or a constructor wrapper.
+    HeaderGenerated !Name !TypeScheme
   | HeaderFamilyEquation !TypeFamilyInstanceInfo
   | -- | A type family with its known equations. The equations come with
     -- the family, so a use of the family can reduce its applications.
@@ -279,6 +281,7 @@ headerIndex convertEnv interface =
         <> newtypeFacts
         <> instanceFacts
         <> defaultMethodFacts
+        <> wrapperFacts
         <> familyFacts
         <> dataFamilyFacts
     )
@@ -346,7 +349,7 @@ headerIndex convertEnv interface =
         let (package, moduleName') = iiDictOrigin info
       ]
     defaultMethodFacts =
-      [ (workerName, HeaderDefaultMethod workerName workerScheme)
+      [ (workerName, HeaderGenerated workerName workerScheme)
       | info <- tcInterfaceClasses interface,
         Just (package, moduleName') <- [ciOrigin info],
         methodName <- ciDefaultMethods info,
@@ -354,6 +357,19 @@ headerIndex convertEnv interface =
         let workerName = Name (defaultMethodName methodName) SortValue (OriginTop (PackageId package) moduleName')
             workerScheme = maybe methodScheme (defaultMethodWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
+    -- The wrapper of a constructor has the checked type of the constructor.
+    -- Only a constructor that needs a wrapper has one, but a header for
+    -- another name is not used.
+    wrapperFacts =
+      [ (constructorWrapperName constructor, HeaderGenerated (constructorWrapperName constructor) scheme)
+      | dataType <- tcInterfaceDataTypes interface,
+        dtiFlavor dataType == DataTyCon,
+        info <- dtiConstructors dataType,
+        let (package, moduleName') = dciOrigin info
+            constructor = Name (dciName info) SortDataConstructor (OriginTop package moduleName'),
+        Just scheme <- [Map.lookup (GlobalTerm package moduleName' (dciName info)) interfaceTerms]
+      ]
+    interfaceTerms = Map.fromList (tcInterfaceTerms interface)
     familyFacts =
       [ (lookupAxiomName (typeFamilyAxiomKey info), HeaderFamilyEquation info)
       | info <- tcInterfaceTypeFamilyInstances interface
@@ -407,7 +423,7 @@ convertHeader convertEnv bindings source =
     HeaderInstance info -> do
       (headerName, headerType') <- convertInstanceHeader convertEnv info
       Right (headerOnly (cePrimPackage convertEnv) headerName headerType')
-    HeaderDefaultMethod headerName scheme -> do
+    HeaderGenerated headerName scheme -> do
       converted <- convertTypeScheme convertEnv scheme
       Right (headerOnly (cePrimPackage convertEnv) headerName converted)
     HeaderFamilyEquation info ->

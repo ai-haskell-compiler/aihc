@@ -44,6 +44,11 @@ expected: |-
     pub 1.cBox :: tBool → tBox
   }
 
+  val 1.v$WStrict :: tBool → tStrict
+    = λ(_strict_field : tBool).
+      let! _ = _strict_field;
+      cStrict _strict_field
+
   pub val 1.vpick :: tStrict → tBox
     = λ(x : tStrict).
       let! cStrict (b : tBool) = x;

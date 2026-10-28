@@ -35,10 +35,13 @@ expected: |-
     pub strict [0] 1.cBox :: tInt → tBox
   }
 
+  val 1.v$WBox :: tInt → tBox
+    = λ(_strict_field : tInt).
+      let! _ = _strict_field;
+      cBox _strict_field
+
   pub val 1.vwrap :: tInt → tBox
     = λ(x : tInt).
-      (λ(_strict_field : tInt).
-        let! _ = _strict_field;
-        cBox _strict_field) x
+      v$WBox x
 status: pass
 reason: The function evaluates the parameter but does not take it apart, so a worker would only put the box back together. The function does not split.

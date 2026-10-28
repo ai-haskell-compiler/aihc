@@ -31,10 +31,14 @@ expected: |-
     pub strict [0, 1] 1.cStrictPair :: ∀(a : sType). a → a → tStrictPair a
   }
 
+  pub val 1.v$WStrictPair :: ∀(a : sType). a → a → tStrictPair a
+    = Λ(a : sType). λ(_strict_field : a) (_strict_field{1} : a).
+      let! _ = _strict_field;
+      let! _ = _strict_field{1};
+      cStrictPair @a _strict_field _strict_field{1}
+
   pub val 1.vmakePair :: ∀(a : sType). a → a → tStrictPair a
     = Λ(a : sType). λ(x : a) (y : a).
-      let! _ = x;
-      let! _ = y;
-      cStrictPair @a x y
+      v$WStrictPair @a x y
 status: pass
 reason: A strict field uses its evaluated case binder.

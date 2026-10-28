@@ -374,8 +374,9 @@ desugarModuleValues checked = do
   values <- mapM (desugarTopValue specs) tops
   patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
   rules <- concat <$> mapM desugarRulesDecl (Syn.moduleDecls checked)
+  wrappers <- desugarConstructorWrappers
   dictionaries <- gets (reverse . vsModuleDictionaryDeclsRev)
-  compactStringValues (phaseOne <> instances <> patSyns <> map DeclVal (dictionaries <> values <> patternValues) <> rules)
+  compactStringValues (phaseOne <> wrappers <> instances <> patSyns <> map DeclVal (dictionaries <> values <> patternValues) <> rules)
 
 -- | The rules of a @RULES@ pragma. Any other declaration gives none.
 desugarRulesDecl :: Syn.Decl -> ValueM [Decl]
@@ -3707,23 +3708,81 @@ repNeedsWrapper rep =
           kindEnv <- gets (ceKindEnv . vsConvertEnv)
           pure (not (isUnliftedTypeInEnv kinds kindEnv ty))
 
--- | Build a use of a data constructor from its source fields.
--- The body forces each strict lifted leaf, matches each unpacked product,
--- and casts each newtype. It then applies the representation constructor.
+-- | Build a use of a data constructor that needs a wrapper. A data-family
+-- constructor builds the wrapper body at the use, because its result is
+-- cast with the family axiom of the use. Any other constructor calls the
+-- one wrapper @$W@ that the declaring module makes.
 -- 'resultCast' wraps a data-family result.
 desugarUnpackConstructor :: Syn.Name -> TcAnnotation -> DataConInfo -> Maybe Coercion -> ValueM Expr
 desugarUnpackConstructor name annotation info resultCast = do
-  let (_, afterForAlls) = peelForAlls (tcAnnType annotation)
-      (_, bodyType) = peelConstraints afterForAlls
-      (fieldTypes, resultType) = splitFunctionType bodyType
-  when (length fieldTypes /= length (dciFields info)) $
-    failValue ("constructor " <> T.unpack (Syn.nameText name) <> " has an unexpected field count")
-  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [resultType])
-      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
   constructor <- resolvedTermName name
   types <- convertOccurrenceTypeArguments name (tcAnnTypeArgs annotation)
   evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-  let labels = map dcfiLabel (dciFields info)
+  case resultCast of
+    Nothing ->
+      pure (foldl ExApp (foldl ExTyApp (ExVar (constructorWrapperName constructor)) types) evidence)
+    Just _ -> do
+      let (_, afterForAlls) = peelForAlls (tcAnnType annotation)
+          (_, bodyType) = peelConstraints afterForAlls
+      constructorWrapperBody constructor info bodyType types evidence resultCast
+
+-- | Make one wrapper function @$W@ for each data constructor of the module
+-- that needs a wrapper. Each saturated use calls the wrapper and does not
+-- get a copy of its body. A data-family constructor has no wrapper.
+desugarConstructorWrappers :: ValueM [Decl]
+desugarConstructorWrappers = do
+  moduleOrigin <- gets vsModuleOrigin
+  infos <- gets vsConstructorInfos
+  families <- gets vsFamilyConstructors
+  let (package, moduleName') = moduleOrigin
+      constructors =
+        [ constructor
+        | constructor <- concat (Map.elems infos),
+          dciOrigin constructor == moduleOrigin,
+          Map.notMember (GlobalTerm package moduleName' (dciName constructor)) families
+        ]
+  wrapped <- filterM constructorNeedsWrapper constructors
+  mapM desugarConstructorWrapper wrapped
+
+-- | The wrapper function of one data constructor. It has the checked type
+-- of the constructor. A use of the constructor in another module calls the
+-- wrapper, so the wrapper is public when the constructor is public.
+desugarConstructorWrapper :: DataConInfo -> ValueM Decl
+desugarConstructorWrapper info = do
+  let (package, moduleName') = dciOrigin info
+      constructor = Name (dciName info) SortDataConstructor (OriginTop package moduleName')
+  constructorType <- lookupBindingType (GlobalTerm package moduleName' (dciName info))
+  let (typeVariables, afterForAlls) = peelForAlls constructorType
+      (predicates, bodyType) = peelConstraints afterForAlls
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    types <- mapM (convertCheckedType . TcTyVar) typeVariables
+    dictionaries <- mapM freshDictionaryBinder predicates
+    body <- constructorWrapperBody constructor info bodyType types (map (ExVar . binderName) dictionaries) Nothing
+    wrapperType <- convertCheckedType constructorType
+    visibilities <- mapM termVisibility (dciName info : mapMaybe dcfiLabel (dciFields info))
+    pure
+      ( DeclVal
+          ValDecl
+            { valVis = if Pub `elem` visibilities then Pub else Private,
+              valInline = InlineDefault,
+              valName = constructorWrapperName constructor,
+              valType = wrapperType,
+              valBody = foldr ExTyLam (foldr ExLam body dictionaries) typeBinders
+            }
+      )
+
+-- | The body of a constructor wrapper, from its source fields.
+-- The body forces each strict lifted leaf, matches each unpacked product,
+-- and casts each newtype. It then applies the representation constructor.
+constructorWrapperBody :: Name -> DataConInfo -> TcType -> [Type] -> [Expr] -> Maybe Coercion -> ValueM Expr
+constructorWrapperBody constructor info bodyType types evidence resultCast = do
+  let (fieldTypes, resultType) = splitFunctionType bodyType
+  when (length fieldTypes /= length (dciFields info)) $
+    failValue ("constructor " <> T.unpack (nameText constructor) <> " has an unexpected field count")
+  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [resultType])
+      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+      labels = map dcfiLabel (dciFields info)
       names = leafNames "_unpack_leaf" (zip labels (map (length . repLeaves) reps))
   fields <- mapM bindSourceField (zip3 labels fieldTypes reps)
   convertedResult <- convertCheckedType resultType

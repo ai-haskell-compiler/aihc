@@ -10,6 +10,8 @@ module Aihc.Fc.Name
     Name (..),
     Vis (..),
     derivedLocalText,
+    constructorWrapperName,
+    isConstructorWrapperName,
   )
 where
 
@@ -98,3 +100,13 @@ derivedLocalText prefix text = prefix <> base text
     isDerivedBase rest =
       not (T.null rest)
         && not (any (`T.isPrefixOf` rest) ["crutinee", "ith_dict"])
+
+-- | The name of the wrapper function @$W@ of a data constructor. The
+-- module that declares the constructor defines the wrapper.
+constructorWrapperName :: Name -> Name
+constructorWrapperName constructor = Name ("$W" <> nameText constructor) SortValue (nameOrigin constructor)
+
+-- | Whether a name is the wrapper function of a data constructor. A
+-- source name cannot start with @$@, so only the desugarer makes it.
+isConstructorWrapperName :: Name -> Bool
+isConstructorWrapperName name = nameSort name == SortValue && "$W" `T.isPrefixOf` nameText name

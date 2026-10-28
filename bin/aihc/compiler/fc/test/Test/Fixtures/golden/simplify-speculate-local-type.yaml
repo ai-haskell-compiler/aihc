@@ -54,6 +54,11 @@ expected: |-
     pub 1.cBox :: tCount → tBox
   }
 
+  val 1.v$WStrict :: tCount → tStrict
+    = λ(_strict_field : tCount).
+      let! _ = _strict_field;
+      cStrict _strict_field
+
   pub val 1.vnext :: tStrict → tBox
     = λ(x : tStrict).
       let! cStrict (x{1} : tCount) = x;
