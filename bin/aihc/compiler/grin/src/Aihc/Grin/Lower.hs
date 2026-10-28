@@ -329,10 +329,10 @@ shapeText layouts resultRep =
   where
     resultCode =
       case resultRep of
-        ResultRep runtimeRep -> repCode runtimeRep
+        ResultRep representation -> repCode representation
         ResultForwarded -> "x"
-    repCode runtimeRep =
-      case runtimeRep of
+    repCode representation =
+      case representation of
         BoxedRep Lifted -> "p"
         BoxedRep Unlifted -> "u"
         IntRep -> "i"
