@@ -9,6 +9,7 @@ module Aihc.Fc
     readProgramFile,
     writeProgramFile,
     programFileName,
+    interfaceFileName,
     parseProgram,
     renderParseError,
     FcParseError,
@@ -63,7 +64,7 @@ module Aihc.Fc
 where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
-import Aihc.Fc.Binary (decodeProgram, encodeProgram, programFileName, readProgramFile, writeProgramFile)
+import Aihc.Fc.Binary (decodeProgram, encodeProgram, interfaceFileName, programFileName, readProgramFile, writeProgramFile)
 import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig, resolvedModuleOrigin)

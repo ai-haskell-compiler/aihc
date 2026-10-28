@@ -15,6 +15,7 @@ module Aihc.Cli.ModuleProvider
     newModuleProvider,
     newProviderCache,
     providerPackagesOf,
+    providerInterfacePaths,
     providerResolved,
     providerTyped,
     providerInstanceFacts,
@@ -25,6 +26,7 @@ where
 import Aihc.Cli.BuildStamp (ModuleDigests (..), PackageDigests (..), packageDigestsPath, readStamp)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
+import Aihc.Fc (interfaceFileName)
 import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
 import Aihc.Tc (MergeCheck (..), TcInterface, mergeTcInterfaces)
 import Control.Concurrent.STM (TMVar, TVar, atomically, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, writeTVar)
@@ -54,7 +56,10 @@ type PackageLocator = Map PackageId PackageSource
 data PackageSource
   = StorePackage !FilePath
   | GraphPackage
-      { graphResolved :: Text -> IO ResolvedModuleFacts,
+      { -- | Where the units of the package write the artifacts of their
+        -- modules, as a store directory holds them.
+        graphOutputRoot :: FilePath,
+        graphResolved :: Text -> IO ResolvedModuleFacts,
         graphTyped :: Text -> IO TypedModuleFacts,
         -- | The instance facts the unit of the module declares itself.
         graphOwnFacts :: Text -> IO TcInterface
@@ -87,6 +92,8 @@ data ModuleProvider = ModuleProvider
   { providerModules :: !(Map Text [Package]),
     providerResolved :: ModuleKey -> IO ResolvedModuleFacts,
     providerTyped :: ModuleKey -> IO TypedModuleFacts,
+    -- | Where each dependency package keeps the artifacts of its modules.
+    providerRoots :: Map PackageId FilePath,
     -- | The instance facts of the given providers, merged as a unit merges
     -- the facts of the units below it.
     providerInstanceFacts :: Set InstanceProvider -> IO TcInterface
@@ -95,6 +102,17 @@ data ModuleProvider = ModuleProvider
 -- | The dependency packages that expose a module of the name.
 providerPackagesOf :: ModuleProvider -> Text -> [Package]
 providerPackagesOf provider name = Map.findWithDefault [] name (providerModules provider)
+
+-- | Where the optimizer interface of a module can be, one path for each
+-- dependency package that exposes a module of the name. A package that
+-- compiles in the graph writes it under its own output root, as an
+-- installed package holds it under its store directory.
+providerInterfacePaths :: ModuleProvider -> Text -> [FilePath]
+providerInterfacePaths provider name =
+  [ root </> moduleNameDirectory name </> interfaceFileName
+  | package <- providerPackagesOf provider name,
+    Just root <- [Map.lookup (packageId package) (providerRoots provider)]
+  ]
 
 -- | The facts that the providers of one graph read from the store, each
 -- decoded once. A store package does not change while a graph runs, so
@@ -126,6 +144,10 @@ newModuleProvider cache locator dependencies = do
           [ (packageId package, source)
           | (package, _, source) <- dependencies
           ]
+      sourceRoot source =
+        case source of
+          StorePackage directory -> Just directory
+          GraphPackage {graphOutputRoot} -> Just graphOutputRoot
       modules =
         Map.fromListWith
           (flip (<>))
@@ -199,6 +221,7 @@ newModuleProvider cache locator dependencies = do
       { providerModules = modules,
         providerResolved = resolved,
         providerTyped = typed,
+        providerRoots = Map.mapMaybe sourceRoot sources,
         providerInstanceFacts = instanceFacts
       }
 

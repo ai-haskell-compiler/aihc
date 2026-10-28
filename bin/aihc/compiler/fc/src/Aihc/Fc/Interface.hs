@@ -44,7 +44,7 @@ module Aihc.Fc.Interface
   )
 where
 
-import Aihc.Fc.Imports (restrictProgram)
+import Aihc.Fc.Imports (exprReferences, restrictProgram)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (ruleHeadName)
@@ -102,6 +102,12 @@ defaultInterfacePolicy = InterfacePolicy {policyBodyLimit = 80, policyTotalLimit
 -- value that the rules refuse is not offered at all, because the
 -- consumer could not name it.
 --
+-- A value that names a private constructor of the module is not offered
+-- either. The module that declares a constructor defines its info table,
+-- and it defines it for a public constructor only: nothing outside the
+-- module can name a private one. A copy of such a body in a consumer
+-- would name a symbol that no object has.
+--
 -- A rule is offered when every value it names is public in this module.
 -- The consumer calls those values, and it needs no body to fire the rule.
 moduleInterface :: PackageId -> InterfacePolicy -> Program -> Program
@@ -110,6 +116,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     env = typeEnvFromProgram primPackage program
     values = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls program]
     public = Map.keysSet (Map.filter ((== Pub) . valVis) values)
+    privateConstructors = Set.fromList [conName constructor | DeclType declaration <- programDecls program, constructor <- typeCons declaration, conVis constructor == Private]
     -- The smallest candidate goes first, and the name decides between two
     -- of one size, so that the selection is the same in every build.
     candidates = sortOn (\declaration -> (bodySize declaration, valName declaration)) [declaration | declaration <- Map.elems values, offers declaration]
@@ -155,6 +162,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- the program and can pay.
     copies declaration =
       isInlinable (valBody declaration)
+        && Set.disjoint privateConstructors (exprReferences (valBody declaration))
         && case valInline declaration of
           InlineNever _ -> False
           _ -> True
@@ -165,7 +173,10 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
         _ -> False
     offersRule rule =
       case ruleHeadName rule of
-        Just ruleHead | Set.member ruleHead public -> all named (exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule))
+        Just ruleHead
+          | Set.member ruleHead public ->
+              all named (exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule))
+                && Set.disjoint privateConstructors (exprReferences (ruleLhs rule) <> exprReferences (ruleRhs rule))
         _ -> False
     -- A value the consumer can name: a public value of this module, or a
     -- value of another module.

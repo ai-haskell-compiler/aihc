@@ -74,10 +74,13 @@ data UnitStamp = UnitStamp
 data BackendStamp = BackendStamp
   { backendStampOptions :: !Text,
     backendStampFiles :: ![FileStamp],
-    -- | The headers the capi wrappers of the unit included, by absolute path.
-    -- Nothing else in the build reads these files, so without them a changed
-    -- header would leave a wrapper that calls the old C API in place.
-    backendStampHeaders :: ![FileStamp]
+    -- | The files outside the unit that its backend read, by path: the
+    -- headers the capi wrappers included, and the optimizer interfaces of
+    -- the modules the unit imports. Nothing else in the build reads these
+    -- files, so without them a changed header would leave a wrapper that
+    -- calls the old C API in place, and a changed interface would leave
+    -- an object that holds the body of a value that is gone.
+    backendStampExternalFiles :: ![FileStamp]
   }
   deriving (Eq, Show)
 
@@ -137,7 +140,7 @@ instance Cbor BackendStamp where
       <> cborText "aihc-backendstamp-1"
       <> toCbor (backendStampOptions value)
       <> toCbor (backendStampFiles value)
-      <> toCbor (backendStampHeaders value)
+      <> toCbor (backendStampExternalFiles value)
   fromCbor = do
     expectArray 4
     "aihc-backendstamp-1" <- getText

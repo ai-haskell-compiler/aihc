@@ -103,6 +103,7 @@ import Aihc.Cli.ModuleProvider
     newModuleProvider,
     newProviderCache,
     providerInstanceFacts,
+    providerInterfacePaths,
     providerPackagesOf,
     providerResolved,
     providerTyped,
@@ -347,6 +348,9 @@ dependencyInputs label unitNames dependencyNames digests =
 
 data ModuleOutputPaths = ModuleOutputPaths
   { outputFcPath :: !FilePath,
+    -- | The optimizer interface of the module: what the modules below it
+    -- read when each module is optimized on its own.
+    outputInterfacePath :: !FilePath,
     outputGrinPath :: !FilePath,
     outputCpsGrinPath :: !FilePath,
     outputGcGrinPath :: !FilePath,
@@ -474,6 +478,10 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- | Run the heap points-to analysis of GRIN and its rewrites on each
     -- program that the backend lowers. Only a whole-program plan sets it.
     compileGrinPointsTo :: !Bool,
+    -- | Write the optimizer interface of each module, and read the
+    -- interfaces of the modules it imports. Only a plan that optimizes
+    -- each module on its own sets it. See "Aihc.Fc.Interface".
+    compileModuleInterfaces :: !Bool,
     -- | Count the heap objects of the whole program, as
     -- @--profile-allocations@ asks. Only the whole-program object and the
     -- entry get the counters, because the counters of two units would have
@@ -686,6 +694,7 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileLto = planWholeProgram plan,
         compilePasses = planPasses plan,
         compileGrinPointsTo = planGrinPointsTo plan,
+        compileModuleInterfaces = planModuleInterfaces plan,
         compileProfileAllocations = False,
         compileProfileTime = False,
         compileProfileUnit = False,
@@ -1155,7 +1164,7 @@ preparePackage shared graph slot = do
       package = Package (installedName installed) identity
       source = case build of
         Nothing -> StorePackage (installStorePath (installedResult installed))
-        Just _ -> graphPackageSource package (slotUnits slot)
+        Just graphBuild -> graphPackageSource package (buildPath graphBuild) (slotUnits slot)
   atomically $
     putTMVar
       (slotPrepared slot)
@@ -1275,10 +1284,11 @@ publishSlot shared slot = do
 
 -- | The facts of the modules of a package that compiles in the graph,
 -- from the results of its units.
-graphPackageSource :: Package -> TMVar (Map.Map Text UnitRuntime) -> PackageSource
-graphPackageSource package unitsVar =
+graphPackageSource :: Package -> FilePath -> TMVar (Map.Map Text UnitRuntime) -> PackageSource
+graphPackageSource package outputRoot unitsVar =
   GraphPackage
-    { graphResolved = \name -> do
+    { graphOutputRoot = outputRoot,
+      graphResolved = \name -> do
         runtime <- unitOf name
         result <- unitResult name (runtimeResolveResult runtime)
         scope <-
@@ -2588,7 +2598,16 @@ runTypeUnit context runtimes runtime = do
       typePath source = sourceModuleDirectory source </> "type.cbor"
       factsPath = unitFactsPath unit
       stampPath = storePath </> unitStampPath unit
-      frontendFiles = factsPath : map typePath sources
+      -- The desugar step of this task writes the optimizer interface of
+      -- each module, so a unit that is reused must still have it: the
+      -- modules below it read it.
+      interfacePaths =
+        [ outputInterfacePath (moduleOutputPaths "" (compileTarget config) (sourceName source))
+        | compileModuleInterfaces config,
+          not (compileNoCode config),
+          source <- sources
+        ]
+      frontendFiles = factsPath : map typePath sources <> interfacePaths
       -- Each dependency carries the instance closure of its own dependencies,
       -- so the closures agree wherever they overlap.
       importedInstanceInterface =
@@ -2792,7 +2811,7 @@ reuseTypeUnit config storePath stampPath inputs = do
               | backendStampOptions backend == T.pack (backendOptionsKey config) ->
                   -- A capi wrapper is rebuilt when a header it included
                   -- changed, which nothing else in the build would notice.
-                  (&&) <$> filesMatchStamps storePath (backendStampFiles backend) <*> filesMatchStamps "" (backendStampHeaders backend)
+                  (&&) <$> filesMatchStamps storePath (backendStampFiles backend) <*> filesMatchStamps "" (backendStampExternalFiles backend)
             _ -> pure False
       pure (if frontendCurrent && backendCurrent then Just recorded else Nothing)
     _ -> pure Nothing
@@ -2832,6 +2851,7 @@ runBackendUnit context runtime = do
       forM_ (compileObserver unitConfig) $ \observe ->
         forM_ (sourceUnitSources (runtimeUnit runtime)) $ \source ->
           observe (ObservedSource package (sourceName source) (sourceModulePath source))
+      interfaces <- readUnitInterfaces context runtime
       (phaseTimings, capiOutputs) <-
         compileUnitFcModules
           (taskPrimIdentity context)
@@ -2839,8 +2859,11 @@ runBackendUnit context runtime = do
           (taskCapiStubOptions context)
           (compileVerbose config)
           (moduleOutputPaths storePath (compileTarget config))
+          (map snd interfaces)
           backend
-      capiHeaders <- stampFiles "" (sortOn id (nub (concatMap capiStubHeaders capiOutputs)))
+      -- The headers of the capi wrappers and the interfaces the passes
+      -- read: a change in either one rebuilds the objects of the unit.
+      externalFiles <- stampFiles "" (sortOn id (nub (concatMap capiStubHeaders capiOutputs <> map fst interfaces)))
       forM_ (typeUnitPendingStamp result) $ \stamp ->
         writeUnitStamp
           storePath
@@ -2848,7 +2871,7 @@ runBackendUnit context runtime = do
           ( Just
               ( T.pack (backendOptionsKey config),
                 unitBackendPaths config (runtimeUnit runtime) <> capiStubPaths (compileTarget config) capiOutputs,
-                capiHeaders
+                externalFiles
               )
           )
       ended <- getMonotonicTimeNSec
@@ -2856,6 +2879,38 @@ runBackendUnit context runtime = do
     _ -> do
       ended <- getMonotonicTimeNSec
       atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended mempty, ()))
+
+-- | The optimizer interfaces that the modules of a unit import, each with
+-- the file it came from.
+--
+-- A module imports a module of its own package or of a dependency, so
+-- both roots are tried. An interface that is absent is no error: the
+-- module that declares the value offers nothing, and a call of that value
+-- stays a call. A plan without the interfaces reads none.
+readUnitInterfaces :: PackageTaskContext -> UnitRuntime -> IO [(FilePath, Fc.Program)]
+readUnitInterfaces context runtime
+  | not (compileModuleInterfaces config) = pure []
+  | otherwise = fmap concat (mapM readInterface (nub (concatMap candidatePaths names)))
+  where
+    config = taskModuleCompileConfig context
+    unit = runtimeUnit runtime
+    own = map sourceName (sourceUnitSources unit)
+    provider = taskModuleProvider context
+    names = [name | name <- nub (concatMap sourceDependencyNames (sourceUnitSources unit)), name `notElem` own]
+    candidatePaths name =
+      outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name)
+        : providerInterfacePaths provider name
+    readInterface path = do
+      exists <- doesFileExist path
+      if not exists
+        then pure []
+        else do
+          loaded <- Fc.readProgramFile path
+          case loaded of
+            Left message -> ioError (userError ("Invalid System FC interface " <> T.unpack message))
+            Right program -> do
+              compileVerbose config ("Read FC interface: " <> path)
+              pure [(path, program)]
 
 unitStampDirectory :: FilePath
 unitStampDirectory = ".units"
@@ -3040,6 +3095,11 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     -- A @--lto@ build keeps the System FC of every module: it is what the
     -- executable compiles.
     when (keepCore || lto) (mapM_ writeFcModule fcModules)
+    -- The interface of a module comes from the program of the desugarer,
+    -- and not from the optimized program: the body that an INLINE pragma
+    -- offers is the body of the source, as it is in GHC. The modules
+    -- below this one read these files.
+    when interfaces (mapM_ writeInterface fcModules)
     -- The FC is forced here so that no thunk into the checked AST leaves
     -- with it.
     evaluate (force fcModules)
@@ -3047,6 +3107,14 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     keepCore = compileKeepCore config
     lint = compileLint config
     lto = compileLto config
+    interfaces = compileModuleInterfaces config
+
+    writeInterface fcModule = do
+      let name = fcModuleName fcModule
+          path = outputInterfacePath (outputPaths name)
+          offered = Fc.moduleInterface primIdentity Fc.defaultInterfacePolicy (fcProgram fcModule)
+      Fc.writeProgramFile path offered
+      verbose ("Write FC interface: " <> T.unpack name <> ", " <> show (length (Fc.programDecls offered)) <> " declarations")
 
     writeFcModule fcModule = do
       let name = fcModuleName fcModule
@@ -3057,17 +3125,26 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
 -- | Compile the System FC of a unit to objects, and its capi wrappers
 -- beside them. Only the FC and the rendered wrappers come in: the frontend
 -- state of the unit is gone.
-compileUnitFcModules :: PackageId -> ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
-compileUnitFcModules primPackage config capiOptions verbose outputPaths pending = do
+compileUnitFcModules :: PackageId -> ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [Fc.Program] -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
+compileUnitFcModules primPackage config capiOptions verbose outputPaths interfaces pending = do
   (grinNs, nativeNs) <-
     if lto
       then pure (0, 0)
       else do
         -- Each module is inlined on its own: the program is not known here.
+        -- The modules of a unit are optimized in the order the unit holds
+        -- them, and each one reads the interfaces of the modules it
+        -- imports. A module of the same unit is in a cycle with this one,
+        -- so it offers nothing: its own passes have not run.
         optimized <- forM (pendingFcModules pending) $ \fcModule -> do
           let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
-          program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (fcProgram fcModule)
-          pure fcModule {fcProgram = program}
+              grafted = Fc.graftInterfaces primPackage interfaces (fcProgram fcModule)
+          unless (null interfaces) $
+            verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedValues grafted)) <> " values")
+          program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
+          let stripped = Fc.stripInterfaces primPackage grafted program
+          lintOptimized primPackage config "strip interfaces" (fcModuleName fcModule) stripped
+          pure fcModule {fcProgram = stripped}
         compileFcModules primPackage config verbose outputPaths optimized
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
@@ -3315,6 +3392,7 @@ moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =
   ModuleOutputPaths
     { outputFcPath = directory </> Fc.programFileName,
+      outputInterfacePath = directory </> Fc.interfaceFileName,
       outputGrinPath = directory </> "plain.grin",
       outputCpsGrinPath = directory </> "cps.grin",
       outputGcGrinPath = directory </> "gc.grin",
@@ -4224,4 +4302,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-52"
+packageArtifactFormatVersion = "aihc-artifacts-53"
