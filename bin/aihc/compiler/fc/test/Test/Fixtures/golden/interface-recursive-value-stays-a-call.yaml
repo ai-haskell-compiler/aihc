@@ -1,0 +1,76 @@
+---
+extensions: []
+scope: module
+modules:
+- |
+  module Lib (List (..), listReverse) where
+
+  data List a = Nil | Cons a (List a)
+
+  listReverse :: List a -> List a -> List a
+  listReverse xs acc = case xs of
+    Nil -> acc
+    Cons y ys -> listReverse ys (Cons y acc)
+- |
+  module Test (use) where
+  import Lib (List (..), listReverse)
+
+  use :: List a -> List a
+  use xs = listReverse xs Nil
+passes:
+- inline: shrink
+expected: |-
+  scope 1 = "" Lib
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tList (a : sType) :: sType {
+    pub 1.cNil :: ∀(a : sType). tList a;
+    pub 1.cCons :: ∀(a : sType). a → tList a → tList a
+  }
+
+  pub val 1.vlistReverse :: ∀(a : sType). tList a → tList a → tList a
+    = Λ(a : sType). λ(x : tList a) (y : tList a).
+      case x of {
+        cNil →
+          y;
+        cCons (y{1} : a) (ys : tList a) →
+          vlistReverse @a ys (cCons @a y{1} y)
+      }
+  scope 1 = "" Lib
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [1.cNil, 1.cCons] 1.tList :: ∀(a : sType). sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    1.cNil :: ∀(a : sType). tList a;
+    1.vlistReverse :: ∀(a : sType). tList a → tList a → tList a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 2.vuse :: ∀(a : sType). tList a → tList a
+    = Λ(a : sType). λ(x : tList a).
+      vlistReverse @a x (cNil @a)
+status: pass
+reason: The interface offers the body of a recursive value, and the inliner copies no recursive group. The grafted value is removed again, so the program of Test declares no value of Lib and names it as an import.

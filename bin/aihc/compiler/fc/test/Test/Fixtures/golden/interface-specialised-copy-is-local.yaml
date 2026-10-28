@@ -1,0 +1,97 @@
+---
+extensions: []
+scope: module
+modules:
+- |
+  module Lib (C (..), twice) where
+
+  class C a where
+    op :: a -> a
+
+  twice :: C a => a -> a
+  twice x = op (op x)
+- |
+  module Test (use) where
+  import Lib (C (..), twice)
+
+  data Nat = Z | S Nat
+
+  instance C Nat where
+    op = S
+
+  use :: Nat -> Nat
+  use n = twice n
+passes:
+- specialise-top
+expected: |-
+  scope 1 = "" Lib
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.t$Dict$C (a : sType) :: sType {
+    pub 1.c$Dict$C :: ∀(a : sType). (a → a) → t$Dict$C a
+  }
+
+  pub val 1.vop :: ∀(a : sType). t$Dict$C a → a → a
+    = Λ(a : sType). λ($dC : t$Dict$C a).
+      let! c$Dict$C ($cop : a → a) = $dC;
+      $cop
+
+  pub val 1.vtwice :: ∀(a : sType). t$Dict$C a → a → a
+    = Λ(a : sType). λ($dC : t$Dict$C a) (x : a).
+      vop @a $dC (vop @a $dC x)
+  scope 1 = "" Lib
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [1.c$Dict$C] 1.t$Dict$C :: ∀(a : sType). sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    1.c$Dict$C :: ∀(a : sType). (a → a) → t$Dict$C a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 2.tNat :: sType {
+    2.cZ :: tNat;
+    2.cS :: tNat → tNat
+  }
+
+  pub val 2.v$fCNat :: t$Dict$C tNat
+    = c$Dict$C @tNat v$fCNat$cop
+
+  val 2.v$fCNat$cop :: tNat → tNat
+    = cS
+
+  pub val 2.vuse :: tNat → tNat
+    = λ(x : tNat).
+      v$stwice_0$x4f5dd24e9763d404 x
+
+  val 2.v$stwice_0$x4f5dd24e9763d404 :: tNat → tNat
+    = λ(x : tNat).
+      v$sop_0$x4f5dd24e9763d404 (v$sop_0$x4f5dd24e9763d404 x)
+
+  val 2.v$sop_0$x4f5dd24e9763d404 :: tNat → tNat
+    = let! c$Dict$C ($cop : tNat → tNat) = v$fCNat;
+    $cop
+status: pass
+reason: The interface of Lib offers the body of an overloaded value, so a module below Lib makes its own copy of that value for the instance it gives. The copy is a value of Test, and its name says so, because two modules that each make a copy must not make one name.

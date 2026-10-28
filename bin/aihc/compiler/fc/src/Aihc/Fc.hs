@@ -16,6 +16,12 @@ module Aihc.Fc
     shareProgram,
     mergePrograms,
     declaredHome,
+    InterfacePolicy (..),
+    defaultInterfacePolicy,
+    moduleInterface,
+    Grafted (..),
+    graftInterfaces,
+    stripInterfaces,
     pruneProgram,
     dropRules,
     canonicalForeignCalls,
@@ -62,10 +68,11 @@ import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig, resolvedModuleOrigin)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)
+import Aihc.Fc.Interface (Grafted (..), InterfacePolicy (..), defaultInterfacePolicy, graftInterfaces, moduleInterface, stripInterfaces)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Merge (mergePrograms)
-import Aihc.Fc.Origins (declaredHome)
 import Aihc.Fc.Name
+import Aihc.Fc.Origins (declaredHome)
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
 import Aihc.Fc.Pass (Pass (..), PassEnv (..), PassReport (..), moduleEnv, passName, programEnv, runPass, runPasses)
 import Aihc.Fc.Pretty (renderProgram, renderProgramSections)

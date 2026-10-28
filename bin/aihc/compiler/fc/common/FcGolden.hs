@@ -12,7 +12,8 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), PassEnv (..), Program, SplitScope (..), decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
+import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), PassEnv (..), Program, SplitScope (..), declaredHome, decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
+import Aihc.Fc.Interface (Grafted (..), defaultInterfacePolicy, graftInterfaces, moduleInterface, stripInterfaces)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -87,6 +88,15 @@ data Outcome
   | OutcomeFail
   deriving (Eq, Show)
 
+-- | Where the passes of a fixture run: on the merged program of the
+-- modules, as a whole-program plan runs them, or on each module on its
+-- own with the interfaces of the modules before it, as a per-module plan
+-- runs them.
+data FixtureScope
+  = ProgramScope
+  | ModuleScope
+  deriving (Eq, Show)
+
 data FcCase = FcCase
   { caseId :: !String,
     casePath :: !FilePath,
@@ -96,10 +106,10 @@ data FcCase = FcCase
     caseStatus :: !ExpectedStatus,
     caseLint :: !LintExpectation,
     caseReason :: !String,
-    -- | The System FC passes to run on the merged program of the modules,
-    -- in order. With any, the fixture pins the optimized program instead
-    -- of the desugared modules.
-    casePasses :: ![Pass]
+    -- | The System FC passes to run, in order. With any, the fixture pins
+    -- the optimized program instead of the desugared modules.
+    casePasses :: ![Pass],
+    caseScope :: !FixtureScope
   }
   deriving (Eq, Show)
 
@@ -172,7 +182,7 @@ loadFcCase path = do
 
 parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
 parseFcFixture path value = do
-  (extNames, modules, expectedText, statusText, lintText, reasonText, passes) <-
+  (extNames, modules, expectedText, statusText, lintText, reasonText, passes, scopeText) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -182,12 +192,14 @@ parseFcFixture path value = do
           lint <- obj .:? "lint" .!= "pass"
           reason <- obj .:? "reason" .!= ""
           passes <- obj .:? "passes" .!= [] >>= mapM parsePass
-          pure (exts, mods, expected, status, lint, reason, passes)
+          scope <- obj .:? "scope" .!= "program"
+          pure (exts, mods, expected, status, lint, reason, passes, scope)
       )
       value
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
   lint <- parseLintExpectation path lintText
+  scope <- parseScope path scopeText
   let relPath = dropRootPrefix path
       expected = trim . T.unpack <$> expectedText
       reason = trim (T.unpack reasonText)
@@ -203,8 +215,17 @@ parseFcFixture path value = do
         caseStatus = status,
         caseLint = lint,
         caseReason = reason,
-        casePasses = passes
+        casePasses = passes,
+        caseScope = scope
       }
+
+-- | The scope of a fixture: @program@, the default, or @module@.
+parseScope :: FilePath -> Text -> Either String FixtureScope
+parseScope path text =
+  case T.toLower text of
+    "program" -> Right ProgramScope
+    "module" -> Right ModuleScope
+    other -> Left ("scope must be program or module, not " <> T.unpack other <> ", in " <> path)
 
 -- | Select a System FC pass with its name.
 -- An @inline@ entry also selects a policy and its limits.
@@ -316,10 +337,10 @@ renderFcCase tc =
                                   (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings fixtureWiring checked) availableInterface checked)
                                   fixtureTcResults
                           if all dsSuccess fixtureResults
-                            then
-                              if not (null (casePasses tc))
-                                then lintAndRenderOptimized (map dsProgram fixtureResults)
-                                else lintAndRenderResults fixtureResults
+                            then case (null (casePasses tc), caseScope tc) of
+                              (True, _) -> lintAndRenderResults fixtureResults
+                              (False, ProgramScope) -> lintAndRenderOptimized (map dsProgram fixtureResults)
+                              (False, ModuleScope) -> lintAndRenderModules (map dsProgram fixtureResults)
                             else Left (unlines (concatMap dsErrors fixtureResults))
                         else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
                 Left failure ->
@@ -341,6 +362,27 @@ renderFcCase tc =
                 (LintPass, lintErrors) -> Left (lintReport lintErrors rendered)
                 (LintXFail, []) -> Left ("System FC lint now accepts this program; drop the lint: xfail key.\nreason was: " <> caseReason tc <> "\nSystem FC output:\n" <> rendered)
                 (LintXFail, _) -> Right rendered
+    -- Each module is optimized on its own, in the order the fixture gives
+    -- its modules, with the interface of each module before it. The
+    -- interface of a module comes from its desugared program, as it does
+    -- in a build.
+    lintAndRenderModules programs =
+      let primPackage = packageId primitivePackage
+          interfaces = map (moduleInterface primPackage defaultInterfacePolicy) programs
+          optimize index program =
+            let grafted = graftInterfaces primPackage (take index interfaces) program
+                env = PassEnv primPackage (declaredHome program) Nothing
+                optimized = fst (runPasses env (casePasses tc) (graftedProgram grafted))
+             in stripInterfaces primPackage grafted optimized
+          results = zipWith optimize [0 ..] programs
+       in case traverse renderResult results of
+            Left renderError -> Left renderError
+            Right rendered ->
+              case (caseLint tc, concatMap (lintProgram primPackage) results) of
+                (LintPass, []) -> Right (unlines rendered)
+                (LintPass, lintErrors) -> Left (lintReport lintErrors (unlines rendered))
+                (LintXFail, []) -> Left ("System FC lint now accepts this program; drop the lint: xfail key.\nreason was: " <> caseReason tc <> "\nSystem FC output:\n" <> unlines rendered)
+                (LintXFail, _) -> Right (unlines rendered)
     lintAndRenderResults fixtureResults =
       case renderResults fixtureResults of
         Left renderError -> Left renderError

@@ -9,6 +9,7 @@ module Aihc.Fc.Imports
     importsForProgramLookup,
     pruneImports,
     referencesFromImports,
+    restrictProgram,
     typeReferences,
     unusedImports,
   )
@@ -47,6 +48,51 @@ importsForProgramLookup primPackage lookupFact program = do
   (available, selectedNames) <- closeLookup lookupFact localNames primPackage roots
   let selectedImports = importsForNames available selectedNames
   pure (mergeImports selectedImports (programImports program))
+
+-- | Keep the declarations that the predicate accepts, and make an import
+-- of every other declared name that they reach.
+--
+-- A program that keeps part of its declarations must still name the rest.
+-- The module that declares them defines them, and the kept declarations
+-- call them, so each one becomes an import, together with the types and
+-- the axioms that its header reaches. An import that nothing reaches goes
+-- away, as 'pruneImports' drops it.
+--
+-- The optimizer interface of a module is such a program, and so is the
+-- program of a module after the values of an interface are removed again.
+restrictProgram :: PackageId -> (Decl -> Bool) -> Program -> Program
+restrictProgram primPackage keep program =
+  pruneImports program {programImports = imports, programDecls = kept}
+  where
+    available = typeEnvFromProgram primPackage program
+    kept = filter keep (programDecls program)
+    declared = Set.fromList (concatMap declaredNames kept)
+    roots = foldMap declReferences kept `Set.difference` declared
+    needed = closeReferences available declared roots
+    imports = mergeImports (programImports program) (importsForNames available needed)
+
+-- | The names that the roots reach, without the names the program
+-- declares. The type of an import reaches the types and the axioms that
+-- it mentions, so those become imports too.
+closeReferences :: TypeEnv -> Set Name -> References -> Set Name
+closeReferences available declared = go Set.empty
+  where
+    go done pending =
+      case Set.minView pending of
+        Nothing -> done
+        Just (name, rest)
+          | Set.member name done || Set.member name declared -> go done rest
+          | otherwise -> go (Set.insert name done) (rest <> (referencesForName available name `Set.difference` done))
+
+-- | The top-level names that a declaration binds. A rule binds none.
+declaredNames :: Decl -> [Name]
+declaredNames decl =
+  case decl of
+    DeclType declaration -> typeName declaration : map conName (typeCons declaration)
+    DeclSynonym declaration -> [synName declaration]
+    DeclAxiom declaration -> [axiomName declaration]
+    DeclVal declaration -> [valName declaration]
+    DeclRule {} -> []
 
 closeLookup ::
   (Name -> Either String (Maybe TypeEnv)) ->
