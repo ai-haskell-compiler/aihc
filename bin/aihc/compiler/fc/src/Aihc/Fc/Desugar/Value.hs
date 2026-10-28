@@ -6388,9 +6388,9 @@ instantiatedDictionaryType declaredType types subEvidence
 -- A dictionary that names no local variable and no type variable is the
 -- same value everywhere in the module. It becomes one private top-level
 -- value, as GHC does at @-O0@, and each occurrence names that value. The
--- dictionary is built once for the whole program run. The simplifier
--- selects a method from such a value as it does from the application, see
--- 'Aihc.Fc.Simplify.topLevelDictionaries'. Any other dictionary
+-- dictionary is built once for the whole program run. The optimizer puts
+-- the application back at each use before it decides anything, see
+-- 'Aihc.Fc.Inline.expandDictionaries'. Any other dictionary
 -- gets a name in the evidence scope of the binding, see 'shareEvidence'.
 --
 -- The build runs without an evidence scope. Then the sub-evidence of a
