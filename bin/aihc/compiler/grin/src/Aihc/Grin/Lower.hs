@@ -1609,7 +1609,7 @@ lowerLetWith env binding body continuation
   | arity > 0,
     saturatedUses (Map.singleton name arity) body = do
       let expand other = maybe [other] localFunctionCaptures (Map.lookup other (lowerLocalFunctions env))
-          captureNames = Set.toAscList (Set.fromList (concatMap expand (Set.toList (freeVariables rhs))))
+          captureNames = lexicalNames (Set.fromList (concatMap expand (Set.toList (freeVariables rhs))))
           captures = [other | other <- captureNames, Map.member other (lowerLocals env)]
       entry <- freshFunction "closure"
       shape <- closureShape env rhs
@@ -1664,7 +1664,7 @@ lowerRec env bindings body
           entries <- mapM (const (freshFunction "loop")) bindings
           let names = Map.keysSet arities
               free = Set.unions (map (freeVariables . Fc.bindRhs) bindings) `Set.difference` names
-              captureNames = Set.toAscList (Set.fromList (concatMap expand (Set.toList free)))
+              captureNames = lexicalNames (Set.fromList (concatMap expand (Set.toList free)))
               expand name = maybe [name] localFunctionCaptures (Map.lookup name (lowerLocalFunctions env))
               captures = [name | name <- captureNames, Map.member name (lowerLocals env)]
               functions =
@@ -1953,11 +1953,15 @@ collectLambdas env expression =
     Fc.ExCast body _ -> collectLambdas env body
     _ -> (env, [], expression)
 
+-- | Keep closure fields in lexical order, independent of lookup order.
+lexicalNames :: Set.Set Fc.Name -> [Fc.Name]
+lexicalNames = List.sortOn Fc.lexicalNameKey . Set.toList
+
 capturedVariables :: LowerEnv -> Fc.Expr -> [GrinVar]
 capturedVariables env expression =
   concat
     [ variables
-    | name <- Set.toAscList (Set.fromList (concatMap expand (Set.toList (freeVariables expression)))),
+    | name <- lexicalNames (Set.fromList (concatMap expand (Set.toList (freeVariables expression)))),
       Just variables <- [Map.lookup name (lowerLocals env)]
     ]
   where

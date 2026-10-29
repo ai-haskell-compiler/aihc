@@ -221,6 +221,8 @@ completeTask :: TaskGraph -> ReadyTask -> STM ()
 completeTask graph (ReadyTask _ _ identifier) = do
   taskMap <- readTVar (graphTasks graph)
   modifyTVar' (graphState graph) (complete taskMap)
+  -- Keep task metadata for later dependencies, but release completed actions.
+  modifyTVar' (graphTasks graph) (Map.adjust (\task -> task {taskAction = pure ()}) identifier)
   where
     complete taskMap state =
       let dependents = Map.findWithDefault [] identifier (stateDependents state)

@@ -35,6 +35,7 @@ module Aihc.Fc.Simplify
 
     -- * The simplifier
     Simpl (..),
+    SimplFixed (..),
     SimplState (..),
     initialSimplState,
     SimplM,
@@ -136,20 +137,12 @@ simplifyProgram primPackage phase siteLimit program =
         Simpl
           { spEnv = env,
             spInline = Map.empty,
-            spKnown = Map.filter isKnownValue bodies,
-            spArity = arities,
             spLocals = Map.empty,
             spLocalDictionaries = Map.empty,
             spExcluded = Map.empty,
             spCse = Map.empty,
             spEvaluated = Set.empty,
             spDone = Map.empty,
-            spSiteLimit = siteLimit,
-            spRequestedSiteLimit = 0,
-            spReducingSiteLimit = 0,
-            spDiscount = 0,
-            spRules = ruleTable phase (programDecls program),
-            spSignatures = topLevelSignatures env (programDecls program),
             spCredit = 0,
             spInside = False,
             spCredits = Map.empty,
@@ -157,10 +150,9 @@ simplifyProgram primPackage phase siteLimit program =
             spLazyField = False,
             spCaseContext = Nothing,
             spLocalCandidates = Map.empty,
-            spInTemplate = False,
             spFacts = emptyFacts,
             spEscapes = True,
-            spDiverging = diverging
+            spFixed = SimplFixed {spKnown = Map.filter isKnownValue bodies, spArity = arities, spSiteLimit = siteLimit, spRequestedSiteLimit = 0, spReducingSiteLimit = 0, spDiscount = 0, spRules = ruleTable phase (programDecls program), spSignatures = topLevelSignatures env (programDecls program), spInTemplate = False, spDiverging = diverging}
           }
       diverging = divergingValues env (Map.toList bodies)
       escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
@@ -393,11 +385,41 @@ data CandidateSites
     SitesReducing
   deriving (Eq, Show)
 
+-- | Fields that stay fixed throughout one simplifier traversal.
+-- Share these fields instead of copies in each local environment.
+data SimplFixed = SimplFixed
+  { spKnown :: !(Map Name Expr),
+    spArity :: !(Map Name Int),
+    spSiteLimit :: !Int,
+    -- | The largest growth a requested site may cause without a charge
+    -- to the allowance.
+    spRequestedSiteLimit :: !Int,
+    -- | The largest growth a strong reducing site of a requested value
+    -- may cause without a charge to the allowance, with the copies inside
+    -- it.
+    spReducingSiteLimit :: !Int,
+    -- | The discount one function argument of a call site takes off the
+    -- growth of inlining it.
+    spDiscount :: !Int,
+    -- | The rewrite rules that may fire, by the head of their left-hand
+    -- side.
+    spRules :: !RuleTable,
+    -- | The demand signatures of the top-level values. A call evaluates
+    -- the arguments that the signature of its head calls strict. See
+    -- 'floatStrictArgument'.
+    spSignatures :: !Signatures,
+    -- | Whether the body under simplification is a template: a value
+    -- whose @INLINE@ pragma asks for a copy at each call. See 'keepsLoop'.
+    spInTemplate :: !Bool,
+    -- | The top-level values that diverge, with the value arguments that
+    -- a call gives before it diverges. A case or a strict let of such a
+    -- call is the call. See "Aihc.Fc.Diverge".
+    spDiverging :: !Diverging
+  }
+
 data Simpl = Simpl
   { spEnv :: !TypeEnv,
     spInline :: !(Map Name Candidate),
-    spKnown :: !(Map Name Expr),
-    spArity :: !(Map Name Int),
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
@@ -423,24 +445,6 @@ data Simpl = Simpl
     -- sites that were decided already, and each walk over it would decide
     -- them again.
     spDone :: !(Map Name Expr),
-    spSiteLimit :: !Int,
-    -- | The largest growth a requested site may cause without a charge
-    -- to the allowance.
-    spRequestedSiteLimit :: !Int,
-    -- | The largest growth a strong reducing site of a requested value
-    -- may cause without a charge to the allowance, with the copies inside
-    -- it.
-    spReducingSiteLimit :: !Int,
-    -- | The discount one function argument of a call site takes off the
-    -- growth of inlining it.
-    spDiscount :: !Int,
-    -- | The rewrite rules that may fire, by the head of their left-hand
-    -- side.
-    spRules :: !RuleTable,
-    -- | The demand signatures of the top-level values. A call evaluates
-    -- the arguments that the signature of its head calls strict. See
-    -- 'floatStrictArgument'.
-    spSignatures :: !Signatures,
     -- | How many value arguments the expression under simplification
     -- receives from every use, when it is a right-hand side in leading
     -- position: the call arity of its binding, less the lambdas passed.
@@ -479,9 +483,6 @@ data Simpl = Simpl
     -- candidate, because a copy under that binder would capture the name.
     -- See 'localCandidateEnv'.
     spLocalCandidates :: !(Map Name (Set Name)),
-    -- | Whether the body under simplification is a template: a value
-    -- whose @INLINE@ pragma asks for a copy at each call. See 'keepsLoop'.
-    spInTemplate :: !Bool,
     -- | The results of the comparisons around the expression under
     -- simplification. They decide a later comparison of the same operands
     -- and remove alternatives that a case on a variable cannot select.
@@ -495,10 +496,7 @@ data Simpl = Simpl
     -- See 'readFieldsInside'. 'simplifyExpr' sets it again for every
     -- expression that is not a lambda, a type lambda or a cast.
     spEscapes :: !Bool,
-    -- | The top-level values that diverge, with the value arguments that
-    -- a call gives before it diverges. A case or a strict let of such a
-    -- call is the call. See "Aihc.Fc.Diverge".
-    spDiverging :: !Diverging
+    spFixed :: !SimplFixed
   }
 
 data SimplState = SimplState
@@ -637,7 +635,7 @@ simplifyExpr env0 expr =
     -- Only a lambda, or the type lambdas and casts around it, keep the
     -- position that 'spEscapes' gives.
     env
-      | isLambdaHead expr = env0
+      | spEscapes env0 || isLambdaHead expr = env0
       | otherwise = env0 {spEscapes = True}
 
 -- | Whether an expression is a lambda under type lambdas and casts.
@@ -662,7 +660,7 @@ isLambdaHead expr =
 readFieldsInside :: Simpl -> Expr -> SimplM Expr
 readFieldsInside env body0
   | Map.null (spLocals env) = pure body0
-  | otherwise = fst <$> foldM readFields (body0, used0) (Map.toList candidates)
+  | otherwise = fst <$> foldM readFields (body0, used0) (List.sortOn (lexicalNameKey . fst) (Map.toList candidates))
   where
     used0 = exprValueNames body0
     -- A read adds only fresh names. Thus, it cannot add a local candidate
@@ -881,9 +879,9 @@ tailType env expr =
 simplifyCase :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
 simplifyCase env scrutinee binder originalAlternatives
   -- The alternatives never run after a scrutinee that diverges.
-  | diverges (spEnv env) (spDiverging env) scrutinee,
+  | diverges (spEnv env) (spDiverging (spFixed env)) scrutinee,
     Just resultType <- caseResultType (spEnv env) binder originalAlternatives =
-      pure (bottomAt (spEnv env) (spDiverging env) scrutinee resultType)
+      pure (bottomAt (spEnv env) (spDiverging (spFixed env)) scrutinee resultType)
   -- A variable whose value the comparisons around the case fix is that
   -- literal: the case selects its alternative.
   | ExVar name <- scrutinee,
@@ -1512,11 +1510,11 @@ unboxedFieldCase env scrutinee binder alternatives
               Just argument
           | null args,
             Set.notMember name bound,
-            Just body <- Map.lookup name (spLocals env) <|> Map.lookup name (spKnown env),
+            Just body <- Map.lookup name (spLocals env) <|> Map.lookup name (spKnown (spFixed env)),
             (ExVar bodyCon, bodyArgs) <- collectSpine body,
             bodyCon == con,
             [argument] <- rights bodyArgs,
-            isCheapValue (spArity env) argument,
+            isCheapValue (spArity (spFixed env)) argument,
             not (exprMentionsAny bound argument) ->
               Just argument
         _ -> Nothing
@@ -1725,7 +1723,7 @@ resultDiscount env candidate alternatives =
   case tailConstructors env (candidateBody candidate) of
     Just tails
       | guidanceTailsKnown (candidateGuidanceOf candidate) ->
-          max 0 (spDiscount env + caseSize - sum [selectedSize con - size | (con, size) <- tails])
+          max 0 (spDiscount (spFixed env) + caseSize - sum [selectedSize con - size | (con, size) <- tails])
     _ -> 0
   where
     altSizes = [exprSize (spEnv env) (altRhs alternative) | alternative <- alternatives]
@@ -1788,7 +1786,7 @@ estimateGrowth env candidate args reduction =
       -- A consumed function: no let, and at its one call the lambdas it
       -- lands on go with the call, its head and its arguments. The lets
       -- around a function float out of it, see 'floatValueLets'.
-      | (arity, _) <- movableArity (spArity env) (underLets argument),
+      | (arity, _) <- movableArity (spArity (spFixed env)) (underLets argument),
         arity > 0,
         let parameter = parameterGuidance candidate binder,
         parameterUsedOnce parameter,
@@ -1813,7 +1811,7 @@ argumentKnown env = go (4 :: Int)
       case fst (peelCasts argument) of
         ExVar name
           | isConstructorName name -> Just (Known (AltData name) [])
-          | depth > 0, Just body <- Map.lookup name (spKnown env), functionArity body == 0, isKnownConstructor (spArity env) body -> go (depth - 1) body
+          | depth > 0, Just body <- Map.lookup name (spKnown (spFixed env)), functionArity body == 0, isKnownConstructor (spArity (spFixed env)) body -> go (depth - 1) body
           | depth > 0, Just rhs <- Map.lookup name (spLocals env) -> go (depth - 1) rhs
           | otherwise -> Nothing
         core ->
@@ -1900,7 +1898,7 @@ tailConstructors env = go . underLambdas
 -- of the fast path and a second copy of the decoder after it.
 keepsLoop :: Simpl -> Candidate -> [Arg] -> Reduction -> Bool
 keepsLoop env candidate args reduction =
-  not (spInTemplate env)
+  not (spInTemplate (spFixed env))
     && guidanceLoops (candidateGuidanceOf candidate)
     && candidateSites candidate /= SitesUnconditional
     && reduction == NoReduction
@@ -1914,7 +1912,7 @@ givesCalledFunction env candidate args =
     [ True
     | (binder, argument) <- valueArguments (candidateBody candidate) args,
       -- A let around a function floats out of it, see 'floatValueLets'.
-      valueArity (spArity env) (underLets argument) > 0,
+      valueArity (spArity (spFixed env)) (underLets argument) > 0,
       any (>= 1) (parameterCallArities (parameterGuidance candidate binder))
     ]
 
@@ -1954,19 +1952,19 @@ decideSite env candidate reduction growth
       case candidateSites candidate of
         SitesUnconditional -> pure (Just ChargeAllowance)
         SitesRequested
-          | growth <= spRequestedSiteLimit env -> pure (Just ChargeExempt)
+          | growth <= spRequestedSiteLimit (spFixed env) -> pure (Just ChargeExempt)
           | otherwise -> measured
         SitesMeasured -> measured
         SitesReducing -> pure Nothing
   where
     reducingLimit
-      | reduction == StrongReduction && candidateRequested candidate = spReducingSiteLimit env
-      | otherwise = spSiteLimit env
+      | reduction == StrongReduction && candidateRequested candidate = spReducingSiteLimit (spFixed env)
+      | otherwise = spSiteLimit (spFixed env)
     measured
       | growth <= 0 = pure (Just ChargeAllowance)
       | otherwise = do
           allowance <- gets ssAllowance
-          pure (if growth <= allowance && growth <= spSiteLimit env then Just ChargeAllowance else Nothing)
+          pure (if growth <= allowance && growth <= spSiteLimit (spFixed env) then Just ChargeAllowance else Nothing)
 
 -- | Record a taken site with the growth its copy measured, after the
 -- copy is simplified. The growth is what the result adds over the call
@@ -2029,7 +2027,7 @@ siteReduction env candidate args =
       case argument of
         ExLam {} -> True
         ExTyLam _ body -> knownFunction (fst (peelCasts body))
-        _ -> valueArity (spArity env) argument > 0
+        _ -> valueArity (spArity (spFixed env)) argument > 0
 
 -- | How an argument is known at a site. See 'Reduction'.
 knownArgument :: Simpl -> Expr -> Reduction
@@ -2037,7 +2035,7 @@ knownArgument env argument =
   case fst (peelCasts argument) of
     ExVar name
       | isConstructorName name -> StrongReduction
-      | Just body <- Map.lookup name (spKnown env), isKnownConstructor (spArity env) body -> StrongReduction
+      | Just body <- Map.lookup name (spKnown (spFixed env)), isKnownConstructor (spArity (spFixed env)) body -> StrongReduction
       | Map.member name (spLocals env) || maybe False (not . Set.null) (Map.lookup argument (spExcluded env)) -> WeakReduction
       | otherwise -> NoReduction
     core
@@ -2056,7 +2054,7 @@ restoreSite before =
 -- application or a literal, so that a case on the expression resolves
 -- in each of them.
 tailsAreKnown :: Simpl -> Expr -> Bool
-tailsAreKnown env = tailsKnownIn (spEnv env) (spArity env)
+tailsAreKnown env = tailsKnownIn (spEnv env) (spArity (spFixed env))
 
 -- | 'tailsAreKnown' from the arities alone. A tail is known when it is
 -- a literal or a constructor application, whatever its fields: a case
@@ -2113,7 +2111,7 @@ takesArgument env candidate args =
 interestingArgument :: Simpl -> Expr -> Bool
 interestingArgument env argument =
   case argument of
-    ExVar name -> Map.member name (spArity env)
+    ExVar name -> Map.member name (spArity (spFixed env))
     ExTyApp body _ -> interestingArgument env body
     ExCast body _ -> interestingArgument env body
     _ -> True
@@ -2130,10 +2128,10 @@ inlineCandidate env name candidate args = do
 -- strict pure primitive call for the reuse of its binder.
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
 bindingEnv env0 binder rhs
-  | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
+  | isKnownConstructor (spArity (spFixed env)) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isDictionaryType (binderType binder),
     (ExVar function, _ : _) <- collectSpine rhs,
-    Map.member function (spKnown env) =
+    Map.member function (spKnown (spFixed env)) =
       evaluatedEnv {spLocalDictionaries = Map.insert (binderName binder) rhs (spLocalDictionaries env)}
   | isStrictBinder (spEnv env) binder,
     isPurePrimitiveCall (spEnv env) rhs || isStateToken rhs,
@@ -2178,7 +2176,7 @@ localCandidateEnv env binder rhs body
   where
     name = binderName binder
     mentioned = exprFreeNames rhs
-    guidance = candidateGuidance (spEnv env) (spArity env) rhs
+    guidance = candidateGuidance (spEnv env) (spArity (spFixed env)) rhs
 
 -- | Whether a let binds a join point whose copies would be large: a
 -- function that the body calls more than once, always with all its
@@ -2329,7 +2327,9 @@ markUnlifted binders env =
 
 -- | Record that binders hold values in weak-head normal form.
 markEvaluated :: [Name] -> Simpl -> Simpl
-markEvaluated names env = env {spEvaluated = List.foldl' (flip Set.insert) (spEvaluated env) names}
+markEvaluated names env
+  | null names = env
+  | otherwise = env {spEvaluated = List.foldl' (flip Set.insert) (spEvaluated env) names}
 
 -- | Whether an expression is a variable, under casts, that holds a value
 -- in weak-head normal form.
@@ -2466,13 +2466,17 @@ extendTypeBinder env binder = env {spEnv = extendBinder (spEnv env) binder}
 -- | The environment under a lambda: the result receives one argument
 -- fewer, and the first lambda of the binding has been passed.
 passLambda :: Simpl -> Simpl
-passLambda env = env {spCredit = max 0 (spCredit env - 1), spInside = True, spCaseContext = Nothing, spLazyField = False}
+passLambda env
+  | spCredit env == 0 && spInside env && isNothing (spCaseContext env) && not (spLazyField env) = env
+  | otherwise = env {spCredit = max 0 (spCredit env - 1), spInside = True, spCaseContext = Nothing, spLazyField = False}
 
 -- | The environment of a part that is not in leading position, such as
 -- the head or an argument of an application: no lambda in it is known to
 -- be entered once.
 noOneShot :: Simpl -> Simpl
-noOneShot env = env {spCredit = 0, spInside = False, spCaseContext = Nothing}
+noOneShot env
+  | spCredit env == 0 && not (spInside env) && isNothing (spCaseContext env) = env
+  | otherwise = env {spCredit = 0, spInside = False, spCaseContext = Nothing}
 
 -- | The environment of the right-hand side of a local binder: its
 -- credit from the analysis of the body, when it has one.
@@ -2546,7 +2550,7 @@ rebuildCall env headExpr' args' = do
         all isLeft typeArgs,
         Just candidate <- Map.lookup name (spInline env),
         Just function <- castedFunction (lefts typeArgs) coercion (candidateBody candidate),
-        let candidate' = candidate {candidateBody = function, candidateGuidanceOf = candidateGuidance (spEnv env) (spArity env) function},
+        let candidate' = candidate {candidateBody = function, candidateGuidanceOf = candidateGuidance (spEnv env) (spArity (spFixed env)) function},
         takesArgument env candidate' args' ->
           inlineSite env name candidate' (rebuildSpine headExpr' args') args'
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
@@ -2752,7 +2756,7 @@ floatStrictArgument env headExpr args =
     evaluatedArguments name headType = do
       types <- argumentTypes headType args
       let values = length (rights args)
-          demands = case Map.lookup name (spSignatures env) of
+          demands = case Map.lookup name (spSignatures (spFixed env)) of
             Just (Signature signature)
               | values >= length signature -> map isStrict signature <> repeat False
             _ -> repeat False
@@ -2879,7 +2883,7 @@ fireRule :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
 fireRule env headExpr args =
   case headExpr of
     ExVar name
-      | Just rules <- Map.lookup name (spRules env) -> do
+      | Just rules <- Map.lookup name (spRules (spFixed env)) -> do
           fuel <- gets ssRuleFuel
           let firstMatch current = listToMaybe [(rule, match) | fuel > 0, rule <- rules, Just match <- [matchRule (spEnv env) rule current]]
           case firstMatch args of
@@ -2929,11 +2933,11 @@ fireRule env headExpr args =
 -- that saving is already a smaller result.
 callDiscount :: Simpl -> Candidate -> [Arg] -> Int
 callDiscount env candidate args =
-  spDiscount env
+  spDiscount (spFixed env)
     * length
       [ ()
       | (binder, argument) <- valueArguments (candidateBody candidate) args,
-        valueArity (spArity env) argument > 0,
+        valueArity (spArity (spFixed env)) argument > 0,
         any (>= 1) (parameterCallArities (parameterGuidance candidate binder))
       ]
 
@@ -3135,7 +3139,7 @@ floatValueLets :: Simpl -> Expr -> Maybe ([Bind], Expr)
 floatValueLets env expr =
   case peelLiftedLets expr of
     (binds@(_ : _), inner)
-      | fst (movableArity (spArity env) inner) > 0 -> Just (binds, inner)
+      | fst (movableArity (spArity (spFixed env)) inner) > 0 -> Just (binds, inner)
     _ -> Nothing
   where
     peelLiftedLets e =
@@ -3222,9 +3226,9 @@ mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
   -- The body never runs after a strict right-hand side that diverges.
   | not lifted,
-    diverges (spEnv env) (spDiverging env) rhs,
+    diverges (spEnv env) (spDiverging (spFixed env)) rhs,
     Just bodyType <- exprType (extendBinder (spEnv env) binder) body =
-      pure (bottomAt (spEnv env) (spDiverging env) rhs bodyType)
+      pure (bottomAt (spEnv env) (spDiverging (spFixed env)) rhs bodyType)
   | isTrivial rhs = simplifyExpr env (substExpr (Map.singleton name rhs) body)
   -- A let whose body is its own binder is its right-hand side. This is
   -- also correct for a strict binding, because the right-hand side is
@@ -3232,7 +3236,7 @@ mkLet env bind body
   | ExVar var <- body, var == name = pure rhs
   -- A safe primitive call cannot fail and has no effect, so an unused
   -- one goes away too.
-  | Occurrences 0 _ <- uses, lifted || isCheapValue (spArity env) rhs || isJust (safePrimitiveCall (spEnv env) rhs) = pure body
+  | Occurrences 0 _ <- uses, lifted || isCheapValue (spArity (spFixed env)) rhs || isJust (safePrimitiveCall (spEnv env) rhs) = pure body
   -- The right-hand side is simplified already, so it moves as it is: the
   -- walk simplifies only the body around the use. A chain of calls whose
   -- sites the policy rejects, @f (g (f (g x)))@, otherwise has each
@@ -3297,7 +3301,7 @@ mkLet env bind body
   -- that the two casts cancel and the lambda lands on its arguments.
   | lifted,
     Occurrences 1 True <- uses,
-    (arity, cast) <- movableArity (spArity env) rhs,
+    (arity, cast) <- movableArity (spArity (spFixed env)) rhs,
     arity > 0,
     saturatedCalls name 1 body == 1,
     maybe True (\coercion -> castedBackUses name coercion body == 1) cast = do
@@ -3501,7 +3505,7 @@ acceptGrowth env growth
   | growth <= 0 = pure True
   | otherwise = do
       allowance <- gets ssAllowance
-      if growth <= allowance && growth <= spSiteLimit env
+      if growth <= allowance && growth <= spSiteLimit (spFixed env)
         then do
           modify' (\st -> st {ssAllowance = ssAllowance st - growth})
           pure True
@@ -3618,7 +3622,7 @@ caseOfCase env scrutinee binder alternatives onTaken = do
           mentioned = foldMap exprFreeNames (Map.elems kept)
           free name = Set.notMember name mentioned
       expanded <- expandJoins env (Map.difference (pushedJoins pushed) typed) (pushedSmall pushed)
-      placeJoins free env (Map.toList typed) kept expanded
+      placeJoins free env (List.sortOn (lexicalNameKey . fst) (Map.toList typed)) kept expanded
     -- The join points stay after the chain of the result: the lets and
     -- the cases of one alternative that run before the first branch. The
     -- body of a join point then sees what the chain knows, such as the
@@ -3729,7 +3733,7 @@ planJoins copyKnown env pushed = Map.partitionWithKey copied (pushedJoins pushed
 -- unboxed tuple, the result of an @IO@ action, is not a heap object, and
 -- its join point can stay.
 knownResult :: Simpl -> Expr -> Bool
-knownResult env body = tailsKnownIn types (spArity env) body && not (any unboxed (tails body))
+knownResult env body = tailsKnownIn types (spArity (spFixed env)) body && not (any unboxed (tails body))
   where
     types = spEnv env
     tails expr =
@@ -4216,11 +4220,11 @@ knownConstructor env expr = do
       (ExVar name, args)
         | isConstructorName name -> pure (Just ([], name, lefts args, rights args, []))
         | Just body <- Map.lookup name (spLocals env) -> unfold body args
-        | Just body <- Map.lookup name (spKnown env) -> unfoldShared body args
+        | Just body <- Map.lookup name (spKnown (spFixed env)) -> unfoldShared body args
         | null args,
           Just rhs <- Map.lookup name (spLocalDictionaries env),
           (ExVar function, callArgs) <- collectSpine rhs,
-          Just body <- Map.lookup function (spKnown env) ->
+          Just body <- Map.lookup function (spKnown (spFixed env)) ->
             unfoldShared body callArgs
       _ -> pure Nothing
   pure $ do
@@ -4244,7 +4248,7 @@ knownConstructor env expr = do
     -- function with cheap arguments. The case then builds the field that
     -- it selects once, as the call built it.
     unfoldShared body args
-      | isKnownConstructor (spArity env) body = unfold body args
+      | isKnownConstructor (spArity (spFixed env)) body = unfold body args
       | otherwise =
           case cheapFieldsOnly (any isRight args) (spEnv env) body of
             Just cheap -> unfold cheap args
@@ -4257,7 +4261,7 @@ knownConstructor env expr = do
         _ -> do
           let (headExpr, conArgs) = collectSpine body
               field value
-                | isCheapValue (spArity env) value = Just value
+                | isCheapValue (spArity (spFixed env)) value = Just value
                 | call, isTopLevelCall value = Just value
                 | otherwise = do
                     ty <- exprType scope value
