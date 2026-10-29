@@ -183,6 +183,7 @@ library
     Aihc.Fc.FullLaziness
     Aihc.Fc.Imports
     Aihc.Fc.Inline
+    Aihc.Fc.Interface
     Aihc.Fc.Lint
     Aihc.Fc.ListFusion
     Aihc.Fc.Merge

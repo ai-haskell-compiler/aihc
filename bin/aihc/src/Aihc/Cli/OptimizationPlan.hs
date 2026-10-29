@@ -27,7 +27,13 @@ data OptimizationPlan = OptimizationPlan
     planPasses :: ![Fc.Pass],
     -- | Whether the whole program gets the heap points-to analysis of GRIN
     -- and the rewrites that its result permits.
-    planGrinPointsTo :: !Bool
+    planGrinPointsTo :: !Bool,
+    -- | Whether each module publishes its optimizer interface, and reads
+    -- the interfaces of the modules it imports. Only a plan that
+    -- optimizes each module on its own has a use for them: a
+    -- whole-program plan already sees every module, and a plan without
+    -- passes copies nothing. See "Aihc.Fc.Interface".
+    planModuleInterfaces :: !Bool
   }
   deriving (Eq, Show)
 
@@ -54,12 +60,17 @@ data OptimizationPlan = OptimizationPlan
 -- dictionaries and function arguments.
 optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
-  case level of
-    O0 -> OptimizationPlan {planWholeProgram = lto, planPasses = [], planGrinPointsTo = False}
-    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> specialise <> split <> grow, planGrinPointsTo = False}
-    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = superSpecialisation (shrink <> specialise <> split <> grow), planGrinPointsTo = True}
-    Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
+  withInterfaces $ case level of
+    O0 -> plan {planWholeProgram = lto, planPasses = []}
+    O1 -> plan {planWholeProgram = lto, planPasses = shrink <> specialise <> split <> grow}
+    O2 -> plan {planWholeProgram = True, planPasses = superSpecialisation (shrink <> specialise <> split <> grow), planGrinPointsTo = True}
+    Os -> plan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
   where
+    plan = OptimizationPlan {planWholeProgram = False, planPasses = [], planGrinPointsTo = False, planModuleInterfaces = False}
+    -- The interfaces serve the plans that optimize each module on its
+    -- own. A whole-program plan sees every module already, and a plan
+    -- without passes copies nothing.
+    withInterfaces current = current {planModuleInterfaces = not (planWholeProgram current) && not (null (planPasses current))}
     -- The phases count down from 2 to 0.
     -- Phase 2 keeps producer rules active until specialization finishes.
     shrink = [Fc.PassListFusion, Fc.PassEtaExpand, Fc.PassSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]

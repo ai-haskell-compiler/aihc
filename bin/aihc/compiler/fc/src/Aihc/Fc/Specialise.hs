@@ -115,8 +115,8 @@ specialiseProgram program =
 -- the calls of a function give more distinct prefixes than the copies
 -- that it can still get, its copies are made for the types that the
 -- dictionaries name, see 'dictionaryTypes'.
-specialiseTopProgram :: PackageId -> Program -> (Program, SpecialiseReport)
-specialiseTopProgram primPackage program =
+specialiseTopProgram :: PackageId -> Home -> Program -> (Program, SpecialiseReport)
+specialiseTopProgram primPackage home program =
   let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty Set.empty allowance mempty
       (decls, final) = runState (rounds 3 (programDecls program)) initial
    in (tidyProgram program {programDecls = decls}, topReport final)
@@ -187,7 +187,7 @@ specialiseTopProgram primPackage program =
               if cost > 256 || cost > topBudget current
                 then pure []
                 else do
-                  let copyName = freshTopName (topNames current) name 0
+                  let copyName = freshTopName home (topNames current) name 0
                       (body', supply) = freshenExprFrom (topSupply current) body
                       first = Map.notMember name (topCounts current)
                   put
@@ -285,11 +285,11 @@ instantiateStatic static prefix ty0 = go ty0 (prefixTypes prefix)
         _ -> Nothing
 
 -- | Select a name that no value declaration uses.
-freshTopName :: Set Name -> Name -> Int -> Name
-freshTopName used original index =
-  let candidate = original {nameText = "$s" <> nameText original <> "_" <> T.pack (show index)}
+freshTopName :: Home -> Set Name -> Name -> Int -> Name
+freshTopName home used original index =
+  let candidate = derivedTopName home original ("$s" <> nameText original <> "_" <> T.pack (show index))
    in if Set.member candidate used
-        then freshTopName used original (index + 1)
+        then freshTopName home used original (index + 1)
         else candidate
 
 onValue :: (Monad m) => (Expr -> m Expr) -> Decl -> m Decl

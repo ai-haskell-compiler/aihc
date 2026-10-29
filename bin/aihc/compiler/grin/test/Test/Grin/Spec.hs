@@ -396,7 +396,7 @@ evaluateGrin mode environment output name program =
         (_, Left problem) -> pure (Left (EvalFixture.EvaluationError problem))
         (root : _, Right _) -> do
           let merged = Fc.pruneProgram [root] (Fc.mergePrograms [EvalFixture.evalEnvironmentProgram (grinEvalFrontend environment), prepared])
-              (lifted, _) = Fc.runPasses (PackageId "aihc-prim") (Just [root]) [Fc.PassLiftConstants] merged
+              (lifted, _) = Fc.runPasses (Fc.programEnv (PackageId "aihc-prim") [root]) [Fc.PassLiftConstants] merged
           case lowerProgram (PackageId "aihc-prim") lifted of
             Left problem -> pure (Left (EvalFixture.EvaluationError problem))
             Right lowered -> do

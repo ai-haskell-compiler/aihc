@@ -335,17 +335,19 @@ runCommand (Explore input level target wrap) = do
       exitFailure
   runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved, exploreWrap = wrap}
 runCommand (FcPasses primPackage paths level shown) = do
-  (program, roots) <- case paths of
+  (program, env) <- case paths of
     [path] -> do
       loaded <- Fc.readProgramFile path
       case loaded of
         Left message -> TIO.hPutStrLn stderr message >> exitFailure
-        Right program -> pure (program, Nothing)
+        -- One module: the passes run as they run in a build that is not
+        -- whole-program, so the module is the home of the new values.
+        Right program -> pure (program, Fc.PassEnv primPackage (Fc.declaredHome program) Nothing)
     _ -> do
       programs <- readPrograms paths
       let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
       TIO.hPutStrLn stderr ("merged " <> T.pack (show (length programs)) <> " modules, " <> T.pack (show (length (Fc.programDecls merged))) <> " reachable declarations")
-      pure (merged, Just [entryName])
+      pure (merged, Fc.programEnv primPackage [entryName])
   let passes = planPasses (optimizationPlan True level)
       showDecls label next =
         mapM_
@@ -367,7 +369,7 @@ runCommand (FcPasses primPackage paths level shown) = do
             (\(name, text) -> when (maybe False ((`elem` failing) . Fc.nameText) name) (TIO.putStrLn text))
             (Fc.renderProgramSections next)
       step current pass = do
-        let (next, report) = Fc.runPass primPackage roots pass current
+        let (next, report) = Fc.runPass env pass current
         TIO.hPutStrLn stderr (Fc.reportPass report <> ": size " <> T.pack (show (Fc.reportBefore report)) <> " -> " <> T.pack (show (Fc.reportAfter report)))
         check ("after " <> Fc.reportPass report) next
         pure next

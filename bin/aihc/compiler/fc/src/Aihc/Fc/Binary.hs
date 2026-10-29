@@ -26,6 +26,7 @@ module Aihc.Fc.Binary
     readProgramFile,
     writeProgramFile,
     programFileName,
+    interfaceFileName,
   )
 where
 
@@ -69,6 +70,11 @@ formatVersion = 4
 -- directory on a file system that ignores case.
 programFileName :: FilePath
 programFileName = "core.fc"
+
+-- | The file of the optimizer interface of a module, beside its core
+-- file. The interface is a program, so the two files have one format.
+interfaceFileName :: FilePath
+interfaceFileName = "interface.fc"
 
 -- | Write a program to a file in the binary format.
 writeProgramFile :: FilePath -> Program -> IO ()

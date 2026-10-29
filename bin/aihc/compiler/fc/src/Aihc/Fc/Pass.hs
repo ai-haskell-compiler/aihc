@@ -10,6 +10,9 @@
 -- line.
 module Aihc.Fc.Pass
   ( Pass (..),
+    PassEnv (..),
+    moduleEnv,
+    programEnv,
     PassReport (..),
     passName,
     passPhase,
@@ -27,7 +30,7 @@ import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.FullLaziness (fullLazinessProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.ListFusion (listFusionProgram)
-import Aihc.Fc.Name (Name)
+import Aihc.Fc.Name (Home, Name, Origin)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram, specialiseTopProgram)
@@ -40,6 +43,33 @@ import Aihc.Resolve (PackageId)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | What every pass needs besides the program: the identity of
+-- @aihc-prim@, the module the pass makes new values in, and the values
+-- the program must keep.
+data PassEnv = PassEnv
+  { envPrimPackage :: !PackageId,
+    -- | The module that the passes optimize, or 'Nothing' for a whole
+    -- program. A pass that makes a new top-level value from a value of
+    -- another module puts the new value in this module. See
+    -- 'Aihc.Fc.Name.derivedTopName'.
+    envHome :: !Home,
+    -- | The values the program must keep, or 'Nothing' to keep every
+    -- public value.
+    envRoots :: !(Maybe [Name])
+  }
+  deriving (Eq, Show)
+
+-- | The environment of the passes that run on one module. Every public
+-- value of the module is a root.
+moduleEnv :: PackageId -> Origin -> PassEnv
+moduleEnv primPackage home = PassEnv {envPrimPackage = primPackage, envHome = Just home, envRoots = Nothing}
+
+-- | The environment of the passes that run on a whole program. The roots
+-- are the values the program must keep, and no declaration changes the
+-- module it came from.
+programEnv :: PackageId -> [Name] -> PassEnv
+programEnv primPackage roots = PassEnv {envPrimPackage = primPackage, envHome = Nothing, envRoots = Just roots}
 
 data Pass
   = -- | Arity analysis, then eta expansion of every top-level value to
@@ -143,19 +173,18 @@ passName pass =
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
 
--- | Run one pass. The roots are the values the program must keep, or
--- 'Nothing' to keep every public value.
-runPass :: PackageId -> Maybe [Name] -> Pass -> Program -> (Program, PassReport)
-runPass primPackage roots pass program =
+-- | Run one pass in an environment.
+runPass :: PassEnv -> Pass -> Program -> (Program, PassReport)
+runPass env pass program =
   case pass of
     PassListFusion ->
       let (rewritten, sites) = listFusionProgram primPackage program
        in (rewritten, PassReport (passName pass) (programSize primPackage program) (programSize primPackage rewritten) (count sites "producers"))
     PassFullLaziness ->
-      let (floated, sites) = fullLazinessProgram primPackage program
+      let (floated, sites) = fullLazinessProgram primPackage home program
        in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))
     PassLiftConstants ->
-      let (lifted, constants, sites) = liftConstants primPackage program
+      let (lifted, constants, sites) = liftConstants primPackage home program
        in ( lifted,
             PassReport
               { reportPass = passName pass,
@@ -205,7 +234,7 @@ runPass primPackage roots pass program =
               }
           )
     PassWorkerWrapper scope ->
-      let (split, report) = workerWrapperProgram primPackage scope program
+      let (split, report) = workerWrapperProgram primPackage home scope program
        in ( split,
             PassReport
               { reportPass = passName pass,
@@ -215,7 +244,7 @@ runPass primPackage roots pass program =
               }
           )
     PassSuperSpecialise ->
-      let (specialised, report) = superSpecialiseProgram program
+      let (specialised, report) = superSpecialiseProgram home program
        in ( specialised,
             PassReport
               (passName pass)
@@ -234,7 +263,7 @@ runPass primPackage roots pass program =
               }
           )
     PassTopSpecialise ->
-      let (specialised, report) = specialiseTopProgram primPackage program
+      let (specialised, report) = specialiseTopProgram primPackage home program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
@@ -285,14 +314,17 @@ runPass primPackage roots pass program =
               }
           )
   where
+    primPackage = envPrimPackage env
+    roots = envRoots env
+    home = envHome env
     count n what = T.pack (show n) <> " " <> what
 
 -- | Run the passes in order, and collect the report of each.
-runPasses :: PackageId -> Maybe [Name] -> [Pass] -> Program -> (Program, [PassReport])
-runPasses primPackage roots passes program0 =
+runPasses :: PassEnv -> [Pass] -> Program -> (Program, [PassReport])
+runPasses env passes program0 =
   let (final, reports) = List.foldl' step (program0, []) passes
    in (canonicalForeignCalls final, reverse reports)
   where
     step (program, reports) pass =
-      let (program', report) = runPass primPackage roots pass program
+      let (program', report) = runPass env pass program
        in (program', report : reports)

@@ -22,7 +22,9 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 
 data FloatState = FloatState
-  { floatNext :: !Int,
+  { -- | The module that the new thunks belong to.
+    floatHome :: !Home,
+    floatNext :: !Int,
     floatTaken :: !(Set Name),
     floatKnown :: !(Map Expr Name),
     floatDecls :: ![Decl],
@@ -34,10 +36,10 @@ type FloatM = State FloatState
 -- | Move closed lifted computations under lambdas to private lazy thunks.
 -- Captured computations stay local because a new captured thunk can cost more than its saved work.
 -- A move does not insert a let between parameters, including parameters under casts.
-fullLazinessProgram :: PackageId -> Program -> (Program, Int)
-fullLazinessProgram primPackage program =
+fullLazinessProgram :: PackageId -> Home -> Program -> (Program, Int)
+fullLazinessProgram primPackage home program =
   let env = typeEnvFromProgram primPackage program
-      initial = FloatState (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) Map.empty [] 0
+      initial = FloatState home (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) Map.empty [] 0
       (decls, final) = runState (mapM (declaration env) (programDecls program)) initial
    in (tidyProgram program {programDecls = decls <> reverse (floatDecls final)}, floatCount final)
 
@@ -181,7 +183,7 @@ freshTop :: Name -> FloatM Name
 freshTop owner = do
   state <- get
   let next = floatNext state
-      name = owner {nameText = nameText owner <> "$float$" <> T.pack (show next)}
+      name = derivedTopName (floatHome state) owner (nameText owner <> "$float$" <> T.pack (show next))
   modify' (\current -> current {floatNext = next + 1})
   if Set.member name (floatTaken state)
     then freshTop owner

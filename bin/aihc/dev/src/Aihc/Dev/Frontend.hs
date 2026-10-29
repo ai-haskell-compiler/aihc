@@ -198,6 +198,7 @@ runFrontend options = do
             compileLto = False,
             compilePasses = [],
             compileGrinPointsTo = False,
+            compileModuleInterfaces = False,
             compileProfileAllocations = False,
             compileProfileTime = False,
             compileProfileUnit = False,

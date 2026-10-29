@@ -137,8 +137,8 @@ data SplitScope
 -- | Split every function in the scope that has a parameter with a
 -- 'StrictProduct' demand, or a constructed product result, into a worker
 -- and a wrapper.
-workerWrapperProgram :: PackageId -> SplitScope -> Program -> (Program, WorkerWrapperReport)
-workerWrapperProgram primPackage scope program =
+workerWrapperProgram :: PackageId -> Home -> SplitScope -> Program -> (Program, WorkerWrapperReport)
+workerWrapperProgram primPackage home scope program =
   let types = typeEnvFromProgram primPackage program
       decls = programDecls program
       signatures = topLevelSignatures types decls
@@ -159,7 +159,7 @@ workerWrapperProgram primPackage scope program =
         guard (splitsTopLevel scope called declaration)
         guard (Set.notMember (valName declaration) excluded)
         signature <- Map.lookup (valName declaration) signatures
-        let workerName = (valName declaration) {nameText = "$w" <> nameText (valName declaration)}
+        let workerName = derivedTopName home (valName declaration) ("$w" <> nameText (valName declaration))
         guard (Set.notMember workerName taken)
         case runState (splitValue types workerName (signatureDemands signature) declaration) supply of
           (Just (wrapper, worker, unboxed, constructed), supply') ->

@@ -6,6 +6,7 @@ module Aihc.Fc.Desugar
   ( desugarModuleFc,
     DesugarConfig (..),
     moduleDesugarConfig,
+    resolvedModuleOrigin,
     allPublicDesugarConfig,
     FcDesugarResult (..),
   )

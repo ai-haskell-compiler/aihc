@@ -23,7 +23,9 @@ import Data.Text qualified as T
 import Numeric (showHex)
 
 data LiftState = LiftState
-  { liftNext :: !Int,
+  { -- | The module that the new constants belong to.
+    liftHome :: !Home,
+    liftNext :: !Int,
     liftNames :: !(Set Name),
     liftKnown :: !(Map Expr Name),
     liftDecls :: ![Decl],
@@ -33,13 +35,13 @@ data LiftState = LiftState
 -- | Return the program, the number of new constants, and the number of sites.
 -- The pass preserves lazy fields. It does not evaluate a constant early.
 -- Local term, type, and coercion references prevent a lift.
-liftConstants :: PackageId -> Program -> (Program, Int, Int)
-liftConstants primPackage program =
+liftConstants :: PackageId -> Home -> Program -> (Program, Int, Int)
+liftConstants primPackage home program =
   let types = typeEnvFromProgram primPackage program
       -- The top-level values that are in weak-head normal form by
       -- their syntax: a strict field of a constant can hold one.
       env = types {teEvaluated = staticTopLevelValues types program}
-      initial = LiftState 0 (Map.keysSet (teHeaders env)) (earlierConstants env program) [] 0
+      initial = LiftState home 0 (Map.keysSet (teHeaders env)) (earlierConstants env program) [] 0
       (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
    in ( program {programDecls = decls <> reverse (liftDecls final)},
         length (liftDecls final),
@@ -72,7 +74,7 @@ liftExpr env owner expression =
       case Map.lookup expression (liftKnown state) of
         Just name -> pure (ExVar name)
         Nothing -> do
-          name <- freshConstant (constantBaseName owner expression)
+          name <- freshConstant (constantBaseName (liftHome state) owner expression)
           let declaration = DeclVal (ValDecl Private name ty expression (InlineNever NeverActive))
           modify' (\current -> current {liftKnown = Map.insert expression name (liftKnown current), liftDecls = declaration : liftDecls current})
           pure (ExVar name)
@@ -195,11 +197,11 @@ earlierConstants env program =
 -- same small value, so a name from the first site is not correct for the
 -- other sites. Other constants get the name of the value that has the
 -- first site, and @$constant$@.
-constantBaseName :: Name -> Expr -> Name
-constantBaseName owner expression =
+constantBaseName :: Home -> Name -> Expr -> Name
+constantBaseName home owner expression =
   case literalBoxName expression of
-    Just text -> owner {nameText = text, nameSort = SortValue}
-    Nothing -> owner {nameText = nameText owner <> constantInfix, nameSort = SortValue}
+    Just text -> (derivedTopName home owner text) {nameSort = SortValue}
+    Nothing -> (derivedTopName home owner (nameText owner <> constantInfix)) {nameSort = SortValue}
 
 constantInfix :: T.Text
 constantInfix = "$constant$"
@@ -302,7 +304,9 @@ freshConstant base = do
     then numbered
     else claim base
   where
-    numberedBase = constantInfix `T.isSuffixOf` nameText base
+    -- The infix is at the end of the name, unless the name also keeps
+    -- the origin of a value of another module apart.
+    numberedBase = constantInfix `T.isInfixOf` nameText base
     separator = if numberedBase then "" else "$"
     numbered = do
       state <- get

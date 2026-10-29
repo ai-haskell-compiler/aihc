@@ -4,11 +4,12 @@
 module Test.Fc.Suite
   ( fcFixtureTests,
     fcGoldenTests,
+    fcInterfaceTests,
     fcLintTests,
   )
 where
 
-import Aihc.Fc (Decl (..), LintError (..), Program (..), ValDecl (..), Vis (..), decodeProgram, encodeProgram, lintProgram, loadScopeClosure, parseProgram, pruneProgram, renderParseError, renderProgram, storeModuleLoader, writeProgramFile)
+import Aihc.Fc (Decl (..), LintError (..), Name (..), Program (..), ValDecl (..), Vis (..), decodeProgram, defaultInterfacePolicy, encodeProgram, lintProgram, loadScopeClosure, moduleInterface, parseProgram, pruneProgram, renderParseError, renderProgram, storeModuleLoader, writeProgramFile)
 import Aihc.Resolve (PackageId (..))
 import Control.Exception (IOException, try)
 import Data.ByteString.Lazy qualified as BL
@@ -56,6 +57,52 @@ fixtureTest path = testCase path $ do
               assertEqual "parse then pretty then parse" program reprinted
               assertEqual "binary round trip" (Right program) (decodeProgram (BL.toStrict (encodeProgram program)))
               assertEqual "pretty matches fixture" (normalize source) (normalize printed)
+
+-- | What the optimizer interface of a module offers.
+--
+-- A module defines the info table of a constructor it keeps private for
+-- itself alone, so a body that names such a constructor must stay in the
+-- module: a copy of it in a consumer would name a symbol that no object
+-- has. Nothing in the goldens can show this, because a fixture module
+-- there keeps no constructor private.
+fcInterfaceTests :: TestTree
+fcInterfaceTests =
+  testGroup
+    "SystemFC interface"
+    [ testCase "a body that names a private constructor is not offered" $
+        assertOffers ["public"] privateConstructorProgram
+    ]
+  where
+    assertOffers expected source =
+      case parseProgram source of
+        Left parseError -> assertFailure (renderParseError parseError)
+        Right program ->
+          assertEqual
+            "offered values"
+            expected
+            (sort [nameText (valName declaration) | DeclVal declaration <- programDecls (moduleInterface primPackage defaultInterfacePolicy program)])
+
+-- | A module with one public constructor and one private constructor,
+-- and one public function that names each of them.
+privateConstructorProgram :: Text
+privateConstructorProgram =
+  T.unlines
+    [ "scope 1 = \"\" Test",
+      "scope 2 = \"aihc-prim\" GHC.Types",
+      "",
+      "pub type 1.tBox :: 2.tType {",
+      "  pub 1.cShown :: tBox;",
+      "  1.cHidden :: tBox",
+      "}",
+      "",
+      "pub val 1.vpublic :: ∀(a : 2.tType). a 2.→ tBox",
+      "  = Λ(a : 2.tType). λ(x : a).",
+      "    cShown",
+      "",
+      "pub val 1.vprivate :: ∀(a : 2.tType). a 2.→ tBox",
+      "  = Λ(a : 2.tType). λ(x : a).",
+      "    cHidden"
+    ]
 
 normalize :: Text -> Text
 normalize = T.pack . trim . T.unpack
