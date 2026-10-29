@@ -58,6 +58,33 @@ data OptimizationPlan = OptimizationPlan
 -- jump, so it serves a small executable as well as a fast one. Only @-O2@
 -- adds 'superSpecialisation', which makes copies of functions for known
 -- dictionaries and function arguments.
+--
+-- A whole-program plan gives its passes the program as the desugarer
+-- made it. No module runs a pass first. Nothing states this condition,
+-- and nothing checks it.
+--
+-- A module scope is wanted at @-O2@ also. Its passes must not interfere
+-- with the passes of the whole-program scope. The present passes do
+-- interfere. One test gave each module the @-O1@ passes before the
+-- merge. On all 34,811 modules of the @aihc-parser-stackage@ corpus,
+-- that test cost 32.8% more cycles and 52.0% more allocation, and gave
+-- 14.6% less text. The optimizer interfaces are not the cause. The same
+-- test without them cost 35.7% more cycles.
+--
+-- Three passes commit a choice in each module, and each one fires
+-- approximately ten times more often on 872 small scopes than on one
+-- large scope. Full laziness floats 22,756 values against 2,709. The
+-- worker and wrapper split makes 3,796 workers against 342. Constant
+-- lifting makes 7,456 constants against 569. The whole-program scope
+-- cannot undo these choices. For example, a wrapper gets an @INLINE@
+-- pragma, and 'Fc.PassWorkerWrapper' splits only a function that has no
+-- pragma. Thus the rules fire 895 times against 3,931, and the
+-- points-to analysis of GRIN proves 721 single-entry thunks against
+-- 1,667.
+--
+-- Thus a module scope at @-O2@ must give facts and must commit nothing.
+-- Examples of such facts are the arity, the strictness, the result
+-- shape, and the divergence of each exported value.
 optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
   withInterfaces $ case level of
