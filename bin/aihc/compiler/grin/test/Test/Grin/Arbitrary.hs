@@ -9,7 +9,8 @@ import Aihc.Grin.Parser (parseProgram, renderParseError)
 import Aihc.Grin.Pretty (prettyProgram)
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
-import Data.List (nub)
+import Data.Function (on)
+import Data.List (nubBy)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
@@ -40,7 +41,12 @@ genGrinProgram = do
   globals <- smallList genGlobal
   -- The text marks an exported function at its definition, so the program
   -- exports some of its own functions, in the order of their definitions.
-  functions <- smallList ((,) <$> genVis <*> genFunction)
+  --
+  -- The generator leaves out a program that gives two functions one name,
+  -- because a GRIN program names each function once. 'Aihc.Grin.Lower'
+  -- keys its function tables by name, and 'Aihc.Grin.Lint' reports
+  -- 'GrinLintDuplicateFunction' for a repeated name.
+  functions <- nubBy ((==) `on` functionName) <$> smallList ((,) <$> genVis <*> genFunction)
   externs <- smallList genExternFunction
   pure
     GrinProgram
@@ -50,8 +56,10 @@ genGrinProgram = do
         grinGlobals = globals,
         grinFunctions = map snd functions,
         grinExternFunctions = externs,
-        grinExportedFunctions = nub [grinFunctionName function | (GrinPub, function) <- functions]
+        grinExportedFunctions = [grinFunctionName function | (GrinPub, function) <- functions]
       }
+  where
+    functionName (_, function) = grinFunctionName function
 
 genExternFunction :: Gen GrinExternFunction
 genExternFunction =
