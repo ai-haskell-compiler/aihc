@@ -58,6 +58,7 @@ expected: |
 
   cold stack_grow_32:
     %capability_34 = load ptr [%sp_limit_21 - 4040] align 1 word
+    store ptr %hp_28, [%capability_34 + 16] align 1 word
     %result_35 = call @aihc_stack_grow(%capability_34, %sp_20, 2)
     %sp_36 = ptr.add %result_35, 16
     %sp_limit_37 = ptr.add %result_35, 4032
