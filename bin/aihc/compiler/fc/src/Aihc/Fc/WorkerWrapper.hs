@@ -147,6 +147,13 @@ workerWrapperProgram primPackage home scope program =
       called = calledValues decls
       step (supply, report) decl =
         case decl of
+          -- An imported public function keeps its worker in its own module.
+          -- A split here would copy that worker into each consumer.
+          DeclVal original
+            | valVis original == Pub,
+              Just origin <- home,
+              nameOrigin (valName original) /= origin ->
+                ((supply, report), [decl])
           DeclVal original ->
             let ((body, local), supply') = runState (splitLocals types signatures (valBody original)) supply
                 declaration = original {valBody = body}

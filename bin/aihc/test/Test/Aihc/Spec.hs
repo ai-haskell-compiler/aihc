@@ -444,6 +444,8 @@ normalizeProgressLine line =
 data InstallFixture = InstallFixture
   { installFixtureError :: Maybe String,
     installFixtureTyCons :: [(String, [String])],
+    installFixtureGrin :: [(String, String)],
+    installFixtureOptimization :: OptimizationLevel,
     installFixtureInput :: FilePath,
     installFixtureImmutable :: Bool,
     installFixtureNoCode :: Bool,
@@ -472,6 +474,8 @@ instance FromJSON InstallFixture where
         InstallFixture
           <$> obj .:? "expect-error"
           <*> obj .:? "expect-type-constructors" .!= []
+          <*> obj .:? "expect-grin" .!= []
+          <*> (obj .:? "optimization" .!= (0 :: Int) >>= parseOptimization)
           <*> obj .:? "input" .!= "."
           <*> obj .:? "immutable" .!= False
           <*> obj .:? "no-code" .!= True
@@ -481,6 +485,12 @@ instance FromJSON InstallFixture where
           <*> obj .:? "needs-base" .!= False
           <*> obj .:? "expect-progress"
       else fail "install fixtures require pass status"
+    where
+      parseOptimization level = case level of
+        0 -> pure O0
+        1 -> pure O1
+        2 -> pure O2
+        _ -> fail "optimization must be 0, 1, or 2"
 
 testInstallFixtures :: IO SeedStore -> IO SeedStore -> Assertion
 testInstallFixtures getPrimStore getCoreStore = do
@@ -497,6 +507,8 @@ testInstallFixtures getPrimStore getCoreStore = do
           options =
             (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget Nothing defaultPlanOptions)
               { installImmutable = installFixtureImmutable fixture,
+                installOptimization = installFixtureOptimization fixture,
+                installKeepGrin = not (null (installFixtureGrin fixture)),
                 installNoCode = installFixtureNoCode fixture,
                 installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
               }
@@ -522,12 +534,16 @@ testInstallFixtures getPrimStore getCoreStore = do
         Right result ->
           case installFixtureError fixture of
             Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
-            Nothing -> forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
-              bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
-              artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
-              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
-              forM_ expected $ \constructor ->
-                assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
+            Nothing -> do
+              forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
+                bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
+                artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
+                let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
+                forM_ expected $ \constructor ->
+                  assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
+              forM_ (installFixtureGrin fixture) $ \(moduleName, expected) -> do
+                actual <- readFile (installStorePath result </> moduleName </> "plain.grin")
+                assertBool (name <> ": missing GRIN output " <> expected) (expected `isInfixOf` actual)
 
 -- | Run an action with the variables set in the process environment, and
 -- put back what each held before.

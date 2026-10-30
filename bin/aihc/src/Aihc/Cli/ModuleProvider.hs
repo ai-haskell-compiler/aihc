@@ -16,6 +16,7 @@ module Aihc.Cli.ModuleProvider
     newProviderCache,
     providerPackagesOf,
     providerInterfacePaths,
+    providerOriginInterfacePath,
     providerResolved,
     providerTyped,
     providerInstanceFacts,
@@ -113,6 +114,11 @@ providerInterfacePaths provider name =
   | package <- providerPackagesOf provider name,
     Just root <- [Map.lookup (packageId package) (providerRoots provider)]
   ]
+
+-- | Locate a defining module, including a hidden module of a transitive dependency.
+providerOriginInterfacePath :: ModuleProvider -> PackageId -> Text -> Maybe FilePath
+providerOriginInterfacePath provider identity name =
+  (\root -> root </> moduleNameDirectory name </> interfaceFileName) <$> Map.lookup identity (providerRoots provider)
 
 -- | The facts that the providers of one graph read from the store, each
 -- decoded once. A store package does not change while a graph runs, so
@@ -221,7 +227,7 @@ newModuleProvider cache locator dependencies = do
       { providerModules = modules,
         providerResolved = resolved,
         providerTyped = typed,
-        providerRoots = Map.mapMaybe sourceRoot sources,
+        providerRoots = Map.mapMaybe sourceRoot (Map.union sources locator),
         providerInstanceFacts = instanceFacts
       }
 

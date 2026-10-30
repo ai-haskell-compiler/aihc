@@ -1,0 +1,72 @@
+extensions: []
+scope: module
+modules:
+- |
+  module Lib where
+  import GHC.Types (Bool(..))
+  data Box = Box Bool
+  select :: Box -> Bool
+  select (Box x) = x
+- |
+  module Test where
+  import GHC.Types (Bool(..))
+  import Lib (Box(..), select)
+  result :: Bool
+  result = select (Box True)
+passes:
+- worker-wrapper
+- inline:
+    policy: grow
+    callee-limit: 1
+expected: |-
+  scope 1 = "" Lib
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: tBool → tBox
+  }
+
+  pub val 1.vselect inline :: tBox → tBool
+    = λ(x : tBox).
+      let! cBox (x{1} : tBool) = x;
+      x{1}
+  scope 1 = "" Lib
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [1.cBox] 1.tBox :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    1.cBox :: tBool → tBox;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool;
+    1.vselect :: tBox → tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 2.vresult :: tBool
+    = vselect (cBox cTrue)
+status: pass
+reason: An imported public function must not acquire a worker in each consumer module.

@@ -15,7 +15,7 @@ A level names what the build is for. Nothing else about it is fixed here.
 | Level | Purpose | Scope |
 | ----- | ------- | ----- |
 | `-O0` | Finish as soon as possible. No pass runs that is not needed for correctness. | Each module on its own. |
-| `-O1` | Optimize without whole-program transformations. | Each module on its own, in a future version in import order with facts from the interfaces of its imports. |
+| `-O1` | Optimize without whole-program transformations. | Each module uses the interfaces of its imports and resolved value references. |
 | `-O2` | Produce fast code with the standard optimization passes. | The whole program, merged into one System FC program. |
 | `-Os` | Produce a small executable, with the whole program in view. | The whole program. |
 
@@ -24,6 +24,31 @@ declarations the entry does not reach, and run the passes once on the result.
 `-O0` and `-O1` run the passes on each module as it is lowered. `--lto` at
 `-O0` or `-O1` merges the program without running any pass that the level
 does not name.
+
+## Dictionary facts across modules
+
+At `-O1`, each module publishes safe function bodies and dictionary constructor facts.
+The interface retains the existing body and total size limits.
+The body limit also applies to each private helper that a fact needs.
+A dictionary fact lets the simplifier select a method across module boundaries.
+The simplifier does not copy costly shared dictionary fields.
+`NOINLINE` values and private constructors remain unavailable to consumers.
+
+The loader follows resolved package and module identities.
+This includes hidden modules of transitive dependencies and reexports.
+It follows only bodies and rules that the consumer reaches.
+Each loaded interface enters the backend stamp, so a changed fact causes a rebuild.
+
+Imported public values stay public during optimization.
+Their source modules keep the original code, so the inliner charges the full copy cost.
+The worker/wrapper pass splits local values and private helpers only.
+It does not create a local worker for an imported public function.
+The compiler removes imported public declarations before GRIN conversion.
+
+Nominal FC equality evidence can fix a runtime representation.
+For example, `r ~ LiftedRep` fixes the layout of an expanded default method parameter.
+FC calculates this representation from its existing evidence.
+GRIN retains the evidence until it has calculated parameter layouts.
 
 ## Three axes, one plan
 

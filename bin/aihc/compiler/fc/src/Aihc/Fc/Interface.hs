@@ -21,15 +21,14 @@
 --   the desugarer gives. The bodies are thus the bodies of the source,
 --   and not the result of the passes of the module, as the unfolding of
 --   an @INLINE@ value is in GHC.
--- * 'graftInterfaces' puts the values and the rules that a program
---   reaches into that program, as private declarations.
+-- * 'graftInterfaces' adds the values and rules that a program reaches.
+--   Each declaration keeps its visibility.
 -- * 'stripInterfaces' removes them again, after the passes.
 --
--- The passes themselves read no interface. A grafted value is a private
--- value of the program like any other, so each pass decides it with the
--- rules it already has. A pass can make a new value from a grafted value,
--- such as a specialised copy; that new value belongs to the module that
--- made it. See 'Aihc.Fc.Name.derivedTopName'.
+-- The passes read no interface. An imported public value stays public.
+-- Its source module keeps the original code, so its copy has the full cost.
+-- A pass can make a specialized copy in the consumer module.
+-- See 'Aihc.Fc.Name.derivedTopName'.
 --
 -- A grafted value that survives the passes is removed, and the call that
 -- names it becomes a call of the value of the module that declares it.
@@ -48,7 +47,7 @@ import Aihc.Fc.Imports (exprReferences, restrictProgram)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (ruleHeadName)
-import Aihc.Fc.Simplify (isInlinable)
+import Aihc.Fc.Simplify (isConstructorValue, isDictionaryType, isInlinable)
 import Aihc.Fc.Size (exprSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (typeEnvFromProgram)
@@ -89,9 +88,10 @@ defaultInterfacePolicy = InterfacePolicy {policyBodyLimit = 80, policyTotalLimit
 -- * A value whose pragma is @NOINLINE@ is never offered. The pragma is
 --   the contract of a value that must stay one value, such as the result
 --   of @unsafePerformIO@.
--- * A value that is not a function, an alias or a literal is never
---   offered. Such a value is a constant that its own module evaluates
---   once, and a copy of it in each consumer would repeat that work.
+-- * Functions, aliases, literals, and dictionary constructor values are candidates.
+--   A dictionary fact lets a case select a known method.
+--   The simplifier keeps costly dictionary fields shared.
+--   Other constants stay in their source module.
 -- * A value whose pragma is @INLINE@ or @INLINABLE@ is offered whatever
 --   its size, because the source asks for the copy. Another value is
 --   offered when its body is within the body limit.
@@ -132,6 +132,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- A candidate and the private values that it reaches, or nothing when
     -- it reaches a private value that may not be copied. A public value
     -- that it reaches needs no body: the consumer calls it.
+    -- Each private helper must fit the body limit, because each consumer keeps a copy.
     closure declaration =
       Set.insert (valName declaration) <$> go Set.empty (Set.toList (exprValueNames (valBody declaration)))
       where
@@ -143,7 +144,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
                 -- A value of another module needs no body here.
                 Nothing -> go done rest
                 Just reached
-                  | copies reached -> go (Set.insert name done) (Set.toList (exprValueNames (valBody reached)) <> rest)
+                  | copies reached, bodySize reached <= policyBodyLimit policy -> go (Set.insert name done) (Set.toList (exprValueNames (valBody reached)) <> rest)
                   | otherwise -> Nothing
     select _ [] done = done
     select budget (declaration : rest) done =
@@ -161,7 +162,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- Whether a copy of the value in another module keeps the meaning of
     -- the program and can pay.
     copies declaration =
-      isInlinable (valBody declaration)
+      (isInlinable (valBody declaration) || (isDictionaryType (valType declaration) && isConstructorValue (valBody declaration)))
         && Set.disjoint privateConstructors (exprReferences (valBody declaration))
         && case valInline declaration of
           InlineNever _ -> False
@@ -199,9 +200,9 @@ data Grafted = Grafted
 
 -- | Put the values and the rules that a program reaches into it.
 --
--- A value of an interface comes in as a private value, whatever it is in
--- the module that declares it. Thus it is no root of this program, and
--- the passes drop it once no call of it is left.
+-- Each value keeps its visibility. A public value stays a root during
+-- optimization, so the inliner cannot subtract the original body from its copy cost.
+-- 'stripInterfaces' removes these public values after optimization.
 --
 -- The program keeps its own declaration of a name that an interface also
 -- declares.
@@ -217,21 +218,12 @@ data Grafted = Grafted
 graftInterfaces :: PackageId -> [Program] -> Program -> Grafted
 graftInterfaces primPackage interfaces program =
   Grafted
-    { graftedProgram = mergePrograms (program : map (demote . restrict) interfaces),
+    { graftedProgram = mergePrograms (program : map restrict interfaces),
       graftedExported = Set.filter exported wanted,
       graftedPrivate = Set.filter (not . exported) wanted
     }
   where
     exported name = maybe False ((== Pub) . valVis) (Map.lookup name offered)
-    demote interface =
-      interface
-        { programDecls =
-            [ case decl of
-                DeclVal declaration -> DeclVal declaration {valVis = Private}
-                _ -> decl
-            | decl <- programDecls interface
-            ]
-        }
     own = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
     offered = Map.unions [Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls interface, Set.notMember (valName declaration) own] | interface <- interfaces]
     reached = foldMap declValueNames (programDecls program)

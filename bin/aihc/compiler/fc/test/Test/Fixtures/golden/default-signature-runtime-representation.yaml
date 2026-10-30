@@ -16,5 +16,8 @@ modules:
       apply = constant Unit
 
     instance Apply ('BoxedRep 'Lifted) Unit
+passes:
+- eta
+- inline: grow
 status: pass
 reason: A default method uses nominal equality evidence for its type argument kind.

@@ -1944,7 +1944,7 @@ collectLambdas :: LowerEnv -> Fc.Expr -> (LowerEnv, [Fc.Binder], Fc.Expr)
 collectLambdas env expression =
   case expression of
     Fc.ExLam binder body ->
-      let (bodyEnv, binders, result) = collectLambdas env body
+      let (bodyEnv, binders, result) = collectLambdas (extendTypeBinder env binder) body
        in (bodyEnv, binder : binders, result)
     Fc.ExTyLam binder body -> collectLambdas (extendTypeBinder env binder) body
     -- A cast is erased by 'lowerExpr' wherever it stands, and it relates
