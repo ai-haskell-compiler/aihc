@@ -80,10 +80,11 @@ caller-chosen monad, so the tests run the solver in `Identity` over in-memory
 maps and the compiler runs it in `IO` over the index cache; the solver itself
 does nothing but call those lookups.
 
-- **Candidates**: a lookup from package name to its versions, each with the
-  latest revision of its cabal file and whether Hackage deprecates it. The
-  `01-index.tar.gz` already holds every version's cabal file, so no candidate
-  is downloaded; only the chosen versions are fetched. Local packages and
+- **Candidates**: a lookup from package name to its versions, each with
+  whether Hackage deprecates it. The candidates of a package are one query
+  and the cabal file of one candidate is another, so a solve reads the cabal
+  files of the versions it tries and nothing else. The source of a release is
+  downloaded only for the version the plan chooses. Local packages and
   packages under `--workspace` are single candidates at their checked-out
   version, and shadow Hackage.
 - **No Hackage**: the `aihc` package has the Cabal flag `hackage`, which
@@ -231,9 +232,9 @@ that changed:
 - `format` is bumped on any shape change.
 - `compiler` is the emulated GHC release. A lock written for another release
   is ignored and rewritten, since the core-library versions differ.
-- `index-state` is the timestamp of the Hackage index the plan was solved
-  against. It is informational; the pinned versions and revisions are what make
-  the plan reproducible.
+- `index-state` is the moment the plan was solved against Hackage. It is
+  informational; the pinned versions and revisions are what make the plan
+  reproducible.
 - `platforms` holds one assignment per target OS and architecture, because
   conditions on `os` and `arch` can change a package's dependencies. A
   multi-target install solves once per platform and writes every result.
@@ -279,16 +280,8 @@ in the table and its top-to-bottom ordering.
 
 Two things outside the solver change with it.
 
-- **The index cache exposes every version.** `Aihc.Hackage.IndexCache` used
-  to reduce the tarball to one preferred version per name. The solver needs
-  every version's cabal file at any revision, plus the deprecation ranges
-  from `preferred-versions`. The cache now keeps the index tarball
-  uncompressed (about a gigabyte, the same as cabal-install keeps) beside a
-  derived table, `index.txt`, with one line per cabal entry: package, version,
-  revision, and the entry's block offset. A cabal file is read from the
-  tarball at that offset, so a solve reads the cabal files of the versions
-  it tries and nothing else. The tarball already contained all of it; this
-  is an indexing change, not a new download.
+- **Hackage is queried one package at a time.** See
+  [Querying Hackage](#querying-hackage) below.
 - **Flag assignments join package identity.** The store fingerprint includes
   the decided cabal flags and the cabal file revision, and the manifest
   records the flags under `cabalFlags`, since `unix` built with `os-string`
@@ -297,6 +290,55 @@ Two things outside the solver change with it.
   `Aihc.Hackage.Cabal` that select modules, C sources, and executables take
   a `BuildContext` of platform and decided flags, so the files a package
   compiles agree with the dependencies it was planned with.
+
+## Querying Hackage
+
+`Aihc.Hackage.Query` answers the solver's questions with one request per
+package. Two endpoints carry everything the solver reads:
+
+- `/package/NAME.json` lists every version of a package and whether the
+  maintainer deprecates it. The body is a few hundred bytes.
+- `/package/NAME-VERSION/NAME.cabal` is the newest revision of one cabal
+  file, and `/package/NAME-VERSION/revision/N.cabal` is revision `N` of it.
+
+The alternative was the index tarball, `01-index.tar.gz`, which aihc read
+until October 2026. One request gave every version's cabal file, which made
+a solve local and fast, but the download is 140 MB and the tarball must be
+kept uncompressed to read a cabal file at an offset, which is a gigabyte on
+disk. That is a large price for the few hundred cabal files one plan reads,
+so the tarball is gone.
+
+The cost of the change is round trips. Hackage answers one of these requests
+in about 0.2 seconds, and a cold solve of a few tens of packages makes one
+version query per package and one cabal query per candidate it tries.
+
+Every answer is cached under `~/.cache/aihc/hackage-query`, as the body
+Hackage sent:
+
+- A cabal file at a numbered revision never changes, so it is kept for good.
+- A version list and the newest revision of a cabal file do change, so they
+  are reasked once they reach `queryMaxAge`, a day by default.
+- Reading the newest revision of a cabal file also records it under the
+  number it turned out to be, so a later ask for that number is free.
+
+Two properties follow. A plan that a lock file pins names a version and a
+revision for every package, which are answers that never change, so it reads
+only cached files and makes no request. And a failed request falls back to a
+stale cached answer, so a broken network degrades a solve to yesterday's
+answers rather than failing it.
+
+What the index gave and the queries do not:
+
+- **Offline resolution of a package never seen before.** The cache holds the
+  packages this machine has resolved, not all of Hackage. A solve that needs
+  an unknown package without the network fails and names what it wanted.
+- **One timestamp for the whole resolution.** There is no index state to
+  record, so `index-state` in the lock is the moment of the solve.
+- **The revisions of a version up front.** Hackage lists the versions of a
+  package without them, and a version's revisions cost a request each. A
+  candidate therefore reads the newest revision there is, and the plan
+  records the revision that the read turned out to be. Only a lock file
+  names a revision, for the version it pinned.
 
 ## Non-goals
 
@@ -309,3 +351,7 @@ Two things outside the solver change with it.
 - Matching cabal-install's plan for the same inputs. The plans usually agree,
   since both take the newest version and flip automatic flags only under
   conflict, but nothing depends on it.
+- Asking Hackage for several packages at once. A solve asks for what it needs
+  when it needs it, so the requests are sequential. Overlapping them would
+  make a cold solve several times faster and is the first thing to do if the
+  wait becomes a problem.

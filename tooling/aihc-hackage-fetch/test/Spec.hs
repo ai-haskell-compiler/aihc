@@ -1,42 +1,35 @@
 module Main (main) where
 
-import Aihc.Hackage.Index (IndexEntry (..), IndexScan (..), latestPreferredVersions, parseHackageIndex, parseHackageIndexUpdatedSince, parsePreferredRanges, readIndexEntry, scanIndex)
-import Aihc.Hackage.IndexCache (IndexTable (..), IndexVersion (..), indexTableFromScan, indexTableVersions, parseIndexTable, renderIndexTable)
-import Aihc.Hackage.Package (showVersion, showVersionRange)
-import Aihc.Hackage.Types (PackageSpec (..))
-import Codec.Archive.Tar qualified as Tar
-import Codec.Archive.Tar.Entry qualified as Tar
-import Codec.Compression.GZip qualified as GZip
-import Control.Exception (bracket)
+import Aihc.Hackage.Package (Version, parseVersionString, showVersion)
+import Aihc.Hackage.Query
+  ( QueryOptions (..),
+    QueryVersion (..),
+    cabalFileRevision,
+    defaultQueryOptions,
+    getQueryCacheDir,
+    newHackageQueries,
+    parseVersionsJson,
+    queryCabalFile,
+    queryPackageVersions,
+  )
+import Control.Exception (IOException, bracket, try)
 import Data.ByteString.Char8 qualified as BSC
-import Data.ByteString.Lazy qualified as LBS
-import Data.Map.Strict qualified as Map
+import Data.List (isInfixOf)
 import Hedgehog (Property, property, success)
-import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
-import System.IO (IOMode (ReadMode), hClose, openTempFile, withBinaryFile)
+import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (Assertion, assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main =
   defaultMain . testGroup "aihc-hackage-fetch" $
-    [ testCase "parses latest package versions from Hackage index tarball" $ do
-        parseHackageIndex testHackageIndex
-          @?= Right
-            [ PackageSpec "alpha" "1.2.0",
-              PackageSpec "beta" "0.1"
-            ],
-      testCase "filters Hackage index packages by latest upload time" $ do
-        parseHackageIndexUpdatedSince 100 testHackageIndex
-          @?= Right
-            [ PackageSpec "alpha" "1.2.0"
-            ],
-      testCase "reads preferred version ranges from the Hackage index" test_readsPreferredRanges,
-      testCase "skips deprecated versions when resolving from the Hackage index" test_skipsDeprecatedVersions,
-      testCase "scans every version and revision of the Hackage index" test_scansIndexEntries,
-      testCase "round-trips the derived index table" test_indexTableRoundTrip,
+    [ testCase "reads the versions Hackage lists for a package" test_readsVersionsJson,
+      testCase "reads the revision a cabal file is at" test_readsCabalFileRevision,
+      testCase "answers from the cache without the network" test_answersFromCache,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -44,33 +37,104 @@ main =
 prop_dummy :: Property
 prop_dummy = property success
 
-(@?=) :: (Eq a, Show a) => Either String a -> Either String a -> Assertion
-actual @?= expected =
-  if actual == expected
-    then pure ()
-    else assertFailure ("expected: " <> show expected <> "\n but got: " <> show actual)
+-- The body of @\/package\/NAME.json@: one field per version, whose value
+-- says whether the maintainer deprecates it. The versions must come back
+-- newest first, because that is the order the planner tries them in, and a
+-- deprecated version must be marked, because the planner tries those last.
+test_readsVersionsJson :: Assertion
+test_readsVersionsJson = do
+  let body = BSC.pack "{\"1.0\":\"normal\",\"1.10.0\":\"deprecated\",\"1.2\":\"normal\"}"
+  versions <- either (assertFailure . ("failed to read the versions: " <>)) pure (parseVersionsJson body)
+  assertEqual
+    "newest first, with the deprecated version marked"
+    [("1.10.0", True), ("1.2", False), ("1.0", False)]
+    [(showVersion (queryVersionVersion listed), queryVersionDeprecated listed) | listed <- versions]
+  assertBool
+    "a body that is not an object of versions is refused"
+    (either (const True) (const False) (parseVersionsJson (BSC.pack "[\"1.0\"]")))
 
-testHackageIndex :: LBS.ByteString
-testHackageIndex =
-  GZip.compress $
-    Tar.write
-      [ cabalEntryAt "alpha/1.0.0/alpha.cabal" 20,
-        cabalEntryAt "alpha/1.2.0/alpha.cabal" 100,
-        cabalEntryAt "alpha/1.1.0/alpha.cabal" 200,
-        cabalEntryAt "beta/0.1/beta.cabal" 99,
-        cabalEntry "beta/0.2/not-beta.cabal",
-        cabalEntry "preferred-versions"
-      ]
-  where
-    cabalEntry path =
-      cabalEntryAt path 0
+-- The revision is what the lock file pins and what joins a package's
+-- identity in the store, so reading it from the wrong field, or defaulting
+-- a revised file to zero, pins the wrong cabal file.
+test_readsCabalFileRevision :: Assertion
+test_readsCabalFileRevision = do
+  assertEqual
+    "the first upload of a release carries no x-revision field"
+    0
+    (cabalFileRevision (BSC.pack "cabal-version:  1.12\nname:           dep\nversion:        1.0\n"))
+  assertEqual
+    "a revised file carries its number"
+    2
+    (cabalFileRevision (BSC.pack "cabal-version:  1.12\nname:           dep\nversion:        1.0\nx-revision: 2\n"))
+  assertEqual
+    "the field is read whatever its case and spacing"
+    7
+    (cabalFileRevision (BSC.pack "name: dep\nX-Revision:   7\n"))
+  assertEqual
+    "a field that only starts the same way is not the revision"
+    0
+    (cabalFileRevision (BSC.pack "name: dep\nx-revision-history: 4\n"))
 
-    cabalEntryAt path uploadedAt =
-      case Tar.toTarPath False path of
-        Left err -> error ("invalid test tar path: " <> show err)
-        Right tarPath ->
-          let contents = LBS.fromStrict (BSC.pack "name: ignored\n")
-           in (Tar.simpleEntry tarPath (Tar.NormalFile contents (LBS.length contents))) {Tar.entryTime = uploadedAt}
+-- A plan that a lock file pins reads cached answers and must make no
+-- request, so every answer has to be readable from the cache alone. Reading
+-- the newest revision of a cabal file also records it under the number it
+-- turned out to be, so replaying a lock that names that number is free.
+--
+-- Without a cached answer and without the network there is nothing to say,
+-- and the failure must name what was wanted rather than report the package
+-- as one Hackage does not have: a plan that silently drops a package
+-- resolves to the wrong thing. That case is here rather than in a test of
+-- its own because both set @XDG_CACHE_HOME@, and tasty runs test cases at
+-- the same time.
+test_answersFromCache :: Assertion
+test_answersFromCache =
+  withIsolatedCache $ \cacheDir -> do
+    createDirectoryIfMissing True (cacheDir </> "versions")
+    createDirectoryIfMissing True (cacheDir </> "cabal")
+    BSC.writeFile (cacheDir </> "versions" </> "dep.json") (BSC.pack "{\"1.0\":\"normal\",\"2.0\":\"deprecated\"}")
+    BSC.writeFile (cacheDir </> "cabal" </> "dep-1.0-latest.cabal") (BSC.pack "name: dep\nversion: 1.0\nx-revision: 3\n")
+    queries <- newHackageQueries offline
+    versions <- queryPackageVersions queries "dep"
+    assertEqual
+      "the cached versions of dep"
+      (Just [("2.0", True), ("1.0", False)])
+      (map (\version' -> (showVersion (queryVersionVersion version'), queryVersionDeprecated version')) <$> versions)
+    one <- version "1.0"
+    newest <- queryCabalFile queries "dep" one Nothing
+    assertEqual "the newest cached revision of dep-1.0" (Right 3) (fst <$> newest)
+    numbered <- queryCabalFile queries "dep" one (Just 3)
+    assertEqual
+      "the same answer under the number it turned out to be"
+      newest
+      numbered
+    -- Whether a release has a fourth revision is a question only Hackage
+    -- can answer, so offline there is nothing to say about it.
+    missing <- try (queryCabalFile queries "dep" one (Just 4))
+    case missing of
+      Right answer -> assertFailure ("expected a failure, got " <> show (fst <$> answer))
+      Left err -> assertBool (show err) ("at revision 4" `isInfixOf` show (err :: IOException))
+    unknown <- try (queryPackageVersions queries "no-such-package")
+    case unknown of
+      Right answer -> assertFailure ("expected a failure, got " <> show (fmap (map queryVersionVersion) answer))
+      Left err -> do
+        let message = show (err :: IOException)
+        assertBool message ("the versions of no-such-package" `isInfixOf` message)
+        assertBool message ("network is disabled" `isInfixOf` message)
+
+offline :: QueryOptions
+offline = defaultQueryOptions {queryAllowNetwork = False, queryVerbose = False}
+
+version :: String -> IO Version
+version text = maybe (assertFailure ("not a version: " <> text)) pure (parseVersionString text)
+
+-- | Run with @XDG_CACHE_HOME@ in a temporary directory, so the tests never
+-- read or write the cache of the machine they run on.
+withIsolatedCache :: (FilePath -> IO a) -> IO a
+withIsolatedCache action =
+  withTempDir "aihc-hackage-query" $ \root ->
+    bracket (lookupEnv "XDG_CACHE_HOME") (maybe (unsetEnv "XDG_CACHE_HOME") (setEnv "XDG_CACHE_HOME")) $ \_ -> do
+      setEnv "XDG_CACHE_HOME" root
+      getQueryCacheDir >>= action
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a
 withTempDir prefix action = do
@@ -79,124 +143,4 @@ withTempDir prefix action = do
   hClose tempHandle
   removeFile tempFile
   createDirectory tempFile
-  bracket
-    (pure tempFile)
-    removeDirectoryRecursive
-    action
-
--- | An index whose packages exercise each way a preferred-versions entry can
--- constrain a package.
-testPreferredIndex :: LBS.ByteString
-testPreferredIndex =
-  GZip.compress $
-    Tar.write
-      [ entry "alpha/1.0.0/alpha.cabal" "name: ignored\n",
-        entry "alpha/1.1.0/alpha.cabal" "name: ignored\n",
-        entry "alpha/1.2.0/alpha.cabal" "name: ignored\n",
-        entry "alpha/preferred-versions" "alpha <1.2.0 || >1.2.0\n",
-        entry "beta/0.1/beta.cabal" "name: ignored\n",
-        -- The index is append-only, so the later entry is the one in force.
-        entry "gamma/2.0/gamma.cabal" "name: ignored\n",
-        entry "gamma/preferred-versions" "gamma <2.0\n",
-        entry "gamma/preferred-versions" "gamma >=2.0\n",
-        -- An emptied entry lifts an earlier restriction.
-        entry "delta/1.0/delta.cabal" "name: ignored\n",
-        entry "delta/preferred-versions" "delta <1.0\n",
-        entry "delta/preferred-versions" ""
-      ]
-  where
-    entry path contents =
-      case Tar.toTarPath False path of
-        Left err -> error ("invalid test tar path: " <> show err)
-        Right tarPath ->
-          let body = LBS.fromStrict (BSC.pack contents)
-           in Tar.simpleEntry tarPath (Tar.NormalFile body (LBS.length body))
-
-test_readsPreferredRanges :: Assertion
-test_readsPreferredRanges =
-  case parsePreferredRanges testPreferredIndex of
-    Left err -> assertFailure ("failed to parse test index: " <> err)
-    Right ranges -> do
-      assertEqual
-        "packages with a restriction"
-        ["alpha", "gamma"]
-        (Map.keys ranges)
-      assertEqual
-        "alpha range"
-        (Just "<1.2.0 || >1.2.0")
-        (showVersionRange <$> Map.lookup "alpha" ranges)
-      assertEqual
-        "the later gamma entry wins"
-        (Just ">=2.0")
-        (showVersionRange <$> Map.lookup "gamma" ranges)
-
-test_skipsDeprecatedVersions :: Assertion
-test_skipsDeprecatedVersions =
-  case parsePreferredRanges testPreferredIndex >>= \ranges -> latestPreferredVersions ranges testPreferredIndex of
-    Left err -> assertFailure ("failed to resolve test index: " <> err)
-    Right versions ->
-      assertEqual
-        "newest preferred version of each package"
-        [("alpha", "1.1.0"), ("beta", "0.1"), ("delta", "1.0"), ("gamma", "2.0")]
-        (Map.toAscList (Map.map showVersion versions))
-
--- The scan records each cabal entry with its revision and where it sits in
--- the tarball, and the entry can be read back from that offset.
-test_scansIndexEntries :: Assertion
-test_scansIndexEntries = do
-  let uncompressed = GZip.decompress testRevisionIndex
-  scan <- either (assertFailure . ("failed to scan the test index: " <>)) pure (scanIndex uncompressed)
-  assertEqual
-    "alpha entries in index order"
-    [("1.0.0", 0), ("1.1.0", 0), ("1.0.0", 1), ("1.0.0", 2)]
-    [(showVersion (indexEntryVersion entry), indexEntryRevision entry) | entry <- scanEntries scan Map.! "alpha"]
-  assertEqual "beta has one entry" [("0.1", 0)] [(showVersion (indexEntryVersion entry), indexEntryRevision entry) | entry <- scanEntries scan Map.! "beta"]
-  assertEqual "the preferred range is kept" (Just "<1.1.0 || >1.1.0") (showVersionRange <$> Map.lookup "alpha" (scanPreferredRanges scan))
-  assertEqual "the index state is the newest entry time" 300 (scanIndexState scan)
-  withTempDir "aihc-hackage-index" $ \root -> do
-    let tarball = root </> "01-index.tar"
-    LBS.writeFile tarball uncompressed
-    let alphaEntries = scanEntries scan Map.! "alpha"
-    contents <- withBinaryFile tarball ReadMode $ \handle -> mapM (readIndexEntry handle) alphaEntries
-    assertEqual
-      "each revision reads back its own cabal file"
-      ["alpha 1.0.0 r0", "alpha 1.1.0 r0", "alpha 1.0.0 r1", "alpha 1.0.0 r2"]
-      (map (BSC.unpack . BSC.strip) contents)
-  let table = indexTableFromScan scan
-  versions <- maybe (assertFailure "alpha is missing from the table") pure (indexTableVersions table "alpha")
-  assertEqual "versions newest first" ["1.1.0", "1.0.0"] (map (showVersion . indexVersionVersion) versions)
-  assertEqual "the newest version is deprecated" [True, False] (map indexVersionDeprecated versions)
-  assertEqual "revisions oldest first" [[0], [0, 1, 2]] (map (map indexEntryRevision . indexVersionRevisions) versions)
-  assertEqual "an unknown package has no versions" Nothing (indexTableVersions table "omega")
-
-test_indexTableRoundTrip :: Assertion
-test_indexTableRoundTrip = do
-  let table =
-        IndexTable
-          { indexTableEntries = Map.fromList [(BSC.pack "alpha", [(BSC.pack "1.0.0", 0, 0), (BSC.pack "1.1.0", 0, 4), (BSC.pack "1.0.0", 1, 8)]), (BSC.pack "beta", [(BSC.pack "0.1", 0, 12)])],
-            indexTableRanges = Map.fromList [(BSC.pack "alpha", BSC.pack "<1.1.0 || >1.1.0")],
-            indexTableState = 300
-          }
-  assertEqual "derived table round trip" (Right table) (parseIndexTable (renderIndexTable table))
-
--- An index with revisions: alpha 1.0.0 is uploaded, then 1.1.0, then 1.0.0
--- is revised twice, and 1.1.0 is deprecated.
-testRevisionIndex :: LBS.ByteString
-testRevisionIndex =
-  GZip.compress $
-    Tar.write
-      [ entry "alpha/1.0.0/alpha.cabal" "alpha 1.0.0 r0\n" 100,
-        entry "alpha/1.1.0/alpha.cabal" "alpha 1.1.0 r0\n" 200,
-        entry "alpha/1.0.0/alpha.cabal" "alpha 1.0.0 r1\n" 250,
-        entry "alpha/preferred-versions" "alpha <1.1.0 || >1.1.0\n" 260,
-        entry "alpha/1.0.0/alpha.cabal" "alpha 1.0.0 r2\n" 300,
-        entry "beta/0.1/beta.cabal" "beta 0.1 r0\n" 150,
-        entry "alpha/1.0.0/package.json" "{}\n" 100
-      ]
-  where
-    entry path contents time =
-      case Tar.toTarPath False path of
-        Left err -> error ("invalid test tar path: " <> show err)
-        Right tarPath ->
-          let body = LBS.fromStrict (BSC.pack contents)
-           in (Tar.simpleEntry tarPath (Tar.NormalFile body (LBS.length body))) {Tar.entryTime = time}
+  bracket (pure tempFile) removeDirectoryRecursive action

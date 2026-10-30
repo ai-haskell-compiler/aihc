@@ -7,21 +7,22 @@ license-file: LICENSE
 author: David Himmelstrup
 maintainer: lemmih@gmail.com
 category: Development
-synopsis: Read the Hackage index and download Hackage releases
+synopsis: Query Hackage for packages and download Hackage releases
 description:
-  This package holds the tar and zlib code of the aihc tools.
-  It also holds their calls to Hackage.
+  This package holds the calls to Hackage of the aihc tools.
+  It queries Hackage for one package at a time to resolve dependencies.
+  It also holds the tar and zlib code that unpacks a release.
   Build aihc with the Cabal flag -hackage to leave it out.
 
 library
   exposed-modules:
     Aihc.Hackage.Download
     Aihc.Hackage.Fetch
-    Aihc.Hackage.Index
-    Aihc.Hackage.IndexCache
+    Aihc.Hackage.Query
 
   hs-source-dirs: src
   build-depends:
+    aeson >=2.0 && <2.3,
     aihc-hackage,
     aihc-http,
     base >=4.16 && <5,
@@ -45,15 +46,12 @@ test-suite spec
     aihc-hackage-fetch,
     base >=4.16 && <5,
     bytestring,
-    containers,
     directory,
     filepath,
     hedgehog,
-    tar,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
-    zlib,
 
   ghc-options:
     -Wall

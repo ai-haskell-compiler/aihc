@@ -397,7 +397,7 @@ writeLock request solution = forM_ (requestLockFile request) $ \lockPath -> do
 checkBuildTools :: PlanRequest -> SolverInputs IO -> SolverConfig -> Solution -> IO ()
 checkBuildTools request inputs config solution = do
   problems <- forM (Map.toList solution) $ \(name, assignment) -> do
-    gpd <- inputsDescription inputs (assignmentCandidate name assignment)
+    (_, gpd) <- inputsDescription inputs (assignmentCandidate name assignment)
     let unknown = unknownBuildTools (requestPlatform request) (assignmentFlags assignment) (Map.lookup name (configRoots config)) gpd
     pure [unPackageName name <> "-" <> showVersion (assignmentVersion assignment) <> " needs the build tool " <> tool | tool <- unknown]
   unless (all null problems) $
@@ -408,7 +408,12 @@ assignmentCandidate name assignment =
   Candidate
     { candidateName = name,
       candidateVersion = assignmentVersion assignment,
-      candidateRevision = assignmentRevision assignment,
+      -- Only a Hackage release reads a numbered revision, and keying a
+      -- local or core candidate the way the solver did keeps the cabal file
+      -- it parsed.
+      candidateRevision = case assignmentSource assignment of
+        CandidateHackage -> Just (assignmentRevision assignment)
+        _ -> Nothing,
       candidateDeprecated = False,
       candidateSource = assignmentSource assignment
     }
@@ -429,7 +434,7 @@ solverInputs request descriptions localRoots localDirectories =
           case lookupCoreProvider (unPackageName name) of
             Just provider -> do
               path <- coreProviderSourcePath provider
-              pure [Candidate name (versionFromList (bootVersion provider)) 0 False (CandidateCore path)]
+              pure [Candidate name (versionFromList (bootVersion provider)) Nothing False (CandidateCore path)]
             Nothing -> do
               local <- findLocal name localDirectories
               case local of
@@ -451,34 +456,38 @@ solverInputs request descriptions localRoots localDirectories =
       let actual = packageNameOf gpd
       when (actual /= name) $
         ioError (userError ("The package at " <> path <> " is " <> unPackageName actual <> ", not " <> unPackageName name))
-      pure (Candidate name (packageVersion gpd) 0 False (CandidateLocal path))
+      pure (Candidate name (packageVersion gpd) Nothing False (CandidateLocal path))
 
+    -- Hackage lists the versions of a package without their cabal file
+    -- revisions, so a candidate reads the newest revision there is. Only a
+    -- lock file names one, for the version it pinned.
     hackageCandidates name preference source = do
       releases <- hackageReleases source (unPackageName name)
       pure
         [ Candidate name (hackageReleaseVersion release) revision (hackageReleaseDeprecated release) CandidateHackage
         | release <- fromMaybe [] releases,
-          let latest = maximum (hackageReleaseRevisions release)
-              revision =
+          let revision =
                 case preference of
                   Just chosen
-                    | preferredVersion chosen == hackageReleaseVersion release,
-                      Just wanted <- preferredRevision chosen,
-                      wanted `elem` hackageReleaseRevisions release ->
-                        wanted
-                  _ -> latest
+                    | preferredVersion chosen == hackageReleaseVersion release ->
+                        preferredRevision chosen
+                  _ -> Nothing
         ]
 
     description candidate =
       case candidateSource candidate of
-        CandidateLocal path -> snd <$> describeLocal path
-        CandidateCore path -> snd <$> describeLocal path
+        CandidateLocal path -> (,) 0 . snd <$> describeLocal path
+        CandidateCore path -> (,) 0 . snd <$> describeLocal path
         CandidateHackage -> do
           source <- requireHackage request
-          result <- hackageCabalFile source (unPackageName (candidateName candidate)) (candidateVersion candidate) (Just (candidateRevision candidate))
+          result <- hackageCabalFile source (unPackageName (candidateName candidate)) (candidateVersion candidate) (candidateRevision candidate)
           case result of
             Left problem -> ioError (userError problem)
-            Right (_, bytes) -> parseDescriptionBytes (unPackageName (candidateName candidate) <> "-" <> showVersion (candidateVersion candidate) <> " from the Hackage index") bytes
+            Right (revision, bytes) ->
+              (,) revision
+                <$> parseDescriptionBytes
+                  (unPackageName (candidateName candidate) <> "-" <> showVersion (candidateVersion candidate) <> " from Hackage")
+                  bytes
 
     describeLocal path = do
       known <- Map.lookup path <$> readIORef descriptions
@@ -521,7 +530,7 @@ buildPlans request inputs solution = do
                 case cabalFiles of
                   [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
                   files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
-              gpd <- inputsDescription inputs (assignmentCandidate name assignment)
+              (_, gpd) <- inputsDescription inputs (assignmentCandidate name assignment)
               let plan =
                     PackagePlan
                       { planName = name,

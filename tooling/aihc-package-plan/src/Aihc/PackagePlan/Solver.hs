@@ -134,9 +134,12 @@ data CandidateSource
 data Candidate = Candidate
   { candidateName :: !PackageName,
     candidateVersion :: !Version,
-    -- | The revision of the cabal file to read. Zero for anything but a
-    -- Hackage release.
-    candidateRevision :: !Int,
+    -- | The revision of the cabal file to read, or 'Nothing' for the
+    -- newest revision there is. A lock file names a revision; nothing else
+    -- does, since learning the newest revision of a Hackage release costs a
+    -- request for its cabal file. 'inputsDescription' says which revision
+    -- it read, and that is the revision the solution records.
+    candidateRevision :: !(Maybe Int),
     -- | The maintainer's @preferred-versions@ exclude this version, so it
     -- is tried after every version they do not.
     candidateDeprecated :: !Bool,
@@ -149,8 +152,10 @@ data SolverInputs m = SolverInputs
   { -- | The candidates of a package, in any order. The preference, when
     -- there is one, names the revision to read for the version it prefers.
     inputsCandidates :: PackageName -> Maybe Preference -> m [Candidate],
-    -- | The cabal file of a candidate at its revision.
-    inputsDescription :: Candidate -> m Package
+    -- | The cabal file of a candidate at its revision, with the revision
+    -- that was read. The revision is zero for anything but a Hackage
+    -- release.
+    inputsDescription :: Candidate -> m (Int, Package)
   }
 
 -- | The optional components of a root package that contribute
@@ -317,7 +322,7 @@ renderDependents dependents =
       case dependent of
         DependentRoot -> "the root"
         DependentConstraint -> "a constraint"
-        DependentPackage name version flags -> renderCandidateName (Candidate name version 0 False CandidateHackage) flags
+        DependentPackage name version flags -> renderCandidateName (Candidate name version Nothing False CandidateHackage) flags
 
 renderCandidateName :: Candidate -> FlagAssignment -> String
 renderCandidateName candidate flags =
@@ -354,7 +359,7 @@ unavailablePackages inputs config =
               walk (Set.insert name seen) missing (rest <> next)
 
     dependenciesOf name candidate = do
-      gpd <- descriptionOf inputs candidate
+      (_, gpd) <- descriptionOf inputs candidate
       let root = Map.lookup name (configRoots config)
           flags = case flagAssignments config name gpd root of
             first : _ -> first
@@ -398,7 +403,7 @@ dependentNames goal = Set.fromList [name | (DependentPackage name _ _, _) <- goa
 -- cabal files it already fetched, and how often it backtracked.
 data Memo = Memo
   { memoCandidates :: !(Map PackageName [Candidate]),
-    memoDescriptions :: !(Map (PackageName, Version, Int, CandidateSource) Package),
+    memoDescriptions :: !(Map (PackageName, Version, Maybe Int, CandidateSource) (Int, Package)),
     memoBacktracks :: !Int
   }
 
@@ -461,16 +466,16 @@ candidatesOf inputs config name = do
       modify' (\memo -> memo {memoCandidates = Map.insert name candidates (memoCandidates memo)})
       pure candidates
 
-descriptionOf :: (Monad m) => SolverInputs m -> Candidate -> Solve m Package
+descriptionOf :: (Monad m) => SolverInputs m -> Candidate -> Solve m (Int, Package)
 descriptionOf inputs candidate = do
   let key = (candidateName candidate, candidateVersion candidate, candidateRevision candidate, candidateSource candidate)
   known <- gets (Map.lookup key . memoDescriptions)
   case known of
-    Just gpd -> pure gpd
+    Just described -> pure described
     Nothing -> do
-      gpd <- lift (inputsDescription inputs candidate)
-      modify' (\memo -> memo {memoDescriptions = Map.insert key gpd (memoDescriptions memo)})
-      pure gpd
+      described <- lift (inputsDescription inputs candidate)
+      modify' (\memo -> memo {memoDescriptions = Map.insert key described (memoDescriptions memo)})
+      pure described
 
 -- | The candidates of a goal in the order they are tried: the preferred
 -- version first, then newest first with deprecated versions last.
@@ -523,14 +528,14 @@ search inputs config state = do
         (Set.delete name (Set.union conflicts (dependentNames goal)))
         (NoCandidates name (goalRange goal) (goalDependents goal) outside (reverse failures))
     tryCandidates name goal outside (candidate : rest) failures conflicts = do
-      gpd <- descriptionOf inputs candidate
+      (revision, gpd) <- descriptionOf inputs candidate
       let root = Map.lookup name (configRoots config)
           flagChoices = flagAssignments config name gpd root
-      tryFlags name goal outside candidate gpd root flagChoices rest failures conflicts
+      tryFlags name goal outside candidate revision gpd root flagChoices rest failures conflicts
 
-    tryFlags name goal outside _ _ _ [] rest failures conflicts =
+    tryFlags name goal outside _ _ _ _ [] rest failures conflicts =
       tryCandidates name goal outside rest failures conflicts
-    tryFlags name goal outside candidate gpd root (flags : moreFlags) rest failures conflicts = do
+    tryFlags name goal outside candidate revision gpd root (flags : moreFlags) rest failures conflicts = do
       let dependencies = candidateDependencies (configPlatform config) (configAliases config) flags root gpd
           conflicting =
             [ (dependency, RejectedDependency dependency range (assignmentVersion assigned))
@@ -547,6 +552,7 @@ search inputs config state = do
             goal
             outside
             candidate
+            revision
             gpd
             root
             moreFlags
@@ -557,7 +563,7 @@ search inputs config state = do
           let assignment =
                 Assignment
                   { assignmentVersion = candidateVersion candidate,
-                    assignmentRevision = candidateRevision candidate,
+                    assignmentRevision = revision,
                     assignmentFlags = flags,
                     assignmentSource = candidateSource candidate,
                     assignmentDependencies = dependencies
@@ -584,6 +590,7 @@ search inputs config state = do
                 goal
                 outside
                 candidate
+                revision
                 gpd
                 root
                 moreFlags
@@ -759,20 +766,22 @@ verifySolution inputs config recorded = do
           available <- inputsCandidates inputs name (Just (Preference version revision flags))
           case [candidate | candidate <- available, candidateVersion candidate == version] of
             candidate : _
-              | maybe True (== candidateRevision candidate) revision ->
+              -- A recorded revision must be the one the candidate reads, so
+              -- that the plan is the cabal file the lock was solved with.
+              | maybe True (\wanted -> candidateRevision candidate == Just wanted) revision ->
                   pure (Right (Map.insert name (candidate, flags) chosen))
-              | otherwise -> pure (Left (unPackageName name <> "-" <> showVersion version <> " has no revision " <> maybe "" show revision))
+              | otherwise -> pure (Left (unPackageName name <> "-" <> showVersion version <> " cannot be read at revision " <> maybe "" show revision))
             [] -> pure (Left ("no candidate " <> unPackageName name <> "-" <> showVersion version))
 
     assignmentFor name (candidate, flags) = do
-      gpd <- inputsDescription inputs candidate
+      (revision, gpd) <- inputsDescription inputs candidate
       let root = Map.lookup name (configRoots config)
           decided = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
           full = mkFlagAssignment (Map.toAscList (Map.union decided (Map.fromList (unFlagAssignment flags))))
       pure
         Assignment
           { assignmentVersion = candidateVersion candidate,
-            assignmentRevision = candidateRevision candidate,
+            assignmentRevision = revision,
             assignmentFlags = full,
             assignmentSource = candidateSource candidate,
             assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full root gpd
