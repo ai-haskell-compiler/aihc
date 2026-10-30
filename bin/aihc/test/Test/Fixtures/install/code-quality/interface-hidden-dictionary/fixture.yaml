@@ -1,0 +1,8 @@
+status: pass
+reason: The optimizer must load a hidden dictionary module through a transitive dependency.
+input: demo
+workspace: workspace
+no-code: false
+optimization: 1
+expect-grin:
+  - [Demo, "result = (C2.Yes)"]

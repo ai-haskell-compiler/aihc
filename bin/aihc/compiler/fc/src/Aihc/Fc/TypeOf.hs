@@ -251,7 +251,13 @@ representationFromKind env kind =
 repOf :: TypeEnv -> Type -> Maybe Type
 repOf env ty = do
   kind <- typeOf env ty
-  representationFromKind env kind
+  representation <- representationFromKind env kind
+  -- Nominal evidence can fix the representation of a default method parameter.
+  -- Use the FC evidence before the backend removes coercion parameters.
+  pure $ case representation of
+    TyVar {} -> refineKind env representation
+    TyApp {} -> refineKind env representation
+    _ -> representation
 
 extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =

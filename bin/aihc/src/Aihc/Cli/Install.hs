@@ -104,6 +104,7 @@ import Aihc.Cli.ModuleProvider
     newProviderCache,
     providerInstanceFacts,
     providerInterfacePaths,
+    providerOriginInterfacePath,
     providerPackagesOf,
     providerResolved,
     providerTyped,
@@ -128,6 +129,7 @@ import Aihc.Cli.TaskGraph
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
+import Aihc.Fc.Imports (declReferences)
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
@@ -242,7 +244,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef,
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -2851,7 +2853,7 @@ runBackendUnit context runtime = do
       forM_ (compileObserver unitConfig) $ \observe ->
         forM_ (sourceUnitSources (runtimeUnit runtime)) $ \source ->
           observe (ObservedSource package (sourceName source) (sourceModulePath source))
-      interfaces <- readUnitInterfaces context runtime
+      interfaces <- readUnitInterfaces context runtime (map fcProgram (pendingFcModules backend))
       (phaseTimings, capiOutputs) <-
         compileUnitFcModules
           (taskPrimIdentity context)
@@ -2880,17 +2882,14 @@ runBackendUnit context runtime = do
       ended <- getMonotonicTimeNSec
       atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended mempty, ()))
 
--- | The optimizer interfaces that the modules of a unit import, each with
--- the file it came from.
---
--- A module imports a module of its own package or of a dependency, so
--- both roots are tried. An interface that is absent is no error: the
--- module that declares the value offers nothing, and a call of that value
--- stays a call. A plan without the interfaces reads none.
-readUnitInterfaces :: PackageTaskContext -> UnitRuntime -> IO [(FilePath, Fc.Program)]
-readUnitInterfaces context runtime
+-- | Load interfaces for source imports and resolved FC value references.
+-- Follow only referenced bodies and rules, including hidden modules of transitive dependencies.
+-- A missing interface leaves the value as an external call.
+-- Each path is read at most once per unit and enters the backend stamp.
+readUnitInterfaces :: PackageTaskContext -> UnitRuntime -> [Fc.Program] -> IO [(FilePath, Fc.Program)]
+readUnitInterfaces context runtime programs
   | not (compileModuleInterfaces config) = pure []
-  | otherwise = fmap concat (mapM readInterface (nub (concatMap candidatePaths names)))
+  | otherwise = load Set.empty [] (concatMap candidatePaths names)
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
@@ -2900,6 +2899,26 @@ readUnitInterfaces context runtime
     candidatePaths name =
       outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name)
         : providerInterfacePaths provider name
+    ownPackage = packageId (taskResolvePackage context)
+    referenced inputs =
+      [ path
+      | value <- Set.toList (foldMap (foldMap declReferences . Fc.programDecls) inputs),
+        Fc.nameSort value == Fc.SortValue,
+        Fc.OriginTop identity name <- [Fc.nameOrigin value],
+        path <-
+          if identity == ownPackage
+            then [outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name) | name `notElem` own]
+            else maybeToList (providerOriginInterfacePath provider identity name)
+      ]
+    -- Follow only bodies and rules that the unit can use.
+    load seen loaded requested = do
+      let grafted = Fc.graftInterfaces (taskPrimIdentity context) (map snd loaded) (Fc.mergePrograms programs)
+          paths = Set.fromList (requested <> referenced [Fc.graftedProgram grafted]) `Set.difference` seen
+      if Set.null paths
+        then pure loaded
+        else do
+          more <- concat <$> mapM readInterface (Set.toAscList paths)
+          load (seen <> paths) (loaded <> more) []
     readInterface path = do
       exists <- doesFileExist path
       if not exists
