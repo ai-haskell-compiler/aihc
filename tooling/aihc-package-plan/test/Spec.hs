@@ -3,8 +3,6 @@ module Main (main) where
 import Aihc.Cabal (Package)
 import Aihc.Hackage.Cache (getHackageCacheDir)
 import Aihc.Hackage.Fetch (hackageSourceFor)
-import Aihc.Hackage.Index (scanIndex)
-import Aihc.Hackage.IndexCache (IndexOptions (..), defaultIndexOptions, getIndexCacheDir, indexTableFromScan, newHackageIndex, renderIndexTable)
 import Aihc.Hackage.Package
   ( Arch (..),
     OS (..),
@@ -23,10 +21,10 @@ import Aihc.Hackage.Package
     unFlagName,
     unPackageName,
   )
+import Aihc.Hackage.Query (QueryOptions (..), defaultQueryOptions, getQueryCacheDir, newHackageQueries)
 import Aihc.PackagePlan
 import Aihc.PackagePlan.Lock
 import Aihc.PackagePlan.Solver
-import Codec.Archive.Tar qualified as Tar
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_)
 import Data.ByteString.Char8 qualified as BSC
@@ -69,6 +67,12 @@ main =
 prop_dummy :: Property
 prop_dummy = property success
 
+-- | Ask nothing of Hackage: the tests answer from a cache they write
+-- themselves, so they neither reach the network nor read the cache of the
+-- machine they run on.
+offlineQueries :: QueryOptions
+offlineQueries = defaultQueryOptions {queryAllowNetwork = False, queryVerbose = False}
+
 -- | A pure package universe: every candidate with its cabal file.
 type Universe = Map.Map PackageName [(Candidate, String)]
 
@@ -76,7 +80,7 @@ universe :: [(String, String, Bool, CandidateSource, String)] -> Universe
 universe entries =
   Map.fromListWith
     (flip (<>))
-    [ (mkPackageName name, [(Candidate (mkPackageName name) (version versionText) 0 deprecated source, cabal)])
+    [ (mkPackageName name, [(Candidate (mkPackageName name) (version versionText) Nothing deprecated source, cabal)])
     | (name, versionText, deprecated, source, cabal) <- entries
     ]
 
@@ -92,17 +96,33 @@ parseCabal source =
     Right parsed -> parsed
     Left err -> error ("failed to parse test cabal file: " <> err)
 
+-- Every release in a universe is at revision zero, as the first upload of
+-- a release is. A candidate reads the revision a preference names, the way
+-- the Hackage candidates do, so that a lock file naming one is honoured.
 inputsFor :: Universe -> SolverInputs Identity
 inputsFor packages =
   SolverInputs
-    { inputsCandidates = \name _ -> Identity (map fst (Map.findWithDefault [] name packages)),
+    { inputsCandidates = \name preference ->
+        Identity
+          [ candidate {candidateRevision = revisionFor preference candidate}
+          | candidate <- map fst (Map.findWithDefault [] name packages)
+          ],
       inputsDescription = \candidate ->
         Identity
-          ( case [cabal | (known, cabal) <- Map.findWithDefault [] (candidateName candidate) packages, known == candidate] of
-              cabal : _ -> parseCabal cabal
+          ( case [cabal | (known, cabal) <- Map.findWithDefault [] (candidateName candidate) packages, sameRelease known candidate] of
+              cabal : _ -> (fromMaybe 0 (candidateRevision candidate), parseCabal cabal)
               [] -> error ("no cabal file for " <> show candidate)
           )
     }
+  where
+    revisionFor preference candidate =
+      case preference of
+        Just wanted | preferredVersion wanted == candidateVersion candidate -> preferredRevision wanted
+        _ -> Nothing
+
+    sameRelease known candidate =
+      candidateVersion known == candidateVersion candidate
+        && candidateSource known == candidateSource candidate
 
 configFor :: [String] -> SolverConfig
 configFor roots =
@@ -446,7 +466,7 @@ test_verifiesLock = do
     (Left "root-0.1 needs x >=1 && <2, but 2.0 is listed")
     (fmap chosen (verify [("aihc-base", "4.21.2.0", Nothing), ("root", "0.1", Nothing), ("x", "2.0", Just 0)]))
   assertEqual
-    "a version the index does not have"
+    "a version Hackage does not have"
     (Left "no candidate x-0.5")
     (fmap chosen (verify [("aihc-base", "4.21.2.0", Nothing), ("root", "0.1", Nothing), ("x", "0.5", Just 0)]))
   assertEqual
@@ -468,7 +488,7 @@ test_parsesConstraints = do
     (parseConstraint "unix +os-string -old")
   assertBool "garbage is rejected" (either (const True) (const False) (parseConstraint "unix >>> 1"))
 
--- A root beside a sibling package plans without the Hackage index: the
+-- A root beside a sibling package plans without asking Hackage: the
 -- siblings and the core libraries are the only candidates. The plan is the
 -- same when Hackage is disabled. No lock is
 -- written for such a plan, but a lock that is present is read, and
@@ -483,7 +503,7 @@ test_plansLocalPackages =
     createDirectoryIfMissing True dep
     writeFile (root </> "root.cabal") (cabalFile "root" "0.1" [] ["build-depends: base >=4.21, dep >=1"])
     writeFile (dep </> "dep.cabal") (cabalFile "dep" "1.0" [] ["build-depends: base"])
-    index <- newHackageIndex defaultIndexOptions {indexAllowNetwork = False, indexVerbose = False}
+    queries <- newHackageQueries offlineQueries
     let request mode =
           PlanRequest
             { requestRoots = [RootLocal root],
@@ -491,7 +511,7 @@ test_plansLocalPackages =
               requestExecutables = Nothing,
               requestCheckBuildTools = True,
               requestWorkspaces = [],
-              requestHackage = Just (hackageSourceFor index),
+              requestHackage = Just (hackageSourceFor queries),
               requestPlatform = (Linux, X86_64),
               requestConstraints = [],
               requestLockFile = Just lockFile,
@@ -541,18 +561,19 @@ test_packageLockFixtures =
       setEnv "XDG_CACHE_HOME" directory
       let fixtures = "test/fixtures/locks"
       cache <- getHackageCacheDir
-      indexDirectory <- getIndexCacheDir
-      createDirectoryIfMissing True indexDirectory
-      entries <- Tar.pack (fixtures </> "index") ["dep"]
-      let tarball = Tar.write entries
-      BLC.writeFile (indexDirectory </> "01-index.tar") tarball
-      scanned <- either (assertFailure . show) pure (scanIndex tarball)
-      BSC.writeFile (indexDirectory </> "index.txt") (renderIndexTable (indexTableFromScan scanned))
+      -- The answers Hackage would give for dep, cached so that the plan
+      -- resolves it without a request.
+      queryDirectory <- getQueryCacheDir
+      createDirectoryIfMissing True (queryDirectory </> "versions")
+      createDirectoryIfMissing True (queryDirectory </> "cabal")
+      writeFile (queryDirectory </> "versions" </> "dep.json") "{\"1.0\":\"normal\"}"
+      depCabal <- readFile (fixtures </> "hackage/dep-1.0.cabal")
+      writeFile (queryDirectory </> "cabal" </> "dep-1.0-latest.cabal") depCabal
       let packageDirectory = cache </> "dep-1.0"
       createDirectoryIfMissing True packageDirectory
-      readFile (fixtures </> "index/dep/1.0/dep.cabal") >>= writeFile (packageDirectory </> "dep.cabal")
+      writeFile (packageDirectory </> "dep.cabal") depCabal
       writeFile (packageDirectory </> ".complete") ""
-      index <- newHackageIndex defaultIndexOptions {indexAllowNetwork = False, indexVerbose = False}
+      queries <- newHackageQueries offlineQueries
       let lockFile = directory </> lockFileName
           request root mode =
             PlanRequest
@@ -561,7 +582,7 @@ test_packageLockFixtures =
                 requestExecutables = Nothing,
                 requestCheckBuildTools = True,
                 requestWorkspaces = [],
-                requestHackage = Just (hackageSourceFor index),
+                requestHackage = Just (hackageSourceFor queries),
                 requestPlatform = (Linux, X86_64),
                 requestConstraints = [],
                 requestLockFile = case root of

@@ -12,6 +12,7 @@ where
 import Aihc.Hackage.Fetch (newHackageSource)
 import Aihc.Hackage.Source (HackageSource)
 
--- | Read the Hackage index and download the releases that a plan chooses.
+-- | Query Hackage for the packages a plan resolves and download the
+-- releases it chooses.
 defaultHackageSource :: IO (Maybe HackageSource)
 defaultHackageSource = Just <$> newHackageSource
