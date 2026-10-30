@@ -4692,8 +4692,17 @@ static size_t aihc_reservation_bytes(const AihcCapability *capability,
   return bytes;
 }
 
-/* Whether a reservation names an object that gets regions of its own and
-   therefore takes no room in the nursery. */
+/* Whether a block gets regions of its own and therefore takes no room in
+   the nursery. The size is the whole block: the object and the header that
+   puts it on the pinned list. */
+static int aihc_block_is_large(size_t block_bytes) {
+  return block_bytes >= AIHC_LARGE_OBJECT_BYTES;
+}
+
+/* Whether a movable reservation names an object that gets regions of its
+   own. The reservation names the object alone, and the block header comes
+   on top of it. A pinned reservation already names the whole block, so it
+   uses aihc_block_is_large instead. */
 static int aihc_reservation_is_large(size_t bytes) {
   return bytes >= AIHC_LARGE_OBJECT_BYTES - sizeof(AihcPinnedBlock);
 }
@@ -4815,12 +4824,19 @@ void aihc_gc_refill(AihcCapability *capability, uint64_t words,
   }
 }
 
-/* Reserve for a caller that has not compared anything: the capability start-up
-   path, the runtime units, and the C programs of the tests. */
-void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
-                    uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+/* Reserve for a request of the given kind. A pinned reservation names the
+   whole block, because the charge of the block covers its header too. A
+   movable reservation names the object alone. Thus the two kinds reach the
+   large-object size at different reservation sizes, and each needs its own
+   test. The allocator then makes the same decision from the same count: a
+   request that the reservation calls large must not ask the nursery for
+   room afterwards, and a request that the reservation calls small must get
+   that room. */
+static void aihc_gc_ensure_kind(AihcCapability *capability, uint64_t words,
+                                int pinned, uint64_t root_count,
+                                AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(capability, words);
-  if (aihc_reservation_is_large(bytes)) {
+  if (pinned ? aihc_block_is_large(bytes) : aihc_reservation_is_large(bytes)) {
     aihc_ensure_large(capability, bytes, root_count, roots, srt);
     return;
   }
@@ -4828,6 +4844,13 @@ void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
       bytes > (size_t)(capability->heap_limit - capability->heap_next)) {
     aihc_gc_refill(capability, words, root_count, roots, srt);
   }
+}
+
+/* Reserve for a caller that has not compared anything: the capability start-up
+   path, the runtime units, and the C programs of the tests. */
+void aihc_gc_ensure(AihcCapability *capability, uint64_t words,
+                    uint64_t root_count, AihcSlot *roots, const AihcSrt *srt) {
+  aihc_gc_ensure_kind(capability, words, 0, root_count, roots, srt);
 }
 
 /* Put a block on the pinned list and charge it to the budget. The charge
@@ -4929,7 +4952,7 @@ AihcValue *aihc_heap_allocate(AihcCapability *capability, uint64_t words,
   if (words < overhead) {
     aihc_fail("invalid pinned allocation size");
   }
-  aihc_gc_ensure(capability, words, root_count, roots, srt);
+  aihc_gc_ensure_kind(capability, words, pinned != 0, root_count, roots, srt);
   return pinned ? aihc_gc_allocate_pinned(capability, words - overhead)
                 : aihc_gc_allocate(capability, words);
 }
@@ -4971,7 +4994,7 @@ AihcValue *aihc_gc_allocate_pinned(AihcCapability *capability, uint64_t words) {
     aihc_fail("pinned allocation is too large");
   }
   AihcPinnedBlock *block;
-  if (bytes >= AIHC_LARGE_OBJECT_BYTES) {
+  if (aihc_block_is_large(bytes)) {
     block = aihc_fixed_block_new(bytes, AIHC_REGION_PINNED);
     /* A pinned block reads as zero, as the C allocation below does. */
     memset(block->object, 0, bytes - sizeof(AihcPinnedBlock));
@@ -5525,8 +5548,9 @@ void *aihc_host_byte_array(AihcCapability *capability, AihcRootFrame *frame,
   uint64_t occupied = bytes == 0 ? 1 : bytes;
   uint64_t words = (sizeof(AihcHostBuffer) + occupied + sizeof(AihcSlot) - 1) /
                    sizeof(AihcSlot);
-  aihc_gc_ensure(capability, words + sizeof(AihcPinnedBlock) / sizeof(AihcSlot),
-                 0, NULL, NULL);
+  aihc_gc_ensure_kind(capability,
+                      words + sizeof(AihcPinnedBlock) / sizeof(AihcSlot), 1, 0,
+                      NULL, NULL);
   AihcHostBuffer *buffer =
       (AihcHostBuffer *)aihc_gc_allocate_pinned(capability, words);
   buffer->array.header = (AihcSlot)(uintptr_t)&aihc_buffer_info;

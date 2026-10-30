@@ -2576,10 +2576,10 @@ nodeRegion env node = if isFrameNode env node then StackRegion else HeapRegion
 -- the frame. The frame fits in the current chunk when the new stack pointer
 -- is not above the stack limit. Otherwise the runtime continues the stack in
 -- the next chunk, and the stack limit becomes the end of that chunk. Neither
--- path collects, so no root moves, and neither path reads the capability copy
--- of the context. The runtime charges a new young chunk to the nursery, so
--- the heap limit can go down on the second path. The caller writes the
--- header and every field.
+-- path collects, so no root moves. The runtime charges a new young chunk to
+-- the nursery, so the heap limit can go down on the second path. That charge
+-- reads the capability copy of the heap pointer, which the second path
+-- stores before the call. The caller writes the header and every field.
 pushFrame :: Int -> LowerM Typed
 pushFrame words' = do
   context <- currentContext
@@ -2604,6 +2604,14 @@ pushStackFrame context words' = do
   terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit, heapLimit]) (Target growLabel []))
   beginColdBlock growLabel []
   capability <- capabilityOperand context
+  -- The charge of the new chunk compares the heap limit with the capability
+  -- copy of the heap pointer, so that copy is stored first. Without the
+  -- store the charge reads a pointer below the one this code holds, finds
+  -- room that is not there, and leaves the limit above the charge. The
+  -- thread then allocates past its nursery budget. The runtime gives the
+  -- stack pointer back, so only the heap pointer goes out. See
+  -- aihc_charge_fixed and the same store in aihc_lir_eval.
+  emit [] (Store Ptr (contextHeap context) (byteAddress capability (capabilityHeapNextOffset target)) (wordAlignment 1))
   grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64] [Ptr] [capability, stack, OperandLiteral (LitInt (toInteger words'))]
   grownEnd <- emitValue "sp" Ptr (PtrAdd grown (OperandLiteral (LitInt bytes)))
   -- The runtime gives the first frame of a chunk, so the rest of the chunk
