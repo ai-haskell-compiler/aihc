@@ -51,6 +51,10 @@ tests =
         nurseryBlockSource,
       runtimeProgramTest "dynamic allocation owns memory before it returns" [] dynamicAllocationSource,
       runtimeProgramTest "large batches reserve nursery space" [] nurseryBatchSource,
+      runtimeProgramTest
+        "a pinned reservation and its allocation agree on the large-object size"
+        []
+        pinnedBoundarySource,
       runtimeProgramTest "gen1 copies its survivors into gen2 at each collection by default" [] (gen1CountSource 1),
       runtimeProgramTest "-B0 copies nursery survivors into gen2 directly" ["+RTS", "-B0", "-RTS"] (gen1CountSource 0),
       runtimeProgramTest "-B3 keeps survivors in gen1 for three collections" ["+RTS", "-B3", "-RTS"] (gen1CountSource 3),
@@ -352,6 +356,42 @@ nurseryBatchSource =
       "  aihc_gc_collect(capability, words, 1, &root, NULL);",
       "  if (((AihcValue *)(uintptr_t)root)->fields[0] != words / 2 - 1) return 2;",
       "  if ((uint64_t)(capability->heap_limit - capability->heap_next) < words * sizeof(AihcSlot)) return 3;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | The words of a pinned reservation count the whole block: the header that
+-- puts the block on the pinned list, and the payload. Thus the reservation
+-- and the allocation must test that count against the large-object size in
+-- the same way. A reservation that tests it as a movable object adds the
+-- header twice, calls a block below the size large, and leaves out the
+-- nursery room that the allocation then asks for.
+pinnedBoundarySource :: String
+pinnedBoundarySource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "static const uint8_t fields[] = {0};",
+      "static const AihcInfo info = {.field_is_pointer = fields, .field_count = 1, .object_kind = AIHC_OBJECT_NODE};",
+      "int main(void) {",
+      "  AihcCapability *capability = aihc_machine_new(0);",
+      "  const uint64_t words = AIHC_LARGE_OBJECT_BYTES / sizeof(AihcSlot);",
+      "  /* One word below the large-object size the block comes from the C",
+      "     allocator and takes nursery room. The nursery of this program holds",
+      "     64 bytes, so a reservation that leaves out that room stops the",
+      "     program in aihc_gc_allocate_pinned. */",
+      "  AihcValue *fixed = aihc_heap_allocate(capability, words - 1, 1, 0, NULL, NULL);",
+      "  if (fixed == NULL) return 1;",
+      "  fixed->header = (AihcSlot)(uintptr_t)&info;",
+      "  fixed->fields[0] = 0;",
+      "  if (aihc_region_kind(fixed) != AIHC_REGION_OUTSIDE) return 2;",
+      "  /* At the size itself the block gets regions of its own and takes no",
+      "     nursery room. */",
+      "  AihcValue *large = aihc_heap_allocate(capability, words, 1, 0, NULL, NULL);",
+      "  if (large == NULL) return 3;",
+      "  large->header = (AihcSlot)(uintptr_t)&info;",
+      "  large->fields[0] = 0;",
+      "  if (aihc_region_kind(large) != AIHC_REGION_PINNED) return 4;",
       "  return 0;",
       "}"
     ]
