@@ -63,6 +63,14 @@ tests =
         reservations <- entryReservations (betweenStoresProgram "newMutVar#" 1 "(0 :: IntRep)")
         -- The first reservation has two slots for the node and three for
         -- the mutable reference. The second store needs a separate reservation.
+        assertEqual "reservations" [5, 2] reservations,
+      -- newTVar# and newMutVar# both make the reference with
+      -- aihc_mutvar_new, so both need the three slots of that reference.
+      -- Without the reservation the runtime allocates from a nursery that
+      -- can be full, and it stops with "unchecked allocation exceeded
+      -- reserved heap".
+      testCase "a transaction variable reserves its three slots" $ do
+        reservations <- entryReservations (betweenStoresProgram "newTVar#" 1 "(0 :: IntRep)")
         assertEqual "reservations" [5, 2] reservations
     ]
 

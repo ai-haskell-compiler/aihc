@@ -61,6 +61,9 @@ primitiveHeapWords name =
       ("newPromptTag#", 1),
       ("makeStableName#", 4),
       ("newMutVar#", 3),
+      -- A transaction variable is a mutable reference, and both make it
+      -- with aihc_mutvar_new.
+      ("newTVar#", 3),
       ("fork#", 11),
       ("newMVar#", 9),
       ("readMVar#", 5),
