@@ -117,7 +117,7 @@ inputsFor packages =
   where
     revisionFor preference candidate =
       case preference of
-        Just chosen | preferredVersion chosen == candidateVersion candidate -> preferredRevision chosen
+        Just wanted | preferredVersion wanted == candidateVersion candidate -> preferredRevision wanted
         _ -> Nothing
 
     sameRelease known candidate =
