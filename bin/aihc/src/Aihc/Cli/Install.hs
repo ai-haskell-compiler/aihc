@@ -1509,7 +1509,7 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
       sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
   installPackageHeaders root buildPath configuredCInfo
   files <- preprocessPackage config dependencyVersions root buildPath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
-  reexports <- packageReexports unitIdentity inputs dependencies
+  reexports <- either (ioError . userError) pure (packageReexports unitIdentity inputs dependencies)
   let build =
         PackageBuild
           { buildSourceRoot = root,
@@ -1543,9 +1543,9 @@ installedPackageOf build result manifest =
     }
 
 -- | Resolve Cabal module reexports to their original package units.
-packageReexports :: Text -> PackageInputs -> [InstalledPackage] -> IO (Map.Map Text (Text, Text))
+packageReexports :: Text -> PackageInputs -> [InstalledPackage] -> Either String (Map.Map Text (Text, Text))
 packageReexports identity inputs dependencies = do
-  declarations <- either (ioError . userError) pure (HackageCabal.collectLibraryReexportsIn context description)
+  declarations <- HackageCabal.collectLibraryReexportsIn context description
   let localModules = HackageCabal.collectLibraryExposedModulesIn context description
       self = HackagePackage.packageNameText (packageNameOf description)
       originals =
@@ -1575,12 +1575,10 @@ packageReexports identity inputs dependencies = do
               [origin] -> Right origin
               [] -> Left ("Cabal module reexport not found: " <> T.unpack name)
               _ -> Left ("Ambiguous Cabal module reexport: " <> T.unpack name)
-  entries <-
-    either (ioError . userError) pure $
-      traverse (\declaration -> (HackageCabal.reexportName declaration,) <$> resolve [] declaration) declarations
+  entries <- traverse (\declaration -> (HackageCabal.reexportName declaration,) <$> resolve [] declaration) declarations
   let grouped = Map.fromListWith (<>) [(name, [origin]) | (name, origin) <- entries]
   forM_ (Map.toList grouped) $ \(name, origins) ->
-    when (length (nub origins) /= 1) (ioError (userError ("Conflicting Cabal module reexports: " <> T.unpack name)))
+    when (length (nub origins) /= 1) (Left ("Conflicting Cabal module reexports: " <> T.unpack name))
   pure (Map.fromList entries)
   where
     context = inputContext inputs
