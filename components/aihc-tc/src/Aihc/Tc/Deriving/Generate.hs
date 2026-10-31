@@ -310,7 +310,7 @@ generateItems gen =
            in case stockClassMethodsOf (tcDerivingClassName plan) of
                 Just StockEqMethods -> Just <$> eqItems gen (zip constructors fieldTypes)
                 Just StockOrdMethods -> Just <$> ordItems gen (zip constructors fieldTypes)
-                Just StockShowMethods -> Just <$> showItems gen constructors
+                Just StockShowMethods -> Just <$> showItems gen (zip constructors fieldTypes)
                 Just StockReadMethods -> Just <$> readItems gen constructors
                 Just StockBoundedMethods -> boundedItems gen constructors
                 Just StockEnumMethods -> enumItems gen constructors
@@ -522,12 +522,12 @@ ordItems gen constructors =
 
 -- * Show
 
-showItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
+showItems :: Gen -> [(DataConInfo, [TcType])] -> TcM [InstanceDeclItem]
 showItems gen constructors = do
   matches <- mapM constructorMatch constructors
   pure [methodBind gen "showsPrec" matches]
   where
-    constructorMatch constructor
+    constructorMatch (constructor, fieldTypes)
       | null (dciFields constructor) = do
           body <- showStringExpr (prefixConstructorText constructor)
           pure (simpleMatch gen [atPattern gen PWildcard, constructorPattern gen constructor []] body)
@@ -537,7 +537,7 @@ showItems gen constructors = do
           suffix <- freshLocal gen "s"
           rendering <- freshLocal gen "k"
           tail' <- freshLocal gen "t"
-          let (parenPrecedence, pieces) = constructorPieces constructor fields
+          let (parenPrecedence, pieces) = constructorPieces constructor (zip fields fieldTypes)
               -- @showParen (d >= p) k s@, with the rendering @k@ bound once
               -- so the pieces are not written out for both branches.
               body =
@@ -583,7 +583,12 @@ showItems gen constructors = do
     -- @showString text@ as a chain of list constructors, so the rendering
     -- needs nothing beyond the primitive package.
     showStringPiece text rest = foldr cons rest (T.unpack text)
-    showsPrecPiece precedence field rest = methodApp gen "showsPrec" [intLiteral gen precedence, localExpr gen field, rest]
+    showsPrecPiece precedence (field, fieldType) rest =
+      case unliftedFieldOperators gen fieldType of
+        Just primitive
+          | unliftedFieldType primitive == derivingIntPrimType (genReferences gen) ->
+              methodApp gen "showsPrec" [intLiteral gen 0, applyN gen (referenceExpr gen derivingIntCon) [localExpr gen field], showStringPiece "#" rest]
+        _ -> methodApp gen "showsPrec" [intLiteral gen precedence, localExpr gen field, rest]
     showStringExpr text = do
       suffix <- freshLocal gen "s"
       pure (lambda gen suffix (showStringPiece text (localExpr gen suffix)))
