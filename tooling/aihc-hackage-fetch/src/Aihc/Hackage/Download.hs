@@ -24,7 +24,10 @@ import System.IO (hPutStrLn, stderr)
 -- | Options for downloading a package.
 data DownloadOptions = DownloadOptions
   { downloadVerbose :: !Bool,
-    downloadAllowNetwork :: !Bool
+    downloadAllowNetwork :: !Bool,
+    -- | Show a progress message. A caller with a live progress display
+    -- gives a function that writes above it.
+    downloadMessage :: String -> IO ()
   }
 
 -- | Default download options: verbose, network allowed.
@@ -32,7 +35,8 @@ defaultDownloadOptions :: DownloadOptions
 defaultDownloadOptions =
   DownloadOptions
     { downloadVerbose = True,
-      downloadAllowNetwork = True
+      downloadAllowNetwork = True,
+      downloadMessage = hPutStrLn stderr
     }
 
 -- | Download a package with the given options.
@@ -50,7 +54,7 @@ downloadPackageWithOptions opts pkg = do
         else do
           createDirectoryIfMissing True cacheDir
           when (downloadVerbose opts) $
-            hPutStrLn stderr ("Downloading " ++ formatPackage pkg ++ " from Hackage...")
+            downloadMessage opts ("Downloading " ++ formatPackage pkg ++ " from Hackage...")
           let url =
                 "https://hackage.haskell.org/package/"
                   ++ formatPackage pkg

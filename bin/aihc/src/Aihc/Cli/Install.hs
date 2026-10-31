@@ -643,7 +643,10 @@ installWith reporter options = do
       report = progressReport reporter
   let verbose message = when (installVerbose options) (report (ProgressLog message))
       printTimings message = when (installPrintTimings options) (report (ProgressLog message))
-  hackageSource <- defaultHackageSource
+  -- The Hackage messages go through the reporter. A direct write to the
+  -- handle moves the cursor under the live frame, and the next frame then
+  -- erases the wrong lines.
+  hackageSource <- defaultHackageSource (report . ProgressLog)
   (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
   request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (installWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [root]}

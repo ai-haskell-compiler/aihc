@@ -13,6 +13,7 @@ import Aihc.Hackage.Fetch (newHackageSource)
 import Aihc.Hackage.Source (HackageSource)
 
 -- | Query Hackage for the packages a plan resolves and download the
--- releases it chooses.
-defaultHackageSource :: IO (Maybe HackageSource)
-defaultHackageSource = Just <$> newHackageSource
+-- releases it chooses. The function shows the progress messages and the
+-- warnings.
+defaultHackageSource :: (String -> IO ()) -> IO (Maybe HackageSource)
+defaultHackageSource message = Just <$> newHackageSource message
