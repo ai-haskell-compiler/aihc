@@ -127,6 +127,7 @@ runBuild options = do
           requestGoals = [],
           requestExecutables = Nothing,
           requestCheckBuildTools = True,
+          requestProjectPackages = Map.empty,
           requestWorkspaces = [],
           requestHackage = hackageSource,
           requestPlatform = (buildOS, buildArch),

@@ -30,6 +30,7 @@ import Aihc.Cli.Install
     InstallLocations (..),
     InstalledPackage (..),
     ModuleCompileConfig (..),
+    TargetRoot (..),
     cabalPlatformForTarget,
     defaultBuildRoot,
     installExecutables,
@@ -40,7 +41,7 @@ import Aihc.Cli.Install
     sourceFileModuleName,
   )
 import Aihc.Cli.Link (linkCompiledExecutable)
-import Aihc.Cli.Options (BuildOptions (..))
+import Aihc.Cli.Options (BuildOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), quietProgress, withProgress)
 import Aihc.Cli.Store (defaultStoreRoot)
@@ -146,7 +147,7 @@ mainModuleTarget options config storeTargetRoot = do
   let target = compileTarget config
       localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
       buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
-  request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (compileVerbose config)
+  request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) Nothing (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (compileVerbose config)
   component <- mainModuleExecutable options currentDirectory buildRoot request
   pure
     ( buildLocations storeTargetRoot buildRoot True,
@@ -159,15 +160,17 @@ packageTargets :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (Install
 packageTargets options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
   hackageSource <- defaultHackageSource
-  (rootPackage, origin, lockDirectory) <- installTargetRoot (buildInput options)
+  TargetRoot rootPackage origin lockDirectory targetExecutables project <- installTargetRoot (planProject (buildPlanOptions options)) (buildInput options)
   let target = compileTarget config
       platform = cabalPlatformForTarget target
       -- The selected executables, or every executable when none is named.
-      selection = if null (buildExecutables options) then Nothing else Just (nub (buildExecutables options))
+      -- A target such as @exe:NAME@ selects its executable.
+      named = targetExecutables <> buildExecutables options
+      selection = if null named then Nothing else Just (nub named)
   -- The package itself and its siblings resolve locally before the
   -- workspace and Hackage, so an executable that depends on the library
   -- of its own package finds it in the source tree.
-  request <- planRequestFor hackageSource (buildPlanOptions options) platform (maybe [] pure (buildWorkspace options)) lockDirectory (compileVerbose config)
+  request <- planRequestFor hackageSource (buildPlanOptions options) platform project (maybe [] pure (buildWorkspace options)) lockDirectory (compileVerbose config)
   planned <- planPackages request {requestRoots = [rootPackage], requestExecutables = selection}
   rootPlan <- case plannedRoots planned of
     [plan] -> pure plan
