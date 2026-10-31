@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC this week: parser costs, lazy patterns, and a profiler correction](https://blog.aihc.app/posts/2026-10-23-aihc-highlights/)** (23 Oct 2026)
+**[AIHC this week: less retained memory, module interfaces, and three columns of layout](https://blog.aihc.app/posts/2026-10-30-aihc-highlights/)** (30 Oct 2026)
 
-Source spans retain less memory, parser calls become direct, lazy do patterns keep their semantics, and macOS profiles lose a collection bias.
+Compiler memory use falls, O1 gains imported optimizer information, GC failures get concrete fixes, and the parser printer preserves multi-way if boundaries.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -53,12 +53,12 @@ Each number is the AIHC value divided by the GHC value, as a geometric mean over
 
 | Metric | Native | LLVM | Wasm |
 | --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.12× | 0.10× | 0.33× |
-| Artifact size `-Os` | 0.09× | 0.10× | 0.39× |
-| Runtime `-O1` | 11.4× | 12.2× | 12.6× |
-| Runtime `-O2` | 1.38× | 1.67× | 1.14× |
+| Compile time `-O0` | 0.11× | 0.09× | 0.29× |
+| Artifact size `-Os` | 0.10× | 0.10× | 0.49× |
+| Runtime `-O1` | 3.89× | 4.32× | 3.58× |
+| Runtime `-O2` | 1.09× | 1.39× | 0.90× |
 
-Machine [`apple-m4-pro-542f1e`](https://perf.aihc.app/timeline.html?machine=apple-m4-pro-542f1e), commit [`8e45daba1`](https://github.com/ai-haskell-compiler/aihc/commit/8e45daba1641b068041f17468309b51d24fa7262) (2026-10-23). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+Machine [`apple-m4-pro-542f1e`](https://perf.aihc.app/timeline.html?machine=apple-m4-pro-542f1e), commit [`4c4bd55a6`](https://github.com/ai-haskell-compiler/aihc/commit/4c4bd55a618bfb2e83412a951dca47a34bda7880) (2026-10-30). Get all results at [perf.aihc.app](https://perf.aihc.app/).
 <!-- AUTO-GENERATED: END perf-highlights -->
 
 
