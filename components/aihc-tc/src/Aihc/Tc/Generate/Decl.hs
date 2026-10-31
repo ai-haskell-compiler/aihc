@@ -2942,7 +2942,7 @@ tcDeclComponent signatures groups
                     ( groupId,
                       binder,
                       [zeroArgMatch (patternSpan pattern') rhs],
-                      \matches -> case matches of
+                      \case
                         [match] -> [replacePatternBindRhs (matchRhs match) declaration]
                         _ -> [declaration]
                     )
