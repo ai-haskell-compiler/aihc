@@ -45,6 +45,12 @@ instance (Show a) => Show (Down a) where
   showsPrec precedence (Down value) =
     showParen (precedence > 10) (showString "Down " . showsPrec 11 value)
 
+instance (Semigroup a) => Semigroup (Down a) where
+  Down left <> Down right = Down (left <> right)
+
+instance (Monoid a) => Monoid (Down a) where
+  mempty = Down mempty
+
 instance Functor Down where
   fmap f (Down value) = Down (f value)
 
