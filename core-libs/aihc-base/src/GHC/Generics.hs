@@ -86,9 +86,11 @@ import Prelude
     Int,
     Maybe (..),
     Monad (..),
+    Monoid (..),
     Ord (..),
     Ordering (..),
     Read,
+    Semigroup (..),
     Show (..),
     String,
     Traversable (..),
@@ -694,3 +696,15 @@ instance (Monad f, Monad g) => Monad (f :*: g) where
     where
       leftFactor (value :*: _) = value
       rightFactor (_ :*: value) = value
+
+instance (Semigroup (f p), Semigroup (g p)) => Semigroup ((f :*: g) p) where
+  (leftA :*: leftB) <> (rightA :*: rightB) = (leftA <> rightA) :*: (leftB <> rightB)
+
+instance (Monoid (f p), Monoid (g p)) => Monoid ((f :*: g) p) where
+  mempty = mempty :*: mempty
+
+instance (Semigroup (f (g p))) => Semigroup ((f :.: g) p) where
+  Comp1 left <> Comp1 right = Comp1 (left <> right)
+
+instance (Monoid (f (g p))) => Monoid ((f :.: g) p) where
+  mempty = Comp1 mempty
