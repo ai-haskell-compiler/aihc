@@ -19,7 +19,7 @@ module Aihc.Cli.Plan
 where
 
 import Aihc.Cli.Hackage (defaultHackageSource)
-import Aihc.Cli.Install (cabalPlatformForTarget, installTargetRoot, planRequestFor)
+import Aihc.Cli.Install (TargetRoot (..), cabalPlatformForTarget, installTargetRoot, planRequestFor)
 import Aihc.Cli.Options (PlanCommandOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Hackage.Package (PackageName, showVersion, unPackageName)
 import Aihc.PackagePlan (PlanRequest (..), PlannedPackages (..), planPackages)
@@ -55,14 +55,15 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
   hackageSource <- defaultHackageSource
-  (root, _, _) <- installTargetRoot (planCommandInput options)
+  TargetRoot root _ _ targetExecutables project <- installTargetRoot (planCommandProject options) (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
-      executables = planCommandExecutables options
+      executables = targetExecutables <> planCommandExecutables options
   request <-
     planRequestFor
       hackageSource
       defaultPlanOptions {planConstraints = planCommandConstraints options}
       (cabalPlatformForTarget (planCommandTarget options))
+      project
       (maybe [] pure (planCommandWorkspace options))
       -- The command only reports the plan, so it keeps no lock.
       Nothing

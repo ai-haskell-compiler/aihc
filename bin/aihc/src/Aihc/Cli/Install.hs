@@ -25,6 +25,7 @@ module Aihc.Cli.Install
     installExecutables,
     installWith,
     installTargetRoot,
+    TargetRoot (..),
     newModuleCompileConfig,
     parsePackageTarget,
     planProgressItem,
@@ -160,6 +161,16 @@ import Aihc.PackagePlan
   )
 import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, isCppWarning, renderHumanDiagnostic)
 import Aihc.PackagePlan.Lock (lockFileName)
+import Aihc.PackagePlan.Project
+  ( Project (..),
+    ProjectPackage (..),
+    ProjectSelection,
+    parseProjectTarget,
+    projectPackageAt,
+    resolveProjectTarget,
+    selectProject,
+    withProject,
+  )
 import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), moduleDepsDigest, parseInterfaceBytes)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -640,8 +651,10 @@ installWith reporter options = do
   let verbose message = when (installVerbose options) (report (ProgressLog message))
       printTimings message = when (installPrintTimings options) (report (ProgressLog message))
   hackageSource <- defaultHackageSource
-  (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
-  request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (installWorkspace options)) lockDirectory verbose
+  TargetRoot root origin lockDirectory executables project <- installTargetRoot (planProject (installPlanOptions options)) (installPackageTarget options)
+  unless (null executables) $
+    ioError (userError (installPackageTarget options <> " names an executable, and install builds the library of a package. Use build for an executable"))
+  request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) project (maybe [] pure (installWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [root]}
   plan <- case plannedRoots planned of
     [rootPlan] -> pure rootPlan
@@ -742,30 +755,60 @@ planProgressItems = reverse . foldl' visit []
           item = planProgressItem plan
        in if item `elem` below then below else item : below
 
--- | Turn the install argument into a plan root, say where it came from,
--- and where its lock file lives.
+-- | What the input of a command names: the root of its plan, where the
+-- root comes from, and where its lock file lives.
+data TargetRoot = TargetRoot
+  { targetPlanRoot :: !PlanRoot,
+    targetOrigin :: !PlanOrigin,
+    targetLockDirectory :: !(Maybe FilePath),
+    -- | The executables that the input selects, such as @exe:NAME@. An
+    -- empty list selects none in particular.
+    targetExecutables :: ![String],
+    -- | The project of the root, when the root is one of its packages.
+    targetProject :: !(Maybe Project)
+  }
+
+-- | Turn the input of a command into a plan root.
 --
 -- An existing directory is used as-is, and its lock lives beside its cabal
--- file. Anything else is parsed as a Hackage package name with an optional
--- version (@NAME@ or @NAME-VERSION@). Hackage targets do not use a lock file.
--- Without a version, the solver selects one.
-installTargetRoot :: String -> IO (PlanRoot, PlanOrigin, Maybe FilePath)
-installTargetRoot target = do
+-- file. A target of the project, such as @exe:NAME@, @PKG:exe:NAME@ or the
+-- name of a project package, is the directory of that package. Anything else
+-- is parsed as a Hackage package name with an optional version (@NAME@ or
+-- @NAME-VERSION@). Hackage targets do not use a lock file. Without a
+-- version, the solver selects one.
+--
+-- The project applies only to a root that is one of its packages, as
+-- @cabal@ builds only the packages of a project in that project.
+installTargetRoot :: ProjectSelection -> String -> IO TargetRoot
+installTargetRoot selection target = do
+  project <- selectProject selection
   isDirectory <- doesDirectoryExist target
   if isDirectory
     then do
       (cabalFile, _) <- parseSourcePackageDescriptionAt target
-      pure (RootLocal target, PlanLocal, Just (takeDirectory cabalFile))
-    else case parsePackageTarget target of
-      Nothing ->
-        ioError
-          ( userError
-              (target <> " is not an existing directory nor a Hackage package name (NAME[-VERSION])")
-          )
-      Just (name, requestedVersion) -> do
-        version <- forM requestedVersion $ \text ->
-          maybe (ioError (userError ("Invalid version " <> text))) pure (parseVersionString text)
-        pure (RootHackage name version, PlanHackage, Nothing)
+      member <- maybe (pure Nothing) (`projectPackageAt` target) project
+      pure (TargetRoot (RootLocal target) PlanLocal (Just (takeDirectory cabalFile)) [] (project <* member))
+    else do
+      inProject <-
+        case (project, parseProjectTarget target) of
+          (Just found, Just projectTarget) ->
+            either (ioError . userError) (pure . fmap (found,)) (resolveProjectTarget found projectTarget)
+          _ -> pure Nothing
+      case inProject of
+        Just (found, (name, executables)) -> do
+          let directory = projectPackageDirectory (projectPackages found Map.! name)
+          (cabalFile, _) <- parseSourcePackageDescriptionAt directory
+          pure (TargetRoot (RootLocal directory) PlanLocal (Just (takeDirectory cabalFile)) executables (Just found))
+        Nothing -> case parsePackageTarget target of
+          Nothing ->
+            ioError
+              ( userError
+                  (target <> " is not an existing directory, a target of a cabal.project, nor a Hackage package name (NAME[-VERSION])")
+              )
+          Just (name, requestedVersion) -> do
+            version <- forM requestedVersion $ \text ->
+              maybe (ioError (userError ("Invalid version " <> text))) pure (parseVersionString text)
+            pure (TargetRoot (RootHackage name version) PlanHackage Nothing [] Nothing)
 
 -- | Split a Hackage target into its package name and optional version.
 parsePackageTarget :: String -> Maybe (String, Maybe String)
@@ -774,9 +817,11 @@ parsePackageTarget target = do
   pure (unPackageName name, showVersion <$> version)
 
 -- | The plan request the command-line plan options describe, without its
--- roots and goals. A local target uses @aihc.lock@ in the given directory.
-planRequestFor :: Maybe HackageSource -> PlanOptions -> (OS, Arch) -> [FilePath] -> Maybe FilePath -> (String -> IO ()) -> IO PlanRequest
-planRequestFor hackage options platform workspaces lockDirectory verbose = do
+-- roots and goals. The packages and the constraints of a project come
+-- before the workspaces and the command-line constraints. A local target
+-- uses @aihc.lock@ in the given directory.
+planRequestFor :: Maybe HackageSource -> PlanOptions -> (OS, Arch) -> Maybe Project -> [FilePath] -> Maybe FilePath -> (String -> IO ()) -> IO PlanRequest
+planRequestFor hackage options platform project workspaces lockDirectory verbose = do
   constraints <- forM (planConstraints options) $ \text ->
     either (ioError . userError) pure (parseConstraint text)
   lockMode <-
@@ -786,12 +831,13 @@ planRequestFor hackage options platform workspaces lockDirectory verbose = do
       (False, False, []) -> pure LockNormal
       (False, False, names) -> pure (LockUpdate (map mkPackageName names))
       _ -> ioError (userError "--locked, --update, and --update-package exclude one another")
-  pure
+  pure . maybe id withProject project $
     PlanRequest
       { requestRoots = [],
         requestGoals = [],
         requestExecutables = Nothing,
         requestCheckBuildTools = True,
+        requestProjectPackages = Map.empty,
         requestWorkspaces = workspaces,
         requestHackage = hackage,
         requestPlatform = platform,

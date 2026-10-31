@@ -25,6 +25,7 @@ library
     Aihc.PackagePlan
     Aihc.PackagePlan.Diagnostic
     Aihc.PackagePlan.Lock
+    Aihc.PackagePlan.Project
     Aihc.PackagePlan.Solver
     Aihc.PackagePlan.Source
 
