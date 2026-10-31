@@ -503,14 +503,18 @@ testInstallFixtures getPrimStore getCoreStore = do
     let getStore = if installFixtureNeedsBase fixture then getCoreStore else getPrimStore
     withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
       store <- sandboxStore sandbox "store"
-      let input = if installFixtureInput fixture == "." then directory else directory </> installFixtureInput fixture
+      -- The installer can write generated source files.
+      -- Give each fixture a writable source directory.
+      let sourceRoot = sandboxRoot sandbox </> "source"
+      copyWritable directory sourceRoot
+      let input = if installFixtureInput fixture == "." then sourceRoot else sourceRoot </> installFixtureInput fixture
           options =
             (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget Nothing defaultPlanOptions)
               { installImmutable = installFixtureImmutable fixture,
                 installOptimization = installFixtureOptimization fixture,
                 installKeepGrin = not (null (installFixtureGrin fixture)),
                 installNoCode = installFixtureNoCode fixture,
-                installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
+                installWorkspace = (sourceRoot </>) <$> installFixtureWorkspace fixture
               }
       -- A fixture with expected progress installs through a reporter that
       -- writes to a file, as a redirected command does.
