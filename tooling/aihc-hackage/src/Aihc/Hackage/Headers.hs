@@ -78,6 +78,8 @@ haskellWordCppMacros =
 compilerHeaderTexts :: HeaderTarget -> [(FilePath, Text)]
 compilerHeaderTexts target =
   [ ("ghcautoconf.h", ghcautoconfHeader target),
+    -- GHC uses this header to include both target configuration headers.
+    ("ghcconfig.h", header "GHCCONFIG_H" ["#include \"ghcautoconf.h\"", "#include \"ghcplatform.h\""] []),
     -- Modern GHC's base package reduces this legacy header to a redirect.
     ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] []),
     ("ghcplatform.h", ghcplatformHeader target),
