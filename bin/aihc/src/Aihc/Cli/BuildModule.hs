@@ -34,7 +34,7 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Monad (filterM, foldM, unless, when)
-import Data.List (nub)
+import Data.List (nub, nubBy)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
@@ -204,14 +204,19 @@ validateInstalledDependencies moduleIndex sources = mapM_ validateDependency ext
         [_] -> pure ()
         _ -> ioError (userError ("Ambiguous installed module: " <> T.unpack (sourceDependencyModule dependency)))
     matchingModules dependency =
-      case sourceDependencyPackage dependency of
-        Nothing -> candidates
-        Just packageName' ->
-          filter
-            ((== packageName') . packageManifestName . installedManifest . installedModulePackage)
-            candidates
+      nubBy (\left right -> origin left == origin right) selected
       where
+        selected = case sourceDependencyPackage dependency of
+          Nothing -> candidates
+          Just packageName' ->
+            filter
+              ((== packageName') . packageManifestName . installedManifest . installedModulePackage)
+              candidates
         candidates = Map.findWithDefault [] (sourceDependencyModule dependency) moduleIndex
+        origin entry =
+          let manifest = installedManifest (installedModulePackage entry)
+              name = installedModuleName entry
+           in Map.findWithDefault (packageManifestUnitId manifest, name) name (packageManifestReexports manifest)
 
 -- | The source files of the executable: the modules the main module
 -- reaches, and the generated entry module.
