@@ -32,7 +32,7 @@ where
 
 import Aihc.Fc.Equivalence (alphaCorrespondence)
 import Aihc.Fc.Name
-import Aihc.Fc.Size (exprSize, isStrictBinder)
+import Aihc.Fc.Size (exprSize, isLiftedType, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..), exprType, extendBinder, reduceType, repOf, substTypes, viewForAll, viewFun)
 import Aihc.Fc.Views (castedSpine, collectSpine)
@@ -45,7 +45,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -403,6 +403,12 @@ isLocalName name =
 -- polymorphic in its result type and its representation. A later case or
 -- strict let of the call can then give the call its own type, and needs
 -- no absurd match.
+--
+-- The function must be a declaration that GRIN can hold, which is one
+-- that is lifted. A call that takes no parameter gives a top-level value
+-- of its result type, so the function keeps a general result type only
+-- while that value stays lifted, and a call whose result is unlifted
+-- moves nowhere.
 floatedFunction :: TypeEnv -> [Scoped] -> Expr -> Maybe (Type, Expr, [Binder], Generality, [Binder])
 floatedFunction env scope expr = do
   resultType <- exprType env expr
@@ -419,22 +425,35 @@ floatedFunction env scope expr = do
       anyRep = Binder resultName (TyApp (TyCon (typeConstructor package)) (TyVar (binderName repBinder)))
       fixedRep = Binder resultName (TyApp (TyCon (typeConstructor package)) resultRep)
       generalize binders = (,binders) <$> retype (List.foldl' extendBinder env binders) expr (TyVar resultName)
-      (body0, result, extraBinders, generality) = case generalize [repBinder, anyRep] of
-        Just (retyped, binders) -> (retyped, TyVar resultName, binders, AnyRepresentation)
-        Nothing -> case generalize [fixedRep] of
-          Just (retyped, binders) -> (retyped, TyVar resultName, binders, FixedRepresentation)
-          Nothing -> (expr, resultType, [], FixedType)
-      direct = exprTypeVariables body0 <> foldMap (typeVariables . binderType) parameters <> typeVariables result
-      needed = closeTypeVariables typeBinders direct
-      typeParameters = [binder | binder <- typeBinders, Set.member (binderName binder) needed]
-      functionEnv = List.foldl' extendBinder env extraBinders
+      -- The result types the function can take, from the most general one
+      -- to the type of the call itself. A general result spares a later
+      -- case or strict let of the call an absurd match, but only a
+      -- declaration that is lifted can hold such a result.
+      options =
+        [ (retyped, TyVar resultName, binders, generality)
+        | (binders, generality) <- [([repBinder, anyRep], AnyRepresentation), ([fixedRep], FixedRepresentation)],
+          Just (retyped, _) <- [generalize binders]
+        ]
+          <> [(expr, resultType, [], FixedType)]
   -- Every free local name must be a parameter.
   guard (all (\name -> any ((== name) . binderName) parameters || not (isLocal name)) (Set.toList free))
-  functionType <- foldM (\inner parameter -> arrow functionEnv (binderType parameter) inner) result (reverse parameters)
-  let ty = foldr TyForAll functionType (typeParameters <> extraBinders)
-      body = foldr ExTyLam (foldr ExLam body0 parameters) (typeParameters <> extraBinders)
-  Just (ty, body, typeParameters, generality, parameters)
+  listToMaybe (mapMaybe (declarationOf typeBinders parameters) options)
   where
+    -- The declaration of one result type, or nothing when GRIN cannot
+    -- hold it.
+    declarationOf typeBinders parameters (body0, result, extraBinders, generality) = do
+      let direct = exprTypeVariables body0 <> foldMap (typeVariables . binderType) parameters <> typeVariables result
+          needed = closeTypeVariables typeBinders direct
+          typeParameters = [binder | binder <- typeBinders, Set.member (binderName binder) needed]
+          functionEnv = List.foldl' extendBinder env extraBinders
+      functionType <- foldM (\inner parameter -> arrow functionEnv (binderType parameter) inner) result (reverse parameters)
+      let ty = foldr TyForAll functionType (typeParameters <> extraBinders)
+          body = foldr ExTyLam (foldr ExLam body0 parameters) (typeParameters <> extraBinders)
+      -- A call with no parameter becomes a top-level value, and a
+      -- top-level value is lifted. Thus, the result of such a call must
+      -- be lifted. See 'lowerValueDecl' in "Aihc.Grin.Lower".
+      guard (isLiftedType functionEnv ty)
+      Just (ty, body, typeParameters, generality, parameters)
     arrow functionEnv argument result = do
       argumentRep <- repOf functionEnv argument
       resultRep <- repOf functionEnv result
