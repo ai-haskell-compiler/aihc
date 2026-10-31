@@ -6,6 +6,7 @@ module Data.Traversable
     forM,
     mapAccumL,
     mapAccumR,
+    fmapDefault,
     foldMapDefault,
   )
 where
@@ -57,3 +58,8 @@ mapAccumR f initial values = runStateR (traverse (\value -> StateR (`f` value)) 
 
 foldMapDefault :: (Traversable t, Monoid m) => (a -> m) -> t a -> m
 foldMapDefault f values = getConst (traverse (Const . f) values)
+
+fmapDefault :: (Traversable t) => (a -> b) -> t a -> t b
+fmapDefault f values =
+  let (_, result) = mapAccumL (\state value -> (state, f value)) () values
+   in result
