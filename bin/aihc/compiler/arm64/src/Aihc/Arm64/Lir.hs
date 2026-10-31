@@ -111,10 +111,84 @@ elideSlotReloads = elideSlotReloadsWith arm64AsCode
 
 type M = NativeM Arm64LirError
 
+-- | Keep atomic accesses outside adjacent memory instruction fusion.
+atomicStatement :: Arm64Statement -> Arm64Statement
+atomicStatement (Arm64Code instruction) = Arm64AtomicCode instruction
+atomicStatement statement = statement
+
+-- | Select a zero test when the switch needs only equality.
+compareAndBranches :: Ctx Arm64Register -> Type -> Arm64Register -> Integer -> [(CompareOp, Name)] -> [Arm64Statement]
+compareAndBranches _ _ register 0 [(Eq, label)] = [arm64Instruction (ArmCbz register label)]
+compareAndBranches ctx ty register value branches =
+  compareWith ctx ty False register (OperandLiteral (LitInt value))
+    <> [arm64Instruction (ArmBCond (switchCondition op) label) | (op, label) <- branches]
+
+-- | Join adjacent instructions with one pending statement in the emitter.
+-- Labels and atomic accesses stop memory fusion.
+combineStatements :: Arm64Statement -> Arm64Statement -> Maybe Arm64Statement
+combineStatements (Arm64Code (ArmB target@LocalName {})) label@(Arm64Label next)
+  | target == next = Just label
+combineStatements (Arm64Code left) (Arm64Code right) = Arm64Code <$> combineInstructions left right
+combineStatements _ _ = Nothing
+
+combineInstructions :: Arm64Instruction -> Arm64Instruction -> Maybe Arm64Instruction
+combineInstructions left right =
+  case (left, right) of
+    (ArmStr a (Arm64Offset base offset), ArmStr b (Arm64Offset next offset'))
+      | pairFits a b base next offset offset' -> Just (ArmStp a b (Arm64Offset base offset))
+    (ArmLdr a (Arm64Offset base offset), ArmLdr b (Arm64Offset next offset'))
+      | pairFits a b base next offset offset',
+        generalRegister a /= generalRegister base,
+        generalRegister a /= generalRegister b ->
+          Just (ArmLdp a b (Arm64Offset base offset))
+    (ArmMul productRegister a b, ArmAdd result x (Arm64RegisterValue y))
+      | result == productRegister, x == productRegister, y /= productRegister -> Just (ArmMadd result a b y)
+      | result == productRegister, y == productRegister, x /= productRegister -> Just (ArmMadd result a b x)
+    (ArmMul productRegister a b, ArmSub result x (Arm64RegisterValue y))
+      | result == productRegister, y == productRegister, x /= productRegister -> Just (ArmMsub result a b x)
+    _ -> do
+      (result, base, offset) <- addressUpdate left
+      case right of
+        ArmLdr target (Arm64Offset pointer displacement)
+          | pointer == result,
+            generalRegister target == generalRegister result,
+            scaledAccess target (offset + displacement) ->
+              Just (ArmLdr target (Arm64Offset base (offset + displacement)))
+          | pointer == result,
+            base == result,
+            displacement == 0,
+            generalRegister target /= generalRegister base,
+            offset >= -256,
+            offset <= 255 ->
+              Just (ArmLdr target (Arm64PreIndex base offset))
+        ArmStr value (Arm64Offset pointer 0)
+          | pointer == result,
+            base == result,
+            generalRegister value /= generalRegister base,
+            offset >= -256,
+            offset <= 255 ->
+              Just (ArmStr value (Arm64PreIndex base offset))
+        _ -> Nothing
+  where
+    addressUpdate instruction = case instruction of
+      ArmAdd result base (Arm64ImmediateValue offset) -> Just (result, base, fromInteger offset)
+      ArmSub result base (Arm64ImmediateValue offset) -> Just (result, base, negate (fromInteger offset))
+      _ -> Nothing
+    width register = if doubleWord register then 8 else 4
+    pairFits a b base next offset offset' =
+      base == next
+        && doubleWord a == doubleWord b
+        && offset' == offset + width a
+        && offset `mod` width a == 0
+        && offset `div` width a >= -64
+        && offset `div` width a <= 63
+    scaledAccess register offset = offset >= 0 && offset `mod` width register == 0 && offset `div` width register < 4096
+
 arm64AsCode :: Arm64Statement -> Maybe SlotEffect
 arm64AsCode statement =
   case statement of
     Arm64Code instruction -> Just (instructionEffect instruction)
+    Arm64AtomicCode _ -> Just Forgets
     _ -> Nothing
 
 operandIn' :: Ctx Arm64Register -> Int -> Type -> Arm64Register -> Operand -> ([Arm64Statement], Arm64Register)
@@ -162,6 +236,7 @@ arm64Backend =
       nbQuadSymbol = arm64QuadSymbol,
       nbQuadSymbolAddend = arm64QuadSymbolAddend,
       nbAsCode = arm64AsCode,
+      nbCombine = combineStatements,
       nbRenderTraps = renderTraps,
       -- A conditional branch reaches 1 MB. A whole-program object is
       -- larger, so each function branches to its own trampoline and the
@@ -192,9 +267,7 @@ arm64Backend =
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
          in pure (setup, BranchTest (\label -> pure [branchWhen test label]) (\label -> pure [branchUnless test label])),
-      nbCompareAndBranches = \ctx ty register value branches ->
-        compareWith ctx ty False register (OperandLiteral (LitInt value))
-          <> [arm64Instruction (ArmBCond (switchCondition op) label) | (op, label) <- branches],
+      nbCompareAndBranches = compareAndBranches,
       nbBranchTable = Just branchTable,
       nbCReturnFloat = \convention resultTypes ->
         case (convention, resultTypes) of
@@ -346,6 +419,7 @@ instructionEffect instruction =
     ArmSmulh destination _ _ -> writes [destination]
     ArmUdiv destination _ _ -> writes [destination]
     ArmSdiv destination _ _ -> writes [destination]
+    ArmMadd destination _ _ _ -> writes [destination]
     ArmMsub destination _ _ _ -> writes [destination]
     ArmLsl destination _ _ -> writes [destination]
     ArmLsr destination _ _ -> writes [destination]
@@ -982,7 +1056,10 @@ arm64Load ctx ty base offset dst =
 
 arm64Store :: Ctx Arm64Register -> Type -> Operand -> Operand -> Integer -> [Arm64Statement]
 arm64Store ctx ty value base offset =
-  let (loads, a) = operandIn' ctx 0 ty scratchLeft value
+  let (loads, a) =
+        if value == OperandLiteral LitNull || constantBits ty value == Just 0
+          then ([], XZR)
+          else operandIn' ctx 0 ty scratchLeft value
       (addressLines, baseRegister) = effectiveAddress ctx base offset ty
    in loads <> addressLines <> [storeMemory ty a baseRegister (memoryOffset offset ty)]
 
@@ -1013,7 +1090,7 @@ accessRegister ty register = if typeBytes ty == 8 then register else wordRegiste
 -- relaxed load is a plain load.
 arm64LoadAtomic :: Ctx Arm64Register -> MemoryOrder -> Type -> Operand -> Integer -> Arm64Register -> [Arm64Statement]
 arm64LoadAtomic ctx order ty base offset dst
-  | order == Relaxed = arm64Load ctx ty base offset dst
+  | order == Relaxed = map atomicStatement (arm64Load ctx ty base offset dst)
   | otherwise =
       let (lines', register) = atomicBase ctx base offset
        in lines' <> [arm64Instruction (ArmLdar (typeBytes ty) (accessRegister ty dst) register)]
@@ -1022,7 +1099,7 @@ arm64LoadAtomic ctx order ty base offset dst
 -- relaxed store is a plain store.
 arm64StoreAtomic :: Ctx Arm64Register -> MemoryOrder -> Type -> Operand -> Operand -> Integer -> [Arm64Statement]
 arm64StoreAtomic ctx order ty value base offset
-  | order == Relaxed = arm64Store ctx ty value base offset
+  | order == Relaxed = map atomicStatement (arm64Store ctx ty value base offset)
   | otherwise =
       let (loads, a) = operandIn' ctx 0 ty scratchLeft value
           (lines', register) = atomicBase ctx base offset
@@ -1383,6 +1460,7 @@ fromFloat :: Type -> Arm64Register -> Int -> Arm64Statement
 fromFloat ty general float = arm64Instruction (ArmFmovFromFloat (ty == F64) (if ty == F64 then general else wordRegister general) float)
 
 wordRegister :: Arm64Register -> Arm64Register
+wordRegister XZR = WZR
 wordRegister register = toEnum (fromEnum register - fromEnum X0 + fromEnum W0)
 
 floatOp :: FloatBinaryOp -> Arm64FloatOp

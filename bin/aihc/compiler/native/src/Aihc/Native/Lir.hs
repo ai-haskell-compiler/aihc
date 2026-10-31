@@ -125,6 +125,8 @@ data NativeBackend statement register error = NativeBackend
     nbQuadSymbol :: Text -> statement,
     nbQuadSymbolAddend :: Text -> Int64 -> statement,
     nbAsCode :: statement -> Maybe SlotEffect,
+    -- | Join adjacent statements during emission.
+    nbCombine :: statement -> statement -> Maybe statement,
     nbRenderTraps :: [(Text, Int)] -> [statement],
     -- | A trampoline of one function: its local label and an unconditional
     -- branch to the trap stub with the given label. A backend whose
@@ -548,7 +550,7 @@ compileFunction backend signatures index function = StateT $ \state ->
 compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register error -> (statement -> m ()) -> Map Symbol Signature -> Int -> Function -> ObjectState -> m (Either error ObjectState)
 {-# INLINEABLE compileFunctionTo #-}
 compileFunctionTo backend output signatures index input state =
-  evalStateT (runExceptT (execStateT action state)) IntMap.empty
+  evalStateT (runExceptT (execStateT action state)) (IntMap.empty, Nothing)
   where
     lowered = dropUnreadStackAllocations (forwardCopies (lowerWideDivision (isJust (nbQuotRemWide backend)) input))
     (rotated, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
@@ -556,10 +558,15 @@ compileFunctionTo backend output signatures index input state =
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
     emitStatement statement = do
-      held <- get
+      (held, pending) <- get
       let (keep, next) = slotStep held (nbAsCode backend statement)
-      put next
-      when keep (lift (output statement))
+      if not keep
+        then put (next, pending)
+        else case pending of
+          Nothing -> put (next, Just statement)
+          Just previous -> case nbCombine backend previous statement of
+            Just combined -> put (next, Just combined)
+            Nothing -> lift (output previous) >> put (next, Just statement)
     emitStatements = mapM_ (lift . lift . emitStatement)
     action = do
       (prepared, prefix) <- native (prepareFunction backend signatures index function)
@@ -582,6 +589,8 @@ compileFunctionTo backend output signatures index input state =
         let terminatorCtx = ctx {ctxNonNullCode = Map.findWithDefault Set.empty (blockLabel block) nonNull}
         native (compileTerminator backend terminatorCtx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
+      (_, pending) <- lift (lift get)
+      forM_ pending (lift . lift . lift . output)
 
 -- | The code values that each block knows are not null. A value is known
 -- in a block when each path into the block takes the branch of a comparison
@@ -1404,9 +1413,13 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
           | Just (operation, _, _) <- Map.lookup v matches = [Instruction [v] operation]
           | Set.member v removed = []
         rewrite instruction = [instruction]
-    selectLoads accepts shifts instructions = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.map snd matches) shifts) (Set.toList removed))
+    selectLoads accepts shifts instructions = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.mapMaybe snd matches) shifts) (Set.toList removed))
       where
-        definitions = Map.fromList [(v, operation) | Instruction [v] operation@(PtrAdd _ (OperandVar _)) <- instructions]
+        definitions = Map.fromList [(v, operation) | Instruction [v] operation@PtrAdd {} <- instructions]
+        match (Load ty location@Address {addressBase = OperandVar address} alignment)
+          | useOnce address,
+            Just (PtrAdd base (OperandLiteral (LitInt offset))) <- Map.lookup address definitions =
+              Just (address, Load ty location {addressBase = base, addressOffset = addressOffset location + offset} alignment, Nothing)
         match (Load ty (Address (OperandVar address) 0 0 [] _) _)
           | useOnce address,
             not (isFloatType ty),
@@ -1416,7 +1429,7 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
               Just (FusedShift shift) -> shift
               _ -> 0,
             accepts ty count =
-              Just (address, operation, FusedLoad ty count)
+              Just (address, operation, Just (FusedLoad ty count))
         match _ = Nothing
         matches = Map.fromList [(v, (operation, fusion)) | Instruction [v] load <- instructions, Just (_, operation, fusion) <- [match load]]
         removed = Set.fromList [address | Instruction [_] load <- instructions, Just (address, _, _) <- [match load]]

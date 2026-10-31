@@ -1,0 +1,97 @@
+; Pair 32-bit heap fields. Keep relaxed atomic accesses separate.
+func @fields(%base: ptr, %first: i32, %second: i32) -> (i32, i32) {
+entry:
+  store i32 %first, [%base] align 4
+  store i32 %second, [%base + 4] align 4
+  %a = load i32 [%base] align 4
+  %b = load i32 [%base + 4] align 4
+  return %a, %b
+}
+
+func @atomic_fields(%base: ptr, %first: i64, %second: i64) -> (i64, i64) {
+entry:
+  store.atomic relaxed i64 %first, [%base]
+  store.atomic relaxed i64 %second, [%base + 8]
+  %a = load.atomic relaxed i64 [%base]
+  %b = load.atomic relaxed i64 [%base + 8]
+  return %a, %b
+}
+
+; Fold a constant pointer offset before register allocation.
+func @offset(%base: ptr) -> i64 {
+entry:
+  %address = ptr.add %base, 296
+  %value = load i64 [%address] align 8
+  return %value
+}
+
+extern func @sink(ptr)
+extern func @sink_i32(i32)
+
+; The tail call keeps the updated base. Select a 32-bit pre-index store.
+func @advance(%base: ptr, %value: i32) {
+entry:
+  %next = ptr.add %base, 16
+  store i32 %value, [%next] align 4
+  tailcall @sink(%next)
+}
+
+; The product register becomes the result of the addition.
+func @multiply_add(%a: i32, %b: i32, %c: i32) {
+entry:
+  %product = mul i32 %a, %b
+  %result = add i32 %product, %c
+  tailcall @sink_i32(%result)
+}
+
+func @multiply_subtract(%a: i32, %b: i32, %c: i32) {
+entry:
+  %product = mul i32 %a, %b
+  %result = sub i32 %c, %product
+  tailcall @sink_i32(%result)
+}
+
+; A product with a second reader must remain available.
+func @keep_product(%a: i64, %b: i64, %c: i64) -> (i64, i64) {
+entry:
+  %product = mul i64 %a, %b
+  %result = add i64 %product, %c
+  return %result, %product
+}
+
+; The signed pair offset has a seven-bit range.
+func @pair_limit(%base: ptr, %first: i32, %second: i32) {
+entry:
+  store i32 %first, [%base + 252] align 4
+  store i32 %second, [%base + 256] align 4
+  store i32 %first, [%base + 260] align 4
+  store i32 %second, [%base + 264] align 4
+  return
+}
+
+; Select zero registers without a temporary value.
+func @clear(%base: ptr) {
+entry:
+  store ptr null, [%base] align 8
+  store i32 0, [%base + 8] align 4
+  return
+}
+
+; A switch that tests only zero needs no condition flags.
+func @zero(%value: i64) -> i64 {
+entry:
+  switch i64 %value {
+    0 -> yes
+    default -> no
+  }
+yes:
+  return 1
+no:
+  return 0
+}
+
+; The trap trampoline follows the branch in the same function.
+func @failure() {
+entry:
+  trap "failure"
+}
