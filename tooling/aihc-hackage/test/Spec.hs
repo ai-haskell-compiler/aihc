@@ -4,6 +4,7 @@ import Aihc.Cabal (Package, cabalVersion, parseHookedBuildInfo, parseValue)
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, cabalMacrosHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Headers (HeaderTarget (..), compilerHeaderTexts)
 import Aihc.Hackage.Package (Arch (..), OS (..), buildArch, buildOS, mkFlagName, mkPackageName, parsePackageDescription)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
 import Control.Exception (bracket)
@@ -30,6 +31,7 @@ main =
       testCase "defines MIN_VERSION macros from resolved dependency versions" test_minVersionMacros,
       testCase "writes the same macros into a cabal_macros.h header" test_cabalMacrosHeader,
       testCase "reports source lines unshifted by the synthetic macro header" test_diagnosticsUseSourceLineNumbers,
+      testCase "uses target byte order through ghcconfig.h" test_ghcconfigByteOrder,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
@@ -180,6 +182,28 @@ test_diagnosticsUseSourceLineNumbers = do
           assertEqual "warning file" path (Cpp.diagFile diagnostic)
         diagnostics -> assertFailure ("expected one diagnostic, got " <> show (length diagnostics))
     Cpp.NeedInclude request _ -> assertFailure ("unexpected include request: " <> show (Cpp.includePath request))
+
+-- The missing ghcconfig.h stops the CPP pass for an Alex scanner.
+-- Alex also needs the target byte order to read its tables.
+test_ghcconfigByteOrder :: Assertion
+test_ghcconfigByteOrder = mapM_ check [False, True]
+  where
+    check bigEndian = do
+      let target = HeaderTarget 8 8 bigEndian (T.pack "linux") (T.pack "x86_64")
+          headers = compilerHeaderTexts target
+          source = BSC.pack "#include \"ghcconfig.h\"\n#include \"ghcconfig.h\"\n#ifdef WORDS_BIGENDIAN\nbig\n#else\nlittle\n#endif\n"
+          drive step = case step of
+            Cpp.Done result -> pure result
+            Cpp.NeedInclude request resume ->
+              case lookup (Cpp.includePath request) headers of
+                Just content -> drive (resume (Just (TE.encodeUtf8 content)))
+                Nothing -> assertFailure ("missing include: " <> Cpp.includePath request)
+      result <- drive (Cpp.preprocess Cpp.defaultConfig source)
+      assertEqual "CPP diagnostics" [] (Cpp.resultDiagnostics result)
+      assertEqual
+        "target byte order"
+        [BSC.pack (if bigEndian then "big" else "little")]
+        (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
 
 test_extractsBuildToolDependencyNames :: Assertion
 test_extractsBuildToolDependencyNames = do
