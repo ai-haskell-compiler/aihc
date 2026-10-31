@@ -68,6 +68,7 @@ module GHC.Prim
     getSizeofMutableByteArray#,
     indexArray#,
     indexWord8OffAddr#,
+    indexCharOffAddr#,
     indexInt8OffAddr#,
     readInt8OffAddr#,
     writeInt8OffAddr#,
@@ -402,8 +403,10 @@ module GHC.Prim
     int8ToInt#,
     intToInt16#,
     int16ToInt#,
+    narrow16Int#,
     intToInt32#,
     int32ToInt#,
+    narrow32Int#,
     intToInt64#,
     int64ToInt#,
     plusWord8#,
@@ -855,9 +858,17 @@ foreign import prim intToInt16# :: Int# -> Int16#
 
 foreign import prim int16ToInt# :: Int16# -> Int#
 
+-- | Convert the low 16 bits to a signed machine integer.
+narrow16Int# :: Int# -> Int#
+narrow16Int# value = int16ToInt# (intToInt16# value)
+
 foreign import prim intToInt32# :: Int# -> Int32#
 
 foreign import prim int32ToInt# :: Int32# -> Int#
+
+-- | Convert the low 32 bits to a signed machine integer.
+narrow32Int# :: Int# -> Int#
+narrow32Int# value = int32ToInt# (intToInt32# value)
 
 foreign import prim intToInt64# :: Int# -> Int64#
 
@@ -1271,6 +1282,10 @@ foreign import prim sizeofMutableByteArray# :: MutableByteArray# d -> Int#
 foreign import prim copyMutableByteArrayNonOverlapping# :: MutableByteArray# d -> Int# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
 
 foreign import prim indexWord8OffAddr# :: Addr# -> Int# -> Word8#
+
+-- | Read one unsigned byte as a character at the byte offset.
+indexCharOffAddr# :: Addr# -> Int# -> Char#
+indexCharOffAddr# address offset = chr# (word2Int# (word8ToWord# (indexWord8OffAddr# address offset)))
 
 foreign import prim indexWord32OffAddr# :: Addr# -> Int# -> Word32#
 

@@ -241,12 +241,17 @@ derivingObligations kinds unlifted plan =
       case argument of
         TcTyVar tyVar | KType <- tvKind tyVar -> True
         _ -> False
-    fieldObligations = map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concatMap (filter (not . comparedPrimitively)) <$> stockFieldTypes plan
+    fieldObligations = map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concatMap (filter (not . handledPrimitively)) <$> stockFieldTypes plan
+    handledPrimitively ty = comparedPrimitively ty || shownPrimitively ty
     -- A derived Eq or Ord compares an unlifted field with the primitive
     -- operators of its type, so the field asks nothing of the context.
     comparedPrimitively ty =
       stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods]
         && isUnliftedFieldType unlifted ty
+    -- A derived Show boxes an Int# field and appends its primitive suffix.
+    shownPrimitively ty =
+      stockClassMethodsOf (tcDerivingClassName plan) == Just StockShowMethods
+        && isUnliftedFieldType [identity | identity@(_, _, "Int#") <- unlifted] ty
 
 -- | Whether a strategy reuses the instance of another type instead of
 -- generating a structural one. A structural instance can be recursive, so a

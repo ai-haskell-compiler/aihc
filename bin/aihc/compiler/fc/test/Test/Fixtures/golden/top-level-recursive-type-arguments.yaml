@@ -1,0 +1,7 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    loop value = loop value
+status: pass
+reason: A recursive call must apply the type arguments that its generalized top-level function requires.
