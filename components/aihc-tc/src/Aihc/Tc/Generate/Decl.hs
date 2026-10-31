@@ -2786,7 +2786,7 @@ sortDeclGroups signatures groups = do
   keyed <- mapM groupNodeKeys groups
   -- A value signature supplies its type before body checks.
   -- A pattern synonym still needs its matcher and builder declarations.
-  let owners = Map.fromList [(binder, nodeKey) | ((_, group), nodeKey, binders) <- keyed, binder <- binders, Map.notMember binder signatures || not (valueGroup group)]
+  let owners = Map.fromList [(binder, nodeKey) | ((_, group), nodeKey, binders) <- keyed, binder <- binders, not (completeValueSignature group binder)]
   nodes <- mapM (declGraphNode owners) keyed
   pure (map flattenScc (stronglyConnComp nodes))
   where
@@ -2796,6 +2796,7 @@ sortDeclGroups signatures groups = do
       pure (numberedGroup, nodeKey, binders)
     flattenScc (AcyclicSCC group) = [group]
     flattenScc (CyclicSCC cyclicGroups) = cyclicGroups
+    completeValueSignature group binder = valueGroup group && maybe False (not . checkedSigPartial) (Map.lookup binder signatures)
     valueGroup MergedFunctionBind {} = True
     valueGroup (SingleDecl declaration) = case peelDeclAnn declaration of
       DeclValue {} -> True
@@ -2894,42 +2895,46 @@ tcDeclGroup sigs (groupId, group) =
 
 -- | Infer functions without signatures together before generalization.
 tcDeclComponent :: Map Entity CheckedSig -> [(Int, DeclGroup)] -> TcM [TcDeclGroupResult]
-tcDeclComponent signatures groups
-  | length groups > 1,
-    Just functions <- traverse componentFunction groups = do
-      -- Each body can use every member through its monomorphic placeholder.
-      placeholders <- forM functions $ \(_, binder, _, _) -> do
-        key <- resolvedUnqualifiedTermKey binder
-        ty <- freshMetaTv
-        extendTermKeyEnvPermanent key (TcMonoIdBinder ty)
-        pure (key, ty)
-      ((inferred, predicates), failed) <- withErrorTracking $ do
-        inferred <- forM (zip functions placeholders) $ \((_, _, matches, _), (_, placeholder)) -> do
-          (matches', ty, constraints, implications) <- tcMatches matches
-          evidence <- freshEvVar
-          let tie = mkWantedCt (EqPred placeholder ty) evidence (LetOrigin Nothing) Nothing
-          pure (matches', ty, tie : constraints, implications)
-        let types = [ty | (_, ty, _, _) <- inferred]
-            constraints = concat [cts | (_, _, cts, _) <- inferred]
-            implications = concat [impls | (_, _, _, impls) <- inferred]
-            groupType = foldr1 TcFunTy types
-        -- Solve all constraints before any member becomes polymorphic.
-        solved <- solveWithImpls constraints implications
-        rejectEscapingExistentials groupType implications
-        predicates <- generalizableResidualPreds groupType solved
-        pure (inferred, predicates)
-      if failed
-        then pure [TcDeclGroupResult groupId [] Nothing | (groupId, _) <- groups]
-        else do
-          schemes <- generalizeGroupAndCommitIgnoring (Set.fromList (map fst placeholders)) [] [(ty, predicates) | (_, ty, _, _) <- inferred]
-          let recursiveSchemes = Map.fromList (zip (map fst placeholders) schemes)
-          forM (zip3 functions placeholders (zip inferred schemes)) $ \((groupId, binder, _, replaceMatches), (key, placeholder), ((matches', _, _, _), scheme)) -> do
-            finalizeInferredTermEnvPermanent key placeholder scheme
-            declarations <- annotateRecursiveTermOccurrences recursiveSchemes (replaceMatches matches')
-            ty <- zonkType (schemeToType scheme)
-            pure (TcDeclGroupResult groupId [TcBindingResult key (renderBinderName binder) ty] (Just declarations))
-  | otherwise = mapM (\group -> withAmbientSpan (declGroupSourceSpan (snd group)) (tcDeclGroup signatures group)) groups
+tcDeclComponent signatures groups = do
+  keys <- concat <$> mapM (declGroupBinderKeys . snd) groups
+  checkComponent (all (`Map.notMember` signatures) keys)
   where
+    checkComponent canInferTogether
+      | canInferTogether,
+        length groups > 1,
+        Just functions <- traverse componentFunction groups = do
+          -- Each body can use every member through its monomorphic placeholder.
+          placeholders <- forM functions $ \(_, binder, _, _) -> do
+            key <- resolvedUnqualifiedTermKey binder
+            ty <- freshMetaTv
+            extendTermKeyEnvPermanent key (TcMonoIdBinder ty)
+            pure (key, ty)
+          ((inferred, predicates), failed) <- withErrorTracking $ do
+            inferred <- forM (zip functions placeholders) $ \((_, _, matches, _), (_, placeholder)) -> do
+              (matches', ty, constraints, implications) <- tcMatches matches
+              evidence <- freshEvVar
+              let tie = mkWantedCt (EqPred placeholder ty) evidence (LetOrigin Nothing) Nothing
+              pure (matches', ty, tie : constraints, implications)
+            let types = [ty | (_, ty, _, _) <- inferred]
+                constraints = concat [cts | (_, _, cts, _) <- inferred]
+                implications = concat [impls | (_, _, _, impls) <- inferred]
+                groupType = foldr1 TcFunTy types
+            -- Solve all constraints before any member becomes polymorphic.
+            solved <- solveWithImpls constraints implications
+            rejectEscapingExistentials groupType implications
+            predicates <- generalizableResidualPreds groupType solved
+            pure (inferred, predicates)
+          if failed
+            then pure [TcDeclGroupResult groupId [] Nothing | (groupId, _) <- groups]
+            else do
+              schemes <- generalizeGroupAndCommitIgnoring (Set.fromList (map fst placeholders)) [] [(ty, predicates) | (_, ty, _, _) <- inferred]
+              let recursiveSchemes = Map.fromList (zip (map fst placeholders) schemes)
+              forM (zip3 functions placeholders (zip inferred schemes)) $ \((groupId, binder, _, replaceMatches), (key, placeholder), ((matches', _, _, _), scheme)) -> do
+                finalizeInferredTermEnvPermanent key placeholder scheme
+                declarations <- annotateRecursiveTermOccurrences recursiveSchemes (replaceMatches matches')
+                ty <- zonkType (schemeToType scheme)
+                pure (TcDeclGroupResult groupId [TcBindingResult key (renderBinderName binder) ty] (Just declarations))
+      | otherwise = mapM (\group -> withAmbientSpan (declGroupSourceSpan (snd group)) (tcDeclGroup signatures group)) groups
     componentFunction (groupId, group) =
       case group of
         MergedFunctionBind _ binder declarations matches ->
