@@ -82,12 +82,6 @@ extra-source-files:
   test/Test/Fixtures/install/code-quality/dependency-private-header/header-provider/header-provider.cabal
   test/Test/Fixtures/install/code-quality/dependency-private-header/header-provider/include/Private.h
   test/Test/Fixtures/install/code-quality/dependency-private-header/header-provider/src/Provider.hs
-  test/Test/Fixtures/install/code-quality/module-reexport-dependency/demo/demo.cabal
-  test/Test/Fixtures/install/code-quality/module-reexport-dependency/demo/src/Consumer.hs
-  test/Test/Fixtures/install/code-quality/module-reexport-dependency/workspace/bridge/bridge.cabal
-  test/Test/Fixtures/install/code-quality/module-reexport-dependency/workspace/facade/facade.cabal
-  test/Test/Fixtures/install/code-quality/module-reexport-dependency/workspace/origin/origin.cabal
-  test/Test/Fixtures/install/code-quality/module-reexport-dependency/workspace/origin/src/Original.hs
   test/Test/Fixtures/install/incremental/Extra.hs
   test/Test/Fixtures/install/incremental/demo.cabal
   test/Test/Fixtures/install/incremental/dep/dep.cabal

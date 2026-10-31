@@ -1,6 +1,0 @@
-status: pass
-reason: Cabal module reexports must preserve entity identities across packages and store reuse.
-input: demo
-workspace: workspace
-immutable: true
-check-reinstall: true
