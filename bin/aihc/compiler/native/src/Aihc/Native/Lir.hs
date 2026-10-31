@@ -560,6 +560,8 @@ compileFunctionTo backend output signatures index input state =
     emitStatement statement = do
       (held, pending) <- get
       let (keep, next) = slotStep held (nbAsCode backend statement)
+      -- Force the cache before the state pair can defer its updates.
+      next `seq` pure ()
       if not keep
         then put (next, pending)
         else case pending of
