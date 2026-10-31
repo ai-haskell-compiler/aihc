@@ -142,6 +142,9 @@ data DataType = DataType String [Constr]
 -- | The description of one data constructor.
 data Constr = Constr String [String] Fixity Int
 
+instance Eq Constr where
+  left == right = constrIndex left == constrIndex right
+
 -- | Make a data type that lists its constructors.
 mkDataType :: String -> [Constr] -> DataType
 mkDataType = DataType
