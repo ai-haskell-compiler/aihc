@@ -16,7 +16,7 @@ import Text.ParserCombinators.ReadPrec (prec, step)
 import Prelude
 
 newtype Down a = Down {getDown :: a}
-  deriving newtype (Eq, Bounded, Enum, Storable)
+  deriving newtype (Eq, Bounded, Enum, Num, Storable)
 
 instance (Ord a) => Ord (Down a) where
   compare (Down left) (Down right) = compare right left
