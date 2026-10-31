@@ -1,0 +1,22 @@
+cabal-version: 3.0
+name: facade
+version: 0.1.0.0
+
+flag enabled
+  default: True
+  manual: True
+
+library
+  build-depends:
+    aihc-prim,
+    origin,
+
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude
+
+  if flag(enabled)
+    reexported-modules:
+      origin:Original as Alias,
+      origin:Original,
+  else
+    reexported-modules: Missing as Alias

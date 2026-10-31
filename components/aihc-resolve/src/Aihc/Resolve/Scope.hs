@@ -14,6 +14,7 @@ module Aihc.Resolve.Scope
     Builtins (..),
     builtins,
     moduleExportsFromList,
+    moduleExportsWithOrigins,
     moduleExportKeys,
     lookupModuleExport,
     filterModuleExports,
@@ -141,10 +142,9 @@ instance NFData ModuleKey
 -- An import names a module and, at most, the package it wants the module
 -- from, so the entries are keyed by module name first: an import looks at
 -- the packages that define that name rather than at every module of every
--- package. Several packages can define a module of the same name, and an
--- import that does not say which one it means resolves only when exactly
--- one package is in play.
-newtype ModuleExports = ModuleExports (Map.Map Text (Map.Map Package Scope))
+-- package. An unqualified import must identify one original module.
+-- Multiple reexports of that module identify the same original module.
+data ModuleExports = ModuleExports (Map.Map Text (Map.Map Package Scope)) (Map.Map ModuleKey (PackageId, Text))
   deriving (Eq, Generic)
 
 instance NFData ModuleExports
@@ -152,11 +152,11 @@ instance NFData ModuleExports
 -- | Left-biased, as 'Map.union' is: where both sides hold a scope for the
 -- same module of the same package, the left one wins.
 instance Semigroup ModuleExports where
-  ModuleExports left <> ModuleExports right =
-    ModuleExports (Map.unionWith Map.union left right)
+  ModuleExports left leftOrigins <> ModuleExports right rightOrigins =
+    ModuleExports (Map.unionWith Map.union left right) (Map.union leftOrigins rightOrigins)
 
 instance Monoid ModuleExports where
-  mempty = ModuleExports Map.empty
+  mempty = ModuleExports Map.empty Map.empty
 
 -- | What one module exports, as the modules that import it see it.
 newtype Exports = Exports Scope
@@ -242,26 +242,33 @@ moduleExportsFromScopes entries =
         Map.union
         [(name, Map.singleton package scope) | (ModuleKey package name, scope) <- entries]
     )
+    Map.empty
+
+-- | Attach the original package unit and module to module reexports.
+moduleExportsWithOrigins :: [(ModuleKey, (PackageId, Text))] -> ModuleExports -> ModuleExports
+moduleExportsWithOrigins entries (ModuleExports scopes origins) =
+  ModuleExports scopes (Map.union (Map.fromList [(key, origin) | (key@(ModuleKey package name), origin) <- entries, origin /= (packageId package, name)]) origins)
 
 -- | Every module the map holds a scope for.
 moduleExportKeys :: ModuleExports -> [ModuleKey]
-moduleExportKeys (ModuleExports byName) =
+moduleExportKeys (ModuleExports byName _) =
   [ModuleKey package name | (name, byPackage) <- Map.toList byName, package <- Map.keys byPackage]
 
 lookupModuleExport :: ModuleKey -> ModuleExports -> Maybe Exports
 lookupModuleExport key exports = Exports <$> lookupExportScope key exports
 
 lookupExportScope :: ModuleKey -> ModuleExports -> Maybe Scope
-lookupExportScope (ModuleKey package name) (ModuleExports byName) =
+lookupExportScope (ModuleKey package name) (ModuleExports byName _) =
   Map.lookup name byName >>= Map.lookup package
 
 filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
-filterModuleExports keep (ModuleExports byName) =
+filterModuleExports keep (ModuleExports byName origins) =
   ModuleExports
     ( Map.filter
         (not . Map.null)
         (Map.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
     )
+    (Map.filterWithKey (\key _ -> keep key) origins)
 
 collectModuleExports :: [ModuleUnit] -> ModuleExports
 collectModuleExports = collectModuleExportsWithDeps mempty
@@ -936,17 +943,21 @@ matchingModuleScopes currentPackage requestedPackage moduleName' exports =
   map snd (matchingModuleEntries currentPackage requestedPackage moduleName' exports)
 
 matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
-matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName) =
+matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName origins) =
   case Map.lookup moduleName' byName of
     Nothing -> []
     Just byPackage ->
-      [ (ModuleKey package moduleName', scope)
-      | (package, scope) <- Map.toList byPackage,
-        case requestedPackage of
-          Nothing -> True
-          Just "this" -> package == currentPackage
-          Just requested -> packageName package == requested
-      ]
+      List.nubBy
+        (\(left, _) (right, _) -> origin left == origin right)
+        [ (ModuleKey package moduleName', scope)
+        | (package, scope) <- Map.toList byPackage,
+          case requestedPackage of
+            Nothing -> True
+            Just "this" -> package == currentPackage
+            Just requested -> packageName package == requested
+        ]
+  where
+    origin key@(ModuleKey package name) = Map.findWithDefault (packageId package, name) key origins
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =

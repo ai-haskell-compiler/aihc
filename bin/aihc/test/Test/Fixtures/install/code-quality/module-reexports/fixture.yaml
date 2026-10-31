@@ -1,0 +1,4 @@
+status: pass
+reason: A Cabal module reexport must resolve within the package that declares it.
+needs-base: true
+check-reinstall: true

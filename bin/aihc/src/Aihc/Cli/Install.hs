@@ -104,6 +104,7 @@ import Aihc.Cli.ModuleProvider
     newProviderCache,
     providerInstanceFacts,
     providerInterfacePaths,
+    providerModuleOrigin,
     providerOriginInterfacePath,
     providerPackagesOf,
     providerResolved,
@@ -192,6 +193,7 @@ import Aihc.Resolve
     lookupModuleExport,
     moduleExportKeys,
     moduleExportsFromList,
+    moduleExportsWithOrigins,
     modulesInPackage,
     resolveUnit,
   )
@@ -605,6 +607,7 @@ data PackageTaskContext = PackageTaskContext
     taskStorePath :: !FilePath,
     taskResolvePackage :: !Package,
     taskPrimIdentity :: !PackageId,
+    taskLocalReexports :: !(Map.Map Text Text),
     taskPackageRoot :: !FilePath,
     -- | The modules of the dependency packages. A unit reads the ones it
     -- imports from here.
@@ -897,6 +900,7 @@ data PackageBuild = PackageBuild
     buildFiles :: ![HackageCabal.FileInfo],
     buildCCompileInfo :: !HackageCabal.CCompileInfo,
     buildHeaderHash :: !String,
+    buildReexports :: !(Map.Map Text (Text, Text)),
     -- | The dependencies as they are while they build.
     buildDependencies :: ![InstalledPackage]
   }
@@ -1125,6 +1129,7 @@ prepareExecutable shared graph slot = do
         moduleBuildOutputRoot = outputRoot,
         moduleBuildPackageRoot = componentSourceRoot component,
         moduleBuildPackage = package,
+        moduleBuildReexports = Map.empty,
         moduleBuildItem = componentItem component,
         moduleBuildFiles = files,
         moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
@@ -1211,6 +1216,7 @@ packageModuleBuild shared slot installed build =
       moduleBuildOutputRoot = buildPath build,
       moduleBuildPackageRoot = buildSourceRoot build,
       moduleBuildPackage = package,
+      moduleBuildReexports = buildReexports build,
       moduleBuildItem = item,
       moduleBuildFiles = buildFiles build,
       moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
@@ -1240,7 +1246,11 @@ packageModuleBuild shared slot installed build =
 slotDependency :: PackageSlot -> IO PreparedDependency
 slotDependency slot = do
   prepared <- atomically (readTMVar (slotPrepared slot))
-  units <- atomically (readTMVar (slotUnits slot))
+  unitMaps <- forM (slot : slotClosure slot) $ \dependency -> do
+    preparedDependency <- atomically (readTMVar (slotPrepared dependency))
+    units <- atomically (readTMVar (slotUnits dependency))
+    let identity = PackageId (packageManifestUnitId (installedManifest (preparedPackage preparedDependency)))
+    pure (Map.fromList [((identity, name), runtime) | (name, runtime) <- Map.toList units])
   let installed = preparedPackage prepared
       identity = PackageId (packageManifestUnitId (installedManifest installed))
   pure
@@ -1248,7 +1258,8 @@ slotDependency slot = do
       { dependencyPackage = Package (installedName installed) identity,
         dependencyExposed = Set.fromList (preparedExposedModules prepared),
         dependencySource = fromMaybe (StorePackage (installStorePath (installedResult installed))) (Map.lookup identity (preparedLocator prepared)),
-        dependencyUnits = units,
+        dependencyReexports = packageManifestReexports (installedManifest installed),
+        dependencyUnits = Map.unions unitMaps,
         dependencyLocator = preparedLocator prepared
       }
 
@@ -1497,6 +1508,7 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
       sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
   installPackageHeaders root buildPath configuredCInfo
   files <- preprocessPackage config dependencyVersions root buildPath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
+  reexports <- packageReexports unitIdentity inputs dependencies
   let build =
         PackageBuild
           { buildSourceRoot = root,
@@ -1510,6 +1522,7 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
             buildFiles = files,
             buildCCompileInfo = cCompileInfo,
             buildHeaderHash = headerHash,
+            buildReexports = reexports,
             buildDependencies = dependencies
           }
       -- The compiled modules are known once the modules are parsed; the
@@ -1528,6 +1541,49 @@ installedPackageOf build result manifest =
       installedManifest = manifest
     }
 
+-- | Resolve Cabal module reexports to their original package units.
+packageReexports :: Text -> PackageInputs -> [InstalledPackage] -> IO (Map.Map Text (Text, Text))
+packageReexports identity inputs dependencies = do
+  declarations <- either (ioError . userError) pure (HackageCabal.collectLibraryReexportsIn context description)
+  let localModules = HackageCabal.collectLibraryExposedModulesIn context description
+      self = HackagePackage.packageNameText (packageNameOf description)
+      originals =
+        [(self, name, (identity, name)) | name <- localModules]
+          <> [ (installedName dependency, name, Map.findWithDefault (packageManifestUnitId manifest, name) name (packageManifestReexports manifest))
+             | dependency <- dependencies,
+               let manifest = installedManifest dependency,
+               name <- packageManifestModules manifest
+             ]
+      resolve seen declaration
+        | HackageCabal.reexportName declaration `elem` seen = Left ("Cyclic Cabal module reexport: " <> T.unpack (HackageCabal.reexportName declaration))
+        | otherwise = do
+            let name = HackageCabal.reexportOriginal declaration
+                qualifier = HackageCabal.reexportPackage declaration
+                matches package = maybe True (== package) qualifier
+                direct = [origin | (package, original, origin) <- originals, original == name, matches package]
+                aliases =
+                  [ alias
+                  | alias <- declarations,
+                    HackageCabal.reexportName alias == name,
+                    HackageCabal.reexportName alias /= HackageCabal.reexportName declaration,
+                    matches self
+                  ]
+            indirect <- traverse (resolve (HackageCabal.reexportName declaration : seen)) aliases
+            case nub (direct <> indirect) of
+              [origin] -> Right origin
+              [] -> Left ("Cabal module reexport not found: " <> T.unpack name)
+              _ -> Left ("Ambiguous Cabal module reexport: " <> T.unpack name)
+  entries <-
+    either (ioError . userError) pure $
+      traverse (\declaration -> (HackageCabal.reexportName declaration,) <$> resolve [] declaration) declarations
+  let grouped = Map.fromListWith (<>) [(name, [origin]) | (name, origin) <- entries]
+  forM_ (Map.toList grouped) $ \(name, origins) ->
+    when (length (nub origins) /= 1) (ioError (userError ("Conflicting Cabal module reexports: " <> T.unpack name)))
+  pure (Map.fromList entries)
+  where
+    context = inputContext inputs
+    description = inputDescription inputs
+
 packageBuildManifest :: ModuleCompileConfig -> PackageBuild -> [Text] -> PackageManifest
 packageBuildManifest config build compiledModules =
   PackageManifest
@@ -1536,7 +1592,8 @@ packageBuildManifest config build compiledModules =
       packageManifestIdentity = T.pack (buildPackageDirectory build),
       packageManifestUnitId = buildUnitIdentity build,
       packageManifestDependencies = sortOn id (map installedIdentity (buildDependencies build)),
-      packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd),
+      packageManifestModules = sortOn id (nub (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd <> Map.keys (buildReexports build))),
+      packageManifestReexports = buildReexports build,
       packageManifestCompiledModules = sortOn id compiledModules,
       packageManifestFlags = compileFlagNames config,
       packageManifestCabalFlags = Map.fromList [(T.pack (unFlagName flag), value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
@@ -1659,6 +1716,7 @@ data ModuleBuild = ModuleBuild
     moduleBuildOutputRoot :: !FilePath,
     moduleBuildPackageRoot :: !FilePath,
     moduleBuildPackage :: !Package,
+    moduleBuildReexports :: !(Map.Map Text (Text, Text)),
     -- | What the progress names the package.
     moduleBuildItem :: !ProgressItem,
     moduleBuildFiles :: ![HackageCabal.FileInfo],
@@ -1686,9 +1744,10 @@ data PreparedDependency = PreparedDependency
   { dependencyPackage :: !Package,
     dependencyExposed :: !(Set.Set Text),
     dependencySource :: !PackageSource,
+    dependencyReexports :: !(Map.Map Text (Text, Text)),
     -- | The unit of each module, for a dependency that compiles in the
     -- same graph; empty for one the store holds.
-    dependencyUnits :: !(Map.Map Text UnitRuntime),
+    dependencyUnits :: !(Map.Map (PackageId, Text) UnitRuntime),
     dependencyLocator :: !PackageLocator
   }
 
@@ -1740,9 +1799,12 @@ partitionModules graph shared build sourceSlots = do
       resolvePackage = moduleBuildPackage build
       order = moduleBuildOrder build
       noCode = compileNoCode config
+      reexports = moduleBuildReexports build
+      externalReexports = Map.filter ((/= packageIdText (packageId resolvePackage)) . fst) reexports
+      localReexports = Map.map snd (Map.filterWithKey (\name (identity, original) -> identity == packageIdText (packageId resolvePackage) && name /= original) reexports)
   parsed <- mapM (atomically . readTMVar) sourceSlots
   dependencies <- moduleBuildDependencies build
-  units <- evaluate (sourceModuleUnits parsed)
+  units <- evaluate (sourceModuleUnitsWithReexports localReexports parsed)
   -- The graph this task builds is which units there are and which units
   -- each waits on. The modules in them are its input, forced when they
   -- were parsed; forcing them here would only move that work out of the
@@ -1753,7 +1815,11 @@ partitionModules graph shared build sourceSlots = do
     newModuleProvider
       (sharedProviderCache shared)
       (Map.unions (map dependencyLocator dependencies))
-      [(dependencyPackage dependency, Set.toAscList (dependencyExposed dependency), dependencySource dependency) | dependency <- dependencies]
+      ( [ (dependencyPackage dependency, Set.toAscList (dependencyExposed dependency), dependencyReexports dependency, dependencySource dependency)
+        | dependency <- dependencies
+        ]
+          <> [(resolvePackage, Map.keys externalReexports, externalReexports, StorePackage (moduleBuildOutputRoot build)) | not (Map.null externalReexports)]
+      )
   unitBase <- allocateTaskIds graph (3 * length units)
   runtimes <-
     forM (zip [0 ..] units) $ \(index, unit) ->
@@ -1769,6 +1835,7 @@ partitionModules graph shared build sourceSlots = do
             taskStorePath = moduleBuildOutputRoot build,
             taskResolvePackage = resolvePackage,
             taskPrimIdentity = moduleBuildPrimIdentity build,
+            taskLocalReexports = localReexports,
             taskPackageRoot = moduleBuildPackageRoot build,
             taskModuleProvider = provider,
             taskCapiStubOptions = moduleBuildCapiOptions build,
@@ -1779,10 +1846,9 @@ partitionModules graph shared build sourceSlots = do
       -- imports, as the provider finds them.
       importedRuntimes unit =
         [ runtime
-        | name <- unitExternalNames unit,
-          dependency <- dependencies,
-          name `Set.member` dependencyExposed dependency,
-          Just runtime <- [Map.lookup name (dependencyUnits dependency)]
+        | key <- externalModuleKeys provider [] (unitExternalNames unit),
+          let origin = providerModuleOrigin provider key,
+          Just runtime <- [Map.lookup origin (Map.unions (map dependencyUnits dependencies))]
         ]
       unitExternalNames unit =
         let sources = sourceUnitSources unit
@@ -2206,11 +2272,14 @@ parseSource headerDir root versions fileInfo = do
       }
 
 sourceModuleUnits :: [SourceModule] -> [SourceUnit]
-sourceModuleUnits sources = zipWith makeUnit [0 ..] orderedComponents
+sourceModuleUnits = sourceModuleUnitsWithReexports Map.empty
+
+sourceModuleUnitsWithReexports :: Map.Map Text Text -> [SourceModule] -> [SourceUnit]
+sourceModuleUnitsWithReexports reexports sources = zipWith makeUnit [0 ..] orderedComponents
   where
     node source = (source, sourceName source, moduleDependencies source)
     moduleDependencies source =
-      nub (filter (/= sourceName source) wiredTypeModules <> sourceDependencyNames source)
+      nub (filter (/= sourceName source) wiredTypeModules <> map (\name -> Map.findWithDefault name name reexports) (sourceDependencyNames source))
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
     components = map (sortOn sourceName . flatten) (stronglyConnComp (map node sources))
@@ -2443,6 +2512,42 @@ readDependencyResults :: (UnitRuntime -> TMVar value) -> Map.Map UnitId UnitRunt
 readDependencyResults select runtimes =
   mapM (atomically . readTMVar . select . lookupRuntime runtimes)
 
+-- | Add local module aliases without a change to entity identities.
+localReexportExports :: PackageTaskContext -> ModuleExports -> ModuleExports
+localReexportExports context exports =
+  moduleExportsWithOrigins [(ModuleKey package name, (packageId package, original)) | (name, original) <- Map.toList (taskLocalReexports context)] $
+    moduleExportsFromList
+      [ (ModuleKey package name, scope)
+      | (name, original) <- Map.toList (taskLocalReexports context),
+        Just scope <- [lookupModuleExport (ModuleKey package original) exports]
+      ]
+      <> exports
+  where
+    package = taskResolvePackage context
+
+localReexportFacts :: PackageTaskContext -> ByModule value -> ByModule value
+localReexportFacts context facts =
+  byModuleUnions
+    [ byModuleFromList
+        [ (ModuleKey package name, value)
+        | (name, original) <- Map.toList (taskLocalReexports context),
+          Just value <- [lookup package (byModuleLookupName original facts)]
+        ],
+      facts
+    ]
+  where
+    package = taskResolvePackage context
+
+-- | Close source exports and local aliases together for recursive units.
+collectUnitExports :: PackageTaskContext -> ModuleExports -> [ModuleUnit] -> ModuleExports
+collectUnitExports context available modules
+  | Map.null (taskLocalReexports context) = collectModuleExportsWithDeps available modules
+  | otherwise = close mempty
+  where
+    close previous =
+      let next = collectModuleExportsWithDeps (localReexportExports context (previous <> available)) modules
+       in if next == previous then next else close next
+
 runResolveUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
 runResolveUnit context runtimes runtime = do
   dependencyResults <- readDependencyResults runtimeResolveResult runtimes (sourceUnitDependencies unit)
@@ -2455,13 +2560,13 @@ runResolveUnit context runtimes runtime = do
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
   externalResolved <- externalResolvedFacts (taskModuleProvider context) unitNames dependencyNames
-  let dependencyExports = moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
+  let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
-      availableExports = mconcat (map resolveUnitExports dependencyResults) <> dependencyExports
-      availableScopeHashes = byModuleUnions (map resolveUnitScopeHashes dependencyResults ++ [dependencyScopeHashes])
+      availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResults) <> dependencyExports)
+      availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResults ++ [dependencyScopeHashes]))
       scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
-      inputs = sortOn fst (sourceHashes <> scopeInputs)
+      inputs = sortOn fst (sourceHashes <> scopeInputs <> [("options:reexports", T.pack (show (taskLocalReexports context)))])
       resolvePath source = sourceModuleDirectory source </> "resolve.cbor"
       stampPath = storePath </> unitResolveStampPath unit
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
@@ -2486,8 +2591,8 @@ runResolveUnit context runtimes runtime = do
           TypeInputParsed packageModules
         )
     Nothing -> do
-      let unitExports = collectModuleExportsWithDeps availableExports packageModules
-          visibleExports = unitExports <> availableExports
+      let unitExports = collectUnitExports context availableExports packageModules
+          visibleExports = localReexportExports context (unitExports <> availableExports)
           builtinScope = builtinFunctionScope resolvePackage visibleExports
           (resolved, errors) =
             case resolveUnit builtinScope visibleExports packageModules of
@@ -2565,15 +2670,15 @@ runTypeUnit context runtimes runtime = do
   -- providers of the modules it imports, which can be in packages below
   -- the dependencies.
   externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
-  let dependencyExports = moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
+  let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
       dependencyTypes = byModuleFromList [(key, typedModuleInterface facts) | (key, facts) <- externalTyped]
       dependencyTypeHashes = byModuleFromList [(key, typedModuleTypeDigest facts) | (key, facts) <- externalTyped]
       dependencyFactsDigests = byModuleFromList [(key, typedModuleFactsDigest facts) | (key, facts) <- externalTyped]
-      availableTypes = byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes])
-      availableTypeHashes = byModuleUnions (map typeUnitHashes dependencyResults ++ [dependencyTypeHashes])
-      availableExports = mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports
-      availableScopeHashes = byModuleUnions (map resolveUnitScopeHashes dependencyResolveResults ++ [dependencyScopeHashes])
+      availableTypes = localReexportFacts context (byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes]))
+      availableTypeHashes = localReexportFacts context (byModuleUnions (map typeUnitHashes dependencyResults ++ [dependencyTypeHashes]))
+      availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports)
+      availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResolveResults ++ [dependencyScopeHashes]))
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
       scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
       typeInputs = dependencyInputs "type:" unitNames dependencyNames availableTypeHashes
@@ -2594,7 +2699,8 @@ runTypeUnit context runtimes runtime = do
             <> typeInputs
             <> factsInputs
             <> packageFactsInputs
-            <> [ ("options:frontend", T.pack (frontendOptionsKey config)),
+            <> [ ("options:reexports", T.pack (show (taskLocalReexports context))),
+                 ("options:frontend", T.pack (frontendOptionsKey config)),
                  ("options:extensions", T.pack (show (map sourceModuleExtensions sources)))
                ]
       typePath source = sourceModuleDirectory source </> "type.cbor"
@@ -2635,7 +2741,7 @@ runTypeUnit context runtimes runtime = do
               case typeInput of
                 TypeInputResolved result -> result
                 TypeInputParsed packageModules ->
-                  let visibleExports = collectModuleExportsWithDeps availableExports packageModules <> availableExports
+                  let visibleExports = localReexportExports context (collectUnitExports context availableExports packageModules <> availableExports)
                    in -- The unit resolved when its artifacts were written, and the
                       -- same inputs resolve the same way.
                       fromRight (ResolvedUnit []) (resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules)
@@ -4321,4 +4427,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-53"
+packageArtifactFormatVersion = "aihc-artifacts-54"
