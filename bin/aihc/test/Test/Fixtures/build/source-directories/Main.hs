@@ -7,6 +7,7 @@ import FrozenChecks (frozenChecks)
 import KindOrderChecks (kindOrderChecks)
 import PrimitiveChecks (primitiveChecks)
 import RecordUpdateChecks (recordUpdateChecks)
+import ResponseFileChecks (responseFileChecks)
 import STMChecks (stmChecks)
 import UnpackChecks (unpackChecks)
 import SumChecks (sumChecks)
@@ -16,6 +17,8 @@ import System.IO ()
 
 main :: IO ()
 main = do
+  responses <- responseFileChecks
+  if responses then pure () else error "response file check failed"
   files <- fileInputChecks
   if files then pure () else error "file input check failed"
   blackholes <- blackholeChecks
