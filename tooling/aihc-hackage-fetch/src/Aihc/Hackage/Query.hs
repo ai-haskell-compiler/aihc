@@ -89,7 +89,10 @@ data QueryOptions = QueryOptions
     -- | Allow asking Hackage. A cached answer is still read when this is
     -- off.
     queryAllowNetwork :: !Bool,
-    queryVerbose :: !Bool
+    queryVerbose :: !Bool,
+    -- | Show a progress message or a warning. A caller with a live
+    -- progress display gives a function that writes above it.
+    queryMessage :: String -> IO ()
   }
 
 -- | Reask for a day-old answer, over the network, with progress on stderr.
@@ -98,7 +101,8 @@ defaultQueryOptions =
   QueryOptions
     { queryMaxAge = 24 * 60 * 60,
       queryAllowNetwork = True,
-      queryVerbose = True
+      queryVerbose = True,
+      queryMessage = hPutStrLn stderr
     }
 
 -- | A handle on the queries, holding the answers this process has already.
@@ -244,7 +248,7 @@ fetchCached queries path url description freshness = do
             else ioError (userError ("Hackage is not cached for " <> description <> " and the network is disabled"))
         else do
           when (queryVerbose (queryOptions queries)) $
-            hPutStrLn stderr ("Asking Hackage for " <> description <> "...")
+            queryMessage (queryOptions queries) ("Asking Hackage for " <> description <> "...")
           fetched <- try (httpGet url)
           case fetched of
             Right (Right body) -> do
@@ -261,7 +265,7 @@ fetchCached queries path url description freshness = do
       cached <- doesFileExist path
       if cached
         then do
-          hPutStrLn stderr ("Warning: could not ask Hackage for " <> description <> ", using the cached answer: " <> failure)
+          queryMessage (queryOptions queries) ("Warning: could not ask Hackage for " <> description <> ", using the cached answer: " <> failure)
           Fetched <$> BS.readFile path
         else ioError (userError ("Failed to ask Hackage for " <> description <> ": " <> failure))
 

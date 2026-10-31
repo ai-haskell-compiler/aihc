@@ -13,5 +13,5 @@ where
 import Aihc.Hackage.Source (HackageSource)
 
 -- | No Hackage source: a plan uses only local packages and core libraries.
-defaultHackageSource :: IO (Maybe HackageSource)
-defaultHackageSource = pure Nothing
+defaultHackageSource :: (String -> IO ()) -> IO (Maybe HackageSource)
+defaultHackageSource _ = pure Nothing

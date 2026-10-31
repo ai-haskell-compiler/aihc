@@ -142,7 +142,7 @@ buildWithConfig reporter options adjust = do
 mainModuleTarget :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
 mainModuleTarget options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
-  hackageSource <- defaultHackageSource
+  hackageSource <- defaultHackageSource (progressReport (compileProgress config) . ProgressLog)
   let target = compileTarget config
       localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
       buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
@@ -158,7 +158,7 @@ mainModuleTarget options config storeTargetRoot = do
 packageTargets :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
 packageTargets options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
-  hackageSource <- defaultHackageSource
+  hackageSource <- defaultHackageSource (progressReport (compileProgress config) . ProgressLog)
   (rootPackage, origin, lockDirectory) <- installTargetRoot (buildInput options)
   let target = compileTarget config
       platform = cabalPlatformForTarget target
