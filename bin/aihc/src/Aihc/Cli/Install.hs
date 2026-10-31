@@ -150,6 +150,7 @@ import Aihc.PackagePlan
     PlanRoot (..),
     PlannedPackages (..),
     aihcRtsProvider,
+    canonicalPackageName,
     coreProviderSourcePath,
     dependencyVersionsFromManifests,
     lookupCoreProvider,
@@ -1559,7 +1560,8 @@ packageReexports identity inputs dependencies = do
         | otherwise = do
             let name = HackageCabal.reexportOriginal declaration
                 qualifier = HackageCabal.reexportPackage declaration
-                matches package = maybe True (== package) qualifier
+                canonical = canonicalPackageName . mkPackageName . T.unpack
+                matches package = maybe True ((== canonical package) . canonical) qualifier
                 direct = [origin | (package, original, origin) <- originals, original == name, matches package]
                 aliases =
                   [ alias
@@ -1568,7 +1570,7 @@ packageReexports identity inputs dependencies = do
                     HackageCabal.reexportName alias /= HackageCabal.reexportName declaration,
                     matches self
                   ]
-            indirect <- traverse (resolve (HackageCabal.reexportName declaration : seen)) aliases
+            indirect <- if null direct then traverse (resolve (HackageCabal.reexportName declaration : seen)) aliases else pure []
             case nub (direct <> indirect) of
               [origin] -> Right origin
               [] -> Left ("Cabal module reexport not found: " <> T.unpack name)

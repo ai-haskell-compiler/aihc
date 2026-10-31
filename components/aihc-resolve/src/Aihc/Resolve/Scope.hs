@@ -247,7 +247,7 @@ moduleExportsFromScopes entries =
 -- | Attach the original package unit and module to module reexports.
 moduleExportsWithOrigins :: [(ModuleKey, (PackageId, Text))] -> ModuleExports -> ModuleExports
 moduleExportsWithOrigins entries (ModuleExports scopes origins) =
-  ModuleExports scopes (Map.union (Map.fromList [(key, origin) | (key@(ModuleKey package name), origin) <- entries, origin /= (packageId package, name)]) origins)
+  ModuleExports scopes (Map.filterWithKey (\(ModuleKey package name) origin -> origin /= (packageId package, name)) (Map.union (Map.fromList entries) origins))
 
 -- | Every module the map holds a scope for.
 moduleExportKeys :: ModuleExports -> [ModuleKey]
