@@ -1,0 +1,29 @@
+modules:
+  - |
+    module Test where
+
+    import Data.List qualified as List
+    import GHC.List qualified as GHCList
+
+    main :: IO ()
+    main = do
+      print ([10, 20, 30 :: Int] List.!? 0)
+      print ([10, 20, 30 :: Int] List.!? 2)
+      print ([10, 20, 30 :: Int] List.!? 3)
+      print (([] :: [Int]) List.!? 0)
+      print ((undefined :: [Int]) List.!? (-1))
+      print ((10 : undefined :: [Int]) List.!? 0)
+      print ([10, 20 :: Int] GHCList.!? 1)
+stdout: |
+  Just 10
+  Just 30
+  Nothing
+  Nothing
+  Nothing
+  Just 10
+  Just 20
+output: |
+  ()
+expression: main
+status: pass
+reason: Data.List and GHC.List must export safe list indexing with lazy list access

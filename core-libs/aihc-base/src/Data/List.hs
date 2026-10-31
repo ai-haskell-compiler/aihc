@@ -13,6 +13,7 @@ module Data.List
     null,
     length,
     (!!),
+    (!?),
     foldl,
     foldl',
     foldl1,
