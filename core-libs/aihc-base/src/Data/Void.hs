@@ -7,7 +7,7 @@ module Data.Void
   )
 where
 
-import Prelude (Bool (..), Eq (..), Functor (..), Ord (..), Ordering (..), Show (..), seq)
+import Prelude (Bool (..), Eq (..), Functor (..), Ord (..), Ordering (..), Semigroup (..), Show (..), seq)
 
 data Void
 
@@ -33,3 +33,6 @@ instance Ord Void where
 
 instance Show Void where
   showsPrec _ = absurd
+
+instance Semigroup Void where
+  left <> _ = left
