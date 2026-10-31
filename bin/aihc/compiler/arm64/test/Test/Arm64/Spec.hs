@@ -8,6 +8,8 @@ import Aihc.Arm64.Text (renderArm64Statements)
 import Aihc.Cli.Backend (BackendOutput (..))
 import Aihc.Lir.Lower (appleArm64Target)
 import Aihc.Native (NativeTarget (AppleArm64))
+import System.Environment (getEnv)
+import System.FilePath ((</>))
 import System.Info (arch, os)
 import Test.Lir.AsmSuite (AsmBackend (..))
 import Test.Lir.AsmSuite qualified as AsmSuite
@@ -31,15 +33,21 @@ tests = do
           backendSourceExtension = ".o",
           backendCompile = either (Left . show) (Right . BackendObject) . compileLirObject
         }
-  assembly <-
-    AsmSuite.tests
-      AsmBackend
-        { asmBackendName = "aihc-arm64",
-          asmBackendExtension = ".arm64.s",
-          asmBackendRender = either (Left . show) (Right . renderArm64Statements) . compileLirStatements
-        }
+  let assemblyBackend =
+        AsmBackend
+          { asmBackendName = "aihc-arm64",
+            asmBackendExtension = ".arm64.s",
+            asmBackendRender = either (Left . show) (Right . renderArm64Statements) . compileLirStatements
+          }
+  assembly <- AsmSuite.tests assemblyBackend
+  root <- getEnv "AIHC_TEST_ROOT"
+  let smallInstructions =
+        AsmSuite.fixtureTest
+          assemblyBackend
+          (root </> "bin/aihc/compiler/arm64/test/Test/Fixtures/asm")
+          "code-quality-small-instructions.lir"
   failures <- failureFixtures AppleArm64
-  pure (testGroup "arm64" [suite, assembly, slotReloadTests, failures])
+  pure (testGroup "arm64" [suite, assembly, smallInstructions, slotReloadTests, failures])
 
 slotReloadTests :: TestTree
 slotReloadTests =

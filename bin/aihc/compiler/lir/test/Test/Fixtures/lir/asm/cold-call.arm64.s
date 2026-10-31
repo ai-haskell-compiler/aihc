@@ -17,7 +17,6 @@ _reserve:
 	mov x1, #2
 	bl _collect
 	ldp x1, x0, [sp, #16]
-	ldr x2, [x19, #24]
-	ldr x21, [x19, #32]
+	ldp x2, x21, [x19, #24]
 	ldp x29, x30, [sp], #32
 	b .Llir_0_2

@@ -55,6 +55,8 @@ data Arm64Statement
   | -- | The address of a symbol plus a constant addend.
     Arm64QuadSymbolAddend !Text !Int64
   | Arm64Bytes !ByteString
+  | -- | An atomic access cannot join another memory access.
+    Arm64AtomicCode !Arm64Instruction
   | Arm64Code !Arm64Instruction
   deriving (Eq, Show)
 
@@ -215,6 +217,7 @@ data Arm64Instruction
   | ArmMul !Arm64Register !Arm64Register !Arm64Register
   | ArmUmulh !Arm64Register !Arm64Register !Arm64Register
   | ArmUdiv !Arm64Register !Arm64Register !Arm64Register
+  | ArmMadd !Arm64Register !Arm64Register !Arm64Register !Arm64Register
   | ArmMsub !Arm64Register !Arm64Register !Arm64Register !Arm64Register
   | ArmLsl !Arm64Register !Arm64Register !Arm64Shift
   | ArmLsr !Arm64Register !Arm64Register !Arm64Shift
@@ -348,6 +351,7 @@ applyStatement object statement =
     Arm64Bytes value
       | BS.null value -> pure (Right ())
       | otherwise -> emitItem object (Bytes value)
+    Arm64AtomicCode instruction -> emitItems object (encodeInstruction instruction)
     Arm64Code instruction -> emitItems object (encodeInstruction instruction)
 
 -- | The bytes that pad a section: @nop@ in text, and zero elsewhere.
@@ -425,7 +429,8 @@ encodeInstruction instruction =
     ArmMul destination left right -> encodeThreeRegister (if registerWidth (registerInfo destination) == 32 then 0x1b007c00 else 0x9b007c00) destination left right
     ArmUmulh destination left right -> encodeThreeRegister 0x9bc07c00 destination left right
     ArmUdiv destination left right -> encodeThreeRegister 0x9ac00800 destination left right
-    ArmMsub destination left right accumulator -> encodeMsub destination left right accumulator
+    ArmMadd destination left right accumulator -> encodeMultiplyAccumulate False destination left right accumulator
+    ArmMsub destination left right accumulator -> encodeMultiplyAccumulate True destination left right accumulator
     ArmLsl destination left right -> encodeShift 0x9ac02000 True destination left right
     ArmLsr destination left right -> encodeShift 0x9ac02400 False destination left right
     ArmRor destination source count -> encodeRotate destination source count
@@ -773,13 +778,14 @@ encodeThreeRegister base destination left right =
       rm = registerInfo right
    in words32 [base .|. registerNumber rm `shiftL` 16 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
 
-encodeMsub :: Arm64Register -> Arm64Register -> Arm64Register -> Arm64Register -> [Item]
-encodeMsub destination left right accumulator =
+encodeMultiplyAccumulate :: Bool -> Arm64Register -> Arm64Register -> Arm64Register -> Arm64Register -> [Item]
+encodeMultiplyAccumulate subtractProduct destination left right accumulator =
   let rd = registerInfo destination
       rn = registerInfo left
       rm = registerInfo right
       ra = registerInfo accumulator
-   in words32 [0x9b008000 .|. registerNumber rm `shiftL` 16 .|. registerNumber ra `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+      base = (if registerWidth rd == 32 then 0x1b000000 else 0x9b000000) .|. (if subtractProduct then 0x8000 else 0)
+   in words32 [base .|. registerNumber rm `shiftL` 16 .|. registerNumber ra `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
 
 encodeShift :: Word32 -> Bool -> Arm64Register -> Arm64Register -> Arm64Shift -> [Item]
 encodeShift variableBase isLeft destination left right =
@@ -801,11 +807,11 @@ encodeLoadStore load value address =
   case address of
     Arm64PostIndex baseRegister offset ->
       let rn = registerInfo baseRegister
-          base = if load then 0xf8400400 else 0xf8000400
+          base = (if registerWidth rt == 32 then 0xb8000400 else 0xf8000400) .|. (if load then 0x400000 else 0)
        in words32 [base .|. fromIntegral (offset .&. 0x1ff) `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rt]
     Arm64PreIndex baseRegister offset ->
       let rn = registerInfo baseRegister
-          base = if load then 0xf8400c00 else 0xf8000c00
+          base = (if registerWidth rt == 32 then 0xb8000c00 else 0xf8000c00) .|. (if load then 0x400000 else 0)
        in words32 [base .|. fromIntegral (offset .&. 0x1ff) `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rt]
     Arm64Offset baseRegister offset ->
       let rn = registerInfo baseRegister
@@ -835,7 +841,9 @@ encodePair load first second address =
         | not load && mode == 1 = 0xa9800000
         | load = 0xa9400000
         | otherwise = 0xa9000000
-   in words32 [base .|. fromIntegral ((offset `div` 8) .&. 0x7f) `shiftL` 15 .|. registerNumber rt2 `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rt]
+      width = if registerWidth rt == 32 then 4 else 8
+      opcode = if registerWidth rt == 32 then base .&. 0x7fffffff else base
+   in words32 [opcode .|. fromIntegral ((offset `div` width) .&. 0x7f) `shiftL` 15 .|. registerNumber rt2 `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rt]
 
 compareBranch :: Word32 -> Arm64Register -> Name -> [Item]
 compareBranch base source target =
