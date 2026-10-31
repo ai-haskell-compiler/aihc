@@ -1,0 +1,102 @@
+extensions:
+- MagicHash
+- KindSignatures
+- ExplicitForAll
+modules:
+- |
+  module Test (write, clear) where
+
+  import GHC.Prim (Int#, RealWorld, State#, raise#, (+#))
+  import GHC.Types (Int (..), RuntimeRep, TYPE)
+
+  data Message = Message Int Int Int Int
+
+  failWith :: forall (r :: RuntimeRep) (a :: TYPE r). Message -> a
+  failWith message = raise# message
+
+  plus :: Int -> Int -> Int
+  plus (I# x) (I# y) = I# (x +# y)
+  {-# NOINLINE plus #-}
+
+  size :: Int
+  size = I# 7#
+  {-# NOINLINE size #-}
+
+  write :: Int# -> State# RealWorld -> State# RealWorld
+  write index token = case index of
+    0# -> failWith (Message size size (plus size size) (plus size (plus size size)))
+    _ -> token
+
+  clear :: Int# -> State# RealWorld -> State# RealWorld
+  clear index token = case index of
+    1# -> failWith (Message size size (plus size size) (plus size (plus size size)))
+    _ -> token
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    raise# = 2.vraise# :: ∀(a : tRuntimeRep) (b : sType) (c : tTYPE a). FUN @sLiftedRep @a b c
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.tMessage :: sType {
+    pub 1.cMessage :: tInt → tInt → tInt → tInt → tMessage
+  }
+
+  val 1.vfailWith :: ∀(r : tRuntimeRep) (a : tTYPE r). FUN @sLiftedRep @r tMessage a
+    = Λ(r : tRuntimeRep) (a : tTYPE r). λ(x : tMessage).
+      prim raise# @r @tMessage @a x
+
+  val 1.vplus noinline :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      cI# (prim +# x{1} y{1})
+
+  val 1.vsize noinline :: tInt
+    = cI# lit (7#cIntRep) :: tInt#
+
+  pub val 1.vwrite :: FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# tRealWorld) (tState# tRealWorld))
+    = λ(x : tInt#) (y : tState# tRealWorld).
+      case x of {
+        0#cIntRep →
+          vfailWith @(cTupleRep (c[] tRuntimeRep)) @(tState# tRealWorld) (cMessage vsize vsize (vplus vsize vsize) (vplus vsize (vplus vsize vsize)));
+        _ →
+          y
+      }
+
+  pub val 1.vclear :: FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# tRealWorld) (tState# tRealWorld))
+    = λ(x : tInt#) (y : tState# tRealWorld).
+      case x of {
+        1#cIntRep →
+          vfailWith @(cTupleRep (c[] tRuntimeRep)) @(tState# tRealWorld) (cMessage vsize vsize (vplus vsize vsize) (vplus vsize (vplus vsize vsize)));
+        _ →
+          y
+      }
+status: pass
+reason: A diverging call whose result is unlifted stays at each of its sites. 'floatBottoms' moved such a call into a top-level value, and GRIN holds a top-level value only when the value is lifted. Thus, the program did not compile.
