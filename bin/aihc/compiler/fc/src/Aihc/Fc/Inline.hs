@@ -19,8 +19,8 @@
 -- limits, and the program as a whole has no budget: each accepted site
 -- adds at most the callee limit, each value grows at most to its own
 -- multiple, a site that is free of that multiple adds at most its own
--- site limit, recursive groups are never copied into themselves, and the
--- rounds are counted, so the growth of the program is bounded by
+-- site limit, each cycle retains a loop breaker, and the rounds are
+-- counted, so the growth of the program is bounded by
 -- construction.
 --
 -- The desugarer already gives each dictionary method its own top-level
@@ -582,7 +582,8 @@ inlineRound config st0 = List.foldl' step st0 sccs
     -- Known values use the round-start bodies, so their versions must match.
     knownVersions = Map.restrictKeys (inVersions st0) (Map.keysSet known)
     diverging = divergingValues (inEnv st0) (Map.toList (inBodies st0))
-    recursive = Set.fromList (concat [names | CyclicSCC names <- sccs])
+    blocked = loopBreakers config st0
+    reducing = Set.fromList [name | CyclicSCC names <- sccs, name <- names] `Set.difference` blocked
     -- The uses that the copies of the templates add. A template is copied
     -- at every call in the phases its pragma names, so a use inside it is
     -- repeated once per call of the template.
@@ -597,8 +598,48 @@ inlineRound config st0 = List.foldl' step st0 sccs
         ]
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config known knownVersions diverging recursive inTemplates st name
-        CyclicSCC names -> List.foldl' (simplifyValue config known knownVersions diverging recursive inTemplates) st names
+        AcyclicSCC name -> simplifyValue config known knownVersions diverging blocked reducing inTemplates st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known knownVersions diverging blocked reducing inTemplates) st names
+
+-- | Keep enough calls opaque to break every cycle. Prefer a value that
+-- cannot be copied, then a large body without an INLINE request.
+-- Only small record consumers can leave a recursive group at known
+-- constructor arguments. Larger copies can expose more recursive code
+-- than the term-size limits account for.
+loopBreakers :: InlineConfig -> Inliner -> Set Name
+loopBreakers config st = fixed <> foldMap choose (components remaining)
+  where
+    recursive = Set.fromList [name | CyclicSCC names <- components (Map.keysSet (inBodies st)), name <- names]
+    fixed = Map.keysSet (Map.filterWithKey opaque (inBodies st)) <> Set.filter (not . smallRecordConsumer) recursive
+    smallRecordConsumer name =
+      let guidance = inGuidance st Map.! name
+       in guidanceSize guidance <= policyCalleeLimit (inlinePolicy config)
+            && not (guidanceLoops guidance)
+            && recordConsumer Nothing (inBodies st Map.! name)
+    recordConsumer parameter body =
+      case body of
+        ExTyLam _ inner -> recordConsumer parameter inner
+        ExCast inner _ -> recordConsumer parameter inner
+        ExLam binder inner | Nothing <- parameter -> recordConsumer (Just (binderName binder)) inner
+        ExCase scrutinee _ (Alt (AltData _) _ fields _ NE.:| [])
+          | not (null fields),
+            (ExVar name, []) <- castedSpine scrutinee ->
+              Just name == parameter
+        _ -> False
+    opaque name body =
+      not (isInlinable body)
+        || Set.member name (inDictionaryFunctions st)
+        || not (inliningAllowed (inlinePhase config) (spec name))
+    spec name = Map.findWithDefault InlineDefault name (inSpecs st)
+    remaining = Map.keysSet (inBodies st) `Set.difference` fixed
+    components names =
+      stronglyConnComp
+        [(name, name, Set.toList (Map.findWithDefault Set.empty name (inRefs st) `Set.intersection` names)) | name <- Set.toList names]
+    choose (AcyclicSCC _) = Set.empty
+    choose (CyclicSCC names) =
+      let selected = List.maximumBy (\left right -> compare (score left) (score right)) names
+       in Set.insert selected (foldMap choose (components (Set.delete selected (Set.fromList names))))
+    score name = (not (inliningRequested (inlinePhase config) (spec name)), guidanceSize (inGuidance st Map.! name), name)
 
 -- | Whether a value is a template: its @INLINE@ pragma asks for a copy at
 -- every call in the phases it names, so its body is what every call gets.
@@ -609,8 +650,8 @@ isTemplate st name =
     _ -> False
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Expr -> Map Name Int -> Diverging -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
-simplifyValue config known knownVersions diverging recursive inTemplates st name
+simplifyValue :: InlineConfig -> Map Name Expr -> Map Name Int -> Diverging -> Set Name -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
+simplifyValue config known knownVersions diverging blocked reducing inTemplates st name
   | name `Set.member` inDead st = st
   | otherwise =
       case Map.lookup name (inBodies st) of
@@ -629,7 +670,7 @@ simplifyValue config known knownVersions diverging recursive inTemplates st name
                   [ (callee, Candidate calleeBody sites requested (inGuidance st Map.! callee))
                   | callee <- Set.toList reachable,
                     callee /= name,
-                    callee `Set.notMember` recursive,
+                    callee `Set.notMember` blocked,
                     callee `Set.notMember` inDictionaryFunctions st,
                     Map.lookup name (inAliases st) /= Just callee,
                     let spec = Map.findWithDefault InlineDefault callee (inSpecs st),
@@ -641,6 +682,7 @@ simplifyValue config known knownVersions diverging recursive inTemplates st name
                         requested = inliningRequested (inlinePhase config) spec
                         withinLimit = size <= policyCalleeLimit policy
                         sites
+                          | callee `Set.member` reducing = SitesReducing
                           | every = SitesUnconditional
                           | requested && withinLimit = SitesRequested
                           | otherwise = SitesMeasured,

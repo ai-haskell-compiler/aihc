@@ -594,10 +594,24 @@ simplifyExpr env0 expr =
       | Just (dictionary, con, fieldTypes, hints) <- loopDictionary env binds -> do
           fields <- zipWithM (\ty hint -> (`Binder` ty) <$> freshLocal hint) fieldTypes hints
           simplifyExpr env (ExCase (ExVar dictionary) Nothing (Alt (AltData con) [] fields expr NE.:| []))
+    -- A group that returns its only member evaluates that member when
+    -- its result is needed. Its independent front chain can move outside.
+    ExRec [bind] (ExVar name)
+      | name == binderName (bindBinder bind),
+        ExCase scrutinee binder (alternative NE.:| []) <- bindRhs bind,
+        unused name scrutinee ->
+          simplifyExpr env (ExCase scrutinee binder (alternative {altRhs = ExRec [bind {bindRhs = altRhs alternative}] (ExVar name)} NE.:| []))
+      | name == binderName (bindBinder bind),
+        ExLet front rest <- bindRhs bind,
+        unused name (bindRhs front) ->
+          simplifyExpr env (ExLet front (ExRec [bind {bindRhs = rest}] (ExVar name)))
     ExRec binds body -> do
       let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
-      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr ((rhsEnv inner (binderName (bindBinder bind))) {spEscapes = False}) (bindRhs bind)) binds
-      simplifyExpr inner body >>= sinkGroup binds' ExRec
+      binds' <- mapM (simplifyRecursiveBinding inner) binds
+      body' <- simplifyExpr inner body
+      case binds' of
+        [bind] | unused (binderName (bindBinder bind)) (bindRhs bind) -> mkLet env bind body'
+        _ -> sinkGroup binds' ExRec body'
     ExCase scrutinee binder alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
@@ -637,6 +651,33 @@ simplifyExpr env0 expr =
     env
       | spEscapes env0 || isLambdaHead expr = env0
       | otherwise = env0 {spEscapes = True}
+
+-- | Inside a lazy field, the enclosing constructor is already available.
+-- Expose only its trivial, independent fields. Other fields stay opaque,
+-- so a selection cannot duplicate a shared computation or unfold a knot.
+simplifyRecursiveBinding :: Simpl -> Bind -> SimplM Bind
+simplifyRecursiveBinding env bind = do
+  rhs <- simplifyExpr (rhsEnv env name) {spEscapes = False} (bindRhs bind)
+  case collectSpine rhs of
+    (ExVar con, args)
+      | isConstructorName con,
+        not (unused name rhs),
+        Just (fieldTypes, _) <- constructorFields (spEnv env) con (lefts args),
+        let values = rights args,
+        length values == length fieldTypes,
+        let strict = Map.findWithDefault [] con (teConStrictFields (spEnv env)),
+        let lazyField index ty = index `notElem` strict && isLiftedType (spEnv env) ty,
+        and [lazyField index ty || (isTrivial value && unused name value) | (index, ty, value) <- zip3 [0 ..] fieldTypes values] -> do
+          let visible value
+                | isTrivial value && unused name value = value
+                | otherwise = expensiveField
+              known = rebuildSpine (ExVar con) (map Left (lefts args) <> map (Right . visible) values)
+              inner = (bindingEnv env (bindBinder bind) known) {spEscapes = False}
+          fields <- sequence [if lazyField index ty then simplifyExpr inner value else pure value | (index, ty, value) <- zip3 [0 ..] fieldTypes values]
+          pure bind {bindRhs = rebuildSpine (ExVar con) (map Left (lefts args) <> map Right fields)}
+    _ -> pure bind {bindRhs = rhs}
+  where
+    name = binderName (bindBinder bind)
 
 -- | Whether an expression is a lambda under type lambdas and casts.
 isLambdaHead :: Expr -> Bool
