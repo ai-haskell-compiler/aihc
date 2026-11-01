@@ -2846,8 +2846,8 @@ static void aihc_trace_kept_stacks(AihcGcContext *context) {
           aihc_live_value(context, (AihcValue *)stack->thread) == NULL) {
         continue;
       }
-      uint8_t *covered = aihc_chunk_scanned_from(
-          context, aihc_stack_chunk_of(stack->top));
+      uint8_t *covered =
+          aihc_chunk_scanned_from(context, aihc_stack_chunk_of(stack->top));
       if (covered != NULL && (uint8_t *)stack->top <= covered) {
         continue;
       }
