@@ -27,7 +27,7 @@ extern func @aihc_no_match() cc c
 
 extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
 
-extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
+extern func @aihc_stack_grow(ptr, ptr, i64, ptr) -> ptr cc c
 
 ; The end of the stack chunk that holds an address. A chunk has
 ; AIHC_STACK_CHUNK_BYTES bytes and the same alignment.
@@ -123,21 +123,24 @@ inspect:
 thunk:
   %update_end = ptr.add %sp, @AIHC_UPDATE_FRAME_BYTES
   %update_fits = le.u ptr %update_end, %sp_limit
-  br %update_fits, push(%sp, %update_end, %sp_limit, %hp_limit), stack_grow
+  br %update_fits, push(%sp, %update_end, %sp_limit, %hp_limit, %continuation), stack_grow
 
-; The runtime gives the first frame of a chunk, so the rest of the chunk
-; follows the frame. Compiled code never stores the heap limit, so the
-; capability copy is the current limit. The charge compares the limit with the
+; The runtime puts a forward frame at the start of the new chunk, whose
+; parent is the continuation, and gives the frame after it. The rest of the
+; chunk follows that frame, and the update frame takes the forward frame as
+; its parent. Compiled code never stores the heap limit, so the capability
+; copy is the current limit. The charge compares the limit with the
 ; capability copy of the heap pointer, so that copy is stored first.
 cold stack_grow:
   %capability_stack_grow = call @aihc_stack_capability(%sp_limit)
   store ptr %hp, [%capability_stack_grow + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
-  %grown = call @aihc_stack_grow(%capability_stack_grow, %sp, @AIHC_UPDATE_FRAME_WORDS)
+  %grown = call @aihc_stack_grow(%capability_stack_grow, %sp, @AIHC_UPDATE_FRAME_WORDS, %continuation)
   %grown_end = ptr.add %grown, @AIHC_UPDATE_FRAME_BYTES
-  %grown_sp_limit = ptr.add %grown, @AIHC_STACK_CHUNK_FRAME_BYTES
+  %grown_sp_limit = ptr.add %grown, @AIHC_STACK_GROWN_FRAME_BYTES
+  %grown_parent = ptr.add %grown, -16
   %grown_hp_limit = load ptr [%capability_stack_grow + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   %heap_left = le.u ptr %hp, %grown_hp_limit
-  br %heap_left, push(%grown, %grown_end, %grown_sp_limit, %grown_hp_limit), stack_collect
+  br %heap_left, push(%grown, %grown_end, %grown_sp_limit, %grown_hp_limit, %grown_parent), stack_collect
 
 ; The new chunk stays empty above the stack pointer, and the next push uses
 ; it again.
@@ -158,10 +161,10 @@ cold stack_collect:
   %collected_hp_limit = load ptr [%capability_stack_collect + @AIHC_CAPABILITY_HEAP_LIMIT_OFFSET] align 1 word
   tailcall @aihc_lir_eval(%collected_hp, %collected_hp_limit, %sp, %sp_limit, %moved_thunk, %moved_thunk_continuation)
 
-push(%update: ptr, %pushed_sp: ptr, %pushed_sp_limit: ptr, %pushed_hp_limit: ptr):
+push(%update: ptr, %pushed_sp: ptr, %pushed_sp_limit: ptr, %pushed_hp_limit: ptr, %parent: ptr):
   %update_info_word = ptr.to_int @aihc_lir_cps_update_info
   store i64 %update_info_word, [%update] align 8
-  %parent_word = ptr.to_int %continuation
+  %parent_word = ptr.to_int %parent
   store i64 %parent_word, [%update + 8] align 8
   %value_word = ptr.to_int %current
   store i64 %value_word, [%update + 16] align 8
@@ -861,15 +864,12 @@ update:
   store.atomic release i64 %result_word, [%blackhole + 8]
   %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
   store.atomic release i64 %evaluated_word, [%blackhole]
+  ; A frame with an entry is in the chunk of the stack pointer: a chunk
+  ; boundary has a forward frame, which goes to the continue helper.
   %outer_header = call @aihc_info_table(%outer)
   %entry = call @aihc_info_entry(%outer_header)
   %forward = eq code %entry, null
-  br %forward, continue, chunk
-
-chunk:
-  %entered_limit = call @aihc_stack_chunk_end(%outer)
-  %same_chunk = eq ptr %entered_limit, %sp_limit
-  br %same_chunk, enter, continue
+  br %forward, continue, enter
 
 enter:
   tailcall.indirect %entry(%hp, %hp_limit, %outer, %sp_limit, %outer, %result) : (ptr, ptr, ptr, ptr, ptr, ptr)
@@ -898,6 +898,28 @@ export data @aihc_indirection_info align 8 = {
   i8 @AIHC_FRAME_NONE,               ; frame_kind
   i8 @AIHC_OBJECT_INDIRECTION,       ; object_kind
   i8 @AIHC_NEEDS_EVAL_FOLLOW,        ; needs_eval
+  i8 0,                              ; padding
+  i16 0                              ; constructor_index
+}
+
+; The forward frame at the start of each chunk after the first one of a
+; stack. Its one field is the continuation in the chunk below. A return to
+; it goes through a continue helper, which follows it to that continuation,
+; sets the stack limit of the entered chunk, and makes the chunk young
+; again. Thus a frame with an entry is always in the chunk of the stack
+; pointer, and the inline return of compiled code tests no chunk.
+; aihc_stack_grow writes this frame.
+export data @aihc_lir_chunk_forward_info align 8 = {
+  code null,                         ; identity
+  ptr @aihc_indirection_bitmap,      ; field_is_pointer
+  ptr null,                          ; next
+  code null,                         ; backend_entry
+  ptr null,                          ; srt
+  i8 1,                              ; field_count
+  i8 0,                              ; remaining_arity
+  i8 @AIHC_FRAME_FORWARD,            ; frame_kind
+  i8 @AIHC_OBJECT_CLOSURE,           ; object_kind
+  i8 @AIHC_NEEDS_EVAL_NONE,          ; needs_eval
   i8 0,                              ; padding
   i16 0                              ; constructor_index
 }

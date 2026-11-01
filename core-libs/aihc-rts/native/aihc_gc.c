@@ -1274,9 +1274,12 @@ void aihc_stack_release(AihcCapability *capability, AihcStack *stack) {
   aihc_heap_unlock(capability->machine);
 }
 
+extern const AihcInfo aihc_lir_chunk_forward_info;
+
 AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
-                           uint64_t words) {
-  if (words > (AIHC_STACK_CHUNK_BYTES - AIHC_STACK_CHUNK_HEADER_BYTES) /
+                           uint64_t words, AihcValue *parent) {
+  if (words > (AIHC_STACK_CHUNK_BYTES - AIHC_STACK_CHUNK_HEADER_BYTES -
+               AIHC_STACK_CHUNK_FORWARD_BYTES) /
                   sizeof(AihcSlot)) {
     aihc_fail("continuation frame exceeds a stack chunk");
   }
@@ -1301,17 +1304,29 @@ AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
     next->charged_gc = (uint32_t)(capability->machine->gc_count + 1);
     aihc_charge_fixed(capability, AIHC_STACK_CHUNK_BYTES);
   }
-  return (AihcValue *)aihc_stack_chunk_frames(next);
+  /* The forward frame links the chunk to the continuation below. A return
+     to it goes through a continue helper, which sets the stack limit of
+     the entered chunk. Thus the inline return of compiled code tests no
+     chunk: a frame with an entry is in the chunk of the stack pointer. */
+  AihcValue *forward = (AihcValue *)aihc_stack_chunk_frames(next);
+  forward->header = (AihcSlot)(uintptr_t)&aihc_lir_chunk_forward_info;
+  forward->fields[0] = (AihcSlot)(uintptr_t)parent;
+  return (AihcValue *)((uint8_t *)forward + AIHC_STACK_CHUNK_FORWARD_BYTES);
 }
 
-AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words) {
+AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words,
+                           AihcValue **parent) {
   uint8_t *frame = capability->stack_next;
   if (frame == NULL) {
     aihc_fail("stack push before the capability started");
   }
   uintptr_t last = (uintptr_t)frame + words * sizeof(AihcSlot) - 1;
   if ((((uintptr_t)frame - 1) ^ last) >= AIHC_STACK_CHUNK_BYTES) {
-    frame = (uint8_t *)aihc_stack_grow(capability, frame, words);
+    frame = (uint8_t *)aihc_stack_grow(capability, frame, words,
+                                       parent == NULL ? NULL : *parent);
+    if (parent != NULL) {
+      *parent = (AihcValue *)(frame - AIHC_STACK_CHUNK_FORWARD_BYTES);
+    }
   }
   capability->stack_next = frame + words * sizeof(AihcSlot);
   return (AihcValue *)frame;

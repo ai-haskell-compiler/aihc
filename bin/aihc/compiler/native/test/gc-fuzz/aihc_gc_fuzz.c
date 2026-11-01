@@ -183,6 +183,8 @@ static AihcCapability *heap;
 static uint64_t heap_index;
 static Entry *entries;
 static size_t entry_capacity;
+extern const AihcInfo aihc_lir_chunk_forward_info;
+
 static Frame *frames;
 static size_t frame_capacity;
 static AihcSrt **srts;
@@ -824,9 +826,23 @@ static const AihcValue *print_frame(Frame *frame) {
   printf("frame %" PRIuPTR " %s %" PRIuPTR, info->identity,
          frame_kind_name(info->frame_kind), (uintptr_t)info->field_count);
   const AihcSlot *fields = aihc_value_fields_const(object);
+  /* The parent in field zero can be the forward frame that the runtime puts
+     at the start of a chunk. The model knows the frame below it, so the
+     report gives that frame. */
+  const AihcValue *parent = NULL;
   for (uint64_t index = 0; index < info->field_count; ++index) {
     if (frame->pointers[index]) {
-      print_pointer(fields[index]);
+      AihcSlot slot = fields[index];
+      if (index == 0) {
+        parent = (const AihcValue *)(uintptr_t)slot;
+        while (parent != NULL &&
+               aihc_value_info_table(parent) == &aihc_lir_chunk_forward_info) {
+          parent =
+              (const AihcValue *)(uintptr_t)aihc_value_fields_const(parent)[0];
+        }
+        slot = (AihcSlot)(uintptr_t)parent;
+      }
+      print_pointer(slot);
     } else {
       if (frame->has_shadow[index] && frame->shadow[index] != fields[index]) {
         violation("non-pointer frame field changed");
@@ -838,7 +854,7 @@ static const AihcValue *print_frame(Frame *frame) {
   if (info->field_count == 0) {
     return NULL;
   }
-  return (const AihcValue *)(uintptr_t)fields[0];
+  return parent;
 }
 
 static void print_static_thunk(uint64_t slot) {
@@ -1850,7 +1866,11 @@ static void command_push(char **tokens, size_t count) {
   }
   uint64_t parent = thread->top;
   AihcValue *parent_address = parent == 0 ? NULL : frame_of(parent)->address;
-  AihcValue *frame = aihc_stack_push(capability, 1 + field_count);
+  /* A push that starts a chunk gives the forward frame of the chunk as the
+     parent to store. The report follows forward frames of the runtime, so
+     the model sees the pushed parent. */
+  AihcValue *frame =
+      aihc_stack_push(capability, 1 + field_count, &parent_address);
   Frame *record = define_frame(identity, frame, kind, field_count, pointers,
                                srt, parent, running);
   frame->header = (AihcSlot)(uintptr_t)record->info;

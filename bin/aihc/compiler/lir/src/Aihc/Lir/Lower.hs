@@ -1148,6 +1148,12 @@ stackChunkBytes = 4096
 stackChunkHeaderBytes :: Integer
 stackChunkHeaderBytes = 64
 
+-- | The forward frame that the slow path of a push puts at the start of a
+-- new chunk: a header and the parent in the chunk below. Must agree with
+-- @AIHC_STACK_CHUNK_FORWARD_BYTES@.
+stackChunkForwardBytes :: Integer
+stackChunkForwardBytes = 16
+
 -- Context
 
 -- | Read the capability pointer from the active stack chunk.
@@ -1849,11 +1855,11 @@ compileExpr ctx env expression =
         unsupported "continuation frame in a recursive store group"
       endReplay
       allocated <- forM bindings $ \(var, node) -> do
-        object <- allocateNode ctx node
+        (object, _) <- allocateNode ctx env node
         pure (var, object)
       let env' = Map.fromList allocated `Map.union` env
       forM_ allocated $ \(var, object) ->
-        for_ (lookup var bindings) (initializeFields ctx env' object)
+        for_ (lookup var bindings) (initializeFields ctx env' object Nothing)
       compileExpr ctx env' body
     GrinCpsEval update _ value continuation -> do
       valueOperand <- pointerValue ctx env value
@@ -2189,15 +2195,14 @@ continueTransfer continuation values = do
   context <- currentContext
   header <- typedOperand <$> loadObjectInfo StackRegion continuation
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
-  stackLimit <- chunkEnd continuation
   slow <- freshLabel "continue_slow"
-  checkChunk <- freshLabel "continue_chunk"
   enter <- freshLabel "continue_enter"
+  -- A frame with an entry is in the chunk of the stack pointer: a chunk
+  -- boundary has a forward frame, which has no entry and goes to the helper.
+  -- The helper follows it, sets the stack limit of the entered chunk, and
+  -- makes the chunk young again.
   isForward <- emitValue "forward" I1 (Compare Eq Code (typedOperand entry) (OperandLiteral LitNull))
-  terminate (Branch (typedOperand isForward) (Target slow []) (Target checkChunk []))
-  beginBlock checkChunk []
-  sameChunk <- emitValue "same_chunk" I1 (Compare Eq Ptr stackLimit (contextStackLimit context))
-  terminate (Branch (typedOperand sameChunk) (Target enter []) (Target slow []))
+  terminate (Branch (typedOperand isForward) (Target slow []) (Target enter []))
   beginColdBlock slow []
   terminate (TailCall continue (contextOperands context <> (continuation : map typedOperand values)))
   beginBlock enter []
@@ -2275,8 +2280,8 @@ compileBinding ctx env vars expression =
           pure (Map.fromList bound `Map.union` env)
     GrinStore {} -> failWith (LowerUnsupportedExpression "store without a heap reservation")
     GrinStoreUnchecked node -> do
-      object <- allocateNode ctx node
-      initializeFields ctx env object node
+      (object, parent) <- allocateNode ctx env node
+      initializeFields ctx env object parent node
       bindResults [object]
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
@@ -2445,23 +2450,33 @@ bindVars env vars values
 -- | One object of a reservation the code before it has already made, or a
 -- continuation frame, which goes on the stack of the thread and needs no
 -- reservation.
-allocateNode :: FunctionCtx -> GrinNode -> LowerM Typed
-allocateNode ctx node = do
+-- For a frame, the result also gives the parent to store in field zero: the
+-- first field of the node, or the forward frame of a new chunk when the
+-- push started one. See 'pushStackFrame'.
+allocateNode :: FunctionCtx -> ValueEnv -> GrinNode -> LowerM (Typed, Maybe Operand)
+allocateNode ctx env node = do
   info <- nodeInfoSymbol (ctxEnv ctx) node
   let region = nodeRegion (ctxEnv ctx) node
-  object <-
+  (object, parent) <-
     if isFrameNode (ctxEnv ctx) node
-      then pushFrame (nodeWords node)
+      then do
+        -- Field zero of every continuation frame is its parent continuation.
+        given <- case grinNodeFields node of
+          field : _ -> pointerValue ctx env field
+          [] -> pure (OperandLiteral LitNull)
+        (frame, parent) <- pushFrame (nodeWords node) given
+        pure (frame, Just parent)
       else do
         profiling <- gets stateProfileAllocations
         when profiling (countAllocation info (grinNodeTag node) (nodeWords node))
-        bumpAllocate (nodeWords node)
+        object <- bumpAllocate (nodeWords node)
+        pure (object, Nothing)
   storeSlot region Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
   -- The shared info table of an unsaturated constructor does not say how wide
   -- this stage is, so the object records the count itself.
   when (isPartialConstructorNode node) $
     storeSlot region I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
-  pure object
+  pure (object, parent)
 
 -- | Add one object of the given words to the allocation counter of an info
 -- table. The counters are pairs of words, the objects and the words, in the
@@ -2573,25 +2588,28 @@ nodeRegion :: LowerEnv -> GrinNode -> Region
 nodeRegion env node = if isFrameNode env node then StackRegion else HeapRegion
 
 -- | Push the given words on the stack of the running thread and give back
--- the frame. The frame fits in the current chunk when the new stack pointer
--- is not above the stack limit. Otherwise the runtime continues the stack in
--- the next chunk, and the stack limit becomes the end of that chunk. Neither
--- path collects, so no root moves. The runtime charges a new young chunk to
--- the nursery, so the heap limit can go down on the second path. That charge
--- reads the capability copy of the heap pointer, which the second path
--- stores before the call. The caller writes the header and every field.
-pushFrame :: Int -> LowerM Typed
-pushFrame words' = do
+-- the frame and the parent to store in its field zero. The frame fits in the
+-- current chunk when the new stack pointer is not above the stack limit, and
+-- the parent is the given one. Otherwise the runtime continues the stack in
+-- the next chunk, which starts with a forward frame whose parent is the
+-- given one; the parent is then that forward frame, and the stack limit
+-- becomes the end of the new chunk. Neither path collects, so no root
+-- moves. The runtime charges a new young chunk to the nursery, so the heap
+-- limit can go down on the second path. That charge reads the capability
+-- copy of the heap pointer, which the second path stores before the call.
+-- The caller writes the header and every field.
+pushFrame :: Int -> Operand -> LowerM (Typed, Operand)
+pushFrame words' parent = do
   context <- currentContext
-  (frame, pushed) <- pushStackFrame context words'
+  (frame, parent', pushed) <- pushStackFrame context words' parent
   setContext pushed
-  pure (Typed frame Ptr)
+  pure (Typed frame Ptr, parent')
 
 -- | Push a frame on a stack with the stack pointer, the stack limit, and the
--- heap limit of the given context. Give back the frame and the context after
--- the push.
-pushStackFrame :: Context -> Int -> LowerM (Operand, Context)
-pushStackFrame context words' = do
+-- heap limit of the given context. Give back the frame, the parent to store
+-- in its field zero, and the context after the push. See 'pushFrame'.
+pushStackFrame :: Context -> Int -> Operand -> LowerM (Operand, Operand, Context)
+pushStackFrame context words' parent = do
   target <- targetM
   let bytes = 8 * toInteger words'
       stack = contextStack context
@@ -2601,7 +2619,7 @@ pushStackFrame context words' = do
   fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) stackLimit)
   growLabel <- freshLabel "stack_grow"
   pushedLabel <- freshLabel "stack_pushed"
-  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit, heapLimit]) (Target growLabel []))
+  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit, heapLimit, parent]) (Target growLabel []))
   beginColdBlock growLabel []
   capability <- capabilityOperand context
   -- The charge of the new chunk compares the heap limit with the capability
@@ -2612,22 +2630,26 @@ pushStackFrame context words' = do
   -- stack pointer back, so only the heap pointer goes out. See
   -- aihc_charge_fixed and the same store in aihc_lir_eval.
   emit [] (Store Ptr (contextHeap context) (byteAddress capability (capabilityHeapNextOffset target)) (wordAlignment 1))
-  grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64] [Ptr] [capability, stack, OperandLiteral (LitInt (toInteger words'))]
+  grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64, Ptr] [Ptr] [capability, stack, OperandLiteral (LitInt (toInteger words')), parent]
   grownEnd <- emitValue "sp" Ptr (PtrAdd grown (OperandLiteral (LitInt bytes)))
-  -- The runtime gives the first frame of a chunk, so the rest of the chunk
-  -- follows the frame.
-  grownLimit <- emitValue "sp_limit" Ptr (PtrAdd grown (OperandLiteral (LitInt (stackChunkBytes - stackChunkHeaderBytes))))
+  -- The runtime puts a forward frame at the start of the chunk and gives
+  -- the frame after it, so the rest of the chunk follows the frame, and the
+  -- forward frame is the parent of the frame.
+  grownLimit <- emitValue "sp_limit" Ptr (PtrAdd grown (OperandLiteral (LitInt (stackChunkBytes - stackChunkHeaderBytes - stackChunkForwardBytes))))
+  grownParent <- emitValue "parent" Ptr (PtrAdd grown (OperandLiteral (LitInt (negate stackChunkForwardBytes))))
   -- Compiled code never stores the heap limit, so the capability copy is the
   -- current limit.
   grownHeapLimit <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
-  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit, typedOperand grownHeapLimit]))
+  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit, typedOperand grownHeapLimit, typedOperand grownParent]))
   pushed <- fresh "frame"
   pushedStack <- fresh "sp"
   pushedLimit <- fresh "sp_limit"
   pushedHeapLimit <- fresh "hp_limit"
-  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr), (pushedHeapLimit, Ptr)]
+  pushedParent <- fresh "parent"
+  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr), (pushedHeapLimit, Ptr), (pushedParent, Ptr)]
   pure
     ( OperandVar pushed,
+      OperandVar pushedParent,
       context
         { contextStack = OperandVar pushedStack,
           contextStackLimit = OperandVar pushedLimit,
@@ -2659,10 +2681,13 @@ isPartialConstructorNode node =
     GrinConstructor _ remaining -> constructorStage remaining == PartialConstructor
     _ -> False
 
-initializeFields :: FunctionCtx -> ValueEnv -> Typed -> GrinNode -> LowerM ()
-initializeFields ctx env object node =
+-- The parent of a frame replaces its first field: see 'allocateNode'.
+initializeFields :: FunctionCtx -> ValueEnv -> Typed -> Maybe Operand -> GrinNode -> LowerM ()
+initializeFields ctx env object parent node =
   forM_ (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
-    typed <- materialize ctx env field
+    typed <- case parent of
+      Just operand | index == 0 -> pure (Typed operand Ptr)
+      _ -> materialize ctx env field
     storeSlot (nodeRegion (ctxEnv ctx) node) (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1 + payloadShift)))
   where
     payloadShift = nodePayloadShift node
@@ -4237,7 +4262,7 @@ startMachine = do
 -- context. Exported for harnesses that build their own entry.
 allocateContinuation :: Operand -> Symbol -> Int -> LowerM Operand
 allocateContinuation capability info words' = do
-  object <- callRuntime "aihc_stack_push" [Ptr, I64] [Ptr] [capability, OperandLiteral (LitInt (toInteger words'))]
+  object <- callRuntime "aihc_stack_push" [Ptr, I64, Ptr] [Ptr] [capability, OperandLiteral (LitInt (toInteger words')), OperandLiteral LitNull]
   storeSlot StackRegion Ptr (OperandLiteral (LitSymbol info)) object 0
   pure object
 
@@ -4478,10 +4503,14 @@ generateHelper env helper =
       info <- fresh "info"
       fields <- forM shape $ \ty -> (,ty) <$> fresh "field"
       beginBlock (Label "entry") []
-      (frame, pushed) <- pushStackFrame context (1 + length shape)
+      -- The first field of the frame is its parent continuation.
+      let given = case fields of
+            (field, _) : _ -> OperandVar field
+            [] -> OperandLiteral LitNull
+      (frame, parent, pushed) <- pushStackFrame context (1 + length shape) given
       storeSlot StackRegion Ptr (OperandVar info) frame 0
       forM_ (zip [0 :: Int ..] fields) $ \(index, (field, ty)) ->
-        storeSlot StackRegion ty (OperandVar field) frame (toInteger (8 * (index + 1)))
+        storeSlot StackRegion ty (if index == 0 then parent else OperandVar field) frame (toInteger (8 * (index + 1)))
       eval <- requireHelper $ case update of
         EvalUpdate -> HelperEval
         EvalSingleEntry -> HelperEvalSingleEntry
@@ -4517,9 +4546,9 @@ applyOverSaturated context function continuation header supplied held = do
   let heldTypes = map (map snd) held
       heldValues = concat held
   _ <- requireHelper (HelperApplyFrame heldTypes)
-  (frame, pushed) <- pushStackFrame context (2 + length heldValues)
+  (frame, parent, pushed) <- pushStackFrame context (2 + length heldValues) continuation
   storeSlot StackRegion Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) frame 0
-  storeSlot StackRegion Ptr continuation frame 8
+  storeSlot StackRegion Ptr parent frame 8
   forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
     storeSlot StackRegion ty (OperandVar var) frame (toInteger (8 * (index + 2)))
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
