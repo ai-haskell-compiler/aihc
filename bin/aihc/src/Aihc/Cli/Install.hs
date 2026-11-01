@@ -3999,7 +3999,14 @@ preprocessorCommand config preprocessor cInfo file output macrosPath = do
   arguments <-
     case preprocessor of
       Hsc2hs -> hsc2hsArguments config cInfo file output macrosPath
+      Happy -> pure (happyArguments file output)
   pure (executable, arguments)
+
+-- | The arguments Cabal gives happy for GHC: @-agc@ selects array tables,
+-- GHC extensions, and coercions. aihc claims to be GHC, so a package gets
+-- the same parser that it gets under GHC.
+happyArguments :: HackageCabal.FileInfo -> FilePath -> [String]
+happyArguments file output = ["-agc", "-o", output, HackageCabal.fileInfoPath file]
 
 -- | The arguments Cabal would give hsc2hs.
 --
