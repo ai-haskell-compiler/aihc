@@ -617,7 +617,9 @@ mvarWaiterWords = 5
 blackholeWaiterWords = 10
 stableNameWords = 4
 
--- | The words of frames one stack chunk holds.
+-- | The words of frames one stack chunk holds. A chunk after the first one
+-- of a stack starts with the forward frame of two words that
+-- @aihc_stack_grow@ writes.
 chunkWords :: Int
 chunkWords = (4096 - 64) `div` 8
 
@@ -634,7 +636,8 @@ deepestStack model = maximum (1 : [chunks (reverse (chainOf top)) | Thread (Thre
     go count _ [] = count
     go count used (fid : rest) =
       let size = 1 + length (fFields (mFrames model Map.! fid)) + (if fKind (mFrames model Map.! fid) == FStop then 0 else 1)
-       in if used + size > chunkWords then go (count + 1) size rest else go count (used + size) rest
+          capacity = if count == 1 then chunkWords else chunkWords - 2
+       in if used + size > capacity then go (count + 1) (2 + size) rest else go count (used + size) rest
 
 -- | The young objects that a promotion of an object reaches, whether the
 -- promotion collects, and every object it reaches. The promotion goes

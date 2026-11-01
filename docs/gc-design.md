@@ -157,10 +157,11 @@ above it. Thus the walk rule is complete.
 
 The pop detection is the one new hot-path cost. The continue helpers compute
 the stack limit of the entered frame in `Aihc.Lir.Lower`. One compare against
-the previous limit and a cold runtime call on change covers it. An underflow
-frame at each chunk boundary has no hot-path cost but changes the frame chain
-that continuation capture walks. The compare comes first. A measurement
-decides on the underflow frame.
+the previous limit and a cold runtime call on change covers it. A forward frame
+at each chunk boundary has no hot-path cost: the inline return tests only
+that the frame has an entry, and the continue helper follows the forward
+frame and sets the limit. Continuation capture skips the forward frames of
+the runtime, and a resume makes its own.
 
 The worst case stack cost of a minor collection is one chunk for each live
 thread plus the young chunks. A collection scans the frames of a young chunk
@@ -339,7 +340,8 @@ Each step leaves the compiler shippable and is its own PR series.
 
 - The nursery default. The measurements of step 1 decide between 1 MiB and
   4 MiB.
-- The pop detection. The compare in the continue helpers comes first. The
-  underflow frame replaces it only if the compare is measurable.
+- The pop detection. The continue helpers compare the chunk of the entered
+  frame with the previous one, and the inline return of compiled code does
+  not: a chunk boundary has a forward frame, which goes to the helpers.
 - The size classes of gen2 and the large object threshold. The object size
   distribution of the compile workloads in the benchmarks suite decides them.

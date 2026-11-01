@@ -27,21 +27,13 @@ expected: |
     %info_word_14 = and i64 %header_word_13, -4
     %header_15 = ptr.from_int %info_word_14
     %entry_16 = load.invariant code [%header_15 + 24] align 1 word
-    %chunk_word_17 = ptr.to_int %$cps_return_5
-    %chunk_last_18 = or i64 %chunk_word_17, 4095
-    %chunk_end_19 = add i64 %chunk_last_18, 1
-    %sp_limit_20 = ptr.from_int %chunk_end_19
-    %forward_24 = eq code %entry_16, null
-    br %forward_24, continue_slow_21, continue_chunk_22
+    %forward_19 = eq code %entry_16, null
+    br %forward_19, continue_slow_17, continue_enter_18
 
-  continue_chunk_22:
-    %same_chunk_25 = eq ptr %sp_limit_20, %sp_limit_3
-    br %same_chunk_25, continue_enter_23, continue_slow_21
-
-  cold continue_slow_21:
+  cold continue_slow_17:
     tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_12)
 
-  continue_enter_23:
+  continue_enter_18:
     tailcall.indirect %entry_16(%hp_0, %hp_limit_1, %$cps_return_5, %sp_limit_3, %$cps_return_5, %payload_12) : (ptr, ptr, ptr, ptr, ptr, i64)
 
   alt_7:
