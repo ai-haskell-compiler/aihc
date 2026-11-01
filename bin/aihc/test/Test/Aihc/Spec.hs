@@ -8,7 +8,7 @@ import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageT
 import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, readLinkBundle, runLinkExe)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.Progress (withProgress)
+import Aihc.Cli.Progress (quietProgress, withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
@@ -42,6 +42,7 @@ import System.Directory
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setModificationTime,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitSuccess))
@@ -130,6 +131,7 @@ tests =
               testCase "the sigset_t size matches the platform headers" test_sigsetSize,
               testCase "the errno numbers match the platform headers" test_errnoNumbers,
               testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
+              testCase "reuses source metadata and checks content changes" (test_sourceMetadataCache primStore),
               testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
             ]
         ]
@@ -1474,6 +1476,61 @@ test_coreLibsMatchRelease =
     contents <- readFile cabalFile
     let declared = [dropWhile isSpace rest | line <- lines contents, Just rest <- [stripPrefix "version:" line]]
     assertEqual (coreProviderName provider <> " version") [coreProviderVersion provider] declared
+
+-- | Repeated installs must reuse source metadata. A source or header edit
+-- must invalidate it even when the size and modification time stay equal.
+test_sourceMetadataCache :: IO SeedStore -> Assertion
+test_sourceMetadataCache getStore =
+  withSandbox getStore "aihc-source-metadata" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox </> "source"
+        demo = root </> "Demo.hs"
+        types = root </> "Types.hs"
+        header = root </> "value.h"
+        source imported = unlines ["{-# LANGUAGE CPP #-}", "module Demo where", "import " <> imported, "#include \"value.h\""]
+        options = InstallOptions root (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True True False buildHostTarget Nothing defaultPlanOptions
+        run = do
+          (path, handle) <- openTempFile (sandboxRoot sandbox) "source-log"
+          outcome <- try (installWith (quietProgress handle) options) :: IO (Either IOException InstallResult)
+          hClose handle
+          messages <- readFile path
+          pure (outcome, messages)
+        success = do
+          (outcome, messages) <- run
+          either (assertFailure . show) (const (pure messages)) outcome
+        changed path contents = do
+          modified <- getModificationTime path
+          writeFile path contents
+          setModificationTime path modified
+    createDirectoryIfMissing True root
+    writeFile
+      (root </> "demo.cabal")
+      (unlines ["cabal-version: 3.0", "name: demo", "version: 0.1.0.0", "library", "  exposed-modules: Demo", "  other-modules: Types", "  default-language: Haskell2010", "  default-extensions: NoImplicitPrelude"])
+    writeFile types "module Types where\ndata Token = Token\n"
+    writeFile demo (source "Types")
+    writeFile header "token = Token\n"
+    void success
+    reused <- success
+    assertBool "the unchanged module reuses its source metadata" (("Reuse source metadata: " <> demo) `isInfixOf` reused)
+    assertBool "the unchanged module does not run the parser" (not (("Parse source: " <> demo) `isInfixOf` reused))
+    -- A dependency change needs the deferred tree of the unchanged module.
+    writeFile types "module Types where\ndata Token = Token | Other\n"
+    dependencyChanged <- success
+    assertBool "a dependency change retains the source cache hit" (("Reuse source metadata: " <> demo) `isInfixOf` dependencyChanged)
+    changed demo (source "Typxs")
+    (sourceOutcome, sourceMessages) <- run
+    assertBool "a source edit runs the parser" (("Parse source: " <> demo) `isInfixOf` sourceMessages)
+    case sourceOutcome of
+      Left err -> assertBool "the edited import gives a diagnostic" ("Typxs" `isInfixOf` show err)
+      Right _ -> assertFailure "the install accepted an import of a missing module"
+    writeFile demo (source "Types")
+    void success
+    changed header "token = Nope_\n"
+    (headerOutcome, headerMessages) <- run
+    assertBool "a header edit runs the parser" (("Parse source: " <> demo) `isInfixOf` headerMessages)
+    case headerOutcome of
+      Left err -> assertBool "the edited header gives a diagnostic" ("Nope_" `isInfixOf` show err)
+      Right _ -> assertFailure "the install accepted a missing constructor from the header"
 
 -- | A dependency file is one make rule, so a name in it may be split across
 -- lines and may hold escaped spaces, colons and dollars.

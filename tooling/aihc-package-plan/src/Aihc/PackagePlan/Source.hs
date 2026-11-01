@@ -116,6 +116,8 @@ parseInterfaceFile headerDir packageRoot versions fileInfo = do
   parseInterfaceBytes headerDir packageRoot versions fileInfo bytes
 
 -- | Parse the same source bytes that the caller uses for its input hash.
+-- The module and parse diagnostics stay lazy. A caller can check the
+-- dependency digests before it requests the syntax tree.
 parseInterfaceBytes :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
 parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
   let normalized = normalizeSource path (TE.decodeUtf8With lenientDecode bytes)

@@ -81,6 +81,7 @@ import Aihc.Cli.BuildStamp
     ModuleDigests (..),
     PackageDigests (..),
     ResolveStamp (..),
+    SourceStamp (..),
     UnitStamp (..),
     filesMatchStamps,
     packageDigestsPath,
@@ -243,7 +244,7 @@ import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
@@ -297,10 +298,10 @@ data SourceModule = SourceModule
     -- CPP, the headers it included and the dependency versions its
     -- @MIN_VERSION_*@ macros reported.
     sourceModuleHash :: !Text,
-    -- | The parsed module. The resolve task of its unit takes it, so the
-    -- parse tree dies once the unit is resolved (or, when the resolve
-    -- artifacts were reused, once the unit is type-checked). Everything the
-    -- later phases need from the header is precomputed in the fields below.
+    -- | The syntax tree. A source cache hit defers the parse.
+    -- The resolve task takes this value once.
+    -- A cache hit in both later phases discards the tree without evaluation.
+    -- The fields below hold the module header facts.
     sourceModuleParsed :: !(MVar Module),
     sourceModuleName :: !Text,
     -- | The directory of the module's artifacts, relative to the package.
@@ -1806,7 +1807,7 @@ addModuleBuild graph shared build = do
   let config = moduleBuildConfig build
       files = moduleBuildFiles build
       order = moduleBuildOrder build
-  compileVerbose config ("Parse " <> show (length files) <> " modules")
+  compileVerbose config ("Read " <> show (length files) <> " source modules")
   progressReport (compileProgress config) (ProgressBuild (moduleBuildItem build) (length files))
   sourceSlots <- mapM (const newEmptyTMVarIO) files
   parseBase <- allocateTaskIds graph (length files)
@@ -1817,13 +1818,8 @@ addModuleBuild graph shared build = do
               taskOrder = order,
               taskDependencies = Set.empty,
               taskAction = do
-                source <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
-                -- The header fields of the module are strict, so the import
-                -- list is known once the source exists. The tree is forced
-                -- here, in the parse task, and not by the first task that
-                -- reads it.
-                modu <- readMVar (sourceModuleParsed source)
-                evaluate (rnf (modu, sourceModuleParseDiagnostics source))
+                let stampPath = moduleBuildOutputRoot build </> ".sources" </> stableHash [BS8.pack (HackageCabal.fileInfoPath file)] <.> "cbor"
+                source <- parseSourceWith (Just (stampPath, T.pack (compileBuildIdentity config))) (compileVerbose config) (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
                 atomically (putTMVar slot source)
             }
         | (index, file, slot) <- zip3 [0 ..] files sourceSlots
@@ -2280,7 +2276,14 @@ externalTypedFacts provider unitNames dependencyNames =
     (,) key <$> providerTyped provider key
 
 parseSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
-parseSource headerDir root versions fileInfo = do
+parseSource = parseSourceWith Nothing (const (pure ()))
+
+-- | Check content digests before the parser runs. Preprocessing still runs
+-- to check header selection, header contents, options, and package versions.
+-- A matching stamp supplies the module name and imports. The syntax tree
+-- stays deferred until a resolve or type-check cache miss needs it.
+parseSourceWith :: Maybe (FilePath, Text) -> (String -> IO ()) -> FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
+parseSourceWith cache verbose headerDir root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
   ParsedInterfaceFile
     { parsedFilePath = path,
@@ -2299,8 +2302,23 @@ parseSource headerDir root versions fileInfo = do
   -- the language edition and the module's own pragmas folded into one set.
   -- Name resolution and the type checker take that set as data, so neither
   -- reads the pragmas again.
-  let name = fromMaybe "Main" (moduleName modu)
-      imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
+  let sourceHash = moduleDepsDigest deps
+      inputs = T.pack (stableHash (map TE.encodeUtf8 (sourceHash : maybe [] (pure . snd) cache)))
+  recorded <- maybe (pure Nothing) (readStamp . fst) cache
+  (name, imports, diagnostics) <- case recorded of
+    Just stamp | sourceStampInputs stamp == inputs -> do
+      verbose ("Reuse source metadata: " <> path)
+      pure (sourceStampName stamp, sourceStampImports stamp, [])
+    _ -> do
+      verbose ("Parse source: " <> path)
+      -- Force a new tree in its parse task. A cache hit must not force it.
+      evaluate (rnf (modu, parseDiagnostics))
+      let name = fromMaybe "Main" (moduleName modu)
+          imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
+      when (null parseDiagnostics) $
+        forM_ cache $ \(stampPath, _) ->
+          writeStamp stampPath (SourceStamp inputs name imports)
+      pure (name, imports, parseDiagnostics)
   parsed <- newMVar modu
   -- Built here rather than returned as a thunk: the strict fields below
   -- are what the phases after this one read instead of the parse tree,
@@ -2311,13 +2329,13 @@ parseSource headerDir root versions fileInfo = do
     SourceModule
       { sourceModulePath = path,
         sourceModuleSize = BS.length bytes,
-        sourceModuleHash = moduleDepsDigest deps,
+        sourceModuleHash = sourceHash,
         sourceModuleParsed = parsed,
         sourceModuleName = name,
         sourceModuleDirectory = moduleNameDirectory name,
         sourceModuleImports = imports,
         sourceModuleExtensions = extensions,
-        sourceModuleParseDiagnostics = parseDiagnostics
+        sourceModuleParseDiagnostics = diagnostics
       }
 
 sourceModuleUnits :: [SourceModule] -> [SourceUnit]

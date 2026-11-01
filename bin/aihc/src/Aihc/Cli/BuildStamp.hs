@@ -9,13 +9,14 @@
 -- each artifact file. A later build compares the recorded inputs with the
 -- digests it has in hand for the same unit, checks that the artifact files
 -- are the ones the stamp describes, and reuses them on a match. Nothing is
--- hashed for the comparison: source digests come from parsing, and artifact
+-- hashed for the comparison: source digests come from preprocessing, and artifact
 -- digests were taken from the bytes as they were written.
 --
 -- A package writes one 'PackageDigests' record next to its manifest so that a
 -- consumer learns the digests of its interfaces without encoding them again.
 module Aihc.Cli.BuildStamp
   ( FileStamp (..),
+    SourceStamp (..),
     ResolveStamp (..),
     UnitStamp (..),
     BackendStamp (..),
@@ -37,6 +38,14 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, doesFileExist, getFileSize, getModificationTime, renameFile)
 import System.FilePath (takeDirectory, (</>))
+
+-- | The source inputs and module header from a successful parse.
+data SourceStamp = SourceStamp
+  { sourceStampInputs :: !Text,
+    sourceStampName :: !Text,
+    sourceStampImports :: ![(Maybe Text, Text)]
+  }
+  deriving (Eq, Show)
 
 -- | The identity of an artifact file as the stamp saw it.
 data FileStamp = FileStamp
@@ -103,6 +112,21 @@ newtype PackageDigests = PackageDigests
   { packageDigestsModules :: Map.Map Text ModuleDigests
   }
   deriving (Eq, Show)
+
+instance Cbor SourceStamp where
+  toCbor value =
+    cborArray 4
+      <> cborText "aihc-sourcestamp-1"
+      <> toCbor (sourceStampInputs value)
+      <> toCbor (sourceStampName value)
+      <> toCbor (sourceStampImports value)
+  fromCbor = do
+    expectArray 4
+    "aihc-sourcestamp-1" <- getText
+    SourceStamp
+      <$!> fromCbor
+        <*!> fromCbor
+        <*!> fromCbor
 
 instance Cbor FileStamp where
   toCbor value =
