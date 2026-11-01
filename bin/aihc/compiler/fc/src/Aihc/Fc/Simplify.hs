@@ -45,6 +45,7 @@ module Aihc.Fc.Simplify
     candidateGuidance,
     refreshGuidance,
     simplifyExpr,
+    callPatternBodyLimit,
 
     -- * Views of expressions
     isConstructorName,
@@ -76,7 +77,7 @@ module Aihc.Fc.Simplify
 where
 
 import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, topLevelSignatures)
-import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, floatBottoms)
+import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, exprTypeVariables, floatBottoms)
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
@@ -87,14 +88,14 @@ import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, typesEqual, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprMentionsAny, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (liftedRepName, wiredGhcTypes)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM, zipWithM)
-import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
+import Control.Monad.Trans.State.Strict (State, get, gets, modify', put, runState, state)
 import Data.Bifunctor (first)
 import Data.Either (isRight, lefts, rights)
 import Data.List qualified as List
@@ -152,7 +153,7 @@ simplifyProgram primPackage phase siteLimit program =
             spLocalCandidates = Map.empty,
             spFacts = emptyFacts,
             spEscapes = True,
-            spFixed = SimplFixed {spKnown = Map.filter isKnownValue bodies, spArity = arities, spSiteLimit = siteLimit, spRequestedSiteLimit = 0, spReducingSiteLimit = 0, spDiscount = 0, spRules = ruleTable phase (programDecls program), spSignatures = topLevelSignatures env (programDecls program), spInTemplate = False, spDiverging = diverging}
+            spFixed = SimplFixed {spKnown = Map.filter isKnownValue bodies, spArity = arities, spSiteLimit = siteLimit, spRequestedSiteLimit = 0, spReducingSiteLimit = 0, spDiscount = 0, spRules = ruleTable phase (programDecls program), spSignatures = topLevelSignatures env (programDecls program), spInTemplate = False, spDiverging = diverging, spBodies = Map.filter ((<= callPatternBodyLimit) . exprSize env) bodies}
           }
       diverging = divergingValues env (Map.toList bodies)
       escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
@@ -414,7 +415,10 @@ data SimplFixed = SimplFixed
     -- | The top-level values that diverge, with the value arguments that
     -- a call gives before it diverges. A case or a strict let of such a
     -- call is the call. See "Aihc.Fc.Diverge".
-    spDiverging :: !Diverging
+    spDiverging :: !Diverging,
+    -- | The bodies of the top-level values that a call with constant
+    -- constructor arguments can specialise. See 'constantCallPattern'.
+    spBodies :: !(Map Name Expr)
   }
 
 data Simpl = Simpl
@@ -520,7 +524,11 @@ data SimplState = SimplState
     -- top-level candidate is fixed for the walk, so a later site with the
     -- same arguments reads the size instead of a walk over the body. See
     -- 'estimateGrowth'.
-    ssResidualSizes :: !(Map (Name, [(Name, Known)]) Int)
+    ssResidualSizes :: !(Map (Name, [(Name, Known)]) Int),
+    -- | The specialisation of a top-level value at the constant arguments
+    -- of a call, when it is no larger than a call. See
+    -- 'constantCallPattern'.
+    ssCallPatterns :: !(Map (Name, [Either Type (Maybe Expr)]) (Maybe Expr))
   }
 
 -- | The state of one walk, with the unique supply and the growth allowance.
@@ -534,7 +542,8 @@ initialSimplState supply allowance =
       ssRulesFired = 0,
       ssCopied = Map.empty,
       ssRuleFuel = ruleFuel,
-      ssResidualSizes = Map.empty
+      ssResidualSizes = Map.empty,
+      ssCallPatterns = Map.empty
     }
 
 -- | How many rules may fire in one walk over one body.
@@ -2158,6 +2167,13 @@ tailsKnownIn env arities expr =
 -- into the constructor would make every case on the dictionary reduce to
 -- that body, whatever its size. The size rule still decides a site that
 -- this rule admits.
+--
+-- A call is also taken when the copy is no larger than the call, as for
+-- @(.) f g@ in the continuation @cok . f@ of a parser. The partial
+-- application and the lambda that replaces it hold the same arguments,
+-- so the closure does not grow. In the lambda, the body sees the
+-- arguments, and a call of a known function there reduces: @f x@ is then
+-- not a thunk that each call of the continuation allocates.
 takesArgument :: Simpl -> Candidate -> [Arg] -> Bool
 takesArgument env candidate args =
   -- A function under a cast is copied only where a use casts it back,
@@ -2165,11 +2181,16 @@ takesArgument env candidate args =
   not (isCastedFunction (candidateBody candidate))
     && ( count >= functionArity (candidateBody candidate)
            || (count > 0 && any interesting valueArgs)
+           || (count > 0 && copySize <= callSize + 1)
        )
   where
     valueArgs = rights args
     count = length valueArgs
     interesting = interestingArgument env
+    -- Each argument removes one lambda from the copy. The call has the
+    -- head, and one application and one argument for each argument.
+    copySize = guidanceSize (candidateGuidanceOf candidate) - count
+    callSize = 1 + 2 * count
 
 -- | An argument that tells a copy of the callee something: anything but
 -- a local variable, as in GHC's @interestingArg@. A variable that names
@@ -2599,8 +2620,10 @@ rebuildApp env headExpr' args' = do
 rebuildCall :: Simpl -> Expr -> [Arg] -> SimplM Expr
 rebuildCall env headExpr' args' = do
   fired <- fireRule env headExpr' args'
+  specialised <- constantCallPattern env headExpr' args'
   case headExpr' of
     _ | Just rewritten <- fired -> simplifyExpr env rewritten
+    _ | Just reduced <- specialised -> pure reduced
     ExVar name
       | Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args' ->
@@ -3040,6 +3063,127 @@ betaReduce env expr args =
           body' <- betaReduce (bindingEnv env binder argument) body rest
           mkLet env (Bind binder argument) body'
     _ -> simplifyExpr env (rebuildSpine expr args)
+
+-- | The largest top-level body that 'constantCallPattern' specialises.
+callPatternBodyLimit :: Int
+callPatternBodyLimit = 2000
+
+-- | Specialise a saturated call of a top-level value at its constant
+-- arguments: type arguments without type variables, and constructors
+-- without fields, also under casts without variables. The body of the value is simplified once with these
+-- arguments in place of its parameters, and the result is taken only
+-- when it is not larger than the call. The result is a lambda of the other
+-- parameters, and the call gives them their arguments.
+--
+-- A recursive value is never inlined, but such a call can make it small.
+-- The hints of megaparsec merge with
+-- @union hs Tip@, and the body of @union@ then reduces to
+-- @case hs of {Bin .. -> hs; Tip -> Tip}@, which is @hs@. The lazy argument
+-- that held the call is then a variable, and no thunk is built.
+--
+-- Each value and pattern is simplified once in a walk, and the walk inside
+-- the specialisation does not specialise again.
+constantCallPattern :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
+constantCallPattern env headExpr' args' =
+  case headExpr' of
+    ExVar name
+      | Just body <- Map.lookup name (spBodies (spFixed env)),
+        Just pattern <- traverse constantArgument args',
+        any isConstantValue pattern,
+        typeLambdaCount body == length (lefts args'),
+        functionArity body == length (rights args') -> do
+          let key = (name, pattern)
+          cached <- gets (Map.lookup key . ssCallPatterns)
+          residual <- case cached of
+            Just known -> pure known
+            Nothing -> do
+              known <- specialise body pattern
+              modify' (\st -> st {ssCallPatterns = Map.insert key known (ssCallPatterns st)})
+              pure known
+          case residual of
+            Nothing -> pure Nothing
+            Just lambdas -> do
+              copy <- freshenExpr lambdas
+              Just <$> betaReduce env copy [Right argument | (Right Nothing, Right argument) <- zip pattern args']
+    _ -> pure Nothing
+  where
+    constantArgument arg =
+      case arg of
+        Left ty
+          | null (typeVariableNames ty) -> Just (Left ty)
+          | otherwise -> Nothing
+        Right argument
+          | (ExVar con, spine) <- collectSpine (fst (peelCasts argument)),
+            isConstructorName con,
+            null (rights spine),
+            Set.null (exprTypeVariables argument),
+            null (concatMap coercionVariables (snd (peelCasts argument))) ->
+              Just (Right (Just (retypeConstant argument)))
+          | otherwise -> Just (Right Nothing)
+    -- A constructor without fields under a cast to its own type
+    -- constructor is the same constructor at the type arguments of the
+    -- cast, as a newtype round trip at an equal type argument gives. The
+    -- case of a known constructor then sees it.
+    retypeConstant argument =
+      case argument of
+        ExCast inner coercion
+          | (ExVar con, spine) <- collectSpine inner,
+            Just (from, to) <- coercionEndpoints (spEnv env) coercion,
+            (TyCon fromHead, _) <- typeSpine (reduceType (spEnv env) from),
+            (TyCon toHead, toArguments) <- typeSpine (reduceType (spEnv env) to),
+            fromHead == toHead,
+            length toArguments == length (lefts spine),
+            all (null . typeVariableNames) toArguments ->
+              List.foldl' ExTyApp (ExVar con) toArguments
+        _ -> argument
+    isConstantValue = either (const False) isJust
+    typeLambdaCount body =
+      case body of
+        ExTyLam _ inner -> 1 + typeLambdaCount inner
+        _ -> 0 :: Int
+    callSize = 1 + 2 * length (rights args')
+    -- The body with the constants in place of their parameters, simplified
+    -- as a top-level body, under the lambdas of the other parameters.
+    specialise body pattern = do
+      copy <- freshenExpr body
+      let instantiated = instantiateConstants copy pattern
+          inner =
+            env
+              { spInline = Map.empty,
+                spLocals = Map.empty,
+                spLocalDictionaries = Map.empty,
+                spExcluded = Map.empty,
+                spCse = Map.empty,
+                spEvaluated = Set.empty,
+                spDone = Map.empty,
+                spCredit = 0,
+                spInside = False,
+                spCredits = Map.empty,
+                spCaseContext = Nothing,
+                spLocalCandidates = Map.empty,
+                spFacts = emptyFacts,
+                spEscapes = True,
+                spFixed = (spFixed env) {spBodies = Map.empty}
+              }
+      before <- get
+      simplified <- simplifyExpr inner instantiated
+      if exprSize (spEnv env) (dropLambdas simplified) <= callSize
+        then pure (Just simplified)
+        else do
+          -- Keep the unique supply, and drop the rest of the walk.
+          supply <- gets ssSupply
+          put before {ssSupply = supply}
+          pure Nothing
+    instantiateConstants expr pattern =
+      case (expr, pattern) of
+        (ExTyLam binder inner, Left ty : rest) -> instantiateConstants (substTypeExpr (Map.singleton (binderName binder) ty) inner) rest
+        (ExLam binder inner, Right (Just argument) : rest) -> instantiateConstants (substExpr (Map.singleton (binderName binder) argument) inner) rest
+        (ExLam binder inner, Right Nothing : rest) -> ExLam binder (instantiateConstants inner rest)
+        _ -> expr
+    dropLambdas expr =
+      case expr of
+        ExLam _ inner -> dropLambdas inner
+        _ -> expr
 
 -- | Whether a name has the text.
 nameTextIs :: Name -> Text -> Bool
@@ -4690,13 +4834,22 @@ rebuildsScrutinee env scrutinee binder alternatives =
           (Just named, _) -> Just (binderType named)
           (Nothing, ExVar name) -> Map.lookup name (teBinders env)
           _ -> Nothing
+    -- A cast whose two sides are the same type changes nothing, such as
+    -- a cast to a newtype and back at an equal type argument.
+    unchanged rhs =
+      case rhs of
+        ExCast inner coercion
+          | Just (from, to) <- coercionEndpoints env coercion,
+            typesEqual env from to ->
+              unchanged inner
+        _ -> rhs
     rebuilds alternative
-      | returnsBinder (altRhs alternative) = null (altTypeBinders alternative)
+      | returnsBinder (unchanged (altRhs alternative)) = null (altTypeBinders alternative)
       | otherwise =
           case altCon alternative of
             AltData con
               | null (altTypeBinders alternative),
-                (ExVar rebuilt, spine) <- collectSpine (altRhs alternative),
+                (ExVar rebuilt, spine) <- collectSpine (unchanged (altRhs alternative)),
                 rebuilt == con,
                 rights spine == map (ExVar . binderName) (altBinders alternative) ->
                   null (lefts spine) || (map (reduceType env) <$> scrutineeArguments) == Just (map (reduceType env) (lefts spine))

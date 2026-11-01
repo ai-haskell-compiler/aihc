@@ -27,6 +27,7 @@ module Aihc.Fc.Diverge
     diverges,
     bottomAt,
     floatBottoms,
+    exprTypeVariables,
   )
 where
 
