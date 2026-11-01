@@ -68,12 +68,12 @@ walk env owner inside expr
   | otherwise = case expr of
       ExLam binder body -> ExLam binder <$> walk (extendBinder env binder) owner True body
       ExTyLam binder body -> ExTyLam binder <$> walk (extendBinder env binder) owner inside body
-      ExApp function argument -> ExApp <$> child function <*> child argument
+      ExApp function argument -> ExApp <$> child function <*> value argument
       ExTyApp function ty -> (`ExTyApp` ty) <$> child function
       ExCast body proof -> (`ExCast` proof) <$> child body
       ExAbsurd body ty -> (`ExAbsurd` ty) <$> child body
       ExLet bind body -> do
-        rhs <- child (bindRhs bind)
+        rhs <- value (bindRhs bind)
         body' <- walk (extendBinder env (bindBinder bind)) owner inside body
         pure (ExLet bind {bindRhs = rhs} body')
       ExRec binds body -> do
@@ -90,6 +90,40 @@ walk env owner inside expr
       _ -> pure expr
   where
     child = walk env owner inside
+    -- A closed function that is an argument or the right-hand side of a
+    -- let moves to a private top-level function. A closure of it held
+    -- nothing, and the top-level function needs no allocation at all.
+    -- The body of a lambda stays, so no function loses a parameter.
+    value current
+      | inside,
+        Just ty <- closedFunctionType env current = do
+          state <- get
+          case Map.lookup current (floatKnown state) of
+            Just name -> pure (ExVar name)
+            Nothing -> do
+              name <- freshTop owner
+              let decl = DeclVal (ValDecl Private name ty current (InlineNever NeverActive))
+              modify' (\st -> st {floatKnown = Map.insert current name (floatKnown st), floatDecls = decl : floatDecls st, floatCount = floatCount st + 1})
+              pure (ExVar name)
+      | otherwise = child current
+
+-- | The type of a lambda with no free local name.
+closedFunctionType :: TypeEnv -> Expr -> Maybe Type
+closedFunctionType env expr = do
+  guard (lambdaHead expr)
+  guard (closedReferences expr)
+  ty <- exprType env expr
+  guard (all isTop (typeReferences ty))
+  pure ty
+  where
+    lambdaHead current = case current of
+      ExLam {} -> True
+      ExTyLam _ body -> lambdaHead body
+      ExCast body _ -> lambdaHead body
+      _ -> False
+    isTop name = case nameOrigin name of
+      OriginTop {} -> True
+      OriginLocal {} -> False
 
 -- | Whether the pass moves an expression under a lambda to a shared
 -- thunk.

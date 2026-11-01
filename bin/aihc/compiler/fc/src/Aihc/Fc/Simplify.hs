@@ -46,6 +46,7 @@ module Aihc.Fc.Simplify
     refreshGuidance,
     simplifyExpr,
     callPatternBodyLimit,
+    callPatternSpec,
 
     -- * Views of expressions
     isConstructorName,
@@ -153,9 +154,19 @@ simplifyProgram primPackage phase siteLimit program =
             spLocalCandidates = Map.empty,
             spFacts = emptyFacts,
             spEscapes = True,
-            spFixed = SimplFixed {spKnown = Map.filter isKnownValue bodies, spArity = arities, spSiteLimit = siteLimit, spRequestedSiteLimit = 0, spReducingSiteLimit = 0, spDiscount = 0, spRules = ruleTable phase (programDecls program), spSignatures = topLevelSignatures env (programDecls program), spInTemplate = False, spDiverging = diverging, spBodies = Map.filter ((<= callPatternBodyLimit) . exprSize env) bodies}
+            spFixed = SimplFixed {spKnown = Map.filter isKnownValue bodies, spArity = arities, spSiteLimit = siteLimit, spRequestedSiteLimit = 0, spReducingSiteLimit = 0, spDiscount = 0, spRules = ruleTable phase (programDecls program), spSignatures = topLevelSignatures env (programDecls program), spInTemplate = False, spDiverging = diverging, spBodies = patternBodies, spRuleNames = ruleLhsNames}
           }
       diverging = divergingValues env (Map.toList bodies)
+      ruleNames = ruleValueNames (programDecls program)
+      ruleLhsNames = Set.unions [exprValueNames (ruleLhs rule) | DeclRule rule <- programDecls program]
+      patternBodies =
+        Map.fromList
+          [ (valName declaration, valBody declaration)
+          | DeclVal declaration <- programDecls program,
+            callPatternSpec (valInline declaration),
+            Set.notMember (valName declaration) ruleNames,
+            exprSize env (valBody declaration) <= callPatternBodyLimit
+          ]
       escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
       callArities = topCallArities escaping (Map.elems bodies)
       simplifyDecl decl =
@@ -418,7 +429,10 @@ data SimplFixed = SimplFixed
     spDiverging :: !Diverging,
     -- | The bodies of the top-level values that a call with constant
     -- constructor arguments can specialise. See 'constantCallPattern'.
-    spBodies :: !(Map Name Expr)
+    spBodies :: !(Map Name Expr),
+    -- | The values that the left-hand side of a rewrite rule names. See
+    -- 'takesArgument'.
+    spRuleNames :: !(Set Name)
   }
 
 data Simpl = Simpl
@@ -570,7 +584,7 @@ simplifyExpr env0 expr =
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
-      rhs <- simplifyExpr (rhsEnv env (binderName binder)) (bindRhs bind)
+      rhs <- simplifyExpr (localFunctionEnv (rhsEnv env (binderName binder)) bind body) (bindRhs bind)
       let continue env' rhs'
             | isTrivial rhs' = simplifyExpr env' (substExpr (Map.singleton (binderName binder) rhs') body)
             -- Normalize safe constructor fields before the body, so that
@@ -631,7 +645,7 @@ simplifyExpr env0 expr =
     ExCase scrutinee binder alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
-        takesArgument env candidate args ->
+        takesArgument env name candidate args ->
           inlineScrutinee (noOneShot env) name candidate args binder alternatives
       | otherwise -> do
           scrutinee' <- simplifyExpr (noOneShot env) scrutinee
@@ -694,6 +708,28 @@ simplifyRecursiveBinding env bind = do
     _ -> pure bind {bindRhs = rhs}
   where
     name = binderName (bindBinder bind)
+
+-- | The environment of the right-hand side of a let. A lambda whose every
+-- use is a call that gives each of its parameters is not a closure: the
+-- lowering calls it directly with what it captures, as a join point. Its
+-- body does not read the fields of a known constructor from the
+-- constructor ('readFieldsInside'). That read makes the constructor live
+-- where only its fields were, and a loop then builds it in each iteration.
+localFunctionEnv :: Simpl -> Bind -> Expr -> Simpl
+localFunctionEnv env bind body
+  | spEscapes env,
+    parameters@(_ : _) <- valueParameters (bindRhs bind),
+    Occurrences uses _ <- occurrences name body,
+    uses > 0,
+    saturatedCalls name (length parameters) body == uses =
+      env {spEscapes = False}
+  | otherwise = env
+  where
+    name = binderName (bindBinder bind)
+    valueParameters expr =
+      case expr of
+        ExLam binder inner -> binder : valueParameters inner
+        _ -> []
 
 -- | Whether an expression is a lambda under type lambdas and casts.
 isLambdaHead :: Expr -> Bool
@@ -1900,7 +1936,7 @@ argumentKnown env = go (4 :: Int)
               -- the call is copied there, because the case gives its
               -- copy the result discount. See 'resultDiscount'.
               | Just candidate <- Map.lookup con (spInline env),
-                takesArgument env candidate args,
+                takesArgument env con candidate args,
                 Just con' <- resultConstructor env candidate ->
                   Just (Known con' [])
             (ExLit literal _, []) -> Just (Known (AltLit literal) [])
@@ -2173,15 +2209,17 @@ tailsKnownIn env arities expr =
 -- application and the lambda that replaces it hold the same arguments,
 -- so the closure does not grow. In the lambda, the body sees the
 -- arguments, and a call of a known function there reduces: @f x@ is then
--- not a thunk that each call of the continuation allocates.
-takesArgument :: Simpl -> Candidate -> [Arg] -> Bool
-takesArgument env candidate args =
+-- not a thunk that each call of the continuation allocates. A value that
+-- the left-hand side of a rewrite rule names keeps its partial calls, so
+-- that the rule still matches them.
+takesArgument :: Simpl -> Name -> Candidate -> [Arg] -> Bool
+takesArgument env name candidate args =
   -- A function under a cast is copied only where a use casts it back,
   -- see 'castedFunction': a copy of the value elsewhere is a closure.
   not (isCastedFunction (candidateBody candidate))
     && ( count >= functionArity (candidateBody candidate)
            || (count > 0 && any interesting valueArgs)
-           || (count > 0 && copySize <= callSize + 1)
+           || (count > 0 && copySize <= callSize + 1 && Set.notMember name (spRuleNames (spFixed env)))
        )
   where
     valueArgs = rights args
@@ -2626,7 +2664,7 @@ rebuildCall env headExpr' args' = do
     _ | Just reduced <- specialised -> pure reduced
     ExVar name
       | Just candidate <- Map.lookup name (spInline env),
-        takesArgument env candidate args' ->
+        takesArgument env name candidate args' ->
           inlineSite env name candidate (rebuildSpine headExpr' args') args'
     -- A candidate whose body is a function under a cast, such as an @IO@
     -- action, is called under the symmetric cast:
@@ -2639,7 +2677,7 @@ rebuildCall env headExpr' args' = do
         Just function <- castedFunction prefixArgs coercion (candidateBody candidate),
         let candidate' = candidate {candidateBody = function, candidateGuidanceOf = candidateGuidance (spEnv env) (spArity (spFixed env)) function},
         let combinedArgs = filter isRight prefixArgs <> args',
-        takesArgument env candidate' combinedArgs ->
+        takesArgument env name candidate' combinedArgs ->
           inlineSite env name candidate' (rebuildSpine headExpr' args') combinedArgs
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
@@ -3063,6 +3101,16 @@ betaReduce env expr args =
           body' <- betaReduce (bindingEnv env binder argument) body rest
           mkLet env (Bind binder argument) body'
     _ -> simplifyExpr env (rebuildSpine expr args)
+
+-- | Whether 'constantCallPattern' may specialise a value with a pragma.
+-- A value that a pragma asks to keep, or to copy only in some phases,
+-- keeps its calls, so that a rule or a later phase still sees them.
+callPatternSpec :: InlineSpec -> Bool
+callPatternSpec spec =
+  case spec of
+    InlineDefault -> True
+    InlineWhenUseful AlwaysActive -> True
+    _ -> False
 
 -- | The largest top-level body that 'constantCallPattern' specialises.
 callPatternBodyLimit :: Int
