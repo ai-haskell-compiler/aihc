@@ -92,6 +92,11 @@ stop it at start-up. The generated module lands under the package's output path
 for that target, in `preprocess/`, next to the `configure/` directory of a
 `build-type: Configure` package, whose headers it can include.
 
+A module that a package ships as a `.y` or `.ly` file goes through `happy`.
+The tool is found on the `PATH`, or named with `AIHC_HAPPY`. aihc gives it
+the `-agc` flags that Cabal gives it for GHC, so the generated parser is the
+same as under GHC.
+
 ## Compiler headers
 
 C code of a package expects the headers that a GHC installation gives:

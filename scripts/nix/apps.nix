@@ -180,6 +180,7 @@ in {
       pkgs.wasm-component-ld
       wasmLd
       pkgs.haskellPackages.hsc2hs
+      pkgs.haskellPackages.happy
     ] ''
       set -euo pipefail
       ${repoRootGuard}
@@ -265,6 +266,7 @@ in {
       pkgs.llvmPackages.bintools
       pkgs.llvmPackages.clang
       pkgs.haskellPackages.hsc2hs
+      pkgs.haskellPackages.happy
     ] ''
       set -euo pipefail
       ${repoRootGuard}
@@ -293,6 +295,7 @@ in {
       pkgs.llvmPackages.bintools
       pkgs.llvmPackages.clang
       pkgs.haskellPackages.hsc2hs
+      pkgs.haskellPackages.happy
     ] ''
       set -euo pipefail
       ${repoRootGuard}

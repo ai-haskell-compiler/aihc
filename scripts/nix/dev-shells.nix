@@ -21,6 +21,7 @@ in {
       pkgs.wasm-component-ld
       pkgs.wasmtime
       pkgs.haskellPackages.hsc2hs
+      pkgs.haskellPackages.happy
       pkgs.wit-bindgen
       pkgs.zlib
       pkgs.python3Packages.mkdocs-material

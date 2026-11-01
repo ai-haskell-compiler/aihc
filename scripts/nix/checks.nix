@@ -852,6 +852,7 @@
         pkgs.wasm-component-ld
         wasmLd
         pkgs.haskellPackages.hsc2hs
+        pkgs.haskellPackages.happy
       ];
     } ''
       set -euo pipefail

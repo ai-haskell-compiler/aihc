@@ -21,6 +21,9 @@ data Preprocessor
   = -- | @.hsc@ files: C constants, structure sizes and field offsets
     -- computed with the C compiler of the target.
     Hsc2hs
+  | -- | @.y@ and @.ly@ files: parsers that the happy parser generator
+    -- writes as Haskell.
+    Happy
   deriving (Eq, Ord, Show, Bounded, Enum)
 
 -- | The preprocessor a source file suffix selects, without the leading dot.
@@ -28,11 +31,13 @@ preprocessorForExtension :: String -> Maybe Preprocessor
 preprocessorForExtension extension =
   case extension of
     "hsc" -> Just Hsc2hs
+    "y" -> Just Happy
+    "ly" -> Just Happy
     _ -> Nothing
 
 -- | The suffixes that select a preprocessor, in the order Cabal tries them.
 preprocessorExtensions :: [String]
-preprocessorExtensions = ["hsc"]
+preprocessorExtensions = ["hsc", "y", "ly"]
 
 -- | The name of the executable, which is also the name Cabal files use in
 -- @build-tool-depends@.
@@ -40,6 +45,7 @@ preprocessorToolName :: Preprocessor -> String
 preprocessorToolName preprocessor =
   case preprocessor of
     Hsc2hs -> "hsc2hs"
+    Happy -> "happy"
 
 -- | The environment variable that names the executable instead of the
 -- search path, in the manner of @AIHC_WASM_CLANG@.
@@ -47,3 +53,4 @@ preprocessorEnvironmentVariable :: Preprocessor -> String
 preprocessorEnvironmentVariable preprocessor =
   case preprocessor of
     Hsc2hs -> "AIHC_HSC2HS"
+    Happy -> "AIHC_HAPPY"
