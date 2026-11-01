@@ -168,7 +168,7 @@ fetch_package() {
 	hackage:*)
 		local revision="${source#hackage:}"
 		local archive="$work_directory/$name-$version.tar.gz"
-		curl --fail --silent --show-error --location \
+		curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
 			--output "$archive" \
 			"https://hackage.haskell.org/package/$name-$version/$name-$version.tar.gz" || return 1
 		tar -xzf "$archive" -C "$work_directory" || return 1
@@ -176,7 +176,7 @@ fetch_package() {
 		mv "$work_directory/$name-$version" "$destination" || return 1
 		# The tarball carries revision 0 of the cabal file. Take the
 		# revision of the plan, which can relax the version bounds.
-		curl --fail --silent --show-error --location \
+		curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
 			--output "$destination/$name.cabal" \
 			"https://hackage.haskell.org/package/$name-$version/revision/$revision.cabal" || return 1
 		;;
