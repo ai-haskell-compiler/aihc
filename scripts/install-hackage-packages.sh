@@ -123,7 +123,7 @@ while read -r name version; do
 	package="$name-$version"
 	echo "Fetching $name-$version"
 	archive="$work_directory/$name-$version.tar.gz"
-	if ! curl --fail --silent --show-error --location \
+	if ! curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
 		--output "$archive" \
 		"https://hackage.haskell.org/package/$name-$version/$name-$version.tar.gz" \
 		2>"$logs/$package.log"; then
@@ -143,7 +143,7 @@ while read -r name version; do
 	# the tarball carries the original cabal file. Take the latest revision,
 	# as cabal-install does when it unpacks, so the dependency solver sees
 	# the bounds Hackage publishes today.
-	if ! curl --fail --silent --show-error --location \
+	if ! curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
 		--output "$sources/$package/$name.cabal" \
 		"https://hackage.haskell.org/package/$name-$version/$name.cabal" \
 		2>>"$logs/$package.log"; then
