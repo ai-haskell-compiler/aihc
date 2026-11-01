@@ -101,6 +101,7 @@ runExplorerBuild input target directory level send = do
             buildOptimization = level,
             buildNoLink = False,
             buildVerbose = False,
+            buildPrintTimings = False,
             buildOutput = Just (directory </> "bin"),
             buildExecutables = [],
             buildPlanOptions = defaultPlanOptions

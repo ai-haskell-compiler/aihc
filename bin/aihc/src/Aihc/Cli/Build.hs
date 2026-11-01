@@ -120,6 +120,7 @@ buildWithConfig reporter options adjust = do
               compileProfileAllocations = buildProfileAllocations options,
               compileProfileTime = buildProfileTime options,
               compileVerbose = verbose,
+              compilePrintTimings = \message -> when (buildPrintTimings options) (report (ProgressLog message)),
               compileUseColor = progressColor reporter,
               compileProgress = reporter
             }
