@@ -1545,11 +1545,13 @@ AihcValue *aihc_apply_slow(AihcCapability *capability, AihcValue *function,
                            uint64_t stages, uint64_t count,
                            const AihcSlot *arguments,
                            AihcValue **continuation) {
+  /* Compiled code can hand the function with a pointer tag. */
+  function = aihc_untag_pointer(function);
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
   while (aihc_value_kind(function) == AIHC_OBJECT_INDIRECTION) {
-    function = (AihcValue *)(uintptr_t)function->fields[0];
+    function = aihc_untag(function->fields[0]);
     if (function == NULL) {
       aihc_fail("indirection points to null");
     }
@@ -2350,7 +2352,8 @@ static void aihc_mvar_wake(AihcCapability *capability, AihcMVarWaiter *waiter,
 }
 
 static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
-  AihcMVar *mvar = opaque_mvar;
+  /* Compiled code can hand the variable with a pointer tag. */
+  AihcMVar *mvar = (AihcMVar *)aihc_untag((AihcSlot)(uintptr_t)opaque_mvar);
   if (mvar == NULL) {
     aihc_fail("attempted an operation on a null MVar");
   }
@@ -2601,9 +2604,10 @@ const AihcResume *aihc_await_io(AihcCapability *capability,
    that no Haskell value has. */
 static AihcThread *aihc_thunk_owner(const AihcValue *thunk,
                                     AihcBlackholeQueue **queue) {
-  /* C promotes a dependent load to an acquire load. */
-  AihcValue *word = (AihcValue *)(uintptr_t)__atomic_load_n(&thunk->fields[0],
-                                                            __ATOMIC_ACQUIRE);
+  /* C promotes a dependent load to an acquire load. The word is the owner
+     or the value, and a value can carry a pointer tag. */
+  AihcValue *word =
+      aihc_untag(__atomic_load_n(&thunk->fields[0], __ATOMIC_ACQUIRE));
   *queue = NULL;
   switch (aihc_value_info_table(word)->object_kind) {
   case AIHC_OBJECT_THREAD:
@@ -2672,6 +2676,10 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
                                           AihcValue *value,
                                           AihcValue *continuation) {
   AihcThread *current = capability->current_thread;
+  /* Compiled code can hand the value with a pointer tag. The tag stays
+     on a value that continues the thread. */
+  AihcSlot given = (AihcSlot)(uintptr_t)value;
+  value = aihc_untag_pointer(value);
   if (value == NULL) {
     aihc_fail("attempted to block on null");
   }
@@ -2689,7 +2697,7 @@ const AihcResume *aihc_block_on_blackhole(AihcCapability *capability,
   if (owner == NULL) {
     AihcSlot result = aihc_value_kind(value) == AIHC_OBJECT_BLACKHOLE
                           ? value->fields[0]
-                          : (AihcSlot)(uintptr_t)value;
+                          : given;
     aihc_object_unlock(machine);
     aihc_suspend_continue(current, continuation, 1, result);
     return aihc_select_thread(capability, current);
@@ -3411,6 +3419,7 @@ static void aihc_log_add(AihcCapability *capability,
 
 uint64_t aihc_tvar_write(AihcCapability *capability, AihcValue *variable,
                          AihcSlot value) {
+  variable = aihc_untag_pointer(variable);
   AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     aihc_fail("TVar write outside a transaction");
@@ -3610,6 +3619,7 @@ static void aihc_stm_expire_timers(AihcCapability *capability) {
    reserved. A transaction observes one timer state until it commits or
    retries. */
 AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable) {
+  variable = aihc_untag_pointer(variable);
   AihcTransaction *transaction = capability->current_thread->transaction;
   if (transaction == NULL) {
     return aihc_tvar_read_io(capability, variable);
@@ -3629,6 +3639,7 @@ AihcSlot aihc_tvar_read(AihcCapability *capability, AihcValue *variable) {
 }
 
 AihcSlot aihc_tvar_read_io(AihcCapability *capability, AihcValue *variable) {
+  variable = aihc_untag_pointer(variable);
   if (!aihc_stm_active(capability)) {
     aihc_stm_expire_timers(capability);
   }

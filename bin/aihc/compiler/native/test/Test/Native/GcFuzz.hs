@@ -411,6 +411,7 @@ prop_collect getDriver = withTests 500 . property $ do
           cover 1 (fromString "exception") (has (\case CRaise _ -> True; _ -> False))
           cover 2 (fromString "stack of several chunks") (maximum (map deepestStack (scanl (flip applyCommand) emptyModel script)) > 1)
           cover 1 (fromString "thread ends") (has (\case CEnter fid _ -> fid == 1; _ -> False) || has (\case CFork {} -> True; _ -> False))
+          cover 5 (fromString "tagged reference") (has (any isTagged . commandValues))
           classify (fromString "decoy word") (has (\case CSet _ _ (VDecoy _) -> True; _ -> False))
           classify (fromString "stable name") (has (\case CStable _ -> True; _ -> False))
           unless (null problems) $ do
@@ -430,9 +431,21 @@ data Kind = KNode | KClosure | KThunk | KPartial
 -- | A slot value. A decoy is the address of a live object written into a
 -- non-pointer field, so the collector must leave it alone. A frame value
 -- occurs only in the resumption of a thread and in the waiters of the
--- runtime.
-data Value = VNull | VHeap Id | VStatic Int | VWord Word64 | VDecoy Id | VFrame Fid
+-- runtime. A tagged value is a heap or a static reference with a pointer
+-- tag of one to seven in its low three bits. The collector must keep the
+-- tag and the referent, and a reference through an indirection takes the
+-- tag of the target field.
+data Value = VNull | VHeap Id | VStatic Int | VWord Word64 | VDecoy Id | VFrame Fid | VTagged Int Value
   deriving (Eq, Show)
+
+-- | The reference of a value without its pointer tag.
+untagValue :: Value -> Value
+untagValue (VTagged _ inner) = inner
+untagValue value = value
+
+isTagged :: Value -> Bool
+isTagged VTagged {} = True
+isTagged _ = False
 
 -- | A thread blocked on an MVar or a blackhole: the thread, the frame it
 -- continues with, and for a putter the value it offers.
@@ -662,9 +675,10 @@ promotionWith :: Bool -> Model -> Id -> Maybe (Set Id, Bool, Set Id)
 promotionWith copyThunks model start = go Set.empty False Set.empty [VHeap start]
   where
     young identity = Map.findWithDefault 0 identity (mAges model) < 2
-    named = Set.fromList [identity | value <- mStable model, VHeap identity <- [value, resolve model value]]
+    named = Set.fromList [identity | value <- mStable model, VHeap identity <- map untagValue [value, resolve model value]]
     go reached collect seen [] = Just (reached, collect, seen)
     go reached collect seen (value : rest) = case value of
+      VTagged _ inner -> go reached collect seen (inner : rest)
       VHeap identity
         | Set.member identity seen -> go reached collect seen rest
         | Just (Ind target) <- Map.lookup identity (mHeap model) ->
@@ -689,7 +703,7 @@ escapeStore :: Bool -> Value -> Model -> Maybe Model
 escapeStore = escapeStoreWith False
 
 escapeStoreWith :: Bool -> Bool -> Value -> Model -> Maybe Model
-escapeStoreWith copyThunks global value model = case value of
+escapeStoreWith copyThunks global value model = case untagValue value of
   VHeap identity
     | mCapabilities model > 1 -> case promotionWith copyThunks model identity of
         Nothing -> Nothing
@@ -706,12 +720,14 @@ escapeStoreWith copyThunks global value model = case value of
 isGlobal :: Model -> Id -> Bool
 isGlobal model identity = Map.findWithDefault 0 identity (mAges model) >= 2
 
--- | Follow heap indirections to the value they name.
+-- | Follow heap indirections to the value they name. A reference through
+-- an indirection takes the pointer tag of the target field, so the tag of
+-- the reference to the indirection goes.
 resolve :: Model -> Value -> Value
 resolve model = go (1000 :: Int)
   where
     go 0 _ = error "indirection chain is too long"
-    go fuel value = case value of
+    go fuel value = case untagValue value of
       VHeap identity
         | Just (Ind target) <- Map.lookup identity (mHeap model) -> go (fuel - 1) target
       _ -> value
@@ -780,6 +796,7 @@ renderValue (VStatic slot) = 's' : show slot
 renderValue (VWord word) = 'w' : showHex word ""
 renderValue (VDecoy identity) = 'a' : show identity
 renderValue (VFrame fid) = 'f' : show fid
+renderValue (VTagged tag inner) = renderValue inner <> "+" <> show tag
 
 renderSrt :: Maybe Int -> String
 renderSrt = maybe "-1" show
@@ -887,7 +904,7 @@ applyCommand command model = case command of
   -- collection of an escape first.
   CStable value
     | mCapabilities model > 1,
-      VHeap identity <- value,
+      VHeap identity <- untagValue value,
       not (isGlobal model identity) ->
         let after = applyCommand command model {mCapabilities = 1, mEscapeCollected = True}
          in after {mCapabilities = mCapabilities model}
@@ -1076,7 +1093,7 @@ continueInto thread fid value model = case enteredFrame fid model of
           -- program reaches: the update would make an indirection cycle.
           FUpdate -> case (fFields frame, value) of
             ([VHeap thunk], Just result)
-              | result /= VNull && resolve model result /= VHeap thunk,
+              | result /= VNull && untagValue (resolve model result) /= VHeap thunk,
                 -- With several capabilities, the update can promote the
                 -- result, and a stable name of the thunk would then lead to
                 -- the copy while the original lives.
@@ -1209,6 +1226,7 @@ livenessFrom stacksAreRoots model = go initial (Live Set.empty Set.empty Set.emp
       VHeap identity -> [IHeap identity]
       VFrame fid -> [IFrame fid]
       VStatic slot -> [IStatic slot]
+      VTagged _ inner -> fromValue inner
       _ -> []
     fromSrt = maybe [] (pure . ISrt)
     go [] live _ = live
@@ -1274,7 +1292,7 @@ frameChildren frame = maybe [] (pure . VFrame) (fParent frame) <> [field | (True
 
 -- * Reports
 
-data RValue = RNull | RHeap Id | RFrame Fid | RStatic Int | RWord Word64 | ROld
+data RValue = RNull | RHeap Id | RFrame Fid | RStatic Int | RWord Word64 | ROld | RTagged Int RValue
   deriving (Eq, Show)
 
 data RWaiter = RWaiter RValue RValue (Maybe RValue)
@@ -1319,15 +1337,19 @@ data Report = Report
 emptyReport :: Report
 emptyReport = Report 0 Map.empty Map.empty RNull [] [] [] [] [] Map.empty Map.empty [] False False False
 
+-- | Parse a report value. A reference can end with a plus sign and its
+-- pointer tag.
 parseRValue :: String -> Either String RValue
-parseRValue token = case token of
-  "n" -> Right RNull
-  'h' : rest -> RHeap <$> readNumber rest
-  'f' : rest -> RFrame <$> readNumber rest
-  's' : rest -> RStatic <$> readNumber rest
-  'w' : rest -> RWord <$> readHexWord rest
-  "o" -> Right ROld
-  _ -> Left ("invalid report value " <> token)
+parseRValue token = case break (== '+') token of
+  (reference, '+' : tag) -> RTagged <$> readNumber tag <*> parseRValue reference
+  _ -> case token of
+    "n" -> Right RNull
+    'h' : rest -> RHeap <$> readNumber rest
+    'f' : rest -> RFrame <$> readNumber rest
+    's' : rest -> RStatic <$> readNumber rest
+    'w' : rest -> RWord <$> readHexWord rest
+    "o" -> Right ROld
+    _ -> Left ("invalid report value " <> token)
 
 readNumber :: String -> Either String Int
 readNumber text = case reads text of
@@ -1561,6 +1583,7 @@ matchesValue (VFrame expected) (RFrame actual) = expected == actual
 matchesValue (VStatic expected) (RStatic actual) = expected == actual
 matchesValue (VWord expected) (RWord actual) = expected == actual
 matchesValue (VDecoy _) (RWord _) = True
+matchesValue (VTagged tag expected) (RTagged tag' actual) = tag == tag' && matchesValue expected actual
 matchesValue _ _ = False
 
 checkValues :: String -> [Value] -> [RValue] -> [String]
@@ -1625,6 +1648,7 @@ checkReport scope model report =
       VStatic slot -> RStatic slot
       VWord word -> RWord word
       VDecoy _ -> ROld
+      VTagged tag inner -> RTagged tag (rvalue inner)
     -- A decoy word may hold any value, so the comparison is by position.
     sameObject expected actual = case (expected, actual) of
       (RPlain kind values, RPlain kind' values') -> kind == kind' && length values == length values' && and (zipWith sameValue values values')
@@ -1742,7 +1766,10 @@ data Profile = Profile
     -- | The largest number of payload words of a pushed frame.
     pFrameMax :: Int,
     -- | The weight of a descent of several frames across chunks.
-    pDescentWeight :: Int
+    pDescentWeight :: Int,
+    -- | How often a heap or a static reference in a field, an element, a
+    -- root, or a frame carries a pointer tag.
+    pTagPercent :: Int
   }
 
 -- | A profile with every knob drawn at random.
@@ -1768,6 +1795,7 @@ genRandomProfile =
     <*> Gen.element [0, 1, 3, 6]
     <*> Gen.element [0, 2, 8, 200]
     <*> Gen.element [0, 1, 3]
+    <*> Gen.element [0, 30, 100]
 
 -- | The named profiles of the focused tests. Each one starves nothing but
 -- weights one corner of the collector: deep stacks, many threads, the
@@ -1801,7 +1829,8 @@ focusedProfiles =
           pStackWeight = 3,
           pThreadWeight = 3,
           pFrameMax = 8,
-          pDescentWeight = 1
+          pDescentWeight = 1,
+          pTagPercent = 20
         }
 
 genProfile :: Gen Profile
@@ -1980,6 +2009,18 @@ genEpoch profile start = do
     newCommand identity (ShapeArray count) srt = CArray identity count srt
     newCommand identity ShapeMVar _ = CMVar identity
 
+-- | The values a command stores into a field, an element, a root, a
+-- global, or a frame.
+commandValues :: Command -> [Value]
+commandValues command = case command of
+  CSet _ _ value -> [value]
+  CSSet _ _ value -> [value]
+  CGlobal _ value -> [value]
+  CRoot _ value -> [value]
+  CPush _ (FSNormal _ _ values) -> values
+  CPush _ (FSForward _ _ values) -> values
+  _ -> []
+
 -- | The words an operation can take from the reservation of its epoch.
 commandWords :: Command -> Int
 commandWords command = case command of
@@ -2006,11 +2047,11 @@ taintedStatics model = grow (Set.fromList [slot | (slot, SStale) <- zip [0 ..] (
     edges slot
       | slot < staticThunkCount = case mStaticThunks model !! slot of
           SThunk -> srtStatics (mStaticThunkSrts model !! slot)
-          SInd (VStatic target) -> [target]
+          SInd target -> [target' | VStatic target' <- [untagValue target]]
           _ -> []
       | otherwise =
           let node = slot - staticThunkCount
-           in [target | VStatic target <- mStaticNodes model !! node] <> srtStatics (mStaticNodeSrts model !! node)
+           in [target | VStatic target <- map untagValue (mStaticNodes model !! node)] <> srtStatics (mStaticNodeSrts model !! node)
     srtStatics = maybe [] (Set.toList . srtClosure model)
 
 srtClosure :: Model -> Int -> Set Int
@@ -2030,6 +2071,16 @@ genPointer profile pool =
       (pStaticPercent profile, VStatic <$> elementOr 0 (poolStatics pool)),
       (if null (poolHeap pool) then 0 else 100, VHeap <$> Gen.element (poolHeap pool))
     ]
+    >>= tagValue profile
+
+-- | Give a heap or a static reference a pointer tag of one to seven, as
+-- often as the profile says. Null takes no tag.
+tagValue :: Profile -> Value -> Gen Value
+tagValue profile value = case value of
+  VNull -> pure value
+  _ -> do
+    tagged <- percent (pTagPercent profile)
+    if tagged then VTagged <$> Gen.int (Range.constant 1 7) <*> pure value else pure value
 
 -- | A pointer to an object, for slots that must not hold null.
 genTarget :: Profile -> Pool -> (Value -> Bool) -> Gen (Maybe Value)
@@ -2170,7 +2221,7 @@ genOp profile model = do
           nonEmpty staticNodes $ do
             slot <- Gen.element staticNodes
             index <- Gen.int (Range.constant 0 (staticNodeFields - 1))
-            value <- weighted [(1, pure VNull), (3, VStatic <$> elementOr 0 (poolStatics pool))]
+            value <- weighted [(1, pure VNull), (3, VStatic <$> elementOr 0 (poolStatics pool))] >>= tagValue profile
             pure [CSSet slot index value]
         ),
         ( 1,
