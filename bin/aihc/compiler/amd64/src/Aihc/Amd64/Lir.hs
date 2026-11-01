@@ -168,6 +168,7 @@ amd64Backend =
       nbQuadSymbol = amd64QuadSymbol,
       nbQuadSymbolAddend = amd64QuadSymbolAddend,
       nbAsCode = amd64AsCode,
+      nbCombine = \_ _ -> Nothing,
       nbRenderTraps = renderTraps,
       -- A conditional jump to a trap stub keeps its 32-bit displacement,
       -- which reaches the stub from anywhere in the object. Only a jump to

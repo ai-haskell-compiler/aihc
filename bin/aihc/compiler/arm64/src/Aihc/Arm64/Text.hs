@@ -36,6 +36,7 @@ statement value =
     Arm64QuadSymbol symbol -> indent (".quad " <> T.unpack symbol)
     Arm64QuadSymbolAddend symbol addend -> indent (".quad " <> T.unpack symbol <> signed (toInteger addend))
     Arm64Bytes bytes -> indent (".byte " <> intercalate ", " (map (hex . toInteger) (BS.unpack bytes)))
+    Arm64AtomicCode code -> indent (instruction code)
     Arm64Code code -> indent (instruction code)
 
 section :: SectionRole -> String
@@ -100,6 +101,8 @@ instruction code =
     ArmSmulh destination left right -> three "smulh" destination left right
     ArmUdiv destination left right -> three "udiv" destination left right
     ArmSdiv destination left right -> three "sdiv" destination left right
+    ArmMadd destination left right addend ->
+      "madd " <> reg destination <> ", " <> reg left <> ", " <> reg right <> ", " <> reg addend
     ArmMsub destination left right addend ->
       "msub " <> reg destination <> ", " <> reg left <> ", " <> reg right <> ", " <> reg addend
     ArmLsl destination source count -> shifted "lsl" destination source count

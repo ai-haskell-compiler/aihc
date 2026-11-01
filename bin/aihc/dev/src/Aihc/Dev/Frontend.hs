@@ -238,7 +238,7 @@ resolveFrontendTarget argument = do
     then pure argument
     else case parsePackageTarget argument of
       Just (name, Just version) -> do
-        source <- defaultHackageSource
+        source <- defaultHackageSource (hPutStrLn stderr)
         case source of
           Just hackage -> hackageDownload hackage PackageSpec {pkgName = name, pkgVersion = version}
           Nothing -> die (argument <> " is not an existing directory, and this build of aihc has no Hackage support (Cabal flag -hackage)")

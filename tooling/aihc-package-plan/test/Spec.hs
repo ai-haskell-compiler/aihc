@@ -24,6 +24,7 @@ import Aihc.Hackage.Package
 import Aihc.Hackage.Query (QueryOptions (..), defaultQueryOptions, getQueryCacheDir, newHackageQueries)
 import Aihc.PackagePlan
 import Aihc.PackagePlan.Lock
+import Aihc.PackagePlan.Project
 import Aihc.PackagePlan.Solver
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_)
@@ -34,7 +35,7 @@ import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Hedgehog (Property, property, success)
-import System.Directory (createDirectory, createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
@@ -60,6 +61,8 @@ main =
       testCase "parses constraint arguments" test_parsesConstraints,
       testCase "plans local packages and honours a lock" test_plansLocalPackages,
       testCase "package lock fixtures" test_packageLockFixtures,
+      testCase "parses a project file" test_parsesProjectFile,
+      testCase "plans the packages and targets of a project" test_plansProject,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -510,6 +513,7 @@ test_plansLocalPackages =
               requestGoals = [],
               requestExecutables = Nothing,
               requestCheckBuildTools = True,
+              requestProjectPackages = Map.empty,
               requestWorkspaces = [],
               requestHackage = Just (hackageSourceFor queries),
               requestPlatform = (Linux, X86_64),
@@ -581,6 +585,7 @@ test_packageLockFixtures =
                 requestGoals = [],
                 requestExecutables = Nothing,
                 requestCheckBuildTools = True,
+                requestProjectPackages = Map.empty,
                 requestWorkspaces = [],
                 requestHackage = Just (hackageSourceFor queries),
                 requestPlatform = (Linux, X86_64),
@@ -623,6 +628,101 @@ test_packageLockFixtures =
         Left err -> do
           let message = show (err :: IOException)
           assertBool message ("dep, needed by the root" `isInfixOf` message)
+
+-- The fields of a project file that change a plan. The other fields, a
+-- setup constraint and a stanza constraint have no effect.
+test_parsesProjectFile :: Assertion
+test_parsesProjectFile = do
+  let text =
+        unlines
+          [ "-- a comment",
+            "packages: a",
+            "          b/*.cabal,",
+            "  c",
+            "optional-packages: extra/*",
+            "Constraints: any.x ==1.0, setup.y <2, z +f -g, w installed,",
+            "             v == { 1.0, 1.1 }",
+            "tests: True",
+            "",
+            "package root",
+            "  flags: +one -two three",
+            "  ghc-options: -Wall"
+          ]
+  assertEqual
+    "the project file"
+    ( Right
+        ProjectConfig
+          { projectConfigPackages = ["a", "b/*.cabal", "c"],
+            projectConfigOptionalPackages = ["extra/*"],
+            projectConfigConstraints =
+              [ ConstraintVersion (mkPackageName "x") (range "==1.0"),
+                ConstraintFlag (mkPackageName "z") (mkFlagName "f") True,
+                ConstraintFlag (mkPackageName "z") (mkFlagName "g") False,
+                ConstraintVersion (mkPackageName "v") (range "==1.0 || ==1.1"),
+                ConstraintFlag (mkPackageName "root") (mkFlagName "one") True,
+                ConstraintFlag (mkPackageName "root") (mkFlagName "two") False,
+                ConstraintFlag (mkPackageName "root") (mkFlagName "three") True
+              ]
+          }
+    )
+    (parseProjectConfig text)
+  forM_ ["if os(linux)\n  constraints: x ==1", "import: other.config", "source-repository-package\n  type: git"] $ \unsupported ->
+    assertBool unsupported (either (const True) (const False) (parseProjectConfig ("packages: a\n" <> unsupported)))
+
+-- A project names its packages with globs. A project package resolves
+-- locally although it is not a sibling of the root, and the constraints of
+-- the project and of its .local file apply. A target names a package and
+-- its executables.
+test_plansProject :: Assertion
+test_plansProject =
+  withTempDir "aihc-package-project" $ \directory -> do
+    let root = directory </> "apps" </> "root"
+        dep = directory </> "libs" </> "dep"
+    createDirectoryIfMissing True root
+    createDirectoryIfMissing True dep
+    writeFile
+      (root </> "root.cabal")
+      ( cabalFile "root" "0.1" [] ["build-depends: base, dep"]
+          <> unlines ["executable tool", "  main-is: Main.hs", "  build-depends: base"]
+      )
+    writeFile (dep </> "dep.cabal") (cabalFile "dep" "1.0" ["flag fast", "  manual: True", "  default: False"] ["build-depends: base"])
+    writeFile (directory </> "cabal.project") "packages: apps/*\n          libs/dep/dep.cabal\noptional-packages: missing/*\n"
+    writeFile (directory </> "cabal.project.local") "package dep\n  flags: +fast\n"
+    found <- findProjectFile root
+    canonical <- canonicalizePath directory
+    assertEqual "the project file of a package directory" (Just (canonical </> "cabal.project")) found
+    project <- loadProject (directory </> "cabal.project")
+    assertEqual "the project packages" ["dep", "root"] (map unPackageName (Map.keys (projectPackages project)))
+    assertEqual "the constraints of the .local file" [ConstraintFlag (mkPackageName "dep") (mkFlagName "fast") True] (projectConstraints project)
+    let resolve = fmap (resolveProjectTarget project) . parseProjectTarget
+    assertEqual "exe:NAME" (Just (Right (Just (mkPackageName "root", ["tool"])))) (resolve "exe:tool")
+    assertEqual "PKG:exe:NAME" (Just (Right (Just (mkPackageName "root", ["tool"])))) (resolve "root:exe:tool")
+    assertEqual "a package" (Just (Right (Just (mkPackageName "dep", [])))) (resolve "dep")
+    assertEqual "a name the project does not have" (Just (Right Nothing)) (resolve "containers")
+    assertBool "an executable the project does not have" (maybe False (either (const True) (const False)) (resolve "exe:other"))
+    let request =
+          PlanRequest
+            { requestRoots = [RootLocal root],
+              requestGoals = [],
+              requestExecutables = Nothing,
+              requestCheckBuildTools = True,
+              requestProjectPackages = Map.empty,
+              requestWorkspaces = [],
+              requestHackage = Nothing,
+              requestPlatform = (Linux, X86_64),
+              requestConstraints = [],
+              requestLockFile = Nothing,
+              requestLockMode = LockNormal,
+              requestVerbose = const (pure ())
+            }
+    planned <- planPackages (withProject project request)
+    let depPlans = [plan | plan <- Map.elems (plannedPlans planned), planName plan == mkPackageName "dep"]
+    assertEqual "the project package is local" [PlanLocal] (map planOrigin depPlans)
+    assertEqual "the flag of the project applies" [[("fast", True)]] [[(unFlagName flag, on) | (flag, on) <- unFlagAssignment (planFlags plan)] | plan <- depPlans]
+    withoutProject <- try (planPackages request)
+    case withoutProject of
+      Right _ -> assertFailure "without the project, dep has no source"
+      Left err -> assertBool (show err) ("dep" `isInfixOf` show (err :: IOException))
 
 -- | A fresh directory under the system temporary directory, removed
 -- afterwards. The temporary file only reserves a unique name.

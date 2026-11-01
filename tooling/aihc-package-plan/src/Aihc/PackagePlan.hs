@@ -175,6 +175,10 @@ data PlanRequest = PlanRequest
     -- | Fail when a package of the plan needs a build tool that the host
     -- cannot run. A request that only reports the plan turns this off.
     requestCheckBuildTools :: !Bool,
+    -- | The local packages of a project, by name. They come after the
+    -- roots and the core libraries, and before the siblings of the roots
+    -- and the workspaces.
+    requestProjectPackages :: !(Map PackageName FilePath),
     -- | Directories whose subdirectory @NAME@ is the source of the package
     -- @NAME@, before Hackage.
     requestWorkspaces :: ![FilePath],
@@ -419,7 +423,8 @@ assignmentCandidate name assignment =
     }
 
 -- | The candidates and cabal files the solver reads: core standins, the
--- roots, their siblings and the workspace, then Hackage.
+-- roots, the project packages, the siblings of the roots and the
+-- workspace, then Hackage.
 solverInputs :: PlanRequest -> IORef (Map FilePath (FilePath, Package)) -> Map PackageName FilePath -> [FilePath] -> SolverInputs IO
 solverInputs request descriptions localRoots localDirectories =
   SolverInputs
@@ -436,7 +441,9 @@ solverInputs request descriptions localRoots localDirectories =
               path <- coreProviderSourcePath provider
               pure [Candidate name (versionFromList (bootVersion provider)) Nothing False (CandidateCore path)]
             Nothing -> do
-              local <- findLocal name localDirectories
+              local <- case Map.lookup name (requestProjectPackages request) of
+                Just path -> pure (Just path)
+                Nothing -> findLocal name localDirectories
               case local of
                 Just path -> pure <$> localCandidate name path
                 Nothing -> maybe (pure []) (hackageCandidates name preference) (requestHackage request)

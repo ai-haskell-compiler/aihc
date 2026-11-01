@@ -87,6 +87,20 @@ does nothing but call those lookups.
   downloaded only for the version the plan chooses. Local packages and
   packages under `--workspace` are single candidates at their checked-out
   version, and shadow Hackage.
+- **Projects**: `build`, `install` and `plan` read the first `cabal.project`
+  in the working directory or in a parent directory. `--project-file FILE`
+  names a different file, and `--ignore-project` reads no file. The
+  `FILE.freeze` and `FILE.local` files add to the project when they exist.
+  The project applies only when the root is one of its packages. Then, each
+  package of `packages` and `optional-packages` is a local candidate after
+  the core libraries and before the siblings and the workspace. The
+  `constraints` field and the `flags` of each `package` section come before
+  the `--constraint` options. The input can also be a target as `cabal`
+  names it: `exe:NAME`, `PKG:exe:NAME`, `PKG:NAME`, or the name of a project
+  package. Thus, `aihc build exe:aihc` builds the `aihc` executable of this
+  repository. A project file with conditionals, `import`, or
+  `source-repository-package` is an error. The other fields, such as `tests`
+  and `allow-newer`, have no effect.
 - **No Hackage**: the `aihc` package has the Cabal flag `hackage`, which
   is on by default. A build with `-hackage` does not depend on
   `aihc-hackage-fetch`, so it has no network, `tar`, or `zlib` code. In such
