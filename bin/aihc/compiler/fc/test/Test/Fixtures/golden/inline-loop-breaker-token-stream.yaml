@@ -46,6 +46,6 @@ expected: |-
 
   val 1.vnormalize noinline :: tBool → tStream
     = λ(x : tBool).
-      cStream x (vnormalize x)
+      vbuild x
 status: pass
 reason: A recursive group hides the selector in a lazy stream field. The inliner must expose the selector without a copy of the loop breaker.

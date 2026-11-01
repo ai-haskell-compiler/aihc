@@ -602,11 +602,28 @@ inlineRound config st0 = List.foldl' step st0 sccs
 
 -- | Keep enough calls opaque to break every cycle. Prefer a value that
 -- cannot be copied, then a large body without an INLINE request.
--- The remaining graph is acyclic, so its small selectors can be copied.
+-- Only small record consumers can leave a recursive group. Larger copies
+-- can expose more recursive code than the term-size limits account for.
 loopBreakers :: InlineConfig -> Inliner -> Set Name
 loopBreakers config st = fixed <> foldMap choose (components remaining)
   where
-    fixed = Map.keysSet (Map.filterWithKey opaque (inBodies st))
+    recursive = Set.fromList [name | CyclicSCC names <- components (Map.keysSet (inBodies st)), name <- names]
+    fixed = Map.keysSet (Map.filterWithKey opaque (inBodies st)) <> Set.filter (not . smallRecordConsumer) recursive
+    smallRecordConsumer name =
+      let guidance = inGuidance st Map.! name
+       in guidanceSize guidance <= policyCalleeLimit (inlinePolicy config)
+            && not (guidanceLoops guidance)
+            && recordConsumer Nothing (inBodies st Map.! name)
+    recordConsumer parameter body =
+      case body of
+        ExTyLam _ inner -> recordConsumer parameter inner
+        ExCast inner _ -> recordConsumer parameter inner
+        ExLam binder inner | Nothing <- parameter -> recordConsumer (Just (binderName binder)) inner
+        ExCase scrutinee _ (Alt (AltData _) _ fields _ NE.:| [])
+          | not (null fields),
+            (ExVar name, []) <- castedSpine scrutinee ->
+              Just name == parameter
+        _ -> False
     opaque name body =
       not (isInlinable body)
         || Set.member name (inDictionaryFunctions st)
