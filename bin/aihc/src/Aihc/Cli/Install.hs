@@ -165,6 +165,7 @@ import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, isCppWarnin
 import Aihc.PackagePlan.Lock (lockFileName)
 import Aihc.PackagePlan.Project
   ( Project (..),
+    ProjectComponent (..),
     ProjectPackage (..),
     ProjectSelection,
     parseProjectTarget,
@@ -658,9 +659,9 @@ installWith reporter options = do
   -- handle moves the cursor under the live frame, and the next frame then
   -- erases the wrong lines.
   hackageSource <- defaultHackageSource (report . ProgressLog)
-  TargetRoot root origin lockDirectory executables project <- installTargetRoot (planProject (installPlanOptions options)) (installPackageTarget options)
-  unless (null executables) $
-    ioError (userError (installPackageTarget options <> " names an executable, and install builds the library of a package. Use build for an executable"))
+  TargetRoot root origin lockDirectory components project <- installTargetRoot (planProject (installPlanOptions options)) (installPackageTarget options)
+  unless (null components) $
+    ioError (userError (installPackageTarget options <> " names an executable or a test suite, and install builds the library of a package. Use build for an executable and test for a test suite"))
   request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) project (maybe [] pure (installWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [root]}
   plan <- case plannedRoots planned of
@@ -768,9 +769,9 @@ data TargetRoot = TargetRoot
   { targetPlanRoot :: !PlanRoot,
     targetOrigin :: !PlanOrigin,
     targetLockDirectory :: !(Maybe FilePath),
-    -- | The executables that the input selects, such as @exe:NAME@. An
-    -- empty list selects none in particular.
-    targetExecutables :: ![String],
+    -- | The components that the input selects, such as @exe:NAME@ or
+    -- @test:NAME@. An empty list selects none in particular.
+    targetComponents :: ![ProjectComponent],
     -- | The project of the root, when the root is one of its packages.
     targetProject :: !(Maybe Project)
   }
@@ -778,8 +779,8 @@ data TargetRoot = TargetRoot
 -- | Turn the input of a command into a plan root.
 --
 -- An existing directory is used as-is, and its lock lives beside its cabal
--- file. A target of the project, such as @exe:NAME@, @PKG:exe:NAME@ or the
--- name of a project package, is the directory of that package. Anything else
+-- file. A target of the project, such as @exe:NAME@, @PKG:test:NAME@ or
+-- the name of a project package, is the directory of that package. Anything else
 -- is parsed as a Hackage package name with an optional version (@NAME@ or
 -- @NAME-VERSION@). Hackage targets do not use a lock file. Without a
 -- version, the solver selects one.
@@ -802,10 +803,10 @@ installTargetRoot selection target = do
             either (ioError . userError) (pure . fmap (found,)) (resolveProjectTarget found projectTarget)
           _ -> pure Nothing
       case inProject of
-        Just (found, (name, executables)) -> do
+        Just (found, (name, components)) -> do
           let directory = projectPackageDirectory (projectPackages found Map.! name)
           (cabalFile, _) <- parseSourcePackageDescriptionAt directory
-          pure (TargetRoot (RootLocal directory) PlanLocal (Just (takeDirectory cabalFile)) executables (Just found))
+          pure (TargetRoot (RootLocal directory) PlanLocal (Just (takeDirectory cabalFile)) components (Just found))
         Nothing -> case parsePackageTarget target of
           Nothing ->
             ioError
@@ -843,6 +844,7 @@ planRequestFor hackage options platform project workspaces lockDirectory verbose
       { requestRoots = [],
         requestGoals = [],
         requestExecutables = Nothing,
+        requestTestSuites = False,
         requestCheckBuildTools = True,
         requestProjectPackages = Map.empty,
         requestWorkspaces = workspaces,

@@ -5,6 +5,7 @@ module Aihc.Cli.Options
     LinkExeOptions (..),
     PlanCommandOptions (..),
     PlanOptions (..),
+    TestOptions (..),
     defaultPlanOptions,
     parseCommandIO,
     parseCommandPure,
@@ -21,6 +22,7 @@ data Command
   | CmdInstall !InstallOptions
   | CmdLinkExe !LinkExeOptions
   | CmdPlan !PlanCommandOptions
+  | CmdTest !TestOptions
   deriving (Eq, Show)
 
 -- | Build an executable, or every executable of a Cabal package.
@@ -70,6 +72,35 @@ data BuildOptions = BuildOptions
     -- selects every buildable executable.
     buildExecutables :: ![String],
     buildPlanOptions :: !PlanOptions
+  }
+  deriving (Eq, Show)
+
+-- | Build the test suites of a Cabal package, and run each of them.
+--
+-- The input is a local Cabal package directory, or a target of the
+-- project, such as @test:NAME@, @PKG:test:NAME@ or @PKG@. The input @all@
+-- names every package of the project.
+data TestOptions = TestOptions
+  { testInput :: !String,
+    testTarget :: !NativeTarget,
+    testStoreRoot :: !(Maybe FilePath),
+    testBuildRoot :: !(Maybe FilePath),
+    testWorkspace :: !(Maybe FilePath),
+    testKeepCore :: !Bool,
+    testKeepGrin :: !Bool,
+    testKeepLir :: !Bool,
+    testKeepNative :: !Bool,
+    testLint :: !Bool,
+    testCheckPrimBounds :: !Bool,
+    testLto :: !Bool,
+    testOptimization :: !OptimizationLevel,
+    testVerbose :: !Bool,
+    -- | The test suites of a package to build and run. An empty list
+    -- selects every buildable test suite.
+    testSuites :: ![String],
+    -- | The arguments that each test suite receives.
+    testArguments :: ![String],
+    testPlanOptions :: !PlanOptions
   }
   deriving (Eq, Show)
 
@@ -190,7 +221,53 @@ commandParser =
               (CmdPlan <$> planCommandOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Solve the dependency plan of a Cabal package, and print one line for each package in dependency order")
           )
+        <> OA.command
+          "test"
+          ( OA.info
+              (CmdTest <$> testOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Build the test suites of a Cabal package, or of every package of the project with all, and run each of them")
+          )
     )
+
+testOptionsParser :: OA.Parser TestOptions
+testOptionsParser =
+  TestOptions
+    <$> OA.strArgument
+      ( OA.metavar "INPUT"
+          <> OA.help "Local Cabal package directory, project target (test:NAME, PKG:test:NAME or PKG), or all for every package of the project"
+      )
+    <*> nativeTargetOption
+    <*> storeRootOption "Override the aihc store root"
+    <*> buildRootOption "Write the module artifacts under DIR instead of .aihc-target"
+    <*> workspaceOption
+    <*> keepCoreOption
+    <*> keepGrinOption
+    <*> keepLirOption
+    <*> keepNativeOption
+    <*> lintOption
+    <*> checkPrimBoundsOption
+    <*> ltoOption
+    <*> optimizationOption
+    <*> OA.switch
+      ( OA.long "verbose"
+          <> OA.short 'v'
+          <> OA.help "Print each build step"
+      )
+    <*> OA.many
+      ( OA.strOption
+          ( OA.long "test-suite"
+              <> OA.metavar "NAME"
+              <> OA.help "Build and run only the test suite NAME of a package. Give the option again to add a test suite"
+          )
+      )
+    <*> OA.many
+      ( OA.strOption
+          ( OA.long "test-option"
+              <> OA.metavar "ARG"
+              <> OA.help "Give ARG to each test suite. Give the option again to add an argument"
+          )
+      )
+    <*> planOptionsParser
 
 buildOptionsParser :: OA.Parser BuildOptions
 buildOptionsParser =

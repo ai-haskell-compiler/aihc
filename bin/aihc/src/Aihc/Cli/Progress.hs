@@ -39,6 +39,7 @@ import System.IO (BufferMode (..), Handle, hFlush, hGetBuffering, hPutStr, hPutS
 data ProgressItem
   = ItemPackage !Text
   | ItemExecutable !Text
+  | ItemTestSuite !Text
   deriving (Eq, Ord, Show)
 
 renderProgressItem :: ProgressItem -> String
@@ -46,6 +47,7 @@ renderProgressItem item =
   case item of
     ItemPackage name -> T.unpack name
     ItemExecutable name -> T.unpack name <> " (executable)"
+    ItemTestSuite name -> T.unpack name <> " (test suite)"
 
 -- | What a command reports while it runs.
 data ProgressEvent
@@ -250,10 +252,12 @@ planHeading items =
       ", "
       ( [renderCount packages "package" | packages > 0]
           <> [renderCount executables "executable" | executables > 0]
+          <> [renderCount testSuites "test suite" | testSuites > 0]
       )
   where
     packages = length [() | ItemPackage _ <- items]
     executables = length [() | ItemExecutable _ <- items]
+    testSuites = length [() | ItemTestSuite _ <- items]
 
 renderCount :: Int -> String -> String
 renderCount count noun = show count <> " " <> noun <> (if count == 1 then "" else "s")

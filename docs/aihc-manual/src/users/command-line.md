@@ -1,6 +1,6 @@
 # Command line
 
-The `aihc` executable has four commands.
+The `aihc` executable has five commands.
 
 | Command | Purpose |
 | --- | --- |
@@ -8,6 +8,7 @@ The `aihc` executable has four commands.
 | `aihc install PACKAGE` | Build and install one Cabal library into the store. |
 | `aihc link-exe BUNDLE` | Link one executable from a bundle that `build --no-link` wrote. |
 | `aihc plan INPUT` | Solve the dependency plan of a Cabal package and print it. |
+| `aihc test INPUT` | Build the test suites of a Cabal package and run each of them. |
 
 Use `aihc COMMAND --help` to get the full option list of each command.
 
@@ -20,6 +21,8 @@ Use `aihc COMMAND --help` to get the full option list of each command.
 | Main module | `Main.hs` | One Haskell file with a `main` function. Only `aihc build` accepts this form. |
 | Local package | `./my-package` | A directory with a `.cabal` file. |
 | Hackage package | `text` or `text-2.1.4` | A package from Hackage, with an optional version. |
+| Project target | `exe:aihc`, `aihc:test:spec`, or `aihc` | A package of `cabal.project`, or one of its executables or test suites. |
+| All packages | `all` | Every package of `cabal.project`. Only `aihc test` accepts this form. |
 
 ## Build
 
@@ -39,6 +42,27 @@ aihc build INPUT [OPTIONS]
 | `--no-link` | Compile only. Write the objects and a `link.args` response file to a bundle directory. |
 | `--verbose` | Print each build step. |
 
+## Test
+
+```bash
+aihc test INPUT [OPTIONS]
+```
+
+The command builds each `exitcode-stdio-1.0` test suite of the package as an executable.
+Then, it runs each test suite in the directory of its package.
+The command writes `Test suite NAME: PASS` or `Test suite NAME: FAIL` for each test suite, and then the count of the test suites that passed.
+If a test suite fails, the command fails.
+With `all`, the command tests each package of the project that has a test suite.
+
+| Option | Meaning |
+| --- | --- |
+| `--test-suite NAME` | Build and run only the named test suite of a package. |
+| `--test-option ARG` | Give `ARG` to each test suite. Give the option again to add an argument. |
+| `--target TARGET` | Select the target. See [Select a target](getting-started.md#select-a-target). |
+| `-O LEVEL` | Select the optimization level. See [Optimization levels](#optimization-levels). |
+| `--lto` | Compile each module to System FC only, and compile the merged program once. |
+| `--verbose` | Print each build step. |
+
 ## Install
 
 ```bash
@@ -55,8 +79,8 @@ aihc install PACKAGE [OPTIONS]
 
 ## Progress output
 
-`aihc build` and `aihc install` write their progress to the standard error stream.
-The result goes to the standard output stream: the store entry of an install, or the path of each executable.
+`aihc build`, `aihc install`, and `aihc test` write their progress to the standard error stream.
+The result goes to the standard output stream: the store entry of an install, the path of each executable, or the result of each test suite.
 
 When the standard error stream is a terminal, the commands show a live view.
 The view starts with the plan: the number of packages and executables, and their names.
@@ -73,7 +97,7 @@ Set `TERM=dumb` to get the plain lines on a terminal.
 
 ## Dependency plans
 
-`aihc build`, `aihc install`, and `aihc plan` solve the dependency plan of a package.
+`aihc build`, `aihc install`, `aihc plan`, and `aihc test` solve the dependency plan of a package.
 The commands write the plan to `aihc.lock` in the package directory.
 
 | Option | Meaning |

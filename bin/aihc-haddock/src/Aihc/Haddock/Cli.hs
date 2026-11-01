@@ -126,6 +126,7 @@ runBuild options = do
         { requestRoots = [root],
           requestGoals = [],
           requestExecutables = Nothing,
+          requestTestSuites = False,
           requestCheckBuildTools = True,
           requestProjectPackages = Map.empty,
           requestWorkspaces = [],

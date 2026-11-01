@@ -23,6 +23,7 @@ import Aihc.Cli.Install (TargetRoot (..), cabalPlatformForTarget, installTargetR
 import Aihc.Cli.Options (PlanCommandOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Hackage.Package (PackageName, showVersion, unPackageName)
 import Aihc.PackagePlan (PlanRequest (..), PlannedPackages (..), planPackages)
+import Aihc.PackagePlan.Project (ProjectComponent (..))
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..))
 import Control.Monad (when)
 import Data.List (intercalate, nub, sortOn)
@@ -56,9 +57,11 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
   hackageSource <- defaultHackageSource (hPutStrLn stderr)
-  TargetRoot root _ _ targetExecutables project <- installTargetRoot (planCommandProject options) (planCommandInput options)
+  TargetRoot root _ _ components project <- installTargetRoot (planCommandProject options) (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
-      executables = targetExecutables <> planCommandExecutables options
+      executables = [name | ProjectExecutable name <- components] <> planCommandExecutables options
+      -- A test suite target adds the dependencies of the test suites.
+      testSuites = not (null [() | ProjectTestSuite _ <- components])
   request <-
     planRequestFor
       hackageSource
@@ -73,7 +76,12 @@ planPackageRows options = do
     planPackages
       request
         { requestRoots = [root],
-          requestExecutables = if null executables then Nothing else Just (nub executables),
+          -- A test suite target alone takes no executable.
+          requestExecutables =
+            if null executables
+              then (if testSuites then Just [] else Nothing)
+              else Just (nub executables),
+          requestTestSuites = testSuites,
           -- A build tool the host cannot run stops the build of one
           -- package, not the plan.
           requestCheckBuildTools = False

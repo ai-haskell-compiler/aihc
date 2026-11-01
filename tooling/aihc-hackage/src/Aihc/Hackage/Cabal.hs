@@ -11,6 +11,7 @@ module Aihc.Hackage.Cabal
     collectComponentFiles,
     collectExecutablesFor,
     collectExecutablesIn,
+    collectTestSuitesIn,
     collectLibraryCCompileInfo,
     collectLibraryCCompileInfoFor,
     collectLibraryCCompileInfoIn,
@@ -131,6 +132,7 @@ import Aihc.Hackage.PathsModule (generatePathsModule, pathsModuleName)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFilePath, sourceDirs)
+import Control.Monad (when)
 import Data.List (isPrefixOf, nub)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -454,7 +456,7 @@ collectExecutableFiles package packageRoot = do
   executableFiles <-
     fmap
       concat
-      (sequence [executableFilesFor package evalCond packageRoot name tree | Component (Executable name) tree <- packageComponents package])
+      (sequence [executableFilesFor package evalCond packageRoot "-exe-" name tree | Component (Executable name) tree <- packageComponents package])
   pure (dedupeFiles executableFiles)
 
 -- | One buildable executable of a package, as the active conditions of one
@@ -483,24 +485,42 @@ collectExecutablesFor os arch = collectExecutablesIn (buildContextFor os arch)
 -- build context, in the order the Cabal file declares them.
 collectExecutablesIn :: BuildContext -> Package -> FilePath -> IO [ExecutableInfo]
 collectExecutablesIn context package packageRoot =
-  concat <$> sequence [executableInfo name tree | Component (Executable name) tree <- packageComponents package]
+  concat <$> sequence [programInfo context package packageRoot "-exe-" name tree | Component (Executable name) tree <- packageComponents package]
+
+-- | The buildable test suites of a package, each as the program that runs
+-- it. Only an @exitcode-stdio-1.0@ test suite is a program: a buildable
+-- test suite of another type is an error.
+collectTestSuitesIn :: BuildContext -> Package -> FilePath -> IO [ExecutableInfo]
+collectTestSuitesIn context package packageRoot =
+  concat <$> sequence [testSuiteInfo name tree | Component (TestSuite name) tree <- packageComponents package]
   where
     evalCond = conditionEvaluatorIn context package
-    executableInfo exeName tree = do
+    testSuiteInfo name tree = do
       let build = collectMergedBuildInfo evalCond tree
-      files <- executableFilesFor package evalCond packageRoot exeName tree
-      mainFiles <- executableMainFiles packageRoot build
-      cInfo <- either (ioError . userError) pure (cCompileInfoFromBuild (cabalVersion package) packageRoot build)
-      pure
-        [ ExecutableInfo
-            { executableInfoName = T.unpack exeName,
-              executableInfoFiles = files,
-              executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
-              executableInfoCCompileInfo = cInfo,
-              executableInfoMainFile = listToMaybe mainFiles
-            }
-        | isBuildable build
-        ]
+          testType = map fieldText (Map.findWithDefault [] (T.pack "type") (extraFields build))
+      when (isBuildable build && testType /= [T.pack "exitcode-stdio-1.0"]) $
+        ioError (userError ("The test suite " <> T.unpack name <> " has the type " <> T.unpack (T.intercalate (T.pack ", ") testType) <> ", and aihc runs exitcode-stdio-1.0 test suites only"))
+      programInfo context package packageRoot "-test-" name tree
+
+-- | One executable or test suite, when it is buildable. The suffix names
+-- the component in its generated @Paths_@ module.
+programInfo :: BuildContext -> Package -> FilePath -> String -> Text -> Conditional BuildInfo -> IO [ExecutableInfo]
+programInfo context package packageRoot suffix exeName tree = do
+  let evalCond = conditionEvaluatorIn context package
+      build = collectMergedBuildInfo evalCond tree
+  files <- executableFilesFor package evalCond packageRoot suffix exeName tree
+  mainFiles <- executableMainFiles packageRoot build
+  cInfo <- either (ioError . userError) pure (cCompileInfoFromBuild (cabalVersion package) packageRoot build)
+  pure
+    [ ExecutableInfo
+        { executableInfoName = T.unpack exeName,
+          executableInfoFiles = files,
+          executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
+          executableInfoCCompileInfo = cInfo,
+          executableInfoMainFile = listToMaybe mainFiles
+        }
+    | isBuildable build
+    ]
 
 -- | Keep the first 'FileInfo' of each path, in order.
 --
@@ -528,8 +548,8 @@ libraryFilesFor package evalCond packageRoot libName tree = do
         [sourceFileInfo packageRoot build path | path <- paths]
           <> [generatedPathsFileInfo path | path <- generatedPaths]
 
-executableFilesFor :: Package -> (Condition -> Bool) -> FilePath -> Text -> Conditional BuildInfo -> IO [FileInfo]
-executableFilesFor package evalCond packageRoot exeName tree = do
+executableFilesFor :: Package -> (Condition -> Bool) -> FilePath -> String -> Text -> Conditional BuildInfo -> IO [FileInfo]
+executableFilesFor package evalCond packageRoot suffix exeName tree = do
   let build = collectMergedBuildInfo evalCond tree
       moduleNames = nub (otherModules build <> autogenModules build)
   if not (isBuildable build)
@@ -537,7 +557,7 @@ executableFilesFor package evalCond packageRoot exeName tree = do
     else do
       moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
       mainFiles <- executableMainFiles packageRoot build
-      generatedPaths <- generatedPathsFiles packageRoot package ("-exe-" <> T.unpack exeName) moduleNames
+      generatedPaths <- generatedPathsFiles packageRoot package (suffix <> T.unpack exeName) moduleNames
       pure $
         [sourceFileInfo packageRoot build path | path <- moduleFiles]
           <> mainFiles

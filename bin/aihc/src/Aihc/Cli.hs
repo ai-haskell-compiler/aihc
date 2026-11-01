@@ -9,6 +9,7 @@ import Aihc.Cli.Install (runInstall)
 import Aihc.Cli.Link (runLinkExe)
 import Aihc.Cli.Options (Command (..), parseCommandIO)
 import Aihc.Cli.Plan (runPlan)
+import Aihc.Cli.Test (runTest)
 import Control.Exception (IOException, displayException, try)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -27,3 +28,4 @@ runCommand (CmdBuild opts) = runBuild opts
 runCommand (CmdInstall opts) = runInstall opts
 runCommand (CmdLinkExe opts) = runLinkExe opts
 runCommand (CmdPlan opts) = runPlan opts
+runCommand (CmdTest opts) = runTest opts

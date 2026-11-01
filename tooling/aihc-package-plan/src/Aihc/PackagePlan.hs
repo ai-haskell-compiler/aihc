@@ -172,6 +172,8 @@ data PlanRequest = PlanRequest
     -- | The executables of the roots whose dependencies the plan takes.
     -- 'Nothing' takes every executable.
     requestExecutables :: !(Maybe [String]),
+    -- | Take the dependencies of the test suites of the roots as well.
+    requestTestSuites :: !Bool,
     -- | Fail when a package of the plan needs a build tool that the host
     -- cannot run. A request that only reports the plan turns this off.
     requestCheckBuildTools :: !Bool,
@@ -284,7 +286,11 @@ planPackages request = do
   where
     usesHackage assignment = assignmentSource assignment == CandidateHackage
     prim = mkPackageName "aihc-prim"
-    rootStanzas = noStanzas {stanzasExecutables = Set.fromList . map T.pack <$> requestExecutables request}
+    rootStanzas =
+      noStanzas
+        { stanzasTests = requestTestSuites request,
+          stanzasExecutables = Set.fromList . map T.pack <$> requestExecutables request
+        }
 
 -- | Take the plan from a valid lock, or solve and say so.
 solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> [FilePath] -> IO (Solution, Bool)

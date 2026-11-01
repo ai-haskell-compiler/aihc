@@ -512,6 +512,7 @@ test_plansLocalPackages =
             { requestRoots = [RootLocal root],
               requestGoals = [],
               requestExecutables = Nothing,
+              requestTestSuites = False,
               requestCheckBuildTools = True,
               requestProjectPackages = Map.empty,
               requestWorkspaces = [],
@@ -584,6 +585,7 @@ test_packageLockFixtures =
               { requestRoots = [root],
                 requestGoals = [],
                 requestExecutables = Nothing,
+                requestTestSuites = False,
                 requestCheckBuildTools = True,
                 requestProjectPackages = Map.empty,
                 requestWorkspaces = [],
@@ -684,6 +686,7 @@ test_plansProject =
       (root </> "root.cabal")
       ( cabalFile "root" "0.1" [] ["build-depends: base, dep"]
           <> unlines ["executable tool", "  main-is: Main.hs", "  build-depends: base"]
+          <> unlines ["test-suite checks", "  type: exitcode-stdio-1.0", "  main-is: Checks.hs", "  build-depends: base"]
       )
     writeFile (dep </> "dep.cabal") (cabalFile "dep" "1.0" ["flag fast", "  manual: True", "  default: False"] ["build-depends: base"])
     writeFile (directory </> "cabal.project") "packages: apps/*\n          libs/dep/dep.cabal\noptional-packages: missing/*\n"
@@ -695,16 +698,25 @@ test_plansProject =
     assertEqual "the project packages" ["dep", "root"] (map unPackageName (Map.keys (projectPackages project)))
     assertEqual "the constraints of the .local file" [ConstraintFlag (mkPackageName "dep") (mkFlagName "fast") True] (projectConstraints project)
     let resolve = fmap (resolveProjectTarget project) . parseProjectTarget
-    assertEqual "exe:NAME" (Just (Right (Just (mkPackageName "root", ["tool"])))) (resolve "exe:tool")
-    assertEqual "PKG:exe:NAME" (Just (Right (Just (mkPackageName "root", ["tool"])))) (resolve "root:exe:tool")
+        isError = maybe False (either (const True) (const False))
+    assertEqual "exe:NAME" (Just (Right (Just (mkPackageName "root", [ProjectExecutable "tool"])))) (resolve "exe:tool")
+    assertEqual "PKG:exe:NAME" (Just (Right (Just (mkPackageName "root", [ProjectExecutable "tool"])))) (resolve "root:exe:tool")
+    assertEqual "PKG:NAME of an executable" (Just (Right (Just (mkPackageName "root", [ProjectExecutable "tool"])))) (resolve "root:tool")
+    assertEqual "test:NAME" (Just (Right (Just (mkPackageName "root", [ProjectTestSuite "checks"])))) (resolve "test:checks")
+    assertEqual "PKG:test:NAME" (Just (Right (Just (mkPackageName "root", [ProjectTestSuite "checks"])))) (resolve "root:test:checks")
+    assertEqual "PKG:NAME of a test suite" (Just (Right (Just (mkPackageName "root", [ProjectTestSuite "checks"])))) (resolve "root:checks")
+    assertEqual "the name of a test suite" (Just (Right (Just (mkPackageName "root", [ProjectTestSuite "checks"])))) (resolve "checks")
     assertEqual "a package" (Just (Right (Just (mkPackageName "dep", [])))) (resolve "dep")
     assertEqual "a name the project does not have" (Just (Right Nothing)) (resolve "containers")
-    assertBool "an executable the project does not have" (maybe False (either (const True) (const False)) (resolve "exe:other"))
+    assertBool "an executable the project does not have" (isError (resolve "exe:other"))
+    assertBool "a test suite the project does not have" (isError (resolve "test:tool"))
+    assertBool "a component the package does not have" (isError (resolve "dep:checks"))
     let request =
           PlanRequest
             { requestRoots = [RootLocal root],
               requestGoals = [],
               requestExecutables = Nothing,
+              requestTestSuites = False,
               requestCheckBuildTools = True,
               requestProjectPackages = Map.empty,
               requestWorkspaces = [],
