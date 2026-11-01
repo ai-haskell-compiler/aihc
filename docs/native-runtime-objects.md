@@ -636,6 +636,18 @@ Both bits mark a claim between its two stores, which one capability never shows.
 In an update frame, bit one marks a frame that a pause processed.
 Header readers mask both bits before they read the info table.
 
+A pointer to a heap object can carry a pointer tag in its low three bits.
+Every object is word aligned, so the bits are free.
+A tag of one to six is the constructor index plus one, or the arity of a function.
+A tag of seven says that the reader must read the header.
+No producer sets the bits yet.
+The collector preserves the low three bits of each pointer field, root, remembered-set entry, and resume record it moves.
+It masks the tag before it reads an object, looks up a region, or compares an address.
+When the collector shortcuts an evaluated thunk or an indirection to its value, the result takes the tag of the value field it read.
+A frame, an info table, and a record of the C runtime are never tagged.
+The C runtime entries mask the tag of each value that compiled code hands them.
+The stable-name table keys a name by the raw reference without its tag.
+
 ```text
 saturated constructor: [header] [fields...]
 thunk:                 [header] [owner] [environment...]

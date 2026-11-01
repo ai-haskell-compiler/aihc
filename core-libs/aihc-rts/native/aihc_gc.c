@@ -1621,6 +1621,7 @@ static void aihc_write_barrier_update_unlocked(AihcCapability *capability,
 }
 
 void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
+  object = aihc_untag_pointer(object);
   int locked = capability->machine->gen2_cycle_active != 0;
   if (locked) {
     aihc_heap_lock(capability->machine);
@@ -1646,6 +1647,7 @@ static void aihc_write_barrier_unlocked(AihcCapability *capability,
 }
 
 void aihc_write_barrier(AihcCapability *capability, AihcValue *object) {
+  object = aihc_untag_pointer(object);
   int locked = capability->machine->gen2_cycle_active != 0;
   if (locked) {
     aihc_heap_lock(capability->machine);
@@ -1666,8 +1668,8 @@ static int aihc_is_local(const AihcCapability *capability,
 
 void aihc_count_escape(AihcCapability *capability, const AihcValue *object,
                        AihcSlot value) {
-  if (!aihc_is_local(capability, object) &&
-      aihc_is_local(capability, (const void *)(uintptr_t)value)) {
+  if (!aihc_is_local(capability, aihc_untag_pointer(object)) &&
+      aihc_is_local(capability, aihc_untag(value))) {
     ++capability->escape_count;
   }
 }
@@ -1714,6 +1716,7 @@ static void aihc_write_barrier_at_unlocked(AihcCapability *capability,
 
 void aihc_write_barrier_at(AihcCapability *capability, AihcValue *object,
                            uint64_t index) {
+  object = aihc_untag_pointer(object);
   int locked = capability->machine->gen2_cycle_active != 0;
   if (locked) {
     aihc_heap_lock(capability->machine);
@@ -1747,6 +1750,7 @@ static void aihc_write_barrier_range_unlocked(AihcCapability *capability,
 
 void aihc_write_barrier_range(AihcCapability *capability, AihcValue *object,
                               uint64_t offset, uint64_t count) {
+  object = aihc_untag_pointer(object);
   int locked = capability->machine->gen2_cycle_active != 0;
   if (locked) {
     aihc_heap_lock(capability->machine);
@@ -1796,9 +1800,9 @@ static unsigned aihc_header_forward_generation(AihcSlot header) {
 /* Whether a thunk with bit zero is evaluated: field zero is the value, and
    not the owner. The owner is a thread record or a blackhole queue, and no
    Haskell value has those kinds. A queue can have moved in this collection,
-   so its forwarding header is followed. */
+   so its forwarding header is followed. A value can carry a tag. */
 static int aihc_thunk_is_evaluated(const AihcValue *thunk) {
-  const AihcValue *word = (const AihcValue *)(uintptr_t)thunk->fields[0];
+  const AihcValue *word = aihc_untag(thunk->fields[0]);
   AihcSlot header = word->header;
   if (aihc_header_is_forward(header)) {
     word = aihc_header_forward(header);
@@ -1945,15 +1949,20 @@ aihc_gc_nursery_owner(const AihcGcContext *context, const void *value) {
    static object, and a null pointer are older than every generation. The
    evacuation knows it from the region it looked up or from the copy, so
    the scan of the referrer does not look it up again. This is the general
-   path. aihc_evacuate_at below does the most frequent cases inline. */
-static __attribute__((noinline)) AihcValue *
-aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
-                   unsigned *where) {
+   path. aihc_evacuate_at below does the most frequent cases inline.
+
+   The slot can carry a pointer tag, which the result keeps. When the
+   evacuation follows an indirection or an evaluated thunk to its value,
+   the result takes the tag of the field it read. */
+static __attribute__((noinline)) AihcSlot aihc_evacuate_slow(
+    AihcGcContext *context, AihcSlot slot, unsigned target, unsigned *where) {
   AihcCapability *capability = context->capability;
+  unsigned tag = aihc_tag_of(slot);
+  AihcValue *value = aihc_untag(slot);
   for (;;) {
     if (value == NULL) {
       *where = AIHC_GENERATION_STATIC;
-      return NULL;
+      return slot;
     }
     unsigned source;
     AihcCapability *owner = aihc_gc_nursery_owner(context, value);
@@ -1962,7 +1971,7 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
         /* The nursery of another capability, which a local collection
            leaves alone. */
         *where = 0;
-        return value;
+        return slot;
       }
       source = 0;
     } else {
@@ -1972,26 +1981,28 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
         break;
       case AIHC_REGION_GEN1:
         *where = 1;
-        return value;
+        return slot;
       case AIHC_REGION_GEN2:
         *where = 2;
         if (context->collected < 2) {
-          return value;
+          return slot;
         }
         /* A full collection follows a gen2 indirection as the copy follows
            one in a from-space: the indirection stays unmarked, and its
            slot is free after the collection. */
         if (!context->keep_thunk && aihc_follows_to_field_zero(value)) {
-          value = (AihcValue *)(uintptr_t)value->fields[0];
+          slot = value->fields[0];
+          tag = aihc_tag_of(slot);
+          value = aihc_untag(slot);
           continue;
         }
         aihc_mark_gen2(capability, value);
-        return value;
+        return slot;
       case AIHC_REGION_LARGE:
       case AIHC_REGION_PINNED:
         aihc_mark_pinned(context, value, target);
         *where = aihc_pinned_generation(aihc_pinned_block_of(value));
-        return value;
+        return slot;
       case AIHC_REGION_STACK:
         *where = AIHC_EVACUATED_FRAME;
         /* A frame of a young chunk is scanned from the worklist. A frame of
@@ -2009,7 +2020,7 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
             aihc_frame_is_live(capability, value)) {
           aihc_mark_static(context->work, value);
         }
-        return value;
+        return slot;
       case AIHC_REGION_OUTSIDE:
         if (aihc_outside_is_pinned(value)) {
           aihc_mark_pinned(context, value, target);
@@ -2020,7 +2031,7 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
             aihc_mark_static(context->work, value);
           }
         }
-        return value;
+        return slot;
       default:
         aihc_fail("collector reached an invalid address");
       }
@@ -2029,10 +2040,12 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
     if (aihc_header_is_forward(header)) {
       /* An earlier reference copied the object into gen1 or gen2. */
       *where = aihc_header_forward_generation(header);
-      return aihc_header_forward(header);
+      return aihc_tag_pointer(aihc_header_forward(header), tag);
     }
     if (!context->keep_thunk && aihc_follows_to_field_zero(value)) {
-      value = (AihcValue *)(uintptr_t)value->fields[0];
+      slot = value->fields[0];
+      tag = aihc_tag_of(slot);
+      value = aihc_untag(slot);
       continue;
     }
     unsigned generation =
@@ -2046,8 +2059,9 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
     *where = generation;
     /* A survivor of gen1 goes to gen2, which has no owner, or back to the
        gen1 of the collecting capability in a local collection. */
-    return aihc_copy(context, value, generation,
-                     owner != NULL ? owner : capability);
+    return aihc_tag_pointer(aihc_copy(context, value, generation,
+                                      owner != NULL ? owner : capability),
+                            tag);
   }
 }
 
@@ -2055,13 +2069,18 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
    nursery object that is forwarded or that is copied. A forwarded object
    gives its generation in its header. A thunk that a thread claimed, an
    indirection, and every object outside the nurseries take the general
-   path. */
-static inline __attribute__((always_inline)) AihcValue *
-aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
-                 unsigned *where) {
-  if (value != NULL) {
+   path. The result keeps the pointer tag of the slot. The null test and
+   the nursery test read the slot with its tag, so they do not wait for
+   the mask: an object has a header word, so a tagged pointer into a
+   nursery window stays inside the window, and a tagged pointer outside
+   stays outside. */
+static inline __attribute__((always_inline)) AihcSlot aihc_evacuate_at(
+    AihcGcContext *context, AihcSlot slot, unsigned target, unsigned *where) {
+  if (slot != 0) {
+    AihcValue *value = aihc_untag(slot);
+    unsigned tag = aihc_tag_of(slot);
     AihcCapability *owner =
-        (uintptr_t)value - context->young_start < context->young_bytes
+        (uintptr_t)slot - context->young_start < context->young_bytes
             ? context->young_owner
         : context->young_bytes == 0
             ? aihc_nursery_owner(context->capability->machine, value)
@@ -2070,7 +2089,7 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
       AihcSlot header = value->header;
       if (aihc_header_is_forward(header)) {
         *where = aihc_header_forward_generation(header);
-        return aihc_header_forward(header);
+        return aihc_tag_pointer(aihc_header_forward(header), tag);
       }
       if ((header & AIHC_HEADER_TAG_MASK) == 0 &&
           aihc_value_info_table(value)->object_kind !=
@@ -2081,7 +2100,8 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
           generation = 2;
         }
         *where = generation;
-        return aihc_copy(context, value, generation, owner);
+        return aihc_tag_pointer(aihc_copy(context, value, generation, owner),
+                                tag);
       }
     } else if (owner == NULL && context->collected < 2) {
       /* A collection of the young generations leaves an old object where
@@ -2090,11 +2110,11 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
       AihcRegionKind kind = aihc_region_kind(value);
       if (kind == AIHC_REGION_GEN2 || kind == AIHC_REGION_GEN1) {
         *where = kind == AIHC_REGION_GEN2 ? 2 : 1;
-        return value;
+        return slot;
       }
       if (kind == AIHC_REGION_OUTSIDE && !aihc_outside_is_pinned(value)) {
         *where = AIHC_GENERATION_STATIC;
-        return value;
+        return slot;
       }
       if (kind == AIHC_REGION_FROM1) {
         /* A survivor of gen1 ages into gen2, or into the gen1 of the
@@ -2102,7 +2122,7 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
         AihcSlot header = value->header;
         if (aihc_header_is_forward(header)) {
           *where = aihc_header_forward_generation(header);
-          return aihc_header_forward(header);
+          return aihc_tag_pointer(aihc_header_forward(header), tag);
         }
         if ((header & AIHC_HEADER_TAG_MASK) == 0 &&
             aihc_value_info_table(value)->object_kind !=
@@ -2113,26 +2133,25 @@ aihc_evacuate_at(AihcGcContext *context, AihcValue *value, unsigned target,
             generation = 2;
           }
           *where = generation;
-          return aihc_copy(context, value, generation, context->capability);
+          return aihc_tag_pointer(
+              aihc_copy(context, value, generation, context->capability), tag);
         }
       }
     }
   }
-  return aihc_evacuate_slow(context, value, target, where);
+  return aihc_evacuate_slow(context, slot, target, where);
 }
 
 static AihcSlot aihc_evacuate_root(AihcSlot root, void *opaque_context) {
   unsigned where;
-  return (AihcSlot)(uintptr_t)aihc_evacuate_at(
-      opaque_context, (AihcValue *)(uintptr_t)root, 0, &where);
+  return aihc_evacuate_at(opaque_context, root, 0, &where);
 }
 
 static inline __attribute__((always_inline)) AihcSlot
 aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   AihcScanContext *scan = opaque_context;
   unsigned generation;
-  AihcValue *value = aihc_evacuate_at(scan->gc, (AihcValue *)(uintptr_t)slot,
-                                      scan->target, &generation);
+  AihcSlot moved = aihc_evacuate_at(scan->gc, slot, scan->target, &generation);
   /* Only a frame gives AIHC_EVACUATED_FRAME, so a static referent needs
      no region lookup here. */
   if (generation == AIHC_EVACUATED_FRAME) {
@@ -2145,14 +2164,15 @@ aihc_scan_slot(AihcSlot slot, void *opaque_context) {
          another chunk has its own age. Without this rule, a record in gen2
          drops out of the set after one scan, and a later gen1 collection
          never reaches the frames of its thread. */
-      unsigned age = aihc_chunk_generation(aihc_stack_chunk_of(value));
+      unsigned age =
+          aihc_chunk_generation(aihc_stack_chunk_of(aihc_untag(moved)));
       generation = age <= scan->gc->collected ? 0 : age;
     }
   }
   if (generation < scan->youngest) {
     scan->youngest = generation;
   }
-  return (AihcSlot)(uintptr_t)value;
+  return moved;
 }
 
 /* Record a scanned frame on its chunk. The first frame of a collection
@@ -2409,7 +2429,7 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
        frame without the mark is in a young chunk, so the collection reaches
        it. A collection without a stop traces without the object lock, so it
        claims at its end. */
-    AihcValue *thunk = (AihcValue *)(uintptr_t)object->fields[1];
+    AihcValue *thunk = aihc_untag(object->fields[1]);
     AihcThread *thread = aihc_stack_chunk_of(object)->stack->thread;
     if (context->concurrent) {
       if (context->claim_count + 2 > context->claim_capacity) {
@@ -2573,7 +2593,7 @@ static void aihc_scan_remembered_of(AihcGcContext *context,
   capability->remembered_count = 0;
   capability->remembered_capacity = 0;
   for (uint64_t index = 0; index < count; ++index) {
-    AihcValue *object = entries[index];
+    AihcValue *object = aihc_untag_pointer(entries[index]);
     if (aihc_in_any_nursery(capability->machine, object)) {
       continue;
     }
@@ -2676,7 +2696,7 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
         if (!aihc_follows_to_field_zero(value)) {
           return NULL;
         }
-        value = (AihcValue *)(uintptr_t)value->fields[0];
+        value = aihc_untag(value->fields[0]);
         continue;
       case AIHC_REGION_GEN1:
       case AIHC_REGION_STACK:
@@ -2705,7 +2725,7 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
     if (!aihc_follows_to_field_zero(value)) {
       return NULL;
     }
-    value = (AihcValue *)(uintptr_t)value->fields[0];
+    value = aihc_untag(value->fields[0]);
   }
 }
 
@@ -2803,13 +2823,14 @@ static void aihc_sweep_stacks(AihcGcContext *context) {
 static AihcValue *aihc_follow_heap_indirections(AihcValue *value) {
   while (value != NULL && aihc_follows_to_field_zero(value) &&
          aihc_region_kind(value) != AIHC_REGION_OUTSIDE) {
-    value = (AihcValue *)(uintptr_t)value->fields[0];
+    value = aihc_untag(value->fields[0]);
   }
   return value;
 }
 
 /* Rebuild the weak lookup list after strong tracing. Do not retain names
-   through this list or retain referents through their names. */
+   through this list or retain referents through their names. The referent
+   of a name is a raw reference without a tag. */
 static void aihc_update_stable_names(AihcGcContext *context) {
   AihcStableName *old = context->capability->machine->stable_names;
   AihcStableName **tail = &context->capability->machine->stable_names;
@@ -2819,8 +2840,8 @@ static void aihc_update_stable_names(AihcGcContext *context) {
     AihcStableName *live =
         (AihcStableName *)aihc_live_value(context, (AihcValue *)old);
     if (live != NULL) {
-      live->value =
-          aihc_follow_heap_indirections(aihc_live_value(context, old->value));
+      live->value = aihc_follow_heap_indirections(
+          aihc_live_value(context, aihc_untag_pointer(old->value)));
       live->next = NULL;
       if (live->value != NULL) {
         *tail = live;
@@ -2986,9 +3007,10 @@ static int aihc_frame_is_live(const AihcCapability *capability,
    marked like any object: the marker does not rewrite the fields that
    name it, so it must stay until a copy follows it. A frame is scanned at
    once with the frames below it in its chunk, when it is live and not
-   scanned yet. */
+   scanned yet. The pointer can carry a tag. */
 static inline __attribute__((always_inline)) void
 aihc_mark_old(AihcCapability *capability, AihcValue *value) {
+  value = aihc_untag_pointer(value);
   if (value == NULL) {
     return;
   }
@@ -3116,7 +3138,7 @@ typedef struct {
 
 static AihcSlot aihc_mark_frame_slot(AihcSlot slot, void *opaque_scan) {
   AihcFrameScan *scan = opaque_scan;
-  AihcValue *value = (AihcValue *)(uintptr_t)slot;
+  AihcValue *value = aihc_untag(slot);
   if (value == NULL || aihc_region_kind(value) != AIHC_REGION_STACK) {
     aihc_mark_old(scan->capability, value);
     return slot;
@@ -3234,7 +3256,7 @@ static void aihc_shade_elements(AihcCapability *capability, AihcValue *array,
 
 static AihcSlot aihc_snapshot_root(AihcSlot slot, void *opaque_machine) {
   AihcCapability *capability = opaque_machine;
-  AihcValue *value = (AihcValue *)(uintptr_t)slot;
+  AihcValue *value = aihc_untag(slot);
   if (value != NULL && aihc_region_kind(value) == AIHC_REGION_STACK) {
     /* A root names a live frame: the top frame of the running stack, or
        a frame below it. */
@@ -3341,7 +3363,7 @@ static void aihc_remembered_purge(AihcCapability *capability) {
                            .work = &aihc_gc_works[capability->index]};
   uint64_t kept = 0;
   for (uint64_t index = 0; index < capability->remembered_count; ++index) {
-    AihcValue *object = capability->remembered[index];
+    AihcValue *object = aihc_untag_pointer(capability->remembered[index]);
     int live;
     switch (aihc_region_kind(object)) {
     case AIHC_REGION_GEN2:
@@ -4018,7 +4040,8 @@ int aihc_value_is_young(const AihcMachine *machine, const void *value) {
 AihcValue *aihc_record_allocate(AihcCapability *capability,
                                 const AihcValue *container, uint64_t words) {
   if (capability->machine->capability_count > 1 &&
-      !aihc_promote_is_young(capability->machine, container)) {
+      !aihc_promote_is_young(capability->machine,
+                             aihc_untag_pointer(container))) {
     return aihc_gc_allocate_global(capability, words);
   }
   return aihc_gc_allocate(capability, words);
@@ -4026,8 +4049,9 @@ AihcValue *aihc_record_allocate(AihcCapability *capability,
 
 int64_t aihc_stable_name_escapes(AihcCapability *capability,
                                  const AihcValue *value) {
-  int64_t escapes = capability->machine->capability_count > 1 &&
-                    aihc_promote_is_young(capability->machine, value);
+  int64_t escapes =
+      capability->machine->capability_count > 1 &&
+      aihc_promote_is_young(capability->machine, aihc_untag_pointer(value));
   capability->pause_top = NULL;
   return escapes;
 }
@@ -4039,6 +4063,8 @@ int64_t aihc_stable_name_escapes(AihcCapability *capability,
 int64_t aihc_array_copy_escaping(AihcCapability *capability, AihcValue *source,
                                  uint64_t source_offset, AihcValue *target,
                                  uint64_t target_offset, uint64_t count) {
+  source = aihc_untag_pointer(source);
+  target = aihc_untag_pointer(target);
   AihcValue *top = capability->pause_top;
   capability->pause_top = NULL;
   if (capability->machine->capability_count < 2 ||
@@ -4086,14 +4112,15 @@ AihcSlot aihc_escape_in_operation(AihcCapability *capability,
 
 /* A reference to a young indirection or a young evaluated thunk goes to its
    target. A global object is never followed: a static indirection can name
-   itself. */
-static AihcValue *aihc_promote_follow(const AihcMachine *machine,
-                                      AihcValue *value) {
+   itself. The result keeps the pointer tag of the last field read. */
+static AihcSlot aihc_promote_follow(const AihcMachine *machine, AihcSlot slot) {
+  AihcValue *value = aihc_untag(slot);
   while (aihc_promote_is_young(machine, value) &&
          aihc_follows_to_field_zero(value)) {
-    value = (AihcValue *)(uintptr_t)value->fields[0];
+    slot = value->fields[0];
+    value = aihc_untag(slot);
   }
-  return value;
+  return slot;
 }
 
 /* What a promotion does with one young object. */
@@ -4219,8 +4246,7 @@ static void aihc_promotion_insert(AihcPromotion *promotion, AihcValue *original,
 /* The check: a visitor that queues each young object it has not seen. */
 static AihcSlot aihc_promote_check_slot(AihcSlot slot, void *opaque) {
   AihcPromotion *promotion = opaque;
-  AihcValue *value =
-      aihc_promote_follow(promotion->machine, (AihcValue *)(uintptr_t)slot);
+  AihcValue *value = aihc_untag(aihc_promote_follow(promotion->machine, slot));
   if (aihc_promote_is_young(promotion->machine, value) &&
       aihc_address_set_insert(&promotion->seen, value)) {
     aihc_value_worklist_push(&promotion->check, value);
@@ -4296,24 +4322,25 @@ static AihcValue *aihc_promote_object(AihcPromotion *promotion,
 
 static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque) {
   AihcPromotion *promotion = opaque;
-  AihcValue *value =
-      aihc_promote_follow(promotion->machine, (AihcValue *)(uintptr_t)slot);
+  AihcSlot followed = aihc_promote_follow(promotion->machine, slot);
+  AihcValue *value = aihc_untag(followed);
   if (!aihc_promote_is_young(promotion->machine, value)) {
-    return (AihcSlot)(uintptr_t)value;
+    return followed;
   }
-  return (AihcSlot)(uintptr_t)aihc_promote_object(promotion, value);
+  return aihc_tag_pointer(aihc_promote_object(promotion, value),
+                          aihc_tag_of(followed));
 }
 
-/* Promote a value by a copy, or give NULL when the promotion needs a
-   collection. */
-static AihcValue *aihc_promote_copy(AihcCapability *capability,
-                                    AihcValue *value) {
+/* Promote a value by a copy, or give zero when the promotion needs a
+   collection. The result keeps the pointer tag of the value. */
+static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
   AihcMachine *machine = capability->machine;
   AihcValue *top = capability->pause_top;
   capability->pause_top = NULL;
-  value = aihc_promote_follow(machine, value);
+  slot = aihc_promote_follow(machine, slot);
+  AihcValue *value = aihc_untag(slot);
   if (!aihc_promote_is_young(machine, value)) {
-    return value;
+    return slot;
   }
   /* The pause walk claims each thunk under evaluation, so the check finds
      it claimed. */
@@ -4326,9 +4353,10 @@ static AihcValue *aihc_promote_copy(AihcCapability *capability,
   free(promotion.seen.slots);
   free(promotion.check.items);
   if (collect) {
-    return NULL;
+    return 0;
   }
-  AihcValue *copy = aihc_promote_object(&promotion, value);
+  AihcSlot copy = aihc_tag_pointer(aihc_promote_object(&promotion, value),
+                                   aihc_tag_of(slot));
   while (promotion.pending.count != 0) {
     AihcValue *object = promotion.pending.items[--promotion.pending.count];
     aihc_visit_plain_fields(object, aihc_promote_slot, &promotion);
@@ -4356,14 +4384,14 @@ void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
 static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
                                      const AihcValue *object, AihcSlot value) {
   AihcMachine *machine = capability->machine;
-  if (machine->capability_count < 2 || aihc_promote_is_young(machine, object) ||
-      !aihc_promote_is_young(machine, (const AihcValue *)(uintptr_t)value)) {
+  if (machine->capability_count < 2 ||
+      aihc_promote_is_young(machine, aihc_untag_pointer(object)) ||
+      !aihc_promote_is_young(machine, aihc_untag(value))) {
     capability->pause_top = NULL;
     return value;
   }
-  AihcValue *copy =
-      aihc_promote_copy(capability, (AihcValue *)(uintptr_t)value);
-  return copy == NULL ? AIHC_ESCAPE_COLLECT : (AihcSlot)(uintptr_t)copy;
+  AihcSlot copy = aihc_promote_copy(capability, value);
+  return copy == 0 ? AIHC_ESCAPE_COLLECT : copy;
 }
 
 /* A promotion takes no heap lock. It reads and changes the local heap of
@@ -4378,7 +4406,8 @@ AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
 AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
                         uint64_t root_count, AihcSlot *roots,
                         const AihcSrt *srt) {
-  AihcValue *copy = aihc_promote_copy(capability, value);
+  AihcValue *copy = (AihcValue *)(uintptr_t)aihc_promote_copy(
+      capability, (AihcSlot)(uintptr_t)value);
   if (copy == NULL) {
     /* The value is one more root of a collection that moves every young
        survivor into gen2. */
@@ -5239,7 +5268,7 @@ static void aihc_verify_value(AihcValue *value) {
 
 static AihcSlot aihc_verify_slot(AihcSlot slot, void *context) {
   (void)context;
-  aihc_verify_value((AihcValue *)(uintptr_t)slot);
+  aihc_verify_value(aihc_untag(slot));
   return slot;
 }
 
@@ -5257,6 +5286,8 @@ static void aihc_verify_scan(AihcValue *object) {
   aihc_verify_srt(info->srt);
   aihc_visit_plain_fields(object, aihc_verify_slot, NULL);
   if (aihc_region_kind(object) == AIHC_REGION_STACK && info->field_count != 0) {
+    /* A frame pointer carries no tag, so the parent link is read as it
+       is. */
     AihcValue *parent = (AihcValue *)(uintptr_t)object->fields[0];
     if (parent != NULL) {
       if (aihc_region_kind(parent) != AIHC_REGION_STACK ||
@@ -5391,7 +5422,7 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
        ++other) {
     AihcCapability *each = capability->machine->capabilities[other];
     for (uint64_t index = 0; index < each->remembered_count; ++index) {
-      aihc_verify_remembered(each->remembered[index]);
+      aihc_verify_remembered(aihc_untag_pointer(each->remembered[index]));
     }
     if (each != capability) {
       aihc_visit_roots(each, 0, NULL, aihc_verify_slot, NULL);
@@ -5404,7 +5435,7 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
   for (AihcStableName *name = capability->machine->stable_names; name != NULL;
        name = name->next) {
     aihc_verify_value((AihcValue *)name);
-    aihc_verify_value(name->value);
+    aihc_verify_value(aihc_untag_pointer(name->value));
   }
   for (;;) {
     if (aihc_verify_srt_work.count != 0) {

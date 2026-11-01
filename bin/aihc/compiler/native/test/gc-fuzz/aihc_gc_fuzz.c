@@ -70,6 +70,11 @@
 
    Values: n (null), hID (heap object), fID (frame), sK (static slot),
    wHEX (raw word), and aID (the address of a heap object as a raw word).
+   A heap object or a static slot can end with +T, a pointer tag T of one
+   to seven in the low three bits of the reference. The report gives a
+   reference with its tag in the same form. A collection keeps the tag,
+   and a reference that goes through an indirection takes the tag of the
+   target field. An object operand of a command takes no tag.
    Static slots 0-7 are thunks, 8-11 are nodes with two pointer fields, and
    12-15 are nullary constructors. The initial thread has identity 1.
 
@@ -469,18 +474,46 @@ static const AihcSrt *srt_of(int64_t index) {
   return srts[index];
 }
 
-/* Parse a value token. A raw word is a non-pointer payload. */
+/* Parse a number with an optional pointer tag after a plus sign. */
+static uint64_t parse_reference(const char *token, unsigned *tag) {
+  const char *plus = strchr(token, '+');
+  *tag = 0;
+  if (plus == NULL) {
+    return parse_unsigned(token);
+  }
+  char number[32];
+  size_t length = (size_t)(plus - token);
+  if (length == 0 || length >= sizeof(number)) {
+    fail("invalid reference");
+  }
+  memcpy(number, token, length);
+  number[length] = 0;
+  uint64_t given = parse_unsigned(plus + 1);
+  if (given == 0 || given > AIHC_POINTER_TAG_MASK) {
+    fail("pointer tag out of range");
+  }
+  *tag = (unsigned)given;
+  return parse_unsigned(number);
+}
+
+/* Parse a value token. A raw word is a non-pointer payload. A heap object
+   and a static slot can carry a pointer tag. */
 static AihcSlot parse_value(const char *token, int *is_word) {
+  unsigned tag = 0;
   *is_word = 0;
   switch (token[0]) {
   case 'n':
     return 0;
-  case 'h':
-    return (AihcSlot)(uintptr_t)live_entry(parse_unsigned(token + 1))->address;
+  case 'h': {
+    uint64_t identity = parse_reference(token + 1, &tag);
+    return aihc_tag_pointer(live_entry(identity)->address, tag);
+  }
   case 'f':
     return (AihcSlot)(uintptr_t)live_frame(parse_unsigned(token + 1))->address;
-  case 's':
-    return (AihcSlot)(uintptr_t)static_slot_address(parse_unsigned(token + 1));
+  case 's': {
+    uint64_t slot = parse_reference(token + 1, &tag);
+    return aihc_tag_pointer(static_slot_address(slot), tag);
+  }
   case 'w':
     *is_word = 1;
     return parse_hex(token + 1);
@@ -501,10 +534,15 @@ static AihcSlot parse_pointer(const char *token) {
   return value;
 }
 
+/* An object operand of a command: the driver reads its header, so it
+   takes no tag. */
 static AihcValue *parse_object(const char *token) {
   AihcSlot value = parse_pointer(token);
   if (value == 0) {
     fail("null where an object is required");
+  }
+  if (aihc_tag_of(value) != 0) {
+    fail("pointer tag on an object operand");
   }
   return (AihcValue *)(uintptr_t)value;
 }
@@ -557,7 +595,7 @@ static int is_object_start(const AihcValue *object) {
 /* Whether a thunk with bit zero is evaluated: field zero is its value, not
    its owner thread or the blackhole queue of its owner. */
 static int thunk_is_evaluated(const AihcValue *object) {
-  const AihcValue *word = (const AihcValue *)(uintptr_t)object->fields[0];
+  const AihcValue *word = aihc_untag(object->fields[0]);
   AihcObjectKind kind = aihc_value_info_table(word)->object_kind;
   return kind != AIHC_OBJECT_THREAD && kind != AIHC_OBJECT_BLACKHOLE_QUEUE;
 }
@@ -573,16 +611,26 @@ static int is_indirection(const AihcValue *object) {
 
 /* A pointer to a heap indirection names its target: the mutator follows
    indirections and evaluated thunks, and the collector removes only the
-   ones it copies away. */
-static const AihcValue *follow_indirections(const AihcValue *object) {
+   ones it copies away. The result keeps the pointer tag of the last field
+   read, as the collector does. */
+static AihcSlot follow_slot(AihcSlot slot) {
+  const AihcValue *object = aihc_untag(slot);
   for (int fuel = 0; fuel < 1000; ++fuel) {
     if (!is_object_start(object) || !is_indirection(object)) {
-      return object;
+      return slot;
     }
-    object = (const AihcValue *)(uintptr_t)object->fields[0];
+    slot = object->fields[0];
+    object = aihc_untag(slot);
   }
   violation("indirection chain is too long");
-  return object;
+  return slot;
+}
+
+/* Print the pointer tag of a reference, when it has one. */
+static void print_tag(unsigned tag) {
+  if (tag != 0) {
+    printf("+%u", tag);
+  }
 }
 
 /* Print one slot as the model names it: n for null, h and the identity of a
@@ -590,12 +638,15 @@ static const AihcValue *follow_indirections(const AihcValue *object) {
    static object, or o for an address that no object starts at. The last one
    is a stale pointer: the memory it names left the heap. An object that
    nothing reaches may hold one, so it is not a violation here, and the model
-   compares the fields of every live object. */
+   compares the fields of every live object. A reference with a pointer tag
+   ends with the tag. */
 static void print_pointer(AihcSlot slot) {
-  const void *address = (const void *)(uintptr_t)slot;
+  unsigned tag = aihc_tag_of(slot);
+  const void *address = aihc_untag(slot);
   uint64_t static_slot = 0;
-  if (slot == 0) {
+  if (address == NULL) {
     printf(" n");
+    print_tag(tag);
     return;
   }
   if (aihc_region_kind(address) == AIHC_REGION_STACK) {
@@ -605,15 +656,20 @@ static void print_pointer(AihcSlot slot) {
     } else {
       printf(" f%" PRIuPTR, aihc_value_info_table(frame->address)->identity);
     }
+    print_tag(tag);
     return;
   }
-  const AihcValue *object = follow_indirections(address);
+  AihcSlot followed = follow_slot(slot);
+  tag = aihc_tag_of(followed);
+  const AihcValue *object = aihc_untag(followed);
   if (is_object_start(object)) {
     printf(" h%" PRIuPTR, aihc_value_info_table(object)->identity);
+    print_tag(tag);
     return;
   }
   if (static_slot_of(object, &static_slot)) {
     printf(" s%" PRIu64, static_slot);
+    print_tag(tag);
     return;
   }
   printf(" o");
@@ -973,16 +1029,22 @@ static int is_duplicable(const AihcValue *object) {
 }
 
 /* Two copies of an object hold equal fields when each pointer field names
-   the same identity, frame, or static object, and each word is equal. */
+   the same identity, frame, or static object with the same pointer tag,
+   and each word is equal. */
 static int same_slot(AihcSlot left, AihcSlot right) {
   if (left == right) {
     return 1;
   }
-  const AihcValue *first = follow_indirections((const void *)(uintptr_t)left);
-  const AihcValue *second = follow_indirections((const void *)(uintptr_t)right);
-  if (first == second) {
+  AihcSlot first_slot = follow_slot(left);
+  AihcSlot second_slot = follow_slot(right);
+  if (first_slot == second_slot) {
     return 1;
   }
+  if (aihc_tag_of(first_slot) != aihc_tag_of(second_slot)) {
+    return 0;
+  }
+  const AihcValue *first = aihc_untag(first_slot);
+  const AihcValue *second = aihc_untag(second_slot);
   return first != NULL && second != NULL && is_object_start(first) &&
          is_object_start(second) &&
          aihc_value_info_table(first)->identity ==
@@ -1141,12 +1203,12 @@ static void report_collection(void) {
     if (!thunk_entry->defined || object == NULL ||
         thunk_entry->info->object_kind != AIHC_OBJECT_THUNK ||
         aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE ||
-        aihc_value_info_table((const AihcValue *)(uintptr_t)object->fields[0])
-                ->object_kind != AIHC_OBJECT_BLACKHOLE_QUEUE) {
+        aihc_value_info_table(aihc_untag(object->fields[0]))->object_kind !=
+            AIHC_OBJECT_BLACKHOLE_QUEUE) {
       continue;
     }
     const AihcBlackholeQueue *queue =
-        (const AihcBlackholeQueue *)(uintptr_t)object->fields[0];
+        (const AihcBlackholeQueue *)aihc_untag(object->fields[0]);
     if (queue->thunk != object) {
       violation("blackhole queue names another thunk");
     }
@@ -2115,7 +2177,7 @@ static void command_promote(char **tokens, size_t count) {
     Entry *entry = &entries[identity];
     if (entry->defined && !entry->indirection && entry->address != NULL &&
         entry->address->header == (AihcSlot)(uintptr_t)&aihc_indirection_info) {
-      entry->address = (AihcValue *)(uintptr_t)entry->address->fields[0];
+      entry->address = aihc_untag(entry->address->fields[0]);
     }
   }
 }
@@ -2209,13 +2271,14 @@ static void run_command(char **tokens, size_t count) {
       fail("sset expects a static node field");
     }
     AihcSlot value = parse_pointer(tokens[3]);
-    if (value != 0 &&
-        !in_range((const void *)(uintptr_t)value,
-                  (const uint8_t *)static_thunks, sizeof(static_thunks)) &&
-        !in_range((const void *)(uintptr_t)value, (const uint8_t *)static_nodes,
+    const void *target = aihc_untag(value);
+    if (target != NULL &&
+        !in_range(target, (const uint8_t *)static_thunks,
+                  sizeof(static_thunks)) &&
+        !in_range(target, (const uint8_t *)static_nodes,
                   sizeof(static_nodes)) &&
-        !in_range((const void *)(uintptr_t)value,
-                  (const uint8_t *)static_nullary, sizeof(static_nullary))) {
+        !in_range(target, (const uint8_t *)static_nullary,
+                  sizeof(static_nullary))) {
       fail("static node fields hold static objects only");
     }
     /* A static node is old, so the store has the barrier that compiled
