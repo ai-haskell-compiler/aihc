@@ -93,23 +93,23 @@ data Extraction = Extraction
 extractInstalledModule :: Extraction -> GhcInterface -> FilePath -> String -> IO ModuleInterface
 extractInstalledModule extraction builtins importDir modName = do
   exists <- doesFileExist (importDir </> map dotToSlash modName <.> "hi")
-  iface <- if exists then loadInterface extraction importDir modName else pure (GhcInterface [] Map.empty Map.empty)
-  if modName == "GHC.Prim"
+  iface <- if exists then loadInterface extraction importDir modName (const True) else pure (GhcInterface [] Map.empty Map.empty)
+  if modName == "GHC.Prim" && not exists
     then do
       declarations <- mapM parseInstalledDeclaration ([raw | (name, _) <- ghcExports builtins, Just raw <- [Map.lookup (interfaceName name) (ghcDeclarations builtins)]])
       pure (mergeInterfaces (T.pack modName) declarations (Map.elems (ghcFixities builtins)))
     else do
       declarations <- mapM extractExport (ghcExports iface)
-      fixities <- concat <$> mapM exportedFixities (ghcExports iface)
+      fixities <- concat <$> mapM (exportedFixities iface) (ghcExports iface)
       pure (mergeInterfaces (T.pack modName) declarations fixities)
   where
-    definingInterface reference = do
+    definingInterface contains reference = do
       let (owner, name) = splitReference modName reference
-      ownerIface <- loadInterface extraction importDir owner
+      ownerIface <- loadInterface extraction importDir owner (contains name)
       pure (owner, name, ownerIface)
     extractExport (reference, members) = do
       let parent = if null members then reference else fromMaybe reference (T.stripSuffix "|" reference)
-      (owner, name, ownerIface) <- definingInterface parent
+      (owner, name, ownerIface) <- definingInterface (\name -> Map.member (interfaceName name) . ghcDeclarations) parent
       let localDeclaration = Map.lookup (interfaceName name) (ghcDeclarations ownerIface)
       declaration <- case localDeclaration of
         Just raw | null members || not ("pattern " `T.isPrefixOf` raw) -> pure (Just raw)
@@ -134,28 +134,36 @@ extractInstalledModule extraction builtins importDir modName = do
           let isData line = ("data " `T.isPrefixOf` line && not ("data family " `T.isPrefixOf` line)) || "newtype " `T.isPrefixOf` line
               exportedTypes = if null classes && any isData (T.lines raw) then map addMembers types else types
           pure parsed {miTypes = exportedTypes, miClasses = classes}
-    exportedFixities (reference, members) =
-      concat <$> mapM findFixity (if not (null members) && "|" `T.isSuffixOf` reference then members else reference : members)
-    findFixity reference = do
-      (_, name, ownerIface) <- definingInterface reference
-      pure (maybe [] pure (Map.lookup name (ghcFixities ownerIface)))
+    exportedFixities localIface (reference, members) =
+      concat <$> mapM (findFixity localIface) (if not (null members) && "|" `T.isSuffixOf` reference then members else reference : members)
+    findFixity localIface reference =
+      case Map.lookup (snd (splitReference modName reference)) (ghcFixities localIface) of
+        Just fixity -> pure [fixity]
+        Nothing -> do
+          (_, name, ownerIface) <- definingInterface (\name -> Map.member name . ghcFixities) reference
+          pure (maybe [] pure (Map.lookup name (ghcFixities ownerIface)))
 
-loadInterface :: Extraction -> FilePath -> String -> IO GhcInterface
-loadInterface extraction importDir modName = do
-  known <- readIORef (installedInterfaces extraction)
-  case Map.lookup modName known of
-    Just iface -> pure iface
-    Nothing -> do
-      let directories = nub (importDir : Map.findWithDefault [] modName (moduleDirectories extraction))
-      path <- firstExisting [dir </> map dotToSlash modName <.> "hi" | dir <- directories]
-      iface <- maybe (pure (GhcInterface [] Map.empty Map.empty)) readGhcInterface path
-      modifyIORef' (installedInterfaces extraction) (Map.insert modName iface)
-      pure iface
+loadInterface :: Extraction -> FilePath -> String -> (GhcInterface -> Bool) -> IO GhcInterface
+loadInterface extraction importDir modName contains = do
+  let directories = nub (importDir : Map.findWithDefault [] modName (moduleDirectories extraction))
+  findInterface Nothing [dir </> map dotToSlash modName <.> "hi" | dir <- directories]
   where
-    firstExisting [] = pure Nothing
-    firstExisting (path : rest) = do
+    -- A package can re-export a name from another package with the same
+    -- module name. Select the interface that declares the requested name.
+    findInterface first [] = pure (fromMaybe (GhcInterface [] Map.empty Map.empty) first)
+    findInterface first (path : rest) = do
       exists <- doesFileExist path
-      if exists then pure (Just path) else firstExisting rest
+      if not exists
+        then findInterface first rest
+        else do
+          known <- readIORef (installedInterfaces extraction)
+          iface <- case Map.lookup path known of
+            Just result -> pure result
+            Nothing -> do
+              result <- readGhcInterface path
+              modifyIORef' (installedInterfaces extraction) (Map.insert path result)
+              pure result
+          if contains iface then pure iface else findInterface (first <|> Just iface) rest
 
 -- | Include hidden modules. Exported names can refer to these modules.
 installedModuleDirectories :: String -> IO (Map String [FilePath])
