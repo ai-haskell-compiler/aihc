@@ -4334,19 +4334,33 @@ knownConstructor env expr = do
 
 -- | A call of a top-level function whose arguments are cheap values, such
 -- as a method worker applied to a dictionary.
+--
+-- An argument can also select a field of an atom. A dictionary function
+-- gives its superclass field the superclass of its argument in this form:
+-- the instance of 'Monad' for @StateT s m@ builds its 'Applicative' field
+-- from the 'Functor' that it selects out of the 'Monad' of @m@.
 isTopLevelCall :: Expr -> Bool
 isTopLevelCall expr =
   case collectSpine expr of
     (ExVar name, args@(_ : _)) ->
       not (isConstructorName name)
         && isTopLevelName name
-        && all (either (const True) isTrivial) args
+        && all (either (const True) isFieldSelection) args
     _ -> False
   where
     isTopLevelName name =
       case nameOrigin name of
         OriginTop {} -> True
         _ -> False
+
+-- | An atom, or a field of an atom that one-alternative cases select.
+-- A copy of it does no work again: each case only reads a field of a
+-- value that an update shares.
+isFieldSelection :: Expr -> Bool
+isFieldSelection expr =
+  case expr of
+    ExCase scrutinee Nothing (Alt (AltData _) [] _ rhs NE.:| []) -> isFieldSelection scrutinee && isFieldSelection rhs
+    _ -> isTrivial expr
 
 -- | The field that 'knownConstructor' gives in place of a field of a
 -- top-level value that is not a cheap value. An alternative that uses it
