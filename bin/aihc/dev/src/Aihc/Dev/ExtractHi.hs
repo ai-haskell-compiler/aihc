@@ -1,11 +1,4 @@
--- | Extract scoping and typing information from GHC .hi interface files.
---
--- Given a package name, this module locates the package via @ghc-pkg@,
--- reads every exposed module's .hi file using the GHC API, and produces
--- a structured 'PackageInterface' suitable for YAML serialization.
---
--- Handles re-export facades (e.g. @base@ re-exporting from @ghc-internal@)
--- by following exported names to their defining modules.
+-- | Extract package interfaces with direct calls to GHC.
 module Aihc.Dev.ExtractHi
   ( extractPackage,
     extractSourcePackage,
@@ -13,7 +6,7 @@ module Aihc.Dev.ExtractHi
 where
 
 import Aihc.Cabal (Component (..), ComponentKind (..), LibraryTarget (..), Package, exposedModules, packageComponents, unconditional)
-import Aihc.Dev.ExtractHi.GhcSession (withReadIface)
+import Aihc.Dev.ExtractHi.Ghc (GhcInterface (..), readGhcBuiltins, readGhcInterface, readGhcModule, unqualify)
 import Aihc.Dev.ExtractHi.Types
 import Aihc.Hackage.Package (parsePackageDescription)
 import Aihc.Hackage.Util (moduleNameFilePath)
@@ -50,44 +43,16 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Control.Exception (IOException, catch)
-import Control.Monad.IO.Class (liftIO)
+import Control.Applicative ((<|>))
 import Data.ByteString qualified as BS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import GHC (Ghc, lookupName)
-import GHC.Builtin.Utils (ghcPrimExports, ghcPrimFixities)
-import GHC.Core.ConLike (ConLike (..), conLikeName)
-import GHC.Core.DataCon (dataConName)
-import GHC.Core.DataCon qualified as DataCon
-import GHC.Core.PatSyn (patSynName, pprPatSynType)
-import GHC.Core.TyCo.Ppr (pprSigmaType, pprType)
-import GHC.Core.TyCon (TyConBndrVis (..), isAlgTyCon, tyConDataCons, tyConKind, tyConName)
-import GHC.Iface.Syntax
-  ( IfaceAT (..),
-    IfaceClassBody (..),
-    IfaceClassOp (..),
-    IfaceConDecl (..),
-    IfaceConDecls (..),
-    IfaceDecl (..),
-  )
-import GHC.Iface.Type (IfaceBndr (..), IfaceTyConBinder, IfaceType, ShowForAllFlag (..), pprIfaceSigmaType, pprIfaceType)
-import GHC.Types.Avail (AvailInfo (..))
-import GHC.Types.Id (idType)
-import GHC.Types.Name (Name, getOccString, nameModule_maybe)
-import GHC.Types.Name.Occurrence (occNameString)
-import GHC.Types.TyThing (TyThing (..))
-import GHC.Types.Var (VarBndr (..))
-import GHC.Unit.Module (moduleNameString)
-import GHC.Unit.Module.ModIface (ModIface, mi_decls, mi_exports, mi_fixities)
-import GHC.Unit.Types (moduleName, moduleUnit, unitString)
-import GHC.Utils.Outputable (showSDocUnsafe)
-import Language.Haskell.Syntax.Basic qualified as GHC
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
@@ -95,17 +60,17 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
 import System.Process (readProcess, readProcessWithExitCode)
 
--- | Cached module data: declarations and fixities from a single .hi file.
-data CachedModule = CachedModule
-  { cmDecls :: Map String IfaceDecl,
-    cmFixities :: Map String GHC.Fixity
-  }
-
--- | Extract the full interface for a locally installed package.
+-- | Extract the interface of an installed package with direct GHC calls.
 extractPackage :: String -> IO PackageInterface
 extractPackage pkgName = do
   (pkgId, importDir, exposedMods) <- queryPackage pkgName
-  extractPackageFromQuery pkgId importDir exposedMods
+  cache <- newIORef Map.empty
+  builtins <- readGhcBuiltins
+  builtinCache <- newIORef (Map.singleton "GHC.Prim" builtins)
+  directories <- installedModuleDirectories pkgId
+  let extraction = Extraction cache builtinCache directories
+  modules <- mapM (extractInstalledModule extraction builtins importDir) exposedMods
+  pure (PackageInterface (T.pack pkgId) modules)
 
 extractSourcePackage :: FilePath -> String -> IO PackageInterface
 extractSourcePackage root pkgName = do
@@ -117,457 +82,250 @@ extractSourcePackage root pkgName = do
         piModules = modules
       }
 
-extractPackageFromQuery :: String -> FilePath -> [String] -> IO PackageInterface
-extractPackageFromQuery pkgId importDir exposedMods =
-  withReadIface $ \readIface -> do
-    cacheRef <- liftIO $ newIORef (Map.empty :: Map (String, String) CachedModule)
-    modules <- mapM (extractSingleModule readIface cacheRef importDir) exposedMods
-    pure
-      PackageInterface
-        { piPackage = T.pack pkgId,
-          piModules = modules
-        }
+type InterfaceCache = IORef (Map String GhcInterface)
 
--- | Load a remote module's data into the cache, returning the cached data.
-loadModule ::
-  (FilePath -> IO ModIface) ->
-  IORef (Map (String, String) CachedModule) ->
-  String ->
-  String ->
-  IO CachedModule
-loadModule readIface cacheRef unit modName = do
-  cache <- readIORef cacheRef
-  let key = (unit, modName)
-  case Map.lookup key cache of
-    Just cm -> pure cm
-    Nothing -> do
-      mImportDir <- queryImportDir unit
-      cm <- case mImportDir of
-        Nothing -> pure emptyCachedModule
-        Just importDir -> do
-          let hiPath = importDir </> map dotToSlash modName <.> "hi"
-          exists <- doesFileExist hiPath
-          if exists
-            then do
-              iface <- readIface hiPath
-              let ds = map snd (mi_decls iface)
-                  decls = Map.fromList [(getOccString (ifName d), d) | d <- ds]
-                  fixs = Map.fromList [(occNameString occ, f) | (occ, f) <- mi_fixities iface]
-              pure CachedModule {cmDecls = decls, cmFixities = fixs}
-            else pure emptyCachedModule
-      modifyIORef' cacheRef (Map.insert key cm)
-      pure cm
+data Extraction = Extraction
+  { installedInterfaces :: InterfaceCache,
+    builtinInterfaces :: InterfaceCache,
+    moduleDirectories :: Map String [FilePath]
+  }
 
-emptyCachedModule :: CachedModule
-emptyCachedModule = CachedModule Map.empty Map.empty
-
--- | Look up a declaration by following a Name to its defining module.
-lookupDecl ::
-  (FilePath -> IO ModIface) ->
-  IORef (Map (String, String) CachedModule) ->
-  Name ->
-  IO (Maybe IfaceDecl)
-lookupDecl readIface cacheRef name = case nameModule_maybe name of
-  Nothing -> pure Nothing
-  Just m -> do
-    let unit = unitString (moduleUnit m)
-        modName = moduleNameString (moduleName m)
-    cm <- loadModule readIface cacheRef unit modName
-    pure (Map.lookup (getOccString name) (cmDecls cm))
-
--- | Look up a fixity by following a Name to its defining module.
-lookupFixity ::
-  (FilePath -> IO ModIface) ->
-  IORef (Map (String, String) CachedModule) ->
-  Name ->
-  IO (Maybe GHC.Fixity)
-lookupFixity readIface cacheRef name = case nameModule_maybe name of
-  Nothing -> pure Nothing
-  Just m -> do
-    let unit = unitString (moduleUnit m)
-        modName = moduleNameString (moduleName m)
-    cm <- loadModule readIface cacheRef unit modName
-    pure (Map.lookup (getOccString name) (cmFixities cm))
-
--- | Extract interface information from a single module.
-extractSingleModule ::
-  (FilePath -> IO ModIface) ->
-  IORef (Map (String, String) CachedModule) ->
-  FilePath ->
-  String ->
-  Ghc ModuleInterface
-extractSingleModule readIface cacheRef importDir modName = do
-  let hiPath = importDir </> map dotToSlash modName <.> "hi"
-  exists <- liftIO $ doesFileExist hiPath
-  if exists
+extractInstalledModule :: Extraction -> GhcInterface -> FilePath -> String -> IO ModuleInterface
+extractInstalledModule extraction builtins importDir modName = do
+  exists <- doesFileExist (importDir </> map dotToSlash modName <.> "hi")
+  iface <- if exists then loadInterface extraction importDir modName (const True) else pure (GhcInterface [] Map.empty Map.empty)
+  if modName == "GHC.Prim" && not exists
     then do
-      iface <- liftIO $ readIface hiPath
-      ifaceToModule readIface cacheRef modName iface
-    else
-      if modName == "GHC.Prim"
-        then wiredInGhcPrimModule
-        else
-          pure
-            ModuleInterface
-              { miModule = T.pack modName,
-                miTypes = [],
-                miValues = [],
-                miClasses = [],
-                miFixities = []
-              }
-
--- | @GHC.Prim@ is wired into the compiler and ships without an interface
--- file. Its exports and fixities come from the GHC API instead, and every
--- exported name resolves through the session because they are all wired in.
-wiredInGhcPrimModule :: Ghc ModuleInterface
-wiredInGhcPrimModule = do
-  let modName = T.pack "GHC.Prim"
-  (types, values, classes) <- classifyExports modName ghcPrimExports Map.empty (const (pure Nothing))
-  pure
-    ModuleInterface
-      { miModule = modName,
-        miTypes = types,
-        miValues = values,
-        miClasses = classes,
-        miFixities =
-          [ FixityInfo
-              { fiName = T.pack (occNameString occ),
-                fiDirection = convertDir dir,
-                fiPrecedence = prec
-              }
-          | (occ, GHC.Fixity prec dir) <- ghcPrimFixities
-          ]
-      }
+      declarations <- mapM parseInstalledDeclaration ([raw | (name, _) <- ghcExports builtins, Just raw <- [Map.lookup (interfaceName name) (ghcDeclarations builtins)]])
+      pure (mergeInterfaces (T.pack modName) declarations (Map.elems (ghcFixities builtins)))
+    else do
+      declarations <- mapM extractExport (ghcExports iface)
+      fixities <- concat <$> mapM (exportedFixities iface) (ghcExports iface)
+      pure (mergeInterfaces (T.pack modName) declarations fixities)
   where
-    convertDir GHC.InfixL = InfixL
-    convertDir GHC.InfixR = InfixR
-    convertDir GHC.InfixN = InfixN
-
--- | Convert a 'ModIface' to our output representation.
-ifaceToModule ::
-  (FilePath -> IO ModIface) ->
-  IORef (Map (String, String) CachedModule) ->
-  String ->
-  ModIface ->
-  Ghc ModuleInterface
-ifaceToModule readIface cacheRef modName iface = do
-  let exports = mi_exports iface
-      localFixities = mi_fixities iface
-      localDecls = map snd (mi_decls iface)
-      localDeclMap = Map.fromList [(getOccString (ifName d), d) | d <- localDecls]
-      localFixMap = Map.fromList [(occNameString occ, f) | (occ, f) <- localFixities]
-
-  -- Classify exports
-  (types, values, classes) <- classifyExports (T.pack modName) exports localDeclMap (lookupDecl readIface cacheRef)
-
-  -- Collect fixities: local ones first, then look up re-exported names
-  let allExportedNames = concatMap availNames exports
-  remoteFixities <- liftIO $ collectFixities readIface cacheRef localFixMap allExportedNames
-
-  pure
-    ModuleInterface
-      { miModule = T.pack modName,
-        miTypes = types,
-        miValues = values,
-        miClasses = classes,
-        miFixities = remoteFixities
-      }
-
--- | Get all names from an AvailInfo.
-availNames :: AvailInfo -> [Name]
-availNames (Avail n) = [n]
-availNames (AvailTC _ subs) = subs
-
--- | Collect fixities for all exported names.
---
--- First checks local fixities, then follows re-exports to defining modules.
--- Only includes names that actually have a non-default fixity.
-collectFixities ::
-  (FilePath -> IO ModIface) ->
-  IORef (Map (String, String) CachedModule) ->
-  Map String GHC.Fixity ->
-  [Name] ->
-  IO [FixityInfo]
-collectFixities readIface cacheRef localFixMap names = do
-  results <- mapM lookupOne names
-  pure (concat results)
-  where
-    lookupOne name = do
-      let occStr = getOccString name
-      case Map.lookup occStr localFixMap of
-        Just fix -> pure [toFixityInfo occStr fix]
+    definingInterface contains reference = do
+      let (owner, name) = splitReference modName reference
+      ownerIface <- loadInterface extraction importDir owner (contains name)
+      pure (owner, name, ownerIface)
+    extractExport (reference, members) = do
+      let parent = if null members then reference else fromMaybe reference (T.stripSuffix "|" reference)
+      (owner, name, ownerIface) <- definingInterface (\name -> Map.member (interfaceName name) . ghcDeclarations) parent
+      let localDeclaration = Map.lookup (interfaceName name) (ghcDeclarations ownerIface)
+      declaration <- case localDeclaration of
+        Just raw | null members || not ("pattern " `T.isPrefixOf` raw) -> pure (Just raw)
+        _ -> do
+          known <- readIORef (builtinInterfaces extraction)
+          fallback <- case Map.lookup owner known of
+            Just result -> pure result
+            Nothing -> do
+              result <- readGhcModule owner
+              modifyIORef' (builtinInterfaces extraction) (Map.insert owner result)
+              pure result
+          pure (Map.lookup (interfaceName name) (ghcDeclarations fallback) <|> localDeclaration)
+      case declaration of
+        Nothing -> ioError (userError ("could not resolve export " <> T.unpack reference))
+        Just raw -> do
+          initial <- parseInstalledDeclaration raw
+          let parsed = if Map.member (interfaceName name) (ghcDeclarations ownerIface) then initial else builtinClassType raw initial
+          -- A separate constructor export does not add its parent type.
+          let classes = filter ((== interfaceName name) . ecName) (miClasses parsed)
+              types = if null classes then filter ((== interfaceName name) . etName) (miTypes parsed) else miTypes parsed
+              addMembers typ = typ {etConstructors = nub (etConstructors typ <> filter (/= name) (map (unqualify . snd . splitReference modName) members))}
+          let isData line = ("data " `T.isPrefixOf` line && not ("data family " `T.isPrefixOf` line)) || "newtype " `T.isPrefixOf` line
+              exportedTypes = if null classes && any isData (T.lines raw) then map addMembers types else types
+          pure parsed {miTypes = exportedTypes, miClasses = classes}
+    exportedFixities localIface (reference, members) =
+      concat <$> mapM (findFixity localIface) (if not (null members) && "|" `T.isSuffixOf` reference then members else reference : members)
+    findFixity localIface reference =
+      case Map.lookup (snd (splitReference modName reference)) (ghcFixities localIface) of
+        Just fixity -> pure [fixity]
         Nothing -> do
-          mFix <- lookupFixity readIface cacheRef name
-          case mFix of
-            Just fix -> pure [toFixityInfo occStr fix]
-            Nothing -> pure []
+          (_, name, ownerIface) <- definingInterface (\name -> Map.member name . ghcFixities) reference
+          pure (maybe [] pure (Map.lookup name (ghcFixities ownerIface)))
 
-    toFixityInfo nameStr (GHC.Fixity prec dir) =
-      FixityInfo
-        { fiName = T.pack nameStr,
-          fiDirection = convertDir dir,
-          fiPrecedence = prec
-        }
-
-    convertDir GHC.InfixL = InfixL
-    convertDir GHC.InfixR = InfixR
-    convertDir GHC.InfixN = InfixN
-
--- | Classify exports into types, values, and classes.
-classifyExports ::
-  Text ->
-  [AvailInfo] ->
-  Map String IfaceDecl ->
-  (Name -> IO (Maybe IfaceDecl)) ->
-  Ghc ([ExportedType], [ExportedValue], [ExportedClass])
-classifyExports modName avails localDeclMap cachedLookup = do
-  results <- mapM (classifySingle modName localDeclMap cachedLookup) avails
-  let (ts, vs, cs) = foldr merge ([], [], []) results
-  pure (ts, vs, cs)
+loadInterface :: Extraction -> FilePath -> String -> (GhcInterface -> Bool) -> IO GhcInterface
+loadInterface extraction importDir modName contains = do
+  let directories = nub (importDir : Map.findWithDefault [] modName (moduleDirectories extraction))
+  findInterface Nothing [dir </> map dotToSlash modName <.> "hi" | dir <- directories]
   where
-    merge (t, v, c) (ts, vs, cs) = (t ++ ts, v ++ vs, c ++ cs)
+    -- A package can re-export a name from another package with the same
+    -- module name. Select the interface that declares the requested name.
+    findInterface first [] = pure (fromMaybe (GhcInterface [] Map.empty Map.empty) first)
+    findInterface first (path : rest) = do
+      exists <- doesFileExist path
+      if not exists
+        then findInterface first rest
+        else do
+          known <- readIORef (installedInterfaces extraction)
+          iface <- case Map.lookup path known of
+            Just result -> pure result
+            Nothing -> do
+              result <- readGhcInterface path
+              modifyIORef' (installedInterfaces extraction) (Map.insert path result)
+              pure result
+          if contains iface then pure iface else findInterface (first <|> Just iface) rest
 
--- | Classify a single AvailInfo.
-classifySingle ::
-  Text ->
-  Map String IfaceDecl ->
-  (Name -> IO (Maybe IfaceDecl)) ->
-  AvailInfo ->
-  Ghc ([ExportedType], [ExportedValue], [ExportedClass])
-classifySingle modName localDeclMap cachedLookup avail = case avail of
-  Avail name -> do
-    let nameStr = getOccString name
-    mDecl <- liftIO $ resolveDecl localDeclMap cachedLookup nameStr name
-    case mDecl of
-      Just decl
-        | Just value <- extractValue decl ->
-            pure ([], [value], [])
-      Just IfaceData {} ->
-        pure ([], [], [])
-      Just IfaceSynonym {} ->
-        pure ([], [], [])
-      Just IfaceFamily {} ->
-        pure ([], [], [])
-      Just IfaceClass {} ->
-        pure ([], [], [])
-      _ -> do
-        mValue <- extractValueFromName name
-        case mValue of
-          Just value -> pure ([], [value], [])
-          Nothing -> unresolvedExport modName "value" nameStr
-  AvailTC name subs -> do
-    let nameStr = getOccString name
-        subNames = map getOccString subs
-    mDecl <- liftIO $ resolveDecl localDeclMap cachedLookup nameStr name
-    case mDecl of
-      Just decl@IfaceClass {} ->
-        pure (associatedTypes decl, [], [extractClass decl subNames])
-      Just decl@IfaceData {} ->
-        pure ([extractDataType decl subNames], [], [])
-      Just decl@IfaceSynonym {} ->
-        pure ([extractSynonym decl], [], [])
-      Just decl@IfaceFamily {} ->
-        pure ([extractFamily decl], [], [])
-      _ -> do
-        mType <- extractTypeFromName name subNames
-        case mType of
-          Just typ -> pure ([typ], [], [])
-          Nothing -> unresolvedExport modName "type" nameStr
+-- | Include hidden modules. Exported names can refer to these modules.
+installedModuleDirectories :: String -> IO (Map String [FilePath])
+installedModuleDirectories packageId = do
+  global <- readGhcPkg ["dump", "--expand-pkgroot"]
+  localDb <- findLocalPackageDb
+  local <- case localDb of
+    Nothing -> pure ""
+    Just db -> readProcess "ghc-pkg" ["--package-db", db, "dump", "--expand-pkgroot"] ""
+  let packages = Map.fromList [(Map.findWithDefault "" "id" fields, fields) | package <- T.splitOn "\n---\n" (T.pack (global <> "\n---\n" <> local)), let fields = Map.fromList (packageFields (T.lines package))]
+      dependencies seen [] = seen
+      dependencies seen (unit : rest)
+        | unit `elem` seen = dependencies seen rest
+        | otherwise =
+            let fields = Map.findWithDefault Map.empty unit packages
+                required = map stripComma (words (Map.findWithDefault "" "depends" fields))
+             in dependencies (unit : seen) (required <> rest)
+      selected = [fields | unit <- dependencies [] [packageId], Just fields <- [Map.lookup unit packages]]
+  pure (Map.fromListWith (<>) (concatMap packageDirectories selected))
+  where
+    packageDirectories fields =
+      let modules = map stripComma (words (Map.findWithDefault "" "exposed-modules" fields <> " " <> Map.findWithDefault "" "hidden-modules" fields))
+          directories = fieldPaths (Map.findWithDefault "" "import-dirs" fields)
+       in [(name, directories) | name <- modules]
+    packageFields [] = []
+    packageFields (line : rest) =
+      let (continuation, remaining) = span (T.isPrefixOf " ") rest
+          (name, value) = T.breakOn ":" line
+          field = T.unwords (T.drop 1 value : map T.strip continuation)
+       in (T.unpack name, T.unpack (T.strip field)) : packageFields remaining
+    fieldPaths input = case dropWhile (== ' ') input of
+      [] -> []
+      quoted@('"' : _) -> case reads quoted of
+        [(path, rest)] -> path : fieldPaths rest
+        _ -> []
+      text -> let (path, rest) = break (== ' ') text in path : fieldPaths rest
 
-unresolvedExport :: Text -> String -> String -> Ghc a
-unresolvedExport modName exportKind name =
-  liftIO $ ioError (userError ("could not resolve " <> exportKind <> " export " <> T.unpack modName <> "." <> name))
+splitReference :: String -> Text -> (String, Text)
+splitReference fallback reference =
+  let name = unqualify reference
+      prefix = T.dropEnd (T.length name + 1) reference
+   in (if T.null prefix then fallback else T.unpack prefix, name)
 
--- | Resolve a declaration: check local first, then follow re-exports.
-resolveDecl ::
-  Map String IfaceDecl ->
-  (Name -> IO (Maybe IfaceDecl)) ->
-  String ->
-  Name ->
-  IO (Maybe IfaceDecl)
-resolveDecl localDeclMap cachedLookup nameStr name =
-  case Map.lookup nameStr localDeclMap of
-    Just decl -> pure (Just decl)
-    Nothing -> cachedLookup name
+interfaceName :: Text -> Text
+interfaceName name
+  | name == "[]" = "List"
+  | name == "()" = "Unit"
+  | name == "(##)" = "Unit#"
+  | Just body <- T.stripPrefix "(#" name >>= T.stripSuffix "#)",
+    T.all (\c -> c == ',' || c == ' ' || c == '|') body =
+      if T.any (== '|') body
+        then "Sum" <> T.pack (show (T.count "|" body + 1)) <> "#"
+        else "Tuple" <> T.pack (show (T.count "," body + 1)) <> "#"
+  | Just body <- T.stripPrefix "(" name >>= T.stripSuffix ")", not (T.null body), T.all (== ',') body = "Tuple" <> T.pack (show (T.length body + 1))
+  | otherwise = name
 
--- | Extract value/function information from an IfaceId declaration.
-extractValue :: IfaceDecl -> Maybe ExportedValue
-extractValue decl = case decl of
-  IfaceId {ifName, ifType} ->
-    Just
-      ExportedValue
-        { evName = T.pack (getOccString ifName),
-          evType = renderType ifType
-        }
-  _ -> Nothing
+mergeInterfaces :: Text -> [ModuleInterface] -> [FixityInfo] -> ModuleInterface
+mergeInterfaces name interfaces =
+  ModuleInterface name (concatMap miTypes interfaces) (concatMap miValues interfaces) (concatMap miClasses interfaces)
 
-extractValueFromName :: Name -> Ghc (Maybe ExportedValue)
-extractValueFromName name = do
-  mThing <- lookupName name
-  pure $
-    case mThing of
-      Just (AnId identifier) ->
-        Just
-          ExportedValue
-            { evName = T.pack (getOccString name),
-              evType = T.pack (showSDocUnsafe (pprSigmaType (idType identifier)))
-            }
-      Just (AConLike conLike@(RealDataCon dataCon)) ->
-        Just
-          ExportedValue
-            { evName = T.pack (getOccString (conLikeName conLike)),
-              evType = T.pack (showSDocUnsafe (pprSigmaType (DataCon.dataConRepType dataCon)))
-            }
-      Just (AConLike (PatSynCon patSyn)) ->
-        Just
-          ExportedValue
-            { evName = T.pack (getOccString (patSynName patSyn)),
-              evType = T.pack (showSDocUnsafe (pprPatSynType patSyn))
-            }
+parseInstalledDeclaration :: Text -> IO ModuleInterface
+parseInstalledDeclaration raw =
+  case T.lines raw of
+    [] -> invalid
+    first : rest
+      | Just signature <- T.stripPrefix "type " first,
+        (rawName, kind) <- T.breakOn " :: " signature,
+        let name = stripParens rawName,
+        not (T.null kind) -> do
+          let kindText = T.drop 4 kind
+              declaration = T.unlines rest
+              associated = [ExportedType n (T.drop 4 k) [] | line <- rest, Just body <- [T.stripPrefix "  type " line], let (n, k) = T.breakOn " :: " body, not (T.null k)]
+          if any (T.isPrefixOf "class ") rest
+            then pure (empty {miTypes = associated, miClasses = [ExportedClass name (mapMaybe classMethod rest)]})
+            else do
+              constructors <-
+                if any (\line -> "data " `T.isPrefixOf` line || "newtype " `T.isPrefixOf` line) rest
+                  then installedConstructors name declaration
+                  else pure []
+              pure (empty {miTypes = [ExportedType name kindText constructors]})
+      | (name, signature) <- T.breakOn " :: " raw,
+        not (T.null signature) ->
+          pure (empty {miValues = [ExportedValue (stripParens (fromMaybe name (T.stripPrefix "pattern " name))) (T.strip (T.drop 4 signature))]})
+      | otherwise -> invalid
+  where
+    empty = ModuleInterface "" [] [] [] []
+    invalid = ioError (userError ("could not parse GHC declaration: " <> T.unpack raw))
+    classMethod line = do
+      body <- T.stripPrefix "  " line
+      let (name, signature) = T.breakOn " :: " body
+      if T.null signature || "type " `T.isPrefixOf` name || "default " `T.isPrefixOf` name
+        then Nothing
+        else Just (ClassMethod (stripParens name) (T.drop 4 signature))
+
+-- | The previous extractor reports built-in constraint classes as types.
+-- Their dictionary constructors are compiler names, not source exports.
+builtinClassType :: Text -> ModuleInterface -> ModuleInterface
+builtinClassType raw iface = case miClasses iface of
+  [klass] ->
+    let name = ecName klass
+        kind = T.drop 4 (snd (T.breakOn " :: " (T.takeWhile (/= '\n') raw)))
+        constructor = case name of
+          "Coercible" -> "MkCoercible"
+          "~" -> "Eq#"
+          "~~" -> "HEq#"
+          _ -> name
+     in iface {miTypes = [ExportedType name kind [constructor]], miClasses = []}
+  _ -> iface
+
+stripParens :: Text -> Text
+stripParens text = fromMaybe text (T.stripPrefix "(" text >>= T.stripSuffix ")")
+
+installedConstructors :: Text -> Text -> IO [Text]
+installedConstructors name declaration
+  | " = (," `T.isInfixOf` declaration, Just arity <- T.stripPrefix "Tuple" name >>= readArity = pure ["(" <> T.replicate (arity - 1) "," <> ")"]
+  | name == "Unit", " = ()" `T.isInfixOf` declaration = pure ["()"]
+  | name == "List", " = []" `T.isInfixOf` declaration = pure ["[]", ":"]
+  | " = (#" `T.isInfixOf` declaration, Just arity <- T.stripPrefix "Tuple" name >>= T.stripSuffix "#" >>= readArity = pure ["(#" <> T.replicate (arity - 1) "," <> "#)"]
+  | name == "Unit#", " = (##)" `T.isInfixOf` declaration = pure ["(##)"]
+  | " = (#" `T.isInfixOf` declaration, Just _ <- T.stripPrefix "Sum" name >>= T.stripSuffix "#" >>= readArity = pure (sumConstructors declaration)
+  | otherwise = do
+      let (errors, modu) = parseModule defaultConfig ("{-# LANGUAGE BangPatterns, MagicHash, UnboxedTuples, UnboxedSums, GADTs, DataKinds, ExplicitForAll, ExistentialQuantification, KindSignatures, TypeOperators, UnliftedNewtypes, LinearTypes #-}\nmodule Interface where\n" <> T.replace " !" " " (removeUnpackCoercions declaration))
+      if null errors
+        then pure (concatMap (declarationConstructors . peelDeclAnn) (moduleDecls modu))
+        else ioError (userError ("could not parse GHC data declaration: " <> T.unpack declaration <> ": " <> show errors))
+  where
+    declarationConstructors decl = case decl of
+      DeclData dataDecl -> concatMap constructorNames (dataDeclConstructors dataDecl)
+      DeclNewtype newtypeDecl -> maybe [] constructorNames (newtypeDeclConstructor newtypeDecl)
+      _ -> []
+    constructorNames con = case peelDataConAnn con of
+      RecordCon _ _ constructor _ -> [renderUnqualifiedName constructor]
+      GadtCon _ _ constructors _ -> map renderUnqualifiedName constructors
+      other -> dataConNames other
+    sumConstructors text = case T.breakOn "(#" text of
+      (_, suffix) | T.null suffix -> []
+      (_, suffix) -> let (constructor, rest) = T.breakOn "#)" suffix in (constructor <> "#)") : sumConstructors (T.drop 2 rest)
+    readArity :: Text -> Maybe Int
+    readArity text = case reads (T.unpack text) of
+      [(arity, "")] -> Just arity
       _ -> Nothing
 
-extractTypeFromName :: Name -> [String] -> Ghc (Maybe ExportedType)
-extractTypeFromName name subNames = do
-  mThing <- lookupName name
-  pure $
-    case mThing of
-      Just (ATyCon tyCon) ->
-        let parentName = getOccString (tyConName tyCon)
-            ctorNames =
-              if isAlgTyCon tyCon
-                then map (T.pack . getOccString . dataConName) (tyConDataCons tyCon)
-                else []
-            ctorStrings = map T.unpack ctorNames
-            extraSubs =
-              [ T.pack subName
-              | subName <- subNames,
-                subName /= parentName,
-                subName `notElem` ctorStrings
-              ]
-         in Just
-              ExportedType
-                { etName = T.pack parentName,
-                  etKind = T.pack (showSDocUnsafe (pprType (tyConKind tyCon))),
-                  etConstructors = ctorNames ++ extraSubs
-                }
-      _ -> Nothing
-
--- | Extract data type information.
-extractDataType :: IfaceDecl -> [String] -> ExportedType
-extractDataType decl subNames = case decl of
-  IfaceData {ifName, ifBinders, ifResKind, ifCons} ->
-    let parentName = getOccString ifName
-        ctors = case ifCons of
-          IfAbstractTyCon -> []
-          IfDataTyCon _ cs -> map (T.pack . getOccString . ifConName) cs
-          IfNewTyCon c -> [T.pack (getOccString (ifConName c))]
-        ctorStrings = map T.unpack ctors
-        extraSubs =
-          [ T.pack s
-          | s <- subNames,
-            s /= parentName,
-            s `notElem` ctorStrings
-          ]
-     in ExportedType
-          { etName = T.pack parentName,
-            etKind = renderKind ifBinders ifResKind,
-            etConstructors = ctors ++ extraSubs
-          }
-  other ->
-    ExportedType
-      { etName = T.pack (getOccString (ifName other)),
-        etKind = "<unexpected>",
-        etConstructors = []
-      }
-
--- | Extract type synonym information.
-extractSynonym :: IfaceDecl -> ExportedType
-extractSynonym decl = case decl of
-  IfaceSynonym {ifName, ifBinders, ifResKind} ->
-    ExportedType
-      { etName = T.pack (getOccString ifName),
-        etKind = renderKind ifBinders ifResKind,
-        etConstructors = []
-      }
-  other ->
-    ExportedType
-      { etName = T.pack (getOccString (ifName other)),
-        etKind = "<unexpected>",
-        etConstructors = []
-      }
-
--- | Extract type family information.
-extractFamily :: IfaceDecl -> ExportedType
-extractFamily decl = case decl of
-  IfaceFamily {ifName, ifBinders, ifResKind} ->
-    ExportedType
-      { etName = T.pack (getOccString ifName),
-        etKind = renderKind ifBinders ifResKind,
-        etConstructors = []
-      }
-  other ->
-    ExportedType
-      { etName = T.pack (getOccString (ifName other)),
-        etKind = "<unexpected>",
-        etConstructors = []
-      }
-
--- | Extract class information.
-extractClass :: IfaceDecl -> [String] -> ExportedClass
-extractClass decl _subNames = case decl of
-  IfaceClass {ifName, ifBody} ->
-    let methods = case ifBody of
-          IfAbstractClass -> []
-          IfConcreteClass {ifSigs} ->
-            [extractClassOp op | op <- ifSigs]
-     in ExportedClass
-          { ecName = T.pack (getOccString ifName),
-            ecMethods = methods
-          }
-  other ->
-    ExportedClass
-      { ecName = T.pack (getOccString (ifName other)),
-        ecMethods = []
-      }
-
--- | The associated type families of a class, exported with the class.
-associatedTypes :: IfaceDecl -> [ExportedType]
-associatedTypes decl = case decl of
-  IfaceClass {ifBody = IfConcreteClass {ifATs}} ->
-    [extractFamily familyDecl | IfaceAT familyDecl _ <- ifATs]
-  _ -> []
-
--- | Extract a class method from its IfaceClassOp.
-extractClassOp :: IfaceClassOp -> ClassMethod
-extractClassOp (IfaceClassOp name ty _defMeth) =
-  ClassMethod
-    { cmName = T.pack (getOccString name),
-      cmType = renderType ty
-    }
-
--- | Render an IfaceType to a human-readable string.
-renderType :: IfaceType -> Text
-renderType ty = T.pack (showSDocUnsafe (pprIfaceSigmaType ShowForAllWhen ty))
-
--- | Render the full kind of a type constructor from its binders and result
--- kind. Visible binders become arrows; invisible ones are only quantified
--- and are left out, since signature comparison drops @forall@ prefixes.
-renderKind :: [IfaceTyConBinder] -> IfaceType -> Text
-renderKind binders resKind =
-  T.intercalate " -> " (mapMaybe visibleBinderKind binders <> [render resKind])
+-- | Interface fields can contain an unpack coercion before the source type.
+removeUnpackCoercions :: Text -> Text
+removeUnpackCoercions text = case T.breakOn "{-# UNPACK #-}" text of
+  (_, rest) | T.null rest -> text
+  (before, rest) ->
+    let after = T.stripStart (T.drop 14 rest)
+        (group, suffix) = balancedGroup after
+        field = if ":" `T.isInfixOf` group then suffix else after
+     in before <> removeUnpackCoercions field
   where
-    render = T.pack . showSDocUnsafe . pprIfaceType
-    visibleBinderKind (Bndr bndr vis) =
-      case vis of
-        AnonTCB -> Just (parenthesize (render (binderKind bndr)))
-        NamedTCB _ -> Nothing
-    parenthesize kind
-      | T.any (== ' ') kind = "(" <> kind <> ")"
-      | otherwise = kind
-    binderKind bndr =
-      case bndr of
-        IfaceTvBndr (_, kind) -> kind
-        IfaceIdBndr (_, _, ty) -> ty
+    balancedGroup input = case T.uncons input of
+      Just ('(', rest) -> go 1 "(" rest
+      _ -> ("", input)
+    go :: Int -> Text -> Text -> (Text, Text)
+    go depth prefix input = case T.uncons input of
+      Nothing -> (prefix, "")
+      Just (char, rest) ->
+        let next = depth + if char == '(' then 1 else if char == ')' then -1 else 0
+            result = T.snoc prefix char
+         in if next == 0 then (result, rest) else go next result rest
 
 exposedSourceModules :: FilePath -> IO [String]
 exposedSourceModules root = do
@@ -887,16 +645,6 @@ queryPackage pkgName = do
   let exposedMods = map stripComma (words exposedModsRaw)
   pure (pkgId, importDir, exposedMods)
 
--- | Query @ghc-pkg@ for a package's import directory by unit id.
-queryImportDir :: String -> IO (Maybe FilePath)
-queryImportDir unitId = do
-  resultByUnitId <- tryReadGhcPkg ["--ipid", "field", unitId, "import-dirs", "--simple-output"]
-  case resultByUnitId of
-    Just dir -> pure (Just (trim dir))
-    Nothing -> do
-      resultByPackageId <- tryReadGhcPkg ["field", unitId, "import-dirs", "--simple-output"]
-      pure (trim <$> resultByPackageId)
-
 readGhcPkg :: [String] -> IO String
 readGhcPkg args = do
   result <- tryReadGhcPkgRaw args
@@ -911,11 +659,6 @@ readGhcPkg args = do
           maybe missingPackage pure fallbackResult
   where
     missingPackage = ioError (userError ("ghc-pkg failed: " <> unwords args))
-
-tryReadGhcPkg :: [String] -> IO (Maybe String)
-tryReadGhcPkg args =
-  (Just <$> readGhcPkg args)
-    `catch` (\(_ :: IOException) -> pure Nothing)
 
 tryReadGhcPkgRaw :: [String] -> IO (Maybe String)
 tryReadGhcPkgRaw args = do
