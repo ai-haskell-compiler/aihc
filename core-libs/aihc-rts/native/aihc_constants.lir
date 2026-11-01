@@ -108,6 +108,12 @@ const @AIHC_STACK_CHUNK_LAST = @AIHC_STACK_CHUNK_BYTES - 1
 ; frame of a chunk, so the chunk ends this many bytes after that frame.
 const @AIHC_STACK_CHUNK_HEADER_BYTES = 64
 const @AIHC_STACK_CHUNK_FRAME_BYTES = @AIHC_STACK_CHUNK_BYTES - @AIHC_STACK_CHUNK_HEADER_BYTES
+; The slow path of a push puts a forward frame of two words at the start of
+; the new chunk. Its parent is the continuation in the chunk below. The
+; pushed frame follows it, so the chunk ends this many bytes after the
+; pushed frame, and the forward frame is this many bytes before it.
+const @AIHC_STACK_CHUNK_FORWARD_BYTES = 16
+const @AIHC_STACK_GROWN_FRAME_BYTES = @AIHC_STACK_CHUNK_FRAME_BYTES - @AIHC_STACK_CHUNK_FORWARD_BYTES
 
 ; The capability pointer follows the packed chunk counters.
 const @AIHC_STACK_CAPABILITY_OFFSET = 4 words + 24

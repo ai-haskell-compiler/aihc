@@ -508,9 +508,12 @@ void aihc_gc_collect_generation(AihcCapability *capability, unsigned generation,
    comes from the C allocator and not from the managed heap, so a push never
    collects. But a growth charges the new chunk to the nursery, and a
    reservation after it collects when the charges use the nursery. See
-   aihc_stack_grow. The first frame of a chunk keeps the address of its parent
-   in field zero, whichever chunk the parent is in. Thus the chain of frames
-   needs no link frame at a chunk boundary.
+   aihc_stack_grow. A chunk after the first one of a stack starts with a
+   forward frame whose parent is the continuation in the chunk below, and
+   the frame that grew the stack takes the forward frame as its parent.
+   Thus a frame with an entry is always in the chunk of the frame that
+   returns to it, and a return across a chunk boundary goes through a
+   continue helper, which follows the forward frame.
 
    Frames never move. The collector finds a live frame through a pointer to
    it, as it finds a static object, and scans it in place. A stack stays
@@ -520,6 +523,9 @@ void aihc_gc_collect_generation(AihcCapability *capability, unsigned generation,
    and stackChunkHeaderBytes in Aihc.Lir.Lower. */
 #define AIHC_STACK_CHUNK_BYTES ((size_t)4096)
 #define AIHC_STACK_CHUNK_HEADER_BYTES ((size_t)64)
+/* The forward frame at the start of each chunk after the first one of a
+   stack: a header and the parent in the chunk below. */
+#define AIHC_STACK_CHUNK_FORWARD_BYTES ((size_t)16)
 
 typedef struct AihcStack AihcStack;
 typedef struct AihcStackChunk AihcStackChunk;
@@ -653,16 +659,21 @@ void aihc_stack_release(AihcCapability *capability, AihcStack *stack);
    runs the thread from now on. */
 void aihc_stack_move(AihcThread *thread, AihcCapability *capability);
 /* Push one frame of the given words on the stack of the running thread.
-   The caller writes the header and every field. */
-AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words);
+   The caller writes the header and every field. parent names the parent
+   the caller will store in field zero, or is NULL for a frame without one.
+   When the push starts a new chunk, *parent becomes the forward frame of
+   that chunk, whose parent is the given one. */
+AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words,
+                           AihcValue **parent);
 /* The slow path of a push: the frame does not fit in the chunk of the
-   given stack pointer. Give back the frame at the start of the next chunk,
-   AIHC_STACK_CHUNK_HEADER_BYTES after the start of the chunk. Compiled code
-   computes the stack limit from this rule. The function does not change
-   capability->stack_next, because compiled code keeps the stack pointer
-   itself. */
+   given stack pointer. Write a forward frame with the given parent at the
+   start of the next chunk, AIHC_STACK_CHUNK_HEADER_BYTES after the start of
+   the chunk, and give back the frame after it, AIHC_STACK_CHUNK_FORWARD_BYTES
+   later. Compiled code computes the stack limit and the forward frame from
+   this rule. The function does not change capability->stack_next, because
+   compiled code keeps the stack pointer itself. */
 AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
-                           uint64_t words);
+                           uint64_t words, AihcValue *parent);
 /* Set the stack pointer to the first byte after a frame. The frame must be
    the topmost live frame of its stack. */
 void aihc_stack_resume_after(AihcCapability *capability,

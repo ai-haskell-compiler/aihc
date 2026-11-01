@@ -897,12 +897,15 @@ The lowering keeps the control model of CPS-GRIN:
   lower chunk, and a cold call to `aihc_stack_enter_chunk` makes that chunk
   young again for the collector.
 - Compiled code returns to a continuation inline. The return loads the
-  `backend_entry` of the frame and compares the end of the chunk of the
-  frame with `%sp_limit`. When the entry is not null and the chunk is the
-  same, the return makes the frame `%sp` and tail-calls the entry with one
-  indirect call. Thus each return site has its own branch history. A forward
-  frame, or a frame in a lower chunk, goes to the continue helper in a cold
-  block. The enter stub of the frame calls the code of the frame directly,
+  `backend_entry` of the frame. When the entry is not null, the return makes
+  the frame `%sp`, keeps `%sp_limit`, and tail-calls the entry with one
+  indirect call. Thus each return site has its own branch history. A frame
+  with an entry is always in the chunk of the stack pointer, because a chunk
+  after the first one of a stack starts with a forward frame whose parent is
+  the continuation in the chunk below, and the frame that grew the stack
+  took the forward frame as its parent. A forward frame goes to the continue
+  helper in a cold block, which follows it and sets the limit of the entered
+  chunk. The enter stub of the frame calls the code of the frame directly,
   so a return does one indirect call.
 - `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
   It does no allocation or suspension.

@@ -13,6 +13,7 @@ module Aihc.Cli.Options
 where
 
 import Aihc.Native (NativeTarget, OptimizationLevel, defaultOptimizationLevel, hostNativeTarget, parseNativeTarget, parseOptimizationLevel, renderNativeTarget, renderOptimizationLevel)
+import Aihc.PackagePlan.Project (ProjectSelection (..))
 import Options.Applicative qualified as OA
 
 data Command
@@ -25,9 +26,10 @@ data Command
 -- | Build an executable, or every executable of a Cabal package.
 --
 -- What is built follows from the input: a Haskell source file is the main
--- module of one executable, a directory is a local Cabal package, and
--- anything else is the name of a Hackage package with an optional version,
--- as @install@ takes it.
+-- module of one executable, and a directory is a local Cabal package. A
+-- target of the project, such as @exe:NAME@, @PKG:exe:NAME@ or @PKG@,
+-- names a package of @cabal.project@. Anything else is the name of a
+-- Hackage package with an optional version, as @install@ takes it.
 data BuildOptions = BuildOptions
   { buildInput :: !String,
     -- | Where the imports of a main module are found. A Cabal package
@@ -83,7 +85,8 @@ data PlanCommandOptions = PlanCommandOptions
     planCommandVerbose :: !Bool,
     -- | @NAME RANGE@, @NAME +flag@ or @NAME -flag@ restrictions on the
     -- plan. The plan does not read or write @aihc.lock@.
-    planCommandConstraints :: ![String]
+    planCommandConstraints :: ![String],
+    planCommandProject :: !ProjectSelection
   }
   deriving (Eq, Show)
 
@@ -98,13 +101,18 @@ data PlanOptions = PlanOptions
     -- | Ignore the lock for every package and rewrite it.
     planUpdate :: !Bool,
     -- | Ignore the lock for these packages and their dependents.
-    planUpdatePackages :: ![String]
+    planUpdatePackages :: ![String],
+    -- | Where the project of the input is found. The packages and the
+    -- constraints of the project apply when the input is one of its
+    -- packages.
+    planProject :: !ProjectSelection
   }
   deriving (Eq, Show)
 
--- | Take the lock as it is, or solve and write it.
+-- | Take the lock as it is, or solve and write it. A library caller gets
+-- no project: only the command line looks for @cabal.project@.
 defaultPlanOptions :: PlanOptions
-defaultPlanOptions = PlanOptions [] False False []
+defaultPlanOptions = PlanOptions [] False False [] ProjectIgnored
 
 -- | Link an executable from a bundle that @build --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
@@ -189,7 +197,7 @@ buildOptionsParser =
   BuildOptions
     <$> OA.strArgument
       ( OA.metavar "INPUT"
-          <> OA.help "Main Haskell module, local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
+          <> OA.help "Main Haskell module, local Cabal package directory, project target (exe:NAME, PKG:exe:NAME or PKG), or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> sourceDirectoryOptions
     <*> OA.many
@@ -245,7 +253,7 @@ planCommandOptionsParser =
   PlanCommandOptions
     <$> OA.strArgument
       ( OA.metavar "INPUT"
-          <> OA.help "Local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
+          <> OA.help "Local Cabal package directory, project target (exe:NAME, PKG:exe:NAME or PKG), or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> nativeTargetOption
     <*> workspaceOption
@@ -256,6 +264,24 @@ planCommandOptionsParser =
           <> OA.help "Print each planning step"
       )
     <*> constraintOptions
+    <*> projectOption
+
+-- | Look for @cabal.project@ from the working directory up, unless an
+-- option names the project file or turns the project off.
+projectOption :: OA.Parser ProjectSelection
+projectOption =
+  ProjectFileAt
+    <$> OA.strOption
+      ( OA.long "project-file"
+          <> OA.metavar "FILE"
+          <> OA.help "Read the project from FILE instead of the first cabal.project in the working directory or a parent directory"
+      )
+      OA.<|> OA.flag
+        ProjectSearch
+        ProjectIgnored
+        ( OA.long "ignore-project"
+            <> OA.help "Do not read a cabal.project file"
+        )
 
 constraintOptions :: OA.Parser [String]
 constraintOptions =
@@ -306,6 +332,7 @@ planOptionsParser =
               <> OA.help "Ignore what aihc.lock says about NAME and the packages that depend on it, and rewrite the lock"
           )
       )
+    <*> projectOption
 
 linkExeOptionsParser :: OA.Parser LinkExeOptions
 linkExeOptionsParser =
@@ -452,7 +479,7 @@ installOptionsParser =
   InstallOptions
     <$> OA.strArgument
       ( OA.metavar "PACKAGE"
-          <> OA.help "Local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
+          <> OA.help "Local Cabal package directory, package of the project, or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> storeRootOption "Override the aihc store root"
     <*> buildRootOption "Build a local package under DIR instead of its .aihc-target directory"

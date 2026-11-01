@@ -144,6 +144,7 @@ static void aihc_workers_start(AihcCapability *capability);
 /* aihc_helpers.lir defines the indirection table, because the update of a
    thunk without waiters writes it there. */
 extern const AihcInfo aihc_indirection_info;
+extern const AihcInfo aihc_lir_chunk_forward_info;
 static const AihcInfo aihc_io_request_info = {
     .object_kind = AIHC_OBJECT_IO_REQUEST,
 };
@@ -944,7 +945,7 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
   /* The callback runs on the stack of the thread that made the foreign call.
      Its stop frame goes above the frames of that thread. When the callback
      enters the stop frame, the stack pointer is back where it was. */
-  frame->continuation = aihc_stack_push(capability, 1);
+  frame->continuation = aihc_stack_push(capability, 1, NULL);
   frame->continuation->header = (AihcSlot)(uintptr_t)stop_info;
   aihc_stack_enter_chunk(capability, frame->continuation);
 }
@@ -3194,6 +3195,11 @@ const AihcResume *aihc_control0(AihcCapability *capability, AihcValue *tag,
   AihcValue *previous = NULL;
   for (AihcValue *frame = continuation; frame != prompt;
        frame = aihc_captured_frame_parent(frame, 1)) {
+    /* The forward frame of a chunk boundary belongs to the stack, not to
+       the computation: the pushes of a resume make their own. */
+    if (aihc_value_info_table(frame) == &aihc_lir_chunk_forward_info) {
+      continue;
+    }
     uint64_t frame_words = aihc_value_words(frame);
     AihcValue *copy = aihc_gc_allocate(capability, frame_words);
     memcpy(copy, frame, frame_words * sizeof(AihcSlot));
@@ -3261,7 +3267,7 @@ const AihcResume *aihc_continuation_resume(AihcCapability *capability,
   while (count != 0) {
     AihcValue *source = frames[--count];
     uint64_t frame_words = aihc_value_words(source);
-    AihcValue *copy = aihc_stack_push(capability, frame_words);
+    AihcValue *copy = aihc_stack_push(capability, frame_words, &resumed);
     memcpy(copy, source, frame_words * sizeof(AihcSlot));
     aihc_value_fields(copy)[0] = (AihcSlot)(uintptr_t)resumed;
     resumed = copy;

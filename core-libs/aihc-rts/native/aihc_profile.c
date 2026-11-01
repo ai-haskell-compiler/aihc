@@ -42,6 +42,7 @@
 /* The update frame that aihc_lir_eval pushes. It is the only frame that the
    runtime units push, so it is not in the info tables of the program. */
 extern const AihcInfo aihc_lir_cps_update_info;
+extern const AihcInfo aihc_lir_chunk_forward_info;
 
 /* The codes that do not belong to a function. A function code is never
    one of these small values. */
@@ -258,6 +259,11 @@ static int aihc_profile_frame_code(const AihcValue *frame, int collecting,
     return 0;
   }
   uintptr_t info = (uintptr_t)frame->header & ~(uintptr_t)AIHC_HEADER_TAG_MASK;
+  if (info == (uintptr_t)&aihc_lir_chunk_forward_info) {
+    /* The forward frame of a chunk boundary returns to no code of its own. */
+    *code = AIHC_PROFILE_NO_CODE;
+    return 1;
+  }
   if (info == (uintptr_t)&aihc_lir_cps_update_info) {
     *code = AIHC_PROFILE_NO_CODE;
     /* A collection can move the thunk while the handler reads it. */

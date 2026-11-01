@@ -134,9 +134,13 @@ The GC pass gives each frame push a reservation of zero words, so compiled code 
 A frame push that only goes to an evaluation gets no reservation, because `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry when the heap pointer is above the heap limit.
 `aihc_lir_eval` collects in the same condition when its push of an update frame grows the stack.
 Refer to "Pause bound" in [gc-design.md](gc-design.md).
-A frame keeps the address of its parent in field zero, in any chunk.
-Thus a chunk boundary needs no link frame.
-The largest frame has 256 words, so a frame always fits in an empty chunk.
+A frame keeps the address of its parent in field zero.
+A chunk after the first one of a stack starts with a forward frame of two words, which `aihc_stack_grow` writes.
+Its parent is the continuation in the chunk below, and the frame that grew the stack takes the forward frame as its parent.
+Thus a frame with an entry is always in the chunk of the frame that returns to it.
+The inline return of compiled code tests only that the frame has an entry.
+A forward frame goes to a continue helper, which follows it, sets the stack limit of the entered chunk, and makes the chunk young again.
+The largest frame has 256 words, so a frame always fits in an empty chunk after its forward frame.
 
 A continue helper sets the stack pointer to the address of the frame that it enters.
 This pops the frame and every frame above it.
@@ -160,7 +164,9 @@ The capability fields `heap_next` and `heap_limit` are the same kind of copy of 
 
 The frame layouts do not change, because each frame has its info table.
 The collector finds a live frame through a pointer to it.
-It marks the frame as it marks a static object and scans the frame in place.
+It scans the frame in place, together with the live frames below it in its chunk, down to the frames an earlier scan of the same collection covered.
+The chunk records the highest frame that the collection scanned it from.
+Thus a frame that the collection reaches again costs one compare, and no frame enters a mark set.
 Frames do not move, so a pointer to a frame needs no relocation.
 A stack stays while the collector retains its thread record.
 After each full collection and at the end of each gen2 cycle, the collector releases the stacks of the threads that it did not retain.
