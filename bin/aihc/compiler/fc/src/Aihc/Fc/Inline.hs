@@ -583,6 +583,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
     knownVersions = Map.restrictKeys (inVersions st0) (Map.keysSet known)
     diverging = divergingValues (inEnv st0) (Map.toList (inBodies st0))
     blocked = loopBreakers config st0
+    reducing = Set.fromList [name | CyclicSCC names <- sccs, name <- names] `Set.difference` blocked
     -- The uses that the copies of the templates add. A template is copied
     -- at every call in the phases its pragma names, so a use inside it is
     -- repeated once per call of the template.
@@ -597,13 +598,14 @@ inlineRound config st0 = List.foldl' step st0 sccs
         ]
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config known knownVersions diverging blocked inTemplates st name
-        CyclicSCC names -> List.foldl' (simplifyValue config known knownVersions diverging blocked inTemplates) st names
+        AcyclicSCC name -> simplifyValue config known knownVersions diverging blocked reducing inTemplates st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known knownVersions diverging blocked reducing inTemplates) st names
 
 -- | Keep enough calls opaque to break every cycle. Prefer a value that
 -- cannot be copied, then a large body without an INLINE request.
--- Only small record consumers can leave a recursive group. Larger copies
--- can expose more recursive code than the term-size limits account for.
+-- Only small record consumers can leave a recursive group at known
+-- constructor arguments. Larger copies can expose more recursive code
+-- than the term-size limits account for.
 loopBreakers :: InlineConfig -> Inliner -> Set Name
 loopBreakers config st = fixed <> foldMap choose (components remaining)
   where
@@ -648,8 +650,8 @@ isTemplate st name =
     _ -> False
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Expr -> Map Name Int -> Diverging -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
-simplifyValue config known knownVersions diverging blocked inTemplates st name
+simplifyValue :: InlineConfig -> Map Name Expr -> Map Name Int -> Diverging -> Set Name -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
+simplifyValue config known knownVersions diverging blocked reducing inTemplates st name
   | name `Set.member` inDead st = st
   | otherwise =
       case Map.lookup name (inBodies st) of
@@ -680,6 +682,7 @@ simplifyValue config known knownVersions diverging blocked inTemplates st name
                         requested = inliningRequested (inlinePhase config) spec
                         withinLimit = size <= policyCalleeLimit policy
                         sites
+                          | callee `Set.member` reducing = SitesReducing
                           | every = SitesUnconditional
                           | requested && withinLimit = SitesRequested
                           | otherwise = SitesMeasured,
