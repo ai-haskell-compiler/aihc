@@ -119,6 +119,24 @@ instance (Semigroup a, Semigroup b) => Semigroup (a, b) where
 instance (Monoid a, Monoid b) => Monoid (a, b) where
   mempty = (mempty, mempty)
 
+instance (Semigroup a, Semigroup b, Semigroup c) => Semigroup (a, b, c) where
+  (leftA, leftB, leftC) <> (rightA, rightB, rightC) = (leftA <> rightA, leftB <> rightB, leftC <> rightC)
+
+instance (Monoid a, Monoid b, Monoid c) => Monoid (a, b, c) where
+  mempty = (mempty, mempty, mempty)
+
+instance (Semigroup a, Semigroup b, Semigroup c, Semigroup d) => Semigroup (a, b, c, d) where
+  (leftA, leftB, leftC, leftD) <> (rightA, rightB, rightC, rightD) = (leftA <> rightA, leftB <> rightB, leftC <> rightC, leftD <> rightD)
+
+instance (Monoid a, Monoid b, Monoid c, Monoid d) => Monoid (a, b, c, d) where
+  mempty = (mempty, mempty, mempty, mempty)
+
+instance (Semigroup a, Semigroup b, Semigroup c, Semigroup d, Semigroup e) => Semigroup (a, b, c, d, e) where
+  (leftA, leftB, leftC, leftD, leftE) <> (rightA, rightB, rightC, rightD, rightE) = (leftA <> rightA, leftB <> rightB, leftC <> rightC, leftD <> rightD, leftE <> rightE)
+
+instance (Monoid a, Monoid b, Monoid c, Monoid d, Monoid e) => Monoid (a, b, c, d, e) where
+  mempty = (mempty, mempty, mempty, mempty, mempty)
+
 instance Semigroup Ordering where
   LT <> _ = LT
   EQ <> right = right

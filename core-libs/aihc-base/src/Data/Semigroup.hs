@@ -1,3 +1,6 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Data.Semigroup
   ( Semigroup (..),
     stimesMonoid,
@@ -35,11 +38,13 @@ import Data.Semigroup.Internal
     stimesMonoid,
   )
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import Prelude (Applicative (..), Bool (..), Eq (..), Foldable (..), Functor (..), Monad (..), Ord (..), Ordering (..), Traversable (..))
+import Prelude (Applicative (..), Bool (..), Eq (..), Foldable (..), Functor (..), Monad (..), Num, Ord (..), Ordering (..), Traversable (..))
 
 newtype Min a = Min {getMin :: a}
+  deriving newtype (Num)
 
 newtype Max a = Max {getMax :: a}
+  deriving newtype (Num)
 
 newtype First a = First {getFirst :: a}
 

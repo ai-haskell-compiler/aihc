@@ -28,6 +28,7 @@ import Control.Monad (when)
 import Data.List (intercalate, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import System.IO (hPutStrLn, stderr)
 
 -- | One package of a plan.
 data PlanRow = PlanRow
@@ -54,7 +55,7 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 -- name order, so the order does not change from one run to the next.
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
-  hackageSource <- defaultHackageSource
+  hackageSource <- defaultHackageSource (hPutStrLn stderr)
   TargetRoot root _ _ targetExecutables project <- installTargetRoot (planCommandProject options) (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
       executables = targetExecutables <> planCommandExecutables options

@@ -1,0 +1,22 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts
+
+    result :: Bool
+    result = I# (ord# (indexCharOffAddr# "a\255z"# 1#)) == 255
+      && I# (ord# (indexCharOffAddr# "a\255z"# 2#)) == 122
+      && I# (narrow16Int# 32768#) == -32768
+      && I# (narrow16Int# 65537#) == 1
+      && I# (narrow16Int# -32769#) == 32767
+      && I# (narrow32Int# 2147483648#) == -2147483648
+      && I# (narrow32Int# 4294967297#) == 1
+      && I# (narrow32Int# -2147483649#) == 2147483647
+expression: result
+output: |
+  True
+status: pass
+reason: Byte-address reads use unsigned bytes and signed conversions extend the low 16 or 32 bits.

@@ -1,0 +1,30 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Token = Token
+    data Other = Other
+    first x = second x
+    second Token = first Token
+    bad = first Other
+annotated:
+  - |-
+    module Test where
+    data Token = Token
+         │       └─ type: Token
+         └─ type: Type
+    data Other = Other
+         │       └─ type: Other
+         └─ type: Type
+    first x = second x
+    │     │   └─ type: Token → a; type-args: a
+    │     └─ type: Token
+    └─ type: ∀ a. Token → a
+    second Token = first Token
+    │      │       └─ type: Token → a; type-args: a
+    │      └─ type: Token
+    └─ type: ∀ a. Token → a
+    bad = first Other
+          └─ error: couldn't match Token with Other
+status: pass
+reason: A recursive declaration group must give a type diagnostic for an invalid argument instead of an internal abort.

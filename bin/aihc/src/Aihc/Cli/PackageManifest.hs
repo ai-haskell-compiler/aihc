@@ -24,6 +24,8 @@ data PackageManifest = PackageManifest
     packageManifestUnitId :: !Text,
     packageManifestDependencies :: ![Text],
     packageManifestModules :: ![Text],
+    -- | Each reexport names its original package unit and module.
+    packageManifestReexports :: !(Map Text (Text, Text)),
     -- | Every module the package compiled, exposed or hidden, in the order
     -- the store holds them. A @--lto@ build reads the System FC of each.
     packageManifestCompiledModules :: ![Text],
@@ -49,24 +51,26 @@ instance NFData PackageManifest
 
 instance Cbor PackageManifest where
   toCbor value =
-    cborArray 12
-      <> cborText "aihc-packagemanifest-1"
+    cborArray 13
+      <> cborText "aihc-packagemanifest-2"
       <> toCbor (packageManifestName value)
       <> toCbor (packageManifestVersion value)
       <> toCbor (packageManifestIdentity value)
       <> toCbor (packageManifestUnitId value)
       <> toCbor (packageManifestDependencies value)
       <> toCbor (packageManifestModules value)
+      <> toCbor (packageManifestReexports value)
       <> toCbor (packageManifestCompiledModules value)
       <> toCbor (packageManifestFlags value)
       <> toCbor (packageManifestCxxStdLib value)
       <> toCbor (packageManifestLinkArguments value)
       <> toCbor (packageManifestCabalFlags value)
   fromCbor = do
-    expectArray 12
-    "aihc-packagemanifest-1" <- getText
+    expectArray 13
+    "aihc-packagemanifest-2" <- getText
     PackageManifest
       <$!> fromCbor
+        <*!> fromCbor
         <*!> fromCbor
         <*!> fromCbor
         <*!> fromCbor

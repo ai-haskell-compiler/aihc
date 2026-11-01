@@ -16,6 +16,8 @@ module Aihc.Hackage.Cabal
     collectLibraryCCompileInfoIn,
     collectLibraryExposedModules,
     collectLibraryExposedModulesIn,
+    ModuleReexport (..),
+    collectLibraryReexportsIn,
     collectLibraryFiles,
     collectLibraryFilesFor,
     collectLibraryFilesIn,
@@ -373,6 +375,39 @@ collectLibraryExposedModules = collectLibraryExposedModulesIn hostBuildContext
 collectLibraryExposedModulesIn :: BuildContext -> Package -> [Text]
 collectLibraryExposedModulesIn context package =
   nub [moduleName | build <- activeLibraryBuildInfos context package, moduleName <- exposedModules build]
+
+-- | A module reexport from a Cabal library.
+data ModuleReexport = ModuleReexport
+  { reexportPackage :: Maybe Text,
+    reexportOriginal :: Text,
+    reexportName :: Text
+  }
+  deriving (Eq, Show)
+
+-- | Read the reexports of the active library components.
+collectLibraryReexportsIn :: BuildContext -> Package -> Either String [ModuleReexport]
+collectLibraryReexportsIn context package =
+  nub <$> traverse parseReexport entries
+  where
+    entries =
+      [ T.strip entry
+      | build <- activeLibraryBuildInfos context package,
+        field <- Map.findWithDefault [] (T.pack "reexported-modules") (extraFields build),
+        entry <- T.splitOn (T.pack ",") (fieldText field),
+        not (T.null (T.strip entry))
+      ]
+    parseReexport entry =
+      case T.words entry of
+        [original] -> fromOriginal original Nothing
+        [original, keyword, name] | keyword == T.pack "as" -> fromOriginal original (Just name)
+        _ -> Left ("Invalid Cabal module reexport: " <> T.unpack entry)
+    fromOriginal original renamed =
+      case T.splitOn (T.pack ":") original of
+        [name] -> Right (ModuleReexport Nothing name (fromMaybe name renamed))
+        [packageName, name]
+          | not (T.null packageName || T.null name) ->
+              Right (ModuleReexport (Just packageName) name (fromMaybe name renamed))
+        _ -> Left ("Invalid Cabal module reexport: " <> T.unpack original)
 
 -- | The library components that an install builds under the active
 -- conditions. These are the main library and each sub-library that the main

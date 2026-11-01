@@ -79,6 +79,8 @@ instance (Alternative f) => Semigroup (Alt f a) where
 instance (Alternative f) => Monoid (Alt f a) where
   mempty = Alt empty
 
+deriving newtype instance (Num (f a)) => Num (Alt f a)
+
 instance Functor First where
   fmap f (First value) = First (fmap f value)
 

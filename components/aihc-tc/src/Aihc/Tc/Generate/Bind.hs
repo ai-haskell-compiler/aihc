@@ -11,6 +11,7 @@ module Aihc.Tc.Generate.Bind
     checkGuardedRhss,
     collectRawSigs,
     sigToScheme,
+    annotateRecursiveTermOccurrences,
   )
 where
 
@@ -42,7 +43,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), nameResolution)
-import Aihc.Resolve.Traverse (Collect, Walk (..), collected, idWalk, runCollect, walk)
+import Aihc.Resolve.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -168,9 +169,7 @@ localDeclComponents decls = do
 annotateRecursiveOccurrences :: [(UnqualifiedName, TcBinder)] -> [Decl] -> TcM [Decl]
 annotateRecursiveOccurrences binders decls = do
   schemes <- Map.fromList . catMaybes <$> mapM schemeEntry binders
-  if Map.null schemes
-    then pure decls
-    else mapM (walk idWalk {walkExpr = \children expr -> children expr >>= annotateExpr schemes}) decls
+  annotateRecursiveTermOccurrences schemes decls
   where
     schemeEntry (name, binder) =
       case binder of
@@ -180,6 +179,12 @@ annotateRecursiveOccurrences binders decls = do
               pure (Just (key, scheme))
         _ -> pure Nothing
 
+-- | Add type arguments and evidence to recursive uses of generalized terms.
+annotateRecursiveTermOccurrences :: (Walkable syntax) => Map Entity TypeScheme -> [syntax] -> TcM [syntax]
+annotateRecursiveTermOccurrences recursiveSchemes decls
+  | Map.null recursiveSchemes = pure decls
+  | otherwise = mapM (walk idWalk {walkExpr = \children expr -> children expr >>= annotateExpr recursiveSchemes}) decls
+  where
     -- An infix application and an operator section name the binder in an
     -- operator field and not in an 'EVar' node. The annotation of such an
     -- occurrence goes on the name, which is where the desugarer reads the

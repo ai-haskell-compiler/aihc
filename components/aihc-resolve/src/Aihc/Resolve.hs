@@ -51,6 +51,7 @@ module Aihc.Resolve
     exportedTypes,
     OperatorFixity (..),
     moduleExportsFromList,
+    moduleExportsWithOrigins,
     moduleExportKeys,
     lookupModuleExport,
     filterModuleExports,

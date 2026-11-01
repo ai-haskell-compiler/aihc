@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Exts (Int#)
+
+    data Action = Shift Int# deriving Show
+
+    result :: Bool
+    result = show (Shift 3#) == "Shift 3#"
+      && show (Shift -1#) == "Shift -1#"
+      && showsPrec 11 (Shift 3#) "!" == "(Shift 3#)!"
+expression: result
+output: |
+  True
+status: pass
+reason: Derived Show must box Int# fields and append the primitive suffix without parentheses around negative fields.

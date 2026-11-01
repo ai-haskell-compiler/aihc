@@ -162,6 +162,15 @@ comparisonEquivalence (Comparison p) = Equivalence (\a b -> p a b == EQ)
 -- | Dual function arrows.
 newtype Op a b = Op {getOp :: b -> a}
 
+instance (Num a) => Num (Op a b) where
+  Op p + Op q = Op (\a -> p a + q a)
+  Op p - Op q = Op (\a -> p a - q a)
+  Op p * Op q = Op (\a -> p a * q a)
+  negate (Op p) = Op (negate . p)
+  abs (Op p) = Op (abs . p)
+  signum (Op p) = Op (signum . p)
+  fromInteger value = Op (const (fromInteger value))
+
 instance Contravariant (Op a) where
   contramap f (Op g) = Op (g . f)
 

@@ -11,8 +11,9 @@ where
 
 import Aihc.Hackage.Fetch (newHackageSource)
 import Aihc.Hackage.Source (HackageSource)
+import System.IO (hPutStrLn, stderr)
 
 -- | Query Hackage for the packages a plan resolves and download the
 -- releases it chooses.
 defaultHackageSource :: IO (Maybe HackageSource)
-defaultHackageSource = Just <$> newHackageSource
+defaultHackageSource = Just <$> newHackageSource (hPutStrLn stderr)

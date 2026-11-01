@@ -1,0 +1,20 @@
+extensions:
+  - OverloadedLists
+modules:
+  - |
+    {-# LANGUAGE OverloadedLists #-}
+    module Test where
+
+    import Data.List.NonEmpty (NonEmpty)
+    import GHC.Exts qualified as Exts
+
+    values :: NonEmpty Int
+    values = [1, 2, 3]
+
+    result :: Bool
+    result = sum (Exts.toList values) == 6
+expression: result
+output: |
+  True
+status: pass
+reason: NonEmpty list literals and list conversion methods require its IsList instance.

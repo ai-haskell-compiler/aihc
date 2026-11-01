@@ -20,6 +20,7 @@ module GHC.List
     null,
     length,
     (!!),
+    (!?),
     foldl,
     foldl',
     foldl1,
@@ -109,6 +110,17 @@ infix 4 `notElem`
 uncons :: [a] -> Maybe (a, [a])
 uncons [] = Nothing
 uncons (value : values) = Just (value, values)
+
+(!?) :: [a] -> Int -> Maybe a
+values !? index
+  | index < 0 = Nothing
+  | otherwise = atIndex values index
+  where
+    atIndex [] _ = Nothing
+    atIndex (value : _) 0 = Just value
+    atIndex (_ : rest) offset = atIndex rest (offset - 1)
+
+infixl 9 !?
 
 unsnoc :: [a] -> Maybe ([a], a)
 unsnoc [] = Nothing

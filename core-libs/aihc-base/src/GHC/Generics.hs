@@ -86,9 +86,11 @@ import Prelude
     Int,
     Maybe (..),
     Monad (..),
+    Monoid (..),
     Ord (..),
     Ordering (..),
     Read,
+    Semigroup (..),
     Show (..),
     String,
     Traversable (..),
@@ -694,3 +696,45 @@ instance (Monad f, Monad g) => Monad (f :*: g) where
     where
       leftFactor (value :*: _) = value
       rightFactor (_ :*: value) = value
+
+instance Semigroup (U1 p) where
+  _ <> _ = U1
+
+instance Monoid (U1 p) where
+  mempty = U1
+
+instance (Semigroup p) => Semigroup (Par1 p) where
+  Par1 left <> Par1 right = Par1 (left <> right)
+
+instance (Monoid p) => Monoid (Par1 p) where
+  mempty = Par1 mempty
+
+instance (Semigroup (f p)) => Semigroup (Rec1 f p) where
+  Rec1 left <> Rec1 right = Rec1 (left <> right)
+
+instance (Monoid (f p)) => Monoid (Rec1 f p) where
+  mempty = Rec1 mempty
+
+instance (Semigroup c) => Semigroup (K1 i c p) where
+  K1 left <> K1 right = K1 (left <> right)
+
+instance (Monoid c) => Monoid (K1 i c p) where
+  mempty = K1 mempty
+
+instance (Semigroup (f p)) => Semigroup (M1 i c f p) where
+  M1 left <> M1 right = M1 (left <> right)
+
+instance (Monoid (f p)) => Monoid (M1 i c f p) where
+  mempty = M1 mempty
+
+instance (Semigroup (f p), Semigroup (g p)) => Semigroup ((f :*: g) p) where
+  (leftA :*: leftB) <> (rightA :*: rightB) = (leftA <> rightA) :*: (leftB <> rightB)
+
+instance (Monoid (f p), Monoid (g p)) => Monoid ((f :*: g) p) where
+  mempty = mempty :*: mempty
+
+instance (Semigroup (f (g p))) => Semigroup ((f :.: g) p) where
+  Comp1 left <> Comp1 right = Comp1 (left <> right)
+
+instance (Monoid (f (g p))) => Monoid ((f :.: g) p) where
+  mempty = Comp1 mempty

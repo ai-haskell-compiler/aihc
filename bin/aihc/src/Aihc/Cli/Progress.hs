@@ -384,7 +384,7 @@ wrapItems width = go [] 0
 -- units they import, and listing those says nothing new.
 renderFrame :: Bool -> Int -> Int -> Word64 -> Int -> ProgressState -> [String]
 renderFrame color width height now tick state
-  | Map.null (stateItems state) = [sgr color cyan (spinner tick) <> " Solving the plan · " <> renderClock (now - stateStart state)]
+  | Map.null (stateItems state) = [truncateLine width (sgr color cyan (spinner tick) <> " Solving the plan · " <> renderClock (now - stateStart state))]
   | otherwise = map (truncateLine width) (summaryLine : workLines <> statusLine)
   where
     values = Map.elems (stateItems state)

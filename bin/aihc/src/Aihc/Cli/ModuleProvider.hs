@@ -15,6 +15,7 @@ module Aihc.Cli.ModuleProvider
     newModuleProvider,
     newProviderCache,
     providerPackagesOf,
+    providerModuleOrigin,
     providerInterfacePaths,
     providerOriginInterfacePath,
     providerResolved,
@@ -95,6 +96,7 @@ data ModuleProvider = ModuleProvider
     providerTyped :: ModuleKey -> IO TypedModuleFacts,
     -- | Where each dependency package keeps the artifacts of its modules.
     providerRoots :: Map PackageId FilePath,
+    providerReexports :: Map ModuleKey (PackageId, Text),
     -- | The instance facts of the given providers, merged as a unit merges
     -- the facts of the units below it.
     providerInstanceFacts :: Set InstanceProvider -> IO TcInterface
@@ -104,15 +106,21 @@ data ModuleProvider = ModuleProvider
 providerPackagesOf :: ModuleProvider -> Text -> [Package]
 providerPackagesOf provider name = Map.findWithDefault [] name (providerModules provider)
 
+-- | The original package unit and module of an import.
+providerModuleOrigin :: ModuleProvider -> ModuleKey -> (PackageId, Text)
+providerModuleOrigin provider key@(ModuleKey package name) =
+  Map.findWithDefault (packageId package, name) key (providerReexports provider)
+
 -- | Where the optimizer interface of a module can be, one path for each
 -- dependency package that exposes a module of the name. A package that
 -- compiles in the graph writes it under its own output root, as an
 -- installed package holds it under its store directory.
 providerInterfacePaths :: ModuleProvider -> Text -> [FilePath]
 providerInterfacePaths provider name =
-  [ root </> moduleNameDirectory name </> interfaceFileName
+  [ root </> moduleNameDirectory original </> interfaceFileName
   | package <- providerPackagesOf provider name,
-    Just root <- [Map.lookup (packageId package) (providerRoots provider)]
+    let (identity, original) = providerModuleOrigin provider (ModuleKey package name),
+    Just root <- [Map.lookup identity (providerRoots provider)]
   ]
 
 -- | Locate a defining module, including a hidden module of a transitive dependency.
@@ -141,14 +149,14 @@ newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo
 -- package below them.
 --
 -- The provider keeps no facts of a graph package. The graph keeps them.
-newModuleProvider :: ProviderCache -> PackageLocator -> [(Package, [Text], PackageSource)] -> IO ModuleProvider
+newModuleProvider :: ProviderCache -> PackageLocator -> [(Package, [Text], Map Text (Text, Text), PackageSource)] -> IO ModuleProvider
 newModuleProvider cache locator dependencies = do
   let digestsMemo = cacheDigests cache
       factsMemo = cacheFacts cache
       sources =
         Map.fromList
           [ (packageId package, source)
-          | (package, _, source) <- dependencies
+          | (package, _, _, source) <- dependencies
           ]
       sourceRoot source =
         case source of
@@ -158,19 +166,24 @@ newModuleProvider cache locator dependencies = do
         Map.fromListWith
           (flip (<>))
           [ (name, [package])
-          | (package, names, _) <- dependencies,
+          | (package, names, _, _) <- dependencies,
             name <- names
           ]
       locate packageId' =
         maybe
-          (ioError (userError ("The package that provides instances is not installed: " <> T.unpack (packageIdText packageId'))))
+          (ioError (userError ("The package unit is not available: " <> T.unpack (packageIdText packageId'))))
           pure
-          (Map.lookup packageId' locator)
-      packageSource package =
-        maybe
-          (ioError (userError ("The module is not from a dependency package: " <> T.unpack (packageIdText (packageId package)))))
-          pure
-          (Map.lookup (packageId package) sources)
+          (Map.lookup packageId' (Map.union sources locator))
+      reexports =
+        Map.fromList
+          [ (ModuleKey package name, (PackageId identity, original))
+          | (package, _, aliases, _) <- dependencies,
+            (name, (identity, original)) <- Map.toList aliases
+          ]
+      moduleSource key@(ModuleKey package name) = do
+        let (identity, original) = Map.findWithDefault (packageId package, name) key reexports
+        source <- locate identity
+        pure (source, original)
       packageDigests directory =
         digestsMemo directory $
           readStamp (packageDigestsPath directory)
@@ -186,8 +199,8 @@ newModuleProvider cache locator dependencies = do
           artifact <- readTypeArtifactFile path
           _ <- evaluate (force (typeArtifactInterface artifact, typeArtifactInstanceProviders artifact))
           pure artifact
-      resolved (ModuleKey package name) = do
-        source <- packageSource package
+      resolved key = do
+        (source, name) <- moduleSource key
         case source of
           GraphPackage {graphResolved} -> graphResolved name
           StorePackage directory ->
@@ -198,8 +211,8 @@ newModuleProvider cache locator dependencies = do
               artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
               unless (resolveArtifactModuleName artifact == name) (ioError (userError ("Resolve artifact module name does not match " <> path)))
               evaluate (force (ResolvedModuleFacts (resolveArtifactExports artifact) (moduleScopeDigest digests) True))
-      typed (ModuleKey package name) = do
-        source <- packageSource package
+      typed key = do
+        (source, name) <- moduleSource key
         case source of
           GraphPackage {graphTyped} -> graphTyped name
           StorePackage directory ->
@@ -228,6 +241,7 @@ newModuleProvider cache locator dependencies = do
         providerResolved = resolved,
         providerTyped = typed,
         providerRoots = Map.mapMaybe sourceRoot (Map.union sources locator),
+        providerReexports = reexports,
         providerInstanceFacts = instanceFacts
       }
 
