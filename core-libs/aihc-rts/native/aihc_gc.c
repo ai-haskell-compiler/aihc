@@ -166,6 +166,8 @@ static void aihc_shade_elements(AihcCapability *capability, AihcValue *array,
                                 uint64_t first, uint64_t end);
 static void aihc_mark_frames(AihcCapability *capability, AihcValue *frame);
 static int aihc_frame_above(const AihcValue *first, const AihcValue *second);
+typedef struct AihcGcContext AihcGcContext;
+static void aihc_reach_frame(AihcGcContext *context, AihcValue *frame);
 static int aihc_frame_is_live(const AihcCapability *capability,
                               const AihcValue *frame);
 #ifdef AIHC_GC_VERIFY
@@ -174,7 +176,7 @@ static void aihc_gc_verify(AihcCapability *capability, uint64_t root_count,
                            const AihcCapability *local);
 #endif
 
-typedef struct {
+struct AihcGcContext {
   AihcCapability *capability;
   /* The oldest generation this collection copies. */
   unsigned collected;
@@ -239,13 +241,21 @@ typedef struct {
   AihcValue **claims;
   size_t claim_count;
   size_t claim_capacity;
-} AihcGcContext;
+};
 
 /* The packed state of a stack chunk. */
 #define AIHC_CHUNK_GENERATION_MASK UINT64_C(0xFF)
 #define AIHC_CHUNK_YOUNGEST_SHIFT 8
 #define AIHC_CHUNK_YOUNGEST_MASK (UINT64_C(0xFF) << AIHC_CHUNK_YOUNGEST_SHIFT)
-#define AIHC_CHUNK_STAMP_SHIFT 16
+/* The offset in the chunk of the highest frame the running collection has
+   scanned, or zero. A chunk has 4096 bytes, so an offset has 12 bits, and
+   the header occupies offset zero. */
+#define AIHC_CHUNK_SCANNED_SHIFT 16
+#define AIHC_CHUNK_SCANNED_MASK (UINT64_C(0xFFF) << AIHC_CHUNK_SCANNED_SHIFT)
+#define AIHC_CHUNK_STAMP_SHIFT 28
+
+_Static_assert(AIHC_STACK_CHUNK_BYTES == 4096,
+               "the scanned-frame offset of a chunk has 12 bits");
 
 static unsigned aihc_chunk_generation(const AihcStackChunk *chunk) {
   return (unsigned)(chunk->state & AIHC_CHUNK_GENERATION_MASK);
@@ -267,11 +277,16 @@ typedef struct {
      not age its chunk, but a record that names a frame must stay in the
      remembered set while the chunk of the frame can be scanned again. */
   int from_frame;
+  /* For a frame: the frame, and the highest frame below it in the same
+     chunk among its fields, which the scan of the chunk continues with. */
+  AihcValue *frame;
+  AihcValue *parent;
 } AihcScanContext;
 
-/* Static objects and continuation frames never move, so the collector marks
-   each one it reaches in an open-addressed hash set and scans it once from a
-   worklist. */
+/* Static objects never move, so the collector marks each one it reaches in
+   an open-addressed hash set and scans it once from a worklist. A frame
+   never moves either, but it is scanned with the frames below it in its
+   chunk, and the chunk records the frame that scan started from. */
 typedef struct {
   AihcValue **slots;
   size_t capacity;
@@ -307,7 +322,8 @@ static const AihcInfo aihc_buffer_info = {
 /* The work of one collection. Each capability has its own, so local
    collections on several capabilities trace at the same time. */
 typedef struct AihcGcWork {
-  /* The static objects and frames the collection has reached. */
+  /* The static objects the collection has reached, and the static objects
+     and frames it has not scanned yet. */
   AihcAddressSet marked_statics;
   AihcValueWorklist statics;
   AihcValueWorklist pinned;
@@ -2007,7 +2023,7 @@ aihc_evacuate_slow(AihcGcContext *context, AihcValue *value, unsigned target,
             (!context->concurrent ||
              aihc_stack_chunk_of(value)->capability == context->local) &&
             aihc_frame_is_live(capability, value)) {
-          aihc_mark_static(context->work, value);
+          aihc_reach_frame(context, value);
         }
         return value;
       case AIHC_REGION_OUTSIDE:
@@ -2130,6 +2146,22 @@ static AihcSlot aihc_evacuate_root(AihcSlot root, void *opaque_context) {
 static inline __attribute__((always_inline)) AihcSlot
 aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   AihcScanContext *scan = opaque_context;
+  if (scan->from_frame &&
+      (slot ^ (uintptr_t)scan->frame) < AIHC_STACK_CHUNK_BYTES &&
+      slot < (uintptr_t)scan->frame) {
+    /* A frame below the scanned frame in the same chunk: its parent, or a
+       frame under the parent. The scan of the chunk continues with the
+       highest of them, and the others are below it on the chain, so the
+       slot needs no evacuation, no liveness test, and no region lookup. A
+       frame does not move, and its link ages no chunk. A frame in a lower
+       chunk is evacuated below and reached through the worklist, as every
+       frame is. */
+    AihcValue *frame = (AihcValue *)(uintptr_t)slot;
+    if (scan->parent == NULL || frame > scan->parent) {
+      scan->parent = frame;
+    }
+    return slot;
+  }
   unsigned generation;
   AihcValue *value = aihc_evacuate_at(scan->gc, (AihcValue *)(uintptr_t)slot,
                                       scan->target, &generation);
@@ -2179,6 +2211,44 @@ static void aihc_chunk_note_frame(AihcGcContext *context, AihcStackChunk *chunk,
     chunk->state = (chunk->state & ~AIHC_CHUNK_YOUNGEST_MASK) |
                    ((uint64_t)youngest << AIHC_CHUNK_YOUNGEST_SHIFT);
   }
+}
+
+/* The highest frame of a chunk that this collection has scanned, or NULL
+   when it has scanned no frame of the chunk. Every live frame of the chunk
+   at or below that frame is scanned. */
+static uint8_t *aihc_chunk_scanned_from(const AihcGcContext *context,
+                                        const AihcStackChunk *chunk) {
+  if ((chunk->state >> AIHC_CHUNK_STAMP_SHIFT) != context->number) {
+    return NULL;
+  }
+  uint64_t offset =
+      (chunk->state & AIHC_CHUNK_SCANNED_MASK) >> AIHC_CHUNK_SCANNED_SHIFT;
+  return offset == 0 ? NULL : (uint8_t *)chunk + offset;
+}
+
+static void aihc_chunk_set_scanned_from(AihcGcContext *context,
+                                        AihcStackChunk *chunk,
+                                        const AihcValue *frame) {
+  /* The note stamps the chunk for this collection when no frame of it was
+     noted yet, and a youngest of static lowers nothing. */
+  aihc_chunk_note_frame(context, chunk, AIHC_GENERATION_STATIC);
+  uint64_t offset = (uintptr_t)frame & (AIHC_STACK_CHUNK_BYTES - 1);
+  chunk->state = (chunk->state & ~AIHC_CHUNK_SCANNED_MASK) |
+                 (offset << AIHC_CHUNK_SCANNED_SHIFT);
+}
+
+/* Queue a live frame of a young chunk for a scan, unless a scan of this
+   collection covers it. The test is one compare with the record of its
+   chunk. The scan runs from the worklist, so a walk down a deep stack is a
+   loop and not a recursion. A frame queued twice before its scan costs the
+   second time one compare. */
+static void aihc_reach_frame(AihcGcContext *context, AihcValue *frame) {
+  uint8_t *scanned =
+      aihc_chunk_scanned_from(context, aihc_stack_chunk_of(frame));
+  if (scanned != NULL && (uint8_t *)frame <= scanned) {
+    return;
+  }
+  aihc_value_worklist_push(&context->work->statics, frame);
 }
 
 static int aihc_compare_chunk_depths(const void *left, const void *right) {
@@ -2325,13 +2395,11 @@ static void aihc_scan_large_array(AihcGcContext *context, AihcValue *array,
    lands in that generation at least. When a referent still ends younger,
    because an earlier reference copied it there, the object goes back to the
    remembered set. In a full collection the info table of the object also
-   names the static objects its code reaches. */
-static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
-                             unsigned generation) {
-  /* Only a frame or a static object is scanned as static, so only those
-     need the region lookup. */
-  int is_frame = generation == AIHC_GENERATION_STATIC &&
-                 aihc_region_kind(object) == AIHC_REGION_STACK;
+   names the static objects its code reaches. For a frame, parent receives
+   the highest frame below it in its chunk among its fields, or NULL. */
+static void aihc_scan_one(AihcGcContext *context, AihcValue *object,
+                          unsigned generation, int is_frame,
+                          AihcValue **parent) {
   /* The referents of a static object go to gen2. The referents of a frame
      go there too, unless gen2 is global and the collection keeps its
      survivors local: the chunk then takes the youngest generation that its
@@ -2345,6 +2413,8 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
           generation == AIHC_GENERATION_STATIC ? static_target : generation,
       .youngest = AIHC_GENERATION_STATIC,
       .from_frame = is_frame,
+      .frame = is_frame ? object : NULL,
+      .parent = NULL,
   };
   const AihcInfo *info = aihc_value_info_table(object);
   AihcObjectKind kind = aihc_value_kind(object);
@@ -2427,8 +2497,42 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
   unsigned demand = generation == AIHC_GENERATION_STATIC ? 2 : generation;
   if (is_frame) {
     aihc_chunk_note_frame(context, aihc_stack_chunk_of(object), scan.youngest);
+    *parent = scan.parent;
   } else if (scan.youngest < demand) {
     aihc_gc_keep(context, object);
+  }
+}
+
+/* Scan a frame and the live frames below it in its chunk, down to the
+   frames an earlier scan of this collection covered. The chunk records the
+   highest frame it was scanned from, so a frame reached again costs one
+   compare and no mark. The parent of a frame is the highest frame below it
+   in the same chunk among its fields. A parent in a lower chunk goes
+   through the worklist when its field is evacuated, as every frame does.
+   The gen2 marker walks frames the same way in aihc_mark_frames_counted. */
+static void aihc_scan_frames(AihcGcContext *context, AihcValue *frame) {
+  AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
+  uint8_t *limit = aihc_chunk_scanned_from(context, chunk);
+  if (limit != NULL && (uint8_t *)frame <= limit) {
+    return;
+  }
+  aihc_chunk_set_scanned_from(context, chunk, frame);
+  while (frame != NULL && (limit == NULL || (uint8_t *)frame > limit)) {
+    AihcValue *parent = NULL;
+    aihc_scan_one(context, frame, AIHC_GENERATION_STATIC, 1, &parent);
+    frame = parent;
+  }
+}
+
+static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
+                             unsigned generation) {
+  /* Only a frame or a static object is scanned as static, so only those
+     need the region lookup. */
+  if (generation == AIHC_GENERATION_STATIC &&
+      aihc_region_kind(object) == AIHC_REGION_STACK) {
+    aihc_scan_frames(context, object);
+  } else {
+    aihc_scan_one(context, object, generation, 0, NULL);
   }
 }
 
@@ -2739,12 +2843,15 @@ static void aihc_trace_kept_stacks(AihcGcContext *context) {
           stack->top == NULL ||
           aihc_chunk_generation(aihc_stack_chunk_of(stack->top)) >
               context->collected ||
-          aihc_address_set_contains(&context->work->marked_statics,
-                                    stack->top) ||
           aihc_live_value(context, (AihcValue *)stack->thread) == NULL) {
         continue;
       }
-      aihc_mark_static(context->work, stack->top);
+      uint8_t *covered =
+          aihc_chunk_scanned_from(context, aihc_stack_chunk_of(stack->top));
+      if (covered != NULL && (uint8_t *)stack->top <= covered) {
+        continue;
+      }
+      aihc_reach_frame(context, stack->top);
       scanned = 1;
     }
     if (scanned) {

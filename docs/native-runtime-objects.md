@@ -160,7 +160,9 @@ The capability fields `heap_next` and `heap_limit` are the same kind of copy of 
 
 The frame layouts do not change, because each frame has its info table.
 The collector finds a live frame through a pointer to it.
-It marks the frame as it marks a static object and scans the frame in place.
+It scans the frame in place, together with the live frames below it in its chunk, down to the frames an earlier scan of the same collection covered.
+The chunk records the highest frame that the collection scanned it from.
+Thus a frame that the collection reaches again costs one compare, and no frame enters a mark set.
 Frames do not move, so a pointer to a frame needs no relocation.
 A stack stays while the collector retains its thread record.
 After each full collection and at the end of each gen2 cycle, the collector releases the stacks of the threads that it did not retain.
