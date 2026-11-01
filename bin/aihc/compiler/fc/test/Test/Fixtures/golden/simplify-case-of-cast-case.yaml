@@ -1,0 +1,80 @@
+---
+extensions: []
+modules:
+- |
+  module Test (size) where
+
+  import GHC.Types (Int (..))
+
+  data Shape = Circle Int | Square Int Int | Empty
+
+  data Rep = L Int | R Inner
+
+  data Inner = P Int Int | U
+
+  newtype Wrapped = Wrapped Rep
+
+  from :: Shape -> Wrapped
+  from s = case s of
+    Circle r -> Wrapped (L r)
+    Square w h -> Wrapped (R (P w h))
+    Empty -> Wrapped (R U)
+
+  size :: Shape -> Int -> Int
+  size s z = case from s of
+    Wrapped (L r) -> r
+    Wrapped (R (P w _)) -> w
+    Wrapped (R U) -> z
+passes:
+- inline: shrink
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tShape :: sType {
+    1.cCircle :: tInt → tShape;
+    1.cSquare :: tInt → tInt → tShape;
+    1.cEmpty :: tShape
+  }
+
+  type 1.tRep :: sType {
+    1.cL :: tInt → tRep;
+    1.cR :: tInner → tRep
+  }
+
+  type 1.tInner :: sType {
+    1.cP :: tInt → tInt → tInner;
+    1.cU :: tInner
+  }
+
+  type 1.tWrapped :: sType {}
+
+  axiom 1.$ax$Wrapped : tWrapped ~R tRep
+
+  pub val 1.vsize :: tShape → tInt → tInt
+    = λ(x : tShape) (y : tInt).
+      case x of {
+        cCircle (r : tInt) →
+          r;
+        cSquare (w : tInt) (unused h : tInt) →
+          w;
+        cEmpty →
+          y
+      }
+status: pass
+reason: After the inliner copies 'from', the case in 'size' takes apart a cast of a case. Each alternative of the inner case builds a constructor under the opposite cast. The case of a case moves the outer case and the cast into the inner alternatives. The two casts cancel, and the case of a known constructor selects each result. The simplifying walk then removes the unused 'P'. Thus 'size' builds no 'L', 'R' or 'P' and takes none apart.

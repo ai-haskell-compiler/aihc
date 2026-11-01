@@ -194,6 +194,15 @@ state token to a cast of the case, and after the rewrite each alternative
 calls `go` with the state token, which the lowering compiles to one direct
 call instead of a partial application and a second application.
 
+The case of a case also sees through a cast on the inner case. A derived
+`Generic` instance gives this shape. Its `from` puts the cast of the `M1`
+newtype on a case whose alternatives build `L1`, `R1` and `:*:`, and a
+generic consumer such as `rnf` takes the result apart at once. The outer
+case moves into the alternatives, and the cast goes with it to each tail.
+There, the cast meets the cast of the tail, and the case of a known
+constructor removes the representation. On the `aihc-parser-stackage`
+corpus, this removed all of the `L1`, `R1` and `:*:` allocation.
+
 A strict match on an unboxed tuple can take one component apart at once.
 The bind of an `IO Int` action gives this shape:
 
@@ -533,6 +542,14 @@ count {-# INLINE #-} = λn. case n of I# i -> case $wcount i of r -> I# r
 The pass uses an unboxed tuple only when the program already has its
 type and constructor, because the pass cannot add an import. Without it,
 the worker returns the constructor as it is.
+
+A tail can also be a call of a join point. A join point is a local
+function whose every use is a saturated call in a tail of the body or of
+another join point. The case of a case makes many of them. The tails of
+a join point are tails of the function, so the same rule applies to
+them. The worker also returns the fields from each join point, and the
+type of the join point gets the type that the worker returns. A call of
+a join point stays as it is.
 
 A recursive call in the worker becomes a case on the call that returns
 its binder, `case $wcount x of r -> r`. The simplifier makes such a case
