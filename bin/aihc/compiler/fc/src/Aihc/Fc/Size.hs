@@ -30,7 +30,6 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
 
 -- | The size of a program: the sum of the sizes of its value bodies, plus
 -- one for each value.
@@ -57,6 +56,7 @@ exprSize env = exprSizeWith env Map.empty
 -- for each field of the constructor what it holds in turn, when that is
 -- known.
 data Known = Known !AltCon [Maybe Known]
+  deriving (Eq, Ord)
 
 -- | The size of an expression in which some cases are already decided:
 -- a case on a variable the map knows selects the alternative of its
@@ -151,7 +151,10 @@ tailLeavesWith = go
 -- representation is not known, such as one of a type variable, is not
 -- strict: its value can be a thunk once the variable is instantiated.
 isStrictBinder :: TypeEnv -> Binder -> Bool
-isStrictBinder env binder = isJust (repOf env (binderType binder)) && not (isLiftedBinder env binder)
+isStrictBinder env binder =
+  case repOf env (binderType binder) of
+    Nothing -> False
+    Just representation -> not (isLiftedRepresentation env representation)
 
 -- | A binder whose type is lifted: a let of such a binder allocates a
 -- thunk and evaluates nothing before its body.
@@ -160,9 +163,14 @@ isLiftedBinder env = isLiftedType env . binderType
 
 -- | A type whose values are lifted: such a value can be a thunk.
 isLiftedType :: TypeEnv -> Type -> Bool
-isLiftedType env ty =
-  case reduceType env <$> repOf env ty of
-    Just (TyCon name) -> nameText name == "LiftedRep"
-    Just (TyApp (TyCon boxed) (TyCon levity)) ->
+isLiftedType env ty = maybe False (isLiftedRepresentation env) (repOf env ty)
+
+-- | Whether a representation is the lifted one, after its synonyms and
+-- families reduce.
+isLiftedRepresentation :: TypeEnv -> Type -> Bool
+isLiftedRepresentation env representation =
+  case reduceType env representation of
+    TyCon name -> nameText name == "LiftedRep"
+    TyApp (TyCon boxed) (TyCon levity) ->
       nameText boxed == "BoxedRep" && nameText levity == "Lifted"
     _ -> False

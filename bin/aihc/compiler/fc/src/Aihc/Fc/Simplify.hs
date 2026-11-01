@@ -514,7 +514,13 @@ data SimplState = SimplState
     ssCopied :: !(Map Name Int),
     -- | How many more rules may fire in this walk. Rules are not checked
     -- for termination, so a bound keeps a looping pair of rules finite.
-    ssRuleFuel :: !Int
+    ssRuleFuel :: !Int,
+    -- | The size of the body of a top-level candidate at the known
+    -- arguments of a site, by candidate and arguments. The body of a
+    -- top-level candidate is fixed for the walk, so a later site with the
+    -- same arguments reads the size instead of a walk over the body. See
+    -- 'estimateGrowth'.
+    ssResidualSizes :: !(Map (Name, [(Name, Known)]) Int)
   }
 
 -- | The state of one walk, with the unique supply and the growth allowance.
@@ -527,7 +533,8 @@ initialSimplState supply allowance =
       ssExempt = 0,
       ssRulesFired = 0,
       ssCopied = Map.empty,
-      ssRuleFuel = ruleFuel
+      ssRuleFuel = ruleFuel,
+      ssResidualSizes = Map.empty
     }
 
 -- | How many rules may fire in one walk over one body.
@@ -1699,7 +1706,7 @@ inlineScrutinee env name candidate args binder originalAlternatives = do
   let original = rebuildSpine (ExVar name) args'
       reduction = siteReduction env candidate args'
       discount = resultDiscount env candidate alternatives
-      growth = estimateGrowth env candidate args' reduction - discount
+  growth <- subtract discount <$> estimateGrowth env name candidate args' reduction
   verdict <- if keepsLoop env candidate args' reduction then pure Nothing else decideSite env candidate reduction growth
   case verdict of
     Nothing -> do
@@ -1791,13 +1798,22 @@ resultDiscount env candidate alternatives =
 -- The estimate is a lower bound on the saving in most cases: a case on
 -- a field of a known constructor, or on the result of a consumed
 -- function, is not followed.
-estimateGrowth :: Simpl -> Candidate -> [Arg] -> Reduction -> Int
-estimateGrowth env candidate args reduction =
-  residual
-    - length applied
-    + sum (map contribution applied)
-    - callSize
-    - callDiscount env candidate args
+--
+-- The size of the body at the known arguments is kept in the state for a
+-- top-level candidate: the body is fixed for the walk, and the sites of
+-- one body often give the same arguments to the same callee. A local
+-- candidate is measured each time, because its binder types can depend
+-- on the scope of the site.
+estimateGrowth :: Simpl -> Name -> Candidate -> [Arg] -> Reduction -> SimplM Int
+estimateGrowth env name candidate args reduction = do
+  residual <- residualSize
+  pure
+    ( residual
+        - length applied
+        + sum (map contribution applied)
+        - callSize
+        - callDiscount env candidate args
+    )
   where
     body = candidateBody candidate
     applied = valueArguments body args
@@ -1812,9 +1828,18 @@ estimateGrowth env candidate args reduction =
               parameterScrutinised (parameterGuidance candidate binder),
               Just value <- [argumentKnown env argument]
             ]
-    residual
-      | Map.null known = guidanceSize (candidateGuidanceOf candidate)
-      | otherwise = exprSizeWith (spEnv env) known body
+    residualSize
+      | Map.null known = pure (guidanceSize (candidateGuidanceOf candidate))
+      | OriginLocal {} <- nameOrigin name = pure (exprSizeWith (spEnv env) known body)
+      | otherwise = do
+          sizes <- gets ssResidualSizes
+          let key = (name, Map.toList known)
+          case Map.lookup key sizes of
+            Just size -> pure size
+            Nothing -> do
+              let size = exprSizeWith (spEnv env) known body
+              modify' (\current -> current {ssResidualSizes = Map.insert key size (ssResidualSizes current)})
+              pure size
     contribution (binder, argument)
       | isTrivial argument = 0
       -- A consumed constructor application: the constructor and its
@@ -2676,7 +2701,9 @@ inlineSite env name candidate original args' = do
     if keepsLoop env candidate args' reduction
       || boringLazyField env candidate reduction args'
       then pure Nothing
-      else decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
+      else do
+        growth <- estimateGrowth env name candidate args' reduction
+        decideSite env candidate reduction (growth - discount)
   case verdict of
     Nothing -> pure original
     Just charge -> do
