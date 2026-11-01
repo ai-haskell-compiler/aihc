@@ -148,7 +148,7 @@ renderLinkedFunctionSymbol logicalName =
                   renderRun byte (1 + BS.length repeated) <> renderComponent following
     -- A count of one stays implicit so that every name has one spelling.
     renderRun byte count =
-      BS8.pack "__" : (if count == 1 then [] else [BS8.pack (show count)]) <> [renderCode byte]
+      BS8.pack "__" : [BS8.pack (show count) | count /= 1] <> [renderCode byte]
     renderCode byte =
       case lookup byte escapeCodes of
         Just code -> BS.singleton code
