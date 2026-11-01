@@ -1,0 +1,96 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  class Point f where
+    point :: a -> f a
+
+  newtype Box a = Box a
+
+  newtype Wrap m a = Wrap (m a)
+
+  compose :: (b -> c) -> (a -> b) -> a -> c
+  compose f g = \x -> f (g x)
+  {-# INLINE compose #-}
+
+  instance Point Box where
+    point x = Box x
+
+  instance Point m => Point (Wrap m) where
+    point = compose Wrap point
+
+  points :: Point f => [a] -> [f a]
+  points [] = []
+  points (x : xs) = point x : points xs
+
+  run :: [Bool] -> [Wrap Box Bool]
+  run = points
+passes:
+- inline: grow
+- specialise-top
+- inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c: :: ∀(a : sType). a → t[] a → t[] a;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Point (f : sType → sType) :: sType {
+    1.c$Dict$Point :: ∀(f : sType → sType). (∀(a : sType). a → f a) → t$Dict$Point f
+  }
+
+  type 1.tBox (a : sType) :: sType {}
+
+  axiom 1.$ax$Box (a : sType) : tBox a ~R a
+
+  type 1.tWrap (m : sType → sType) (a : sType) :: sType {}
+
+  axiom 1.$ax$Wrap (m : sType → sType) (a : sType) : tWrap m a ~R m a
+
+  pub val 1.v$fPointBox :: t$Dict$Point tBox
+    = c$Dict$Point @tBox v$fPointBox$cpoint
+
+  val 1.v$fPointBox$cpoint :: ∀(a : sType). a → tBox a
+    = Λ(a : sType). λ(x : a).
+      x ▷ sym (axiom-co $ax$Box @a)
+
+  pub val 1.v$fPointWrapm :: ∀(m : sType → sType). t$Dict$Point m → t$Dict$Point (tWrap m)
+    = Λ(m : sType → sType). λ($dPoint : t$Dict$Point m).
+      c$Dict$Point @(tWrap m) (Λ(a : sType).
+        let y : a → m a =
+          let! c$Dict$Point ($cpoint : ∀(a{1} : sType). a{1} → m a{1}) = $dPoint;
+          $cpoint @a;
+        λ(x : a).
+          (y x) ▷ sym (axiom-co $ax$Wrap @m @a))
+
+  pub val 1.vrun :: t[] tBool → t[] (tWrap tBox tBool)
+    = v$spoints_0
+
+  val 1.v$spoints_0 :: t[] tBool → t[] (tWrap tBox tBool)
+    = λ(x : t[] tBool).
+      case x of {
+        c[] →
+          c[] @(tWrap tBox tBool);
+        c: (x{1} : tBool) (xs : t[] tBool) →
+          c: @(tWrap tBox tBool) (x{1} ▷ trans (sym (axiom-co $ax$Box @tBool)) (sym (axiom-co $ax$Wrap @tBox @tBool))) (v$spoints_0 xs)
+      }
+status: pass
+reason: The method of the instance for 'Wrap m' selects 'point' of 'm' in a let and then gives a lambda. The specialised copy of 'points' takes the method from a call of the dictionary function, and the case selects the method because a copy of it only repeats the selection. The loop then builds no dictionary.
