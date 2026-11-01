@@ -4341,7 +4341,7 @@ knownConstructor env expr = do
         _ -> do
           let (headExpr, conArgs) = collectSpine body
               field value
-                | isCheapValue (spArity (spFixed env)) value = Just value
+                | isSelectingValue (spArity (spFixed env)) value = Just value
                 | call, isTopLevelCall value = Just value
                 | otherwise = do
                     ty <- exprType scope value
@@ -4398,6 +4398,17 @@ isFieldSelection expr =
   case expr of
     ExCase scrutinee Nothing (Alt (AltData _) [] _ rhs NE.:| []) -> isFieldSelection scrutinee && isFieldSelection rhs
     _ -> isTrivial expr
+
+-- | A cheap value, under type abstractions and lets that select fields
+-- of atoms. A method of a dictionary function can take this form: the
+-- instance of 'Applicative' for @ReaderT r m@ selects 'pure' of @m@ and
+-- then gives a lambda. A copy of the value repeats only the selections.
+isSelectingValue :: Map Name Int -> Expr -> Bool
+isSelectingValue arities expr =
+  case expr of
+    ExTyLam _ body -> isSelectingValue arities body
+    ExLet (Bind _ rhs) body -> isFieldSelection rhs && isSelectingValue arities body
+    _ -> isCheapValue arities expr
 
 -- | The field that 'knownConstructor' gives in place of a field of a
 -- top-level value that is not a cheap value. An alternative that uses it
