@@ -91,13 +91,11 @@ expected: |-
               c[] →
                 z;
               c: (x{2} : a) (rest : t[] a) →
-                let _fold_tail : b =
-                  go rest;
                 case x x{2} of {
                   cTrue →
-                    y x{2} _fold_tail;
+                    y x{2} (go rest);
                   cFalse →
-                    _fold_tail
+                    go rest
                 }
             }
       } in
@@ -117,4 +115,4 @@ expected: |-
       } in
       go x
 status: pass
-reason: A fold over a guarded list comprehension must remove the intermediate list.
+reason: A fold over a guarded list comprehension must remove the intermediate list. The recursive call of the fold moves into the two alternatives that use it. The alternative that skips an element calls it as its result, without a thunk.

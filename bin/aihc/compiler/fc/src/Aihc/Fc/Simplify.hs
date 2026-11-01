@@ -595,6 +595,11 @@ simplifyExpr env0 expr =
           chain <- freshenExpr rhs
           floatChain env chain continue
         else continue env rhs
+    -- A loop evaluates a parameter that it never changes once, in front
+    -- of the loop. See 'hoistLoopEvaluations'.
+    ExRec [bind] body
+      | Just (bind', body') <- hoistLoopEvaluations bind body ->
+          simplifyExpr env (ExRec [bind'] body')
     -- A dictionary that a loop takes apart is taken apart once, in
     -- front of the loop. See 'loopDictionary'.
     ExRec binds _
@@ -818,6 +823,128 @@ loopDictionary env binds =
         ExForeignCall _ _ arguments -> concatMap matches arguments
         ExAbsurd inner _ -> matches inner
         _ -> []
+
+-- | A loop whose body first evaluates parameters that each recursive
+-- call gives again unchanged, with the evaluations moved to the calls
+-- from outside the loop. The first entry evaluates such a parameter, and
+-- each later entry gets the same value, so the evaluation at each
+-- iteration only finds a value. The calls from outside evaluate the
+-- argument instead, where the simplifier often knows it is a value
+-- already. A worker gets such parameters for the fields of a value that
+-- a loop never changes, such as the key of a lookup in a map.
+--
+-- The loop must call itself only with all its value arguments, and the
+-- body after the move must not give such a parameter to a constructor,
+-- where a strict field needs a value that the body can show.
+hoistLoopEvaluations :: Bind -> Expr -> Maybe (Bind, Expr)
+hoistLoopEvaluations (Bind binder rhs) body = do
+  let (tyBinders, valueBinders, inner) = splitValueLambdas rhs
+      arity = length valueBinders
+      parameters = Map.fromList (zip (map binderName valueBinders) [0 :: Int ..])
+      (evaluations, rest) = leadingEvaluations inner
+      -- The binder of an evaluation is the parameter too.
+      aliases = Map.fromListWith (<>) [(variable, Set.singleton (binderName named)) | (variable, Just named) <- evaluations]
+      namesOf parameter = Set.insert parameter (Map.findWithDefault Set.empty parameter aliases)
+      static = [position | (position, parameter) <- zip [0 ..] valueBinders, all (staticAt position (namesOf (binderName parameter))) (selfCalls rest)]
+      hoisted = [(variable, position) | (variable, _) <- evaluations, Just position <- [Map.lookup variable parameters], position `elem` static]
+      hoistedNames = Set.fromList (map fst hoisted)
+      substitution = Map.fromList [(binderName named, ExVar variable) | (variable, Just named) <- evaluations, Set.member variable hoistedNames]
+  guard (arity > 0 && not (null hoisted))
+  guard (all (\(_, args) -> length (rights args) == arity) (selfCalls rest))
+  guard (callsOnly rest && callsOnly body)
+  guard (not (givenToConstructor (hoistedNames <> Set.fromList (Map.keys substitution)) rest))
+  let kept = foldr (\(variable, named) inner' -> if Set.member variable hoistedNames then inner' else ExCase (ExVar variable) named (Alt AltDefault [] [] inner' NE.:| [])) (substExpr substitution rest) evaluations
+      rhs' = foldr ExTyLam (foldr ExLam kept valueBinders) tyBinders
+  body' <- rewriteCalls arity (map snd hoisted) body
+  pure (Bind binder rhs', body')
+  where
+    name = binderName binder
+    evaluate variable inner = ExCase (ExVar variable) Nothing (Alt AltDefault [] [] inner NE.:| [])
+    splitValueLambdas expr =
+      case expr of
+        ExTyLam tyBinder inner -> let (tys, values, body') = splitValueLambdas inner in (tyBinder : tys, values, body')
+        _ -> let (values, body') = valueLambdas expr in ([], values, body')
+    valueLambdas expr =
+      case expr of
+        ExLam valueBinder inner -> let (values, body') = valueLambdas inner in (valueBinder : values, body')
+        _ -> ([], expr)
+    leadingEvaluations expr =
+      case expr of
+        ExCase (ExVar variable) named (Alt AltDefault [] [] inner NE.:| []) ->
+          let (names, rest') = leadingEvaluations inner in ((variable, named) : names, rest')
+        _ -> ([], expr)
+    -- The calls of the loop in an expression, with their arguments.
+    selfCalls expr = [(head', args) | (head', args) <- calls expr, head' == name]
+    calls expr =
+      case expr of
+        ExApp {} -> spineCalls expr
+        ExTyApp {} -> spineCalls expr
+        ExVar {} -> []
+        ExLit {} -> []
+        ExCoercion {} -> []
+        ExLam _ inner -> calls inner
+        ExTyLam _ inner -> calls inner
+        ExLet bind inner -> calls (bindRhs bind) <> calls inner
+        ExRec binds inner -> concatMap (calls . bindRhs) binds <> calls inner
+        ExCase scrutinee _ alternatives -> calls scrutinee <> concatMap (calls . altRhs) alternatives
+        ExAbsurd scrutinee _ -> calls scrutinee
+        ExCast inner _ -> calls inner
+        ExForeignCall _ _ arguments -> concatMap calls arguments
+    spineCalls expr =
+      case collectSpine expr of
+        (ExVar head', args) -> (head', args) : concatMap (either (const []) calls) args
+        (headExpr, args) -> calls headExpr <> concatMap (either (const []) calls) args
+    staticAt position names (_, args) =
+      case drop position (rights args) of
+        ExVar given : _ -> Set.member given names
+        _ -> False
+    -- Whether each occurrence of the loop is the head of a call.
+    callsOnly expr = occurrenceCount expr == length (selfCalls expr)
+    occurrenceCount expr = length (filter (== name) (variables expr))
+    variables expr =
+      case expr of
+        ExVar found -> [found]
+        ExApp function argument -> variables function <> variables argument
+        ExTyApp function _ -> variables function
+        ExLam _ inner -> variables inner
+        ExTyLam _ inner -> variables inner
+        ExLet bind inner -> variables (bindRhs bind) <> variables inner
+        ExRec binds inner -> concatMap (variables . bindRhs) binds <> variables inner
+        ExCase scrutinee _ alternatives -> variables scrutinee <> concatMap (variables . altRhs) alternatives
+        ExAbsurd scrutinee _ -> variables scrutinee
+        ExCast inner _ -> variables inner
+        ExForeignCall _ _ arguments -> concatMap variables arguments
+        _ -> []
+    givenToConstructor names expr =
+      or
+        [ True
+        | (head', args) <- calls expr,
+          isConstructorName head',
+          ExVar given <- rights args,
+          Set.member given names
+        ]
+    -- The calls from outside evaluate the hoisted arguments first.
+    rewriteCalls arity positions expr =
+      case expr of
+        _
+          | (ExVar head', args) <- collectSpine expr,
+            head' == name -> do
+              guard (length (rights args) >= arity)
+              let values = rights args
+              given <- traverse (\position -> case drop position values of ExVar given : _ -> Just given; _ -> Nothing) positions
+              args' <- traverse (either (pure . Left) (fmap Right . rewriteCalls arity positions)) args
+              pure (foldr evaluate (rebuildSpine (ExVar head') args') given)
+        ExApp function argument -> ExApp <$> rewriteCalls arity positions function <*> rewriteCalls arity positions argument
+        ExTyApp function ty -> (`ExTyApp` ty) <$> rewriteCalls arity positions function
+        ExLam valueBinder inner -> ExLam valueBinder <$> rewriteCalls arity positions inner
+        ExTyLam tyBinder inner -> ExTyLam tyBinder <$> rewriteCalls arity positions inner
+        ExLet bind inner -> (\rhs' inner' -> ExLet bind {bindRhs = rhs'} inner') <$> rewriteCalls arity positions (bindRhs bind) <*> rewriteCalls arity positions inner
+        ExRec binds inner -> ExRec <$> traverse (\bind -> (\rhs' -> bind {bindRhs = rhs'}) <$> rewriteCalls arity positions (bindRhs bind)) binds <*> rewriteCalls arity positions inner
+        ExCase scrutinee caseBinder alternatives -> ExCase <$> rewriteCalls arity positions scrutinee <*> pure caseBinder <*> traverse (\alternative -> (\rhs' -> alternative {altRhs = rhs'}) <$> rewriteCalls arity positions (altRhs alternative)) alternatives
+        ExAbsurd scrutinee ty -> (`ExAbsurd` ty) <$> rewriteCalls arity positions scrutinee
+        ExCast inner coercion -> (`ExCast` coercion) <$> rewriteCalls arity positions inner
+        ExForeignCall call tys arguments -> ExForeignCall call tys <$> traverse (rewriteCalls arity positions) arguments
+        _ -> Just expr
 
 -- | Whether a name is bound inside a value. A case on a top-level
 -- dictionary is a case on a known value, which selects its fields where
@@ -3442,6 +3569,16 @@ mkLet env bind body
         else do
           restoreSite before
           sinkGroup [bind] (flip (foldr ExLet)) body
+  -- A call of trivial arguments moves into each alternative that uses
+  -- it, as a constructor does, and also when every alternative uses it.
+  -- Each path still evaluates it at most once, and its copies are small.
+  -- An alternative that uses it as its result then calls it directly,
+  -- without a thunk. The recursive call of a loop that filters a list or
+  -- searches it is such a call: it is the result where the loop skips an
+  -- element, and only the lazy tail of a cons where it keeps one.
+  | lifted,
+    isCallOfTrivials rhs =
+      pure (fst (sinkGroupWith EveryUse (exprValueNames rhs) [bind] (ExLet bind) body))
   -- Any other lifted binding moves into the one alternative that uses
   -- it. A path that does not use it then allocates nothing for it.
   | lifted = sinkGroup [bind] (flip (foldr ExLet)) body
@@ -3466,6 +3603,14 @@ isConstructorOfTrivials expr =
     (ExVar name, args@(_ : _)) -> isConstructorName name && all (either (const True) isTrivial) args
     _ -> False
 
+-- | A saturated or partial call of a variable that is not a constructor,
+-- with trivial arguments and at least one value argument.
+isCallOfTrivials :: Expr -> Bool
+isCallOfTrivials expr =
+  case collectSpine expr of
+    (ExVar name, args) -> not (isConstructorName name) && any isRight args && all (either (const True) isTrivial) args
+    _ -> False
+
 -- | Which alternatives of a case a moved group may enter.
 data SinkMode
   = -- | Each alternative that uses the group gets a copy, when a path
@@ -3476,6 +3621,10 @@ data SinkMode
     -- it. The move copies nothing, so it suits a function or a thunk of
     -- any size.
     OneAlternative
+  | -- | Each alternative that uses the group gets a copy, also when every
+    -- path uses it. This suits a small group that a use in an
+    -- alternative can then remove.
+    EveryUse
   deriving (Eq)
 
 -- | Move a let or a recursive group into the one alternative of a case
@@ -3552,6 +3701,7 @@ sinkGroupWith mode rhsNames binds wrap expr0
             && case mode of
               EveryAlternative -> any (avoids . altRhs) alternatives
               OneAlternative -> length (filter (uses . altRhs) alternatives) == 1
+              EveryUse -> True
         _ -> False
     -- Whether a path through the expression does not use the group.
     avoids expr = not (uses expr) || avoidsUsed expr

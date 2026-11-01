@@ -42,9 +42,17 @@ expected: |-
       let! _ = _strict_field{1};
       cPair _strict_field _strict_field{1}
 
-  pub val 1.vfirst :: tPair → tInt
+  pub val 1.vfirst inline :: tPair → tInt
     = λ(x : tPair).
-      let! cPair (a : tInt) (unused _pat : tInt) = x;
-      a
+      let! cPair (x{1} : tInt) (x{2} : tInt) = x;
+      v$wfirst x{1} x{2}
+
+  val 1.v$wfirst :: tInt → tInt → tInt
+    = λ(x : tInt) (x{1} : tInt).
+      let x{2} : tPair =
+        let! _ = x;
+        let! _ = x{1};
+        cPair x x{1};
+      x
 status: pass
-reason: A constructor with a lifted strict field is not taken apart. The worker would have to build the box again from fields that it does not know to be evaluated.
+reason: A constructor with a lifted strict field is taken apart. The worker builds the box again only for a use that needs it whole, and it evaluates each lifted strict field before the constructor. The fields come from a value that the wrapper took apart, so each evaluation finds a value. Here the body needs no box, so a later simplification removes the let.

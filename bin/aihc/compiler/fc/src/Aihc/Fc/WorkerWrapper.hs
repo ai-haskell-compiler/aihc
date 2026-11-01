@@ -92,13 +92,15 @@ module Aihc.Fc.WorkerWrapper
     takeArrows,
     instantiate,
     splitLambdas,
+    usedApart,
+    takeApart,
   )
 where
 
-import Aihc.Fc.Demand (Demand (..), Signature (..), Signatures, functionSignature, productConstructor, recursiveSignatures, splitTypeApplication, topLevelSignatures)
+import Aihc.Fc.Demand (Demand (..), Signature (..), Signatures, buildProduct, functionSignature, hasStrictLiftedField, maxStrictWorkerArguments, productConstructor, recursiveSignatures, splitTypeApplication, topLevelSignatures)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall)
+import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall, substExpr)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
@@ -150,6 +152,54 @@ workerWrapperProgram primPackage home scope program =
       excluded = mutuallyRecursive decls <> ruleNames decls
       taken = Set.fromList [valName declaration | DeclVal declaration <- decls]
       called = calledValues decls
+      -- A call of a function that the first run splits gives a parameter
+      -- to a case, once the inliner copies the wrapper at the call. The
+      -- late run splits a top-level function only when it is @INLINE@,
+      -- and the inliner may still not copy it, so it counts none.
+      --
+      -- Such a function itself keeps a parameter with a lifted strict field
+      -- whole when its body needs it whole, so the positions that each
+      -- function takes apart are a greatest fixpoint.
+      eligible =
+        [ (declaration, signatureDemands signature)
+        | scope == SplitAllFunctions,
+          DeclVal declaration <- decls,
+          splitsTopLevel scope called declaration && Set.notMember (valName declaration) excluded,
+          Just signature <- [Map.lookup (valName declaration) signatures]
+        ]
+      -- The parameters of each function: whether a value with a lifted
+      -- strict field, and the number of its fields.
+      parameterShapes =
+        Map.fromList
+          [ (valName declaration, Map.fromList [(position, (hasStrictProduct env binder, binderName binder, productWidth env binder)) | (position, binder) <- zip [0 ..] binders])
+          | (declaration, _) <- eligible,
+            let (tyBinders, binders, _) = splitLambdas (valBody declaration)
+                env = List.foldl' extendBinder types tyBinders
+          ]
+      bodies = Map.fromList [(valName declaration, let (_, _, inner) = splitLambdas (valBody declaration) in inner) | (declaration, _) <- eligible]
+      initial = Map.fromList [(valName declaration, Set.fromList [position | (position, _) <- zip [0 ..] demands, takesProduct position demands]) | (declaration, demands) <- eligible]
+      settle current =
+        let next = Map.mapWithKey (\function positions -> limited function (Set.filter (keeps current function) positions)) current
+         in if next == current then current else settle next
+      keeps current function position =
+        case Map.lookup position (Map.findWithDefault Map.empty function parameterShapes) of
+          Just (True, name, _) -> usedApart (takesIn current) function position name (Map.findWithDefault (ExVar name) function bodies)
+          _ -> True
+      -- The limit of 'limitStrictUnboxing', in the same order.
+      limited function positions =
+        let shapes = Map.findWithDefault Map.empty function parameterShapes
+            width position = if Set.member position positions then maybe 1 (\(_, _, count) -> count) (Map.lookup position shapes) else 1
+            go [] _ kept = kept
+            go (position : rest) total kept
+              | Set.member position kept,
+                total > maxStrictWorkerArguments,
+                Just (True, _, count) <- Map.lookup position shapes =
+                  go rest (total - count + 1) (Set.delete position kept)
+              | otherwise = go rest total kept
+         in go (reverse (Map.keys shapes)) (sum (map width (Map.keys shapes))) positions
+      takesIn current function position = maybe False (Set.member position) (Map.lookup function current)
+      takers = settle initial
+      takesApart = Boxity (scope == SplitLateFunctions) (takesIn takers)
       step (supply, report) decl =
         case decl of
           -- An imported public function keeps its worker in its own module.
@@ -160,7 +210,7 @@ workerWrapperProgram primPackage home scope program =
               nameOrigin (valName original) /= origin ->
                 ((supply, report), [decl])
           DeclVal original ->
-            let ((body, local), supply') = runState (splitLocals types signatures (valBody original)) supply
+            let ((body, local), supply') = runState (splitLocals takesApart types signatures (valBody original)) supply
                 declaration = original {valBody = body}
                 report' = addReports report local
              in case splitTopLevel supply' declaration of
@@ -173,7 +223,7 @@ workerWrapperProgram primPackage home scope program =
         signature <- Map.lookup (valName declaration) signatures
         let workerName = derivedTopName home (valName declaration) ("$w" <> nameText (valName declaration))
         guard (Set.notMember workerName taken)
-        case runState (splitValue types workerName (signatureDemands signature) declaration) supply of
+        case runState (splitValue takesApart types workerName (signatureDemands signature) declaration) supply of
           (Just (wrapper, worker, unboxed, constructed), supply') ->
             Just ((supply', WorkerWrapperReport 1 unboxed (if constructed then 1 else 0)), [DeclVal wrapper, DeclVal worker])
           (Nothing, _) -> Nothing
@@ -196,8 +246,8 @@ addReports a b =
 -- the copy. The copy does not need the inliner, which never copies a
 -- local function. Inner functions are split first, and the signatures of
 -- the local functions in scope are known to the analysis.
-splitLocals :: TypeEnv -> Signatures -> Expr -> FreshM (Expr, WorkerWrapperReport)
-splitLocals = go
+splitLocals :: Boxity -> TypeEnv -> Signatures -> Expr -> FreshM (Expr, WorkerWrapperReport)
+splitLocals takesApart = go
   where
     none = WorkerWrapperReport 0 0 0
     go env scope expr =
@@ -243,7 +293,11 @@ splitLocals = go
           -- and under it, becomes a copy of its wrapper. A member calls the
           -- others through those copies too, so a call between two members
           -- gives the fields straight to the worker.
-          splits <- traverse (splitMember env' signatures) binds'
+          -- A member of the group that splits takes its parameters apart
+          -- too.
+          let members' = Set.fromList (map (binderName . bindBinder) binds')
+              groupTakes = takesApart {boxityTakes = \function position -> boxityTakes takesApart function position || (Set.member function members' && maybe False (takesProduct position . signatureDemands) (Map.lookup function signatures))}
+          splits <- traverse (splitMember groupTakes env' signatures) binds'
           let wrappers = [(binderName (bindBinder bind), splitWrapper split) | (bind, Just (_, split)) <- zip binds' splits]
               replaceAll target = foldM (\current (name, wrapperBody) -> replaceCalls name wrapperBody current) target wrappers
           if null wrappers
@@ -260,16 +314,119 @@ splitLocals = go
               let splitReports = [WorkerWrapperReport 1 (splitUnboxed result) (if splitConstructed result then 1 else 0) | Just (_, result) <- splits]
               pure (ExRec splitBinds body'', List.foldl' addReports report splitReports)
     isFunction rhs = not (null (snd3 (splitLambdas rhs)))
-    splitMember env signatures (Bind binder rhs)
+    splitMember groupTakes env signatures (Bind binder rhs)
       | isFunction rhs,
         Just signature <- Map.lookup (binderName binder) signatures = do
           workerName <- freshLocal (derivedLocalText "$w" (nameText (binderName binder)))
-          split <- splitFunction env (binderName binder) (binderType binder) workerName (signatureDemands signature) rhs
+          split <- splitFunction groupTakes env (binderName binder) (binderType binder) workerName (signatureDemands signature) rhs
           pure ((,) workerName <$> split)
       | otherwise = pure Nothing
     snd3 (_, values, _) = values
     first f (x, report) = (f x, report)
     freshLocal text = state (\supply -> (Name text SortValue (OriginLocal (Unique supply)), supply + 1))
+
+-- | What decides whether a worker takes the fields of a parameter that
+-- the body also needs whole. See 'usedApart'.
+data Boxity = Boxity
+  { -- | Whether the rule applies to each parameter, and not only to a
+    -- value with a lifted strict field.
+    boxityAll :: !Bool,
+    -- | Whether a call of a function gives the parameter at a position
+    -- to a case.
+    boxityTakes :: Name -> Int -> Bool
+  }
+
+-- | Whether a binder is a value of a one-constructor type with a lifted
+-- strict field.
+hasStrictProduct :: TypeEnv -> Binder -> Bool
+hasStrictProduct env binder =
+  case productConstructor env (binderType binder) of
+    Just (con, _, fields) -> hasStrictLiftedField env con fields
+    Nothing -> False
+
+-- | Replace each case on a variable with the one alternative of its
+-- constructor by that alternative, with the given names for the fields,
+-- and drop each evaluation of the variable. The variable is a value of the
+-- constructor whose fields have those names.
+takeApart :: Name -> Name -> [Name] -> Expr -> Expr
+takeApart variable con fieldNames = go
+  where
+    go expr =
+      case expr of
+        ExCase (ExVar found) binder (Alt (AltData matched) [] binders rhs NE.:| [])
+          | found == variable,
+            matched == con,
+            length binders == length fieldNames ->
+              let substituted = substExpr (Map.fromList (zip (map binderName binders) (map ExVar fieldNames))) rhs
+               in go (maybe substituted (\named -> ExLet (Bind named (ExVar variable)) substituted) binder)
+        ExCase (ExVar found) Nothing (Alt AltDefault [] [] rhs NE.:| [])
+          | found == variable -> go rhs
+        ExVar {} -> expr
+        ExLit {} -> expr
+        ExCoercion {} -> expr
+        ExApp function argument -> ExApp (go function) (go argument)
+        ExTyApp function ty -> ExTyApp (go function) ty
+        ExLam binder body -> ExLam binder (go body)
+        ExTyLam binder body -> ExTyLam binder (go body)
+        ExLet bind body -> ExLet bind {bindRhs = go (bindRhs bind)} (go body)
+        ExRec binds body -> ExRec (map (\bind -> bind {bindRhs = go (bindRhs bind)}) binds) (go body)
+        ExCase scrutinee binder alternatives -> ExCase (go scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
+        ExAbsurd scrutinee ty -> ExAbsurd (go scrutinee) ty
+        ExCast body coercion -> ExCast (go body) coercion
+        ExForeignCall call tys arguments -> ExForeignCall call tys (map go arguments)
+
+-- | The number of fields of a binder of a one-constructor type, or one.
+productWidth :: TypeEnv -> Binder -> Int
+productWidth env binder =
+  case productConstructor env (binderType binder) of
+    Just (_, _, fields) -> length fields
+    Nothing -> 1
+
+-- | Whether a demand at a position takes the parameter apart.
+takesProduct :: Int -> [Demand] -> Bool
+takesProduct position demands =
+  case drop position demands of
+    StrictProduct : _ -> True
+    StrictFields {} : _ -> True
+    _ -> False
+
+-- | Whether a body needs a parameter only as its fields. Each use of the
+-- parameter is the scrutinee of a case, the same parameter of a recursive
+-- call, or a parameter that the callee takes apart (see @takesApart@). A
+-- worker that takes the fields of such a parameter never builds it again,
+-- as GHC's boxity analysis decides.
+usedApart :: (Name -> Int -> Bool) -> Name -> Int -> Name -> Expr -> Bool
+usedApart takesApart self position name = go (Set.singleton name)
+  where
+    -- The binder of a case on the parameter is the parameter too.
+    go names expr =
+      case expr of
+        ExVar found -> Set.notMember found names
+        ExLit {} -> True
+        ExCoercion {} -> True
+        ExApp {} -> call names expr
+        ExTyApp {} -> call names expr
+        ExLam _ body -> go names body
+        ExTyLam _ body -> go names body
+        ExLet bind body -> go names (bindRhs bind) && go names body
+        ExRec binds body -> all (go names . bindRhs) binds && go names body
+        ExCase (ExVar found) binder alternatives
+          | Set.member found names ->
+              let names' = foldr (Set.insert . binderName) names binder
+               in all (go names' . altRhs) alternatives
+        ExCase scrutinee _ alternatives -> go names scrutinee && all (go names . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go names scrutinee
+        ExCast body _ -> go names body
+        ExForeignCall _ _ arguments -> all (go names) arguments
+    call names expr =
+      case collectSpine expr of
+        (ExVar function, arguments) ->
+          Set.notMember function names && and (zipWith (argument names function) [0 ..] (rights arguments))
+        (headExpr, arguments) -> go names headExpr && all (go names) (rights arguments)
+    argument names function index value =
+      case value of
+        ExVar found | Set.member found names -> (function == self && index == position) || takesApart function index
+        _ -> go names value
 
 -- | The values in a recursive group of more than one value.
 mutuallyRecursive :: [Decl] -> Set Name
@@ -369,9 +526,9 @@ type FreshM = State Int
 -- the worker takes as fields, and whether the worker returns the fields
 -- of its result. 'Nothing' when the value does not have the shape the
 -- split needs, a type is not known, or the worker would change nothing.
-splitValue :: TypeEnv -> Name -> [Demand] -> ValDecl -> FreshM (Maybe (ValDecl, ValDecl, Int, Bool))
-splitValue types workerName demands declaration = do
-  result <- splitFunction types (valName declaration) (valType declaration) workerName demands (valBody declaration)
+splitValue :: Boxity -> TypeEnv -> Name -> [Demand] -> ValDecl -> FreshM (Maybe (ValDecl, ValDecl, Int, Bool))
+splitValue takesApart types workerName demands declaration = do
+  result <- splitFunction takesApart types (valName declaration) (valType declaration) workerName demands (valBody declaration)
   pure $ case result of
     Nothing -> Nothing
     Just split ->
@@ -401,8 +558,8 @@ data Split = Split
 -- and a body. A recursive call in the body of the worker calls a copy of
 -- the wrapper. 'Nothing' when the function does not have the shape the
 -- split needs, a type is not known, or the worker would change nothing.
-splitFunction :: TypeEnv -> Name -> Type -> Name -> [Demand] -> Expr -> FreshM (Maybe Split)
-splitFunction types self declaredType workerName demands function =
+splitFunction :: Boxity -> TypeEnv -> Name -> Type -> Name -> [Demand] -> Expr -> FreshM (Maybe Split)
+splitFunction takesApart types self declaredType workerName demands function =
   case plan of
     Nothing -> pure Nothing
     Just (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner) -> do
@@ -417,7 +574,8 @@ splitFunction types self declaredType workerName demands function =
       case (,) <$> returnedType <*> (workerType env tyBinders (map preparedParameter workerParameters) arrows' =<< returnedType) of
         Nothing -> pure Nothing
         Just (_, ty) ->
-          let rebox = foldr ExLet inner' (concatMap reboxBindings workerParameters)
+          let apart = foldr (takeStrictParameterApart env) inner' workerParameters
+              rebox = foldr ExLet apart (concatMap (reboxBindings env) workerParameters)
               body = foldr ExTyLam (foldr ExLam rebox (concatMap preparedBinders workerParameters)) tyBinders
            in pure (Just (Split wrapperBody ty body (length [() | Unbox {} <- parameters]) (isJust resultProduct)))
   where
@@ -444,13 +602,22 @@ splitFunction types self declaredType workerName demands function =
       let valueBinders = outerBinders <> innerBinders
           arrows = outerArrows <> innerArrows
       guard (not (null valueBinders) && length valueBinders == length demands)
-      parameters <-
+      candidates <-
         sequence
           [ case (demand, productConstructor env (binderType binder)) of
-              (d, Just (con, arguments, fields)) | productDemand d -> Unbox binder con arguments . zip fields <$> traverse (repOf env) fields
+              (d, Just (con, arguments, fields))
+                | productDemand d,
+                  -- A value with a lifted strict field is taken apart only
+                  -- where the body never needs it whole: the worker would
+                  -- build it again from its fields for each such use. The
+                  -- late run applies this to each parameter: its loops
+                  -- often have the fields of such a value as parameters.
+                  not (boxityAll takesApart || hasStrictLiftedField env con fields) || usedApart (boxityTakes takesApart) self position (binderName binder) inner ->
+                    Unbox binder con arguments . zip fields <$> traverse (repOf env) fields
               _ -> Just (Keep binder)
-          | (binder, demand) <- zip valueBinders demands
+          | (position, binder, demand) <- zip3 [0 ..] valueBinders demands
           ]
+      let parameters = limitStrictUnboxing env candidates
       let unboxedNames = Set.fromList [binderName binder | Unbox binder _ _ _ <- parameters]
           joins = tailJoins inner
           -- A join point returns what the worker returns, so its type
@@ -460,6 +627,7 @@ splitFunction types self declaredType workerName demands function =
           flatResult = do
             guard (isNothing castLayer)
             (con, arguments, fields) <- productConstructor env result
+            guard (withinStrictLimit env con fields)
             guard (constructedTails self unboxedNames joins con inner)
             reps <- traverse (repOf env) fields
             returned <- returnedKind env (zip fields reps)
@@ -475,6 +643,7 @@ splitFunction types self declaredType workerName demands function =
                 products =
                   [ do
                       (con, arguments, fields) <- productConstructor env ty
+                      guard (withinStrictLimit env con fields)
                       guard (nestedTails env self unboxedNames joins tupleCon size position con fields inner)
                       fieldReps <- traverse (repOf env) fields
                       pure (con, arguments, zip fields fieldReps)
@@ -519,14 +688,37 @@ splitFunction types self declaredType workerName demands function =
     productDemand StrictProduct = True
     productDemand StrictFields {} = True
     productDemand _ = False
+    -- A constructor with a lifted strict field is returned as its fields
+    -- only when they are few. See 'maxStrictWorkerArguments'.
+    withinStrictLimit env con fields = not (hasStrictLiftedField env con fields) || length fields <= maxStrictWorkerArguments
+    -- A parameter of a constructor with a lifted strict field is taken
+    -- apart only while the worker keeps few parameters, as GHC does. The
+    -- last such parameters stay whole first.
+    limitStrictUnboxing env candidates = go (reverse candidates) (sum (map width candidates)) []
+      where
+        go [] _ kept = kept
+        go (parameter : rest) total kept = case parameter of
+          Unbox binder con _ fields
+            | total > maxStrictWorkerArguments,
+              hasStrictLiftedField env con (map fst fields) ->
+                go rest (total - length fields + 1) (Keep binder : kept)
+          _ -> go rest total (parameter : kept)
+        width parameter = case parameter of
+          Unbox _ _ _ fields -> length fields
+          Keep _ -> 1
     -- Fields with a product demand receive their own worker parameters.
     workerParameter env demand parameter = case parameter of
       Keep _ -> pure (Prepared parameter [])
-      Unbox binder _ _ fields -> do
+      Unbox binder parentCon _ fields -> do
         binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh (nameText (binderName binder))) fields
-        let demands' = case demand of
-              StrictFields ds -> ds <> repeat Lazy
-              _ -> repeat Lazy
+        -- The fields of a constructor with a lifted strict field stay
+        -- whole. Such a value often goes on to other functions as it is,
+        -- and the worker would then build each field again too.
+        let demands'
+              | hasStrictLiftedField env parentCon (map fst fields) = repeat Lazy
+              | otherwise = case demand of
+                  StrictFields ds -> ds <> repeat Lazy
+                  _ -> repeat Lazy
         children <-
           sequence
             [ case productConstructor env (binderType field) of
@@ -538,9 +730,18 @@ splitFunction types self declaredType workerName demands function =
             | (field, d) <- zip binders demands'
             ]
         pure (Prepared parameter children)
-    reboxBindings (Prepared (Keep _) _) = []
-    reboxBindings (Prepared (Unbox binder con arguments _) fields) =
-      concatMap reboxBindings fields <> [Bind binder (construct con arguments (map (ExVar . binderName . preparedBinder) fields))]
+    -- The body takes a parameter of a constructor with a lifted strict
+    -- field apart with the fields of the worker, and does not evaluate
+    -- the parameter. A value that the worker builds again must evaluate
+    -- those fields, and the simplifier would move those evaluations to
+    -- the front of the body, where the body only needed the fields.
+    takeStrictParameterApart env (Prepared (Unbox binder con _ fields) children) body
+      | hasStrictLiftedField env con (map fst fields) =
+          takeApart (binderName binder) con (map (binderName . preparedBinder) children) body
+    takeStrictParameterApart _ _ body = body
+    reboxBindings _ (Prepared (Keep _) _) = []
+    reboxBindings env (Prepared (Unbox binder con arguments _) fields) =
+      concatMap (reboxBindings env) fields <> [Bind binder (buildProduct env con arguments [(binderType field, ExVar (binderName field)) | field <- map preparedBinder fields])]
     unpackParameter _ _ (Prepared (Keep _) _) inner = inner
     unpackParameter result named (Prepared (Unbox binder con _ _) fields) inner =
       caseFromList
@@ -636,7 +837,8 @@ splitFunction types self declaredType workerName demands function =
     -- the fields, and builds the result from what the worker returns. The
     -- parameters under a cast stay under it, with the cases inside them.
     wrapper tyBinders parameters castLayer result resultProduct = do
-      unpacked <- zipWithM (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters
+      let wrapperEnv = List.foldl' extendBinder types tyBinders
+      unpacked <- zipWithM (workerParameter wrapperEnv) demands parameters
       scrutinees <- traverse (\(Prepared parameter _) -> case parameter of Unbox binder _ _ _ -> Just . (`Binder` binderType binder) <$> fresh "wrapped"; Keep _ -> pure Nothing) unpacked
       let call =
             List.foldl'
@@ -653,7 +855,7 @@ splitFunction types self declaredType workerName demands function =
             (ReturnTuple tupleCon tupleType, _) -> do
               binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
               caseBinder <- (`Binder` tupleType) <$> fresh "returned"
-              pure (caseFromList call (Just caseBinder) result [Alt (AltData tupleCon) [] binders (construct con arguments (map (ExVar . binderName) binders))])
+              pure (caseFromList call (Just caseBinder) result [Alt (AltData tupleCon) [] binders (buildProduct wrapperEnv con arguments [(binderType binder, ExVar (binderName binder)) | binder <- binders])])
             _ -> pure call
         -- The wrapper builds each product of the tuple again from its
         -- fields, in a lazy component of the tuple that it returns.
@@ -664,7 +866,7 @@ splitFunction types self declaredType workerName demands function =
                   Nothing -> (\binder -> ([binder], ExVar (binderName binder))) . (`Binder` ty) <$> fresh "component"
                   Just (con, arguments, fields) -> do
                     binders <- traverse (\(fieldType, _) -> (`Binder` fieldType) <$> fresh "field") fields
-                    pure (binders, construct con arguments (map (ExVar . binderName) binders))
+                    pure (binders, buildProduct wrapperEnv con arguments [(binderType binder, ExVar (binderName binder)) | binder <- binders])
               )
               components
           pure (caseFromList call Nothing result [Alt (AltData returnedCon) [] (concatMap fst pieces) (construct tupleCon tupleArguments (map snd pieces))])

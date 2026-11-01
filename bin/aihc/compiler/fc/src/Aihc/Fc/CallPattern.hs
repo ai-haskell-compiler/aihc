@@ -46,7 +46,7 @@ module Aihc.Fc.CallPattern
   )
 where
 
-import Aihc.Fc.Demand (productConstructor)
+import Aihc.Fc.Demand (buildProduct, hasStrictLiftedField, maxStrictWorkerArguments, productConstructor)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall, simplifyProgram, substExpr)
@@ -55,7 +55,7 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, repOf, substType, typeEnvFromProgram)
 import Aihc.Fc.Views (exprMentionsAny)
-import Aihc.Fc.WorkerWrapper (Parameter (..), instantiate, splitLambdas, takeArrows, workerType)
+import Aihc.Fc.WorkerWrapper (Parameter (..), instantiate, splitLambdas, takeApart, takeArrows, usedApart, workerType)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, runState, state)
@@ -244,8 +244,16 @@ specialiseLoop env (Bind binder rhs) body =
               (copyInner, copyCalls) <- rewriteCalls env (known chosen) loop inner
               (originalInner, originalCalls) <- rewriteCalls env Map.empty loop inner
               (body', bodyCalls) <- rewriteCalls env Map.empty loop body
-              let rebuild p = Bind (positionBinder p) (List.foldl' ExApp (List.foldl' ExTyApp (ExVar (positionConstructor p)) (positionArguments p)) (map (ExVar . binderName) (positionFieldBinders p)))
-                  copyBody = foldr (ExLet . rebuild) copyInner (Map.elems chosen)
+              let rebuild p = Bind (positionBinder p) (buildProduct env' (positionConstructor p) (positionArguments p) [(binderType field, ExVar (binderName field)) | field <- positionFieldBinders p])
+                  -- The copy takes a value with a lifted strict field apart
+                  -- with its own fields, so that the evaluations of the
+                  -- value that it builds again do not run where it only
+                  -- needs the fields.
+                  apart p inner'
+                    | hasStrictLiftedField env' (positionConstructor p) (map fst (positionFields p)) =
+                        takeApart (binderName (positionBinder p)) (positionConstructor p) (map binderName (positionFieldBinders p)) inner'
+                    | otherwise = inner'
+                  copyBody = foldr (ExLet . rebuild) (foldr apart copyInner (Map.elems chosen)) (Map.elems chosen)
                   copyRhs = foldr ExTyLam (foldr ExLam copyBody (concatMap parameterBinders parameters)) tyBinders
                   originalRhs = foldr ExTyLam (foldr ExLam originalInner valueBinders) tyBinders
                   copyBind = Bind (Binder copyName copyType) copyRhs
@@ -272,6 +280,12 @@ specialiseLoop env (Bind binder rhs) body =
               isLiftedBinder env' param,
               Just (con, arguments, fields) <- [productConstructor env' (binderType param)],
               not (null fields),
+              -- The copy builds a value with a lifted strict field again
+              -- for each use that needs it whole, with an evaluation of
+              -- each such field. Such a value is taken apart only when the
+              -- loop needs only its fields, and when they are few. See
+              -- 'maxStrictWorkerArguments'.
+              not (hasStrictLiftedField env' con fields) || (length fields <= maxStrictWorkerArguments && usedApart (\_ _ -> False) name index (binderName param) inner),
               Just reps <- [traverse (repOf env') fields]
             ]
       case candidates of
