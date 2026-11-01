@@ -92,6 +92,9 @@ module Aihc.Fc.Demand
     functionSignature,
     recursiveSignatures,
     productConstructor,
+    hasStrictLiftedField,
+    maxStrictWorkerArguments,
+    buildProduct,
     splitTypeApplication,
   )
 where
@@ -417,10 +420,10 @@ lazyRecursiveSignatures env binds =
 -- again, with the type arguments of the type and the types of the
 -- fields. The type is a lifted data type with one constructor and no
 -- existential type or equality, and the constructor has at least one
--- field and no lifted strict field: a worker that builds the value
--- again from its fields could not show that such a field is evaluated. A
--- class dictionary is not taken apart, because a worker would take every
--- method as a parameter.
+-- field. A worker that builds the value again from its fields evaluates
+-- each lifted strict field first, see 'buildProduct'. A class dictionary
+-- is not taken apart, because a worker would take every method as a
+-- parameter.
 productConstructor :: TypeEnv -> Type -> Maybe (Name, [Type], [Type])
 productConstructor env ty = do
   let reduced = reduceType env ty
@@ -434,8 +437,6 @@ productConstructor env ty = do
   guard (not (null fields))
   guard (not (any isEquality fields))
   guard (isResult result)
-  let strict = Map.findWithDefault [] con (teConStrictFields env)
-  guard (not (any (\position -> maybe False (isLiftedType env) (lookupIndex position fields)) strict))
   pure (con, arguments, fields)
   where
     instantiate current arguments =
@@ -456,9 +457,33 @@ productConstructor env ty = do
       case reduceType env result of
         TyForAll {} -> False
         _ -> True
-    lookupIndex position fields = case drop position fields of
-      field : _ -> Just field
-      [] -> Nothing
+
+-- | Whether a constructor has a strict field of a lifted type. A value
+-- that is built again from such fields must evaluate them first.
+hasStrictLiftedField :: TypeEnv -> Name -> [Type] -> Bool
+hasStrictLiftedField env con fields =
+  any (\position -> any (isLiftedType env) (take 1 (drop position fields))) (Map.findWithDefault [] con (teConStrictFields env))
+
+-- | The most parameters that a worker can have when it takes the fields of
+-- a constructor with a lifted strict field. Such a value often goes on to
+-- other functions as it is, for example the state of a state monad, and
+-- the worker then builds it again for each of them. GHC uses the same
+-- limit (@-fmax-worker-args@).
+maxStrictWorkerArguments :: Int
+maxStrictWorkerArguments = 10
+
+-- | The constructor applied to its type arguments and its fields, where
+-- each field has its type. A lifted strict field that is a variable is
+-- evaluated first, because the constructor must get a value there. The
+-- fields of a worker come from a value that was taken apart, so each
+-- evaluation only finds a value.
+buildProduct :: TypeEnv -> Name -> [Type] -> [(Type, Expr)] -> Expr
+buildProduct env con arguments fields =
+  foldr evaluate application [name | (position, (ty, ExVar name)) <- zip [0 ..] fields, position `elem` strict, isLiftedType env ty]
+  where
+    strict = Map.findWithDefault [] con (teConStrictFields env)
+    application = List.foldl' ExApp (List.foldl' ExTyApp (ExVar con) arguments) (map snd fields)
+    evaluate name inner = ExCase (ExVar name) Nothing (Alt AltDefault [] [] inner NE.:| [])
 
 -- | A type constructor applied to type arguments.
 splitTypeApplication :: Type -> Maybe (Name, [Type])
