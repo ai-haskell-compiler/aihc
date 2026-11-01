@@ -374,9 +374,9 @@ reduceTypeWith families env ty =
   case ty of
     TyVar {} -> ty
     TyLit {} -> ty
-    TyCon {} ->
-      let unfolded = unfoldType env ty
-       in if unfolded == ty then reduceFamily ty else reduceTypeWith families env unfolded
+    TyCon name
+      | Map.member name (teSynonyms env) -> reduceTypeWith families env (unfoldType env ty)
+      | otherwise -> reduceFamily ty
     TyApp function argument ->
       case reduceTypeWith families env function of
         TyForAll binder body ->
@@ -395,13 +395,18 @@ reduceTypeWith families env ty =
     TyEq left right ->
       TyEq (reduceTypeWith families env left) (reduceTypeWith families env right)
   where
+    -- Only an application of a family can reduce. The test of the head
+    -- is cheap, and most types fail it, so the reductions come after it.
     reduceFamily reduced
       | families,
-        Just result <- builtinFamily env reduced =
-          reduceTypeWith families env result
-      | families,
         Just family <- typeHead reduced,
-        Just equations <- Map.lookup family (teFamilyAxioms env),
+        Map.member family (teFamilyAxioms env) || builtinFamilyName family =
+          reduceKnownFamily family reduced
+      | otherwise = reduced
+    reduceKnownFamily family reduced
+      | Just result <- builtinFamily env reduced =
+          reduceTypeWith families env result
+      | Just equations <- Map.lookup family (teFamilyAxioms env),
         Just result <- applyFamilyEquations env equations reduced =
           reduceTypeWith families env result
       | otherwise = reduced
@@ -476,10 +481,19 @@ applyFamilyEquations env equations source = snd <$> select equations
       case typeHead ty of
         Just name -> Map.member name (teFamilyAxioms env) || builtinFamilyHead name
         Nothing -> False
-    builtinFamilyHead name =
-      case nameOrigin name of
-        OriginTop _ moduleName -> moduleName `elem` typeLitFamilyModules
-        _ -> False
+    builtinFamilyHead = builtinFamilyName
+
+-- | The modules of the built-in type-literal families, as a set: every
+-- family reduction step tests a head against them.
+typeLitFamilyModuleSet :: Set.Set T.Text
+typeLitFamilyModuleSet = Set.fromList typeLitFamilyModules
+
+-- | Whether a name is the head of a built-in type-literal family.
+builtinFamilyName :: Name -> Bool
+builtinFamilyName name =
+  case nameOrigin name of
+    OriginTop _ moduleName -> Set.member moduleName typeLitFamilyModuleSet
+    _ -> False
 
 -- | The value of a built-in type-literal family -- the comparisons and the
 -- arithmetic on naturals -- at literal arguments. The solver computes the
@@ -493,14 +507,12 @@ builtinFamily :: TypeEnv -> Type -> Maybe Type
 builtinFamily env ty =
   case spine [] ty of
     (TyCon family, arguments)
-      | OriginTop _ moduleName <- nameOrigin family,
-        moduleName `elem` typeLitFamilyModules,
+      | builtinFamilyName family,
         Just header <- Map.lookup family (teHeaders env),
         TyCon kindName <- resultType header,
         Just simplified <- simplifyTypeLitFamily (nameText family) literal (buildLiteral kindName) arguments ->
           Just simplified
-      | OriginTop _ moduleName <- nameOrigin family,
-        moduleName `elem` typeLitFamilyModules,
+      | builtinFamilyName family,
         (_, literalArguments@(TyLit _ _ : _)) <- break isLiteral arguments,
         Just literals <- traverse literal literalArguments -> do
           value <- evaluateTypeLitFamily (nameText family) literals
