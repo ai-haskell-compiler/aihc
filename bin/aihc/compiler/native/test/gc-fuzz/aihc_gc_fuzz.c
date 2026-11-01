@@ -593,8 +593,21 @@ static const AihcValue *follow_indirections(const AihcValue *object) {
    is a stale pointer: the memory it names left the heap. An object that
    nothing reaches may hold one, so it is not a violation here, and the model
    compares the fields of every live object. */
+/* The frame below the forward frames of the runtime at an address. A chunk
+   after the first one of a stack starts with such a frame, which the
+   runtime makes and the model does not know. Its parent is the frame the
+   model expects wherever the runtime hands the driver a continuation. */
+static const AihcValue *through_forward(const AihcValue *address) {
+  while (address != NULL && aihc_region_kind(address) == AIHC_REGION_STACK &&
+         aihc_value_info_table(address) == &aihc_lir_chunk_forward_info) {
+    address = (const AihcValue *)(uintptr_t)aihc_value_fields_const(address)[0];
+  }
+  return address;
+}
+
 static void print_pointer(AihcSlot slot) {
-  const void *address = (const void *)(uintptr_t)slot;
+  const void *address = through_forward((const AihcValue *)(uintptr_t)slot);
+  slot = (AihcSlot)(uintptr_t)address;
   uint64_t static_slot = 0;
   if (slot == 0) {
     printf(" n");
@@ -834,12 +847,7 @@ static const AihcValue *print_frame(Frame *frame) {
     if (frame->pointers[index]) {
       AihcSlot slot = fields[index];
       if (index == 0) {
-        parent = (const AihcValue *)(uintptr_t)slot;
-        while (parent != NULL &&
-               aihc_value_info_table(parent) == &aihc_lir_chunk_forward_info) {
-          parent =
-              (const AihcValue *)(uintptr_t)aihc_value_fields_const(parent)[0];
-        }
+        parent = through_forward((const AihcValue *)(uintptr_t)slot);
         slot = (AihcSlot)(uintptr_t)parent;
       }
       print_pointer(slot);
@@ -942,7 +950,7 @@ static void report_stack(AihcStack *stack) {
       violation("the running stack holds no frame but is not empty");
     }
   } else {
-    top = stack->top;
+    top = through_forward(stack->top);
   }
   printf("stack");
   print_pointer((AihcSlot)(uintptr_t)thread);
@@ -2034,18 +2042,25 @@ static void apply_resume(const AihcResume *resume) {
   switch (kind) {
   case AIHC_RESUME_APPLY: {
     /* The function returns to the continuation, which is the top live
-       frame: the frames above it are gone. */
-    Frame *frame = frame_at(continuation);
+       frame: the frames above it are gone. When the continuation is a
+       forward frame of the runtime, the frame below it is the top live
+       frame, and the stack pointer goes after that frame, as a pop into
+       its chunk puts it. */
+    const AihcValue *target = through_forward(continuation);
+    Frame *frame = frame_at(target);
     if (frame == NULL || frame->thread != running) {
       fail("resumption continues at an unknown frame");
     }
     pop_to(thread, frame->info->identity, 0);
+    if (target != continuation) {
+      aihc_stack_resume_after(capability, frame->address);
+    }
     return;
   }
   case AIHC_RESUME_CONTINUE: {
     /* The continue helper enters the continuation with the values of the
-       resumption. */
-    Frame *frame = frame_at(function);
+       resumption. It follows the forward frames of the runtime first. */
+    Frame *frame = frame_at(through_forward(function));
     if (frame == NULL || frame->thread != running) {
       fail("resumption enters an unknown frame");
     }
