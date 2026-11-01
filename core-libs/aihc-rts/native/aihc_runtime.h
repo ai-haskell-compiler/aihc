@@ -590,6 +590,36 @@ static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
   return (const AihcInfo *)(uintptr_t)(value->header & ~AIHC_HEADER_TAG_MASK);
 }
 
+/* A pointer to a value in weak head normal form can carry a tag in its
+   low three bits: one to six is the constructor index plus one or the
+   arity of a function, and seven says that the reader must read the
+   header. Every object is word aligned, so the bits are free. No producer
+   sets them yet. The collector keeps the tag of every pointer it moves,
+   and the runtime masks the tag before it reads an object that compiled
+   code hands it. A frame, an info table, and a runtime record are never
+   tagged. */
+#define AIHC_POINTER_TAG_MASK UINT64_C(7)
+
+/* The tag of a slot that holds a pointer. */
+static inline unsigned aihc_tag_of(AihcSlot slot) {
+  return (unsigned)(slot & AIHC_POINTER_TAG_MASK);
+}
+
+/* The object a slot names, without its tag. */
+static inline AihcValue *aihc_untag(AihcSlot slot) {
+  return (AihcValue *)(uintptr_t)(slot & ~AIHC_POINTER_TAG_MASK);
+}
+
+/* The object a pointer names, without its tag. */
+static inline AihcValue *aihc_untag_pointer(const AihcValue *value) {
+  return aihc_untag((AihcSlot)(uintptr_t)value);
+}
+
+/* The slot that names an object with a tag. */
+static inline AihcSlot aihc_tag_pointer(const AihcValue *value, unsigned tag) {
+  return (AihcSlot)(uintptr_t)value | tag;
+}
+
 static inline AihcObjectKind aihc_value_kind(const AihcValue *value) {
   return (value->header & AIHC_HEADER_EVALUATING) != 0
              ? AIHC_OBJECT_BLACKHOLE

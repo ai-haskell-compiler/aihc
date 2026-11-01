@@ -41,8 +41,14 @@ data @aihc_stable_name_null_message align 1 = {
 
 ; Reuse a live name while its referent remains live.
 ; Compiled code compares names as pointers and reads the stored hash.
-export func @aihc_stable_name_make(%capability: ptr, %value: ptr) -> ptr cc c {
+; The referent is the raw reference: a value can carry a pointer tag in
+; its low three bits, and the tag is not part of the key.
+export func @aihc_stable_name_make(%capability: ptr, %given: ptr) -> ptr cc c {
 entry:
+  %given_word = ptr.to_int %given
+  %tag = and i64 %given_word, 7
+  %value_word = sub i64 %given_word, %tag
+  %value = ptr.from_int %value_word
   %missing = eq ptr %value, null
   br %missing, invalid, search
 
