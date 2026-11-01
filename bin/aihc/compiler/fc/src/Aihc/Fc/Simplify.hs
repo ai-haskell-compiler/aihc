@@ -3959,12 +3959,6 @@ caseOfCaseRaw env scrutinee binder alternatives
       (pushed, selected) <- pushSmall typedEnv binder small scrutinee
       pure (Just (Pushed pushed (ExCase scrutinee binder small) joins selected))
   where
-    hasCaseTail expr =
-      case expr of
-        ExCase {} -> True
-        ExLet _ body -> hasCaseTail body
-        ExRec _ body -> hasCaseTail body
-        _ -> False
     -- The case binder is a parameter of every join point: each copy of
     -- the small case binds it under a fresh name, and the call passes
     -- that name.
@@ -4023,6 +4017,16 @@ caseOfCaseRaw env scrutinee binder alternatives
               Just (before, field, con, fields, after, rest)
         _ -> Nothing
 
+-- | Whether a case is in the tail of an expression, under lets and casts.
+hasCaseTail :: Expr -> Bool
+hasCaseTail expr =
+  case expr of
+    ExCase {} -> True
+    ExLet _ body -> hasCaseTail body
+    ExRec _ body -> hasCaseTail body
+    ExCast inner _ -> hasCaseTail inner
+    _ -> False
+
 -- | Push a small case, whose alternatives call join points, into the
 -- tails of a simplified expression. A tail that is a case takes the
 -- small case into its own alternatives, a let keeps the small case
@@ -4030,9 +4034,9 @@ caseOfCaseRaw env scrutinee binder alternatives
 -- any other tail is scrutinised by a copy of the small case. Nothing
 -- that was simplified is simplified again.
 pushSmall :: Simpl -> Maybe Binder -> NE.NonEmpty Alt -> Expr -> SimplM (Expr, Int)
-pushSmall env binder small = go Set.empty env
+pushSmall env binder small = go [] Set.empty env
   where
-    go joins env' expr =
+    go casts joins env' expr =
       case expr of
         -- The small case moves into the body of a join point of the
         -- scrutinee, and the calls of the join point stay as they are.
@@ -4042,28 +4046,34 @@ pushSmall env binder small = go Set.empty env
           | Just parameters <- joinParameters bind body -> do
               let named = bindBinder bind
                   parameterEnv = markUnlifted parameters (shadowNames (map binderName parameters) env')
-              (joinBody, selectedInJoin) <- go joins parameterEnv (lambdaResult (length parameters) (bindRhs bind))
+              (joinBody, selectedInJoin) <- go casts joins parameterEnv (lambdaResult (length parameters) (bindRhs bind))
               let rhs = foldr ExLam joinBody parameters
               case exprType (spEnv env') rhs of
                 Just ty -> do
                   let named' = named {binderType = ty}
-                  (body', selectedInBody) <- go (Set.insert (binderName named) joins) (bindingEnv env' named' rhs) body
+                  (body', selectedInBody) <- go casts (Set.insert (binderName named) joins) (bindingEnv env' named' rhs) body
                   pure (ExLet (Bind named' rhs) body', selectedInJoin + selectedInBody)
-                Nothing -> first (ExLet bind) <$> go joins (bindingEnv env' named (bindRhs bind)) body
-        ExLet bind body -> first (ExLet bind) <$> go joins (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
-        ExRec binds body -> first (ExRec binds) <$> go joins env' body
+                Nothing -> first (ExLet bind) <$> go casts joins (bindingEnv env' named (bindRhs bind)) body
+        ExLet bind body -> first (ExLet bind) <$> go casts joins (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
+        ExRec binds body -> first (ExRec binds) <$> go casts joins env' body
         ExCase scrutinee innerBinder alternatives -> do
           alternatives' <-
             mapM
-              (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> go joins (alternativeEnv env' scrutinee innerBinder (NE.toList alternatives) alternative) (altRhs alternative))
+              (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> go casts joins (alternativeEnv env' scrutinee innerBinder (NE.toList alternatives) alternative) (altRhs alternative))
               alternatives
           pure (mkCase (spEnv env') scrutinee innerBinder (fmap fst alternatives'), sum (fmap snd alternatives'))
+        -- A cast of a case moves into the tails of the case, where it
+        -- meets the small case. The join points of the scrutinee are
+        -- not called under the cast, see 'joinParameters'.
+        ExCast inner coercion
+          | hasCaseTail inner -> go (coercion : casts) Set.empty env' inner
         _
           | (ExVar head', _) <- castedSpine expr,
             Set.member head' joins ->
               pure (expr, 0)
           | otherwise -> do
-              copy <- freshenExpr (ExCase expr binder small)
+              casted <- foldM mkCast expr casts
+              copy <- freshenExpr (ExCase casted binder small)
               case copy of
                 ExCase leaf binder' (NE.toList -> small') -> do
                   selected <- caseOfKnown env' leaf binder' small'

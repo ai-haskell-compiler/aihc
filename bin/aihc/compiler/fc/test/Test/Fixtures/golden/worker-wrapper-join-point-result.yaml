@@ -1,0 +1,73 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (classify) where
+
+  import GHC.Prim ((*#), (+#))
+  import GHC.Types (Int (..))
+
+  classify :: Int -> Int -> Int
+  classify x y =
+    let scale k = I# (k *# 2#)
+     in case x of
+          I# 0# -> scale 1#
+          I# a -> case y of
+            I# 0# -> scale a
+            I# b -> I# (a +# b)
+passes:
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vclassify inline :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      let field : tInt# =
+        v$wclassify x{1} y;
+      cI# field
+
+  val 1.v$wclassify :: FUN @cIntRep @sLiftedRep tInt# (FUN @sLiftedRep @cIntRep tInt tInt#)
+    = λ(x : tInt#) (y : tInt).
+      let scale : FUN @cIntRep @cIntRep tInt# tInt# =
+        λ(x{1} : tInt#).
+          prim *# x{1} lit (2#cIntRep) :: tInt#;
+      case x of {
+        0#cIntRep →
+          scale lit (1#cIntRep) :: tInt#;
+        _ →
+          let! cI# (_pat : tInt#) = y;
+          case _pat of {
+            0#cIntRep →
+              scale x;
+            _ →
+              prim +# x _pat
+          }
+      }
+status: pass
+reason: Each tail of 'classify' is a constructor or a call of the local join point 'scale', and each tail of 'scale' is a constructor. The constructed result goes through the join point, so the worker and 'scale' return an Int#. Only the wrapper builds the box.

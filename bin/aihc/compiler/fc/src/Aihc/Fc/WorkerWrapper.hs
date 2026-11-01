@@ -31,6 +31,11 @@
 -- the constructor again, and at a call whose result a case takes apart,
 -- the constructor meets the case and goes away.
 --
+-- A tail can also call a join point, a local function whose every use is
+-- a saturated call in a tail. The tails of the join point are then tails
+-- of the function, and the join point returns the fields too. See
+-- 'tailJoins'.
+--
 -- A function whose result is an unboxed tuple, such as the
 -- @(# State# RealWorld, Int #)@ of an @IO Int@ action, has a nested
 -- constructed result when every tail gives a component as the constructor
@@ -102,9 +107,9 @@ import Aihc.Fc.Wired (wiredGhcTypes)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, guard, zipWithM)
+import Control.Monad (foldM, guard, mfilter, zipWithM)
 import Control.Monad.Trans.State.Strict (State, runState, state)
-import Data.Either (rights)
+import Data.Either (isRight, rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -404,11 +409,11 @@ splitFunction types self declaredType workerName demands function =
       workerParameters <- zipWithM (workerParameter (List.foldl' extendBinder types tyBinders)) demands parameters
       wrapperBody <- wrapper tyBinders parameters castLayer result resultProduct
       replaced <- replaceCalls self wrapperBody inner
-      inner' <- maybe (pure replaced) (\resultShape -> returnFields result resultShape replaced) resultProduct
       let env = List.foldl' extendBinder types tyBinders
           (returnedType, arrows') = case resultProduct of
             Nothing -> (Just result, arrows)
             Just resultShape -> (fst <$> returnedOf env resultShape, maybe arrows (`setLastResultRep` arrows) (snd =<< returnedOf env resultShape))
+      inner' <- maybe (pure replaced) (\resultShape -> returnFields result resultShape (snd =<< returnedOf env resultShape) replaced) resultProduct
       case (,) <$> returnedType <*> (workerType env tyBinders (map preparedParameter workerParameters) arrows' =<< returnedType) of
         Nothing -> pure Nothing
         Just (_, ty) ->
@@ -447,11 +452,15 @@ splitFunction types self declaredType workerName demands function =
           | (binder, demand) <- zip valueBinders demands
           ]
       let unboxedNames = Set.fromList [binderName binder | Unbox binder _ _ _ <- parameters]
-          resultProduct = flatResult <|> nestedResult
+          joins = tailJoins inner
+          -- A join point returns what the worker returns, so its type
+          -- gets the representation of the fields.
+          retypes shape = Set.null joins || isJust (snd =<< returnedOf env shape)
+          resultProduct = mfilter retypes (flatResult <|> nestedResult)
           flatResult = do
             guard (isNothing castLayer)
             (con, arguments, fields) <- productConstructor env result
-            guard (constructedTails self unboxedNames con inner)
+            guard (constructedTails self unboxedNames joins con inner)
             reps <- traverse (repOf env) fields
             returned <- returnedKind env (zip fields reps)
             pure (ResultProduct con arguments (zip fields reps) returned)
@@ -466,7 +475,7 @@ splitFunction types self declaredType workerName demands function =
                 products =
                   [ do
                       (con, arguments, fields) <- productConstructor env ty
-                      guard (nestedTails env self unboxedNames tupleCon size position con fields inner)
+                      guard (nestedTails env self unboxedNames joins tupleCon size position con fields inner)
                       fieldReps <- traverse (repOf env) fields
                       pure (con, arguments, zip fields fieldReps)
                   | (position, ty) <- zip [0 ..] componentTypes
@@ -551,11 +560,11 @@ splitFunction types self declaredType workerName demands function =
     -- Each tail of the worker returns the fields of the constructor. A
     -- tail that is the constructor gives its arguments. Another tail is
     -- taken apart by a case.
-    returnFields result resultShape =
+    returnFields result resultShape returnedRep =
       case resultShape of
-        ResultProduct con arguments fields returned -> returnProduct result con arguments fields returned
-        ResultNested tupleCon _ components returnedCon returnedArguments returnedType -> returnNested tupleCon components returnedCon returnedArguments returnedType
-    returnProduct result con arguments fields returned = go
+        ResultProduct con arguments fields returned -> \body -> returnProduct result con arguments fields returned returnedRep (tailJoins body) body
+        ResultNested tupleCon _ components returnedCon returnedArguments returnedType -> \body -> returnNested tupleCon components returnedCon returnedArguments returnedType returnedRep (tailJoins body) body
+    returnProduct result con arguments fields returned returnedRep joins = go
       where
         returnedType = case (returned, fields) of
           (ReturnTuple _ ty, _) -> ty
@@ -565,9 +574,15 @@ splitFunction types self declaredType workerName demands function =
           case expr of
             ExAbsurd scrutinee _ -> pure (ExAbsurd scrutinee returnedType)
             ExCase scrutinee binder (NE.toList -> alternatives) -> caseFromList scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+            -- A join point returns the fields too, and its calls stay.
+            ExLet bind body
+              | Just joined <- joinWith go returnedRep returnedType joins bind -> ExLet <$> joined <*> go body
             ExLet bind body -> ExLet bind <$> go body
             ExRec binds body -> ExRec binds <$> go body
             _
+              | (ExVar head', _) <- collectSpine expr,
+                Set.member head' joins ->
+                  pure expr
               | (ExVar head', spine) <- collectSpine expr,
                 head' == con,
                 length (rights spine) == length fields ->
@@ -581,15 +596,20 @@ splitFunction types self declaredType workerName demands function =
     -- of the product: the arguments of the constructor, or the binders of
     -- a case on an evaluated value. Another tail, such as a recursive
     -- call, is taken apart by a case.
-    returnNested tupleCon components returnedCon returnedArguments returnedType = go
+    returnNested tupleCon components returnedCon returnedArguments returnedType returnedRep joins = go
       where
         go expr =
           case expr of
             ExAbsurd scrutinee _ -> pure (ExAbsurd scrutinee returnedType)
             ExCase scrutinee binder (NE.toList -> alternatives) -> caseFromList scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+            ExLet bind body
+              | Just joined <- joinWith go returnedRep returnedType joins bind -> ExLet <$> joined <*> go body
             ExLet bind body -> ExLet bind <$> go body
             ExRec binds body -> ExRec binds <$> go body
             _
+              | (ExVar head', _) <- collectSpine expr,
+                Set.member head' joins ->
+                  pure expr
               | (ExVar head', spine) <- collectSpine expr,
                 head' == tupleCon,
                 length (rights spine) == length components ->
@@ -666,8 +686,8 @@ splitFunction types self declaredType workerName demands function =
 -- case on an unboxed parameter is the same value, so a tail that is that
 -- binder counts as the parameter. A bang pattern and the @Strict@
 -- extension give such binders.
-constructedTails :: Name -> Set Name -> Name -> Expr -> Bool
-constructedTails self unboxed con body = all acceptable leaves && any constructed leaves
+constructedTails :: Name -> Set Name -> Set Name -> Name -> Expr -> Bool
+constructedTails self unboxed joins con body = all acceptable leaves && any constructed leaves
   where
     leaves = tails unboxed body
     tails aliases expr =
@@ -677,6 +697,8 @@ constructedTails self unboxed con body = all acceptable leaves && any constructe
                 | isAlias aliases scrutinee = foldl' (\current named -> Set.insert (binderName named) current) aliases binder
                 | otherwise = aliases
            in concatMap (tails inner . altRhs) alternatives
+        ExLet (Bind binder rhs) inner
+          | Set.member (binderName binder) joins -> tails aliases (snd (valueLambdas rhs)) <> tails aliases inner
         ExLet _ inner -> tails aliases inner
         ExRec _ inner -> tails aliases inner
         _ -> [(aliases, expr)]
@@ -690,8 +712,101 @@ constructedTails self unboxed con body = all acceptable leaves && any constructe
         _ -> False
     acceptable (aliases, leaf) =
       case fst (collectSpine leaf) of
-        ExVar name -> name == con || name == self || Set.member name aliases
+        ExVar name -> name == con || name == self || Set.member name aliases || Set.member name joins
         _ -> False
+
+-- | The join points of a body: the lets of a lambda whose every use is a
+-- saturated call in a tail of the body or of another join point. A tail
+-- of a join point is a tail of the body, so the split of a constructed
+-- result also returns the fields from the join point, and a call of the
+-- join point stays a tail. The case of a case makes such join points,
+-- and without them a function that returns through one has no
+-- constructed result.
+--
+-- The set starts with every let of a lambda in a tail, and loses each
+-- let that has a use that is not such a call, until no let goes. A let
+-- that goes takes the tails of its body with it, so a use there no longer
+-- counts as a call.
+tailJoins :: Expr -> Set Name
+tailJoins body = fixpoint (Map.keysSet candidates)
+  where
+    candidates = Map.fromList (tailLambdas body)
+    fixpoint current =
+      let calls = Map.fromListWith (+) [(name, 1 :: Int) | leaf <- tailLeaves current body, Just name <- [joinCall leaf]]
+          kept = Set.filter (\name -> Map.lookup name calls == Just (nameOccurrences name body)) current
+       in if kept == current then current else fixpoint kept
+    joinCall leaf =
+      case collectSpine leaf of
+        (ExVar name, spine)
+          | Just arity <- Map.lookup name candidates,
+            all isRight spine,
+            length spine == arity ->
+              Just name
+        _ -> Nothing
+    -- The lets of a lambda in the tails, with the number of lambdas. A
+    -- let whose type does not show the arrows cannot get a new result.
+    tailLambdas expr =
+      case expr of
+        ExCase _ _ alternatives -> concatMap (tailLambdas . altRhs) alternatives
+        ExLet (Bind binder rhs) inner
+          | (parameters@(_ : _), joinBody) <- valueLambdas rhs,
+            arrowCount (binderType binder) >= length parameters ->
+              (binderName binder, length parameters) : tailLambdas joinBody <> tailLambdas inner
+        ExLet _ inner -> tailLambdas inner
+        ExRec _ inner -> tailLambdas inner
+        _ -> []
+    tailLeaves current expr =
+      case expr of
+        ExCase _ _ alternatives -> concatMap (tailLeaves current . altRhs) alternatives
+        ExLet (Bind binder rhs) inner
+          | Set.member (binderName binder) current -> tailLeaves current (snd (valueLambdas rhs)) <> tailLeaves current inner
+        ExLet _ inner -> tailLeaves current inner
+        ExRec _ inner -> tailLeaves current inner
+        _ -> [expr]
+    arrowCount ty =
+      case ty of
+        TyFun _ _ _ result -> 1 + arrowCount result
+        _ -> 0 :: Int
+
+-- | A join point whose tails a walk rewrites, with the result type and
+-- representation of the worker in its type. 'Nothing' for another let.
+joinWith :: (Expr -> FreshM Expr) -> Maybe Type -> Type -> Set Name -> Bind -> Maybe (FreshM Bind)
+joinWith walk returnedRep returnedType joins (Bind binder rhs) = do
+  guard (Set.member (binderName binder) joins)
+  let (parameters, joinBody) = valueLambdas rhs
+  rep <- returnedRep
+  ty <- retypeResult (length parameters) rep returnedType (binderType binder)
+  pure (Bind binder {binderType = ty} . (\body -> foldr ExLam body parameters) <$> walk joinBody)
+
+-- | The number of occurrences of a name in an expression.
+nameOccurrences :: Name -> Expr -> Int
+nameOccurrences name = go
+  where
+    go expr =
+      case expr of
+        ExVar var -> if var == name then 1 else 0
+        ExLit {} -> 0
+        ExApp function argument -> go function + go argument
+        ExTyApp function _ -> go function
+        ExLam _ inner -> go inner
+        ExTyLam _ inner -> go inner
+        ExLet bind inner -> go (bindRhs bind) + go inner
+        ExRec binds inner -> sum (map (go . bindRhs) binds) + go inner
+        ExCase scrutinee _ alternatives -> go scrutinee + sum (fmap (go . altRhs) alternatives)
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast inner _ -> go inner
+        ExCoercion {} -> 0
+        ExForeignCall _ _ arguments -> sum (map go arguments)
+
+-- | A function type with the result after a number of arrows replaced,
+-- and the result representation of the last of those arrows.
+retypeResult :: Int -> Type -> Type -> Type -> Maybe Type
+retypeResult count rep result ty =
+  case ty of
+    TyFun argumentRep resultRep argument inner
+      | count == 1 -> Just (TyFun argumentRep rep argument result)
+      | count > 1 -> TyFun argumentRep resultRep argument <$> retypeResult (count - 1) rep result inner
+    _ -> Nothing
 
 -- | Whether every tail of a body that returns an unboxed tuple gives the
 -- component at a position as the one constructor of a product, and at
@@ -704,13 +819,15 @@ constructedTails self unboxed con body = all acceptable leaves && any constructe
 -- the product, so it evaluates them. An unlifted field must therefore be
 -- a value or a primitive call that is safe to run early. A case binder is
 -- an evaluated value, because the case evaluates its scrutinee.
-nestedTails :: TypeEnv -> Name -> Set Name -> Name -> Int -> Int -> Name -> [Type] -> Expr -> Bool
-nestedTails env self unboxed tupleCon size position con fields body = all acceptable leaves && any given leaves
+nestedTails :: TypeEnv -> Name -> Set Name -> Set Name -> Name -> Int -> Int -> Name -> [Type] -> Expr -> Bool
+nestedTails env self unboxed joins tupleCon size position con fields body = all acceptable leaves && any given leaves
   where
     leaves = tails Set.empty body
     tails evaluated expr =
       case expr of
         ExCase _ binder (NE.toList -> alternatives) -> concatMap (tails (foldr (Set.insert . binderName) evaluated binder) . altRhs) alternatives
+        ExLet (Bind binder rhs) inner
+          | Set.member (binderName binder) joins -> tails evaluated (snd (valueLambdas rhs)) <> tails evaluated inner
         ExLet _ inner -> tails evaluated inner
         ExRec _ inner -> tails evaluated inner
         _ -> [(evaluated, expr)]
@@ -745,6 +862,7 @@ nestedTails env self unboxed tupleCon size position con fields body = all accept
           -- A recursive call of an action is the call under a cast,
           -- applied to the state token.
           | (ExVar head', _) <- castedSpine leaf, head' == self -> True
+          | (ExVar head', _) <- collectSpine leaf, Set.member head' joins -> True
           | constructed leaf -> True
           | Just (ExVar name) <- component leaf -> Set.member name evaluated
           | otherwise -> False
