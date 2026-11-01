@@ -609,8 +609,8 @@ compileFunctionTo backend output signatures index input state =
 -- predecessors until no set changes. The entry block knows no value.
 --
 -- The analysis starts with every block unknown and visits the blocks in
--- order. A block whose set changes puts its successors back on the list.
--- The sets only shrink, so the list empties at the greatest solution.
+-- order. A block whose set changes puts its successors at the front of the
+-- list. The sets only shrink, so the list empties at the greatest solution.
 nonNullCode :: Function -> Map Label (Set Var)
 nonNullCode function = Map.mapMaybe id (solve (Map.fromList [(blockLabel block, Nothing) | block <- blocks]) (map blockLabel blocks))
   where
@@ -655,7 +655,7 @@ nonNullCode function = Map.mapMaybe id (solve (Map.fromList [(blockLabel block, 
         [] -> known
         label : rest
           | next == Map.findWithDefault Nothing label known -> solve known rest
-          | otherwise -> solve (Map.insert label next known) (rest <> Map.findWithDefault [] label successors)
+          | otherwise -> solve (Map.insert label next known) (Map.findWithDefault [] label successors <> rest)
           where
             next = value known label
     value known label
@@ -1407,7 +1407,9 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
           (loaded, table, removedLoads) = maybe (shifted, shifts, []) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
           (carried, carries, removedCarries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty, [])
        in (block {blockInstructions = carried}, Map.union table carries, removedShifts <> removedLoads <> removedCarries)
-    selectShifts accepts instructions = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches, Set.toList removed)
+    selectShifts accepts instructions
+      | Map.null definitions = (instructions, Map.empty, [])
+      | otherwise = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches, Set.toList removed)
       where
         definitions = Map.fromList [(v, operation) | Instruction [v] operation@(Binary Shl I64 (OperandVar _) (OperandLiteral (LitInt _))) <- instructions]
         shift (OperandVar s)
@@ -1439,7 +1441,9 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
           | Just (operation, _, _) <- Map.lookup v matches = [Instruction [v] operation]
           | Set.member v removed = []
         rewrite instruction = [instruction]
-    selectLoads accepts shifts instructions = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.mapMaybe snd matches) shifts) (Set.toList removed), Set.toList removed)
+    selectLoads accepts shifts instructions
+      | Map.null definitions = (instructions, shifts, [])
+      | otherwise = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.mapMaybe snd matches) shifts) (Set.toList removed), Set.toList removed)
       where
         definitions = Map.fromList [(v, operation) | Instruction [v] operation@PtrAdd {} <- instructions]
         match (Load ty location@Address {addressBase = OperandVar address} alignment)
@@ -1465,7 +1469,9 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
         rewrite instruction = [instruction]
     -- The widened value loses its definition and its read. The addition
     -- keeps its result and moves.
-    selectCarries instructions = (reverse kept, table, [w | w <- Set.toList dropped, Map.member w widened])
+    selectCarries instructions
+      | Map.null widened = (instructions, Map.empty, [])
+      | otherwise = (reverse kept, table, [w | w <- Set.toList dropped, Map.member w widened])
       where
         defined = Set.fromList (concatMap instructionResults instructions)
         widened = Map.fromList [(c, w) | Instruction [w] (Convert ZExt I1 (OperandVar c) I64) <- instructions, useOnce c, useOnce w]
@@ -1498,7 +1504,9 @@ selectRotatedOperands :: Map Var Int -> Function -> (Function, Map Var Int, [Var
 selectRotatedOperands uses function = (function {functionBlocks = [block | (block, _, _) <- selected]}, Map.unions [counts | (_, counts, _) <- selected], concat [removed | (_, _, removed) <- selected])
   where
     selected = map selectBlock (functionBlocks function)
-    selectBlock block = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, counts, Set.toList removed)
+    selectBlock block
+      | Map.null definitions = (block, Map.empty, [])
+      | otherwise = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, counts, Set.toList removed)
       where
         definitions = Map.fromList [(v, operation) | Instruction [v] operation@(Binary rotation _ _ (OperandLiteral (LitInt _))) <- blockInstructions block, rotation == RotL || rotation == RotR]
         matches = Map.fromList [(v, (operation, ty, left, source, rotated, count)) | Instruction [v] (Binary operation ty a b) <- blockInstructions block, operation `elem` [And, Or, Xor], ty `elem` [I32, I64], Just (left, source, rotated, count) <- [match ty a b <|> match ty b a]]
