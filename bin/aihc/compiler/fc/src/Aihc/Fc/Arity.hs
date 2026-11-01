@@ -1061,6 +1061,7 @@ applyToVar env expr arg =
         }
 
 -- | Replace a variable by another, stopping at a binder that shadows it.
+-- A coercion variable also occurs in the coercions of casts.
 substVar :: Name -> Name -> Expr -> Expr
 substVar from to = go
   where
@@ -1070,7 +1071,7 @@ substVar from to = go
           | name == from -> ExVar to
           | otherwise -> expr
         ExLit {} -> expr
-        ExCoercion {} -> expr
+        ExCoercion coercion -> ExCoercion (goCoercion coercion)
         ExApp function argument -> ExApp (go function) (go argument)
         ExTyApp function argument -> ExTyApp (go function) argument
         ExLam binder body
@@ -1078,7 +1079,7 @@ substVar from to = go
           | otherwise -> ExLam binder (go body)
         ExTyLam binder body -> ExTyLam binder (go body)
         ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
-        ExCast body coercion -> ExCast (go body) coercion
+        ExCast body coercion -> ExCast (go body) (goCoercion coercion)
         ExLet bind body
           | binderName (bindBinder bind) == from -> ExLet bind {bindRhs = go (bindRhs bind)} body
           | otherwise -> ExLet bind {bindRhs = go (bindRhs bind)} (go body)
@@ -1092,6 +1093,20 @@ substVar from to = go
               | any ((== from) . binderName) binder || any ((== from) . binderName) (altBinders alternative) = alternative
               | otherwise = alternative {altRhs = go (altRhs alternative)}
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
+    goCoercion coercion =
+      case coercion of
+        CoVar name
+          | name == from -> CoVar to
+          | otherwise -> coercion
+        CoRefl {} -> coercion
+        CoSym inner -> CoSym (goCoercion inner)
+        CoTrans left right -> CoTrans (goCoercion left) (goCoercion right)
+        CoApp left right -> CoApp (goCoercion left) (goCoercion right)
+        CoFun left right -> CoFun (goCoercion left) (goCoercion right)
+        CoForAll binder inner -> CoForAll binder (goCoercion inner)
+        CoNth index inner -> CoNth index (goCoercion inner)
+        CoTyConApp name arguments -> CoTyConApp name (map goCoercion arguments)
+        CoAxiom {} -> coercion
 
 freshBinder :: Type -> ExpandM Binder
 freshBinder ty = do

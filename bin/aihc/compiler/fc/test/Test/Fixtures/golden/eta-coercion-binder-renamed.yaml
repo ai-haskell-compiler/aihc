@@ -1,0 +1,39 @@
+---
+extensions:
+- MagicHash
+- TypeFamilies
+modules:
+- |
+  module Test (use) where
+
+  import GHC.Types (Int (..))
+
+  class C a where
+    method :: a -> a -> a
+
+  instance C Int where
+    method _ y = y
+
+  data Box a = Box a
+
+  instance (C a) => C (Box a) where
+    method (Box x) (Box y) = Box (method x y)
+
+  data P a b = P a b
+
+  type family F a
+
+  type instance F (Box Int) = Int
+
+  pick :: (C a, F a ~ Int) => a -> P (F a) a
+  pick x = P (I# 1#) (method x x)
+  {-# NOINLINE pick #-}
+
+  use :: P Int (Box Int)
+  use = pick (Box (I# 3#))
+passes:
+- inline: shrink
+- specialise-top
+- eta
+status: pass
+reason: The specialised copy of 'pick' has a dictionary let in front of the lambda of the equality coercion. Eta expansion moves that lambda to the outside with a fresh binder. The casts of the body must use the fresh binder, or the old coercion variable has no binder.
