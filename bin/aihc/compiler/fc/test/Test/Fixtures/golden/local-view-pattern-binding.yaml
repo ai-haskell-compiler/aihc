@@ -1,0 +1,13 @@
+extensions:
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Flag = Off | On
+  flipFlag Off = On
+  flipFlag On = Off
+  choose :: (Flag, Flag) -> Flag
+  choose x = let (_, flipFlag -> y) = x in y
+status: pass
+reason: A local view pattern must bind the variable in its result pattern.
