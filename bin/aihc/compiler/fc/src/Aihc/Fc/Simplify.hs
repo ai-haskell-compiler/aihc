@@ -3136,23 +3136,23 @@ constantCallPattern env headExpr' args' =
   case headExpr' of
     ExVar name
       | Just body <- Map.lookup name (spBodies (spFixed env)),
-        Just pattern <- traverse constantArgument args',
-        any isConstantValue pattern,
+        Just constants <- traverse constantArgument args',
+        any isConstantValue constants,
         typeLambdaCount body == length (lefts args'),
         functionArity body == length (rights args') -> do
-          let key = (name, pattern)
+          let key = (name, constants)
           cached <- gets (Map.lookup key . ssCallPatterns)
           residual <- case cached of
             Just known -> pure known
             Nothing -> do
-              known <- specialise body pattern
+              known <- specialise body constants
               modify' (\st -> st {ssCallPatterns = Map.insert key known (ssCallPatterns st)})
               pure known
           case residual of
             Nothing -> pure Nothing
             Just lambdas -> do
               copy <- freshenExpr lambdas
-              Just <$> betaReduce env copy [Right argument | (Right Nothing, Right argument) <- zip pattern args']
+              Just <$> betaReduce env copy [Right argument | (Right Nothing, Right argument) <- zip constants args']
     _ -> pure Nothing
   where
     constantArgument arg =
@@ -3165,7 +3165,7 @@ constantCallPattern env headExpr' args' =
             isConstructorName con,
             null (rights spine),
             Set.null (exprTypeVariables argument),
-            null (concatMap coercionVariables (snd (peelCasts argument))) ->
+            all (null . coercionVariables) (snd (peelCasts argument)) ->
               Just (Right (Just (retypeConstant argument)))
           | otherwise -> Just (Right Nothing)
     -- A constructor without fields under a cast to its own type
@@ -3192,9 +3192,9 @@ constantCallPattern env headExpr' args' =
     callSize = 1 + 2 * length (rights args')
     -- The body with the constants in place of their parameters, simplified
     -- as a top-level body, under the lambdas of the other parameters.
-    specialise body pattern = do
+    specialise body constants = do
       copy <- freshenExpr body
-      let instantiated = instantiateConstants copy pattern
+      let instantiated = instantiateConstants copy constants
           inner =
             env
               { spInline = Map.empty,
@@ -3222,8 +3222,8 @@ constantCallPattern env headExpr' args' =
           supply <- gets ssSupply
           put before {ssSupply = supply}
           pure Nothing
-    instantiateConstants expr pattern =
-      case (expr, pattern) of
+    instantiateConstants expr constants =
+      case (expr, constants) of
         (ExTyLam binder inner, Left ty : rest) -> instantiateConstants (substTypeExpr (Map.singleton (binderName binder) ty) inner) rest
         (ExLam binder inner, Right (Just argument) : rest) -> instantiateConstants (substExpr (Map.singleton (binderName binder) argument) inner) rest
         (ExLam binder inner, Right Nothing : rest) -> ExLam binder (instantiateConstants inner rest)
