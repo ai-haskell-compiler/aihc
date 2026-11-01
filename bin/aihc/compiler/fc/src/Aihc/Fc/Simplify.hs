@@ -96,7 +96,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM, zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Bifunctor (first)
-import Data.Either (isLeft, isRight, lefts, rights)
+import Data.Either (isRight, lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Lazy qualified as LazyMap
@@ -1999,12 +1999,12 @@ data Reduction
 
 -- | The strongest reduction that a call gives its callee. See 'Reduction'.
 --
--- A site of an @INLINE@ value that gives a known function to a parameter
--- that the callee calls reduces strongly too. The copy calls the function
--- directly, and the closure of the argument goes when the copy uses it
--- once. A combinator of a continuation-passing monad, such as the bind of
--- a parser, gets its continuations so: a known parser at the site is a
--- lambda under the cast of its newtype.
+-- A site of an @INLINE@ value or a local candidate that gives a known
+-- function to a parameter that the callee calls also reduces strongly.
+-- The copy calls the function directly. The argument closure disappears
+-- when the copy uses it once. A parser combinator receives its
+-- continuations this way. A known parser at the site is a lambda under
+-- its newtype cast.
 siteReduction :: Simpl -> Candidate -> [Arg] -> Reduction
 siteReduction env candidate args =
   List.foldl'
@@ -2015,7 +2015,7 @@ siteReduction env candidate args =
         parameterScrutinised (parameterGuidance candidate binder)
       ]
         <> [ StrongReduction
-           | candidateRequested candidate,
+           | candidateRequested candidate || candidateSites candidate == SitesReducing,
              (binder, argument) <- arguments,
              any (>= 1) (parameterCallArities (parameterGuidance candidate binder)),
              knownFunction (underLets (fst (peelCasts argument)))
@@ -2148,12 +2148,11 @@ bindingEnv env0 binder rhs
 -- | The environment of the body of a local function binding, with the
 -- function as a candidate when a call can reduce it.
 --
--- A lifted, non-recursive local lambda that scrutinises a parameter is a
--- candidate with 'SitesReducing': a call that gives a known constructor
--- to such a parameter takes a copy within the site limit, and no other
--- call does. The copy selects the alternative of the case on the
--- parameter, so the constructor is not taken apart at run time, and a
--- call that builds the constructor no longer allocates it. A copy of a
+-- A lifted, non-recursive local lambda that scrutinises or calls a
+-- parameter is a candidate with 'SitesReducing'. A known constructor or
+-- a known function argument permits a copy within the site limit.
+-- A constructor argument selects its case. A function argument exposes
+-- its calls, so the copy can remove a continuation closure. A copy of a
 -- lambda at a saturated call does no work twice.
 --
 -- A large join point is not a candidate: a function that the body only
@@ -2166,7 +2165,7 @@ localCandidateEnv env binder rhs body
     not (isStrictBinder (spEnv env) binder),
     functionArity rhs > 0,
     Set.notMember name mentioned,
-    any parameterScrutinised (guidanceParameters guidance),
+    any (\parameter -> parameterScrutinised parameter || any (>= 1) (parameterCallArities parameter)) (guidanceParameters guidance),
     not (largeJoinPoint env name rhs body) =
       env
         { spInline = Map.insert name (Candidate rhs SitesReducing False guidance) (spInline env),
@@ -2546,13 +2545,13 @@ rebuildCall env headExpr' args' = do
     -- under the cast is the candidate at this site.
     ExCast castHead coercion
       | not (null args'),
-        (ExVar name, typeArgs) <- collectSpine castHead,
-        all isLeft typeArgs,
+        (ExVar name, prefixArgs) <- collectSpine castHead,
         Just candidate <- Map.lookup name (spInline env),
-        Just function <- castedFunction (lefts typeArgs) coercion (candidateBody candidate),
+        Just function <- castedFunction prefixArgs coercion (candidateBody candidate),
         let candidate' = candidate {candidateBody = function, candidateGuidanceOf = candidateGuidance (spEnv env) (spArity (spFixed env)) function},
-        takesArgument env candidate' args' ->
-          inlineSite env name candidate' (rebuildSpine headExpr' args') args'
+        let combinedArgs = filter isRight prefixArgs <> args',
+        takesArgument env candidate' combinedArgs ->
+          inlineSite env name candidate' (rebuildSpine headExpr' args') combinedArgs
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
     -- A let, a case or a recursive group in the head of an application
@@ -2660,14 +2659,17 @@ boringLazyField env candidate reduction args =
     && not (any (interestingArgument env) (rights args))
     && not (isConstructorValue (candidateBody candidate))
 
--- | The function under the cast of a body, at the given type arguments,
+-- | The function under the cast of a body, at the given arguments,
 -- when the given coercion undoes that cast. A body such as
 -- @Λa. (λs. e) ▷ sym co@ is a function that wears a cast, and a use
--- @(f \@t ▷ co[t]) s@ calls the function itself.
-castedFunction :: [Type] -> Coercion -> Expr -> Maybe Expr
-castedFunction types coercion body =
-  case (body, types) of
-    (ExTyLam binder inner, ty : rest) -> castedFunction rest coercion (substTypeExpr (Map.singleton (binderName binder) ty) inner)
+-- @(f \@t ▷ co[t]) s@ calls the function itself. Value arguments before
+-- the cast retain their lambdas. The site uses both argument lists, so
+-- its decision includes the continuations after the cast.
+castedFunction :: [Arg] -> Coercion -> Expr -> Maybe Expr
+castedFunction args coercion body =
+  case (body, args) of
+    (ExTyLam binder inner, Left ty : rest) -> castedFunction rest coercion (substTypeExpr (Map.singleton (binderName binder) ty) inner)
+    (ExLam binder inner, Right _ : rest) -> ExLam binder <$> castedFunction rest coercion inner
     (ExCast function bodyCoercion, [])
       | cancelsCoercion bodyCoercion coercion,
         functionArity function > 0 ->
