@@ -1,0 +1,46 @@
+extensions: [TypeFamilies, FlexibleContexts, FunctionalDependencies, FlexibleInstances]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, FlexibleContexts, FunctionalDependencies, FlexibleInstances #-}
+    module Test where
+    type family F a
+    newtype P a = P a
+    class B s p | s -> p where
+      interp :: s -> p
+    instance B (P p) p where
+      interp (P x) = x
+    unit :: x -> ()
+    unit _ = ()
+    probe :: (F (F a) ~ F a) => P (F a) -> ()
+    probe p = unit (interp p)
+annotated:
+  - |-
+    {-# LANGUAGE TypeFamilies, FlexibleContexts, FunctionalDependencies, FlexibleInstances #-}
+    module Test where
+    type family F a
+                └─ type: Type → Type
+    newtype P a = P a
+            │     └─ type: ∀ a. a → P a
+            └─ type: Type → Type
+    class B s p | s -> p where
+    └─ class methods: interp ∷ ∀ s p. (B s p) ⇒ s → p; fundeps: s → p
+      interp :: s -> p
+    instance B (P p) p where
+    └─ $fBPpp ∷ ∀ p. () ⇒ B (P p) p
+      interp (P x) = x
+      │       │ └─ type: p
+      │       └─ type: P p
+      └─ interp ∷ P p → p
+    unit :: x -> ()
+    unit _ = ()
+    │    │   └─ type: ()
+    │    └─ type: x
+    └─ type: ∀ x. x → ()
+    probe :: (F (F a) ~ F a) => P (F a) -> ()
+    probe p = unit (interp p)
+    │     │   │     └─ type: P (F a) → F a; type-args: P (F a), F a; evidence: $fBPpp @F a
+    │     │   └─ type: F a → (); type-args: F a
+    │     └─ type: P (F a)
+    └─ type: ∀ a. ((F (F a)) ~ (F a)) ⇒ P (F a) → ()
+status: pass
+reason: A given equality whose side contains the other side does not rewrite a wanted without end.

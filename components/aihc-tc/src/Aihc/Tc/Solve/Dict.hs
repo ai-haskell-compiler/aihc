@@ -773,9 +773,26 @@ givenRewriteRuleSets givens = do
         -- Two family applications have no preferred side. Each direction
         -- is an alternative: the given @AllB c b ~ GAll 0 c (Rep b)@
         -- rewrites a wanted @GAll 0 c (Rep b)@ to the given @AllB c b@.
+        -- A direction whose result contains its own left side is not a
+        -- rule: the given @F (F a) ~ F a@ would rewrite @F a@ to @F (F
+        -- a)@, and each rewritten wanted to a larger one, without end.
         (True, True)
           | sameType left right -> ([], [])
-          | otherwise -> ([], [(left, right, proof), (right, left, Sym proof)])
+          | otherwise ->
+              ( [],
+                [ rule
+                | rule@(from, to, _) <- [(left, right, proof), (right, left, Sym proof)],
+                  not (containsType from to)
+                ]
+              )
+    containsType from ty =
+      sameType from ty
+        || case ty of
+          TcTyCon _ arguments -> any (containsType from) arguments
+          TcAppTy function argument -> containsType from function || containsType from argument
+          TcFunTy domain range -> containsType from domain || containsType from range
+          TcForAllTy _ body -> containsType from body
+          _ -> False
     variableRule left right proof =
       case (left, right) of
         (TcTyVar leftVar, TcTyVar rightVar)
