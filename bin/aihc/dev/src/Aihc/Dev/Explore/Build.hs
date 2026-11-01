@@ -148,6 +148,7 @@ renderProgress state =
     itemText item = case item of
       ItemPackage name -> name
       ItemExecutable name -> name <> " (executable)"
+      ItemTestSuite name -> name <> " (test suite)"
 
 -- | Render the phases of a unit. Each program is split at its top-level
 -- definitions.
