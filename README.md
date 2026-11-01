@@ -158,6 +158,26 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->
 
+### Self-compile performance
+
+<!-- AUTO-GENERATED: START self-compile-perf -->
+The [Self-Compile Performance workflow](https://github.com/ai-haskell-compiler/aihc/actions/workflows/self-compile-perf.yml) compiles aihc three times.
+Each build starts with an empty package store.
+Before the time starts, the build installs all dependencies of aihc.
+Thus, each time is for the local packages of this repository and the `aihc` executable.
+GHC compiles at its default level `-O1`.
+Each aihc build uses the native backend at `-O2` for `linux-amd64`.
+Lower is better.
+
+| Stage | Compiler | Build time | Relative to stage0 | Executable size |
+| --- | --- | ---: | ---: | ---: |
+| stage0 | GHC 9.12.4 | 2m 47s | 1.00× | 66.5 MB |
+| stage1 | aihc stage0 | 7m 31s | 2.70× | 129.2 MB |
+| stage2 | aihc stage1 | 17m 30s | 6.29× | 129.2 MB |
+
+Machine `ubuntu24 (8 cores)`, commit [`0fe0489d3`](https://github.com/ai-haskell-compiler/aihc/commit/0fe0489d3269da3804f3ce593bd42ee20677f6cb) (2026-11-01).
+<!-- AUTO-GENERATED: END self-compile-perf -->
+
 ## FAQ
 
 ### Can AIHC compile itself?
