@@ -51,9 +51,8 @@ import Control.Monad (filterM)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Builder qualified as Builder
-import Data.ByteString.Lazy qualified as BL
-import Data.List (intercalate, intersperse, sort)
+import Data.ByteString.Char8 qualified as BS8
+import Data.List (intercalate, sort)
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -124,37 +123,36 @@ parseNativeTarget value =
 -- 'Aihc.Grin.Syntax.grinScopedName' guarantees by always supplying a package,
 -- a module, and a base name. An empty one would put two separators in a row,
 -- and a run of underscores cannot say how it was split.
+--
+-- The symbol is the concatenation of short pieces: the intact runs of the
+-- name and the escapes between them. A name is short, so the pieces go
+-- into one buffer of their total size, with no builder between.
 renderLinkedFunctionSymbol :: Text -> Text
 renderLinkedFunctionSymbol logicalName =
-  Text.decodeUtf8 (BL.toStrict (Builder.toLazyByteString rendered))
+  Text.decodeUtf8 (BS.concat rendered)
   where
     rendered =
       case BS.split 0 (Text.encodeUtf8 logicalName) of
-        [unstructured] -> Builder.string7 "aihc_entry_" <> renderComponent unstructured
-        components -> mconcat (intersperse (Builder.word8 underscore) (map renderComponent components))
+        [unstructured] -> BS8.pack "aihc_entry_" : renderComponent unstructured
+        components -> intercalate [BS.singleton underscore] (map renderComponent components)
     -- Copy the run of bytes that stay intact, then escape the run of the byte
     -- that stops it. Almost every name is one such intact run.
     renderComponent bytes =
       case BS.span asciiAlphaNumeric bytes of
         (intact, rest) ->
-          Builder.byteString intact <> case BS.uncons rest of
-            Nothing -> mempty
+          intact : case BS.uncons rest of
+            Nothing -> []
             Just (byte, remaining) ->
               case BS.span (== byte) remaining of
                 (repeated, following) ->
                   renderRun byte (1 + BS.length repeated) <> renderComponent following
     -- A count of one stays implicit so that every name has one spelling.
     renderRun byte count =
-      Builder.string7 "__"
-        <> (if count == 1 then mempty else Builder.string7 (show count))
-        <> renderCode byte
+      BS8.pack "__" : [BS8.pack (show count) | count /= 1] <> [renderCode byte]
     renderCode byte =
       case lookup byte escapeCodes of
-        Just code -> Builder.word8 code
-        Nothing ->
-          Builder.word8 lowerX
-            <> Builder.word8 (hexDigit (byte `shiftR` 4))
-            <> Builder.word8 (hexDigit (byte .&. 0x0f))
+        Just code -> BS.singleton code
+        Nothing -> BS.pack [lowerX, hexDigit (byte `shiftR` 4), hexDigit (byte .&. 0x0f)]
     hexDigit nibble
       | nibble < 10 = 48 + nibble
       | otherwise = 87 + nibble

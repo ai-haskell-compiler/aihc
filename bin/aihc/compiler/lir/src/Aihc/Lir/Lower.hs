@@ -226,7 +226,7 @@ lowerProgramWith options gcProgram =
 -- | Supply each complete item to the consumer before conversion proceeds.
 lowerModuleTo :: (Monad m) => LowerTarget -> ModuleSettings -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
 lowerModuleTo target settings output gcProgram =
-  consume (initialLowerState options gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
+  consume (initialLowerState options env gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
   where
     options = libraryOptions target settings
     env = lowerEnvironment options gcProgram
@@ -234,13 +234,12 @@ lowerModuleTo target settings output gcProgram =
       action : rest -> case runStateT action state of
         Left err -> pure (Left err)
         Right ((), next) -> do
-          let signatures = stateSignatures next <> stateExterns next
-          mapM_ (output signatures) (reverse (stateItemsRev next))
+          mapM_ (output (stateCallSignatures next)) (reverse (stateItemsRev next))
           consume next {stateItemsRev = []} done rest
       [] ->
         let pending = stateHelpers state `Set.difference` done
          in if Set.null pending
-              then mapM_ (output (stateSignatures state <> stateExterns state)) (externItems state) >> pure (Right ())
+              then mapM_ (output (stateCallSignatures state)) (externItems state) >> pure (Right ())
               else consume state (done <> pending) (map (generateHelper env) (Set.toAscList pending))
 
 lowerProgramItems :: LowerOptions -> GcGrinProgram -> LowerUnit -> LowerM ()
@@ -465,6 +464,10 @@ data LowerState = LowerState
     stateBitmaps :: !(Map BS.ByteString Symbol),
     stateDefined :: !(Set Symbol),
     stateSignatures :: !(Map Symbol Signature),
+    -- | The signatures and the externs in one map, with the signatures
+    -- first. The consumer of each item reads the conventions of the calls
+    -- from it, so it is kept up to date instead of made for each item.
+    stateCallSignatures :: !(Map Symbol Signature),
     -- | Items of the current conversion action. The consumer drains this list.
     stateItemsRev :: ![Item],
     stateBlocksRev :: ![Block],
@@ -552,11 +555,13 @@ failWith = lift . Left
 runLower :: LowerOptions -> GcGrinProgram -> (LowerUnit -> LowerM value) -> Either LowerError (value, [Item])
 runLower options gcProgram action = do
   let env = lowerEnvironment options gcProgram
-  (value, final) <- runStateT (action (LowerUnit env (gcGrinProgram gcProgram)) <* generateHelpers env Set.empty) (initialLowerState options gcProgram)
+  (value, final) <- runStateT (action (LowerUnit env (gcGrinProgram gcProgram)) <* generateHelpers env Set.empty) (initialLowerState options env gcProgram)
   pure (value, externItems final <> reverse (stateItemsRev final))
 
-initialLowerState :: LowerOptions -> GcGrinProgram -> LowerState
-initialLowerState options gcProgram =
+-- | The state before the first action. The symbols of the functions and
+-- the externs come from the environment, which rendered each one once.
+initialLowerState :: LowerOptions -> LowerEnv -> GcGrinProgram -> LowerState
+initialLowerState options env gcProgram =
   LowerState
     { stateNext = 0,
       stateTarget = lowerTarget options,
@@ -564,16 +569,13 @@ initialLowerState options gcProgram =
       stateProfileTime = lowerProfileTime options,
       stateProfileSites = Map.empty,
       -- An extern function of the program is an entry of another unit.
-      stateExterns =
-        Map.fromList
-          [ (functionSymbol (grinExternName extern), Signature (contextTypes <> map repType (grinExternParameters extern)) [] AihcConvention)
-          | extern <- grinExternFunctions (gcGrinProgram gcProgram)
-          ],
+      stateExterns = externs,
       stateExternData = Set.empty,
       stateHelpers = Set.empty,
       stateBitmaps = Map.empty,
       stateDefined = Set.empty,
-      stateSignatures = Map.fromList [(functionSymbol (grinFunctionName function), Signature (contextTypes <> map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) [] AihcConvention) | function <- grinFunctions (gcGrinProgram gcProgram)],
+      stateSignatures = signatures,
+      stateCallSignatures = Map.union signatures externs,
       stateItemsRev = [],
       stateBlocksRev = [],
       stateOpen = Nothing,
@@ -582,6 +584,18 @@ initialLowerState options gcProgram =
       stateReplay = Nothing,
       stateSrtUses = Set.empty
     }
+  where
+    externs =
+      Map.fromList
+        [ (envSymbol env (grinExternName extern), Signature (contextTypes <> map repType (grinExternParameters extern)) [] AihcConvention)
+        | extern <- grinExternFunctions (gcGrinProgram gcProgram)
+        ]
+    signatures = Map.fromList [(envSymbol env (grinFunctionName function), Signature (contextTypes <> map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) [] AihcConvention) | function <- grinFunctions (gcGrinProgram gcProgram)]
+
+-- | The symbol of a function of the program, rendered once by the
+-- environment.
+envSymbol :: LowerEnv -> FunctionName -> Symbol
+envSymbol env name = Map.findWithDefault (functionSymbol name) name (envFunctionSymbols env)
 
 externItems :: LowerState -> [Item]
 externItems state =
@@ -608,6 +622,8 @@ lowerEnvironment options gcProgram =
     }
   where
     program = gcGrinProgram gcProgram
+    -- The nodes of the program, found once for the tables that read them.
+    nodes = programNodes program
     continuationFunctions = gcContinuationFunctions gcProgram
     continuationFrames = gcContinuationFrames gcProgram
     forwardingFunctions = Map.keysSet (Map.filter (== ContinuationFrameForward) continuationFrames)
@@ -646,7 +662,7 @@ lowerEnvironment options gcProgram =
       Set.fromList
         ( concatMap declaredConstructorInfos constructorLayouts
             <> concatMap (requiredNodeConstructorInfos . staticObjectNode) (programStaticObjects program)
-            <> concatMap requiredNodeConstructorInfos (programNodes program)
+            <> concatMap requiredNodeConstructorInfos nodes
             <> [ConstructorRuntimeInfo name SaturatedConstructor | name <- programIdentityCaseConstructors program]
         )
     -- A constructor that another unit can name keeps its tables. A
@@ -690,7 +706,7 @@ lowerEnvironment options gcProgram =
       ]
     infoKeys =
       [ key
-      | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
+      | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages nodes)),
         Just name <- [runtimeInfoFunctionName key],
         name `Map.member` functionSymbols
       ]
@@ -851,7 +867,11 @@ freshLabel base = do
 requireExtern :: Symbol -> [Type] -> [Type] -> LowerM ()
 requireExtern symbol parameters results =
   modify' $ \state ->
-    state {stateExterns = Map.insertWith (\_ old -> old) symbol (Signature parameters results CConvention) (stateExterns state)}
+    let signature = Signature parameters results CConvention
+     in state
+          { stateExterns = Map.insertWith (\_ old -> old) symbol signature (stateExterns state),
+            stateCallSignatures = Map.insertWith (\_ old -> old) symbol signature (stateCallSignatures state)
+          }
 
 requireExternData :: Symbol -> LowerM ()
 requireExternData symbol = modify' $ \state -> state {stateExternData = Set.insert symbol (stateExternData state)}
@@ -861,9 +881,19 @@ requireHelper helper = do
   let symbol = helperSymbol helper
   case sharedHelperSignature helper of
     Just signature ->
-      modify' $ \state -> state {stateExterns = Map.insert symbol signature (stateExterns state)}
+      modify' $ \state ->
+        state
+          { stateExterns = Map.insert symbol signature (stateExterns state),
+            -- A signature of the unit comes before an extern.
+            stateCallSignatures = if Map.member symbol (stateSignatures state) then stateCallSignatures state else Map.insert symbol signature (stateCallSignatures state)
+          }
     Nothing ->
-      modify' $ \state -> state {stateHelpers = Set.insert helper (stateHelpers state), stateSignatures = Map.insert symbol (helperSignature helper) (stateSignatures state)}
+      modify' $ \state ->
+        state
+          { stateHelpers = Set.insert helper (stateHelpers state),
+            stateSignatures = Map.insert symbol (helperSignature helper) (stateSignatures state),
+            stateCallSignatures = Map.insert symbol (helperSignature helper) (stateCallSignatures state)
+          }
   pure symbol
 
 -- | A helper that runs Haskell code takes the context first. The resumption
@@ -911,7 +941,12 @@ emitItem :: Item -> LowerM ()
 emitItem item = do
   state <- get
   let next = case item of
-        ItemFunction function -> state {stateDefined = Set.insert (functionName function) (stateDefined state), stateSignatures = Map.insert (functionName function) (functionSignature function) (stateSignatures state)}
+        ItemFunction function ->
+          state
+            { stateDefined = Set.insert (functionName function) (stateDefined state),
+              stateSignatures = Map.insert (functionName function) (functionSignature function) (stateSignatures state),
+              stateCallSignatures = Map.insert (functionName function) (functionSignature function) (stateCallSignatures state)
+            }
         ItemData value -> state {stateDefined = Set.insert (dataName value) (stateDefined state)}
         _ -> state
   put next {stateItemsRev = item : stateItemsRev state}
@@ -1703,6 +1738,7 @@ type ValueEnv = Map GrinVar Typed
 
 lowerFunction :: LowerEnv -> GrinFunction -> LowerM ()
 lowerFunction env function = do
+  let symbol = envSymbol env (grinFunctionName function)
   (context, contextParameters) <- freshContext
   setContext context
   originalParameters <- forM (grinFunctionParameters function) $ \var -> do
@@ -1739,7 +1775,7 @@ lowerFunction env function = do
       pure
         ( (object, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- supplied],
           loaded <> supplied,
-          Just (Replay (functionSymbol (grinFunctionName function)) replayArguments (Just (OperandVar object, toInteger (8 * (count + 1)))))
+          Just (Replay symbol replayArguments (Just (OperandVar object, toInteger (8 * (count + 1)))))
         )
   when (lowerProfileTime (envOptions env)) $
     storeProfileEntry (grinFunctionName function) (profileContinuation env function [lirVar | (_, lirVar, _) <- parameters])
@@ -1752,12 +1788,12 @@ lowerFunction env function = do
   codeSlot <- if hasForeignCall needsCodeSlot (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
   let ctx = FunctionCtx {ctxEnv = env, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
-      replay = Replay (functionSymbol (grinFunctionName function)) [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters] Nothing
+      replay = Replay symbol [(OperandVar lirVar, ty, isPointerRuntimeRep (grinVarRuntimeRep var)) | (var, lirVar, ty) <- parameters] Nothing
   modify' (\state -> state {stateReplay = Just (fromMaybe replay frameReplay)})
   compileExpr ctx valueEnv (grinFunctionBody function)
   modify' (\state -> state {stateContext = Nothing, stateReplay = Nothing})
   finishFunction
-    (functionSymbol (grinFunctionName function))
+    symbol
     (if lowerExposeFunctions (envOptions env) || grinFunctionName function `Set.member` envExportedFunctions env then Export else Internal)
     (contextParameters <> entryParameters)
     []
@@ -4667,11 +4703,12 @@ programRuntimeReps program =
 programSlotReps :: GrinProgram -> [GrinRep]
 programSlotReps program =
   map (grinValueRuntimeRep . GrinLitValue) (grinProgramLiterals program)
-    <> [rep | node <- programNodes program, GrinClosure _ layouts <- [grinNodeTag node], layout <- layouts, rep <- layout]
+    <> [rep | node <- nodes, GrinClosure _ layouts <- [grinNodeTag node], layout <- layouts, rep <- layout]
     <> concatMap (concat . grinConstructorLayouts) (grinConstructors program)
-    <> concatMap (map grinValueRuntimeRep . grinNodeFields) (programNodes program)
+    <> concatMap (map grinValueRuntimeRep . grinNodeFields) nodes
     <> concatMap functionReps (grinFunctions program)
   where
+    nodes = programNodes program
     functionReps function = map grinVarRuntimeRep (grinFunctionParameters function) <> exprReps (grinFunctionBody function)
     exprReps expression =
       case expression of

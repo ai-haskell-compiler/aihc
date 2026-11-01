@@ -59,10 +59,8 @@ import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
-import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -456,22 +454,17 @@ instructionEffect instruction =
       | base == RSP = Forgets
       | otherwise = Writes []
 
+-- | The enumeration lists the 16 quad-word registers first, then their
+-- double-word names, then their byte names, each in the same order.
 quadWord :: Amd64Register -> Bool
-quadWord register = register `elem` quadRegisters && register /= RSP
-
-quadRegisters, dwordRegisters, byteRegisters :: [Amd64Register]
-quadRegisters = [RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15]
-dwordRegisters = [EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D]
-byteRegisters = [AL, CL, DL, BL, SPL, BPL, SIL, DIL, R8B, R9B, R10B, R11B, R12B, R13B, R14B, R15B]
+quadWord register = fromEnum register < registerCount && register /= RSP
 
 registerKey :: Amd64Register -> Int
-registerKey register =
-  case elemIndex register quadRegisters of
-    Just index -> index
-    Nothing ->
-      case elemIndex register dwordRegisters of
-        Just index -> index
-        Nothing -> fromMaybe 0 (elemIndex register byteRegisters)
+registerKey register = fromEnum register `rem` registerCount
+
+-- | The number of registers in each width class of the enumeration.
+registerCount :: Int
+registerCount = 16
 
 prologueFrame :: Bool -> Int -> [Amd64Statement]
 prologueFrame framed size

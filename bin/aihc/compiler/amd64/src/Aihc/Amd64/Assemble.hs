@@ -105,7 +105,7 @@ data Amd64Register
   | R13B
   | R14B
   | R15B
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Enum)
 
 -- | A memory operand: a base register and a displacement, or a base
 -- register, an index register shifted left by 0 to 3, and a displacement.
