@@ -3,7 +3,10 @@ name: Self-Compile Performance
 # Measure the time of each stage of the aihc self-compile. GHC compiles stage
 # 0 from an empty package store. Stage 0 compiles stage 1, and stage 1
 # compiles stage 2, each from an empty package store. GHC compiles at its
-# default level -O1. Each stage after stage 0 uses the native backend at -O2.
+# default level -O1. Each stage after stage 0 uses the native backend. The
+# -O2 stage 1 compiles the -O2 stage 2. Stage 0 also compiles stage 1 at -O1,
+# and the -O2 stage 1 also compiles stage 2 at -O1. Thus, the two stage 2
+# builds use the same compiler, and only the level is different.
 # Each stage uses the minimal configuration of aihc: no `hackage` flag and no
 # `pretty-ui` flag. The workflow opens a PR that puts the times in the README.
 #
@@ -29,7 +32,6 @@ concurrency:
 
 env:
   TARGET: linux-amd64
-  OPTIMIZATION: "2"
   WORK_DIR: /tmp/aihc-self-compile-perf
   CABAL_DIR: /tmp/aihc-self-compile-perf-cabal
 
@@ -81,7 +83,7 @@ jobs:
             --output "$RUNNER_TEMP/stages/aihc-stage1" \
             --time-file "$RUNNER_TEMP/times/stage1" \
             --target "$TARGET" \
-            -O "$OPTIMIZATION"
+            -O 2
 
       # The stages use the same work directory path, as in the Self-Compile
       # workflow. Thus, stage 1 and stage 2 can be identical.
@@ -93,7 +95,30 @@ jobs:
             --output "$RUNNER_TEMP/stages/aihc-stage2" \
             --time-file "$RUNNER_TEMP/times/stage2" \
             --target "$TARGET" \
-            -O "$OPTIMIZATION"
+            -O 2
+
+      # The level is part of the identity of an installed package. Thus, each
+      # -O1 build installs aihc-base and the dependencies again, before the
+      # time starts.
+      - name: Compile stage 1 at -O1 with stage 0
+        run: |
+          rm -rf "$WORK_DIR"
+          AIHC="$RUNNER_TEMP/stages/aihc-stage0" nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage1-O1" \
+            --time-file "$RUNNER_TEMP/times/stage1-O1" \
+            --target "$TARGET" \
+            -O 1
+
+      - name: Compile stage 2 at -O1 with stage 1
+        run: |
+          rm -rf "$WORK_DIR"
+          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage2-O1" \
+            --time-file "$RUNNER_TEMP/times/stage2-O1" \
+            --target "$TARGET" \
+            -O 1
 
       # The step also writes the table to the log, which a reader can see
       # without a GitHub sign-in.
@@ -103,13 +128,16 @@ jobs:
           stages="$RUNNER_TEMP/stages"
           times="$RUNNER_TEMP/times"
           results="$RUNNER_TEMP/self-compile-perf.tsv"
+          row() {
+            printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" \
+              "$(cat "$times/$4")" "$(stat -c %s "$stages/aihc-$4")"
+          }
           {
-            printf 'stage0\tGHC %s\t%s\t%s\n' "$(cat "$times/ghc-version")" \
-              "$(cat "$times/stage0")" "$(stat -c %s "$stages/aihc-stage0")"
-            printf 'stage1\taihc stage0\t%s\t%s\n' \
-              "$(cat "$times/stage1")" "$(stat -c %s "$stages/aihc-stage1")"
-            printf 'stage2\taihc stage1\t%s\t%s\n' \
-              "$(cat "$times/stage2")" "$(stat -c %s "$stages/aihc-stage2")"
+            row stage0 "GHC $(cat "$times/ghc-version")" -O1 stage0
+            row stage1 "aihc stage0" -O2 stage1
+            row stage2 "aihc stage1" -O2 stage2
+            row stage1 "aihc stage0" -O1 stage1-O1
+            row stage2 "aihc stage1" -O1 stage2-O1
           } >"$results"
           COMMIT="$GITHUB_SHA" RUNNER="$ImageOS ($(nproc) cores)" \
             scripts/update-readme-self-compile-perf.sh "$results" README.md
@@ -135,6 +163,7 @@ jobs:
             The weekly Self-Compile Performance workflow made this PR automatically.
 
             GHC compiles stage 0 of aihc. Stage 0 compiles stage 1, and stage 1 compiles stage 2.
+            The aihc stages compile at -O2 and at -O1.
             Each build starts with an empty package store.
             The README table gives the build time of each stage, relative to the GHC build time.
 
