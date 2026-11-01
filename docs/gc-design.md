@@ -163,8 +163,9 @@ that continuation capture walks. The compare comes first. A measurement
 decides on the underflow frame.
 
 The worst case stack cost of a minor collection is one chunk for each live
-thread plus the young chunks. Only young frames need deduplication, so the
-address set of the semispace collector shrinks to the young frames.
+thread plus the young chunks. A collection scans the frames of a young chunk
+from the frame it reaches down to the frames it scanned before, and the chunk
+records that frame. Thus no frame enters an address set.
 
 ## Write barrier
 
