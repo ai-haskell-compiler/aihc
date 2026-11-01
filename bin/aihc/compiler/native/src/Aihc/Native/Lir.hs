@@ -552,9 +552,17 @@ compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register
 compileFunctionTo backend output signatures index input state =
   evalStateT (runExceptT (execStateT action state)) (IntMap.empty, Nothing)
   where
-    lowered = dropUnreadStackAllocations (forwardCopies (lowerWideDivision (isJust (nbQuotRemWide backend)) input))
-    (rotated, rotations) = if isJust (nbRotatedBinary backend) then selectRotatedOperands lowered else (lowered, Map.empty)
-    (function, fusions) = selectFusions backend rotated
+    forwarded = forwardCopies (lowerWideDivision (isJust (nbQuotRemWide backend)) input)
+    -- The reads are counted once. A pass that removes a value of one read
+    -- names it, and the count of every other value stays the same.
+    forwardedReads = readCounts forwarded
+    lowered = dropUnreadStackAllocations forwardedReads forwarded
+    (rotated, rotations, rotatedReads) =
+      if isJust (nbRotatedBinary backend)
+        then let (rotatedFunction, counts, removed) = selectRotatedOperands forwardedReads lowered in (rotatedFunction, counts, foldr Map.delete forwardedReads removed)
+        else (lowered, Map.empty, forwardedReads)
+    (function, fusions, removedByFusion) = selectFusions backend rotatedReads rotated
+    functionReads = foldr Map.delete rotatedReads removedByFusion
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
     emitStatement statement = do
@@ -571,7 +579,7 @@ compileFunctionTo backend output signatures index input state =
             Nothing -> lift (output previous) >> put (next, Just statement)
     emitStatements = mapM_ (lift . lift . emitStatement)
     action = do
-      (prepared, prefix) <- native (prepareFunction backend signatures index function)
+      (prepared, prefix) <- native (prepareFunction backend signatures index functionReads function)
       let ctx = prepared {ctxRotations = rotations, ctxFusions = fusions}
       emitStatements prefix
       let blocks = functionBlocks function
@@ -599,8 +607,12 @@ compileFunctionTo backend output signatures index input state =
 -- of the value with null that excludes null. An indirect tail call of a known
 -- value needs no null check. The analysis meets the sets of the
 -- predecessors until no set changes. The entry block knows no value.
+--
+-- The analysis starts with every block unknown and visits the blocks in
+-- order. A block whose set changes puts its successors back on the list.
+-- The sets only shrink, so the list empties at the greatest solution.
 nonNullCode :: Function -> Map Label (Set Var)
-nonNullCode function = Map.mapMaybe id (fixpoint (Map.fromList [(blockLabel block, Nothing) | block <- blocks]))
+nonNullCode function = Map.mapMaybe id (solve (Map.fromList [(blockLabel block, Nothing) | block <- blocks]) (map blockLabel blocks))
   where
     blocks = functionBlocks function
     entryLabel = blockLabel <$> take 1 blocks
@@ -631,9 +643,21 @@ nonNullCode function = Map.mapMaybe id (fixpoint (Map.fromList [(blockLabel bloc
         | block <- blocks,
           (to, proved) <- edges (blockTerminator block)
         ]
-    fixpoint known =
-      let next = Map.fromList [(blockLabel block, value known (blockLabel block)) | block <- blocks]
-       in if next == known then known else fixpoint next
+    successors =
+      Map.fromListWith
+        (flip (<>))
+        [ (blockLabel block, [to])
+        | block <- blocks,
+          (to, _) <- edges (blockTerminator block)
+        ]
+    solve known pending =
+      case pending of
+        [] -> known
+        label : rest
+          | next == Map.findWithDefault Nothing label known -> solve known rest
+          | otherwise -> solve (Map.insert label next known) (rest <> Map.findWithDefault [] label successors)
+          where
+            next = value known label
     value known label
       | [label] == entryLabel = Just Set.empty
       | otherwise =
@@ -690,12 +714,11 @@ forwardCopies function
 -- costs a frame setup on each path through the function. An allocation
 -- with an alignment that the frame cannot give stays, so that the backend
 -- still reports it.
-dropUnreadStackAllocations :: Function -> Function
-dropUnreadStackAllocations function
+dropUnreadStackAllocations :: Map Var Int -> Function -> Function
+dropUnreadStackAllocations readers function
   | any unread allocations = function {functionBlocks = map dropBlock (functionBlocks function)}
   | otherwise = function
   where
-    readers = readCounts function
     allocations = [result | block <- functionBlocks function, Instruction [result] (StackAlloc _ _) <- blockInstructions block]
     unread result = Map.findWithDefault 0 result readers == 0
     dropBlock block =
@@ -722,8 +745,8 @@ layoutBlocks blocks = case blocks of
   entry : rest -> entry : filter (not . blockCold . fst) rest <> filter (blockCold . fst) rest
   [] -> []
 
-prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error (Ctx register, [statement])
-prepareFunction backend signatures index function = do
+prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Map Var Int -> Function -> NativeM error (Ctx register, [statement])
+prepareFunction backend signatures index functionReads function = do
   modify (\state -> state {objectFunctionIndex = index, objectFunctionTraps = Map.empty})
   layout <- functionLayout backend signatures function
   let blocks = functionBlocks function
@@ -745,7 +768,7 @@ prepareFunction backend signatures index function = do
             ctxIncomingOverflow = case functionConvention function of
               AihcConvention -> overflowBytes backend (length (functionParameters function))
               CConvention -> 0,
-            ctxReads = readCounts function,
+            ctxReads = functionReads,
             ctxRotations = Map.empty,
             ctxFusions = Map.empty,
             ctxNonNullCode = Set.empty
@@ -1371,21 +1394,22 @@ compileInstruction backend ctx (Instruction results operation) =
 -- and reads the carry directly. The value it adds to must be a value that is
 -- ready there, not a literal: a backend can load a literal with an
 -- instruction that changes the flags.
--- Each rewrite keeps the reads that the allocation must see.
-selectFusions :: NativeBackend statement register error -> Function -> (Function, Map Var Fusion)
-selectFusions backend function = (function {functionBlocks = map fst selected}, Map.unions (map snd selected))
+-- Each rewrite keeps the reads that the allocation must see. The result
+-- names the values whose one read a rewrite took with their definition:
+-- the reads of every other value stay as the counts give them.
+selectFusions :: NativeBackend statement register error -> Map Var Int -> Function -> (Function, Map Var Fusion, [Var])
+selectFusions backend uses function = (function {functionBlocks = [block | (block, _, _) <- selected]}, Map.unions [table | (_, table, _) <- selected], concat [removed | (_, _, removed) <- selected])
   where
-    uses = readCounts function
     useOnce v = Map.lookup v uses == Just 1
     selected = map selectBlock (functionBlocks function)
     selectBlock block =
-      let (shifted, shifts) = maybe (blockInstructions block, Map.empty) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
-          (loaded, table) = maybe (shifted, shifts) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
-          (carried, carries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty)
-       in (block {blockInstructions = carried}, Map.union table carries)
-    selectShifts accepts instructions = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches)
+      let (shifted, shifts, removedShifts) = maybe (blockInstructions block, Map.empty, []) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
+          (loaded, table, removedLoads) = maybe (shifted, shifts, []) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
+          (carried, carries, removedCarries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty, [])
+       in (block {blockInstructions = carried}, Map.union table carries, removedShifts <> removedLoads <> removedCarries)
+    selectShifts accepts instructions = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches, Set.toList removed)
       where
-        definitions = Map.fromList [(v, operation) | Instruction [v] operation <- instructions]
+        definitions = Map.fromList [(v, operation) | Instruction [v] operation@(Binary Shl I64 (OperandVar _) (OperandLiteral (LitInt _))) <- instructions]
         shift (OperandVar s)
           | useOnce s,
             Just (Binary Shl I64 index@(OperandVar _) (OperandLiteral (LitInt count))) <- Map.lookup s definitions,
@@ -1415,7 +1439,7 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
           | Just (operation, _, _) <- Map.lookup v matches = [Instruction [v] operation]
           | Set.member v removed = []
         rewrite instruction = [instruction]
-    selectLoads accepts shifts instructions = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.mapMaybe snd matches) shifts) (Set.toList removed))
+    selectLoads accepts shifts instructions = (concatMap rewrite instructions, foldr Map.delete (Map.union (Map.mapMaybe snd matches) shifts) (Set.toList removed), Set.toList removed)
       where
         definitions = Map.fromList [(v, operation) | Instruction [v] operation@PtrAdd {} <- instructions]
         match (Load ty location@Address {addressBase = OperandVar address} alignment)
@@ -1439,12 +1463,14 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
           | Just (operation, _) <- Map.lookup v matches = [Instruction [v] operation]
           | Set.member v removed = []
         rewrite instruction = [instruction]
-    selectCarries instructions = (reverse kept, table)
+    -- The widened value loses its definition and its read. The addition
+    -- keeps its result and moves.
+    selectCarries instructions = (reverse kept, table, [w | w <- Set.toList dropped, Map.member w widened])
       where
         defined = Set.fromList (concatMap instructionResults instructions)
         widened = Map.fromList [(c, w) | Instruction [w] (Convert ZExt I1 (OperandVar c) I64) <- instructions, useOnce c, useOnce w]
         additions = Map.fromListWith (<>) [(w, [(r, other)]) | Instruction [r] (Binary Add I64 left right) <- instructions, (OperandVar w, other) <- [(left, right), (right, left)]]
-        (kept, table, _, _) = foldl' step ([], Map.empty, Set.empty, Set.empty) instructions
+        (kept, table, _, dropped) = foldl' step ([], Map.empty, Set.empty, Set.empty) instructions
         step (done, fusions, ready, skipped) instruction@(Instruction results operation) =
           case (results, operation) of
             (_, _) | any (`Set.member` skipped) results -> (done, fusions, ready, skipped)
@@ -1466,14 +1492,15 @@ selectFusions backend function = (function {functionBlocks = map fst selected}, 
 -- | Select a single-use rotate as a logical operand within one block.
 -- The allocation input reads the rotate source at its new use position.
 -- The side table retains the count for instruction emission.
-selectRotatedOperands :: Function -> (Function, Map Var Int)
-selectRotatedOperands function = (function {functionBlocks = map fst selected}, Map.unions (map snd selected))
+-- The result names the rotates that the rewrites removed: each had the one
+-- read that its operand now has.
+selectRotatedOperands :: Map Var Int -> Function -> (Function, Map Var Int, [Var])
+selectRotatedOperands uses function = (function {functionBlocks = [block | (block, _, _) <- selected]}, Map.unions [counts | (_, counts, _) <- selected], concat [removed | (_, _, removed) <- selected])
   where
-    uses = readCounts function
     selected = map selectBlock (functionBlocks function)
-    selectBlock block = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, counts)
+    selectBlock block = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, counts, Set.toList removed)
       where
-        definitions = Map.fromList [(v, operation) | Instruction [v] operation <- blockInstructions block]
+        definitions = Map.fromList [(v, operation) | Instruction [v] operation@(Binary rotation _ _ (OperandLiteral (LitInt _))) <- blockInstructions block, rotation == RotL || rotation == RotR]
         matches = Map.fromList [(v, (operation, ty, left, source, rotated, count)) | Instruction [v] (Binary operation ty a b) <- blockInstructions block, operation `elem` [And, Or, Xor], ty `elem` [I32, I64], Just (left, source, rotated, count) <- [match ty a b <|> match ty b a]]
         counts = Map.map (\(_, _, _, _, _, count) -> count) matches
         removed = Set.fromList [rotated | (_, _, _, _, rotated, _) <- Map.elems matches]

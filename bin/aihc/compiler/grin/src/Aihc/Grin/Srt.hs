@@ -160,9 +160,13 @@ programStaticReferences program =
     -- of the function is a static object that names that table, so a call
     -- names the object instead.
     externGlobals = Map.fromList [(grinExternName extern, grinExternGlobal extern) | extern <- grinExternFunctions program]
+    -- The code references of each body, found once. The extern objects and
+    -- the direct calls of a function both read them.
+    references = Map.fromList [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
+    functionReferences function = Map.findWithDefault Set.empty (grinFunctionName function) references
     externObjects function =
       [ global
-      | name <- Set.toList (bodyReferences (grinFunctionBody function)),
+      | name <- Set.toList (functionReferences function),
         Just global <- [Map.lookup name externGlobals]
       ]
     directCalls =
@@ -171,24 +175,28 @@ programStaticReferences program =
         | function <- grinFunctions program,
           let callees =
                 Set.delete (grinFunctionName function) $
-                  Set.intersection definedNames (bodyReferences (grinFunctionBody function)),
+                  Set.intersection definedNames (functionReferences function),
           not (Set.null callees)
         ]
+    -- The known callers of each function, from the direct calls.
+    callers =
+      Map.fromListWith
+        (<>)
+        [ (callee, [caller])
+        | (caller, callees) <- Map.toList directCalls,
+          callee <- Set.toList callees
+        ]
     -- A function reaches a traced static object when it mentions one or when
-    -- one of its known callees does. Iterating to a fixed point over the call
-    -- graph drops the tables that would only ever be empty.
-    reaching = fixpoint (Map.keysSet directObjects)
-    fixpoint current
-      | Set.size next == Set.size current = current
-      | otherwise = fixpoint next
-      where
-        next =
-          Set.union current $
-            Set.fromList
-              [ caller
-              | (caller, callees) <- Map.toList directCalls,
-                not (Set.disjoint callees current)
-              ]
+    -- one of its known callees does. A walk from the functions that mention
+    -- one, up the callers, finds every such function once and drops the
+    -- tables that would only ever be empty.
+    reaching = walkCallers (Map.keysSet directObjects) (Map.keys directObjects)
+    walkCallers found pending =
+      case pending of
+        [] -> found
+        name : rest ->
+          let new = [caller | caller <- Map.findWithDefault [] name callers, not (Set.member caller found)]
+           in walkCallers (foldr Set.insert found new) (new <> rest)
     children name =
       Set.toAscList (Set.intersection reaching (Map.findWithDefault Set.empty name directCalls))
 
