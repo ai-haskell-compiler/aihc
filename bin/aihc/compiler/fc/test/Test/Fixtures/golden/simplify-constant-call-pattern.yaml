@@ -1,0 +1,66 @@
+---
+extensions: []
+modules:
+- |
+  module Test (useIt) where
+
+  import GHC.Types (Int)
+
+  data Tree = Leaf | Node Tree Int Tree
+
+  merge :: Tree -> Tree -> Tree
+  merge t Leaf = t
+  merge Leaf t = t
+  merge (Node l x r) t = Node (merge l t) x r
+
+  useIt :: Tree -> (Tree -> Int) -> Int
+  useIt t k = k (merge t Leaf)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tTree :: sType {
+    1.cLeaf :: tTree;
+    1.cNode :: tTree → tInt → tTree → tTree
+  }
+
+  val 1.vmerge :: tTree → tTree → tTree
+    = λ(x : tTree) (y : tTree).
+      case x as (_scrut : tTree) of {
+        cLeaf →
+          case y as (_scrut{1} : tTree) of {
+            cLeaf →
+              _scrut;
+            _ →
+              _scrut{1}
+          };
+        cNode (l : tTree) (x{1} : tInt) (r : tTree) →
+          case y as (_scrut{1} : tTree) of {
+            cLeaf →
+              _scrut;
+            _ →
+              cNode (vmerge l _scrut{1}) x{1} r
+          }
+      }
+
+  pub val 1.vuseIt :: tTree → (tTree → tInt) → tInt
+    = λ(x : tTree) (y : tTree → tInt).
+      y x
+status: pass
+reason: The function 'merge' is recursive, so the inliner does not copy it. The call 'merge t Leaf' gives a constructor without fields. The body of 'merge' with 'Leaf' in place of its second parameter simplifies to 't', which is not larger than the call, so the call becomes 't'.

@@ -89,7 +89,7 @@ import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, typesEqual, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprMentionsAny, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (liftedRepName, wiredGhcTypes)
 import Aihc.Resolve (PackageId)
@@ -4882,22 +4882,13 @@ rebuildsScrutinee env scrutinee binder alternatives =
           (Just named, _) -> Just (binderType named)
           (Nothing, ExVar name) -> Map.lookup name (teBinders env)
           _ -> Nothing
-    -- A cast whose two sides are the same type changes nothing, such as
-    -- a cast to a newtype and back at an equal type argument.
-    unchanged rhs =
-      case rhs of
-        ExCast inner coercion
-          | Just (from, to) <- coercionEndpoints env coercion,
-            typesEqual env from to ->
-              unchanged inner
-        _ -> rhs
     rebuilds alternative
-      | returnsBinder (unchanged (altRhs alternative)) = null (altTypeBinders alternative)
+      | returnsBinder (altRhs alternative) = null (altTypeBinders alternative)
       | otherwise =
           case altCon alternative of
             AltData con
               | null (altTypeBinders alternative),
-                (ExVar rebuilt, spine) <- collectSpine (unchanged (altRhs alternative)),
+                (ExVar rebuilt, spine) <- collectSpine (altRhs alternative),
                 rebuilt == con,
                 rights spine == map (ExVar . binderName) (altBinders alternative) ->
                   null (lefts spine) || (map (reduceType env) <$> scrutineeArguments) == Just (map (reduceType env) (lefts spine))
