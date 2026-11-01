@@ -143,15 +143,19 @@ simplifyRotations function = rewritten {functionBlocks = map clean (functionBloc
 -- Only modular operations permit this transformation. Division and shifts do not.
 -- Keep wide operations with other users to avoid duplicate arithmetic.
 -- Do not replace one result truncation with two operand truncations.
+--
+-- The definition table holds only the instructions that a rewrite reads: a
+-- modular wide operation and a zero extension from 32 bits. When no block
+-- changes, the reads of the rewritten function are the reads of the input.
 simplifyWidths :: Function -> Function
 simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
   where
     uses = readCounts function
     occupied = Set.fromList (map fst (functionParameters function) <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- functionBlocks function])
-    (blocks, _) = mapAccumLBlocks occupied (functionBlocks function)
+    (blocks, changed) = mapAccumLBlocks occupied (functionBlocks function)
     rewritten = function {functionBlocks = blocks}
     candidates = Set.fromList [v | block <- functionBlocks function, Instruction [v] op <- blockInstructions block, removable op]
-    remaining = readCounts rewritten
+    remaining = if changed then readCounts rewritten else uses
     clean block = block {blockInstructions = fst (foldr remove ([], remaining) (blockInstructions block))}
     remove (Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
@@ -162,13 +166,21 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
     removable (Binary op I64 _ _) = modular op
     removable (Convert op _ _ _) = op `elem` [Trunc, ZExt]
     removable _ = False
-    mapAccumLBlocks names [] = ([], names)
+    mapAccumLBlocks _ [] = ([], False)
     mapAccumLBlocks names (block : rest) =
-      let definitions = Map.fromList [(v, op) | Instruction [v] op <- blockInstructions block]
-          (instructions, _, names') = foldl' rewrite ([], definitions, names) (blockInstructions block)
-          (blocks', names'') = mapAccumLBlocks names' rest
-       in (block {blockInstructions = reverse instructions} : blocks', names'')
-    rewrite (before, definitions, names) instruction@(Instruction [v] operation) =
+      let definitions = foldl' define Map.empty (blockInstructions block)
+          (instructions, _, names', blockChanged) = foldl' rewrite ([], definitions, names, False) (blockInstructions block)
+          (blocks', restChanged) = mapAccumLBlocks names' rest
+       in (block {blockInstructions = reverse instructions} : blocks', blockChanged || restChanged)
+    define defs (Instruction [result] op)
+      | tabled op = Map.insert result op defs
+    define defs _ = defs
+    tabled op =
+      case op of
+        Binary binary I64 _ _ -> modular binary
+        Convert ZExt I32 _ I64 -> True
+        _ -> False
+    rewrite (before, definitions, names, seen) instruction@(Instruction [v] operation) =
       case operation of
         Convert Trunc I64 (OperandVar wide) I32
           | Just (Binary op I64 a b) <- Map.lookup wide definitions,
@@ -177,19 +189,17 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
             cheapOperand definitions a || cheapOperand definitions b ->
               let (leftCode, left, names') = narrowOperand definitions names v "_left" a
                   (rightCode, right, names'') = narrowOperand definitions names' v "_right" b
-               in append (leftCode <> rightCode <> [Instruction [v] (Binary op I32 left right)]) names''
+               in append (leftCode <> rightCode <> [Instruction [v] (Binary op I32 left right)]) names'' True
         Binary op I64 a b
           | op `elem` [And, Or, Xor],
             Just left <- narrowValue definitions a,
             Just right <- narrowValue definitions b ->
               let (result, names') = fresh names v "_word"
-               in append [Instruction [result] (Binary op I32 left right), Instruction [v] (Convert ZExt I32 (OperandVar result) I64)] names'
-        _ -> append [instruction] names
+               in append [Instruction [result] (Binary op I32 left right), Instruction [v] (Convert ZExt I32 (OperandVar result) I64)] names' True
+        _ -> append [instruction] names seen
       where
-        append code names' = (reverse code <> before, foldl' define definitions code, names')
-        define defs (Instruction [result] op) = Map.insert result op defs
-        define defs _ = defs
-    rewrite (before, definitions, names) instruction = (instruction : before, definitions, names)
+        append code names' seen' = (reverse code <> before, foldl' define definitions code, names', seen')
+    rewrite (before, definitions, names, seen) instruction = (instruction : before, definitions, names, seen)
     narrowValue definitions (OperandVar v)
       | Just (Convert ZExt I32 source I64) <- Map.lookup v definitions = Just source
     narrowValue _ operand@(OperandLiteral (LitInt value))
