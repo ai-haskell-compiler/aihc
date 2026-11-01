@@ -30,6 +30,7 @@ module Aihc.Fc.TypeOf
     kindsEqual,
     refineKind,
     typeUsesName,
+    typeVariableNames,
     coercionEndpoints,
     projectNominalArgument,
     applyRepresentationalAxiom,

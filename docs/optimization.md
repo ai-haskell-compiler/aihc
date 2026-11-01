@@ -790,6 +790,26 @@ The `-O1` and `-O2` plans run it at the end of the growing phase. In
 `snappy-roundtrip` it copies the fused loop over the block index and then the
 loop of `take` over `iterate`, and the 722,752 thunks of the seeds go away.
 
+### Constant arguments of a top-level call
+
+The simplifier also specialises a saturated call of a top-level value at
+its constant arguments: type arguments without type variables, and
+constructors without fields. It simplifies the body of the value once with
+these arguments in place of its parameters. When the result is not larger
+than the call, the call becomes the result, applied to the other
+arguments. A recursive value is never inlined, but such a call can make it
+small. The hints of `megaparsec` merge with `union hs Tip`, and the body of
+`union` with `Tip` reduces to `hs`. The lazy argument is then a variable,
+and no thunk is built. A constructor under a cast to its own type
+constructor, as a newtype round trip gives, is the constructor at the type
+arguments of the cast.
+
+The walk keeps the result for each value and pattern, and does not
+specialise again inside a specialisation. Only a value without a pragma,
+or with an `INLINABLE` pragma that is always active, is specialised, and
+not a value that a rule names. The body must not be larger than
+`callPatternBodyLimit`.
+
 ## The inliner
 
 The inliner walks the values from the leaves of the call graph to the
@@ -1113,6 +1133,13 @@ Three things differ from GHC:
   parameter is admitted, and so is a partial call with an interesting
   argument. System FC does not keep the arity of the left-hand side apart
   from the lambdas of the body, so `(.) f g = \x -> f (g x)` has arity three.
+  A partial call is also admitted when the copy is at most one unit larger
+  than the call. The lambda of the copy holds the same values as the
+  partial application, and in the copy the body sees its arguments. Thus
+  the continuation `cok . f` of a `megaparsec` parser is `λx. cok (f x)`,
+  and no call of it builds a thunk of `f x`. A value that the left-hand
+  side of an active rule names keeps its partial calls, so that the rule
+  still matches them.
 - A larger `INLINE` value is only a candidate, and the site policy decides
   each copy. The `text` package marks large functions `INLINE`, and
   honouring them GHC's way made its example two and a half times larger at
@@ -1297,6 +1324,10 @@ The state-token check expands type synonyms.
 Constructor applications remain with the constant lift pass.
 The pass does not evaluate a computation before its original use.
 
+A closed lambda that is an argument or the right-hand side of a let moves to a private top-level function.
+A closure of it holds nothing, and a top-level function needs no allocation.
+The body of a lambda stays in place, so no function loses a parameter.
+
 Full laziness can increase result lifetime.
 Benchmark checks must include heap use as well as execution time.
 
@@ -1372,6 +1403,14 @@ This restriction avoids extra argument transfers and larger partial applications
 The points-to rewrite also exposes known partial applications as closure nodes.
 The GRIN simplifier can remove these nodes when later operations use only their fields.
 This rewrite does not move intervening effects.
+
+A closure reads the fields of a known constructor from the constructor when
+it uses both, so that it holds the constructor only. A local function whose
+every use is a call with all its arguments is not a closure: GRIN conversion
+calls it directly. Such a function keeps its fields. A read would keep the
+constructor alive at each call, and a loop would build it in each
+iteration. In the case conversion loop of `text`, the box of the output
+index was built for each character for this reason.
 
 Demand analysis records nested field demands from product cases that every path reaches.
 The worker/wrapper pass passes these fields directly and reconstructs products only where necessary.

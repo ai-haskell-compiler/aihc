@@ -1,0 +1,65 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (f) where
+
+  import GHC.Prim (Int#, (+#))
+  import GHC.Types (Bool (..), Int (..))
+
+  f :: Int -> (Int -> Int) -> (Int -> Int -> Int) -> Bool -> Int
+  f n g h c = case n of
+    I# a ->
+      let b = I# a
+          j :: Int# -> Int
+          j k = h (g b) (h (I# (k +# a)) (g (I# (a +# k))))
+       in case c of
+            True -> j 1#
+            False -> j 2#
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vf :: tInt → (tInt → tInt) → (tInt → tInt → tInt) → tBool → tInt
+    = λ(x : tInt) (y : tInt → tInt) (z : tInt → tInt → tInt) (x1 : tBool).
+      let! cI# (a : tInt#) = x;
+      let b : tInt =
+        cI# a;
+      let j : FUN @cIntRep @sLiftedRep tInt# tInt =
+        λ(x{1} : tInt#).
+          z (y b) (z (cI# (prim +# x{1} a)) (y (cI# (prim +# a x{1}))));
+      case x1 of {
+        cTrue →
+          j lit (1#cIntRep) :: tInt#;
+        cFalse →
+          j lit (2#cIntRep) :: tInt#
+      }
+status: pass
+reason: Each use of the local function 'j' is a call with all its arguments, so 'j' is not a closure. Its body uses the field 'a' directly, and does not read it from the box 'b', which would keep 'b' alive at each call.

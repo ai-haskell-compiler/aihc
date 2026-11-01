@@ -704,6 +704,18 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                         (guidanceTailsKnown (candidateGuidanceOf candidate))
                   )
                   candidates
+              -- The bodies that a call with constant arguments can
+              -- specialise. See 'constantCallPattern'.
+              ruleNames = Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | rules <- Map.elems (inRules st), rule <- rules]
+              patternBodies =
+                Map.filterWithKey
+                  ( \callee _ ->
+                      callee /= name
+                        && callPatternSpec (Map.findWithDefault InlineDefault callee (inSpecs st))
+                        && Set.notMember callee ruleNames
+                        && guidanceSize (inGuidance st Map.! callee) <= callPatternBodyLimit
+                  )
+                  (Map.restrictKeys (inBodies st) references)
               oldSize = guidanceSize (inGuidance st Map.! name)
               credit = Map.findWithDefault 0 name (inCallArities st)
               allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
@@ -791,7 +803,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                                 spLocalCandidates = Map.empty,
                                 spFacts = emptyFacts,
                                 spEscapes = True,
-                                spFixed = SimplFixed {spKnown = known, spArity = arities, spSiteLimit = policySiteLimit policy, spRequestedSiteLimit = policyRequestedSiteLimit policy, spReducingSiteLimit = policyReducingSiteLimit policy, spDiscount = policyFunctionArgumentDiscount policy, spRules = inRules st, spSignatures = inSignatures st, spInTemplate = isTemplate st name, spDiverging = diverging}
+                                spFixed = SimplFixed {spKnown = known, spArity = arities, spSiteLimit = policySiteLimit policy, spRequestedSiteLimit = policyRequestedSiteLimit policy, spReducingSiteLimit = policyReducingSiteLimit policy, spDiscount = policyFunctionArgumentDiscount policy, spRules = inRules st, spSignatures = inSignatures st, spInTemplate = isTemplate st name, spDiverging = diverging, spBodies = patternBodies, spRuleNames = Set.unions [exprValueNames (ruleLhs rule) | rules <- Map.elems (inRules st), rule <- rules]}
                               }
                           (body', simplState) =
                             runState (simplifyExpr simpl body) (initialSimplState (inSupply st) allowance)
