@@ -3,19 +3,21 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Capi (parseDependencyFile)
-import Aihc.Cli.Build (build, buildWith)
+import Aihc.Cli.Build (BuiltProgram (..), build, buildWith)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, readLinkBundle, runLinkExe)
-import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
+import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), PlanOptions (..), TestOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.Progress (withProgress)
+import Aihc.Cli.Progress (quietProgress, withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
+import Aihc.Cli.Test (TestSuiteResult (..), buildTests, renderTestSummary, runTestSuites)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, executableLinkArguments, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
+import Aihc.PackagePlan.Project (ProjectSelection (..))
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (Entity (..), ExportEntry (..), GlobalName (..), LocalId (..), OperatorFixity (..), PackageId (..), ResolutionNamespace (..), exportsEntries, exportsFromEntries)
@@ -32,7 +34,8 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
 import System.Directory
-  ( createDirectory,
+  ( canonicalizePath,
+    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
@@ -44,7 +47,7 @@ import System.Directory
     removeFile,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.Exit (ExitCode (ExitSuccess))
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, openTempFile)
 import System.IO.Error (ioeGetErrorString)
@@ -88,6 +91,8 @@ tests =
               testCase "parses the optimization level" test_buildModuleOptimizationOption,
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+              testCase "builds and runs the test suites of a Cabal package" (test_testSuites coreStore),
+              testCase "parses the test command" test_testCommandOptions,
               testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
               testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
@@ -1043,6 +1048,102 @@ test_buildExecutables getStore =
       assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleArguments manifest))
     bundle <- either assertFailure pure =<< readLinkBundle (linkBundleManifestPath (bundles </> "greet"))
     assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArguments bundle))
+
+-- | The test suites of a package build as its executables do, and each one
+-- runs in the directory of its package with the given arguments. A test
+-- suite that fails gives its exit code. A project target names one test
+-- suite, @all@ tests each project package that has one, and @build@ refuses
+-- a test suite.
+test_testSuites :: IO SeedStore -> Assertion
+test_testSuites getStore =
+  withBuildPackageSandbox getStore "aihc-test" $ \sandbox buildRoot buildOptions -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/test-suites"
+    let root = sandboxRoot sandbox
+        project = ProjectFileAt (fixtureRoot </> "cabal.project")
+        binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget buildOptions) </> "test-bin"
+        options =
+          TestOptions
+            { testInput = fixtureRoot </> "checks",
+              testTarget = buildTarget buildOptions,
+              testStoreRoot = buildStoreRoot buildOptions,
+              testBuildRoot = buildBuildRoot buildOptions,
+              testWorkspace = Nothing,
+              testKeepCore = False,
+              testKeepGrin = False,
+              testKeepLir = False,
+              testKeepNative = False,
+              testLint = False,
+              testCheckPrimBounds = False,
+              testLto = False,
+              testOptimization = O0,
+              testVerbose = False,
+              testSuites = [],
+              testArguments = ["--flag", "two"],
+              testPlanOptions = defaultPlanOptions {planProject = project}
+            }
+    -- The plan names the test suites, and the build links each one.
+    (progressPath, progressHandle) <- openTempFile root "progress.txt"
+    programs <- withProgress progressHandle (`buildTests` options)
+    hClose progressHandle
+    progress <- map normalizeProgressLine . lines <$> readFile progressPath
+    assertBool ("plan heading: " <> unlines progress) (any (" 2 test suites" `isSuffixOf`) (filter ("Plan: " `isPrefixOf`) progress))
+    assertEqual "built test suites" [("pass", binDirectory </> "pass"), ("fail", binDirectory </> "fail")] [(builtName program, builtOutput program) | program <- programs]
+    packageRoots <- mapM (canonicalizePath . builtPackageRoot) programs
+    checksRoot <- canonicalizePath (fixtureRoot </> "checks")
+    assertEqual "package roots" [checksRoot, checksRoot] packageRoots
+    -- Each test suite runs in its package directory, and its output comes
+    -- between the lines that name it.
+    (outputPath, outputHandle) <- openTempFile root "output.txt"
+    results <- runTestSuites outputHandle (testArguments options) programs
+    hClose outputHandle
+    output <- lines <$> readFile outputPath
+    assertEqual "results" [TestSuiteResult "pass" ExitSuccess, TestSuiteResult "fail" (ExitFailure 3)] results
+    assertEqual
+      "output"
+      [ "Test suite pass: RUNNING...",
+        "count 3 expected ok",
+        "--flag",
+        "two",
+        "Test suite pass: PASS",
+        "Test suite fail: RUNNING...",
+        "fail runs",
+        "Test suite fail: FAIL (exit code 3)"
+      ]
+      output
+    assertEqual "summary" "1 of 2 test suites passed." (renderTestSummary results)
+    (quietPath, quietHandle) <- openTempFile root "quiet.txt"
+    let quiet = quietProgress quietHandle
+    -- A selected test suite builds alone, and so does a project target.
+    selected <- buildTests quiet options {testSuites = ["pass"]}
+    assertEqual "selected test suite" ["pass"] (map builtName selected)
+    byTarget <- buildTests quiet options {testInput = "checks:test:fail"}
+    assertEqual "project target" ["fail"] (map builtName byTarget)
+    -- all passes over the project package without a test suite.
+    everything <- buildTests quiet options {testInput = "all"}
+    assertEqual "all" ["pass", "fail"] (map builtName everything)
+    -- A package without a test suite is an error when it is named.
+    missing <- try (buildTests quiet options {testInput = fixtureRoot </> "plain"}) :: IO (Either IOException [BuiltProgram])
+    case missing of
+      Left err -> assertBool ("no test suite: " <> ioeGetErrorString err) ("has no buildable test suite" `isInfixOf` ioeGetErrorString err)
+      Right built -> assertFailure ("a package without a test suite built " <> show built)
+    -- build makes executables, and names the command for a test suite.
+    refused <- try (build buildOptions {buildInput = "checks:test:pass", buildPlanOptions = defaultPlanOptions {planProject = project}}) :: IO (Either IOException [FilePath])
+    case refused of
+      Left err -> assertBool ("build refuses a test suite: " <> ioeGetErrorString err) ("Use test for pass" `isInfixOf` ioeGetErrorString err)
+      Right outputs -> assertFailure ("build made the test suite " <> show outputs)
+    hClose quietHandle
+    removeFile quietPath
+
+-- | The @test@ command takes its target, its test suites, and the
+-- arguments of each test suite.
+test_testCommandOptions :: Assertion
+test_testCommandOptions =
+  case parseCommandPure ["test", "all", "--target", "apple-arm64", "--test-suite", "spec", "--test-option", "--hide-successes", "--test-option=-j4"] of
+    Right (CmdTest options) -> do
+      assertEqual "input" "all" (testInput options)
+      assertEqual "test suites" ["spec"] (testSuites options)
+      assertEqual "arguments" ["--hide-successes", "-j4"] (testArguments options)
+    other -> assertFailure ("the test command parses: " <> show other)
 
 -- | Two dependencies can each hold a module of one name, as @filepath@ and
 -- @os-string@ both hold @System.OsString.Internal.Types@. The facts of both

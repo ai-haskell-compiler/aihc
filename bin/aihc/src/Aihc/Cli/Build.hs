@@ -15,11 +15,17 @@
 --
 -- Either way, the install graph compiles the executables together with the
 -- packages below them, and then each executable is linked.
+--
+-- The @test@ command builds the test suites of a package on the same path:
+-- each @exitcode-stdio-1.0@ test suite is an executable with its own
+-- @build-depends@, and 'buildTestSuites' links it under the build root.
 module Aihc.Cli.Build
   ( build,
     buildWith,
     buildWithConfig,
     runBuild,
+    BuiltProgram (..),
+    buildTestSuites,
   )
 where
 
@@ -57,13 +63,14 @@ import Aihc.PackagePlan
     planBuildContext,
     planPackages,
   )
+import Aihc.PackagePlan.Project (ProjectComponent (..))
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Monad (forM, forM_, unless, when)
 import Data.List (nub)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import System.Directory (canonicalizePath, doesFileExist, getCurrentDirectory)
-import System.FilePath (dropExtension, (<.>), (</>))
+import System.FilePath (dropExtension, takeFileName, (<.>), (</>))
 import System.IO (stderr, stdout)
 
 -- | Build with the progress on stderr, and name each output on stdout.
@@ -81,9 +88,27 @@ build = buildWith (quietProgress stdout)
 -- | One executable of a build: what the install graph compiles, and where
 -- the executable or its link bundle goes.
 data ExecutableTarget = ExecutableTarget
-  { executableComponent :: !ExecutableComponent,
+  { executableName :: !String,
+    executableComponent :: !ExecutableComponent,
     executableOutput :: !FilePath
   }
+
+-- | One program that a build linked.
+data BuiltProgram = BuiltProgram
+  { builtName :: !String,
+    -- | The directory of the package the program belongs to, or the
+    -- working directory for a main module. A test suite runs there.
+    builtPackageRoot :: !FilePath,
+    -- | The executable, or its link bundle with @--no-link@.
+    builtOutput :: !FilePath
+  }
+  deriving (Eq, Show)
+
+-- | What a package build makes.
+data ProgramKind
+  = ProgramExecutable
+  | ProgramTestSuite
+  deriving (Eq)
 
 -- | Build what the input names and return the paths of the executables, or
 -- of their link bundles with @--no-link@. An existing file is a main
@@ -99,6 +124,24 @@ buildWithConfig reporter options adjust = do
   isFile <- doesFileExist (buildInput options)
   when (isFile && not (null (buildExecutables options))) $
     ioError (userError "--executable selects the executables of a package, and a main module is one executable")
+  map builtOutput <$> linkPrograms reporter options adjust (if isFile then mainModuleTarget else packageTargets ProgramExecutable)
+
+-- | Build the test suites of the package the input names, and return
+-- each with the directory it runs in. The options select the test suites
+-- as they select executables. A package without a buildable test suite
+-- builds nothing.
+buildTestSuites :: ProgressReporter -> BuildOptions -> IO [BuiltProgram]
+buildTestSuites reporter options = linkPrograms reporter options id (packageTargets ProgramTestSuite)
+
+-- | Compile the programs that the targets name in one install graph, and
+-- link each of them.
+linkPrograms ::
+  ProgressReporter ->
+  BuildOptions ->
+  (ModuleCompileConfig -> ModuleCompileConfig) ->
+  (BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])) ->
+  IO [BuiltProgram]
+linkPrograms reporter options adjust targetsOf = do
   -- The time profiler samples from a POSIX timer signal.
   when (buildProfileTime options && buildTarget options == Wasm32Wasip3) $
     ioError (userError "--profile-time needs a POSIX target")
@@ -123,18 +166,20 @@ buildWithConfig reporter options adjust = do
               compileUseColor = progressColor reporter,
               compileProgress = reporter
             }
-  (locations, targets) <-
-    (if isFile then mainModuleTarget else packageTargets) options config (storeRoot </> targetDirectory)
-  let components = map executableComponent targets
-  report (ProgressPlan (planProgressItems (concatMap componentDependencies components) <> map componentItem components))
-  compiled <- installExecutables config locations components
-  forM (zip targets compiled) $ \(executable, compiledExecutable) -> do
-    let output = executableOutput executable
-        component = executableComponent executable
-    report (ProgressLink (componentItem component))
-    linkCompiledExecutable config (buildNoLink options) (componentOutputRoot component) output compiledExecutable
-    report (ProgressDone (componentItem component))
-    pure output
+  (locations, targets) <- targetsOf options config (storeRoot </> targetDirectory)
+  if null targets
+    then pure []
+    else do
+      let components = map executableComponent targets
+      report (ProgressPlan (planProgressItems (concatMap componentDependencies components) <> map componentItem components))
+      compiled <- installExecutables config locations components
+      forM (zip targets compiled) $ \(executable, compiledExecutable) -> do
+        let output = executableOutput executable
+            component = executableComponent executable
+        report (ProgressLink (componentItem component))
+        linkCompiledExecutable config (buildNoLink options) (componentOutputRoot component) output compiledExecutable
+        report (ProgressDone (componentItem component))
+        pure (BuiltProgram (executableName executable) (componentSourceRoot component) output)
 
 -- | The executable of a main module. Its modules build under the build
 -- root, and the packages that the constraints name go into the store. A
@@ -147,31 +192,51 @@ mainModuleTarget options config storeTargetRoot = do
   let target = compileTarget config
       localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
       buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
+      output = fromMaybe (dropExtension (buildInput options)) (buildOutput options)
   request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) Nothing (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (compileVerbose config)
   component <- mainModuleExecutable options currentDirectory buildRoot request
   pure
     ( buildLocations storeTargetRoot buildRoot True,
-      [ExecutableTarget component (fromMaybe (dropExtension (buildInput options)) (buildOutput options))]
+      [ExecutableTarget (takeFileName output) component output]
     )
 
--- | Every executable of the Cabal package the input names, or the
--- executables that @--executable@ selects.
-packageTargets :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
-packageTargets options config storeTargetRoot = do
+-- | Every executable or every test suite of the Cabal package the input
+-- names, or the ones that the input and @--executable@ select.
+packageTargets :: ProgramKind -> BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
+packageTargets kind options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
   hackageSource <- defaultHackageSource (progressReport (compileProgress config) . ProgressLog)
-  TargetRoot rootPackage origin lockDirectory targetExecutables project <- installTargetRoot (planProject (buildPlanOptions options)) (buildInput options)
+  TargetRoot rootPackage origin lockDirectory targetComponents project <- installTargetRoot (planProject (buildPlanOptions options)) (buildInput options)
   let target = compileTarget config
       platform = cabalPlatformForTarget target
-      -- The selected executables, or every executable when none is named.
-      -- A target such as @exe:NAME@ selects its executable.
-      named = targetExecutables <> buildExecutables options
+      (noun, item, artifactDirectory, binDirectory) =
+        case kind of
+          ProgramExecutable -> ("executable", ItemExecutable, "exe", "bin")
+          ProgramTestSuite -> ("test suite", ItemTestSuite, "test", "test-bin")
+      -- The components of the input that this build does not make. The
+      -- error names the command that makes them.
+      (selectedNames, otherNames, otherNoun, otherCommand) =
+        case kind of
+          ProgramExecutable -> ([name | ProjectExecutable name <- targetComponents], [name | ProjectTestSuite name <- targetComponents], "a test suite", "test")
+          ProgramTestSuite -> ([name | ProjectTestSuite name <- targetComponents], [name | ProjectExecutable name <- targetComponents], "an executable", "build")
+      -- The selected programs, or every program when none is named.
+      named = selectedNames <> buildExecutables options
       selection = if null named then Nothing else Just (nub named)
+  forM_ otherNames $ \name ->
+    ioError (userError (buildInput options <> " names " <> otherNoun <> ", and this command makes " <> noun <> "s. Use " <> otherCommand <> " for " <> name))
   -- The package itself and its siblings resolve locally before the
   -- workspace and Hackage, so an executable that depends on the library
   -- of its own package finds it in the source tree.
   request <- planRequestFor hackageSource (buildPlanOptions options) platform project (maybe [] pure (buildWorkspace options)) lockDirectory (compileVerbose config)
-  planned <- planPackages request {requestRoots = [rootPackage], requestExecutables = selection}
+  planned <-
+    planPackages
+      request
+        { requestRoots = [rootPackage],
+          -- The test suites contribute their dependencies in place of the
+          -- executables.
+          requestExecutables = if kind == ProgramTestSuite then Just [] else selection,
+          requestTestSuites = kind == ProgramTestSuite
+        }
   rootPlan <- case plannedRoots planned of
     [plan] -> pure plan
     _ -> ioError (userError "The plan has no root")
@@ -185,22 +250,27 @@ packageTargets options config storeTargetRoot = do
           (if origin == PlanLocal then defaultBuildRoot root else currentDirectory </> ".aihc-target")
           (buildBuildRoot options)
       buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
-      outputDirectory = fromMaybe (buildRoot </> "bin") (buildOutput options)
-  buildable <- HackageCabal.collectExecutablesIn (planBuildContext platform rootPlan) gpd root
-  when (null buildable) $
-    ioError (userError ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable"))
+      outputDirectory = fromMaybe (buildRoot </> binDirectory) (buildOutput options)
+      collect = case kind of
+        ProgramExecutable -> HackageCabal.collectExecutablesIn
+        ProgramTestSuite -> HackageCabal.collectTestSuitesIn
+  buildable <- collect (planBuildContext platform rootPlan) gpd root
+  -- A package without a test suite has nothing to test, and the command
+  -- that tests a project passes over it.
+  when (null buildable && kind == ProgramExecutable) $
+    ioError (userError ("The package " <> unPackageName (planName rootPlan) <> " has no buildable " <> noun))
   let buildableNames = map executableInfoName buildable
       executables = maybe buildable (\names -> filter ((`elem` names) . executableInfoName) buildable) selection
   forM_ (fromMaybe [] selection) $ \name ->
     unless (name `elem` buildableNames) $
       ioError
         ( userError
-            ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable " <> name <> "; its buildable executables are " <> unwords buildableNames)
+            ("The package " <> unPackageName (planName rootPlan) <> " has no buildable " <> noun <> " " <> name <> "; its buildable " <> noun <> "s are " <> unwords buildableNames)
         )
   canonicalRoot <- canonicalizePath root
   targets <- forM executables $ \executable -> do
     let name = executableInfoName executable
-        outputRoot = buildRoot </> "exe" </> name
+        outputRoot = buildRoot </> artifactDirectory </> name
     plans <- mapM (plannedPackage planned) (nub (executableInfoDependencies executable <> map mkPackageName ["aihc-base", "aihc-prim"]))
     -- The plan finds the package being built by its name, which marks
     -- it local. What the user asked for decides instead: a directory is
@@ -215,7 +285,7 @@ packageTargets options config storeTargetRoot = do
               componentSourceRoot = root,
               componentOutputRoot = outputRoot,
               componentDependencies = rootedPlans,
-              componentItem = ItemExecutable (T.pack name),
+              componentItem = item (T.pack name),
               componentInputs = \packages -> do
                 -- The main module is the module that the @main-is@ file
                 -- declares, as MicroHs builds it. GHC instead needs
@@ -224,7 +294,7 @@ packageTargets options config storeTargetRoot = do
                 entry <- writeEntryModule outputRoot mainModule (map (packageManifestName . installedManifest) packages)
                 pure (executableInfoFiles executable <> [entry], executableInfoCCompileInfo executable)
             }
-    pure (ExecutableTarget component (outputDirectory </> executableFileName target name))
+    pure (ExecutableTarget name component (outputDirectory </> executableFileName target name))
   pure (buildLocations storeTargetRoot buildRoot False, targets)
 
 -- | Where the packages below the executables go. Nothing is reinstalled:

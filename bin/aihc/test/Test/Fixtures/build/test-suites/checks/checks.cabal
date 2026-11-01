@@ -1,0 +1,35 @@
+cabal-version: 3.0
+name: checks
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Counter
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010
+
+test-suite pass
+  type: exitcode-stdio-1.0
+  main-is: Pass.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    checks,
+
+  default-language: Haskell2010
+
+test-suite fail
+  type: exitcode-stdio-1.0
+  main-is: Fail.hs
+  hs-source-dirs: test
+  build-depends: base
+  default-language: Haskell2010
+
+test-suite skipped
+  type: exitcode-stdio-1.0
+  main-is: Skipped.hs
+  hs-source-dirs: test
+  build-depends: base
+  buildable: False
+  default-language: Haskell2010

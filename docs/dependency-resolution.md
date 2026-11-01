@@ -52,7 +52,8 @@ Three kinds of dependency are separated, and only one of them is solved:
   built. The root package contributes its library and its executables, and its
   test suites and benchmarks only when they are requested. *As built*,
   `aihc build --executable NAME` and `aihc plan --executable NAME` limit the
-  executables of the root to the ones they name.
+  executables of the root to the ones they name, and `aihc test` takes the
+  test suites of the root in place of its executables.
 - **Build-tool dependencies** are checked, not solved. Every
   `build-tool-depends` and legacy `build-tools` entry is looked up in the host
   preprocessor table (`Aihc.Hackage.Preprocessor`), which holds `hsc2hs` and
@@ -96,9 +97,11 @@ does nothing but call those lookups.
   the core libraries and before the siblings and the workspace. The
   `constraints` field and the `flags` of each `package` section come before
   the `--constraint` options. The input can also be a target as `cabal`
-  names it: `exe:NAME`, `PKG:exe:NAME`, `PKG:NAME`, or the name of a project
-  package. Thus, `aihc build exe:aihc` builds the `aihc` executable of this
-  repository. A project file with conditionals, `import`, or
+  names it: `exe:NAME`, `PKG:exe:NAME`, `test:NAME`, `PKG:test:NAME`,
+  `PKG:NAME`, or the name of a project package. Thus, `aihc build exe:aihc`
+  builds the `aihc` executable of this repository, and `aihc test aihc:spec`
+  runs its `spec` test suite. `aihc test all` tests every project package
+  that has a test suite. A project file with conditionals, `import`, or
   `source-repository-package` is an error. The other fields, such as `tests`
   and `allow-newer`, have no effect.
 - **No Hackage**: the `aihc` package has the Cabal flag `hackage`, which

@@ -43,6 +43,7 @@ module Aihc.PackagePlan.Project
     withProject,
 
     -- * Targets
+    ProjectComponent (..),
     ProjectTarget (..),
     parseProjectTarget,
     resolveProjectTarget,
@@ -212,7 +213,9 @@ data ProjectPackage = ProjectPackage
   { -- | The canonical path of the package directory.
     projectPackageDirectory :: !FilePath,
     -- | The names of the executables, buildable or not, in file order.
-    projectPackageExecutables :: ![String]
+    projectPackageExecutables :: ![String],
+    -- | The names of the test suites, buildable or not, in file order.
+    projectPackageTestSuites :: ![String]
   }
   deriving (Eq, Show)
 
@@ -276,7 +279,8 @@ loadProject path = do
   packages <- forM (nub (concat required <> concat optional)) $ \directory -> do
     (_, description) <- parseSourcePackageDescriptionAt directory
     let executables = [T.unpack name | Component (Executable name) _ <- packageComponents description]
-    pure (packageNameOf description, ProjectPackage directory executables)
+        testSuites = [T.unpack name | Component (TestSuite name) _ <- packageComponents description]
+    pure (packageNameOf description, ProjectPackage directory executables testSuites)
   let duplicates = [name | (name, count) <- Map.toList (Map.fromListWith (+) [(name, 1 :: Int) | (name, _) <- packages]), count > 1]
   unless (null duplicates) $
     ioError (userError ("The project " <> file <> " has more than one package " <> unwords (map unPackageName duplicates)))
@@ -380,22 +384,34 @@ withProject project request =
 -- | A target as @cabal build@ names it.
 data ProjectTarget
   = -- | @PKG@: a package of the project, or with no such package, the one
-    -- executable of that name.
+    -- executable or test suite of that name.
     TargetName !String
-  | -- | @exe:NAME@, @PKG:exe:NAME@ or @PKG:NAME@.
+  | -- | @exe:NAME@ or @PKG:exe:NAME@.
     TargetExecutable !(Maybe String) !String
+  | -- | @test:NAME@ or @PKG:test:NAME@.
+    TargetTestSuite !(Maybe String) !String
+  | -- | @PKG:NAME@: the executable or the test suite @NAME@ of @PKG@.
+    TargetComponent !String !String
   deriving (Eq, Show)
 
+-- | A component of a project package that a target selects.
+data ProjectComponent
+  = ProjectExecutable !String
+  | ProjectTestSuite !String
+  deriving (Eq, Ord, Show)
+
 -- | Parse a target. A text without a colon is a name. Other forms that
--- @cabal@ accepts, such as @lib:NAME@ and @test:NAME@, name components
+-- @cabal@ accepts, such as @lib:NAME@ and @bench:NAME@, name components
 -- that aihc does not build.
 parseProjectTarget :: String -> Maybe ProjectTarget
 parseProjectTarget text =
   case splitColons text of
     [name] | valid name -> Just (TargetName name)
     ["exe", name] | valid name -> Just (TargetExecutable Nothing name)
+    ["test", name] | valid name -> Just (TargetTestSuite Nothing name)
     [package, "exe", name] | valid package, valid name -> Just (TargetExecutable (Just package) name)
-    [package, name] | valid package, valid name, package `notElem` kinds -> Just (TargetExecutable (Just package) name)
+    [package, "test", name] | valid package, valid name -> Just (TargetTestSuite (Just package) name)
+    [package, name] | valid package, valid name, package `notElem` kinds -> Just (TargetComponent package name)
     _ -> Nothing
   where
     kinds = ["lib", "flib", "exe", "test", "bench"]
@@ -404,34 +420,51 @@ parseProjectTarget text =
       (a, _ : b) -> a : splitColons b
       (a, []) -> [a]
 
--- | The package of a target and the executables that it selects. An empty
--- list selects every executable of the package. A name that is neither a
--- package nor an executable of the project is 'Nothing', and an executable
--- target that the project does not have is an error.
-resolveProjectTarget :: Project -> ProjectTarget -> Either String (Maybe (PackageName, [String]))
+-- | The package of a target and the components that it selects. An empty
+-- list selects the whole package. A name that is neither a package nor a
+-- component of the project is 'Nothing', and a component target that the
+-- project does not have is an error.
+resolveProjectTarget :: Project -> ProjectTarget -> Either String (Maybe (PackageName, [ProjectComponent]))
 resolveProjectTarget project target =
   case target of
     TargetName name
       | Map.member (mkPackageName name) packages -> Right (Just (mkPackageName name, []))
       | otherwise ->
-          case owners name of
+          case owners (anyComponent name) of
             [] -> Right Nothing
-            [package] -> Right (Just (package, [name]))
-            several -> Left (ambiguous name several)
-    TargetExecutable (Just packageText) name -> do
+            [(package, component)] -> Right (Just (package, [component]))
+            several -> Left (ambiguous name (map fst several))
+    TargetExecutable package name -> inPackage package "executable" (ProjectExecutable name)
+    TargetTestSuite package name -> inPackage package "test suite" (ProjectTestSuite name)
+    TargetComponent packageText name -> do
       let package = mkPackageName packageText
-      case Map.lookup package packages of
-        Nothing -> Left ("The project " <> projectFile project <> " has no package " <> packageText)
-        Just info
-          | name `elem` projectPackageExecutables info -> Right (Just (package, [name]))
-          | otherwise -> Left ("The package " <> packageText <> " has no executable " <> name)
-    TargetExecutable Nothing name ->
-      case owners name of
-        [] -> Left ("The project " <> projectFile project <> " has no executable " <> name)
-        [package] -> Right (Just (package, [name]))
-        several -> Left (ambiguous name several)
+      info <- packageInfo packageText
+      case [component | component <- anyComponent name, has info component] of
+        [] -> Left ("The package " <> packageText <> " has no executable or test suite " <> name)
+        component : _ -> Right (Just (package, [component]))
   where
     packages = projectPackages project
-    owners name = [package | (package, info) <- Map.toList packages, name `elem` projectPackageExecutables info]
+    packageInfo packageText =
+      maybe (Left ("The project " <> projectFile project <> " has no package " <> packageText)) Right (Map.lookup (mkPackageName packageText) packages)
+    anyComponent name = [ProjectExecutable name, ProjectTestSuite name]
+    componentName component =
+      case component of
+        ProjectExecutable name -> name
+        ProjectTestSuite name -> name
+    has info component =
+      case component of
+        ProjectExecutable name -> name `elem` projectPackageExecutables info
+        ProjectTestSuite name -> name `elem` projectPackageTestSuites info
+    owners components = [(package, component) | (package, info) <- Map.toList packages, component <- components, has info component]
+    inPackage (Just packageText) kind component = do
+      info <- packageInfo packageText
+      if has info component
+        then Right (Just (mkPackageName packageText, [component]))
+        else Left ("The package " <> packageText <> " has no " <> kind <> " " <> componentName component)
+    inPackage Nothing kind component =
+      case owners [component] of
+        [] -> Left ("The project " <> projectFile project <> " has no " <> kind <> " " <> componentName component)
+        [(package, _)] -> Right (Just (package, [component]))
+        several -> Left (ambiguous (componentName component) (map fst several))
     ambiguous name several =
-      "More than one package of the project has the executable " <> name <> ": " <> unwords (map unPackageName several) <> ". Use PKG:exe:" <> name
+      "More than one package of the project has the component " <> name <> ": " <> unwords (map unPackageName several) <> ". Use PKG:" <> name

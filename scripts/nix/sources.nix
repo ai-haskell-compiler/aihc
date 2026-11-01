@@ -241,6 +241,8 @@ in rec {
       ".h.in"
       # The .hsc sources of the code-quality install fixtures.
       ".hsc"
+      # The project file of the test-suites build fixture.
+      "cabal.project"
     ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;

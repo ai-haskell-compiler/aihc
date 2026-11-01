@@ -57,6 +57,15 @@ extra-source-files:
   test/Test/Fixtures/build/source-directories/PrimitiveChecks.hs
   test/Test/Fixtures/build/source-directories/SumChecks.hs
   test/Test/Fixtures/build/source-directories/SumProducer.hs
+  test/Test/Fixtures/build/test-suites/cabal.project
+  test/Test/Fixtures/build/test-suites/checks/checks.cabal
+  test/Test/Fixtures/build/test-suites/checks/data/expected.txt
+  test/Test/Fixtures/build/test-suites/checks/src/Counter.hs
+  test/Test/Fixtures/build/test-suites/checks/test/Fail.hs
+  test/Test/Fixtures/build/test-suites/checks/test/Pass.hs
+  test/Test/Fixtures/build/test-suites/checks/test/Skipped.hs
+  test/Test/Fixtures/build/test-suites/plain/plain.cabal
+  test/Test/Fixtures/build/test-suites/plain/src/Plain.hs
   test/Test/Fixtures/build/workspace/duplicate/System/IO.hs
   test/Test/Fixtures/build/workspace/duplicate/duplicate.cabal
   test/Test/Fixtures/build/workspace/same-a/Shared/Types.hs
@@ -167,6 +176,7 @@ library
     Aihc.Cli.Store
     Aihc.Cli.TaskGraph
     Aihc.Cli.Terminal
+    Aihc.Cli.Test
     Aihc.Cli.TypeArtifact
     Aihc.Fc
     Aihc.Fc.Arity

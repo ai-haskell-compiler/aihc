@@ -1,0 +1,10 @@
+cabal-version: 3.0
+name: plain
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Plain
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010
