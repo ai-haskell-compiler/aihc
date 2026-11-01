@@ -14,6 +14,7 @@
 module Test.Lir.AsmSuite
   ( AsmBackend (..),
     tests,
+    fixtureTest,
   )
 where
 
