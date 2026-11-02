@@ -71,7 +71,6 @@ import Aihc.Fc.Fold (isCheapPrimitive)
 import Aihc.Fc.FullLaziness (sharedAtTop)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Size (exprSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
   ( TypeEnv (..),
@@ -598,7 +597,7 @@ oneShotResults env roots decls = finish (fixpoint Set.empty)
         Just (key, _) -> parameters rejected (Set.insert key walked) (Set.delete key pending)
     -- A large value that would need a copy is shared at each call
     -- instead. The shared version is right for every caller.
-    copyable name = maybe False ((<= maxCopySize) . exprSize (envTypes env)) (Map.lookup name bodies)
+    copyable name = maybe False (withinNodes maxCopySize) (Map.lookup name bodies)
     finish rejected = finishWith rejected Set.empty
     finishWith rejected shared =
       let -- The version of a candidate that a body calls.
@@ -621,7 +620,7 @@ oneShotResults env roots decls = finish (fixpoint Set.empty)
           calledName body name = case calledVersion body name of
             OnceVersion -> copyName name
             SharedVersion -> name
-          rename body = renameValues (Map.fromList [(callee, calledName body callee) | callee <- Set.toList candidates])
+          rename body expr = renameValues (Map.fromList [(callee, calledName body callee) | callee <- Set.toList (Set.intersection candidates (valueReferences expr))]) expr
           -- The version that takes the name of the value.
           ownVersion name
             | Set.member name candidates,
@@ -653,12 +652,36 @@ oneShotResults env roots decls = finish (fixpoint Set.empty)
             then (concatMap emit decls, oneShotValues, oneShotLocals, copyNames)
             else finishWith rejected (shared <> tooLarge)
 
--- | The largest value that gets a one-shot copy, in the units of
--- 'exprSize'. A larger copy grows the program and saves little: the
--- one-shot version of a large function is often a long chain of steps
--- that run once per call anyway.
+-- | The largest value that gets a one-shot copy, in expression nodes. A
+-- larger copy grows the program and saves little: the one-shot version of
+-- a large function is often a long chain of steps that run once per call
+-- anyway.
 maxCopySize :: Int
 maxCopySize = 600
+
+-- | Whether an expression has at most a number of nodes. The count stops
+-- at the limit, so a large body costs no more than a small one.
+withinNodes :: Int -> Expr -> Bool
+withinNodes limit expr = go limit [expr] >= 0
+  where
+    go budget pending
+      | budget < 0 = budget
+      | otherwise = case pending of
+          [] -> budget
+          current : rest -> go (budget - 1) (children current <> rest)
+    children current =
+      case current of
+        ExApp function argument -> [function, argument]
+        ExTyApp function _ -> [function]
+        ExLam _ inner -> [inner]
+        ExTyLam _ inner -> [inner]
+        ExLet bind inner -> [bindRhs bind, inner]
+        ExRec binds inner -> inner : map bindRhs binds
+        ExCase scrutinee _ alternatives -> scrutinee : map altRhs (NE.toList alternatives)
+        ExAbsurd scrutinee _ -> [scrutinee]
+        ExCast inner _ -> [inner]
+        ExForeignCall _ _ arguments -> arguments
+        _ -> []
 
 -- | A name for the one-shot copy of a value that no value has.
 freshCopyName :: Set Name -> Name -> Name
@@ -995,15 +1018,16 @@ occurrenceViolations env arities candidates rejected self parameter body =
 -- to the arity its body supports.
 etaExpandProgram :: PackageId -> Maybe [Name] -> Program -> (Program, EtaReport)
 etaExpandProgram primPackage roots program =
-  let initialEnv current =
-        let types = typeEnvFromProgram primPackage current
-         in Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty, envOneShotLocals = Set.empty, envOwner = Nothing, envDiverging = divergingValues types [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls current]}
+  let types = typeEnvFromProgram primPackage program
+      env1 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty, envOneShotLocals = Set.empty, envOwner = Nothing, envDiverging = divergingValues types [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]}
       rootSet = maybe (Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub]) Set.fromList roots
-      (versioned, oneShotValues, oneShotLocals, copies) = oneShotResults (initialEnv program) rootSet (programDecls program)
-      -- The one-shot copies are new values, so the types and the
-      -- divergence of the program are found again.
-      program' = program {programDecls = versioned}
-      env0 = (initialEnv program') {envOneShotResults = oneShotValues, envOneShotLocals = oneShotLocals}
+      (versioned, oneShotValues, oneShotLocals, copies) = oneShotResults env1 rootSet (programDecls program)
+      -- A one-shot copy has the type of its value, and it diverges as its
+      -- value does: the two differ only in the versions that they call.
+      valueTypes = Map.fromList [(valName declaration, valType declaration) | DeclVal declaration <- programDecls program]
+      copyTypes = List.foldl' (\current (original, copy) -> maybe current (extendBinder current . Binder copy) (Map.lookup original valueTypes)) types copies
+      copyDiverging = List.foldl' (\current (original, copy) -> maybe current (\count -> Map.insert copy count current) (Map.lookup original (envDiverging env1))) (envDiverging env1) copies
+      env0 = env1 {envTypes = copyTypes, envDiverging = copyDiverging, envOneShotResults = oneShotValues, envOneShotLocals = oneShotLocals}
       env = valueSignatures env0 versioned
       supply = maxLocalUnique program + 1
       (expanded, (_, report)) = runState (traverse (expandDecl env) versioned) (supply, EtaReport 0 0 0)
