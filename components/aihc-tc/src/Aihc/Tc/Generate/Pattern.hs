@@ -14,6 +14,7 @@ module Aihc.Tc.Generate.Pattern
     patternBinderNames,
     patternCanFail,
     recStmtBinderNames,
+    compStmtBinderNames,
     withPatternBindings,
     withPatternScope,
   )
@@ -22,6 +23,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BuiltinCon (..),
+    CompStmt (..),
     Decl (..),
     DoStmt (..),
     Expr (..),
@@ -110,6 +112,26 @@ recStmtBinderNames =
         DoLetDecls decls -> concatMap declBinders decls
         DoExpr _ -> []
         DoRecStmt stmts -> concatMap stmtBinders stmts
+    declBinders decl =
+      case peelDeclAnn decl of
+        DeclValue (FunctionBind name _) -> [name]
+        DeclValue (PatternBind _ pat _) -> patternBinderNames pat
+        _ -> []
+
+-- | The variables that the statements of one branch of a parallel list
+-- comprehension bind, in source order and without repeats. The branch
+-- gives a list of tuples of these variables. The type checker and the
+-- desugarer both use this order.
+compStmtBinderNames :: [CompStmt] -> [UnqualifiedName]
+compStmtBinderNames =
+  List.nubBy (\left right -> unqualifiedNameText left == unqualifiedNameText right) . concatMap stmtBinders
+  where
+    stmtBinders stmt =
+      case stmt of
+        CompAnn _ inner -> stmtBinders inner
+        CompGen pat _ -> patternBinderNames pat
+        CompLetDecls decls -> concatMap declBinders decls
+        _ -> []
     declBinders decl =
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]

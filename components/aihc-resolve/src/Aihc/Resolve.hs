@@ -754,23 +754,37 @@ instanceMethodDefinition headClass scope name =
 
 -- | The scope that resolves the family name of an associated type instance
 -- through the class of the instance head, like an instance method. The
--- family name can be out of scope when only the class is in scope, for
--- example through a qualified import.
+-- lookup goes through the associated types of the class and not through
+-- the type scope, as GHC does. Thus the family name can be out of scope,
+-- for example when only the class is in scope through a qualified import.
+-- The family name can also be ambiguous in the type scope, for example
+-- when an import brings in a different type with the same name. If the
+-- class of the instance head is not known, the type scope resolves the
+-- family name.
 associatedTypeInstanceScope :: Maybe (Text, Entity) -> Scope -> Type -> Scope
 associatedTypeInstanceScope headClass scope lhs =
   case (headClass, typeHeadConstructorName lhs) of
-    (Just (className, resolvedClass), Just familyName)
-      | Unresolved _ <- lookupType familyName scope,
-        found : _ <- associatedTypes className resolvedClass familyName ->
-          emptyScope {scopeTypes = Map.singleton familyName found}
+    (Just (className, resolvedClass@(EntityGlobal classGlobal)), Just familyName)
+      | any (familyName `elem`) (associatedTypeLists className resolvedClass) ->
+          -- A class and its associated types have the same defining
+          -- module, so the resolved family name comes from the resolved
+          -- class name.
+          let family =
+                EntityGlobal
+                  GlobalName
+                    { globalNameText = familyName,
+                      globalNamePackage = globalNamePackage classGlobal,
+                      globalNameModule = globalNameModule classGlobal,
+                      globalNameNamespace = ResolutionNamespaceType
+                    }
+           in emptyScope {scopeTypes = Map.singleton familyName family}
     _ -> emptyScope
   where
-    associatedTypes className resolvedClass familyName =
-      [ resolved
+    associatedTypeLists className resolvedClass =
+      [ families
       | candidate <- scope : Map.elems (scopeQualifiedModules scope),
         lookupType className candidate == Resolved resolvedClass,
-        familyName `elem` Map.findWithDefault [] className (scopeAssociatedTypes candidate),
-        Resolved resolved@EntityGlobal {} <- [lookupType familyName candidate]
+        Just families <- [Map.lookup className (scopeAssociatedTypes candidate)]
       ]
 
 -- | The name of the type constructor at the head of a type application.
@@ -1027,7 +1041,12 @@ resolveExpr expr =
       (scope, stmts') <- resolveCompStmts stmts
       body' <- withScope scope (resolveExpr body)
       pure (EListComp body' stmts')
-    EListCompParallel {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EListCompParallel" <*> pure expr
+    -- Each branch of a parallel comprehension sees only the outer scope.
+    -- The body sees the binders of all branches.
+    EListCompParallel body branches -> do
+      (bounds, branches') <- mapAndUnzipM resolveCompStmtsBinding branches
+      body' <- extendScope (foldr unionScope emptyScope bounds) (resolveExpr body)
+      pure (EListCompParallel body' branches')
     -- Template Haskell quotes compile to a runtime error. The quoted
     -- syntax stays unresolved because nothing consumes it.
     ETHExpQuote {} -> pure expr
@@ -1276,48 +1295,59 @@ resolveMaybeExpr = traverse resolveExpr
 resolveCompStmts :: [CompStmt] -> ResolveM (Scope, [CompStmt])
 resolveCompStmts stmts = do
   scope <- currentScope
-  go scope stmts
-  where
-    go scope stmts' =
-      withScope scope $
-        case stmts' of
-          [] -> pure (scope, [])
-          stmt : rest -> do
-            (scope', stmt') <- resolveCompStmt scope stmt
-            (scope'', rest') <- go scope' rest
-            pure (scope'', stmt' : rest')
+  (bound, stmts') <- resolveCompStmtsBinding stmts
+  pure (unionScope bound scope, stmts')
 
-resolveCompStmt :: Scope -> CompStmt -> ResolveM (Scope, CompStmt)
-resolveCompStmt scope stmt =
+-- | Resolve the statements of a comprehension in the current scope. The
+-- result scope has only the binders of the statements, and a later binder
+-- shadows an earlier binder with the same name.
+resolveCompStmtsBinding :: [CompStmt] -> ResolveM (Scope, [CompStmt])
+resolveCompStmtsBinding stmts = do
+  scope <- currentScope
+  go scope emptyScope stmts
+  where
+    go outer bound stmts' =
+      withScope (unionScope bound outer) $
+        case stmts' of
+          [] -> pure (bound, [])
+          stmt : rest -> do
+            (stmtBound, stmt') <- resolveCompStmt stmt
+            (bound', rest') <- go outer (unionScope stmtBound bound) rest
+            pure (bound', stmt' : rest')
+
+-- | Resolve one statement of a comprehension. The result scope has only
+-- the binders of the statement.
+resolveCompStmt :: CompStmt -> ResolveM (Scope, CompStmt)
+resolveCompStmt stmt =
   case stmt of
     CompAnn ann inner -> do
-      (scope', inner') <- withPushedSpan ann (resolveCompStmt scope inner)
-      pure (scope', CompAnn ann inner')
+      (bound, inner') <- withPushedSpan ann (resolveCompStmt inner)
+      pure (bound, CompAnn ann inner')
     CompGen pat src -> do
       src' <- resolveExpr src
       (patScope, pat') <- bindPattern pat
-      pure (unionScope patScope scope, CompGen pat' src')
+      pure (patScope, CompGen pat' src')
     CompGuard guard -> do
       guard' <- resolveExpr guard
-      pure (scope, CompGuard guard')
+      pure (emptyScope, CompGuard guard')
     CompLetDecls decls -> do
       (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
       decls' <- extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
-      pure (unionScope localScope scope, CompLetDecls decls')
+      pure (localScope, CompLetDecls decls')
     CompThen expr -> do
       expr' <- resolveExpr expr
-      pure (scope, CompThen expr')
+      pure (emptyScope, CompThen expr')
     CompThenBy f byExpr -> do
       f' <- resolveExpr f
       byExpr' <- resolveExpr byExpr
-      pure (scope, CompThenBy f' byExpr')
+      pure (emptyScope, CompThenBy f' byExpr')
     CompGroupUsing expr -> do
       expr' <- resolveExpr expr
-      pure (scope, CompGroupUsing expr')
+      pure (emptyScope, CompGroupUsing expr')
     CompGroupByUsing byExpr usingExpr -> do
       byExpr' <- resolveExpr byExpr
       usingExpr' <- resolveExpr usingExpr
-      pure (scope, CompGroupByUsing byExpr' usingExpr')
+      pure (emptyScope, CompGroupByUsing byExpr' usingExpr')
 
 resolveCaseAlt :: CaseAlt Expr -> ResolveM (CaseAlt Expr)
 resolveCaseAlt alt =

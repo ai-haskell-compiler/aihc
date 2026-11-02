@@ -40,6 +40,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, maybeToList)
+import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- | Attach the diagnostics of a type-checked SCC to its modules.
@@ -53,6 +54,12 @@ attachSccDiagnostics diagnostics modules =
   zipWith annotateInOrder [0 :: Int ..] modules
   where
     moduleNames = map moduleSourceNames modules
+    -- A module can contain syntax from other files, for example from a CPP
+    -- @#include@. The spans of that syntax have the source name of the
+    -- included file. Thus a diagnostic that matches no module source name
+    -- goes to the module that contains its exact span. The span sets are
+    -- lazy, so they are made only for such a diagnostic.
+    moduleSpans = map (Set.fromList . collectAnnotations (fromAnnotation @SourceSpan)) modules
     routed = concatMap route diagnostics
     route diagnostic =
       case diagLoc diagnostic of
@@ -60,7 +67,10 @@ attachSccDiagnostics diagnostics modules =
         Just span' ->
           let sourceName = sourceSpanSourceName span'
            in case [index | (index, names) <- zip [0 ..] moduleNames, sourceName `elem` names] of
-                [] -> [(0, internalAbortDiagnostic "SCC diagnostic source did not match a module")]
+                [] ->
+                  case [index | (index, spans) <- zip [0 ..] moduleSpans, span' `Set.member` spans] of
+                    index : _ -> [(index, diagnostic)]
+                    [] -> [(0, internalAbortDiagnostic "SCC diagnostic source did not match a module")]
                 indices -> [(index, diagnostic) | index <- indices]
     annotateInOrder index m =
       foldl (flip annotateModuleDiagnostics) m (diagnosticRuns [diagnostic | (target, diagnostic) <- routed, target == index])
