@@ -73,7 +73,7 @@ import Aihc.Tc.Annotations
     TcPatternInstantiation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Generate.Pattern (recStmtBinderNames)
+import Aihc.Tc.Generate.Pattern (compStmtBinderNames, recStmtBinderNames)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -3248,6 +3248,7 @@ desugarAnnotatedExpr annotation inner = do
           ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
         Syn.EList elements -> desugarList annotation elements
         Syn.EListComp expression statements -> desugarListComp annotation expression statements
+        Syn.EListCompParallel expression branches -> desugarListCompParallel annotation expression branches
         Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
         Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
         Syn.EUnboxedSum alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
@@ -4406,28 +4407,113 @@ desugarListComp annotation expression statements = do
   consName <- primitiveName "GHC.Types" ":" SortDataConstructor
   let nil = ExTyApp (ExVar nilName) convertedElementType
       cons = ExTyApp (ExVar consName) convertedElementType
-  desugarListCompStatements elementType cons expression statements nil
+  desugarListCompStatements elementType cons (desugarExpr expression) statements nil
 
-desugarListCompStatements :: TcType -> Expr -> Syn.Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
-desugarListCompStatements resultElementType cons expression statements rest =
+-- | Desugar a parallel list comprehension as
+--
+-- > let go (vs1 : t1) (vs2 : t2) = e : go t1 t2
+-- >     go _ _ = []
+-- > in go [vs1 | quals1] [vs2 | quals2]
+--
+-- where @vsi@ is the tuple of the variables of branch @i@ in the order of
+-- 'compStmtBinderNames'. The type checker gives the tuple annotation of
+-- each branch, see 'inferListCompParallel'. The variables come out of the
+-- tuples through lazy bindings, as in a @rec@ statement.
+desugarListCompParallel :: TcAnnotation -> Syn.Expr -> [[Syn.CompStmt]] -> ValueM Expr
+desugarListCompParallel annotation expression branches = do
+  elementType <- listElementType "list comprehension result" (tcAnnType annotation)
+  resultListType <- listTypeFromElement elementType
+  resultType <- convertCheckedType resultListType
+  convertedElementType <- convertCheckedType elementType
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  let nil = ExTyApp (ExVar nilName) convertedElementType
+      cons = ExTyApp (ExVar consName) convertedElementType
+  parts <- mapM desugarBranch branches
+  let branchListTypes = [listType | (_, listType, _, _) <- parts]
+  function <- freshBinder "_list_comp_zip" (foldr TcFunTy resultListType branchListTypes)
+  arguments <- mapM (freshBinder "_list_comp_zip_list") branchListTypes
+  tails <- mapM (freshBinder "_list_comp_zip_tail") branchListTypes
+  let recursiveCall = foldl ExApp (ExVar (binderName function)) (map (ExVar . binderName) tails)
+      -- Match the next element of each branch list. The first empty list
+      -- ends the result.
+      matchLists matched remaining =
+        case remaining of
+          [] -> do
+            (bindsList, localsList) <- mapAndUnzipM (\(item, (tupleType, _, variables, _)) -> recTupleSelections item tupleType variables) matched
+            body <- withLocals (concat localsList) (desugarExpr expression)
+            pure (foldr ExLet (ExApp (ExApp cons body) recursiveCall) (concat bindsList))
+          (argument, items, part@(tupleType, listType, _, _)) : rest -> do
+            item <- freshBinder "_list_comp_zip_item" tupleType
+            caseBinder <- freshBinder "_list_comp_zip_scrut" listType
+            success <- matchLists (matched <> [(item, part)]) rest
+            pure
+              ( caseFromList
+                  (ExVar (binderName argument))
+                  (Just caseBinder)
+                  resultType
+                  [ Alt (AltData nilName) [] [] nil,
+                    Alt (AltData consName) [] [item, items] success
+                  ]
+              )
+  loop <- matchLists [] (zip3 arguments tails parts)
+  let branchLists = [list | (_, _, _, list) <- parts]
+  pure (ExRec [Bind function (foldr ExLam loop arguments)] (foldl ExApp (ExVar (binderName function)) branchLists))
+  where
+    desugarBranch statements = do
+      tupleAnnotation <-
+        case statements of
+          Syn.CompAnn ann _ : _
+            | Just checked <- Syn.fromAnnotation ann -> pure checked
+          _ -> failValue "parallel list comprehension branch has no checked tuple annotation"
+      let tupleType = tcAnnType tupleAnnotation
+          binderTypes = tcAnnTypeArgs tupleAnnotation
+      keys <- mapM requiredBinderKey (compStmtBinderNames statements)
+      unless (length keys == length binderTypes) $
+        failValue ("parallel list comprehension branch has " <> show (length keys) <> " variables and " <> show (length binderTypes) <> " types")
+      listType <- listTypeFromElement tupleType
+      convertedTupleType <- convertCheckedType tupleType
+      nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+      consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+      let variables = zip keys binderTypes
+          nil = ExTyApp (ExVar nilName) convertedTupleType
+          cons = ExTyApp (ExVar consName) convertedTupleType
+          tuple = do
+            locals <- gets vsLocals
+            values <-
+              mapM
+                ( \(key, _) -> case Map.lookup key locals of
+                    Just (binder, _) -> pure (ExVar (binderName binder))
+                    Nothing -> failValue ("parallel list comprehension variable is not in scope: " <> show key)
+                )
+                variables
+            recTupleValue tupleType binderTypes values
+      list <- desugarListCompStatements tupleType cons tuple statements nil
+      pure (tupleType, listType, variables, list)
+
+-- | Desugar the statements of a list comprehension. The body action gives
+-- one element of the result, in the scope of the variables of the
+-- statements.
+desugarListCompStatements :: TcType -> Expr -> ValueM Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
+desugarListCompStatements resultElementType cons body statements rest =
   case statements of
     [] -> do
-      expression' <- desugarExpr expression
-      pure (ExApp (ExApp cons expression') rest)
+      body' <- body
+      pure (ExApp (ExApp cons body') rest)
     statement : remaining ->
       case statement of
-        Syn.CompAnn _ inner -> desugarListCompStatements resultElementType cons expression (inner : remaining) rest
+        Syn.CompAnn _ inner -> desugarListCompStatements resultElementType cons body (inner : remaining) rest
         Syn.CompGen pattern' source ->
-          desugarListCompGenerator resultElementType cons expression pattern' source remaining rest
+          desugarListCompGenerator resultElementType cons body pattern' source remaining rest
         Syn.CompGuard guard -> do
-          success <- desugarListCompStatements resultElementType cons expression remaining rest
+          success <- desugarListCompStatements resultElementType cons body remaining rest
           desugarListCompGuard resultElementType guard success rest
         Syn.CompLetDecls declarations ->
-          desugarLocalDecls declarations (listTypeFromElement resultElementType) (desugarListCompStatements resultElementType cons expression remaining rest)
+          desugarLocalDecls declarations (listTypeFromElement resultElementType) (desugarListCompStatements resultElementType cons body remaining rest)
         unsupported -> failValue ("unsupported list comprehension statement: " <> take 80 (show unsupported))
 
-desugarListCompGenerator :: TcType -> Expr -> Syn.Expr -> Syn.Pattern -> Syn.Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
-desugarListCompGenerator resultElementType cons expression pattern' source remaining rest = do
+desugarListCompGenerator :: TcType -> Expr -> ValueM Expr -> Syn.Pattern -> Syn.Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
+desugarListCompGenerator resultElementType cons body pattern' source remaining rest = do
   sourceType <- requiredExprType source
   sourceElementType <- listElementType "list comprehension generator" sourceType
   resultListType <- listTypeFromElement resultElementType
@@ -4448,7 +4534,7 @@ desugarListCompGenerator resultElementType cons expression pattern' source remai
       item
       sourceElementType
       pattern'
-      (desugarListCompStatements resultElementType cons expression remaining recursiveCall)
+      (desugarListCompStatements resultElementType cons body remaining recursiveCall)
       (Just recursiveCall)
   source' <- desugarExpr source
   let loop =

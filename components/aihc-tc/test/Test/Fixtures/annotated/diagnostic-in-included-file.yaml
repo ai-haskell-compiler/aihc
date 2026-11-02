@@ -1,0 +1,22 @@
+annotated:
+- |-
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Main where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  #line 5 "Included.h"
+  bad :: Unit
+  bad = bad bad
+        └─ error: couldn't match () with () → ()
+status: pass
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Main where
+  data Unit = Unit
+  #line 5 "Included.h"
+  bad :: Unit
+  bad = bad bad
+reason: a diagnostic in syntax from an included file goes to the module that contains it

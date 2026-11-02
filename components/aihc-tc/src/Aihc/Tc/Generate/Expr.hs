@@ -194,6 +194,8 @@ inferExprAt ambient expr = case expr of
     inferList (exprSpan expr <|> ambient) elems
   EListComp body quals ->
     inferListComp (exprSpan expr <|> ambient) body quals
+  EListCompParallel body branches ->
+    inferListCompParallel (exprSpan expr <|> ambient) body branches
   EArithSeq arithSeq ->
     inferArithSeq (exprSpan expr <|> ambient) arithSeq
   EDo stmts flavor ->
@@ -1607,51 +1609,104 @@ inferListComp :: Maybe SourceSpan -> Expr -> [CompStmt] -> TcM (Expr, TcType, [C
 inferListComp sp body quals = do
   listTyCon' <- resolvedListTyCon
   (quals', body', bodyTy, cts) <- inferCompQuals listTyCon' sp quals (inferExpr body)
-  let resultTy = listType listTyCon' bodyTy
+  let resultTy = TcTyCon listTyCon' [bodyTy]
       pending = pendingAnnotation resultTy [bodyTy] [] []
   pure (annotatePendingExprAt sp pending (EListComp body' quals'), resultTy, cts)
-  where
-    listType tyCon elemTy = TcTyCon tyCon [elemTy]
-    inferCompQuals _ _ [] action = do
-      (body', bodyTy, bodyCts) <- action
-      pure ([], body', bodyTy, bodyCts)
-    inferCompQuals listTyCon' ambient (qual : rest) action =
-      case qual of
-        CompAnn ann inner -> do
-          (stmts', body', bodyTy, cts) <- inferCompQuals listTyCon' (compStmtSpan qual <|> ambient) (inner : rest) action
-          case stmts' of
-            inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
-            [] -> pure ([], body', bodyTy, cts)
-        CompGen pat src -> do
-          elemTy <- freshMetaTv
-          (src', srcTy, srcCts) <- inferExpr src
-          patCheck <- checkPattern ambient pat elemTy
-          ev <- freshEvVar
-          let srcSp = exprSpan src <|> ambient
-              srcListCt = mkWantedCt (EqPred srcTy (listType listTyCon' elemTy)) ev (AppOrigin srcSp) srcSp
-          (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (inferCompQuals listTyCon' ambient rest action)
-          remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
-          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
-        CompGuard guard -> do
-          (guard', guardTy, guardCts) <- inferExpr guard
-          ev <- freshEvVar
-          expectedBoolTy <- boolType
-          let guardSp = exprSpan guard <|> ambient
-              guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
-          (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
-          pure (CompGuard guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
-        CompLetDecls decls -> do
-          (decls', (rest', body'), bodyTy, bodyCts) <-
-            inferLocalDecls inferExpr decls $ do
-              (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
-              pure ((rest', body'), bodyTy, bodyCts)
-          pure (CompLetDecls decls' : rest', body', bodyTy, bodyCts)
-        CompThen {} -> unsupportedQual listTyCon' qual ambient rest action
-        CompThenBy {} -> unsupportedQual listTyCon' qual ambient rest action
-        CompGroupUsing {} -> unsupportedQual listTyCon' qual ambient rest action
-        CompGroupByUsing {} -> unsupportedQual listTyCon' qual ambient rest action
 
-    unsupportedQual listTyCon' qual ambient rest action = do
+-- | Check a parallel list comprehension. Its desugaring is
+--
+-- > [e | (vs1, vs2) <- zip [vs1 | quals1] [vs2 | quals2]]
+--
+-- where @vsi@ is the tuple of the variables of branch @i@ in the order of
+-- 'compStmtBinderNames'. A branch with one variable uses the variable and
+-- not a tuple. Each branch sees only the outer scope. The variables have
+-- monomorphic types in the body.
+--
+-- The first statement of each branch gets a tuple annotation. The tuple
+-- annotation has the tuple type and the types of the variables as type
+-- arguments.
+inferListCompParallel :: Maybe SourceSpan -> Expr -> [[CompStmt]] -> TcM (Expr, TcType, [Ct])
+inferListCompParallel sp body branches = do
+  listTyCon' <- resolvedListTyCon
+  checked <- mapM (inferBranch listTyCon') branches
+  let binders = concat [branchBinders | (_, branchBinders, _) <- checked]
+  (body', bodyTy, bodyCts) <-
+    foldr (\(key, ty) -> extendTermEnv key (TcMonoIdBinder ty)) (inferExpr body) binders
+  let resultTy = TcTyCon listTyCon' [bodyTy]
+      pending = pendingAnnotation resultTy [bodyTy] [] []
+      branches' = [quals' | (quals', _, _) <- checked]
+      branchCts = concat [cts | (_, _, cts) <- checked]
+  pure (annotatePendingExprAt sp pending (EListCompParallel body' branches'), resultTy, branchCts <> bodyCts)
+  where
+    inferBranch listTyCon' quals = do
+      keys <- mapM resolvedUnqualifiedTermKey (compStmtBinderNames quals)
+      binderTys <- mapM (const freshMetaTv) keys
+      tupleTy <- recTupleType binderTys
+      let branchBinders = zip keys binderTys
+      (quals', _, _, cts) <- inferCompQuals listTyCon' sp quals (finishBranch tupleTy branchBinders)
+      let tupleAnn = mkAnnotation (pendingAnnotation tupleTy binderTys [] [])
+          annotated =
+            case quals' of
+              first : rest -> CompAnn tupleAnn first : rest
+              [] -> []
+      pure (annotated, branchBinders, cts)
+    -- After the last statement of a branch, equate the type of each
+    -- variable of the branch with its tuple field type.
+    finishBranch tupleTy branchBinders = do
+      cts <- mapM equate branchBinders
+      pure (body, tupleTy, concat cts)
+    equate (key, fieldTy) = do
+      binder <- lookupTermKey key
+      case binder of
+        Just (TcMonoIdBinder boundTy) -> pure <$> wantedDoEq sp boundTy fieldTy
+        Just (TcIdBinder (ForAll [] [] boundTy) _) -> pure <$> wantedDoEq sp boundTy fieldTy
+        _ -> do
+          emitError sp (OtherError "a variable of a parallel list comprehension branch must have a monomorphic type")
+          pure []
+
+-- | Check the statements of a list comprehension, and then run the action
+-- in the scope of their variables.
+inferCompQuals :: TyCon -> Maybe SourceSpan -> [CompStmt] -> TcM (Expr, TcType, [Ct]) -> TcM ([CompStmt], Expr, TcType, [Ct])
+inferCompQuals _ _ [] action = do
+  (body', bodyTy, bodyCts) <- action
+  pure ([], body', bodyTy, bodyCts)
+inferCompQuals listTyCon' ambient (qual : rest) action =
+  case qual of
+    CompAnn ann inner -> do
+      (stmts', body', bodyTy, cts) <- inferCompQuals listTyCon' (compStmtSpan qual <|> ambient) (inner : rest) action
+      case stmts' of
+        inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
+        [] -> pure ([], body', bodyTy, cts)
+    CompGen pat src -> do
+      elemTy <- freshMetaTv
+      (src', srcTy, srcCts) <- inferExpr src
+      patCheck <- checkPattern ambient pat elemTy
+      ev <- freshEvVar
+      let srcSp = exprSpan src <|> ambient
+          srcListCt = mkWantedCt (EqPred srcTy (TcTyCon listTyCon' [elemTy])) ev (AppOrigin srcSp) srcSp
+      (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (inferCompQuals listTyCon' ambient rest action)
+      remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
+      pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
+    CompGuard guard -> do
+      (guard', guardTy, guardCts) <- inferExpr guard
+      ev <- freshEvVar
+      expectedBoolTy <- boolType
+      let guardSp = exprSpan guard <|> ambient
+          guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
+      (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
+      pure (CompGuard guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
+    CompLetDecls decls -> do
+      (decls', (rest', body'), bodyTy, bodyCts) <-
+        inferLocalDecls inferExpr decls $ do
+          (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
+          pure ((rest', body'), bodyTy, bodyCts)
+      pure (CompLetDecls decls' : rest', body', bodyTy, bodyCts)
+    CompThen {} -> unsupportedQual
+    CompThenBy {} -> unsupportedQual
+    CompGroupUsing {} -> unsupportedQual
+    CompGroupByUsing {} -> unsupportedQual
+  where
+    unsupportedQual = do
       let qualSp = compStmtSpan qual <|> ambient
       emitError qualSp (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
       inferCompQuals listTyCon' ambient rest action
