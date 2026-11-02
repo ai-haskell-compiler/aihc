@@ -13,11 +13,11 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
 | Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `123/123` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `399/404` (`98.76%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1063/1100` (`96.63%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `264/264` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `820/5013` (`16.36%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2266/10061` (`22.52%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `400/405` (`98.76%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1084/1121` (`96.69%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `268/268` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `823/5013` (`16.42%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2273/10061` (`22.59%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
 | Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●● `76/76` (`100.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Getting started
@@ -127,7 +127,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | scientific | 0.3.10.0 | ✅ installs |
 | megaparsec | 9.8.3 | ✅ installs |
 | aihc-cabal-syntax | 2.0.0.0 | ✅ installs |
-| aihc-parser | 5.0.1.0 | ✅ installs |
+| aihc-parser | 5.0.0.0 | ✅ installs |
 | aihc-resolve | 0.1.0.0 | ✅ installs |
 | aihc-tc | 0.1.0.0 | ✅ installs |
 | text-short | 0.1.6.1 | ✅ installs |

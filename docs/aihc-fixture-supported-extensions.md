@@ -5,8 +5,8 @@
 - Total Extensions: 87
 - Supported: 45
 - In Progress: 42
-- Fixtures (eval): 634
-- Fixtures (fc): 466
+- Fixtures (eval): 637
+- Fixtures (fc): 484
 
 ## Extension Status
 
@@ -33,7 +33,7 @@
 | EmptyDataDecls             |   🔴    | 3/4           |
 | EmptyDataDeriving          |   🔴    | 0/1           |
 | ExistentialQuantification  |   🟡    | 13/14         |
-| ExplicitForAll             |   🔴    | 13/17         |
+| ExplicitForAll             |   🔴    | 14/18         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedDefaultRules       |   🔴    | 0/1           |
 | ExtendedLiterals           |   🟢    | 13/13         |
@@ -49,9 +49,9 @@
 | ImpredicativeTypes         |   🔴    | 0/1           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟡    | 66/68         |
+| KindSignatures             |   🟡    | 67/69         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 311/313       |
+| MagicHash                  |   🟡    | 318/320       |
 | MonadComprehensions        |   🔴    | 0/2           |
 | MonoLocalBinds             |   🟢    | 1/1           |
 | MultiParamTypeClasses      |   🟡    | 41/44         |
@@ -61,7 +61,7 @@
 | NumDecimals                |   🟢    | 1/1           |
 | OrPatterns                 |   🔴    | 0/1           |
 | OverloadedLabels           |   🔴    | 0/1           |
-| OverloadedLists            |   🟢    | 3/3           |
+| OverloadedLists            |   🟢    | 4/4           |
 | OverloadedRecordDot        |   🔴    | 0/1           |
 | OverloadedStrings          |   🟢    | 4/4           |
 | PackageImports             |   🟢    | 1/1           |
