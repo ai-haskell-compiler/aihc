@@ -1502,6 +1502,7 @@ patternBinderSpecs pattern' =
     Syn.PStrict inner -> patternBinderSpecs inner
     Syn.PIrrefutable inner -> patternBinderSpecs inner
     Syn.PTypeSig inner _ -> patternBinderSpecs inner
+    Syn.PView _ inner -> patternBinderSpecs inner
     Syn.PCon _ _ children -> concat <$> mapM patternBinderSpecs children
     Syn.PInfix left _ right -> (<>) <$> patternBinderSpecs left <*> patternBinderSpecs right
     Syn.PList children -> concat <$> mapM patternBinderSpecs children
@@ -1805,6 +1806,7 @@ patternBinderAnnotations pattern' =
     Syn.PStrict inner -> patternBinderAnnotations inner
     Syn.PIrrefutable inner -> patternBinderAnnotations inner
     Syn.PTypeSig inner _ -> patternBinderAnnotations inner
+    Syn.PView _ inner -> patternBinderAnnotations inner
     Syn.PCon _ _ children -> concatMap patternBinderAnnotations children
     Syn.PInfix left _ right -> patternBinderAnnotations left <> patternBinderAnnotations right
     Syn.PList children -> concatMap patternBinderAnnotations children
