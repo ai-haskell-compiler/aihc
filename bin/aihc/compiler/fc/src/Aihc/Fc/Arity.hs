@@ -71,6 +71,7 @@ import Aihc.Fc.Fold (isCheapPrimitive)
 import Aihc.Fc.FullLaziness (sharedAtTop)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Size (exprSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
   ( TypeEnv (..),
@@ -98,6 +99,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text qualified as T
 
 -- | What eta expansion did to a program.
 data EtaReport = EtaReport
@@ -458,14 +460,26 @@ addCount Zero count = count
 addCount count Zero = count
 addCount _ _ = Many
 
--- | A value whose result closures can be one-shot: a top-level value, a
--- local function in the body of a top-level value, or a value parameter
--- of a top-level function, with the number of arguments that the manifest
--- lambdas of each value given there still need.
+-- | The two versions of the body of a candidate. In the one-shot version,
+-- the result lambdas are one-shot. The shared version is the body as it
+-- is. A value that is not a candidate has the shared version only.
+data Version = OnceVersion | SharedVersion
+  deriving (Eq, Ord, Show)
+
+-- | A version of the body of a top-level value.
+type Body = (Name, Version)
+
+-- | A fact that the analysis assumes until an occurrence breaks it. A body
+-- calls the one-shot version of a candidate, a local function in a body
+-- has one-shot results, or a value parameter of a version of a top-level
+-- function applies each value that it gets at most once, for values that
+-- need that number of arguments before their result. The result of a
+-- body is a position only, and no occurrence breaks it.
 data OneShotKey
-  = TopValue !Name
-  | LocalValue !Name !Name
-  | Parameter !Name !Int !Int
+  = UsesOnce !Body !Name
+  | LocalValue !Body !Name
+  | Parameter !Body !Int !Int
+  | BodyResult !Body
   deriving (Eq, Ord, Show)
 
 -- | Where an expression stands. In the tail of a value of the set, a
@@ -528,9 +542,25 @@ data Position = Tail !OneShotKey | Applied | Inner
 -- continuation in a state monad gets them, applies the result of its body
 -- at once. The set is the greatest one with these properties. It starts
 -- with every candidate and drops each value with another occurrence until
--- nothing changes. The result gives the top-level values and the local
--- functions, the latter with the name of their top-level value.
-oneShotResults :: Env -> Set Name -> [Decl] -> (Set Name, Set (Name, Name))
+-- nothing changes.
+--
+-- An occurrence that the set does not accept does not take the value out
+-- of the set for every caller. Each candidate has two versions of its
+-- body: a one-shot version, whose result lambdas are one-shot, and the
+-- shared version, which keeps all work shared. Each body calls the
+-- one-shot version of a candidate when the set accepts each occurrence of
+-- the candidate in that body, and the shared version otherwise. Thus the
+-- methods in a dictionary and the calls that a function gives to an
+-- unknown function use the shared version, and the other calls use the
+-- one-shot version. The two versions of a body choose their callees apart,
+-- because only in the one-shot version is the tail a result tail.
+--
+-- A candidate gets a copy only when the program reaches both versions.
+-- When it reaches only the one-shot version, that version takes the place
+-- of the value. The result is the program, the values whose result
+-- lambdas are one-shot, the local functions with one-shot results, with
+-- the name of their top-level value, and the name of each copy.
+oneShotResults :: Env -> Set Name -> [Decl] -> ([Decl], Set Name, Set (Name, Name), [(Name, Name)])
 oneShotResults env roots decls = finish (fixpoint Set.empty)
   where
     values = [declaration | DeclVal declaration <- decls]
@@ -546,11 +576,13 @@ oneShotResults env roots decls = finish (fixpoint Set.empty)
           Set.notMember name ruled,
           typeArity env (valType declaration) > Map.findWithDefault 0 name arities
         ]
-    -- Each round walks every body, then each parameter that a walk asks
-    -- about, and drops each key with an occurrence that it does not
-    -- accept. A key that is not dropped is assumed to be in the set.
+    versions name = if Set.member name candidates then [OnceVersion, SharedVersion] else [SharedVersion]
+    allBodies = [((valName declaration, version), valBody declaration) | declaration <- values, version <- versions (valName declaration)]
+    -- Each round walks every version of every body, then each parameter
+    -- that a walk asks about, and drops each key with an occurrence that
+    -- it does not accept. A key that is not dropped is assumed to hold.
     fixpoint rejected =
-      let (violations, asked) = foldMap (\declaration -> occurrenceViolations env arities candidates rejected (valName declaration) Nothing (valBody declaration)) values
+      let (violations, asked) = foldMap (\(body, expr) -> occurrenceViolations env arities candidates rejected body Nothing expr) allBodies
           (parameterViolations, _) = parameters rejected Set.empty asked
           dropped = violations <> parameterViolations
           rejected' = rejected <> dropped
@@ -558,16 +590,104 @@ oneShotResults env roots decls = finish (fixpoint Set.empty)
     parameters rejected walked pending =
       case Set.minView (Set.difference (Set.filter (`Set.notMember` rejected) pending) walked) of
         Nothing -> (Set.empty, walked)
-        Just (key@(Parameter function position needed), _) ->
+        Just (key@(Parameter body@(function, _) position needed), _) ->
           let walked' = Set.insert key walked
-              (violations, asked) = maybe (Set.empty, Set.empty) (occurrenceViolations env arities candidates rejected function (Just (position, needed))) (Map.lookup function bodies)
+              (violations, asked) = maybe (Set.empty, Set.empty) (occurrenceViolations env arities candidates rejected body (Just (position, needed))) (Map.lookup function bodies)
               (more, walked'') = parameters rejected walked' (Set.union (Set.delete key pending) asked)
            in (violations <> more, walked'')
         Just (key, _) -> parameters rejected (Set.insert key walked) (Set.delete key pending)
-    finish rejected =
-      ( Set.filter (\name -> Set.notMember (TopValue name) rejected) candidates,
-        Set.fromList [(owner, local) | (owner, local) <- foldMap (\declaration -> localCandidates env (valName declaration) (valBody declaration)) values, Set.notMember (LocalValue owner local) rejected]
-      )
+    -- A large value that would need a copy is shared at each call
+    -- instead. The shared version is right for every caller.
+    copyable name = maybe False ((<= maxCopySize) . exprSize (envTypes env)) (Map.lookup name bodies)
+    finish rejected = finishWith rejected Set.empty
+    finishWith rejected shared =
+      let -- The version of a candidate that a body calls.
+          calledVersion body name
+            | Set.member name candidates && Set.notMember name shared && Set.notMember (UsesOnce body name) rejected = OnceVersion
+            | otherwise = SharedVersion
+          callees body@(name, _) = [(callee, calledVersion body callee) | callee <- Set.toList (Set.intersection candidates (valueReferences (Map.findWithDefault (ExVar name) name bodies)))]
+          reach seen [] = seen
+          reach seen (body : rest)
+            | Set.member body seen = reach seen rest
+            | otherwise = reach (Set.insert body seen) (callees body <> rest)
+          reached = reach Set.empty [(valName declaration, SharedVersion) | declaration <- values, Set.notMember (valName declaration) candidates]
+          bothReached = Set.filter (\name -> Set.member (name, OnceVersion) reached && Set.member (name, SharedVersion) reached) candidates
+          copied = Set.filter copyable bothReached
+          tooLarge = Set.difference bothReached copied
+          taken = Map.keysSet bodies
+          copyNames = snd (List.mapAccumL (\used name -> let fresh = freshCopyName used name in (Set.insert fresh used, (name, fresh))) taken (Set.toList copied))
+          copyName name = Map.findWithDefault name name (Map.fromList copyNames)
+          -- The name that a body uses for a candidate.
+          calledName body name = case calledVersion body name of
+            OnceVersion -> copyName name
+            SharedVersion -> name
+          rename body = renameValues (Map.fromList [(callee, calledName body callee) | callee <- Set.toList candidates])
+          -- The version that takes the name of the value.
+          ownVersion name
+            | Set.member name candidates,
+              Set.member (name, OnceVersion) reached,
+              Set.notMember (name, SharedVersion) reached =
+                OnceVersion
+            | otherwise = SharedVersion
+          emit decl = case decl of
+            DeclVal declaration ->
+              let name = valName declaration
+                  own = (name, ownVersion name)
+                  this = DeclVal declaration {valBody = rename own (valBody declaration)}
+                  copy = DeclVal declaration {valName = copyName name, valVis = Private, valBody = rename (name, OnceVersion) (valBody declaration)}
+               in if Set.member name copied then [this, copy] else [this]
+            _ -> [decl]
+          -- Each emitted body, with the name it has.
+          emitted =
+            [((name, ownVersion name), name) | declaration <- values, let name = valName declaration]
+              <> [((name, OnceVersion), copyName name) | name <- Set.toList copied]
+          oneShotValues = Set.fromList [emittedName | ((_, OnceVersion), emittedName) <- emitted]
+          oneShotLocals =
+            Set.fromList
+              [ (emittedName, local)
+              | (body@(name, _), emittedName) <- emitted,
+                (_, local) <- localCandidates env name (Map.findWithDefault (ExVar name) name bodies),
+                Set.notMember (LocalValue body local) rejected
+              ]
+       in if Set.null tooLarge
+            then (concatMap emit decls, oneShotValues, oneShotLocals, copyNames)
+            else finishWith rejected (shared <> tooLarge)
+
+-- | The largest value that gets a one-shot copy, in the units of
+-- 'exprSize'. A larger copy grows the program and saves little: the
+-- one-shot version of a large function is often a long chain of steps
+-- that run once per call anyway.
+maxCopySize :: Int
+maxCopySize = 600
+
+-- | A name for the one-shot copy of a value that no value has.
+freshCopyName :: Set Name -> Name -> Name
+freshCopyName used name = go (0 :: Int)
+  where
+    go index =
+      let candidate = name {nameText = "$o" <> nameText name <> (if index == 0 then "" else "_" <> T.pack (show index))}
+       in if Set.member candidate used then go (index + 1) else candidate
+
+-- | Replace the names of top-level values in an expression. A local binder
+-- never has the name of a top-level value.
+renameValues :: Map Name Name -> Expr -> Expr
+renameValues names = go
+  where
+    go expr =
+      case expr of
+        ExVar name -> ExVar (Map.findWithDefault name name names)
+        ExLit {} -> expr
+        ExCoercion {} -> expr
+        ExApp function argument -> ExApp (go function) (go argument)
+        ExTyApp function ty -> ExTyApp (go function) ty
+        ExLam binder inner -> ExLam binder (go inner)
+        ExTyLam binder inner -> ExTyLam binder (go inner)
+        ExLet bind inner -> ExLet bind {bindRhs = go (bindRhs bind)} (go inner)
+        ExRec binds inner -> ExRec [bind {bindRhs = go (bindRhs bind)} | bind <- binds] (go inner)
+        ExCase scrutinee binder alternatives -> ExCase (go scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
+        ExAbsurd scrutinee ty -> ExAbsurd (go scrutinee) ty
+        ExCast inner coercion -> ExCast (go inner) coercion
+        ExForeignCall call tys arguments -> ExForeignCall call tys (map go arguments)
 
 -- | The local functions in the body of a top-level value whose types show
 -- more arrows than their lambdas.
@@ -601,19 +721,19 @@ isLocalCandidate env bind =
 -- to. Without a parameter, the walk checks the body of a top-level value.
 -- With a parameter, it checks only the occurrences of that parameter, for
 -- a value that needs the given number of arguments.
-occurrenceViolations :: Env -> Map Name Int -> Set Name -> Set OneShotKey -> Name -> Maybe (Int, Int) -> Expr -> (Set OneShotKey, Set OneShotKey)
+occurrenceViolations :: Env -> Map Name Int -> Set Name -> Set OneShotKey -> Body -> Maybe (Int, Int) -> Expr -> (Set OneShotKey, Set OneShotKey)
 occurrenceViolations env arities candidates rejected self parameter body =
   case parameter of
-    Nothing -> walk Map.empty (Tail (TopValue self)) (afterManifest body)
+    Nothing -> walk Map.empty (Tail (BodyResult self)) (afterManifest body)
     Just (position, needed) ->
       case drop position (valueBinders body) of
         binder : _
           -- A closure: each path of the body applies it at most once.
           | needed == 0 ->
-              let (once, asked) = appliedOnce 1 (Tail (TopValue self)) (binderName binder) (afterManifest body)
+              let (once, asked) = appliedOnce 1 (Tail (BodyResult self)) (binderName binder) (afterManifest body)
                in (if once then Set.empty else Set.singleton (Parameter self position needed), asked)
           | otherwise ->
-              let (violations, asked) = walk (Map.singleton (binderName binder) (Parameter self position needed, needed)) (Tail (TopValue self)) (afterManifest body)
+              let (violations, asked) = walk (Map.singleton (binderName binder) (Parameter self position needed, needed)) (Tail (BodyResult self)) (afterManifest body)
                in (Set.filter isParameter violations, asked)
         [] -> (Set.singleton (Parameter self position needed), Set.empty)
   where
@@ -632,16 +752,20 @@ occurrenceViolations env arities candidates rejected self parameter body =
         ExLam binder inner -> binder : valueBinders inner
         ExCast inner _ -> valueBinders inner
         _ -> []
-    -- A value of the set, a local function of the set, a parameter that
-    -- the walk checks, or a local partial application of one of them, with
-    -- its key and the number of arguments that the manifest lambdas still
-    -- need.
+    -- A candidate whose one-shot version this body calls, a local function
+    -- of the set, a parameter that the walk checks, or a local partial
+    -- application of one of them, with its key and the number of
+    -- arguments that the manifest lambdas still need.
     candidate aliases name
       | Just found <- Map.lookup name aliases = Just found
       | Set.member name candidates,
-        Set.notMember (TopValue name) rejected =
-          Just (TopValue name, arity name)
+        accepted (UsesOnce self name) =
+          Just (UsesOnce self name, arity name)
       | otherwise = Nothing
+    -- The version of a top-level function that this body calls.
+    calledBody function
+      | Set.member function candidates && accepted (UsesOnce self function) = (function, OnceVersion)
+      | otherwise = (function, SharedVersion)
     accepted key = Set.notMember key rejected
     violation key = (Set.singleton key, Set.empty)
     walk aliases position expr =
@@ -726,7 +850,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
               | Just (key, needed) <- candidate aliases name,
                 valueCount inner < needed,
                 index < Map.findWithDefault 0 function arities ->
-                  let asked = Parameter function index (needed - valueCount inner)
+                  let asked = Parameter (calledBody function) index (needed - valueCount inner)
                    in (if accepted asked then (Set.empty, Set.singleton asked) else violation key) <> foldMap (walk aliases Inner) (rights inner)
               -- A closure that a call of a top-level function with its
               -- manifest arguments gets is applied as that function
@@ -742,7 +866,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
             (ExLam {}, [])
               | Just manifest <- Map.lookup function arities,
                 index < manifest,
-                let asked = Parameter function index (manifestArity env argument),
+                let asked = Parameter (calledBody function) index (manifestArity env argument),
                 accepted asked ->
                   (Set.empty, Set.singleton asked) <> walk aliases (Tail asked) (afterManifest argument)
             _ -> walk aliases Inner argument
@@ -751,7 +875,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
     arity name = Map.findWithDefault 0 name arities
     isResultTail position = case position of
       Tail key -> case key of
-        TopValue owner -> Set.member owner candidates && accepted key
+        BodyResult (_, version) -> version == OnceVersion
         _ -> accepted key
       Applied -> True
       Inner -> False
@@ -811,7 +935,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
       | Just manifest <- Map.lookup function arities,
         count >= manifest,
         index < manifest =
-          Just (Parameter function index 0)
+          Just (Parameter (calledBody function) index 0)
       | otherwise = Nothing
     -- A cast has no run-time content.
     uncast expr = case expr of
@@ -871,18 +995,40 @@ occurrenceViolations env arities candidates rejected self parameter body =
 -- to the arity its body supports.
 etaExpandProgram :: PackageId -> Maybe [Name] -> Program -> (Program, EtaReport)
 etaExpandProgram primPackage roots program =
-  let types = typeEnvFromProgram primPackage program
-      env1 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty, envOneShotLocals = Set.empty, envOwner = Nothing, envDiverging = divergingValues types [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]}
+  let initialEnv current =
+        let types = typeEnvFromProgram primPackage current
+         in Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty, envOneShotLocals = Set.empty, envOwner = Nothing, envDiverging = divergingValues types [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls current]}
       rootSet = maybe (Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub]) Set.fromList roots
-      (oneShotValues, oneShotLocals) = oneShotResults env1 rootSet (programDecls program)
-      env0 = env1 {envOneShotResults = oneShotValues, envOneShotLocals = oneShotLocals}
-      env = valueSignatures env0 (programDecls program)
+      (versioned, oneShotValues, oneShotLocals, copies) = oneShotResults (initialEnv program) rootSet (programDecls program)
+      -- The one-shot copies are new values, so the types and the
+      -- divergence of the program are found again.
+      program' = program {programDecls = versioned}
+      env0 = (initialEnv program') {envOneShotResults = oneShotValues, envOneShotLocals = oneShotLocals}
+      env = valueSignatures env0 versioned
       supply = maxLocalUnique program + 1
-      (decls, (_, report)) = runState (traverse (expandDecl env) (programDecls program)) (supply, EtaReport 0 0 0)
+      (expanded, (_, report)) = runState (traverse (expandDecl env) versioned) (supply, EtaReport 0 0 0)
+      decls = dropIdleCopies env copies expanded
    in -- An expansion names the axiom of every newtype it unfolded, and
       -- a merged whole program arrives with imports that no longer
       -- match its declarations, so the import table is rebuilt here.
       (pruneImports program {programDecls = decls}, report)
+
+-- | Drop each one-shot copy that takes no more lambdas than its value
+-- after the expansion. Such a copy only grows the program. Its callers
+-- call the value, whose shared version is right for every caller.
+dropIdleCopies :: Env -> [(Name, Name)] -> [Decl] -> [Decl]
+dropIdleCopies env copies decls
+  | Map.null idle = decls
+  | otherwise = [rename decl | decl <- decls, keep decl]
+  where
+    arityOf = Map.fromList [(valName declaration, manifestArity env (valBody declaration)) | DeclVal declaration <- decls]
+    idle = Map.fromList [(copy, original) | (original, copy) <- copies, Map.findWithDefault 0 copy arityOf <= Map.findWithDefault 0 original arityOf]
+    keep decl = case decl of
+      DeclVal declaration -> Map.notMember (valName declaration) idle
+      _ -> True
+    rename decl = case decl of
+      DeclVal declaration -> DeclVal declaration {valBody = renameValues idle (valBody declaration)}
+      _ -> decl
 
 -- | The arity type of every top-level value, in dependency order: a value
 -- is analysed after the values it names, so a call of one knows how many
