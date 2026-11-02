@@ -3956,8 +3956,26 @@ constructorPatternSubstitution :: Syn.Pattern -> DataConInfo -> ValueM (Map.Map 
 constructorPatternSubstitution pattern' info = do
   useType <- requiredPatternType pattern'
   case matchTypes [dciResTy info] [useType] of
-    Just substitution -> pure substitution
+    Just substitution -> do
+      existentials <- existentialPatternSubstitution pattern' info
+      pure (Map.union substitution existentials)
     Nothing -> failValue ("constructor " <> T.unpack (dciName info) <> " does not match its checked pattern type: " <> show useType)
+
+-- | The pattern type variables of the existentials of a constructor. The
+-- result type does not mention an existential, so only the field types of
+-- the checked pattern supply it. The alternative binds the pattern type
+-- variables, and an unpacked leaf type must use them.
+existentialPatternSubstitution :: Syn.Pattern -> DataConInfo -> ValueM (Map.Map Unique TcType)
+existentialPatternSubstitution pattern' info
+  | null (dciExTyVars info) = pure Map.empty
+  | otherwise = do
+      let children = patternChildren pattern'
+      fieldTypes <- patternFieldTypes pattern' children
+      let declared = map dcfiType (dciFields info)
+          existentials = Set.fromList (map tvUnique (dciExTyVars info))
+      pure $ case matchTypes declared fieldTypes of
+        Just substitution -> Map.restrictKeys substitution existentials
+        Nothing -> Map.empty
 
 desugarUnpackedPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> DataConInfo -> ValueM Alt
 desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info = do
