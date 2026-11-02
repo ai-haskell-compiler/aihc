@@ -10,6 +10,7 @@ module Aihc.Tc.Generalize
     generalizeAndCommitIgnoring,
     generalizeAndCommitWithInterior,
     generalizeGroupAndCommitIgnoring,
+    GroupQuantification (..),
     environmentMetaVars,
     collectMetaVars,
     predMetaVars,
@@ -79,16 +80,20 @@ generalizeAndCommitWithInterior interior ty preds = do
 -- The bindings of a group share meta-variables. A separate generalization
 -- of each binding would turn a shared meta-variable into a type variable
 -- of the first binding, and the later bindings would then mention a type
--- variable that they do not quantify. Each scheme quantifies the shared
--- type variables that its own type or predicates mention.
-generalizeGroupAndCommitIgnoring :: Set.Set Entity -> [Unique] -> [(TcType, [Pred])] -> TcM [TypeScheme]
-generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
+-- variable that they do not quantify. The caller selects which shared type
+-- variables each scheme quantifies.
+generalizeGroupAndCommitIgnoring :: GroupQuantification -> Set.Set Entity -> [Unique] -> [(TcType, [Pred])] -> TcM [TypeScheme]
+generalizeGroupAndCommitIgnoring quantification ignoredKeys monoMetaVars bindings = do
   envMetaVars <- (++ monoMetaVars) <$> environmentMetaVars ignoredKeys
   zonked <- mapM zonkBinding bindings
   forM_ zonked (uncurry (defaultRuntimeRepMetas envMetaVars))
   zonked' <- mapM zonkBinding zonked
-  let bindingMetaVars = [nubOrd (collectMetaVars ty ++ concatMap predMetaVars preds) | (ty, preds) <- zonked']
-      uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat bindingMetaVars))
+  let ownMetaVars = [nubOrd (collectMetaVars ty ++ concatMap predMetaVars preds) | (ty, preds) <- zonked']
+      uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat ownMetaVars))
+      bindingMetaVars =
+        case quantification of
+          QuantifyOwnVariables -> ownMetaVars
+          QuantifyGroupVariables -> map (const uniqueMetaVars) ownMetaVars
   settleKinds <- settleKindsNow
   when settleKinds (mapM_ defaultMetaKind uniqueMetaVars)
   kindVariables <- openKindVariables settleKinds envMetaVars uniqueMetaVars (map fst zonked') (concatMap snd zonked')
@@ -104,6 +109,22 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
     ]
   where
     zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
+
+-- | The shared type variables that each scheme of a group quantifies.
+data GroupQuantification
+  = -- | Each scheme quantifies the type variables that its own type or
+    -- predicates mention. The bindings of a pattern binding need this:
+    -- each one only selects its part of the shared right-hand side.
+    QuantifyOwnVariables
+  | -- | Each scheme quantifies all type variables of the group. A
+    -- strongly connected component needs this. A use inside the group
+    -- has the monomorphic type of the binding that it uses, so the body
+    -- of each binding can mention each type variable of the group. In
+    -- @r = const (f s); s = g (argument r)@, the type of @s@ does not
+    -- mention the proxy type of @r@, but the use of @r@ in @s@ does. A
+    -- variable that the type of a binding does not mention is instantiated
+    -- at each use, and nothing determines it there.
+    QuantifyGroupVariables
 
 generalizeIgnoringWithSubst :: Set.Set Entity -> [TcType] -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
 generalizeIgnoringWithSubst ignoredKeys interior ty preds = do

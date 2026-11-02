@@ -1,0 +1,54 @@
+annotated:
+- |-
+  module Test where
+  data P t = P
+       │     └─ type: ∀ t. P t
+       └─ type: Type → Type
+  data W b = W
+       │     └─ type: ∀ b. W b
+       └─ type: Type → Type
+  unwrap :: p (W b) -> P b
+  unwrap _ = P
+  │      │   └─ type: P b; type-args: b
+  │      └─ type: p (W b)
+  └─ type: ∀ p b. p (W b) → P b
+  argument :: (p s -> r) -> P s
+  argument _ = P
+  │        │   └─ type: P s; type-args: s
+  │        └─ type: p s → r
+  └─ type: ∀ p s r. (p s → r) → P s
+  f :: ()
+  f = r (P :: P (W ()))
+  │   │  └─ type: P (W ()); type-args: W ()
+  │   └─ type: P (W ()) → (); type-args: P, ()
+  └─ type: ()
+    where
+      r x = case s of P -> ()
+      │ │   │    │    │    └─ type: ()
+      │ │   │    │    └─ type: P b
+      │ │   │    └─ type: P b; type-args: a, b
+      │ │   └─ type: ()
+      │ └─ type: a (W b)
+      └─ type: ∀ a b. a (W b) → ()
+      s = unwrap (argument r)
+      │   │       │        └─ type: a (W b) → (); type-args: a, b
+      │   │       └─ type: (a (W b) → ()) → P (W b); type-args: a, W b, ()
+      │   └─ type: P (W b) → P b; type-args: P, b
+      └─ type: ∀ a b. P b
+extensions: []
+modules:
+- |
+  module Test where
+  data P t = P
+  data W b = W
+  unwrap :: p (W b) -> P b
+  unwrap _ = P
+  argument :: (p s -> r) -> P s
+  argument _ = P
+  f :: ()
+  f = r (P :: P (W ()))
+    where
+      r x = case s of P -> ()
+      s = unwrap (argument r)
+reason: A binding of a recursive group quantifies the type variables of the whole group. The type of s does not mention the proxy type of r, but the use of r in s does.
+status: pass
