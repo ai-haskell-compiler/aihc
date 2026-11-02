@@ -1296,29 +1296,49 @@ inferPostfixSection sp inner op = do
       wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy resultTy)) evidence (AppOrigin sp) sp
   pure (annotatePendingExprAt sp pending (ESectionL inner' op'), resultTy, opCts <> innerCts <> [wanted])
 
+-- | A section operand of a polymorphic parameter type, such as a lens
+-- in @(.^ l)@, is checked against that polytype like an application
+-- argument. Inference would instantiate the operand.
 inferBinarySectionL :: Maybe SourceSpan -> Expr -> Name -> TcM (Expr, TcType, [Ct])
 inferBinarySectionL sp inner op = do
   (op', opTy, opCts) <- inferOperator sp op
-  (inner', innerTy, innerCts) <- inferExpr inner
-  argumentTy <- freshMetaTv
-  resultTy <- freshMetaTv
-  evidence <- freshEvVar
-  let sectionTy = TcFunTy argumentTy resultTy
-      pending = pendingAnnotation sectionTy [] [] [argumentTy]
-      wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy sectionTy)) evidence (AppOrigin sp) sp
-  pure (annotatePendingExprAt sp pending (ESectionL inner' op'), sectionTy, opCts <> innerCts <> [wanted])
+  zonkedOpTy <- zonkType opTy
+  case zonkedOpTy of
+    TcFunTy innerExpected sectionTy@(TcFunTy argumentTy _)
+      | isPolyType innerExpected -> do
+          (inner', innerCts) <- checkHigherRankArgument sp innerExpected inner
+          let pending = pendingAnnotation sectionTy [] [] [argumentTy]
+          pure (annotatePendingExprAt sp pending (ESectionL inner' op'), sectionTy, opCts <> innerCts)
+    _ -> do
+      (inner', innerTy, innerCts) <- inferExpr inner
+      argumentTy <- freshMetaTv
+      resultTy <- freshMetaTv
+      evidence <- freshEvVar
+      let sectionTy = TcFunTy argumentTy resultTy
+          pending = pendingAnnotation sectionTy [] [] [argumentTy]
+          wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy sectionTy)) evidence (AppOrigin sp) sp
+      pure (annotatePendingExprAt sp pending (ESectionL inner' op'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferSectionR :: Maybe SourceSpan -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferSectionR sp op inner = do
   (op', opTy, opCts) <- inferOperator sp op
-  (inner', innerTy, innerCts) <- inferExpr inner
-  argumentTy <- freshMetaTv
-  resultTy <- freshMetaTv
-  evidence <- freshEvVar
-  let sectionTy = TcFunTy argumentTy resultTy
-      pending = pendingAnnotation sectionTy [] [] [argumentTy]
-      wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
-  pure (annotatePendingExprAt sp pending (ESectionR op' inner'), sectionTy, opCts <> innerCts <> [wanted])
+  zonkedOpTy <- zonkType opTy
+  case zonkedOpTy of
+    TcFunTy argumentTy (TcFunTy innerExpected resultTy)
+      | isPolyType innerExpected -> do
+          (inner', innerCts) <- checkHigherRankArgument sp innerExpected inner
+          let sectionTy = TcFunTy argumentTy resultTy
+              pending = pendingAnnotation sectionTy [] [] [argumentTy]
+          pure (annotatePendingExprAt sp pending (ESectionR op' inner'), sectionTy, opCts <> innerCts)
+    _ -> do
+      (inner', innerTy, innerCts) <- inferExpr inner
+      argumentTy <- freshMetaTv
+      resultTy <- freshMetaTv
+      evidence <- freshEvVar
+      let sectionTy = TcFunTy argumentTy resultTy
+          pending = pendingAnnotation sectionTy [] [] [argumentTy]
+          wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
+      pure (annotatePendingExprAt sp pending (ESectionR op' inner'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferIf :: Maybe SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferIf sp cond thenE elseE = do

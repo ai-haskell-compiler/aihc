@@ -1,0 +1,65 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Box s = Box Nat
+          │       └─ type: ∀ s. Nat → Box s
+          └─ type: Type → Type
+  apply :: Nat -> (forall s. Box s -> Nat) -> Nat
+  apply n fill = fill (Box n)
+  │     │ │      │     └─ type: Nat → Box (); type-args: ()
+  │     │ │      └─ type: Box () → Nat; type-args: ()
+  │     │ └─ type: ∀ s. Box s → Nat
+  │     └─ type: Nat
+  └─ type: Nat → (∀ s. Box s → Nat) → Nat
+  viaSection :: (forall s. Box s -> Nat) -> Nat -> Nat
+  viaSection f = (`apply` f)
+  │          │   └─ type: Box s → Nat; type-args: s
+  │          │   └─ type: ∀ s. Box s → Nat
+  │          │   └─ type: Nat → Nat; term-args: Nat
+  │          └─ type: ∀ s. Box s → Nat
+  └─ type: (∀ s. Box s → Nat) → Nat → Nat
+  first :: (forall s. Box s -> Nat) -> Nat -> Nat
+  first f n = apply n f
+  │     │ │   └─ type: Box s → Nat; type-args: s
+  │     │ │   └─ type: ∀ s. Box s → Nat
+  │     │ └─ type: Nat
+  │     └─ type: ∀ s. Box s → Nat
+  └─ type: (∀ s. Box s → Nat) → Nat → Nat
+  viaLeftSection :: Nat -> Nat
+  viaLeftSection = (unbox `first`)
+  │                └─ type: Box s → Nat; type-args: s
+  │                └─ type: ∀ s. Box s → Nat
+  │                └─ type: Nat → Nat; term-args: Nat
+  └─ type: Nat → Nat
+  unbox :: Box s -> Nat
+  unbox (Box n) = n
+  │      │   └─ type: Nat
+  │      └─ type: Box s
+  └─ type: ∀ s. Box s → Nat
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  data Nat = Z | S Nat
+  newtype Box s = Box Nat
+  apply :: Nat -> (forall s. Box s -> Nat) -> Nat
+  apply n fill = fill (Box n)
+  viaSection :: (forall s. Box s -> Nat) -> Nat -> Nat
+  viaSection f = (`apply` f)
+  first :: (forall s. Box s -> Nat) -> Nat -> Nat
+  first f n = apply n f
+  viaLeftSection :: Nat -> Nat
+  viaLeftSection = (unbox `first`)
+  unbox :: Box s -> Nat
+  unbox (Box n) = n
+reason: an operand of an operator section whose parameter type is a
+  polytype is checked against that polytype, as an application argument
+  is; inference would instantiate the operand first
+status: pass
