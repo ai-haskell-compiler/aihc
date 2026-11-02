@@ -4291,7 +4291,11 @@ expandJoins env joins = go env
               rhs <- lambdaBody env' (bindRhs bind)
               ExLet bind {bindRhs = rhs} <$> go (bindingEnv env' (bindBinder bind) rhs) body
           | otherwise -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
-        ExRec binds body -> ExRec binds <$> go env' body
+        -- A recursive join point of the scrutinee took the small case
+        -- into its tails too.
+        ExRec binds body -> do
+          binds' <- mapM (\bind -> if any (`Map.member` joins) (Set.toList (exprFreeNames (bindRhs bind))) then (\rhs -> bind {bindRhs = rhs}) <$> lambdaBody env' (bindRhs bind) else pure bind) binds
+          ExRec binds' <$> go env' body
         ExCase scrutinee binder alternatives -> do
           -- A small alternative that takes a binder apart before its
           -- call selects the fields when the binder is known. See
@@ -4317,17 +4321,29 @@ expandJoins env joins = go env
 -- | 'Nothing' when the scrutinee has no case in its tail.
 caseOfCaseRaw :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM (Maybe Pushed)
 caseOfCaseRaw env scrutinee binder alternatives
-  | not (hasCaseTail scrutinee) = pure Nothing
+  | not (hasCaseTail scrutinee || (hasRecursiveJoinTail scrutinee && all closed alternatives)) = pure Nothing
   | otherwise = do
-      joined <- mapM joinPoint alternatives
+      -- The tails of a recursive join point are under its lambdas, where
+      -- a call of a join point outside it would capture the join point
+      -- as a value. A join point without parameters is then a thunk. The
+      -- alternatives are copied into those tails instead.
+      joined <- if hasCaseTail scrutinee then mapM joinPoint alternatives else pure (fmap (Nothing,) alternatives)
       let joins = Map.fromList [(name, rhs) | (Just (name, rhs), _) <- NE.toList joined]
           small = fmap snd joined
           -- The types of the join points, so that the type of a join
           -- point of the scrutinee that takes the small case is known.
           typedEnv = List.foldl' extendTypeBinder env [Binder name ty | (name, rhs) <- Map.toList joins, Just ty <- [exprType (spEnv env) rhs]]
-      (pushed, selected) <- pushSmall typedEnv binder small scrutinee
+          resultType = exprType (spEnv env) (ExCase scrutinee binder alternatives)
+      (pushed, selected) <- pushSmall typedEnv binder small resultType scrutinee
       pure (Just (Pushed pushed (ExCase scrutinee binder small) joins selected))
   where
+    -- An alternative that names no local value but its own binders. A
+    -- copy of it in the tails of a recursive join point brings no work
+    -- that the loop does not change, which full laziness would float out
+    -- of the loop as a thunk.
+    closed alternative =
+      let bound = Set.fromList (map binderName (altBinders alternative <> foldr (:) [] binder))
+       in all (\name -> Set.member name bound || not (isLocalName name)) (Set.toList (exprFreeNames (altRhs alternative)))
     -- The case binder is a parameter of every join point: each copy of
     -- the small case binds it under a fresh name, and the call passes
     -- that name.
@@ -4386,6 +4402,37 @@ caseOfCaseRaw env scrutinee binder alternatives
               Just (before, field, con, fields, after, rest)
         _ -> Nothing
 
+-- | Whether the tail of an expression, under lets, is a call of a local
+-- recursive function that only calls itself in its tails. See
+-- 'recursiveJoinParameters'.
+hasRecursiveJoinTail :: Expr -> Bool
+hasRecursiveJoinTail expr =
+  case expr of
+    ExRec [bind] body -> isJust (recursiveJoinParameters bind body) || hasRecursiveJoinTail body
+    ExRec _ body -> hasRecursiveJoinTail body
+    ExLet _ body -> hasRecursiveJoinTail body
+    _ -> False
+
+-- | The parameters of a recursive join point: a local recursive function
+-- of lambdas that its own body and the body of its group only call in
+-- their tails, with all the arguments of its lambdas. The function
+-- returns what each call returns, so a case of a call takes its
+-- alternatives into the tails of the function that do not call it:
+--
+-- > case (rec go = λx. case x of { [] → Nothing; y : ys → if p y then Just y else go ys }) in go xs of alts
+--
+-- becomes a loop whose tails select an alternative of the case, and the
+-- loop builds no 'Just'.
+recursiveJoinParameters :: Bind -> Expr -> Maybe [Binder]
+recursiveJoinParameters bind body = do
+  parameters <- joinParameters bind body
+  let inner = foldr (const lambdaBody) (bindRhs bind) parameters
+      lambdaBody expr = case expr of
+        ExLam _ rest -> rest
+        _ -> expr
+  _ <- joinParameters bind inner
+  pure parameters
+
 -- | Whether a case is in the tail of an expression, under lets and casts.
 hasCaseTail :: Expr -> Bool
 hasCaseTail expr =
@@ -4402,11 +4449,27 @@ hasCaseTail expr =
 -- under it, a known constructor or literal selects an alternative, and
 -- any other tail is scrutinised by a copy of the small case. Nothing
 -- that was simplified is simplified again.
-pushSmall :: Simpl -> Maybe Binder -> NE.NonEmpty Alt -> Expr -> SimplM (Expr, Int)
-pushSmall env binder small = go [] Set.empty env
+pushSmall :: Simpl -> Maybe Binder -> NE.NonEmpty Alt -> Maybe Type -> Expr -> SimplM (Expr, Int)
+pushSmall env binder small resultType = go [] Set.empty env
   where
     go casts joins env' expr =
       case expr of
+        -- The small case moves into the tails of a recursive join point,
+        -- and its calls of itself stay as they are. The function then
+        -- returns the result of the case. See 'recursiveJoinParameters'.
+        ExRec [bind] body
+          | null casts,
+            Just parameters <- recursiveJoinParameters bind body,
+            Just result <- resultType,
+            Just rep <- repOf (spEnv env') result,
+            Just ty <- retypeLambdas (length parameters) rep result (binderType (bindBinder bind)) -> do
+              let named = (bindBinder bind) {binderType = ty}
+                  joins' = Set.insert (binderName named) joins
+                  groupEnv = extendTypeBinder (shadowNames [binderName named] env') named
+                  parameterEnv = markUnlifted parameters (shadowNames (map binderName parameters) groupEnv)
+              (loopBody, selectedInLoop) <- go casts joins' parameterEnv (lambdaResult (length parameters) (bindRhs bind))
+              (body', selectedInBody) <- go casts joins' groupEnv body
+              pure (ExRec [Bind named (foldr ExLam loopBody parameters)] body', selectedInLoop + selectedInBody)
         -- The small case moves into the body of a join point of the
         -- scrutinee, and the calls of the join point stay as they are.
         -- The calls stay in tail position, and a tail of the join point
@@ -4484,6 +4547,16 @@ pushSmall env binder small = go [] Set.empty env
         ExCase scrutinee innerBinder (NE.toList -> [alternative@(Alt AltData {} [] _ _)]) ->
           fromMaybe expr <$> caseOfKnown env' scrutinee innerBinder [alternative]
         _ -> pure expr
+
+-- | A function type with the result after a number of arrows replaced by
+-- a type of a representation.
+retypeLambdas :: Int -> Type -> Type -> Type -> Maybe Type
+retypeLambdas count rep result ty =
+  case ty of
+    TyFun argumentRep resultRep argument inner
+      | count == 1 -> Just (TyFun argumentRep rep argument result)
+      | count > 1 -> TyFun argumentRep resultRep argument <$> retypeLambdas (count - 1) rep result inner
+    _ -> Nothing
 
 -- | A local name that no binder in the program uses.
 freshLocal :: Name -> SimplM Name
