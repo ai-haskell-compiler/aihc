@@ -1,0 +1,78 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (isEven) where
+
+  import GHC.Prim ((-#))
+  import GHC.Types (Bool (..), Int (..))
+
+  isEven :: Int -> Bool
+  isEven (I# 0#) = True
+  isEven (I# n) = isOdd (I# (n -# 1#))
+
+  isOdd :: Int -> Bool
+  isOdd (I# 0#) = False
+  isOdd (I# n) = isEven (I# (n -# 1#))
+passes:
+- demand: lets
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.visEven inline :: tInt → tBool
+    = λ(x : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      v$wisEven x{1}
+
+  val 1.v$wisEven :: FUN @cIntRep @sLiftedRep tInt# tBool
+    = λ(x : tInt#).
+      case x of {
+        0#cIntRep →
+          cTrue;
+        _ →
+          v$wisOdd (prim -# x lit (1#cIntRep) :: tInt#)
+      }
+
+  val 1.visOdd inline :: tInt → tBool
+    = λ(x : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      v$wisOdd x{1}
+
+  val 1.v$wisOdd :: FUN @cIntRep @sLiftedRep tInt# tBool
+    = λ(x : tInt#).
+      case x of {
+        0#cIntRep →
+          cFalse;
+        _ →
+          v$wisEven (prim -# x lit (1#cIntRep) :: tInt#)
+      }
+status: pass
+reason: The two functions are a recursive group. Each member splits, and each worker calls the other member through a copy of its wrapper. Thus the workers call each other with an Int#, and no I# is built for a call.

@@ -62,11 +62,18 @@
 -- The worker takes those parameters too, and the wrapper keeps its cases
 -- under them, so the wrapper evaluates nothing before the action runs.
 --
--- The pass does not split a top-level function in a recursive group of
--- more than one value, a function with an @INLINABLE@ or @NOINLINE@
--- pragma, an @INLINE@ function in the first run (see the late run below),
--- a function that a rewrite rule names, or a function whose lambdas are not type lambdas
--- followed by value lambdas, with value lambdas under one cast after them.
+-- A top-level recursive group of more than one value splits in the same
+-- way. Each member splits on its own, and each member of the group calls
+-- the others through copies of their wrappers. Thus the recursive group
+-- holds the workers and the members that do not split, and no wrapper.
+--
+-- The pass does not split a function with a @NOINLINE@ pragma, an
+-- @INLINE@ function in the first run (see the late run below), a function
+-- that a rewrite rule names, or a function whose lambdas are not type
+-- lambdas followed by value lambdas, with value lambdas under one cast
+-- after them. An @INLINABLE@ function splits in the first run, as GHC
+-- does. Its worker keeps the pragma, so a later specialisation can copy
+-- the worker for the dictionaries at a call.
 --
 -- The late run after the growing inliner splits the local functions, and
 -- the top-level @INLINE@ functions that another value still calls. The
@@ -110,7 +117,7 @@ import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mfilter, zipWithM)
-import Control.Monad.Trans.State.Strict (State, runState, state)
+import Control.Monad.Trans.State.Strict (State, evalState, runState, state)
 import Data.Either (isRight, rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
@@ -149,7 +156,8 @@ workerWrapperProgram primPackage home scope program =
   let types = typeEnvFromProgram primPackage program
       decls = programDecls program
       signatures = topLevelSignatures types decls
-      excluded = mutuallyRecursive decls <> ruleNames decls
+      excluded = ruleNames decls
+      groups = recursiveGroups decls
       taken = Set.fromList [valName declaration | DeclVal declaration <- decls]
       called = calledValues decls
       -- A call of a function that the first run splits gives a parameter
@@ -183,7 +191,8 @@ workerWrapperProgram primPackage home scope program =
          in if next == current then current else settle next
       keeps current function position =
         case Map.lookup position (Map.findWithDefault Map.empty function parameterShapes) of
-          Just (True, name, _) -> usedApart (takesIn current) function position name (Map.findWithDefault (ExVar name) function bodies)
+          Just (strict, name, _)
+            | strict || Map.member function groups -> usedApart (takesIn current) function position name (Map.findWithDefault (ExVar name) function bodies)
           _ -> True
       -- The limit of 'limitStrictUnboxing', in the same order.
       limited function positions =
@@ -200,7 +209,12 @@ workerWrapperProgram primPackage home scope program =
       takesIn current function position = maybe False (Set.member position) (Map.lookup function current)
       takers = settle initial
       takesApart = Boxity (scope == SplitLateFunctions) (takesIn takers)
-      step (supply, report) decl =
+      -- The members of a recursive group often give a parameter whole to
+      -- each other, such as the record of a traversal. The worker of
+      -- such a member takes a product apart only where its body does not
+      -- need it whole, so that it does not build the value again.
+      boxityOf name = if Map.member name groups then takesApart {boxityAll = True} else takesApart
+      step (supply, report, split) decl =
         case decl of
           -- An imported public function keeps its worker in its own module.
           -- A split here would copy that worker into each consumer.
@@ -208,27 +222,41 @@ workerWrapperProgram primPackage home scope program =
             | valVis original == Pub,
               Just origin <- home,
               nameOrigin (valName original) /= origin ->
-                ((supply, report), [decl])
+                ((supply, report, split), [decl])
           DeclVal original ->
             let ((body, local), supply') = runState (splitLocals takesApart types signatures (valBody original)) supply
                 declaration = original {valBody = body}
                 report' = addReports report local
              in case splitTopLevel supply' declaration of
-                  Just ((supply'', split), decls') -> ((supply'', addReports report' split), decls')
-                  Nothing -> ((supply', report'), [DeclVal declaration])
-          _ -> ((supply, report), [decl])
+                  Just ((supply'', counts), decls'@[DeclVal wrapper, DeclVal worker]) ->
+                    ((supply'', addReports report' counts, Map.insert (valName wrapper) (valName worker, valBody wrapper) split), decls')
+                  Just ((supply'', counts), decls') -> ((supply'', addReports report' counts, split), decls')
+                  Nothing -> ((supply', report', split), [DeclVal declaration])
+          _ -> ((supply, report, split), [decl])
       splitTopLevel supply declaration = do
         guard (splitsTopLevel scope called declaration)
         guard (Set.notMember (valName declaration) excluded)
         signature <- Map.lookup (valName declaration) signatures
         let workerName = derivedTopName home (valName declaration) ("$w" <> nameText (valName declaration))
         guard (Set.notMember workerName taken)
-        case runState (splitValue takesApart types workerName (signatureDemands signature) declaration) supply of
+        case runState (splitValue (boxityOf (valName declaration)) types workerName (signatureDemands signature) declaration) supply of
           (Just (wrapper, worker, unboxed, constructed), supply') ->
             Just ((supply', WorkerWrapperReport 1 unboxed (if constructed then 1 else 0)), [DeclVal wrapper, DeclVal worker])
           (Nothing, _) -> Nothing
-      ((_, final), splits) = List.mapAccumL step (maxLocalUnique program + 1, WorkerWrapperReport 0 0 0) decls
-   in (tidyProgram (pruneImports program {programDecls = concat splits}), final)
+      ((supply0, final, wrappers), splits) = List.mapAccumL step (maxLocalUnique program + 1, WorkerWrapperReport 0 0 0, Map.empty) decls
+      -- A member of a recursive group calls each other member that split
+      -- through a copy of its wrapper. The worker of a member already
+      -- calls itself through a copy of its own wrapper.
+      workers = Map.fromList [(worker, original) | (original, (worker, _)) <- Map.toList wrappers]
+      groupCalls declaration =
+        let member = Map.findWithDefault (valName declaration) (valName declaration) workers
+            others = [(name, wrapperBody) | name <- maybe [] Set.toList (Map.lookup member groups), name /= member, Just (_, wrapperBody) <- [Map.lookup name wrappers]]
+            isWrapper = Map.member (valName declaration) wrappers
+         in if isWrapper || null others
+              then pure declaration
+              else (\body -> declaration {valBody = body}) <$> foldM (\current (name, wrapperBody) -> replaceCalls name wrapperBody current) (valBody declaration) others
+      rewritten = evalState (traverse (\decl -> case decl of DeclVal declaration -> DeclVal <$> groupCalls declaration; _ -> pure decl) (concat splits)) supply0
+   in (tidyProgram (pruneImports program {programDecls = rewritten}), final)
 
 addReports :: WorkerWrapperReport -> WorkerWrapperReport -> WorkerWrapperReport
 addReports a b =
@@ -428,10 +456,11 @@ usedApart takesApart self position name = go (Set.singleton name)
         ExVar found | Set.member found names -> (function == self && index == position) || takesApart function index
         _ -> go names value
 
--- | The values in a recursive group of more than one value.
-mutuallyRecursive :: [Decl] -> Set Name
-mutuallyRecursive decls =
-  Set.fromList (concat [members | CyclicSCC members@(_ : _ : _) <- stronglyConnComp graph])
+-- | The members of each recursive group of more than one value, by the
+-- name of each member.
+recursiveGroups :: [Decl] -> Map.Map Name (Set Name)
+recursiveGroups decls =
+  Map.fromList [(member, group) | CyclicSCC members@(_ : _ : _) <- stronglyConnComp graph, let group = Set.fromList members, member <- members]
   where
     declarations = [declaration | DeclVal declaration <- decls]
     names = Set.fromList (map valName declarations)
@@ -441,15 +470,16 @@ mutuallyRecursive decls =
       ]
 
 -- | Whether the scope splits a top-level function. The first run splits
--- the functions without a pragma. The late run splits the functions with
--- an @INLINE@ pragma that another value still calls: the growing inliner
--- did not copy such a large value at those calls, and the round of the
--- inliner that follows copies the small wrapper there. Neither run splits
--- an @INLINABLE@ or a @NOINLINE@ function.
+-- the functions without a pragma and the @INLINABLE@ functions. The late
+-- run splits the functions with an @INLINE@ pragma that another value
+-- still calls: the growing inliner did not copy such a large value at
+-- those calls, and the round of the inliner that follows copies the small
+-- wrapper there. Neither run splits a @NOINLINE@ function.
 splitsTopLevel :: SplitScope -> Set Name -> ValDecl -> Bool
 splitsTopLevel scope called declaration =
   case (scope, valInline declaration) of
     (SplitAllFunctions, InlineDefault) -> True
+    (SplitAllFunctions, InlineWhenUseful _) -> True
     (SplitLateFunctions, InlineAlways _) -> Set.member (valName declaration) called
     _ -> False
 
