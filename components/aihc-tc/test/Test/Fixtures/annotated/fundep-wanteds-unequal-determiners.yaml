@@ -1,0 +1,100 @@
+annotated:
+- |-
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances #-}
+  module Test where
+  class Functor f where
+  └─ class methods: fmap ∷ ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+    fmap :: (a -> b) -> f a -> f b
+  class MonadFree f m | m -> f where
+  └─ class methods: wrap ∷ ∀ f m a. (MonadFree f m) ⇒ f (m a) → m a; fundeps: m → f
+    wrap :: f (m a) -> m a
+  newtype Free f a = Free (f a)
+          │          └─ type: ∀ f a. f a → Free f a
+          └─ type: (Type → Type) → Type → Type
+  newtype F f a = F (f a)
+          │       └─ type: ∀ f a. f a → F f a
+          └─ type: (Type → Type) → Type → Type
+  instance MonadFree f (Free f) where
+  └─ $fMonadFreefFreef ∷ ∀ f. () ⇒ MonadFree f (Free f)
+    wrap = wrap
+    │      └─ type: f (Free f a) → Free f a; type-args: f, Free f, a; evidence: $fMonadFreefFreef @f
+    └─ wrap ∷ ∀ a. f (Free f a) → Free f a
+  instance MonadFree f (F f) where
+  └─ $fMonadFreefFf ∷ ∀ f. () ⇒ MonadFree f (F f)
+    wrap = wrap
+    │      └─ type: f (F f a) → F f a; type-args: f, F f, a; evidence: $fMonadFreefFf @f
+    └─ wrap ∷ ∀ a. f (F f a) → F f a
+  liftF :: (Functor f, MonadFree f m) => f a -> m a
+  liftF = liftF
+  │       └─ type: f a → m a; type-args: f, m, a; evidence: given Functor f, given MonadFree f m
+  └─ type: ∀ f m a. (Functor f, MonadFree f m) ⇒ f a → m a
+  fromF :: MonadFree f m => F f a -> m a
+  fromF = fromF
+  │       └─ type: F f a → m a; type-args: f, m, a; evidence: given MonadFree f m
+  └─ type: ∀ f m a. (MonadFree f m) ⇒ F f a → m a
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Cmd px next = Set px next
+       │             └─ type: ∀ px next. px → next → Cmd px next
+       └─ type: Type → Type → Type
+  instance Functor (Cmd px) where
+  └─ $fFunctorCmdpx ∷ ∀ px. () ⇒ Functor (Cmd px)
+    fmap = fmap
+    │      └─ type: (a → b) → Cmd px a → Cmd px b; type-args: Cmd px, a, b; evidence: $fFunctorCmdpx @px
+    └─ fmap ∷ ∀ a b. (a → b) → Cmd px a → Cmd px b
+  go :: Free (Cmd px) () -> Nat
+  go _ = Z
+  │  └─ type: Free (Cmd px) ()
+  └─ type: ∀ px. Free (Cmd px) () → Nat
+  pair :: Nat -> Nat -> Nat
+  pair _ n = n
+  │    │ └─ type: Nat
+  │    └─ type: Nat
+  └─ type: Nat → Nat → Nat
+  both :: F (Cmd px) () -> Nat
+  both draw = pair (go (fromF (liftF (Set Z ())))) (go (fromF draw))
+  │    │            │   │      │      │     │       │   └─ type: F (Cmd px) () → Free (Cmd px) (); type-args: Cmd px, Free (Cmd px), (); evidence: $fMonadFreefFreef @Cmd px
+  │    │            │   │      │      │     │       └─ type: Free (Cmd px) () → Nat; type-args: px
+  │    │            │   │      │      │     └─ type: ()
+  │    │            │   │      │      └─ type: Nat → () → Cmd Nat (); type-args: Nat, ()
+  │    │            │   │      └─ type: Cmd Nat () → F (Cmd Nat) (); type-args: Cmd Nat, F (Cmd Nat), (); evidence: $fFunctorCmdpx @Nat, $fMonadFreefFf @Cmd Nat
+  │    │            │   └─ type: F (Cmd Nat) () → Free (Cmd Nat) (); type-args: Cmd Nat, Free (Cmd Nat), (); evidence: $fMonadFreefFreef @Cmd Nat
+  │    │            └─ type: Free (Cmd Nat) () → Nat; type-args: Nat
+  │    └─ type: F (Cmd px) ()
+  └─ type: ∀ px. F (Cmd px) () → Nat
+extensions: []
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances #-}
+  module Test where
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+  class MonadFree f m | m -> f where
+    wrap :: f (m a) -> m a
+  newtype Free f a = Free (f a)
+  newtype F f a = F (f a)
+  instance MonadFree f (Free f) where
+    wrap = wrap
+  instance MonadFree f (F f) where
+    wrap = wrap
+  liftF :: (Functor f, MonadFree f m) => f a -> m a
+  liftF = liftF
+  fromF :: MonadFree f m => F f a -> m a
+  fromF = fromF
+  data Nat = Z | S Nat
+  data Cmd px next = Set px next
+  instance Functor (Cmd px) where
+    fmap = fmap
+  go :: Free (Cmd px) () -> Nat
+  go _ = Z
+  pair :: Nat -> Nat -> Nat
+  pair _ n = n
+  both :: F (Cmd px) () -> Nat
+  both draw = pair (go (fromF (liftF (Set Z ())))) (go (fromF draw))
+reason: two wanteds improve each other through a functional dependency
+  only when their determining parameters are equal; the two fromF calls
+  have determiners that only a later solution can make equal, and they are
+  at different types
+status: pass
