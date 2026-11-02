@@ -740,9 +740,15 @@ conditionEvaluatorIn context package =
 
 -- | The flags of a package a target sets away from their defaults.
 --
--- aihc has no way to ask for a flag on the command line, so the few flags a
--- target cannot take at their default are listed here. Both entries are
--- @text@ on the WebAssembly target.
+-- This list has the few flags that aihc cannot use at their default value.
+-- A @--constraint@ on the command line can still change them.
+--
+-- aihc cannot compile Cmm. On GHC 9.4 and later, @atomic-counter@ adds
+-- @cmm-sources@ and defines @USE_CMM@. Then its counter operations are
+-- @foreign import prim@ calls into the Cmm file. Thus @no-cmm@ is on for
+-- each target, and the package uses its @MutableByteArray#@ routines.
+--
+-- The other two entries are @text@ on the WebAssembly target.
 --
 -- The target has a libc but no C++ standard library in its sysroot, and
 -- @text@ enables its @cxx-sources@ (the simdutf validator) on every
@@ -763,6 +769,7 @@ targetFlagOverrides :: Arch -> PackageName -> [(FlagName, Bool)]
 targetFlagOverrides arch name
   | arch == Wasm32 && name == mkPackageName "text" =
       [(mkFlagName "simdutf", False), (mkFlagName "pure-haskell", True)]
+  | name == mkPackageName "atomic-counter" = [(mkFlagName "no-cmm", True)]
   | otherwise = []
 
 -- | Collect the data of the active branches of a conditional tree, in
