@@ -15,6 +15,7 @@ module Aihc.Tc.FunDep
   ( checkInstanceFunDeps,
     atPositions,
     classDependencyArguments,
+    dependencyDeterminers,
   )
 where
 
@@ -66,7 +67,8 @@ checkInstanceFunDeps loc classInfo tyVars headTypes context =
 checkCoverage :: Maybe SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [([TyVarId], [TyVarId])] -> FunDep -> TcM ()
 checkCoverage loc classInfo tyVars headTypes contextDependencies dependency = do
   liberal <- getUndecidableInstances
-  let determiners = atPositions (fdDeterminers dependency) headTypes
+  determinerPositions <- dependencyDeterminers classInfo dependency
+  let determiners = atPositions determinerPositions headTypes
       determined = atPositions (fdDetermined dependency) headTypes
       mentioned types = [tyVar | tyVar <- tyVars, any (typeMentionsTyVar tyVar) types]
       reached
@@ -90,14 +92,15 @@ predicateFunDeps tyVars context =
             Nothing -> pure []
             Just info -> do
               arguments' <- classDependencyArguments info arguments
+              dependencies <- mapM (\dependency -> (,) dependency <$> dependencyDeterminers info dependency) (ciFunDeps info)
               let variables positions =
                     [ tyVar
                     | tyVar <- tyVars,
                       any (typeMentionsTyVar tyVar) (atPositions positions arguments')
                     ]
               pure
-                [ (variables (fdDeterminers dependency), variables (fdDetermined dependency))
-                | dependency <- ciFunDeps info
+                [ (variables determinerPositions, variables (fdDetermined dependency))
+                | (dependency, determinerPositions) <- dependencies
                 ]
         -- An equality in the context determines each side from the other:
         -- @instance texp ~ TExp a => IsCode Q a (Q texp)@ determines @a@
@@ -125,7 +128,9 @@ closeOver dependencies = go
 -- | Two instances that agree on the determining parameters must agree on the
 -- parameters that the dependency determines.
 checkConsistency :: Maybe SourceSpan -> ClassInfo -> [TcType] -> [TcType] -> FunDep -> TcM ()
-checkConsistency loc classInfo headTypes otherHead dependency =
+checkConsistency loc classInfo headTypes otherHead dependency = do
+  determinerPositions <- dependencyDeterminers classInfo dependency
+  let determiners = atPositions determinerPositions
   case unifyOpen Map.empty (determiners headTypes) (determiners otherHead) of
     Unified substitution ->
       case unifyOpen substitution (determined headTypes) (determined otherHead) of
@@ -134,7 +139,6 @@ checkConsistency loc classInfo headTypes otherHead dependency =
         _ -> pure ()
     _ -> pure ()
   where
-    determiners = atPositions (fdDeterminers dependency)
     determined = atPositions (fdDetermined dependency)
 
 funDepCoverageError :: ClassInfo -> [TcType] -> FunDep -> TcErrorKind
@@ -155,6 +159,25 @@ funDepConflictError classInfo headTypes otherHead dependency =
 -- | The source names of the class parameters at the given positions.
 funDepNames :: ClassInfo -> [Int] -> [Text]
 funDepNames classInfo positions = map tvName (atPositions positions (ciTyVars classInfo <> ciKindTyVars classInfo))
+
+-- | The positions of the parameters that determine a dependency, in the
+-- order that 'classDependencyArguments' gives.
+--
+-- The kind of a determining parameter is part of it, so each kind
+-- parameter that this kind mentions also determines the dependency. For
+-- @class Reifies (s :: k) a | s -> a@, the instances @Reifies (n :: Nat)
+-- Integer@ and @Reifies (Z :: Type) Int@ do not agree on @s@, because
+-- their kinds do not agree.
+dependencyDeterminers :: ClassInfo -> FunDep -> TcM [Int]
+dependencyDeterminers info dependency = do
+  -- An inferred class kind can still be a meta variable here.
+  kinds <- mapM (zonkKind . tvKind) (atPositions (fdDeterminers dependency) (ciTyVars info))
+  pure $
+    fdDeterminers dependency
+      <> [ length (ciTyVars info) + index
+         | (index, kindTyVar) <- zip [0 ..] (ciKindTyVars info),
+           any (typeMentionsTyVar kindTyVar) kinds
+         ]
 
 -- | Visible parameters come first. Implicit kind parameters follow them.
 classDependencyArguments :: ClassInfo -> [TcType] -> TcM [TcType]

@@ -26,7 +26,7 @@ where
 
 import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
-import Aihc.Tc.FunDep (atPositions, classDependencyArguments)
+import Aihc.Tc.FunDep (atPositions, classDependencyArguments, dependencyDeterminers)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass)
 import Aihc.Tc.Types
@@ -145,10 +145,12 @@ improveFromPredicate info dependency constraint other =
             ClassPred _ arguments -> do
               arguments' <- classDependencyArguments info arguments
               otherArguments' <- classDependencyArguments info otherArguments
+              determinerPositions <- dependencyDeterminers info dependency
+              let determiners = atPositions determinerPositions
               -- The determining parameters must be equal now. If only a
               -- later solution of their meta variables made them equal,
               -- the two constraints could still be about different types.
-              when (determiners dependency arguments' == determiners dependency otherArguments') $
+              when (determiners arguments' == determiners otherArguments') $
                 improveEqualities (determined dependency arguments') (determined dependency otherArguments')
             _ -> pure ()
     _ -> pure ()
@@ -174,10 +176,12 @@ improveFromInstances givens siblings depth info dependency constraint = do
   case predicate of
     ClassPred _ arguments -> do
       arguments' <- classDependencyArguments info arguments
+      determinerPositions <- dependencyDeterminers info dependency
+      let determiners = atPositions determinerPositions
       candidates <- fmap catMaybes . forM instances $ \instanceInfo -> do
         instanceHead <- classDependencyArguments info (iiHead instanceInfo)
         pure $ do
-          substitution <- matchTypes (determiners dependency instanceHead) (determiners dependency arguments')
+          substitution <- matchTypes (determiners instanceHead) (determiners arguments')
           pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
       forM_ candidates $ \(instanceInfo, instanceDetermined) ->
         if any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
@@ -248,9 +252,6 @@ contextPassLimit = 8
 -- through.
 contextDepthLimit :: Int
 contextDepthLimit = 32
-
-determiners :: FunDep -> [TcType] -> [TcType]
-determiners dependency = atPositions (fdDeterminers dependency)
 
 determined :: FunDep -> [TcType] -> [TcType]
 determined dependency = atPositions (fdDetermined dependency)

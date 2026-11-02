@@ -26,6 +26,7 @@ module Foreign.Ptr
 where
 
 import Foreign.Storable (Storable)
+import GHC.Bits (Bits, FiniteBits)
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.IO (IO)
 import GHC.Int (Int (..))
@@ -51,10 +52,10 @@ import GHC.Word (Word (..))
 foreign import ccall unsafe "aihc_free_haskell_fun_ptr" freeHaskellFunPtr :: FunPtr a -> IO ()
 
 newtype IntPtr = IntPtr Int
-  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable)
+  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable, Bits, FiniteBits)
 
 newtype WordPtr = WordPtr Word
-  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable)
+  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable, Bits, FiniteBits)
 
 ptrToIntPtr :: Ptr a -> IntPtr
 ptrToIntPtr (Ptr address) = IntPtr (I# (addr2Int# address))

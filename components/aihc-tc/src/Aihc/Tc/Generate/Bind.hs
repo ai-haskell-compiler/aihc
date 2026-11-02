@@ -47,7 +47,7 @@ import Aihc.Resolve.Traverse (Collect, Walk (..), Walkable, collected, idWalk, r
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generalize (environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (GroupQuantification (..), environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme)
@@ -281,7 +281,14 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
       then do
         solveResult <- solveConstraints bindingCts
         residuals <- partitionLocalResiduals binderSet placeholderMap groups binders solveResult
-        polyBinders <- generalizedBinders sigs binderSet placeholderMap residuals binders
+        -- The group is one strongly connected component. Each binding of
+        -- it can use the others, so each binder quantifies the type
+        -- variables of the whole group. The binders of one pattern binding
+        -- only select parts of one right-hand side.
+        let quantification
+              | length (filter (not . null . groupBinders) groups) > 1 = QuantifyGroupVariables
+              | otherwise = QuantifyOwnVariables
+        polyBinders <- generalizedBinders quantification sigs binderSet placeholderMap residuals binders
         decls' <- annotateLocalBindingDecls (Set.difference binderSet (Map.keysSet sigs)) polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
@@ -541,10 +548,10 @@ withReboundLocalBinders ((name, binder) : rest) action = do
 -- | The binders of a generalized local group. The bindings without a
 -- signature that the monomorphism restriction does not restrict are
 -- generalized together, over one shared set of type variables.
-generalizedBinders :: Map Entity TypeScheme -> Set.Set Entity -> Map Entity TcType -> LocalResiduals -> [UnqualifiedName] -> TcM [(UnqualifiedName, TcBinder)]
-generalizedBinders sigs ignored placeholders residuals binders = do
+generalizedBinders :: GroupQuantification -> Map Entity TypeScheme -> Set.Set Entity -> Map Entity TcType -> LocalResiduals -> [UnqualifiedName] -> TcM [(UnqualifiedName, TcBinder)]
+generalizedBinders quantification sigs ignored placeholders residuals binders = do
   classified <- traverse classify binders
-  schemes <- generalizeGroupAndCommitIgnoring ignored (localResidualMonoMetas residuals) [(ty, preds) | Right (_, ty, preds) <- classified]
+  schemes <- generalizeGroupAndCommitIgnoring quantification ignored (localResidualMonoMetas residuals) [(ty, preds) | Right (_, ty, preds) <- classified]
   pure (assemble classified schemes)
   where
     classify name = do

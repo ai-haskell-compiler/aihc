@@ -134,7 +134,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -2927,7 +2927,7 @@ tcDeclComponent signatures groups = do
           if failed
             then pure [TcDeclGroupResult groupId [] Nothing | (groupId, _) <- groups]
             else do
-              schemes <- generalizeGroupAndCommitIgnoring (Set.fromList (map fst placeholders)) [] [(ty, predicates) | (_, ty, _, _) <- inferred]
+              schemes <- generalizeGroupAndCommitIgnoring QuantifyGroupVariables (Set.fromList (map fst placeholders)) [] [(ty, predicates) | (_, ty, _, _) <- inferred]
               let recursiveSchemes = Map.fromList (zip (map fst placeholders) schemes)
               forM (zip3 functions placeholders (zip inferred schemes)) $ \((groupId, binder, _, replaceMatches), (key, placeholder), ((matches', _, _, _), scheme)) -> do
                 finalizeInferredTermEnvPermanent key placeholder scheme
@@ -3030,7 +3030,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
     then pure (TcDeclGroupResult groupId [] Nothing)
     else do
       ignored <- patternBindEnvironmentKeys placeholders
-      schemes <- generalizeGroupAndCommitIgnoring ignored [] ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
+      schemes <- generalizeGroupAndCommitIgnoring QuantifyOwnVariables ignored [] ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
       case schemes of
         [] -> abortTc "pattern binding lost its generalized right-hand side"
         rhsScheme@(ForAll rhsTyVars _ _) : binderSchemes -> do

@@ -1,0 +1,45 @@
+annotated:
+- |-
+  module Test where
+  data Tag = A
+       │     └─ type: Tag
+       └─ type: Type
+  data Z
+       └─ type: Type
+  data P (t :: k) = P
+       │            └─ type: ∀ k t. P t
+       └─ type: k → Type
+  class Reifies (s :: k) a | s -> a where
+  └─ class methods: reflect ∷ ∀ k s a. (Reifies s a) ⇒ P s → a; fundeps: s → a
+    reflect :: P s -> a
+  instance Reifies Z () where
+  └─ $fReifiesZUnit ∷ () ⇒ Reifies Z ()
+    reflect _ = ()
+    │       │   └─ type: ()
+    │       └─ type: P Z
+    └─ reflect ∷ P Z → ()
+  instance Reifies (t :: Tag) Tag where
+  └─ $fReifiestTag ∷ ∀ t. () ⇒ Reifies t Tag
+    reflect _ = A
+    │       └─ type: P t
+    └─ reflect ∷ P t → Tag
+  z = reflect (P :: P Z)
+  │   │        └─ type: P Z; type-args: Type, Z
+  │   └─ type: P Z → (); type-args: Type, Z, (); evidence: $fReifiesZUnit
+  └─ type: ()
+extensions: [DataKinds, FlexibleInstances, FunctionalDependencies, KindSignatures, MultiParamTypeClasses, PolyKinds]
+modules:
+- |
+  module Test where
+  data Tag = A
+  data Z
+  data P (t :: k) = P
+  class Reifies (s :: k) a | s -> a where
+    reflect :: P s -> a
+  instance Reifies Z () where
+    reflect _ = ()
+  instance Reifies (t :: Tag) Tag where
+    reflect _ = A
+  z = reflect (P :: P Z)
+reason: "The kind of a determining parameter is part of it. The instances for Z and (t :: Tag) do not agree on s. Thus, they do not conflict, and the wanted on Z improves only from the instance for Z."
+status: pass
