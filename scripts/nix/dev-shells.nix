@@ -24,6 +24,7 @@ in {
       pkgs.haskellPackages.happy
       pkgs.wit-bindgen
       pkgs.zlib
+      pkgs.lz4
       pkgs.python3Packages.mkdocs-material
     ];
     AIHC_WASM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
