@@ -4335,7 +4335,13 @@ caseOfCaseRaw env scrutinee binder alternatives
           typedEnv = List.foldl' extendTypeBinder env [Binder name ty | (name, rhs) <- Map.toList joins, Just ty <- [exprType (spEnv env) rhs]]
           resultType = exprType (spEnv env) (ExCase scrutinee binder alternatives)
       (pushed, selected) <- pushSmall typedEnv binder small resultType scrutinee
-      pure (Just (Pushed pushed (ExCase scrutinee binder small) joins selected))
+      -- A recursive join point takes the case only where a tail selects
+      -- an alternative with a gain. Otherwise the case only moves into
+      -- the loop, and the code after the loop is then code of the loop.
+      pure $
+        if hasCaseTail scrutinee || selected > 0
+          then Just (Pushed pushed (ExCase scrutinee binder small) joins selected)
+          else Nothing
   where
     -- An alternative that names no local value but its own binders. A
     -- copy of it in the tails of a recursive join point brings no work
