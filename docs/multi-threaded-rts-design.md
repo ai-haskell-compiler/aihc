@@ -226,7 +226,7 @@ WASM keeps one capability until WASI supports the required thread operations.
 | Gen1 | Local blocks of each capability. A survivor stays for `-B` collections, one by default. No byte maximum. | Gen0 to-space, emptied at every collection. |
 | Write barrier | The fast path tests whether the object is in the sub-range of this capability. The test uses the aligned nursery base and size from the capability. | A generation test through the block descriptor. |
 | Safepoints for GC | The block refill, the write barrier cold path, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
-| Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
+| Context switch | At a thunk evaluation, a replay reservation, scheduler calls, and `yield#`. A ticker sets a flag and stores zero to the heap limit. | At every heap check, through `HpLim`. |
 | Young collection | Each capability collects its local heap alone, with the sequential collector and no stop. An escape promotes the local object graph into gen2. No space is copied by more than one thread. Local collection comes before parallel execution. | STW parallel copy by default. Local heaps were a prototype in 2011, not merged. |
 | Bridge collection | One thread copies every local heap in a stop, only for a change of the capability count and for the degradation mode under `-M`. | None |
 | Old generation | Non-moving gen2. A concurrent marker on a spare worker, with ragged barriers at the snapshot and at the termination. The mutator slice is the assist. | Optional concurrent non-moving collector. |
@@ -499,17 +499,21 @@ would then transfer to that function with a tail call instead of a jump.
 We estimate one to five percent on allocation-heavy code. We keep this as
 the fallback if the evaluation safepoint proves too coarse.
 
-Decision: a context switch happens at the thunk branch of `aihc_lir_eval`,
-at every scheduler primitive, and at `yield#`. The thunk branch loads the
-`context_switch` flag of the capability and tests it. This costs two loads
-and one predictable branch for each thunk evaluation. When the flag is set,
-the branch suspends the thread with `Eval thunk continuation` and enters the
-scheduler.
+Decision: a context switch happens at the entry check of the evaluation
+helpers, at a replay reservation, at every scheduler primitive, and at
+`yield#`. The heap limit is a field of the capability, so the ticker stores
+zero to it, and the next heap check fails. The inline thunk entry of
+compiled code checks the heap limit too, which costs one load and one
+predictable branch for each thunk entry. The failed check reaches the entry
+check of the evaluation helper, which suspends the thread with
+`Eval thunk continuation`. A replay reservation suspends the thread with a
+replay closure. See "Asynchronous exceptions" in docs/exceptions.md.
 
 A ticker OS thread sets the `context_switch` flag of each running capability
-every 20 ms. The RTS option `-C<time>` sets the interval. The ticker starts
-when the program forks its second Haskell thread, and it stops when every
-capability is idle. A program with one Haskell thread starts no ticker.
+every 20 ms. The ticker starts when the program forks its second Haskell
+thread. A program with one Haskell thread starts no ticker. The RTS option
+`-C<time>` and a stop of the ticker when every capability is idle are not
+implemented.
 
 ## Scheduler
 
@@ -2003,7 +2007,7 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | Claim walk | One compare-and-swap, two barriers, and one mark store for each update frame that is live at a pause, once for each frame | Below 1 percent |
 | Release stores | `stlr` on ARM64 at update, nothing on AMD64 | Below 1 percent |
 | Inline check of an evaluated thunk | One header bit test and one kind compare on the follow path | Below 1 percent |
-| Context switch flag | Two loads and one branch for each thunk evaluation | Below 1 percent |
+| Context switch check | One load and one branch for each inline thunk entry | Below 1 percent |
 | Barrier budget | One counter add and one compare on the cold path of the write barrier | Near zero |
 | `MVar` lock | One compare-and-swap pair for each `MVar` operation | Below 1 percent of such programs |
 | STM commit lock | One mutex for each transaction, one try-lock for each safepoint inside it | Small |

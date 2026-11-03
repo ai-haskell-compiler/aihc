@@ -721,13 +721,13 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
    The result is null when the computation continues. It is a resumption
    when an asynchronous exception interrupts the running thread. The caller
    then gives up its computation and transfers to the resumption. */
-const AihcResume *aihc_heap_collect(AihcCapability *capability,
-                                    uint64_t words, uint64_t root_count,
-                                    AihcSlot *roots, const AihcSrt *srt);
+const AihcResume *aihc_heap_collect(AihcCapability *capability, uint64_t words,
+                                    uint64_t root_count, AihcSlot *roots,
+                                    const AihcSrt *srt);
 /* The failed heap check at the entry of an evaluation. The roots are the
    value and the continuation. The result is as for aihc_heap_collect. */
-const AihcResume *aihc_eval_collect(AihcCapability *capability,
-                                    uint64_t words, AihcSlot *roots);
+const AihcResume *aihc_eval_collect(AihcCapability *capability, uint64_t words,
+                                    AihcSlot *roots);
 void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
                       uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 /* Allocate one object and return its address. A nursery allocation advances
@@ -885,13 +885,12 @@ const AihcResume *aihc_restore_mask(AihcCapability *capability,
                                     AihcValue *frame, AihcSlot value);
 /* killThread#: the caller reserves the words of an MVar waiter. The
    promotion of the exception can collect. */
-const AihcResume *aihc_throw_to(AihcCapability *capability,
-                                AihcThread *target, AihcValue *exception,
-                                AihcValue *continuation);
+const AihcResume *aihc_throw_to(AihcCapability *capability, AihcThread *target,
+                                AihcValue *exception, AihcValue *continuation);
 /* The entry of an AP_STACK thunk, with the continuation of its
    evaluation. */
-const AihcResume *aihc_ap_stack_enter(AihcCapability *capability,
-                                      AihcValue *ap, AihcValue *continuation);
+const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
+                                      AihcValue *continuation);
 /* The caller reserves nine heap slots. This operation must not collect. */
 AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action);
 AihcThread *aihc_my_thread_id(AihcCapability *capability);

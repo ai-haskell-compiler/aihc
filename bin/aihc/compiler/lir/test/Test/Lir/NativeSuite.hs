@@ -376,7 +376,9 @@ runObservedUnit backend fixture output metadata =
     runtimeBuild <-
       cachedRuntimeArchive
         (backendTarget backend)
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> gcStressDefines <> ["-DAIHC_NURSERY_BYTES=128" | snapshotFixtureGcStress fixture])
+        -- A snapshot must give the same output on each run, so the ticker
+        -- does not run.
+        (["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_NO_TICKER"] <> gcStressDefines <> ["-DAIHC_NURSERY_BYTES=128" | snapshotFixtureGcStress fixture])
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
@@ -493,7 +495,7 @@ withProgramExecutable backend units action =
 -- together.
 nativeRuntimeBuild :: NativeBackend -> IO RuntimeBuild
 nativeRuntimeBuild backend =
-  cachedRuntimeArchive (backendTarget backend) ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+  cachedRuntimeArchive (backendTarget backend) ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_NO_TICKER"]
 
 runtimeIncludeArguments :: RuntimeBuild -> [String]
 runtimeIncludeArguments build =

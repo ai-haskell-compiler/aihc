@@ -61,14 +61,19 @@ struct AihcThread {
      it pushes the thread to another capability. */
   uint64_t capability;
   /* The masking state, with the values of getMaskingState#. */
-  uint64_t mask_state;
-  /* What the thread waits for, and the record of the wait. An
-     asynchronous exception cancels the wait through the record. The value
-     is the thunk of a blackhole wait, so the thread can evaluate it again.
-     The object lock guards these three fields. */
-  uint64_t blocked_kind;
+  uint8_t mask_state;
+  /* What the thread waits for. The object lock guards the wait fields. */
+  uint8_t blocked_kind;
+  /* Whether the thread is on the async_targets list of its capability. */
+  uint8_t async_listed;
+  /* The number of cancelled waits. A waiter record keeps the epoch of its
+     wait, so the record of a cancelled wait does not match the thread. The
+     thread names no waiter record: a dead thread in gen2 then keeps no
+     young waiter and no frame of its wait alive. */
+  uint32_t wait_epoch;
+  /* The IO request of an IO wait. The requests of the capability reach it
+     anyway. */
   AihcValue *blocked_on;
-  AihcValue *blocked_value;
   /* The queued throwTo messages, oldest first. Each is an MVar waiter
      record: the sending thread, its continuation, and the exception. A
      message whose thread is null was cancelled. The object lock guards the
@@ -78,10 +83,8 @@ struct AihcThread {
   /* The exception that the capability of the thread raises in it when it
      runs next. The delivery takes it from the queue. */
   AihcValue *async_exception;
-  /* The link of the async_targets list of the capability, and whether the
-     thread is on that list. */
+  /* The link of the async_targets list of the capability. */
   AihcThread *async_next;
-  uint64_t async_listed;
 };
 
 enum {
@@ -102,7 +105,7 @@ enum {
 };
 
 /* Match the fork# reservation in Aihc.Grin.Primitive. */
-_Static_assert(sizeof(AihcThread) <= 21 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcThread) <= 17 * sizeof(AihcSlot),
                "thread exceeds the GRIN reservation");
 
 typedef struct AihcTransactionWrite AihcTransactionWrite;
@@ -148,6 +151,9 @@ struct AihcBlackholeWaiter {
   AihcThread *thread;
   AihcValue *continuation;
   AihcBlackholeWaiter *next;
+  /* The wait_epoch of the thread when it started the wait. An asynchronous
+     exception cancels the wait by a change of the epoch of the thread. */
+  uint64_t epoch;
 };
 
 /* A claimed thunk with waiters names a blackhole queue in field zero. The
@@ -164,10 +170,10 @@ struct AihcBlackholeQueue {
 };
 
 /* Match the evaluation reservation in aihc_constants.lir. */
-_Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcBlackholeWaiter) <= 5 * sizeof(AihcSlot),
                "blackhole waiter exceeds the GRIN reservation");
 _Static_assert(sizeof(AihcBlackholeWaiter) + sizeof(AihcBlackholeQueue) <=
-                   10 * sizeof(AihcSlot),
+                   11 * sizeof(AihcSlot),
                "blackhole queue exceeds the GRIN reservation");
 
 struct AihcMVarWaiter {
@@ -176,6 +182,9 @@ struct AihcMVarWaiter {
   AihcValue *continuation;
   AihcSlot value;
   AihcMVarWaiter *next;
+  /* The wait_epoch of the thread when it started the wait. See
+     AihcBlackholeWaiter. */
+  uint64_t epoch;
 };
 
 struct AihcMVar {
@@ -192,7 +201,7 @@ struct AihcMVar {
 
 _Static_assert(sizeof(AihcMVar) <= 9 * sizeof(AihcSlot),
                "MVar exceeds the GRIN reservation");
-_Static_assert(sizeof(AihcMVarWaiter) <= 5 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcMVarWaiter) <= 6 * sizeof(AihcSlot),
                "MVar waiter exceeds the GRIN reservation");
 
 /* aihc_stable_name.lir allocates and links these, so every field starts one

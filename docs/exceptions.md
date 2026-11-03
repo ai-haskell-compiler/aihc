@@ -39,16 +39,9 @@ is always its parent continuation. CPS records a frame kind for every generated
 continuation, GC-GRIN preserves it, and every backend emits it in `AihcInfo`.
 
 Primitive and typed synchronous catch, nested rethrow, and update-frame
-unwinding work. Masking, asynchronous delivery, and the masking-dependent
-cleanup combinators remain.
-
-Without asynchronous delivery there is no `throwTo`, so nothing can stop an
-action that has already begun. `System.Timeout.timeout` therefore honours only
-the two limits that need no watchdog: a negative limit is no limit, and a zero
-limit runs nothing. A positive limit runs the action to its end, so a caller
-that relies on a slow action being interrupted does not get what it asked for.
-Delivering a `Timeout` to a waiting thread is the first thing asynchronous
-exceptions buy.
+unwinding work. Masking, asynchronous delivery, and the cleanup combinators
+work too. See "Asynchronous exceptions". `System.Timeout.timeout` forks a
+watchdog thread as in GHC.
 
 ## Continuation-chain invariant
 
@@ -211,65 +204,123 @@ structurally casts the contained value. User exception values and
 
 ## Asynchronous exceptions
 
+The runtime implements the GHC model: masking states, a synchronous
+`throwTo`, delivery to a running thread through its heap limit, and frozen
+evaluations in AP_STACK thunks.
+
 ### Per-thread state
 
-A pending asynchronous exception belongs to a green thread, not to the whole
-machine. Each `AihcThread` needs:
+Each `AihcThread` has these fields:
 
-- a FIFO queue of pending exception values;
-- `Unmasked`, `MaskedInterruptible`, or `MaskedUninterruptible` state;
-- enough blocked-operation bookkeeping to remove it from an IO, MVar, or
-  blackhole wait queue;
-- optional sender acknowledgements for `throwTo`.
+- `mask_state`, with the values of `getMaskingState#`: 0 unmasked, 1 masked
+  uninterruptibly, and 2 masked interruptibly. A forked thread starts with
+  the state of its parent, as in GHC.
+- `blocked_kind`: the kind of the wait of the thread. For an IO wait,
+  `blocked_on` names the IO request.
+- `wait_epoch`: the number of cancelled waits. An MVar waiter, a blackhole
+  waiter, and a throwTo message keep the epoch of their wait. The thread
+  names none of these records. A thread record is in gen2, so a pointer
+  from it would keep a dead waiter, its frames, and its MVar alive until a
+  gen2 cycle.
+- `pending_head` and `pending_tail`: the queue of throwTo messages. A
+  message is an MVar waiter record: the sender, its continuation, and the
+  exception.
+- `async_exception`: the exception that the capability raises when the
+  scheduler selects the thread next.
 
-Pending exception values and any blocked sender continuations are collector
-roots. Deliver at most one queued exception at a safe point; another may be
-delivered at a later safe point after the handler restores the appropriate
-masking state.
+The object lock guards the wait fields and the queue. These fields are
+fields of the thread record, which the collector traces, and not roots. A
+store into them goes through the write barrier.
 
-`throwTo target exception` queues the exception for `target`. A fully compatible
-implementation blocks the sender until the target accepts delivery. Delivery
-to the current thread can raise immediately. Killing a blocked thread first
-detaches or cancels its pending operation, then resumes it with a raise transfer.
+### Masking
 
-### Safe points
+`maskAsyncExceptions#`, `maskUninterruptible#`, and
+`unmaskAsyncExceptions#` are scheduler primitives. The runtime pushes a
+restore-mask frame `[parent, previous state]` above the continuation, sets
+the new state, and applies the action. A wrapper closure of the CPS pass
+evaluates the action first, as for `fork#`. The restore-mask frame sets the
+previous state again when the action returns. An exception that unwinds
+through it does the same. An unmask, or a return to the unmasked state,
+raises a queued exception at once.
 
-A safe point is an explicit CPS operation with access to the current
-continuation. Checking a flag after arbitrary generated instructions is not
-safe, because locals may not describe a resumable Haskell state.
+A catch handler runs masked interruptibly, or masked uninterruptibly when
+the thread was. `aihc_raise` pushes a restore-mask frame above the parent of
+the catch frame when the state changes.
 
-Polls carry a reason such as `Allocation`, `Yield`, `InterruptibleWait`, or
-`AllowInterrupt`. Delivery is a small table: `Unmasked` accepts at every poll,
-`MaskedInterruptible` accepts only at an interruptible wait or explicit
-`allowInterrupt`, and `MaskedUninterruptible` never accepts. This keeps masking
-policy out of backend-specific branches.
+### throwTo
 
-Initial safe points should be:
+`killThread#` is synchronous, as in GHC. A throwTo to the running thread
+raises at once, also when the thread is masked. Otherwise the sender puts a
+message on the queue of the target and waits until the target takes it. A
+throwTo to a thread that ended returns at once.
 
-- every allocation check, whether or not that check actually invokes GC;
-- `yield#`;
-- entry to an interruptible wait in `awaitIO#`, MVar operations, or blackhole
-  waiting;
-- scheduler resumption before a thread re-enters generated code.
+Only the capability of a thread takes its messages, because the frames of
+its stack name objects of that local heap. The capability of the sender
+delivers a message itself when the target is on the same capability. For a
+target on another capability, the sender puts the target on the
+`async_targets` list of that capability. Then it sets the `interrupt` flag
+of the capability and stores zero to its `heap_limit`. The next heap check
+of the running thread there fails, and the runtime takes the interrupt. The
+flag comes before the store, and each writer of the heap limit stores zero
+again when the flag is set. Thus a refill cannot hide the interrupt.
 
-This suggests an explicit CPS/GC-GRIN poll carrying `k`, rather than hiding
-delivery inside `GrinEnsureHeap`. The GC root set already keeps live values and
-`k` precise; the poll makes the control effect visible to lint and every
-backend. A poll where delivery is disallowed returns normally. A deliverable
-pending value abandons the current generated entry and returns the same raise
-transfer used by synchronous exceptions, tagged with asynchronous origin for
-update-frame cleanup.
+A thread takes a message when it is unmasked, or when it is masked
+interruptibly and waits. Every wait of this runtime is interruptible. A
+waiting thread stops its wait when its epoch changes. The code that wakes
+waiters skips a record whose epoch is not the epoch of its thread. The top
+frame of the stack, which the wait noted, is the continuation. An IO
+request loses its thread. A cancelled timer leaves the requests of the
+capability at once. The thread then goes on the run queue,
+and the scheduler raises the exception when it selects the thread. A
+masked thread keeps its messages until it unmasks or starts a wait. The
+scheduler checks a thread that starts a wait.
 
-`MaskedInterruptible` permits delivery only at interruptible waits;
-`MaskedUninterruptible` never permits it. Mask changes need restore-mask frames
-so both normal return and exception unwinding restore the previous state.
-Library combinators such as `bracket` are then expressed with `mask`, `catch`,
-and rethrowing rather than runtime-specific cleanup callbacks.
+### Delivery and freezing
 
-Changing the mask state and installing its restore frame must be one runtime
-operation. There can be no delivery window between the two. Likewise, entering
-an interruptible wait atomically records the blocked operation before polling,
-so delivery can always detach exactly one registered wait.
+The delivery starts at the top of the stack of the thread. It walks the
+frames to the first catch frame or stop frame. Each update frame ends one
+segment. When the computation at the top of the segment can continue later,
+the runtime copies the frames of the segment into an AP_STACK thunk, as
+`control0#` copies frames. The thunk of the update frame then becomes an
+indirection to the AP_STACK thunk. Its waiters evaluate it again. The top
+of the next segment is the evaluation of that thunk. After the walk, the
+exception unwinds the frames that are left, as a synchronous exception
+does.
+
+An AP_STACK thunk holds the copies, the resumption at the top of the
+segment, and the masking state there. Its entry pushes the copies above the
+continuation of the evaluation and continues the resumption. When the
+masking state differs, it pushes a restore-mask frame first.
+
+The resumption at the top can continue later in these places:
+
+- the entry check of the evaluation helpers, where the state is the value
+  and its continuation;
+- a scheduler primitive and a suspended thread, where the state is the
+  resumption record. A cancelled wait has only its continuation, so its
+  thunk goes back to its code;
+- a replay reservation, where the state is the code and the arguments of
+  the function. The replay helper puts them into a replay closure. The
+  replay info table of the function names the code and its static
+  reference table. The closure entry gives the argument that was the
+  continuation a new continuation, because the copies of the frames are at
+  new addresses.
+
+Another heap check cannot continue its computation later. At such a check,
+an interrupt waits for up to 64 heap checks for one of the places above.
+After that, the delivery starts at the highest live frame among the roots,
+and the thunk of the first update frame goes back to its code.
+
+### Context switches
+
+The first `fork#` starts a ticker thread on a POSIX host. Every 20 ms it
+sets the `context_switch` flag of each capability that runs, and it stores
+zero to its heap limit. The inline thunk entry of compiled code also checks
+the heap limit, so the next evaluation of a thunk reaches the evaluation
+helper. The thread then goes to the end of the run queue after a poll of
+its IO, and the next thread runs. A replay reservation also switches. A
+WASI P3 host has no threads, so it has no ticker, and a long computation
+does not stop there.
 
 ### Ctrl-C and host events
 
@@ -393,10 +444,11 @@ checks `UserInterrupt` handling. It is not the semantic cross-backend test.
 3. **In progress:** primitive and typed synchronous raise/catch lowering,
    `Exception`, `SomeException`, shared unwinding, and rollback-style update
    cleanup are implemented. Portable exception memoization remains.
-4. Add masking state and restore frames, then implement the library masking and
-   cleanup combinators.
-5. Add per-thread pending queues, safe-point polls, blocked-operation
-   cancellation, and deterministic `throwTo` tests.
+4. **Complete:** masking state and restore frames, and the library masking
+   and cleanup combinators.
+5. **Complete:** per-thread message queues, interrupts through the heap
+   limit, cancellation of waits, AP_STACK freezing, the ticker, and the
+   `exceptions-async` examples.
 6. Add POSIX Ctrl-C and other host event adapters.
 
 Each step preserves the single-control-stack invariant and can be reviewed

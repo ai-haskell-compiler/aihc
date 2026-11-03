@@ -95,7 +95,10 @@ expected: |
     %sp_53 = ptr.add %sp_13, 40
     %sp_limit_54 = load ptr [%base_14 + 88] align 1 word
     %stack_fits_55 = le.u ptr %sp_53, %sp_limit_54
-    br %stack_fits_55, force_enter_46, force_helper_47
+    %hp_limit_56 = load ptr [%base_14 + 24] align 1 word
+    %heap_fits_57 = le.u ptr %hp_12, %hp_limit_56
+    %fits_58 = and i1 %stack_fits_55, %heap_fits_57
+    br %fits_58, force_enter_46, force_helper_47
 
   cold force_helper_47:
     tailcall @aihc_lir_force_p(%hp_12, %sp_13, %base_14, %current_20, @aihc_lir_info_0, %$cps_return_16)
@@ -103,29 +106,29 @@ expected: |
   force_enter_46:
     store ptr @aihc_lir_info_0, [%sp_13] align 8 region stack
     store ptr %$cps_return_16, [%sp_13 + 8] align 8 region stack
-    %update_56 = ptr.add %sp_13, 16
-    store ptr @aihc_lir_cps_update_info, [%update_56] align 8 region stack
-    store ptr %sp_13, [%update_56 + 8] align 8 region stack
-    store ptr %current_20, [%update_56 + 16] align 8 region stack
-    %entry_57 = load.invariant code [%header_23 + 24] align 1 word
-    tailcall.indirect %entry_57(%hp_12, %sp_53, %base_14, %current_20, %update_56) : (ptr, ptr, ptr, ptr, ptr)
+    %update_59 = ptr.add %sp_13, 16
+    store ptr @aihc_lir_cps_update_info, [%update_59] align 8 region stack
+    store ptr %sp_13, [%update_59 + 8] align 8 region stack
+    store ptr %current_20, [%update_59 + 16] align 8 region stack
+    %entry_60 = load.invariant code [%header_23 + 24] align 1 word
+    tailcall.indirect %entry_60(%hp_12, %sp_53, %base_14, %current_20, %update_59) : (ptr, ptr, ptr, ptr, ptr)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_58: ptr, %sp_59: ptr, %base_60: ptr, %$cps_return_61: ptr, %ready_62: ptr) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_61: ptr, %sp_62: ptr, %base_63: ptr, %$cps_return_64: ptr, %ready_65: ptr) {
   entry:
-    %payload_63 = load i64 [%ready_62 + 8] align 8 region heap
-    %header_word_64 = load i64 [%$cps_return_61] align 8 region stack
-    %info_word_65 = and i64 %header_word_64, -4
-    %header_66 = ptr.from_int %info_word_65
-    %entry_67 = load.invariant code [%header_66 + 24] align 1 word
-    %forward_70 = eq code %entry_67, null
-    br %forward_70, continue_slow_68, continue_enter_69
+    %payload_66 = load i64 [%ready_65 + 8] align 8 region heap
+    %header_word_67 = load i64 [%$cps_return_64] align 8 region stack
+    %info_word_68 = and i64 %header_word_67, -4
+    %header_69 = ptr.from_int %info_word_68
+    %entry_70 = load.invariant code [%header_69 + 24] align 1 word
+    %forward_73 = eq code %entry_70, null
+    br %forward_73, continue_slow_71, continue_enter_72
 
-  cold continue_slow_68:
-    tailcall @aihc_lir_continue_i(%hp_58, %sp_59, %base_60, %$cps_return_61, %payload_63)
+  cold continue_slow_71:
+    tailcall @aihc_lir_continue_i(%hp_61, %sp_62, %base_63, %$cps_return_64, %payload_66)
 
-  continue_enter_69:
-    tailcall.indirect %entry_67(%hp_58, %$cps_return_61, %base_60, %$cps_return_61, %payload_63) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_72:
+    tailcall.indirect %entry_70(%hp_61, %$cps_return_64, %base_63, %$cps_return_64, %payload_66) : (ptr, ptr, ptr, ptr, i64)
   }
 
   data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_1, zero 8 }
@@ -136,10 +139,10 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
 
-  func @aihc_lir_info_0_e(%hp_71: ptr, %sp_72: ptr, %base_73: ptr, %object_74: ptr, %supplied_76: ptr) {
+  func @aihc_lir_info_0_e(%hp_74: ptr, %sp_75: ptr, %base_76: ptr, %object_77: ptr, %supplied_79: ptr) {
   entry:
-    %stored_77 = load ptr [%object_74 + 8] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_71, %sp_72, %base_73, %stored_77, %supplied_76)
+    %stored_80 = load ptr [%object_77 + 8] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_74, %sp_75, %base_76, %stored_80, %supplied_79)
   }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 2, i16 0 }
@@ -148,24 +151,24 @@ expected: |
 
   data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sdelayed, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 2, i16 0 }
 
-  func @aihc_lir_force_p(%hp_78: ptr, %sp_79: ptr, %base_80: ptr, %value_81: ptr, %info_82: ptr, %field_83: ptr) {
+  func @aihc_lir_force_p(%hp_81: ptr, %sp_82: ptr, %base_83: ptr, %value_84: ptr, %info_85: ptr, %field_86: ptr) {
   entry:
-    %sp_84 = ptr.add %sp_79, 16
-    %sp_limit_85 = load ptr [%base_80 + 88] align 1 word
-    %stack_fits_86 = le.u ptr %sp_84, %sp_limit_85
-    br %stack_fits_86, stack_pushed_88(%sp_79, %sp_84, %field_83), stack_grow_87
+    %sp_87 = ptr.add %sp_82, 16
+    %sp_limit_88 = load ptr [%base_83 + 88] align 1 word
+    %stack_fits_89 = le.u ptr %sp_87, %sp_limit_88
+    br %stack_fits_89, stack_pushed_91(%sp_82, %sp_87, %field_86), stack_grow_90
 
-  cold stack_grow_87:
-    store ptr %hp_78, [%base_80 + 16] align 1 word
-    %result_89 = call @aihc_stack_grow(%base_80, %sp_79, 2, %field_83)
-    %sp_90 = ptr.add %result_89, 16
-    %parent_91 = ptr.add %result_89, -16
-    jump stack_pushed_88(%result_89, %sp_90, %parent_91)
+  cold stack_grow_90:
+    store ptr %hp_81, [%base_83 + 16] align 1 word
+    %result_92 = call @aihc_stack_grow(%base_83, %sp_82, 2, %field_86)
+    %sp_93 = ptr.add %result_92, 16
+    %parent_94 = ptr.add %result_92, -16
+    jump stack_pushed_91(%result_92, %sp_93, %parent_94)
 
-  stack_pushed_88(%frame_92: ptr, %sp_93: ptr, %parent_94: ptr):
-    store ptr %info_82, [%frame_92] align 8 region stack
-    store ptr %parent_94, [%frame_92 + 8] align 8 region stack
-    tailcall @aihc_lir_eval(%hp_78, %sp_93, %base_80, %value_81, %frame_92)
+  stack_pushed_91(%frame_95: ptr, %sp_96: ptr, %parent_97: ptr):
+    store ptr %info_85, [%frame_95] align 8 region stack
+    store ptr %parent_97, [%frame_95 + 8] align 8 region stack
+    tailcall @aihc_lir_eval(%hp_81, %sp_96, %base_83, %value_84, %frame_95)
   }
 status: pass
 reason: |

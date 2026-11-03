@@ -64,15 +64,15 @@ primitiveHeapWords name =
       -- A transaction variable is a mutable reference, and both make it
       -- with aihc_mutvar_new.
       ("newTVar#", 3),
-      ("fork#", 21),
+      ("fork#", 17),
       -- The throwTo message is an MVar waiter record.
-      ("killThread#", 5),
+      ("killThread#", 6),
       ("newMVar#", 9),
-      ("readMVar#", 5),
-      ("takeMVar#", 5),
-      ("putMVar#", 5),
+      ("readMVar#", 6),
+      ("takeMVar#", 6),
+      ("putMVar#", 6),
       -- A blackhole waiter and the queue that the first waiter makes.
-      ("noDuplicate#", 10)
+      ("noDuplicate#", 11)
     ]
 
 -- | The primitives whose lowering allocates.

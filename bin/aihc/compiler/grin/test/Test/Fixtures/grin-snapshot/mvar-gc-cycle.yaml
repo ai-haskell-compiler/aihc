@@ -1,6 +1,6 @@
 entry: $entry
 gc-stress: true
-rts-arguments: ["+RTS", "-M512", "-RTS"]
+rts-arguments: ["+RTS", "-M576", "-RTS"]
 program: |
   constructor Done/0 []
   primitive newMVar# :: BoxedRep Unlifted/0
@@ -32,7 +32,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 46400
-  linux-amd64: 46400
+  macos-arm64: 57600
+  linux-amd64: 57600
 status: pass
-reason: The collector must reclaim unreachable cycles through an MVar, its waiter, and the waiter continuation.
+reason: The collector must reclaim unreachable cycles through an MVar, its waiter, and the waiter continuation. The heap limit is just above the live data, which includes two thread records.

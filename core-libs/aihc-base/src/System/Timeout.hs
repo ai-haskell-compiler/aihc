@@ -14,7 +14,7 @@ import Control.Concurrent (forkIOWithUnmask, killThread, myThreadId, threadDelay
 import Control.Exception (Exception, bracket, handleJust, uninterruptibleMask_)
 import Data.Unique (Unique, newUnique)
 import GHC.IO (IO)
-import Prelude (Eq (..), Int, Maybe (..), Ord (..), Show (..), fmap, otherwise, pure, showString, (>>), ($), (.))
+import Prelude (Eq (..), Int, Maybe (..), Ord (..), Show (..), fmap, otherwise, pure, showString, ($), (.), (>>))
 
 -- | The exception that the watchdog of 'timeout' raises. Each call of
 -- 'timeout' has its own value, so nested calls do not catch the exception

@@ -145,8 +145,7 @@ _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 static const AihcResume *aihc_schedule(AihcCapability *capability);
 static void aihc_try_deliver_locked(AihcCapability *capability,
                                     AihcThread *thread);
-static int aihc_take_interrupt(AihcCapability *capability,
-                               AihcThread *current);
+static int aihc_take_interrupt(AihcCapability *capability, AihcThread *current);
 static const AihcResume *aihc_select_or_raise(AihcCapability *capability,
                                               AihcThread *thread);
 static void aihc_workers_start(AihcCapability *capability);
@@ -714,6 +713,18 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
        thread record, and every thread record is in gen2. */
     AihcThread *thread = (AihcThread *)object;
     thread->next = aihc_visit_pointer(thread->next, visitor, context);
+    /* The wait, the queued messages, and the exception to raise are fields
+       of the record, not roots: a thread that nothing reaches must not keep
+       the frames of its wait alive. A store into them goes through the
+       write barrier. */
+    aihc_visit_value(&thread->blocked_on, visitor, context);
+    thread->pending_head =
+        aihc_visit_pointer(thread->pending_head, visitor, context);
+    thread->pending_tail =
+        aihc_visit_pointer(thread->pending_tail, visitor, context);
+    aihc_visit_value(&thread->async_exception, visitor, context);
+    thread->async_next =
+        aihc_visit_pointer(thread->async_next, visitor, context);
     return 1;
   }
   case AIHC_OBJECT_BLACKHOLE_WAITER: {
@@ -1042,15 +1053,6 @@ static void aihc_visit_thread_roots(AihcMachine *machine,
     thread->transaction =
         aihc_visit_pointer(thread->transaction, visitor, context);
     thread->queues = aihc_visit_pointer(thread->queues, visitor, context);
-    /* The wait record, the queued messages, and the exception to raise
-       are roots of the thread, as its resumption is. */
-    aihc_visit_value(&thread->blocked_on, visitor, context);
-    aihc_visit_value(&thread->blocked_value, visitor, context);
-    thread->pending_head =
-        aihc_visit_pointer(thread->pending_head, visitor, context);
-    thread->pending_tail =
-        aihc_visit_pointer(thread->pending_tail, visitor, context);
-    aihc_visit_value(&thread->async_exception, visitor, context);
     aihc_visit_value(&thread->resume_function, visitor, context);
     aihc_visit_value(&thread->resume_continuation, visitor, context);
     if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
@@ -1177,7 +1179,6 @@ void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
                       const AihcSrt *srt) {
   aihc_gc_ensure(capability, words, root_count, roots, srt);
 }
-
 
 /* Place one object in heap the caller has already reserved. Compiled code
    inlines the same two steps - bump the heap pointer, write the header - and
@@ -1349,7 +1350,7 @@ static AihcThread *aihc_thread_new(AihcCapability *capability,
   thread->mask_state = AIHC_MASK_UNMASKED;
   thread->blocked_kind = AIHC_BLOCKED_NONE;
   thread->blocked_on = NULL;
-  thread->blocked_value = NULL;
+  thread->wait_epoch = 0;
   thread->pending_head = NULL;
   thread->pending_tail = NULL;
   thread->async_exception = NULL;
@@ -1679,19 +1680,26 @@ static AihcValue *aihc_update_blackhole_mode(AihcCapability *capability,
                                              AihcWakeMode mode);
 
 /* Record the wait of a thread, so an asynchronous exception can cancel it.
-   The caller holds the object lock. */
-static void aihc_thread_block(AihcThread *thread, uint64_t kind,
-                              AihcValue *record, AihcValue *value) {
-  thread->blocked_kind = kind;
-  thread->blocked_on = record;
-  thread->blocked_value = value;
+   The caller holds the object lock. A thread record is in gen2, so the
+   store of a young record goes through the write barrier. */
+static void aihc_thread_block(AihcCapability *capability, AihcThread *thread,
+                              uint64_t kind, AihcValue *request) {
+  aihc_write_barrier(capability, (AihcValue *)thread);
+  thread->blocked_kind = (uint8_t)kind;
+  thread->blocked_on = request;
 }
 
 /* The wait of a thread ended. The caller holds the object lock. */
-static void aihc_thread_unblock(AihcThread *thread) {
+static void aihc_thread_unblock(AihcCapability *capability,
+                                AihcThread *thread) {
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->blocked_kind = AIHC_BLOCKED_NONE;
   thread->blocked_on = NULL;
-  thread->blocked_value = NULL;
+}
+
+/* Whether a waiter record belongs to the current wait of its thread. */
+static int aihc_waiter_live(const AihcThread *thread, uint64_t epoch) {
+  return thread != NULL && thread->wait_epoch == epoch;
 }
 
 static const AihcResume *aihc_select_thread(AihcCapability *capability,
@@ -1739,7 +1747,7 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
   request->continuation = NULL;
   request->next = NULL;
   aihc_object_lock(capability->machine);
-  aihc_thread_unblock(thread);
+  aihc_thread_unblock(capability, thread);
   aihc_object_unlock(capability->machine);
   aihc_suspend_continue(thread, continuation, 0, 0);
   aihc_enqueue_thread(capability, thread);
@@ -2410,8 +2418,9 @@ static AihcMVarWaiter *aihc_mvar_waiter_new(AihcCapability *capability,
   aihc_thread_pause(capability, continuation);
   waiter->value = value;
   /* The caller holds the object lock, which guards the wait fields. */
-  aihc_thread_block(capability->current_thread, AIHC_BLOCKED_MVAR,
-                    (AihcValue *)waiter, NULL);
+  waiter->epoch = capability->current_thread->wait_epoch;
+  aihc_thread_block(capability, capability->current_thread, AIHC_BLOCKED_MVAR,
+                    NULL);
   /* A global waiter names a frame, which the remembered set keeps reached
      until its chunk is old. A young waiter takes no entry. */
   aihc_write_barrier(capability, (AihcValue *)waiter);
@@ -2447,9 +2456,9 @@ static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcCapability *capability,
        aihc_dequeue_thread. */
     aihc_write_barrier(capability, (AihcValue *)waiter);
     waiter->next = NULL;
-    /* An asynchronous exception cancelled the wait of a waiter without a
-       thread. Its value is not put. */
-    if (waiter->thread != NULL) {
+    /* An asynchronous exception cancelled the wait of a waiter whose epoch
+       is not the epoch of its thread. Its value is not put. */
+    if (aihc_waiter_live(waiter->thread, waiter->epoch)) {
       return waiter;
     }
   }
@@ -2462,7 +2471,7 @@ static void aihc_mvar_wake(AihcCapability *capability, AihcMVarWaiter *waiter,
                            uint64_t count, AihcSlot value) {
   AihcValue *continuation = waiter->continuation;
   waiter->continuation = NULL;
-  aihc_thread_unblock(waiter->thread);
+  aihc_thread_unblock(capability, waiter->thread);
   aihc_suspend_continue(waiter->thread, continuation, count, value);
   aihc_enqueue_thread(capability, waiter->thread);
 }
@@ -2706,8 +2715,8 @@ const AihcResume *aihc_await_io(AihcCapability *capability,
   aihc_stack_note_top(continuation);
   aihc_thread_pause(capability, continuation);
   aihc_object_lock(capability->machine);
-  aihc_thread_block(capability->current_thread, AIHC_BLOCKED_IO,
-                    (AihcValue *)request, NULL);
+  aihc_thread_block(capability, capability->current_thread, AIHC_BLOCKED_IO,
+                    (AihcValue *)request);
   aihc_object_unlock(capability->machine);
   if (capability->io_requests_tail == NULL) {
     capability->io_requests_head = request;
@@ -2774,10 +2783,10 @@ static void aihc_wake_queue(AihcCapability *capability,
     /* As for an MVar waiter: the frame is popped later. */
     waiter->continuation = NULL;
     waiter->thread = NULL;
-    /* An asynchronous exception cancelled the wait of a waiter without a
-       thread. */
-    if (thread != NULL) {
-      aihc_thread_unblock(thread);
+    /* An asynchronous exception cancelled the wait of a waiter whose epoch
+       is not the epoch of its thread. */
+    if (aihc_waiter_live(thread, waiter->epoch)) {
+      aihc_thread_unblock(capability, thread);
       switch (mode) {
       case AIHC_WAKE_RAISE:
         aihc_suspend_raise(thread, (AihcValue *)(uintptr_t)value, continuation);
@@ -2858,8 +2867,8 @@ static void aihc_attach_waiter(AihcCapability *capability, AihcValue *value,
   waiter->thread = current;
   waiter->continuation = continuation;
   waiter->next = NULL;
-  aihc_thread_block(current, AIHC_BLOCKED_BLACKHOLE, (AihcValue *)waiter,
-                    value);
+  waiter->epoch = current->wait_epoch;
+  aihc_thread_block(capability, current, AIHC_BLOCKED_BLACKHOLE, NULL);
   /* A global waiter names a frame, which the remembered set keeps reached
      until its chunk is old. A young waiter takes no entry. */
   aihc_write_barrier(capability, (AihcValue *)waiter);
@@ -3055,8 +3064,7 @@ AihcValue *aihc_update(AihcCapability *capability, AihcValue *object,
    thunk to its value, as it follows an indirection. */
 AihcValue *aihc_update_blackhole(AihcCapability *capability, AihcValue *object,
                                  AihcValue *value) {
-  return aihc_update_blackhole_mode(capability, object, value,
-                                    AIHC_WAKE_VALUE);
+  return aihc_update_blackhole_mode(capability, object, value, AIHC_WAKE_VALUE);
 }
 
 /* The update of a thunk. The waiters of its queue get the value, or with
@@ -3281,6 +3289,7 @@ static AihcValue *aihc_take_message_locked(AihcCapability *capability,
     if (message == NULL) {
       return NULL;
     }
+    aihc_write_barrier(capability, (AihcValue *)thread);
     thread->pending_head = message->next;
     if (thread->pending_head == NULL) {
       thread->pending_tail = NULL;
@@ -3288,14 +3297,14 @@ static AihcValue *aihc_take_message_locked(AihcCapability *capability,
     aihc_write_barrier(capability, (AihcValue *)message);
     message->next = NULL;
     AihcThread *sender = message->thread;
-    if (sender == NULL) {
+    if (!aihc_waiter_live(sender, message->epoch)) {
       continue;
     }
     AihcValue *continuation = message->continuation;
     AihcValue *exception = (AihcValue *)(uintptr_t)message->value;
     message->thread = NULL;
     message->continuation = NULL;
-    aihc_thread_unblock(sender);
+    aihc_thread_unblock(capability, sender);
     aihc_suspend_continue(sender, continuation, 0, 0);
     aihc_enqueue_thread(capability, sender);
     return exception;
@@ -3339,24 +3348,20 @@ static void aihc_cancel_wait_locked(AihcCapability *capability,
   AihcValue *continuation = NULL;
   switch (thread->blocked_kind) {
   case AIHC_BLOCKED_MVAR:
+  case AIHC_BLOCKED_BLACKHOLE:
   case AIHC_BLOCKED_THROW_TO: {
-    AihcMVarWaiter *waiter = (AihcMVarWaiter *)thread->blocked_on;
-    aihc_write_barrier(capability, (AihcValue *)waiter);
-    continuation = waiter->continuation;
-    waiter->thread = NULL;
-    waiter->continuation = NULL;
+    /* The waiter record of the wait no longer matches the thread. The top
+       frame of the stack is the continuation of the wait: the wait noted
+       it. */
+    ++thread->wait_epoch;
+    for (AihcStack *stack = capability->machine->stacks; stack != NULL;
+         stack = stack->next) {
+      if (stack->thread == thread) {
+        continuation = stack->top;
+        break;
+      }
+    }
     break;
-  }
-  case AIHC_BLOCKED_BLACKHOLE: {
-    AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)thread->blocked_on;
-    aihc_write_barrier(capability, (AihcValue *)waiter);
-    continuation = waiter->continuation;
-    waiter->thread = NULL;
-    waiter->continuation = NULL;
-    AihcValue *value = thread->blocked_value;
-    aihc_thread_unblock(thread);
-    aihc_suspend_eval(thread, value, continuation);
-    return;
   }
   case AIHC_BLOCKED_IO: {
     AihcIoRequest *request = (AihcIoRequest *)thread->blocked_on;
@@ -3373,7 +3378,10 @@ static void aihc_cancel_wait_locked(AihcCapability *capability,
   default:
     aihc_fail("cancelled a thread that does not wait");
   }
-  aihc_thread_unblock(thread);
+  if (continuation == NULL) {
+    aihc_fail("cancelled wait has no continuation");
+  }
+  aihc_thread_unblock(capability, thread);
   thread->resume_kind = AIHC_RESUME_NONE;
   thread->resume_function = NULL;
   thread->resume_continuation = continuation;
@@ -3401,6 +3409,7 @@ static void aihc_try_deliver_locked(AihcCapability *capability,
   if (exception == NULL) {
     return;
   }
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->async_exception = exception;
   if (thread->blocked_kind != AIHC_BLOCKED_NONE) {
     aihc_cancel_wait_locked(capability, thread);
@@ -3483,10 +3492,11 @@ static int aihc_take_interrupt(AihcCapability *capability,
 
 /* Deliver the oldest message to the running thread, whose resumption the
    arguments describe. The result is null when no message is left. */
-static const AihcResume *
-aihc_deliver_current(AihcCapability *capability, AihcResumeKind kind,
-                     AihcValue *function, AihcValue *continuation,
-                     uint64_t count, AihcSlot value) {
+static const AihcResume *aihc_deliver_current(AihcCapability *capability,
+                                              AihcResumeKind kind,
+                                              AihcValue *function,
+                                              AihcValue *continuation,
+                                              uint64_t count, AihcSlot value) {
   AihcThread *thread = capability->current_thread;
   aihc_object_lock(capability->machine);
   AihcValue *exception = aihc_take_message_locked(capability, thread);
@@ -3499,6 +3509,7 @@ aihc_deliver_current(AihcCapability *capability, AihcResumeKind kind,
   thread->resume_continuation = continuation;
   thread->resume_count = count;
   thread->resume_value = value;
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->async_exception = exception;
   return aihc_raise_async(capability, thread);
 }
@@ -3507,9 +3518,9 @@ aihc_deliver_current(AihcCapability *capability, AihcResumeKind kind,
    compiled code. The computation of the code cannot continue elsewhere, so
    the delivery starts at the top frame among the roots, and the innermost
    evaluation goes back to a thunk. */
-const AihcResume *aihc_heap_collect(AihcCapability *capability,
-                                    uint64_t words, uint64_t root_count,
-                                    AihcSlot *roots, const AihcSrt *srt) {
+const AihcResume *aihc_heap_collect(AihcCapability *capability, uint64_t words,
+                                    uint64_t root_count, AihcSlot *roots,
+                                    const AihcSrt *srt) {
   /* An interrupt or a tick waits for an evaluation, where the work can
      continue later, for some heap checks. */
   int waiting = __atomic_load_n(&capability->interrupt, __ATOMIC_RELAXED) ||
@@ -3526,8 +3537,8 @@ const AihcResume *aihc_heap_collect(AihcCapability *capability,
       aihc_take_interrupt(capability, capability->current_thread)) {
     AihcValue *top = aihc_top_live_frame(capability, root_count, roots);
     if (top != NULL) {
-      const AihcResume *resume = aihc_deliver_current(
-          capability, AIHC_RESUME_NONE, NULL, top, 0, 0);
+      const AihcResume *resume =
+          aihc_deliver_current(capability, AIHC_RESUME_NONE, NULL, top, 0, 0);
       if (resume != NULL) {
         return resume;
       }
@@ -3635,8 +3646,8 @@ const AihcResume *aihc_replay_suspend(AihcCapability *capability,
 /* The failed heap check of an evaluation: the roots are the value and the
    continuation. The evaluation can continue later, so the delivery freezes
    it whole. */
-const AihcResume *aihc_eval_collect(AihcCapability *capability,
-                                    uint64_t words, AihcSlot *roots) {
+const AihcResume *aihc_eval_collect(AihcCapability *capability, uint64_t words,
+                                    AihcSlot *roots) {
   AihcValue *value = (AihcValue *)(uintptr_t)roots[0];
   AihcValue *continuation = (AihcValue *)(uintptr_t)roots[1];
   if (__atomic_load_n(&capability->interrupt, __ATOMIC_RELAXED) &&
@@ -3682,8 +3693,7 @@ static const AihcResume *aihc_select_or_raise(AihcCapability *capability,
 /* Masking */
 
 static uint64_t aihc_mask_state_at_least(uint64_t state, uint64_t floor) {
-  if (state == AIHC_MASK_UNINTERRUPTIBLE ||
-      floor == AIHC_MASK_UNMASKED) {
+  if (state == AIHC_MASK_UNINTERRUPTIBLE || floor == AIHC_MASK_UNMASKED) {
     return state;
   }
   if (floor == AIHC_MASK_UNINTERRUPTIBLE) {
@@ -3700,7 +3710,7 @@ static const AihcResume *aihc_set_mask(AihcCapability *capability,
   uint64_t previous = thread->mask_state;
   if (previous != state) {
     continuation = aihc_push_restore_mask(capability, continuation, previous);
-    thread->mask_state = state;
+    thread->mask_state = (uint8_t)(state);
   }
   if (state == AIHC_MASK_UNMASKED && thread->pending_head != NULL) {
     const AihcResume *resume = aihc_deliver_current(
@@ -3741,7 +3751,7 @@ const AihcResume *aihc_restore_mask(AihcCapability *capability,
                                     AihcValue *frame, AihcSlot value) {
   AihcThread *thread = capability->current_thread;
   AihcValue *parent = (AihcValue *)(uintptr_t)frame->fields[0];
-  thread->mask_state = frame->fields[1];
+  thread->mask_state = (uint8_t)(frame->fields[1]);
   if (thread->mask_state == AIHC_MASK_UNMASKED &&
       thread->pending_head != NULL) {
     const AihcResume *resume = aihc_deliver_current(
@@ -3755,9 +3765,8 @@ const AihcResume *aihc_restore_mask(AihcCapability *capability,
 
 /* throwTo */
 
-const AihcResume *aihc_throw_to(AihcCapability *capability,
-                                AihcThread *target, AihcValue *exception,
-                                AihcValue *continuation) {
+const AihcResume *aihc_throw_to(AihcCapability *capability, AihcThread *target,
+                                AihcValue *exception, AihcValue *continuation) {
   AihcThread *current = capability->current_thread;
   if (target == NULL) {
     aihc_fail("throwTo received a null thread");
@@ -3765,6 +3774,7 @@ const AihcResume *aihc_throw_to(AihcCapability *capability,
   if (target == current) {
     /* The exception is raised at once, also when the thread is masked. */
     aihc_suspend_continue(current, continuation, 0, 0);
+    aihc_write_barrier(capability, (AihcValue *)current);
     current->async_exception = exception;
     return aihc_raise_async(capability, current);
   }
@@ -3781,6 +3791,7 @@ const AihcResume *aihc_throw_to(AihcCapability *capability,
   message->continuation = continuation;
   message->value = (AihcSlot)(uintptr_t)exception;
   message->next = NULL;
+  message->epoch = current->wait_epoch;
   aihc_write_barrier(capability, (AihcValue *)message);
   aihc_stack_note_top(continuation);
   aihc_thread_pause(capability, continuation);
@@ -3798,8 +3809,7 @@ const AihcResume *aihc_throw_to(AihcCapability *capability,
     target->pending_tail->next = message;
   }
   target->pending_tail = message;
-  aihc_thread_block(current, AIHC_BLOCKED_THROW_TO, (AihcValue *)message,
-                    NULL);
+  aihc_thread_block(capability, current, AIHC_BLOCKED_THROW_TO, NULL);
   aihc_list_async_target_locked(capability, target);
   aihc_object_unlock(machine);
   return aihc_schedule(capability);
@@ -3819,9 +3829,9 @@ static uint64_t aihc_ap_stack_meta(AihcResumeKind kind, uint64_t count,
    boundaries belong to the stack and are left out, as in control0#. */
 static AihcValue *aihc_build_ap_stack(AihcCapability *capability,
                                       AihcValue *top, AihcValue *update,
-                                      AihcResumeKind kind,
-                                      AihcValue *function, AihcSlot value,
-                                      uint64_t count, uint64_t mask) {
+                                      AihcResumeKind kind, AihcValue *function,
+                                      AihcSlot value, uint64_t count,
+                                      uint64_t mask) {
   AihcValue *ap = aihc_gc_allocate(capability, AIHC_AP_STACK_WORDS);
   ap->header = aihc_make_header(&aihc_lir_ap_stack_info);
   ap->fields[0] = 0;
@@ -3912,7 +3922,7 @@ static const AihcResume *aihc_raise_async(AihcCapability *capability,
     if (info->frame_kind == AIHC_FRAME_RESTORE_MASK) {
       /* The unwind passes the frame, so its state holds for the handler.
          A frozen copy sets it again when the work continues. */
-      thread->mask_state = aihc_value_fields_const(frame)[1];
+      thread->mask_state = (uint8_t)(aihc_value_fields_const(frame)[1]);
     }
     if (info->frame_kind != AIHC_FRAME_UPDATE) {
       frame = parent;
@@ -3921,14 +3931,14 @@ static const AihcResume *aihc_raise_async(AihcCapability *capability,
     if (resumable) {
       aihc_gc_refill(capability, aihc_segment_words(segment, frame),
                      count == 1 ? 2 : 1, roots, NULL);
-      AihcValue *ap = aihc_build_ap_stack(
-          capability, segment, frame, kind,
-          (AihcValue *)(uintptr_t)roots[0], roots[1], count, mask);
+      AihcValue *ap = aihc_build_ap_stack(capability, segment, frame, kind,
+                                          (AihcValue *)(uintptr_t)roots[0],
+                                          roots[1], count, mask);
       for (;;) {
         AihcValue *thunk =
             (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[1];
-        if (aihc_update_blackhole_mode(capability, thunk, ap,
-                                       AIHC_WAKE_EVAL) != NULL) {
+        if (aihc_update_blackhole_mode(capability, thunk, ap, AIHC_WAKE_EVAL) !=
+            NULL) {
           break;
         }
         AihcSlot ap_root = (AihcSlot)(uintptr_t)ap;
@@ -3953,14 +3963,14 @@ static const AihcResume *aihc_raise_async(AihcCapability *capability,
     frame = parent;
   }
   AihcValue *exception = thread->async_exception;
+  aihc_write_barrier(capability, (AihcValue *)thread);
   thread->async_exception = NULL;
   return aihc_raise(capability, exception, segment);
 }
 
 /* The entry of an AP_STACK thunk: push copies of the frozen frames above
    the continuation of the evaluation, and continue the frozen work. */
-const AihcResume *aihc_ap_stack_enter(AihcCapability *capability,
-                                      AihcValue *ap,
+const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
                                       AihcValue *continuation) {
   AihcThread *thread = capability->current_thread;
   uint64_t meta = ap->fields[4];
@@ -3973,7 +3983,7 @@ const AihcResume *aihc_ap_stack_enter(AihcCapability *capability,
   if (thread->mask_state != mask) {
     continuation =
         aihc_push_restore_mask(capability, continuation, thread->mask_state);
-    thread->mask_state = mask;
+    thread->mask_state = (uint8_t)(mask);
   }
   /* The copies are linked from the top down, and a push must go from the
      bottom up. */
@@ -4055,12 +4065,12 @@ const AihcResume *aihc_raise(AihcCapability *capability, AihcValue *exception,
          frame above the parent, which unmasks it again when the handler
          returns. The pushes do not collect. */
       AihcThread *thread = capability->current_thread;
-      uint64_t masked = aihc_mask_state_at_least(thread->mask_state,
-                                                 AIHC_MASK_INTERRUPTIBLE);
+      uint64_t masked =
+          aihc_mask_state_at_least(thread->mask_state, AIHC_MASK_INTERRUPTIBLE);
       if (masked != thread->mask_state) {
         aihc_stack_resume_after(capability, parent);
         parent = aihc_push_restore_mask(capability, parent, thread->mask_state);
-        thread->mask_state = masked;
+        thread->mask_state = (uint8_t)(masked);
       }
       AihcResume *resume = &capability->selected_resume;
       resume->kind = AIHC_RESUME_APPLY;
@@ -4093,7 +4103,7 @@ const AihcResume *aihc_raise(AihcCapability *capability, AihcValue *exception,
       if (info->field_count < 2) {
         aihc_fail("restore-mask continuation has an invalid layout");
       }
-      capability->current_thread->mask_state = fields[1];
+      capability->current_thread->mask_state = (uint8_t)(fields[1]);
       continuation = (AihcValue *)(uintptr_t)fields[0];
       break;
     default:
@@ -4286,11 +4296,14 @@ AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action) {
   }
   AihcStack *stack;
   /* A second thread needs the ticker, so a long computation of one thread
-     does not keep the others from running. */
+     does not keep the others from running. A test driver that must see
+     the same heap limits on each run builds the runtime without it. */
+#ifndef AIHC_NO_TICKER
   if (!__atomic_exchange_n(&capability->machine->ticker_started, 1,
                            __ATOMIC_SEQ_CST)) {
     aihc_host_ticker_start(capability->machine);
   }
+#endif
   AihcThread *child = aihc_thread_new(capability, &stack);
   /* As in GHC, the child starts with the masking state of its parent. */
   child->mask_state = capability->current_thread->mask_state;
@@ -4321,7 +4334,7 @@ const AihcResume *aihc_thread_done(AihcCapability *capability) {
   /* A throwTo to a finished thread does nothing, so its senders continue. */
   AihcThread *thread = capability->current_thread;
   aihc_object_lock(capability->machine);
-  aihc_thread_block(thread, AIHC_BLOCKED_FINISHED, NULL, NULL);
+  aihc_thread_block(capability, thread, AIHC_BLOCKED_FINISHED, NULL);
   aihc_release_messages_locked(capability, thread);
   aihc_object_unlock(capability->machine);
   aihc_stack_release(capability, stack);

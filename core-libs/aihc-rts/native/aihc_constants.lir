@@ -93,9 +93,9 @@ const @AIHC_RESUME_RAISE = 3
 const @AIHC_RESUME_EVAL = 4
 
 ; Heap slots have eight bytes on every target.
-; Four slots cover a waiter and six slots cover a blackhole queue on every
+; Five slots cover a waiter and six slots cover a blackhole queue on every
 ; target. A thread that blocks on a thunk can need both.
-const @AIHC_EVAL_WAITER_WORDS = 10
+const @AIHC_EVAL_WAITER_WORDS = 11
 const @AIHC_EVAL_WAITER_BYTES = @AIHC_EVAL_WAITER_WORDS * 8
 const @AIHC_UPDATE_FRAME_WORDS = 3
 const @AIHC_UPDATE_FRAME_BYTES = @AIHC_UPDATE_FRAME_WORDS * 8

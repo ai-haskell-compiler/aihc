@@ -189,6 +189,7 @@ static uint64_t heap_index;
 static Entry *entries;
 static size_t entry_capacity;
 extern const AihcInfo aihc_lir_chunk_forward_info;
+extern const AihcInfo aihc_lir_restore_mask_info;
 
 static Frame *frames;
 static size_t frame_capacity;
@@ -645,10 +646,13 @@ static void print_tag(unsigned tag) {
 /* The frame below the forward frames of the runtime at an address. A chunk
    after the first one of a stack starts with such a frame, which the
    runtime makes and the model does not know. Its parent is the frame the
-   model expects wherever the runtime hands the driver a continuation. */
+   model expects wherever the runtime hands the driver a continuation. A
+   catch handler gets a restore-mask frame above the parent of the catch
+   frame, which the model does not know either. */
 static const AihcValue *through_forward(const AihcValue *address) {
   while (address != NULL && aihc_region_kind(address) == AIHC_REGION_STACK &&
-         aihc_value_info_table(address) == &aihc_lir_chunk_forward_info) {
+         (aihc_value_info_table(address) == &aihc_lir_chunk_forward_info ||
+          aihc_value_info_table(address) == &aihc_lir_restore_mask_info)) {
     address = (const AihcValue *)(uintptr_t)aihc_value_fields_const(address)[0];
   }
   return address;

@@ -121,7 +121,7 @@ forceCollection (Module items) =
   where
     collectorDeclarations = filter isCollectorDeclaration items
     isCollectorDeclaration (ItemExternFunction external) =
-      externFunctionName external `elem` [Symbol "aihc_heap_collect", Symbol "aihc_heap_allocate"]
+      externFunctionName external `elem` [Symbol "aihc_heap_collect", Symbol "aihc_heap_collect_replay", Symbol "aihc_heap_allocate"]
     isCollectorDeclaration _ = False
     collectorDeclaration (ItemExternFunction external) = ItemExternFunction external {externFunctionName = Symbol "aihc_gc_collect", externFunctionSignature = Signature [Ptr, I64, I64, Ptr, Ptr] [] CConvention}
     collectorDeclaration item = item
@@ -175,8 +175,12 @@ forceCollection (Module items) =
             TailCallIndirect {} -> block {blockInstructions = blockInstructions block <> [Instruction [] (Store I64 (OperandLiteral (LitInt 1)) flagAddress (byteAlignment 8))]}
             _ -> block
     forceItem item = item
+    -- The forced collection takes no interrupt, so the result that says
+    -- the thread continues is zero.
     forceInstruction (Instruction results (Call (Symbol "aihc_heap_collect") arguments)) =
-      [Instruction results (Call (Symbol "aihc_gc_collect") arguments)]
+      Instruction [] (Call (Symbol "aihc_gc_collect") arguments) : [Instruction [result] (PtrFromInt (OperandLiteral (LitInt 0))) | result <- results]
+    forceInstruction (Instruction results (Call (Symbol "aihc_heap_collect_replay") arguments)) =
+      Instruction [] (Call (Symbol "aihc_gc_collect") (take 5 arguments)) : [Instruction [result] (Binary Add I64 (OperandLiteral (LitInt 0)) (OperandLiteral (LitInt 0))) | result <- results]
     forceInstruction instruction@(Instruction _ (Call (Symbol "aihc_heap_allocate") (capability : _ : _ : arguments))) =
       [ Instruction [] (Call (Symbol "aihc_gc_collect") (capability : OperandLiteral (LitInt 0) : arguments)),
         instruction
