@@ -305,15 +305,29 @@ typedef struct {
   size_t capacity;
 } AihcSrtWorklist;
 
+/* A host buffer is a pinned byte array. The link to the next buffer of its
+   scope is the last word of its block, after the payload. Thus the payload
+   is where the payload of each byte array is, and a shrink of the array
+   does not move the link. The payload of a block without an offset has the
+   alignment of max_align_t. */
 struct AihcHostBuffer {
-  AihcPinnedByteArray array;
-  AihcHostBuffer *next;
-  _Alignas(max_align_t) uint8_t contents[];
+  AihcByteArray array;
 };
 
-_Static_assert(offsetof(AihcPinnedBlock, object) % _Alignof(AihcHostBuffer) ==
-                   0,
-               "pinned metadata must preserve host buffer alignment");
+_Static_assert(AIHC_PINNED_NATURAL_ALIGNMENT % _Alignof(max_align_t) == 0,
+               "pinned payloads must have the alignment of host buffers");
+
+/* The link of a host buffer, in the last word of its block. */
+static uint8_t *aihc_host_buffer_link(AihcHostBuffer *buffer) {
+  AihcPinnedBlock *block = aihc_pinned_block_of((AihcValue *)buffer);
+  return (uint8_t *)block + aihc_pinned_bytes(block) - sizeof(AihcSlot);
+}
+
+static AihcHostBuffer *aihc_host_buffer_next(AihcHostBuffer *buffer) {
+  AihcHostBuffer *next;
+  memcpy(&next, aihc_host_buffer_link(buffer), sizeof(AihcHostBuffer *));
+  return next;
+}
 
 /* The work of one collection. Each capability has its own, so local
    collections on several capabilities trace at the same time. */
@@ -2970,11 +2984,21 @@ static void aihc_update_stable_names(AihcGcContext *context) {
   }
 }
 
+/* The start of the allocation of a block. See aihc_pinned_offset. */
+static void *aihc_pinned_allocation(AihcPinnedBlock *block) {
+  if ((block->bytes & AIHC_PINNED_ALIGNED) == 0) {
+    return block;
+  }
+  return (uint8_t *)block -
+         aihc_pinned_offset(aihc_pinned_recorded_alignment(block));
+}
+
 void aihc_pinned_block_release(AihcPinnedBlock *block) {
+  void *allocation = aihc_pinned_allocation(block);
   if (aihc_region_kind(block) == AIHC_REGION_OUTSIDE) {
-    free(block);
+    free(allocation);
   } else {
-    aihc_regions_release(block);
+    aihc_regions_release(allocation);
   }
 }
 
@@ -4419,10 +4443,7 @@ static AihcValue *aihc_promote_object(AihcPromotion *promotion,
   memcpy(copy, original, bytes);
   aihc_promotion_insert(promotion, original, copy);
   if (aihc_value_kind(original) == AIHC_OBJECT_BYTE_ARRAY) {
-    /* The contents of a byte array that moves follow its four slots, and a
-       byte array has no pointer fields. */
-    AihcByteArray *array = (AihcByteArray *)copy;
-    array->contents = (uint8_t *)(array + 1);
+    /* A byte array has no pointer fields. */
     return copy;
   }
   aihc_value_worklist_push(&promotion->pending, copy);
@@ -5100,7 +5121,10 @@ AihcValue *aihc_heap_allocate(AihcCapability *capability, uint64_t words,
     aihc_fail("invalid pinned allocation size");
   }
   aihc_gc_ensure_kind(capability, words, pinned != 0, root_count, roots, srt);
-  return pinned ? aihc_gc_allocate_pinned(capability, words - overhead)
+  /* A nonzero pinned operand is the payload alignment of a pinned byte
+     array, and one is the natural alignment of a block. */
+  return pinned ? aihc_gc_allocate_pinned_aligned(capability, words - overhead,
+                                                  pinned)
                 : aihc_gc_allocate(capability, words);
 }
 
@@ -5135,26 +5159,62 @@ AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
 
 /* Consume a prior reservation. The allocation list is not a root. */
 AihcValue *aihc_gc_allocate_pinned(AihcCapability *capability, uint64_t words) {
+  return aihc_gc_allocate_pinned_aligned(capability, words, 1);
+}
+
+/* Consume a prior reservation for an object whose payload starts two words
+   after the object, at an alignment. The words include the offset of the
+   block in its allocation, as aihc_byte_array_words charges it. */
+AihcValue *aihc_gc_allocate_pinned_aligned(AihcCapability *capability,
+                                           uint64_t words, uint64_t alignment) {
   size_t bytes = sizeof(AihcPinnedBlock) + words * sizeof(AihcSlot);
   if (words > (SIZE_MAX - sizeof(AihcPinnedBlock)) / sizeof(AihcSlot) ||
       bytes < sizeof(AihcPinnedBlock)) {
     aihc_fail("pinned allocation is too large");
   }
-  AihcPinnedBlock *block;
+  if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+    aihc_fail("invalid pinned alignment");
+  }
+  uint64_t offset = aihc_pinned_offset(alignment);
+  if (offset >= bytes - sizeof(AihcPinnedBlock)) {
+    aihc_fail("pinned allocation is too small for its alignment");
+  }
+  uint8_t *allocation;
   if (aihc_block_is_large(bytes)) {
-    block = aihc_fixed_block_new(bytes, AIHC_REGION_PINNED);
+    size_t regions = aihc_regions_for_bytes(bytes);
+    size_t region_alignment =
+        alignment > AIHC_REGION_BYTES ? alignment / AIHC_REGION_BYTES : 1;
+    allocation = aihc_regions_acquire_aligned(regions, region_alignment,
+                                              AIHC_REGION_PINNED);
     /* A pinned block reads as zero, as the C allocation below does. */
-    memset(block->object, 0, bytes - sizeof(AihcPinnedBlock));
+    memset(allocation, 0, bytes);
   } else {
     if (bytes > aihc_nursery_room(capability)) {
       aihc_fail("unchecked pinned allocation exceeded reserved heap");
     }
-    block = calloc(1, bytes);
-    if (block == NULL) {
+    if (offset == 0) {
+      allocation = calloc(1, bytes);
+    } else {
+      /* aligned_alloc takes a size that is a multiple of the alignment. */
+      size_t rounded = (bytes + alignment - 1) & ~(size_t)(alignment - 1);
+      allocation = aligned_alloc(alignment, rounded);
+      if (allocation != NULL) {
+        memset(allocation, 0, rounded);
+      }
+    }
+    if (allocation == NULL) {
       aihc_fail("out of memory");
     }
   }
-  return aihc_pinned_block_adopt(capability, block, bytes);
+  AihcPinnedBlock *block = (AihcPinnedBlock *)(allocation + offset);
+  if (offset != 0) {
+    aihc_pinned_record_alignment(block, alignment);
+  }
+  AihcValue *object = aihc_pinned_block_adopt(capability, block, bytes);
+  if (offset != 0) {
+    block->bytes |= AIHC_PINNED_ALIGNED;
+  }
+  return object;
 }
 
 /* The verifier. Under AIHC_GC_VERIFY, every collection ends with a walk of
@@ -5675,7 +5735,7 @@ void aihc_visit_host_roots(AihcCapability *capability, AihcRootVisitor visitor,
       frame->roots[index] = visitor(frame->roots[index], context);
     }
     for (AihcHostBuffer *buffer = frame->buffers; buffer;
-         buffer = buffer->next) {
+         buffer = aihc_host_buffer_next(buffer)) {
       (void)visitor((AihcSlot)(uintptr_t)buffer, context);
     }
   }
@@ -5690,25 +5750,26 @@ void *aihc_host_byte_array(AihcCapability *capability, AihcRootFrame *frame,
   if (active == NULL) {
     aihc_fail("host allocation requires an active root scope");
   }
-  size_t overhead = sizeof(AihcHostBuffer) + sizeof(AihcPinnedBlock);
+  size_t overhead = sizeof(AihcHostBuffer) + sizeof(AihcPinnedBlock) +
+                    sizeof(AihcHostBuffer *);
   if (bytes > SIZE_MAX - overhead - sizeof(AihcSlot)) {
     aihc_fail("host buffer is too large");
   }
-  uint64_t occupied = bytes == 0 ? 1 : bytes;
-  uint64_t words = (sizeof(AihcHostBuffer) + occupied + sizeof(AihcSlot) - 1) /
-                   sizeof(AihcSlot);
+  /* The payload, and then the link to the next buffer. */
+  uint64_t words = aihc_byte_array_object_words(bytes) + 1;
   aihc_gc_ensure_kind(capability,
                       words + sizeof(AihcPinnedBlock) / sizeof(AihcSlot), 1, 0,
                       NULL, NULL);
   AihcHostBuffer *buffer =
       (AihcHostBuffer *)aihc_gc_allocate_pinned(capability, words);
-  buffer->array.array.header =
-      (AihcSlot)(uintptr_t)&aihc_pinned_byte_array_info;
-  buffer->array.array.size = bytes;
-  buffer->array.array.contents = buffer->contents;
-  buffer->array.array.words = words;
-  buffer->array.alignment = _Alignof(max_align_t);
-  buffer->next = frame->buffers;
+  buffer->array.header = (AihcSlot)(uintptr_t)&aihc_pinned_byte_array_info;
+  buffer->array.size = bytes;
+  /* The word after the payload of a new buffer is the last word of its
+     block, which aihc_host_buffer_link names. */
+  AihcHostBuffer *next = frame->buffers;
+  memcpy((uint8_t *)buffer +
+             aihc_byte_array_object_words(bytes) * sizeof(AihcSlot),
+         &next, sizeof(AihcHostBuffer *));
   frame->buffers = buffer;
   return buffer;
 }

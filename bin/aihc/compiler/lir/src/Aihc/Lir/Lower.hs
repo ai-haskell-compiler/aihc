@@ -3015,10 +3015,9 @@ compilePrimitive :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinRep -> Text -> [
 compilePrimitive ctx env vars runtimeRep name arguments =
   case (name, arguments) of
     -- A reservation before the call covers the array, so the array starts
-    -- at the heap pointer. The header has the same four slots that
-    -- aihc_byte_array_initialize writes: the info table, the size, the
-    -- contents address, and the charge. The payload follows the header,
-    -- and it stays uninitialized.
+    -- at the heap pointer. The header has the same two slots that
+    -- aihc_byte_array_initialize writes: the info table and the size. The
+    -- payload follows the header, and it stays uninitialized.
     (_, [GrinLitValue (GrinLitInt _ size)])
       | name == uncheckedByteArrayPrimitive -> do
           let words' = uncheckedByteArrayWords size
@@ -3027,11 +3026,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
               literal = OperandLiteral . LitInt
               info = Symbol "aihc_byte_array_info"
           requireExternData info
-          contents <- emitValue "contents" Ptr (PtrAdd object (literal byteArrayHeaderBytes))
           storeSlot HeapRegion Ptr (OperandLiteral (LitSymbol info)) object 0
           storeSlot HeapRegion I64 (literal size) object byteArraySizeOffset
-          storeSlot HeapRegion Ptr (typedOperand contents) object byteArrayContentsOffset
-          storeSlot HeapRegion I64 (literal words') object byteArrayWordsOffset
           bind [array]
     ("divInt#", [left, right]) -> do
       leftOperand <- word left
@@ -3091,8 +3087,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | not checkPrimBounds -> do
           leftArray <- pointerValue ctx env left
           rightArray <- pointerValue ctx env right
-          leftContents <- loadSlot HeapRegion "left_contents" Ptr leftArray byteArrayContentsOffset
-          rightContents <- loadSlot HeapRegion "right_contents" Ptr rightArray byteArrayContentsOffset
+          leftContents <- byteArrayPayload "left_contents" leftArray
+          rightContents <- byteArrayPayload "right_contents" rightArray
           leftIndex <- word leftOffset
           rightIndex <- word rightOffset
           leftBytes <- emitValue "left_bytes" Ptr (PtrAdd (typedOperand leftContents) leftIndex)
@@ -3251,6 +3247,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           info <- emitValue "info" I64 (Select I64 (typedOperand pinned) (typedOperand pinnedInfo) (typedOperand movable))
           storeSlot AnyRegion I64 (typedOperand info) object 0
           bind [typed]
+      | name `elem` ["byteArrayContents#", "mutableByteArrayContents#"] -> do
+          base <- pointerValue ctx env value
+          contents <- byteArrayPayload "contents" base
+          bind [contents]
       | name `elem` ["isByteArrayPinned#", "isMutableByteArrayPinned#"] -> do
           base <- pointerValue ctx env value
           pinned <- byteArrayIsPinned HeapRegion base
@@ -3475,7 +3475,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
         if indexing == ByteOffset || width == 1
           then pure offset
           else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (literal width))
-      contents <- emitValue "contents" Ptr (Load Ptr (heapAddress base byteArrayContentsOffset) (byteAlignment 8))
+      contents <- byteArrayPayload "contents" base
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) byteOffset)
     -- The address of element @index@ of the given width. Every access uses
     -- alignment one, because the source can give an unaligned address.
@@ -3705,11 +3705,14 @@ arrayLengthOffset = 8
 arrayElementsOffset = 16
 mutVarContentsOffset = arrayElementsOffset
 
-byteArraySizeOffset, byteArrayContentsOffset, byteArrayWordsOffset, byteArrayHeaderBytes :: Integer
+byteArraySizeOffset, byteArrayPayloadOffset :: Integer
 byteArraySizeOffset = 8
-byteArrayContentsOffset = 16
-byteArrayWordsOffset = 24
-byteArrayHeaderBytes = 32
+byteArrayPayloadOffset = 16
+
+-- | The payload of a byte array. It always follows the two header slots,
+-- thus its address needs no load.
+byteArrayPayload :: Text -> Operand -> LowerM Typed
+byteArrayPayload base array = emitValue base Ptr (PtrAdd array (OperandLiteral (LitInt byteArrayPayloadOffset)))
 
 -- | The info table of each pinned byte array. A movable byte array has one
 -- of the two other tables, thus this table alone tells that an array is
@@ -3753,8 +3756,6 @@ objectFieldPrimitives =
     ("sizeofByteArray#", (I64, byteArraySizeOffset)),
     ("sizeofMutableByteArray#", (I64, byteArraySizeOffset)),
     ("getSizeofMutableByteArray#", (I64, byteArraySizeOffset)),
-    ("byteArrayContents#", (Ptr, byteArrayContentsOffset)),
-    ("mutableByteArrayContents#", (Ptr, byteArrayContentsOffset)),
     ("stableNameToInt#", (I64, stableNameHashOffset)),
     ("aihcThreadIdNumber#", (I64, threadIdOffset))
   ]

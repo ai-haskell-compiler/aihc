@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <stddef.h>
+#include <string.h>
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
 typedef struct AihcMVarWaiter AihcMVarWaiter;
@@ -228,25 +229,27 @@ void aihc_record_allocation(AihcCapability *capability);
 extern const AihcInfo aihc_byte_array_info;
 extern const AihcInfo aihc_frozen_byte_array_info;
 extern const AihcInfo aihc_pinned_byte_array_info;
-/* Four fixed slots precede the inline byte payload. The info table tells
-   whether the array is pinned. */
+/* Two fixed slots precede the inline byte payload, as in GHC: the info
+   table and the size. The info table tells whether the array is pinned. The
+   payload is always at the same offset, thus compiled code computes its
+   address without a load. The object has the words of the current size: a
+   shrink zeroes the words it frees, and a heap walk skips zero words. */
 typedef struct {
   AihcSlot header;
   uint64_t size;
-  union {
-    uint8_t *contents;
-    AihcSlot contents_slot;
-  };
-  uint64_t words;
 } AihcByteArray;
 
-/* A pinned byte array has one more slot before its payload: the alignment
-   of the payload. A resize keeps that alignment. A movable array has an
-   alignment of eight and does not record it. */
-typedef struct {
-  AihcByteArray array;
-  uint64_t alignment;
-} AihcPinnedByteArray;
+/* The payload of a byte array. */
+static inline uint8_t *aihc_byte_array_payload(const AihcByteArray *array) {
+  return (uint8_t *)(uintptr_t)(array + 1);
+}
+
+/* The words of a byte array of a size. An empty array keeps one payload
+   byte. */
+static inline uint64_t aihc_byte_array_object_words(uint64_t size) {
+  return (sizeof(AihcByteArray) + (size == 0 ? 1 : size) + 7) /
+         sizeof(AihcSlot);
+}
 
 /* Whether a byte array is pinned. */
 static inline int aihc_byte_array_pinned(const AihcByteArray *array) {
@@ -279,6 +282,43 @@ typedef struct AihcPinnedBlock {
 /* The mark of the gen2 cycle: a block of generation two is live at the end
    of the cycle when it is set. */
 #define AIHC_PINNED_CYCLE_MARK (UINT64_C(1) << 62)
+/* A block that does not start its allocation. The payload of a pinned byte
+   array follows its block header and its array header at a fixed offset.
+   For an alignment above that of the allocator, the allocation puts the
+   block at an offset, and the word before the block holds the alignment.
+   See aihc_pinned_offset. */
+#define AIHC_PINNED_ALIGNED (UINT64_C(1) << 61)
+
+/* The payload alignment that every pinned block has without an offset: the
+   allocators give at least this alignment, and the block header and the
+   array header are a multiple of it. */
+#define AIHC_PINNED_NATURAL_ALIGNMENT 16
+
+/* The offset of a block in its allocation for a payload alignment. The
+   payload is 32 bytes after the block, and the offset leaves one word
+   before the block for the alignment. */
+static inline uint64_t aihc_pinned_offset(uint64_t alignment) {
+  if (alignment <= AIHC_PINNED_NATURAL_ALIGNMENT) {
+    return 0;
+  }
+  uint64_t header = 2 * sizeof(AihcSlot) + 2 * sizeof(AihcSlot);
+  uint64_t before = header + sizeof(AihcSlot);
+  return ((before + alignment - 1) & ~(alignment - 1)) - header;
+}
+
+/* The alignment in the word before a block at an offset. */
+static inline uint64_t
+aihc_pinned_recorded_alignment(const AihcPinnedBlock *block) {
+  uint64_t alignment;
+  memcpy(&alignment, (const uint8_t *)block - sizeof(alignment),
+         sizeof(alignment));
+  return alignment;
+}
+
+static inline void aihc_pinned_record_alignment(AihcPinnedBlock *block,
+                                                uint64_t alignment) {
+  memcpy((uint8_t *)block - sizeof(alignment), &alignment, sizeof(alignment));
+}
 
 static inline uint64_t aihc_pinned_bytes(const AihcPinnedBlock *block) {
   return block->bytes & AIHC_PINNED_BYTES_MASK;
@@ -324,17 +364,13 @@ static inline AihcPinnedBlock *aihc_pinned_block_of(const AihcValue *object) {
                              offsetof(AihcPinnedBlock, object));
 }
 
-_Static_assert(sizeof(AihcByteArray) == 32, "byte-array descriptor size");
-_Static_assert(offsetof(AihcByteArray, contents) == 16,
-               "byte-array contents offset");
-_Static_assert(offsetof(AihcPinnedByteArray, alignment) == 32,
-               "pinned byte-array alignment offset");
-_Static_assert(offsetof(AihcByteArray, words) == 24,
-               "byte-array allocation size offset");
+_Static_assert(sizeof(AihcByteArray) == 16, "byte-array descriptor size");
 _Static_assert(offsetof(AihcPinnedBlock, object) == 16,
                "pinned allocation metadata size");
 
 AihcValue *aihc_gc_allocate_pinned(AihcCapability *capability, uint64_t words);
+AihcValue *aihc_gc_allocate_pinned_aligned(AihcCapability *capability,
+                                           uint64_t words, uint64_t alignment);
 /* Give a block of the pinned list back: a region run to the region table, a
    C allocation to the C allocator. */
 void aihc_pinned_block_release(AihcPinnedBlock *block);

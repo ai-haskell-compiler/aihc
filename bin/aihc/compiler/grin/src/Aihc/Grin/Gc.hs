@@ -131,10 +131,15 @@ insertDynamic expression = case expression of
             pinnedVar = GrinVar "$gc_pinned" (unique + 2) WordRep
             memory = GrinVarValue memoryVar
             (initializer, initialArguments) = initializePrimitive name arguments
-            pinned = case name of
-              "newPinnedByteArray#" -> literal 1
-              "newAlignedPinnedByteArray#" -> literal 1
-              "resizeMutableByteArray#" -> GrinVarValue pinnedVar
+            -- The pinned operand of an allocation is zero for a movable
+            -- object and the payload alignment of a pinned byte array. The
+            -- runtime places a pinned array where its payload has that
+            -- alignment, because the payload follows the header at a fixed
+            -- offset. One is the natural alignment of a pinned block.
+            pinned = case (name, arguments) of
+              ("newPinnedByteArray#", _) -> literal 1
+              ("newAlignedPinnedByteArray#", [_, alignment]) -> alignment
+              ("resizeMutableByteArray#", _) -> GrinVarValue pinnedVar
               _ -> literal 0
             withPinned rest = case (name, arguments) of
               ("resizeMutableByteArray#", array : _) -> GrinBind [pinnedVar] (GrinPrimitiveCall WordRep "aihcByteArrayPinned#" [array]) rest

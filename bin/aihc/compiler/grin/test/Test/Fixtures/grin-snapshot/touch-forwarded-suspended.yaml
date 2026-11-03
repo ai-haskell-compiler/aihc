@@ -55,7 +55,7 @@ program: |
 return: "42"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 63064
-  linux-amd64: 63064
+  macos-arm64: 58240
+  linux-amd64: 58240
 status: pass
 reason: A final touch must retain the owner across suspension and forward an abstract result.

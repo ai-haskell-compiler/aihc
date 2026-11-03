@@ -23,7 +23,7 @@ return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 1104
-  linux-amd64: 1104
+  macos-arm64: 1064
+  linux-amd64: 1064
 status: pass
 reason: A host allocation must retain the open result handle and relocate the saved continuation and its array.
