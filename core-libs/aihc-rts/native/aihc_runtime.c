@@ -3973,10 +3973,28 @@ static const AihcResume *aihc_raise_async(AihcCapability *capability,
 const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
                                       AihcValue *continuation) {
   AihcThread *thread = capability->current_thread;
+  /* The evaluation claims the thunk at once and drops its payload, as GHC
+     does with an AP_STACK under evaluation. Otherwise the copies of the
+     frames keep what they named alive while the work runs: a list that
+     the work consumes, for example. Another evaluation of the thunk waits
+     for this one, so it does not read the cleared fields. */
+  aihc_thunk_claim(ap, thread);
+  AihcBlackholeQueue *queue = NULL;
+  if (aihc_thunk_owner(ap, &queue) != thread) {
+    aihc_suspend_eval(thread, ap, continuation);
+    return aihc_select_thread(capability, thread);
+  }
   uint64_t meta = ap->fields[4];
   AihcResumeKind kind = meta & 0xff;
   uint64_t count = (meta >> 8) & 0xff;
   uint64_t mask = meta >> 16;
+  AihcValue *top = (AihcValue *)(uintptr_t)ap->fields[1];
+  AihcValue *function = (AihcValue *)(uintptr_t)ap->fields[2];
+  AihcSlot value = ap->fields[3];
+  aihc_write_barrier(capability, ap);
+  ap->fields[1] = 0;
+  ap->fields[2] = 0;
+  ap->fields[3] = 0;
   aihc_stack_resume_after(capability, continuation);
   /* The frozen work ran with its own masking state. A restore-mask frame
      gives the state of this thread back when the work returns. */
@@ -3990,7 +4008,7 @@ const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
   uint64_t index = 0;
   uint64_t capacity = 0;
   AihcValue **frames = NULL;
-  for (AihcValue *frame = (AihcValue *)(uintptr_t)ap->fields[1]; frame != NULL;
+  for (AihcValue *frame = top; frame != NULL;
        frame = (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[0]) {
     if (index == capacity) {
       capacity = capacity == 0 ? 16 : capacity * 2;
@@ -4012,8 +4030,6 @@ const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
     resumed = copy;
   }
   free(frames);
-  AihcValue *function = (AihcValue *)(uintptr_t)ap->fields[2];
-  AihcSlot value = ap->fields[3];
   switch (kind) {
   case AIHC_RESUME_CONTINUE:
     aihc_suspend_continue(thread, resumed, count, value);
