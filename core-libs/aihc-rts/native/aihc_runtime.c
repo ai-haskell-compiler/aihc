@@ -32,6 +32,8 @@ _Static_assert(offsetof(AihcCapability, profile_code) ==
 _Static_assert(offsetof(AihcCapability, profile_frame) ==
                    8 * sizeof(void *) + 16,
                "capability profile_frame ABI");
+_Static_assert(offsetof(AihcCapability, stack_limit) == 9 * sizeof(void *) + 16,
+               "capability stack_limit ABI");
 
 /* Five words, five bytes, one byte of padding, and a two-byte constructor
    index, rounded up to a word. This matches
@@ -128,6 +130,8 @@ void aihc_lir_take_resume(AihcCapability *capability, AihcResume *resume,
   } else if (resume->continuation != NULL) {
     aihc_stack_resume_after(capability, resume->continuation);
   }
+  /* aihc_lir_resume loads the stack pointer and not the stack limit. */
+  aihc_stack_set_limit(capability);
   slots[0] = resume->kind;
   slots[1] = (uintptr_t)resume->function;
   slots[2] = (uintptr_t)resume->continuation;
@@ -791,11 +795,14 @@ struct AihcCallbackFrame {
   AihcCapability *capability;
   AihcValue *closure;
   AihcValue *continuation;
+  /* The stack limit of the code that made the foreign call. The callback
+     can enter another chunk, so the leave gives the limit back. */
+  uint8_t *stack_limit;
   uint64_t result;
   int complete;
 };
 
-_Static_assert(sizeof(AihcCallbackFrame) <= 48,
+_Static_assert(sizeof(AihcCallbackFrame) <= 64,
                "callback frame exceeds its LIR stack space");
 
 static AihcCallbackSlot *aihc_callback_slots;
@@ -960,6 +967,7 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
   frame->previous = capability->callback_frames;
   frame->capability = capability;
   frame->closure = slot->closure;
+  frame->stack_limit = capability->stack_limit;
   capability->callback_frames = frame;
   /* The callback runs on the stack of the thread that made the foreign call.
      Its stop frame goes above the frames of that thread. When the callback
@@ -996,6 +1004,7 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
   uint64_t result = frame->result;
   AihcCapability *capability = frame->capability;
   capability->callback_frames = frame->previous;
+  capability->stack_limit = frame->stack_limit;
   AihcForeignFrame *foreign = capability->foreign_frames;
   if (foreign != NULL && foreign->allow_callbacks == AIHC_FOREIGN_SAFE &&
       capability->machine->stop_lock != NULL && capability->stop_depth == 0 &&
@@ -1553,6 +1562,7 @@ AihcCapability *aihc_machine_new(uint64_t global_count) {
   AihcStack *stack;
   capability->current_thread = aihc_thread_new(capability, &stack);
   capability->stack_next = aihc_stack_base(stack);
+  aihc_stack_set_limit(capability);
   capability->machine->program_started = 1;
   if (capability->machine->capability_count > 1) {
     aihc_workers_start(capability);

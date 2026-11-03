@@ -16,31 +16,31 @@ program: |
     (sum%13 :: Word32Rep) <- primitive-call @Word32Rep plusWord32# (high%12 :: Word32Rep) (low%11 :: Word32Rep)
     primitive-call @WordRep word32ToWord# (sum%13 :: Word32Rep)
 expected: |
-  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
 
-  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %left_4: i64, %right_5: i64, %$cps_return_6: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %left_3: i64, %right_4: i64, %$cps_return_5: ptr) {
   entry:
-    %result_7 = and i64 %left_4, %right_5
-    %result_8 = or i64 %result_7, %right_5
-    %result_9 = xor i64 %result_8, %left_4
-    %result_10 = shr.u i64 %result_9, 3
-    %wide_11 = shl i64 %result_10, 29
-    %narrow_12 = trunc i64 %wide_11 to i32
-    %narrow_15_width_right = trunc i64 %result_10 to i32
-    %narrow_15 = add i32 %narrow_12, %narrow_15_width_right
-    %result_16 = zext i32 %narrow_15 to i64
-    %header_word_17 = load i64 [%$cps_return_6] align 8 region stack
-    %info_word_18 = and i64 %header_word_17, -4
-    %header_19 = ptr.from_int %info_word_18
-    %entry_20 = load.invariant code [%header_19 + 24] align 1 word
-    %forward_23 = eq code %entry_20, null
-    br %forward_23, continue_slow_21, continue_enter_22
+    %result_6 = and i64 %left_3, %right_4
+    %result_7 = or i64 %result_6, %right_4
+    %result_8 = xor i64 %result_7, %left_3
+    %result_9 = shr.u i64 %result_8, 3
+    %wide_10 = shl i64 %result_9, 29
+    %narrow_11 = trunc i64 %wide_10 to i32
+    %narrow_14_width_right = trunc i64 %result_9 to i32
+    %narrow_14 = add i32 %narrow_11, %narrow_14_width_right
+    %result_15 = zext i32 %narrow_14 to i64
+    %header_word_16 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_17 = and i64 %header_word_16, -4
+    %header_18 = ptr.from_int %info_word_17
+    %entry_19 = load.invariant code [%header_18 + 24] align 1 word
+    %forward_22 = eq code %entry_19, null
+    br %forward_22, continue_slow_20, continue_enter_21
 
-  cold continue_slow_21:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, %result_16)
+  cold continue_slow_20:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_5, %result_15)
 
-  continue_enter_22:
-    tailcall.indirect %entry_20(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, %result_16) : (ptr, ptr, ptr, ptr, ptr, i64)
+  continue_enter_21:
+    tailcall.indirect %entry_19(%hp_0, %$cps_return_5, %base_2, %$cps_return_5, %result_15) : (ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: The left shift needs a result mask. The addition uses 32-bit operands and a 32-bit result.

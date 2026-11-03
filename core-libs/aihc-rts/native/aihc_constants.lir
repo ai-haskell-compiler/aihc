@@ -33,6 +33,9 @@ const @AIHC_CAPABILITY_CURRENT_THREAD_OFFSET = 6 words
 ; The size follows seven pointer fields, with 8-byte alignment on both targets.
 const @AIHC_CAPABILITY_NURSERY_BYTES_OFFSET = 6 words + 8
 const @AIHC_CAPABILITY_PAUSE_TOP_OFFSET = 6 words + 16
+; The end of the stack chunk of the running thread follows the two profile
+; fields. The runtime sets it, and a push compares with it.
+const @AIHC_CAPABILITY_STACK_LIMIT_OFFSET = 9 words + 16
 
 ; Two low header bits preserve the original info-table pointer. In a thunk,
 ; bit zero alone means claimed or evaluated: field zero names the owner or
@@ -104,16 +107,3 @@ const @AIHC_UPDATE_FRAME_BYTES = @AIHC_UPDATE_FRAME_WORDS * 8
 ; stack pointer is not above the stack limit.
 const @AIHC_STACK_CHUNK_BYTES = 4096
 const @AIHC_STACK_CHUNK_LAST = @AIHC_STACK_CHUNK_BYTES - 1
-; The frames of a chunk follow its header. aihc_stack_grow gives the first
-; frame of a chunk, so the chunk ends this many bytes after that frame.
-const @AIHC_STACK_CHUNK_HEADER_BYTES = 64
-const @AIHC_STACK_CHUNK_FRAME_BYTES = @AIHC_STACK_CHUNK_BYTES - @AIHC_STACK_CHUNK_HEADER_BYTES
-; The slow path of a push puts a forward frame of two words at the start of
-; the new chunk. Its parent is the continuation in the chunk below. The
-; pushed frame follows it, so the chunk ends this many bytes after the
-; pushed frame, and the forward frame is this many bytes before it.
-const @AIHC_STACK_CHUNK_FORWARD_BYTES = 16
-const @AIHC_STACK_GROWN_FRAME_BYTES = @AIHC_STACK_CHUNK_FRAME_BYTES - @AIHC_STACK_CHUNK_FORWARD_BYTES
-
-; The capability pointer follows the packed chunk counters.
-const @AIHC_STACK_CAPABILITY_OFFSET = 4 words + 24
