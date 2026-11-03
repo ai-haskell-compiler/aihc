@@ -1733,7 +1733,17 @@ lowerCase env scrutinee binder alternatives = do
       bindExpression env "case_value" scrutinee $ \case
         [value] -> do
           caseBinder <- freshVar (maybe "case_value" (Fc.nameText . Fc.binderName) binder) representation
-          let binderEnv = maybe env (\named -> bindLocal env named [caseBinder]) binder
+          let binderEnv = maybe scrutineeEnv (\named -> bindLocal scrutineeEnv named [caseBinder]) binder
+              -- System FC takes a lifted scrutinee variable as evaluated in
+              -- the alternatives. Its own variable can point to the updated
+              -- thunk, so the alternatives read the value of the case.
+              scrutineeEnv =
+                case scrutineeVariable scrutinee of
+                  Just name
+                    | isLiftedRuntimeRep representation,
+                      Just [_] <- Map.lookup name (lowerLocals env) ->
+                        env {lowerLocals = Map.insert name [caseBinder] (lowerLocals env)}
+                  _ -> env
           scrutineeType <- expressionType env scrutinee
           case onlyConstructorAlternative env scrutineeType alternatives of
             -- The type has one constructor, so the value is that
@@ -1757,6 +1767,11 @@ lowerCase env scrutinee binder alternatives = do
       case Fc.altCon alternative of
         Fc.AltData name -> constructorTag name
         _ -> ""
+    scrutineeVariable expression =
+      case expression of
+        Fc.ExVar name -> Just name
+        Fc.ExCast inner _ -> scrutineeVariable inner
+        _ -> Nothing
 
 -- | The alternative of a case on a type of one constructor, which every
 -- value of the type matches. A default beside it is never taken. A
