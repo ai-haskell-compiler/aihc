@@ -1,0 +1,32 @@
+extensions:
+  - BangPatterns
+source: |
+  module Test where
+  data Colour = Red | Green
+  data Box = Box !Colour
+  box :: Colour -> Box
+  box !colour = Box colour
+status: pass
+reason: After a case on a lifted variable, the alternatives use the value of the case. The variable can point to an updated thunk.
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Red []
+
+  pub constructor 1.Green%1 []
+
+  pub constructor 1.Box [BoxedRep Lifted]
+
+  pub global 1.$WBox = (P1.$$WBox$p$p/1)
+
+  pub global 1.box = (P1.$box$p$p/1)
+
+  pub 1.$$WBox$p$p (_strict_field :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (_strict_field :: BoxedRep Lifted)
+    store (C1.Box (case_value :: BoxedRep Lifted))
+
+  pub 1.$box$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) 1.$$WBox$p$p (case_value :: BoxedRep Lifted)
