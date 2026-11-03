@@ -254,8 +254,11 @@ transformTail parent bound resultRep continuation expression =
                   (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [[]])
               )
           pure (GrinBind [promptVar] (GrinStore promptNode) delimitedAction)
+    -- The runtime applies the action of fork# and of the mask primitives,
+    -- and it does not evaluate it. A wrapper closure evaluates the action
+    -- first.
     GrinPrimitiveCall runtimeRep name [action]
-      | name == "fork#" -> do
+      | name `elem` ["fork#", "maskAsyncExceptions#", "maskUninterruptible#", "unmaskAsyncExceptions#"] -> do
           entry <- forkActionEntry parent
           wrapper <- freshVar "$cps_fork_action" liftedGrinRep
           pure
@@ -643,4 +646,4 @@ varsRuntimeRep vars =
 
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
-  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "noDuplicate#", "prompt#", "aihcControl0#", "aihcResume#"]
+  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "noDuplicate#", "prompt#", "aihcControl0#", "aihcResume#", "maskAsyncExceptions#", "maskUninterruptible#", "unmaskAsyncExceptions#", "killThread#"]

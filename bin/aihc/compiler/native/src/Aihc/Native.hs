@@ -704,7 +704,11 @@ nativeCpsPrimitiveCalls =
     resumes "noDuplicate#" "aihc_no_duplicate" 0,
     resumes "awaitIO#" "aihc_await_io" 1,
     resumes "aihcControl0#" "aihc_control0" 2,
-    resumes "aihcResume#" "aihc_continuation_resume" 2
+    resumes "aihcResume#" "aihc_continuation_resume" 2,
+    resumes "maskAsyncExceptions#" "aihc_mask_async_exceptions" 1,
+    resumes "maskUninterruptible#" "aihc_mask_uninterruptible" 1,
+    resumes "unmaskAsyncExceptions#" "aihc_unmask_async_exceptions" 1,
+    resumes "killThread#" "aihc_throw_to" 2
   ]
   where
     enters primitive symbol operands =
@@ -753,6 +757,8 @@ nativeRuntimePrimitiveCalls =
     -- The thread that runs now is a field of the machine, so this call takes
     -- the machine. It only reads that field, and it allocates nothing.
     machineCall "myThreadId#" "aihc_my_thread_id" [] GrinForeignAddr,
+    -- The masking state is a field of the thread that runs now.
+    machineCall "getMaskingState#" "aihc_get_masking_state" [] GrinForeignInt64,
     machineProcedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineProcedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,

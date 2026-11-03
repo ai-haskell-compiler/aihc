@@ -33,9 +33,10 @@
   # the daily Hackage workflow, through the hackage-checks package.
   hackageExampleNames = builtins.filter (name: (exampleExtraHackagePackages.${name} or []) != []) exampleNames;
   gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
-  # These examples check that Haskell threads run on several OS threads. A
-  # wasm32-wasip3 program has one capability, so they do not run there.
-  threadedExampleNames = ["busy-capability" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "workers"];
+  # These examples check that Haskell threads run on several OS threads, or
+  # they need the ticker. A wasm32-wasip3 program has one capability and no
+  # ticker, so they do not run there.
+  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "workers"];
   wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.

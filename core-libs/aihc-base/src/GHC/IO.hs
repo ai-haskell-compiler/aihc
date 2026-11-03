@@ -3,9 +3,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | The 'IO' monad and the synchronous exception operations that the
--- rest of @base@ builds on. Asynchronous exceptions do not exist in this
--- runtime, so the mask operations only run their argument.
+-- | The 'IO' monad and the exception operations that the rest of @base@
+-- builds on. The mask operations are those of GHC. See "Asynchronous
+-- exceptions" in docs/exceptions.md.
 module GHC.IO
   ( module GHC.Prim.IO,
     unIO,
@@ -39,7 +39,7 @@ where
 import GHC.Base (Maybe (..), Monad (..), String, id)
 import GHC.Exception.Type (Exception (..), SomeException (..))
 import GHC.IO.Unsafe (unsafeDupableInterleaveIO, unsafeDupablePerformIO, unsafeInterleaveIO, unsafePerformIO)
-import GHC.Prim (RealWorld, State#, catch#, noDuplicate#, raiseIO#, seq, unsafeCoerce#)
+import GHC.Prim (RealWorld, State#, catch#, getMaskingState#, maskAsyncExceptions#, maskUninterruptible#, noDuplicate#, raiseIO#, seq, unmaskAsyncExceptions#, unsafeCoerce#)
 import GHC.Prim.IO
 
 type FilePath = String
@@ -97,44 +97,89 @@ catchAny (IO action) handler =
   where
     handler' (SomeException exception) = unIO (handler exception)
 
+block :: IO a -> IO a
+block (IO action) = IO (maskAsyncExceptions# action)
+
+blockUninterruptible :: IO a -> IO a
+blockUninterruptible (IO action) = IO (maskUninterruptible# action)
+
+unblock :: IO a -> IO a
+unblock = unsafeUnmask
+
+-- | Run the action with asynchronous exceptions masked. The action gets a
+-- function that restores the masking state of the caller.
 mask :: ((forall a. IO a -> IO a) -> IO b) -> IO b
-mask action = action id
+mask io = do
+  state <- getMaskingState
+  case state of
+    Unmasked -> block (io unblock)
+    MaskedInterruptible -> io block
+    MaskedUninterruptible -> io blockUninterruptible
 
 mask_ :: IO a -> IO a
-mask_ action = action
+mask_ io = mask (\_ -> io)
 
 uninterruptibleMask :: ((forall a. IO a -> IO a) -> IO b) -> IO b
-uninterruptibleMask action = action id
+uninterruptibleMask io = do
+  state <- getMaskingState
+  case state of
+    Unmasked -> blockUninterruptible (io unblock)
+    MaskedInterruptible -> blockUninterruptible (io block)
+    MaskedUninterruptible -> io blockUninterruptible
 
 uninterruptibleMask_ :: IO a -> IO a
-uninterruptibleMask_ action = action
+uninterruptibleMask_ io = uninterruptibleMask (\_ -> io)
 
 getMaskingState :: IO MaskingState
-getMaskingState = return Unmasked
+getMaskingState =
+  IO
+    ( \state -> case getMaskingState# state of
+        (# next, 0# #) -> (# next, Unmasked #)
+        (# next, 1# #) -> (# next, MaskedUninterruptible #)
+        (# next, _ #) -> (# next, MaskedInterruptible #)
+    )
 
+-- | Run the action unmasked. A queued asynchronous exception is raised at
+-- once.
 unsafeUnmask :: IO a -> IO a
-unsafeUnmask action = action
+unsafeUnmask (IO action) = IO (unmaskAsyncExceptions# action)
 
+-- | Let an interruptibly masked thread take a queued exception while the
+-- action runs.
 interruptible :: IO a -> IO a
-interruptible action = action
+interruptible act = do
+  state <- getMaskingState
+  case state of
+    Unmasked -> act
+    MaskedInterruptible -> unsafeUnmask act
+    MaskedUninterruptible -> act
 
 -- | Run the second action when the first action raises an exception.
 onException :: IO a -> IO b -> IO a
 onException action cleanup =
   catchException action (\exception -> cleanup >> throwIO (exception :: SomeException))
 
+-- | Acquire a resource, use it, and release it. An asynchronous exception
+-- cannot come between the acquisition and the use, or between the use and
+-- the release.
 bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
-bracket acquire release use = do
-  resource <- acquire
-  result <- use resource `onException` release resource
-  _ <- release resource
-  return result
+bracket acquire release use =
+  mask
+    ( \restore -> do
+        resource <- acquire
+        result <- restore (use resource) `onException` release resource
+        _ <- release resource
+        return result
+    )
 
 finally :: IO a -> IO b -> IO a
-finally action cleanup = do
-  result <- action `onException` cleanup
-  _ <- cleanup
-  return result
+finally action cleanup =
+  mask
+    ( \restore -> do
+        result <- restore action `onException` cleanup
+        _ <- cleanup
+        return result
+    )
 
 evaluate :: a -> IO a
 evaluate value =

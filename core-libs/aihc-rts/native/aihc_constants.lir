@@ -90,6 +90,7 @@ const @AIHC_RESUME_NONE = 0
 const @AIHC_RESUME_APPLY = 1
 const @AIHC_RESUME_CONTINUE = 2
 const @AIHC_RESUME_RAISE = 3
+const @AIHC_RESUME_EVAL = 4
 
 ; Heap slots have eight bytes on every target.
 ; Four slots cover a waiter and six slots cover a blackhole queue on every

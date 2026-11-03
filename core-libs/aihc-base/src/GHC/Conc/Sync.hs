@@ -36,7 +36,7 @@ import Aihc.Prim.IO (stmWait#)
 import Control.Applicative (Alternative (..))
 import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.Exception (ErrorCall (..), Exception (..), SomeException)
-import GHC.IO (IO (..), catch, throwIO)
+import GHC.IO (IO (..), catch, mask, throwIO)
 import GHC.IO.Exception (AsyncException (ThreadKilled), BlockedIndefinitelyOnMVar (..), BlockedIndefinitelyOnSTM (..))
 import GHC.IO.Handle.Text (hPutStrLn)
 import GHC.IO.StdHandles (stderr)
@@ -128,11 +128,14 @@ forkIOWithoutHandler (IO action) =
           )
     )
 
--- | Asynchronous exceptions are not supported. The stub does not use either argument.
+-- | Raise an exception in a thread. As in GHC, the call returns when the
+-- target takes the exception. A target that is masked takes it when it
+-- unmasks, or when it waits while it is masked interruptibly.
 throwTo :: (Exception e) => ThreadId -> e -> IO ()
-throwTo _ _ = throwIO (ErrorCallWithLocation "throwTo: asynchronous exceptions are not supported" "")
+throwTo (ThreadId target) exception =
+  IO (\state -> case killThread# target (toException exception) state of next -> (# next, () #))
 
--- | Request thread termination. 'throwTo' reports an unsupported operation in this runtime.
+-- | Raise 'ThreadKilled' in a thread.
 killThread :: ThreadId -> IO ()
 killThread thread = throwTo thread ThreadKilled
 
@@ -208,10 +211,14 @@ stmToIO (STM action) = IO action
 
 -- | A failed action drops all writes since this savepoint. A failure or a
 -- commit whose reads no longer hold raises Conflict.
+--
+-- The begin, the handler, and the commit run masked, so an asynchronous
+-- exception cannot leave a transaction open. The action runs with the
+-- masking state of the caller.
 transaction :: IO a -> IO a
-transaction action = do
+transaction action = mask $ \restore -> do
   IO (\state -> case stmBegin# state of next -> (# next, () #))
-  result <- catch action abort
+  result <- catch (restore action) abort
   committed <-
     IO
       ( \state -> case stmCommit# state of

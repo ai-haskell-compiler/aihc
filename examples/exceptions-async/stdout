@@ -1,0 +1,20 @@
+Unmasked
+MaskedInterruptible
+MaskedUninterruptible
+Unmasked
+MaskedInterruptible
+Unmasked
+self: thread killed
+caught thread killed
+caught thread killed
+release
+masked work finished
+kill returned
+caught thread killed
+finished target
+released
+Nothing
+Just 42
+True
+200000010000000
+1

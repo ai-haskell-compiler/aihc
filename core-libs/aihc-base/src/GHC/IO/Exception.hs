@@ -32,6 +32,7 @@ where
 
 import Data.Bool (Bool (..))
 import Data.Maybe (Maybe (..))
+import Data.Typeable (cast)
 import GHC.Base (String, (.))
 import GHC.Exception.Type (Exception (..), SomeException)
 import GHC.Int (Int)
@@ -121,7 +122,7 @@ asyncExceptionFromException exception =
     Nothing -> Nothing
     Just wrapped ->
       case wrapped of
-        SomeAsyncException inner -> fromException (toException inner)
+        SomeAsyncException inner -> cast inner
 
 data AsyncException
   = StackOverflow

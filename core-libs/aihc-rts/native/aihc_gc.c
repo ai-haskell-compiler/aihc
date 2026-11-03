@@ -3163,6 +3163,22 @@ static int aihc_frame_is_live(const AihcCapability *capability,
   return stack->top != NULL && !aihc_frame_above(frame, stack->top);
 }
 
+AihcValue *aihc_top_live_frame(AihcCapability *capability, uint64_t count,
+                               const AihcSlot *roots) {
+  AihcValue *top = NULL;
+  for (uint64_t index = 0; index < count; ++index) {
+    AihcValue *value = aihc_untag(roots[index]);
+    if (value == NULL || aihc_region_kind(value) != AIHC_REGION_STACK ||
+        !aihc_frame_is_live(capability, value)) {
+      continue;
+    }
+    if (top == NULL || aihc_frame_above(value, top)) {
+      top = value;
+    }
+  }
+  return top;
+}
+
 /* Mark one old object and queue it for a scan. A gen2 indirection is
    marked like any object: the marker does not rewrite the fields that
    name it, so it must stay until a copy follows it. A frame is scanned at
@@ -4063,6 +4079,7 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
                                ? other->nursery_block_bytes
                                : other->nursery_bytes;
     other->heap_limit = other->heap_start + other->nursery_taken;
+    aihc_heap_limit_rearm(other);
     other->heap_alloc_base = other->heap_next;
     other->fixed_since_gc = 0;
     other->barrier_work = 0;
@@ -4624,6 +4641,7 @@ static void aihc_nursery_acquire(AihcCapability *capability, size_t bytes) {
                                 ? window->nursery_block_bytes
                                 : bytes;
     window->heap_limit = window->heap_start + window->nursery_taken;
+    aihc_heap_limit_rearm(window);
   }
 }
 
@@ -4933,6 +4951,7 @@ static int aihc_nursery_refill(AihcCapability *capability, size_t bytes) {
   }
   capability->heap_limit =
       capability->heap_start + (taken - capability->fixed_since_gc);
+  aihc_heap_limit_rearm(capability);
   return 1;
 }
 

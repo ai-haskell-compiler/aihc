@@ -176,6 +176,32 @@ void aihc_host_workers_start(AihcCapability *capability) {
   aihc_posix_check(pthread_attr_destroy(&attributes), "worker setup failed");
 }
 
+/* The interval of the ticker. See "Context switches" in
+   docs/multi-threaded-rts-design.md. */
+#define AIHC_TICK_NS ((uint64_t)20000000)
+
+static void *aihc_ticker_main(void *argument) {
+  AihcMachine *machine = argument;
+  for (;;) {
+    aihc_host_sleep_ns(AIHC_TICK_NS);
+    aihc_machine_tick(machine);
+  }
+  return NULL;
+}
+
+void aihc_host_ticker_start(AihcMachine *machine) {
+  pthread_attr_t attributes;
+  aihc_posix_check(pthread_attr_init(&attributes), "ticker setup failed");
+  aihc_posix_check(
+      pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED),
+      "ticker setup failed");
+  pthread_t thread;
+  aihc_posix_check(
+      pthread_create(&thread, &attributes, aihc_ticker_main, machine),
+      "cannot start the ticker");
+  aihc_posix_check(pthread_attr_destroy(&attributes), "ticker setup failed");
+}
+
 void aihc_program_environment_initialize(void) {
   aihc_environment_initialize(environ);
 }

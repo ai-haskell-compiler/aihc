@@ -103,6 +103,10 @@ enum {
   AIHC_RESUME_APPLY,
   AIHC_RESUME_CONTINUE,
   AIHC_RESUME_RAISE,
+  /* Evaluate the value in the function field, then continue. The waiters
+     of a thunk that an asynchronous exception interrupted resume this way,
+     and so does the top of a frozen evaluation. */
+  AIHC_RESUME_EVAL,
 };
 typedef uint64_t AihcResumeKind;
 
@@ -358,6 +362,25 @@ struct AihcCapability {
   /* The position of the capability in the array of the machine. */
   uint64_t index;
   /* Not zero while the worker of the capability waits in its idle wait. */
+  /* Another thread sets this flag when it queues an asynchronous
+     exception for a thread of this capability. It then stores zero to
+     heap_limit, so the next heap check of the running thread fails and
+     reaches the runtime. See "Asynchronous exceptions" in
+     docs/exceptions.md. */
+  uint64_t interrupt;
+  /* The ticker sets this flag every interval while the capability runs,
+     and it stores zero to heap_limit. The next evaluation of a thunk then
+     gives the capability to the next runnable thread. */
+  uint64_t context_switch;
+  /* The failed heap checks since the last interrupt or tick that could not
+     take it, because the computation there cannot continue later. After
+     AIHC_SAFEPOINT_MISSES of them, a context switch is dropped and an
+     exception is delivered there. */
+  uint64_t safepoint_misses;
+  /* The threads of this capability that have queued asynchronous
+     exceptions. The object lock guards the list. Each thread is on the
+     list at most once: its async_listed field says so. */
+  AihcThread *async_targets;
   uint64_t idle;
   /* The threads that this capability pushed to an idle capability. */
   uint64_t push_count;
@@ -500,6 +523,8 @@ struct AihcMachine {
   /* Not zero when each capability has a worker on its own OS thread. See
      "Workers" in docs/multi-threaded-rts-design.md. */
   uint64_t workers_active;
+  /* Whether the ticker runs. The first fork# starts it. */
+  uint64_t ticker_started;
   /* The number of capabilities in the idle wait. */
   uint64_t idle_count;
   /* The locks of the workers: see aihc_heap_lock and aihc_object_lock. */
@@ -691,10 +716,18 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
    continuation is a transfer to heap objects, so the static references of the
    function that called it are dead by the time it collects. Suspended code
    needs no entry either: its continuation closure carries the table in its
-   info table. */
-void aihc_heap_collect(AihcCapability *capability, uint64_t words,
-                       uint64_t root_count, AihcSlot *roots,
-                       const AihcSrt *srt);
+   info table.
+
+   The result is null when the computation continues. It is a resumption
+   when an asynchronous exception interrupts the running thread. The caller
+   then gives up its computation and transfers to the resumption. */
+const AihcResume *aihc_heap_collect(AihcCapability *capability,
+                                    uint64_t words, uint64_t root_count,
+                                    AihcSlot *roots, const AihcSrt *srt);
+/* The failed heap check at the entry of an evaluation. The roots are the
+   value and the continuation. The result is as for aihc_heap_collect. */
+const AihcResume *aihc_eval_collect(AihcCapability *capability,
+                                    uint64_t words, AihcSlot *roots);
 void aihc_ensure_heap(AihcCapability *capability, uint64_t words,
                       uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 /* Allocate one object and return its address. A nursery allocation advances
@@ -834,6 +867,31 @@ const AihcResume *aihc_continuation_resume(AihcCapability *capability,
                                            AihcValue *continuation);
 const AihcResume *aihc_raise(AihcCapability *capability, AihcValue *exception,
                              AihcValue *continuation);
+/* Asynchronous exceptions. See "Asynchronous exceptions" in
+   docs/exceptions.md. The mask operations push a restore-mask frame and
+   apply the action. These operations do not collect. */
+const AihcResume *aihc_mask_async_exceptions(AihcCapability *capability,
+                                             AihcValue *action,
+                                             AihcValue *continuation);
+const AihcResume *aihc_mask_uninterruptible(AihcCapability *capability,
+                                            AihcValue *action,
+                                            AihcValue *continuation);
+const AihcResume *aihc_unmask_async_exceptions(AihcCapability *capability,
+                                               AihcValue *action,
+                                               AihcValue *continuation);
+int64_t aihc_get_masking_state(AihcCapability *capability);
+/* The entry of a restore-mask frame, which takes the value of the action. */
+const AihcResume *aihc_restore_mask(AihcCapability *capability,
+                                    AihcValue *frame, AihcSlot value);
+/* killThread#: the caller reserves the words of an MVar waiter. The
+   promotion of the exception can collect. */
+const AihcResume *aihc_throw_to(AihcCapability *capability,
+                                AihcThread *target, AihcValue *exception,
+                                AihcValue *continuation);
+/* The entry of an AP_STACK thunk, with the continuation of its
+   evaluation. */
+const AihcResume *aihc_ap_stack_enter(AihcCapability *capability,
+                                      AihcValue *ap, AihcValue *continuation);
 /* The caller reserves nine heap slots. This operation must not collect. */
 AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action);
 AihcThread *aihc_my_thread_id(AihcCapability *capability);

@@ -188,6 +188,11 @@ module GHC.Prim
     stmAbort#,
     stmActive#,
     myThreadId#,
+    killThread#,
+    maskAsyncExceptions#,
+    maskUninterruptible#,
+    unmaskAsyncExceptions#,
+    getMaskingState#,
     newDelayTVar#,
     newAlignedPinnedByteArray#,
     newArray#,
@@ -1637,6 +1642,37 @@ foreign import prim
     (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
     State# RealWorld ->
     (# State# RealWorld, a #)
+
+-- | Raise an asynchronous exception in a thread. The call returns when the
+-- target takes the exception, or at once when the target has ended. See
+-- "Asynchronous exceptions" in docs/exceptions.md.
+foreign import prim killThread# :: ThreadId# -> a -> State# RealWorld -> State# RealWorld
+
+-- | Run the action masked interruptibly. The previous state holds again
+-- when the action returns or raises.
+foreign import prim
+  maskAsyncExceptions# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, a #)
+
+-- | Run the action masked uninterruptibly.
+foreign import prim
+  maskUninterruptible# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, a #)
+
+-- | Run the action unmasked. A queued exception is raised at once.
+foreign import prim
+  unmaskAsyncExceptions# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, a #)
+
+-- | The masking state: 0 unmasked, 1 masked uninterruptibly, and 2 masked
+-- interruptibly.
+foreign import prim getMaskingState# :: State# RealWorld -> (# State# RealWorld, Int# #)
 
 -- | A fresh prompt tag. Tags compare by identity.
 foreign import prim newPromptTag# :: State# RealWorld -> (# State# RealWorld, PromptTag# a #)
