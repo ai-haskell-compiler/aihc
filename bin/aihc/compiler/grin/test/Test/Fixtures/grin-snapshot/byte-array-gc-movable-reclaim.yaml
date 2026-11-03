@@ -21,7 +21,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 14400
-  linux-amd64: 14400
+  macos-arm64: 11200
+  linux-amd64: 11200
 status: pass
 reason: Dead movable byte arrays must be reclaimed and counted in allocation statistics.

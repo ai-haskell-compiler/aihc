@@ -24,7 +24,7 @@ return: "@0"
 heap: |
   @0 = CI# -1
 allocated-bytes:
-  macos-arm64: 6248
-  linux-amd64: 6248
+  macos-arm64: 5896
+  linux-amd64: 5896
 status: pass
 reason: Foreign calls must obtain movable payload addresses after all other operands are ready.

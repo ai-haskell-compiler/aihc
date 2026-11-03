@@ -47,7 +47,7 @@ return: "@0"
 heap: |
   @0 = CResult 66
 allocated-bytes:
-  macos-arm64: 64792
+  macos-arm64: 63160
   # Linux host buffer alignment adds eight bytes to each of two poll allocations.
   linux-amd64: 64808
 status: pass

@@ -3015,10 +3015,10 @@ compilePrimitive :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinRep -> Text -> [
 compilePrimitive ctx env vars runtimeRep name arguments =
   case (name, arguments) of
     -- A reservation before the call covers the array, so the array starts
-    -- at the heap pointer. The header has the same six slots that
+    -- at the heap pointer. The header has the same four slots that
     -- aihc_byte_array_initialize writes: the info table, the size, the
-    -- contents address, the pinned flag, the alignment, and the charge.
-    -- The payload follows the header, and it stays uninitialized.
+    -- contents address, and the charge. The payload follows the header,
+    -- and it stays uninitialized.
     (_, [GrinLitValue (GrinLitInt _ size)])
       | name == uncheckedByteArrayPrimitive -> do
           let words' = uncheckedByteArrayWords size
@@ -3027,13 +3027,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
               literal = OperandLiteral . LitInt
               info = Symbol "aihc_byte_array_info"
           requireExternData info
-          contents <- emitValue "contents" Ptr (PtrAdd object (literal 48))
+          contents <- emitValue "contents" Ptr (PtrAdd object (literal byteArrayHeaderBytes))
           storeSlot HeapRegion Ptr (OperandLiteral (LitSymbol info)) object 0
-          storeSlot HeapRegion I64 (literal size) object 8
-          storeSlot HeapRegion Ptr (typedOperand contents) object 16
-          storeSlot HeapRegion I64 (literal 0) object 24
-          storeSlot HeapRegion I64 (literal 8) object 32
-          storeSlot HeapRegion I64 (literal words') object 40
+          storeSlot HeapRegion I64 (literal size) object byteArraySizeOffset
+          storeSlot HeapRegion Ptr (typedOperand contents) object byteArrayContentsOffset
+          storeSlot HeapRegion I64 (literal words') object byteArrayWordsOffset
           bind [array]
     ("divInt#", [left, right]) -> do
       leftOperand <- word left
@@ -3242,13 +3240,22 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind []
     -- The freeze and the thaw of a byte array change only its info table.
     -- A promotion copies a frozen byte array and collects for a mutable one.
+    -- A pinned array never moves, thus it keeps its one table.
     (_, [value])
       | Just table <- lookup name byteArrayFreezePrimitives -> do
           typed <- materialize ctx env value
-          let info = Symbol table
-          requireExternData info
-          storeSlot AnyRegion Ptr (OperandLiteral (LitSymbol info)) (typedOperand typed) 0
+          let object = typedOperand typed
+          pinned <- byteArrayIsPinned AnyRegion object
+          movable <- symbolWord (Symbol table)
+          pinnedInfo <- symbolWord pinnedByteArrayInfo
+          info <- emitValue "info" I64 (Select I64 (typedOperand pinned) (typedOperand pinnedInfo) (typedOperand movable))
+          storeSlot AnyRegion I64 (typedOperand info) object 0
           bind [typed]
+      | name `elem` ["isByteArrayPinned#", "isMutableByteArrayPinned#"] -> do
+          base <- pointerValue ctx env value
+          pinned <- byteArrayIsPinned HeapRegion base
+          result <- emitValue "pinned" I64 (Convert ZExt I1 (typedOperand pinned) I64)
+          bind [result]
       | name `elem` identityPrimitives -> do
           typed <- materialize ctx env value
           bind [typed]
@@ -3698,10 +3705,30 @@ arrayLengthOffset = 8
 arrayElementsOffset = 16
 mutVarContentsOffset = arrayElementsOffset
 
-byteArraySizeOffset, byteArrayContentsOffset, byteArrayPinnedOffset :: Integer
+byteArraySizeOffset, byteArrayContentsOffset, byteArrayWordsOffset, byteArrayHeaderBytes :: Integer
 byteArraySizeOffset = 8
 byteArrayContentsOffset = 16
-byteArrayPinnedOffset = 24
+byteArrayWordsOffset = 24
+byteArrayHeaderBytes = 32
+
+-- | The info table of each pinned byte array. A movable byte array has one
+-- of the two other tables, thus this table alone tells that an array is
+-- pinned. A byte array header never has a tag.
+pinnedByteArrayInfo :: Symbol
+pinnedByteArrayInfo = Symbol "aihc_pinned_byte_array_info"
+
+-- | Whether the byte array at an address has the pinned table.
+byteArrayIsPinned :: Region -> Operand -> LowerM Typed
+byteArrayIsPinned region object = do
+  header <- emitValue "header" I64 (Load I64 (slotAddress region object 0) (byteAlignment 8))
+  pinnedInfo <- symbolWord pinnedByteArrayInfo
+  emitValue "is_pinned" I1 (Compare Eq I64 (typedOperand header) (typedOperand pinnedInfo))
+
+-- | The address of a runtime data symbol as a word.
+symbolWord :: Symbol -> LowerM Typed
+symbolWord symbol = do
+  requireExternData symbol
+  emitValue "symbol" I64 (PtrToInt (OperandLiteral (LitSymbol symbol)))
 
 mvarFullOffset :: Integer
 mvarFullOffset = 8
@@ -3728,8 +3755,6 @@ objectFieldPrimitives =
     ("getSizeofMutableByteArray#", (I64, byteArraySizeOffset)),
     ("byteArrayContents#", (Ptr, byteArrayContentsOffset)),
     ("mutableByteArrayContents#", (Ptr, byteArrayContentsOffset)),
-    ("isByteArrayPinned#", (I64, byteArrayPinnedOffset)),
-    ("isMutableByteArrayPinned#", (I64, byteArrayPinnedOffset)),
     ("stableNameToInt#", (I64, stableNameHashOffset)),
     ("aihcThreadIdNumber#", (I64, threadIdOffset))
   ]

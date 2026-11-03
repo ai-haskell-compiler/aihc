@@ -207,7 +207,8 @@ uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
   uint64_t occupied = size == 0 ? 1 : (uint64_t)size;
   uint64_t slack = pinned && alignment > 8 ? (uint64_t)alignment - 1 : 0;
   uint64_t overhead =
-      sizeof(AihcByteArray) + (pinned ? sizeof(AihcPinnedBlock) : 0);
+      pinned ? sizeof(AihcPinnedByteArray) + sizeof(AihcPinnedBlock)
+             : sizeof(AihcByteArray);
   if (slack > SIZE_MAX - overhead - 7 ||
       occupied > SIZE_MAX - overhead - 7 - slack) {
     aihc_fail("byte array allocation is too large");
@@ -220,7 +221,11 @@ uint64_t aihc_byte_array_resize_words(void *opaque_array, int64_t size) {
   if (array == NULL) {
     aihc_fail("attempted to resize a null byte array");
   }
-  return aihc_byte_array_words(size, array->pinned, (int64_t)array->alignment);
+  if (!aihc_byte_array_pinned(array)) {
+    return aihc_byte_array_words(size, 0, 8);
+  }
+  return aihc_byte_array_words(
+      size, 1, (int64_t)((const AihcPinnedByteArray *)array)->alignment);
 }
 
 static AihcSlot aihc_make_header(const AihcInfo *info) {
@@ -671,7 +676,7 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
   case AIHC_OBJECT_BYTE_ARRAY: {
     AihcByteArray *array = (AihcByteArray *)object;
-    if (!array->pinned) {
+    if (!aihc_byte_array_pinned(array)) {
       array->contents = (uint8_t *)(array + 1);
     }
     return 1;
@@ -1452,17 +1457,17 @@ void *aihc_rts_publish_array(void *opaque_array) {
     return array;
   }
   size_t size = (size_t)array->size;
-  AihcByteArray *copy = malloc(sizeof(*copy) + (size == 0 ? 1 : size));
+  AihcPinnedByteArray *copy = malloc(sizeof(*copy) + (size == 0 ? 1 : size));
   if (copy == NULL) {
     aihc_fail("out of memory");
   }
-  *copy = (AihcByteArray){.header = (AihcSlot)(uintptr_t)&aihc_byte_array_info,
-                          .size = array->size,
-                          .contents = (uint8_t *)(copy + 1),
-                          .pinned = 1,
-                          .alignment = 1,
-                          .words = 0};
-  memcpy(copy->contents, array->contents, size);
+  *copy = (AihcPinnedByteArray){
+      .array = {.header = (AihcSlot)(uintptr_t)&aihc_pinned_byte_array_info,
+                .size = array->size,
+                .contents = (uint8_t *)(copy + 1),
+                .words = 0},
+      .alignment = 8};
+  memcpy(copy->array.contents, array->contents, size);
   return copy;
 }
 

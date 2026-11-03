@@ -23,7 +23,7 @@ return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 1128
+  macos-arm64: 1104
   # Linux host buffer alignment adds eight bytes to the path allocation.
   linux-amd64: 1136
 status: pass
