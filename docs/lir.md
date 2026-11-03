@@ -751,10 +751,9 @@ fixture also passes the linter and the pretty-printer round-trip.
 
 `Aihc.Lir.Lower` produces one Lir module for one GC-GRIN program. Every GRIN
 function becomes a Lir function with the `aihc` convention and no results.
-The first four parameters are the context of the thread.
+The first three parameters are the context of the thread.
 The other parameters are the GRIN parameters in order.
-The stack chunk header gives the capability pointer before a C runtime call.
-No Haskell function needs a capability parameter or a reserved capability register.
+The third context parameter is the capability.
 The capability points to the process-wide `AihcMachine`.
 A GRIN pointer or address becomes `ptr`.
 Every other GRIN value becomes `i64`.
@@ -770,14 +769,25 @@ and `wasip3Target` for WebAssembly. Apple ARM64 preserves the original size
 of narrow C stack arguments. Narrow C register arguments retain their
 extension to 32 bits.
 
-The context of a thread is four `ptr` values:
+The context of a thread is three `ptr` values:
 
 | Parameter | Meaning |
 | --- | --- |
 | `%hp` | The heap pointer: the first free byte of the current space. |
-| `%hp_limit` | The heap limit: the end of the space the heap pointer runs into. |
 | `%sp` | The stack pointer: the first free byte of the stack of the thread. |
-| `%sp_limit` | The stack limit: the end of the stack chunk that holds the byte before `%sp`. |
+| `%base` | The capability that runs the thread. |
+
+The two limits are fields of the capability, as in GHC:
+
+| Field | Meaning |
+| --- | --- |
+| `heap_limit` | The heap limit: the end of the space the heap pointer runs into. |
+| `stack_limit` | The stack limit: the end of the stack chunk that holds the byte before `%sp`. |
+
+A heap check and a stack check load the limit from the capability. The limit
+does not stay in a register, so another thread can change it, and the next
+check of the running code sees the change. The two values that each
+allocation and each push change, `%hp` and `%sp`, stay in registers.
 
 Every function that runs Haskell code takes the context first and gives it to each function it transfers control to, as it does with a
 continuation. The shared helpers of the runtime units and the generated
@@ -789,17 +799,21 @@ They hold a copy of the context only where C code can read it:
 
 - Before a C call that can allocate, collect, or read the stack pointer,
   the code stores `%hp` in `heap_next` and `%sp` in `stack_next`. After the
-  call, it loads `%hp` and `%hp_limit` again. Such a call is one that takes
+  call, it loads `%hp` again. Such a call is one that takes
   the capability, and a foreign call that can enter a callback. A C call
   without the capability cannot see the context, so it has no store and no
   load. A primitive that the lowering emits inline, such as an arithmetic
   operation or a comparison, touches neither the capability nor the context.
-- Lir code never changes the heap limit, so it never stores `%hp_limit`.
-  The runtime computes the chunk of a stack pointer when it needs it, so no
-  capability field holds `%sp_limit`.
+- Lir code never changes the heap limit. The runtime sets `stack_limit`
+  when the stack pointer goes into another chunk: in `aihc_stack_grow`, in
+  `aihc_stack_enter_chunk`, and when a thread resumes. One cold path of
+  `aihc_lir_eval` grows the stack and then collects without a push into the
+  new chunk. That path sets `stack_limit` back to the end of the old chunk.
 - A C call from compiled code never changes the stack pointer of the
   running thread, so the code does not load `%sp` after one. A callback
-  that a foreign call enters gives the stack back as it found it.
+  that a foreign call enters gives the stack back as it found it. The
+  callback can enter another chunk, so `aihc_callback_leave` gives back the
+  stack limit of the foreign call.
 - The scheduler can select another thread. `aihc_lir_resume` takes the
   capability and the resumption, and it loads the context from the capability after the scheduler
   record is taken. The code before it stores the context before the C call
@@ -813,6 +827,7 @@ They hold a copy of the context only where C code can read it:
 A stack chunk has `AIHC_STACK_CHUNK_BYTES` bytes and the same alignment, so
 the end of the chunk of an address is the address with the low bits set,
 plus one. The stack limit is the end of the chunk of the byte before `%sp`.
+The runtime keeps this rule for `stack_limit`.
 
 The lowering keeps the control model of CPS-GRIN:
 
@@ -824,14 +839,14 @@ The lowering keeps the control model of CPS-GRIN:
 - A case on a pointer loads the header and the `identity` field and compares
   it with the constructor tables. A case on a scalar is a `switch`.
 - A heap reservation of a fixed size adds its bytes to `%hp` and branches on
-  whether the result is not above `%hp_limit`. A reservation of a dynamic
+  whether the result is not above the heap limit. A reservation of a dynamic
   size compares the free words with the words it wants. When they fit, the
   branch is the whole reservation, and every root and the context stay in
   their registers. When they do not, the slow block stores the live roots in
   a `stack.alloc` array, gives the machine the context, calls
   `aihc_heap_collect` with the function's static reference table, and
-  reloads the relocated roots, `%hp`, and `%hp_limit`. The two paths meet at
-  a block whose parameters carry the roots, `%hp`, and `%hp_limit`, so the
+  reloads the relocated roots and `%hp`. The two paths meet at
+  a block whose parameters carry the roots and `%hp`, so the
   code after a reservation names them the same way whichever path reached
   it.
 - When the code before a reservation only reads values (constants, fields,
@@ -860,8 +875,7 @@ The lowering keeps the control model of CPS-GRIN:
   `--lint` does not select a different runtime.
 - A pointer store into an existing object, through `writeArray#`,
   `writeMutVar#`, or a compare-and-swap primitive, starts with the write
-  barrier. It reads the capability from the stack chunk header.
-  It loads the nursery base and size from that capability.
+  barrier. It loads the nursery base and size from the capability.
   It compares the exclusive or of the object address and aligned base against the size.
   An object outside the local nursery goes to `aihc_write_barrier` in a cold block.
   A store into a boxed array calls
@@ -870,17 +884,15 @@ The lowering keeps the control model of CPS-GRIN:
   needs no sync of the capability.
 - A continuation frame goes on the stack of the thread. The push adds the
   bytes of the frame to `%sp` and branches on whether the result is not
-  above `%sp_limit`. When it is above, `aihc_stack_grow` gives the first
-  frame of the next chunk, and the new limit is the end of that chunk. The
-  runtime function reads neither the heap nor the machine copy of the
-  context, so the push stores nothing in the machine. The runtime charges
-  the new chunk to the nursery and can lower the heap limit, so the push
-  loads `%hp_limit` again after the call. The new limit can be below `%hp`,
-  and the next reservation then collects. The GC pass puts a reservation
+  above the stack limit. When it is above, `aihc_stack_grow` gives the first
+  frame of the next chunk and sets the stack limit to the end of that
+  chunk. The push stores `%hp` in the capability first, because the runtime
+  charges the new chunk to the nursery and can lower the heap limit. The
+  new limit can be below `%hp`, and the next reservation then collects. The GC pass puts a reservation
   of zero words before each push, so that reservation can be the next one.
   A push whose frame only goes to an evaluation gets no reservation:
   `aihc_lir_eval` and `aihc_lir_eval_single_entry` collect at their entry
-  when `%hp` is above `%hp_limit`.
+  when `%hp` is above the heap limit.
 - The slow branch of a WHNF test that pushes a frame and evaluates the value
   enters a thunk directly. When the value is a thunk with no tag bits and
   the frame and the update frame fit in the stack chunk, the branch pushes
@@ -891,14 +903,14 @@ The lowering keeps the control model of CPS-GRIN:
   helper pushes the frame and tail-calls the evaluation helper. The test,
   the cold blocks that follow indirections and evaluated thunks, and the
   ready branch stay in the function.
-- A continue helper enters a frame: the frame becomes `%sp`, and the end of
-  its chunk becomes `%sp_limit`. That pops the frame and every frame above
-  it. When the new `%sp_limit` differs from the old one, the frame is in a
-  lower chunk, and a cold call to `aihc_stack_enter_chunk` makes that chunk
-  young again for the collector.
+- A continue helper enters a frame: the frame becomes `%sp`. That pops the
+  frame and every frame above it. When the end of the chunk of the frame
+  differs from the stack limit, the frame is in a lower chunk, and a cold
+  call to `aihc_stack_enter_chunk` makes that chunk young again for the
+  collector and sets the stack limit.
 - Compiled code returns to a continuation inline. The return loads the
   `backend_entry` of the frame. When the entry is not null, the return makes
-  the frame `%sp`, keeps `%sp_limit`, and tail-calls the entry with one
+  the frame `%sp`, and tail-calls the entry with one
   indirect call. Thus each return site has its own branch history. A frame
   with an entry is always in the chunk of the stack pointer, because a chunk
   after the first one of a stack starts with a forward frame whose parent is

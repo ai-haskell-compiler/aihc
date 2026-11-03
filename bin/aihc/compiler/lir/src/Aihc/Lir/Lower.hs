@@ -518,32 +518,36 @@ data Safepoint = Safepoint
 -- each function it transfers control to. Thus the register
 -- allocator keeps it in registers.
 --
+-- The context is the heap pointer, the stack pointer, and the capability.
+-- The two limits are fields of the capability, as in GHC. A heap check and
+-- a stack check load the limit from the capability. Thus another thread
+-- can change a limit, and the next check of the running code sees it.
+--
 -- The capability holds a copy of the heap pointer and the stack pointer only
 -- while a C function can read them: the code stores them before such a
--- call. Lir code never changes the heap limit, and C code computes the stack
--- limit when it needs it, so the code does not store the two limits. After a
--- C call that can allocate or collect, the code loads the heap pointer and
--- the heap limit again. The stack pointer changes only at a push and at the
--- entry of a frame, and a C call made from compiled code does not change it.
+-- call. Lir code never changes the two limits. After a C call that can
+-- allocate or collect, the code loads the heap pointer again. The stack
+-- pointer changes only at a push and at the entry of a frame, and a C call
+-- made from compiled code does not change it.
 --
--- A stack chunk is 'stackChunkBytes' long and has that alignment, so the
--- stack limit is the end of the chunk that holds the last pushed byte. A
--- push fits when the new stack pointer is not above the limit.
+-- A stack chunk is 'stackChunkBytes' long and has that alignment. The stack
+-- limit is the end of the chunk that holds the last pushed byte, and the
+-- runtime changes it when the stack pointer goes into another chunk. A push
+-- fits when the new stack pointer is not above the limit.
 data Context = Context
   { contextHeap :: !Operand,
-    contextHeapLimit :: !Operand,
     contextStack :: !Operand,
-    contextStackLimit :: !Operand
+    contextBase :: !Operand
   }
   deriving (Eq, Show)
 
 -- | The context values in the order of the parameters.
 contextOperands :: Context -> [Operand]
-contextOperands context = [contextHeap context, contextHeapLimit context, contextStack context, contextStackLimit context]
+contextOperands context = [contextHeap context, contextStack context, contextBase context]
 
 -- | The types of the context parameters.
 contextTypes :: [Type]
-contextTypes = [Ptr, Ptr, Ptr, Ptr]
+contextTypes = [Ptr, Ptr, Ptr]
 
 type LowerM = StateT LowerState (Either LowerError)
 
@@ -1165,6 +1169,12 @@ capabilityProfileCodeOffset target = capabilityPauseTopOffset target + toInteger
 capabilityProfileFrameOffset :: LowerTarget -> Integer
 capabilityProfileFrameOffset target = capabilityProfileCodeOffset target + toInteger (lowerWordSize target)
 
+-- | The end of the stack chunk of the running thread, after the continuation
+-- of the profile. A push compares the new stack pointer with it. See
+-- 'Context'.
+capabilityStackLimitOffset :: LowerTarget -> Integer
+capabilityStackLimitOffset target = capabilityProfileFrameOffset target + toInteger (lowerWordSize target)
+
 -- | The nursery base follows the stack pointer.
 capabilityHeapStartOffset :: LowerTarget -> Integer
 capabilityHeapStartOffset target = 5 * toInteger (lowerWordSize target)
@@ -1178,11 +1188,6 @@ capabilityNurseryBytesOffset target = 6 * toInteger (lowerWordSize target) + 8
 stackChunkBytes :: Integer
 stackChunkBytes = 4096
 
--- | The bytes of the header of a stack chunk. The first frame of a chunk
--- follows it.
-stackChunkHeaderBytes :: Integer
-stackChunkHeaderBytes = 64
-
 -- | The forward frame that the slow path of a push puts at the start of a
 -- new chunk: a header and the parent in the chunk below. Must agree with
 -- @AIHC_STACK_CHUNK_FORWARD_BYTES@.
@@ -1191,12 +1196,22 @@ stackChunkForwardBytes = 16
 
 -- Context
 
--- | Read the capability pointer from the active stack chunk.
+-- | The capability of the running thread, a parameter of the context.
 capabilityOperand :: Context -> LowerM Operand
-capabilityOperand context = do
+capabilityOperand = pure . contextBase
+
+-- | Load the heap limit from the capability. A remote store to the field
+-- makes the next heap check fail.
+loadHeapLimit :: Context -> LowerM Operand
+loadHeapLimit context = do
   target <- targetM
-  let offset = 4 * toInteger (lowerWordSize target) + 24 - stackChunkBytes
-  typedOperand <$> emitValue "capability" Ptr (Load Ptr (byteAddress (contextStackLimit context) offset) (wordAlignment 1))
+  typedOperand <$> emitValue "hp_limit" Ptr (Load Ptr (byteAddress (contextBase context) (capabilityHeapLimitOffset target)) (wordAlignment 1))
+
+-- | Load the stack limit from the capability.
+loadStackLimit :: Context -> LowerM Operand
+loadStackLimit context = do
+  target <- targetM
+  typedOperand <$> emitValue "sp_limit" Ptr (Load Ptr (byteAddress (contextBase context) (capabilityStackLimitOffset target)) (wordAlignment 1))
 
 currentCapability :: LowerM Operand
 currentCapability = currentContext >>= capabilityOperand
@@ -1232,8 +1247,7 @@ emitBarrier ctx object index value = do
   young <- emitValue "young" I1 (Compare LtU I64 (typedOperand offset) (typedOperand bytes))
   old <- freshLabel "barrier_old"
   done <- freshLabel "barrier_done"
-  context <- currentContext
-  terminate (Branch (typedOperand young) (Target done [value, contextHeapLimit context]) (Target old []))
+  terminate (Branch (typedOperand young) (Target done [value]) (Target old []))
   beginColdBlock old []
   storePauseTop capability
   stored <- case index of
@@ -1242,14 +1256,12 @@ emitBarrier ctx object index value = do
   collect <- emitValue "barrier_escape" I1 (Compare Eq I64 stored (OperandLiteral (LitInt 1)))
   escapeCollectWhen ctx collect
   -- The cold path lowers the heap limit when the barrier work reaches its
-  -- budget, so the next reservation collects. See "Remembered set and mark
-  -- buffer" in docs/multi-threaded-rts-design.md.
-  reloaded <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
-  terminate (Jump (Target done [stored, typedOperand reloaded]))
+  -- budget, so the next reservation collects. The reservation loads the
+  -- limit from the capability. See "Remembered set and mark buffer" in
+  -- docs/multi-threaded-rts-design.md.
+  terminate (Jump (Target done [stored]))
   storedVar <- fresh "stored"
-  limit <- fresh "hp_limit"
-  beginBlock done [(storedVar, I64), (limit, Ptr)]
-  setContext context {contextHeapLimit = OperandVar limit}
+  beginBlock done [(storedVar, I64)]
   pure (OperandVar storedVar)
 
 -- | The block of a store safepoint. Its parameters are the live roots and
@@ -1263,10 +1275,9 @@ beginSafepoint ctx env vars top roots = do
   label <- freshLabel "safepoint"
   parameters <- mapM (fresh . varBase) vars
   heap <- fresh "hp"
-  heapLimit <- fresh "hp_limit"
-  terminate (Jump (Target label (rootOperands <> [contextHeap context, contextHeapLimit context])))
-  beginBlock label ([(parameter, Ptr) | parameter <- parameters] <> [(heap, Ptr), (heapLimit, Ptr)])
-  setContext context {contextHeap = OperandVar heap, contextHeapLimit = OperandVar heapLimit}
+  terminate (Jump (Target label (rootOperands <> [contextHeap context])))
+  beginBlock label ([(parameter, Ptr) | parameter <- parameters] <> [(heap, Ptr)])
+  setContext context {contextHeap = OperandVar heap}
   modify' (\state -> state {stateSafepoint = Just (Safepoint label (map OperandVar parameters) topOperand)})
   pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- zip vars parameters] `Map.union` env)
 
@@ -1305,16 +1316,16 @@ escapeCollectWhen ctx flag = do
   relocated <- forM (zip [0 :: Int ..] roots) $ \(index, _) ->
     loadSlot AnyRegion "root" Ptr array (toInteger (8 * index))
   collected <- loadHeapContext capability context
-  terminate (Jump (Target (safepointLabel safepoint) (map typedOperand relocated <> [contextHeap collected, contextHeapLimit collected])))
+  terminate (Jump (Target (safepointLabel safepoint) (map typedOperand relocated <> [contextHeap collected])))
   beginBlock continue []
   modify' (\state -> state {stateSafepoint = Nothing})
 
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])
 freshContext = do
-  vars <- mapM fresh ["hp", "hp_limit", "sp", "sp_limit"]
+  vars <- mapM fresh ["hp", "sp", "base"]
   case map OperandVar vars of
-    [heap, heapLimit, stack, stackLimit] -> pure (Context heap heapLimit stack stackLimit, zip vars contextTypes)
+    [heap, stack, base] -> pure (Context heap stack base, zip vars contextTypes)
     _ -> failWith (LowerUnsupportedExpression "internal: context arity")
 
 -- | The context of the code under construction.
@@ -1347,26 +1358,21 @@ storeContext capability context = do
   emit [] (Store Ptr (contextHeap context) (byteAddress capability (capabilityHeapNextOffset target)) (wordAlignment 1))
   emit [] (Store Ptr (contextStack context) (byteAddress capability (capabilityStackNextOffset target)) (wordAlignment 1))
 
--- | Load the heap pointer and the heap limit of the capability after a C call
--- that can allocate or collect.
+-- | Load the heap pointer of the capability after a C call that can
+-- allocate or collect.
 loadHeapContext :: Operand -> Context -> LowerM Context
 loadHeapContext capability context = do
   target <- targetM
   heap <- emitValue "hp" Ptr (Load Ptr (byteAddress capability (capabilityHeapNextOffset target)) (wordAlignment 1))
-  heapLimit <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
-  pure context {contextHeap = typedOperand heap, contextHeapLimit = typedOperand heapLimit}
+  pure context {contextHeap = typedOperand heap}
 
 -- | Load the whole context of the capability, where C code gives control to
--- Haskell code.
+-- Haskell code. The runtime keeps the stack limit of the capability.
 loadContext :: Operand -> LowerM Context
 loadContext capability = do
   target <- targetM
   stack <- emitValue "sp" Ptr (Load Ptr (byteAddress capability (capabilityStackNextOffset target)) (wordAlignment 1))
-  -- The stack pointer can be the end of a full chunk, so the limit comes
-  -- from the byte before it.
-  below <- emitValue "sp_below" Ptr (PtrAdd (typedOperand stack) (OperandLiteral (LitInt (-1))))
-  stackLimit <- chunkEnd (typedOperand below)
-  loadHeapContext capability (Context (OperandLiteral LitNull) (OperandLiteral LitNull) (typedOperand stack) stackLimit)
+  loadHeapContext capability (Context (OperandLiteral LitNull) (typedOperand stack) capability)
 
 -- | The end of the stack chunk that holds an address.
 chunkEnd :: Operand -> LowerM Operand
@@ -1380,14 +1386,13 @@ chunkEnd address = do
 syncCapability :: Operand -> LowerM ()
 syncCapability capability = currentContext >>= storeContext capability
 
--- | Load the heap pointer and the heap limit into the context of the code
--- under construction.
+-- | Load the heap pointer into the context of the code under construction.
 reloadHeap :: Operand -> LowerM ()
 reloadHeap capability = currentContext >>= loadHeapContext capability >>= setContext
 
 -- | A C call that can allocate, collect, or read the stack pointer. The
--- capability gets the context before the call, and the heap pointer and the
--- heap limit come back after it. A C call without the capability cannot see
+-- capability gets the context before the call, and the heap pointer comes
+-- back after it. A C call without the capability cannot see
 -- the context, so it needs neither step.
 callSynced :: Operand -> Text -> [Type] -> [Type] -> [Operand] -> LowerM Operand
 callSynced capability name parameters results arguments = do
@@ -2108,7 +2113,8 @@ compileForce ctx env var update node ready =
     terminate (Branch (typedOperand isThunk) (Target stackLabel []) (Target helperLabel []))
     beginBlock stackLabel []
     end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt (8 * toInteger (frameWords + updateWords)))))
-    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) (contextStackLimit context))
+    stackLimit <- loadStackLimit context
+    fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) stackLimit)
     terminate (Branch (typedOperand fits) (Target enterLabel []) (Target helperLabel []))
     beginColdBlock helperLabel []
     terminate (TailCall helper (contextOperands context <> (object : OperandLiteral (LitSymbol info) : map typedOperand fields)))
@@ -2405,19 +2411,20 @@ reserveHeap ::
   LowerM ValueEnv
 reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   context <- currentContext
+  heapLimit <- loadHeapLimit context
   fits <- case requiredWords of
     -- A reservation of zero words is the safepoint before a frame push. It
     -- fails when a stack growth put the heap limit below the heap pointer.
     GrinLitValue (GrinLitInt _ 0) ->
-      emitValue "heap_fits" I1 (Compare LeU Ptr (contextHeap context) (contextHeapLimit context))
+      emitValue "heap_fits" I1 (Compare LeU Ptr (contextHeap context) heapLimit)
     -- A fixed size is small, so the end of the reservation cannot wrap, and
     -- the reservation fits when that end is not above the heap limit.
     GrinLitValue (GrinLitInt _ requested) -> do
       end <- emitValue "heap_end" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt (8 * requested))))
-      emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) (contextHeapLimit context))
+      emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) heapLimit)
     _ -> do
       nextWord <- emitValue "heap_word" I64 (PtrToInt (contextHeap context))
-      limitWord <- emitValue "heap_end_word" I64 (PtrToInt (contextHeapLimit context))
+      limitWord <- emitValue "heap_end_word" I64 (PtrToInt heapLimit)
       -- A large allocation lowers the heap limit, and the stores of an
       -- earlier reservation can then pass it, so the room is valid only
       -- when the limit is not below the heap pointer.
@@ -2435,8 +2442,7 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
     parameter <- fresh (varBase var)
     pure (var, parameter)
   heap <- fresh "hp"
-  heapLimit <- fresh "hp_limit"
-  let heapArguments current = [contextHeap current, contextHeapLimit current]
+  let heapArguments current = [contextHeap current]
   terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
   beginColdBlock collect []
   replay <- gets stateReplay
@@ -2468,8 +2474,8 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
         loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
       collected <- loadHeapContext capability context
       terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
-  beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr), (heapLimit, Ptr)])
-  setContext context {contextHeap = OperandVar heap, contextHeapLimit = OperandVar heapLimit}
+  beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
+  setContext context {contextHeap = OperandVar heap}
   pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
 
 -- | Bind the result variables of a direct expression, converting each value
@@ -2641,21 +2647,20 @@ pushFrame words' parent = do
   setContext pushed
   pure (Typed frame Ptr, parent')
 
--- | Push a frame on a stack with the stack pointer, the stack limit, and the
--- heap limit of the given context. Give back the frame, the parent to store
--- in its field zero, and the context after the push. See 'pushFrame'.
+-- | Push a frame on a stack with the stack pointer of the given context.
+-- Give back the frame, the parent to store in its field zero, and the
+-- context after the push. See 'pushFrame'.
 pushStackFrame :: Context -> Int -> Operand -> LowerM (Operand, Operand, Context)
 pushStackFrame context words' parent = do
   target <- targetM
   let bytes = 8 * toInteger words'
       stack = contextStack context
-      stackLimit = contextStackLimit context
-      heapLimit = contextHeapLimit context
   end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt bytes)))
+  stackLimit <- loadStackLimit context
   fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) stackLimit)
   growLabel <- freshLabel "stack_grow"
   pushedLabel <- freshLabel "stack_pushed"
-  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit, heapLimit, parent]) (Target growLabel []))
+  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, parent]) (Target growLabel []))
   beginColdBlock growLabel []
   capability <- capabilityOperand context
   -- The charge of the new chunk compares the heap limit with the capability
@@ -2663,7 +2668,8 @@ pushStackFrame context words' parent = do
   -- store the charge reads a pointer below the one this code holds, finds
   -- room that is not there, and leaves the limit above the charge. The
   -- thread then allocates past its nursery budget. The runtime gives the
-  -- stack pointer back, so only the heap pointer goes out. See
+  -- stack pointer back, so only the heap pointer goes out. The runtime also
+  -- sets the stack limit to the end of the new chunk. See
   -- aihc_charge_fixed and the same store in aihc_lir_eval.
   emit [] (Store Ptr (contextHeap context) (byteAddress capability (capabilityHeapNextOffset target)) (wordAlignment 1))
   grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64, Ptr] [Ptr] [capability, stack, OperandLiteral (LitInt (toInteger words')), parent]
@@ -2671,26 +2677,16 @@ pushStackFrame context words' parent = do
   -- The runtime puts a forward frame at the start of the chunk and gives
   -- the frame after it, so the rest of the chunk follows the frame, and the
   -- forward frame is the parent of the frame.
-  grownLimit <- emitValue "sp_limit" Ptr (PtrAdd grown (OperandLiteral (LitInt (stackChunkBytes - stackChunkHeaderBytes - stackChunkForwardBytes))))
   grownParent <- emitValue "parent" Ptr (PtrAdd grown (OperandLiteral (LitInt (negate stackChunkForwardBytes))))
-  -- Compiled code never stores the heap limit, so the capability copy is the
-  -- current limit.
-  grownHeapLimit <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress capability (capabilityHeapLimitOffset target)) (wordAlignment 1))
-  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit, typedOperand grownHeapLimit, typedOperand grownParent]))
+  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownParent]))
   pushed <- fresh "frame"
   pushedStack <- fresh "sp"
-  pushedLimit <- fresh "sp_limit"
-  pushedHeapLimit <- fresh "hp_limit"
   pushedParent <- fresh "parent"
-  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr), (pushedHeapLimit, Ptr), (pushedParent, Ptr)]
+  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedParent, Ptr)]
   pure
     ( OperandVar pushed,
       OperandVar pushedParent,
-      context
-        { contextStack = OperandVar pushedStack,
-          contextStackLimit = OperandVar pushedLimit,
-          contextHeapLimit = OperandVar pushedHeapLimit
-        }
+      context {contextStack = OperandVar pushedStack}
     )
 
 -- | The words before the first field of a node. An unsaturated constructor
@@ -2874,7 +2870,7 @@ lowerCallbackPool call signature = do
   forM_ entries $ \entry -> do
     arguments <- mapM (\ty -> (,ty) <$> fresh "argument") parameters
     beginBlock (Label "entry") []
-    frame <- typedOperand <$> emitValue "callback_frame" Ptr (StackAlloc 48 (byteAlignment 8))
+    frame <- typedOperand <$> emitValue "callback_frame" Ptr (StackAlloc 64 (byteAlignment 8))
     _ <- callRuntime "aihc_callback_enter" [Ptr, Code, Ptr] [] [frame, OperandLiteral (LitSymbol entry), OperandLiteral (LitSymbol info)]
     capability <- callRuntime "aihc_callback_machine" [Ptr] [Ptr] [frame]
     closure <- callRuntime "aihc_callback_closure" [Ptr] [Ptr] [frame]
@@ -4392,14 +4388,16 @@ generateHelper env helper =
       terminate (Trap "continuation has no entry")
       beginBlock (Label "enter") []
       -- Entering a frame pops it and every frame above it: the frame is
-      -- the new stack pointer, and its chunk gives the stack limit. The
-      -- stack pointer is a value of its own, so the frame can stay in the
-      -- register of the object argument and only the copy moves.
+      -- the new stack pointer. The stack pointer is a value of its own, so
+      -- the frame can stay in the register of the object argument and only
+      -- the copy moves.
       stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
       stackLimit <- chunkEnd (OperandVar current)
       -- A frame in a lower chunk than the stack pointer was in makes that
-      -- chunk young again: new frames go above it. See aihc_stack_enter_chunk.
-      sameChunk <- emitValue "same_chunk" I1 (Compare Eq Ptr stackLimit (contextStackLimit context))
+      -- chunk young again: new frames go above it. The runtime then sets
+      -- the stack limit to the end of that chunk. See aihc_stack_enter_chunk.
+      currentLimit <- loadStackLimit context
+      sameChunk <- emitValue "same_chunk" I1 (Compare Eq Ptr stackLimit currentLimit)
       enterFrame <- freshLabel "enter_frame"
       enterChunk <- freshLabel "enter_chunk"
       terminate (Branch (typedOperand sameChunk) (Target enterFrame []) (Target enterChunk []))
@@ -4408,7 +4406,7 @@ generateHelper env helper =
       _ <- callRuntime "aihc_stack_enter_chunk" [Ptr, Ptr] [] [capability, OperandVar current]
       terminate (Jump (Target enterFrame []))
       beginBlock enterFrame []
-      let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
+      let entered = context {contextStack = typedOperand stack}
       terminate
         ( TailCallIndirect
             (typedOperand entry)

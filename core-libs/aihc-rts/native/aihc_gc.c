@@ -1124,6 +1124,20 @@ static AihcStackChunk *aihc_stack_chunk_of(const void *address) {
                             ~(uintptr_t)(AIHC_STACK_CHUNK_BYTES - 1));
 }
 
+/* The end of the stack chunk that holds an address. */
+static uint8_t *aihc_stack_chunk_end(const void *address) {
+  return (uint8_t *)aihc_stack_chunk_of(address) + AIHC_STACK_CHUNK_BYTES;
+}
+
+void aihc_stack_set_limit(AihcCapability *capability) {
+  /* The stack pointer can be the end of a full chunk, so the limit comes
+     from the byte before it. */
+  capability->stack_limit =
+      capability->stack_next == NULL
+          ? NULL
+          : aihc_stack_chunk_end(capability->stack_next - 1);
+}
+
 /* The capability that runs a stack: the stack holds its stack pointer. A
    stopped capability without a thread has no stack pointer. */
 static const AihcCapability *aihc_running_capability(const AihcMachine *machine,
@@ -1321,6 +1335,8 @@ AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
   AihcValue *forward = (AihcValue *)aihc_stack_chunk_frames(next);
   forward->header = (AihcSlot)(uintptr_t)&aihc_lir_chunk_forward_info;
   forward->fields[0] = (AihcSlot)(uintptr_t)parent;
+  /* The caller pushes its frame after the forward frame. */
+  capability->stack_limit = aihc_stack_chunk_end(forward);
   return (AihcValue *)((uint8_t *)forward + AIHC_STACK_CHUNK_FORWARD_BYTES);
 }
 
@@ -1339,6 +1355,7 @@ AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words,
     }
   }
   capability->stack_next = frame + words * sizeof(AihcSlot);
+  aihc_stack_set_limit(capability);
   return (AihcValue *)frame;
 }
 
@@ -1381,6 +1398,7 @@ static void aihc_stack_enter_chunk_unlocked(AihcCapability *capability,
                                             const AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
   chunk->capability = capability;
+  capability->stack_limit = aihc_stack_chunk_end(frame);
   aihc_chunk_set_generation(chunk, 0);
   if (capability->machine->gen2_cycle_active) {
     aihc_stack_scan_passed_frames(capability, chunk->stack, frame);

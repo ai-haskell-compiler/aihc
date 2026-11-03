@@ -722,11 +722,14 @@ AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words,
    given stack pointer. Write a forward frame with the given parent at the
    start of the next chunk, AIHC_STACK_CHUNK_HEADER_BYTES after the start of
    the chunk, and give back the frame after it, AIHC_STACK_CHUNK_FORWARD_BYTES
-   later. Compiled code computes the stack limit and the forward frame from
-   this rule. The function does not change capability->stack_next, because
-   compiled code keeps the stack pointer itself. */
+   later. Compiled code computes the forward frame from this rule. The
+   function sets capability->stack_limit to the end of the new chunk. It
+   does not change capability->stack_next, because compiled code keeps the
+   stack pointer itself. */
 AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
                            uint64_t words, AihcValue *parent);
+/* Set the stack limit of the capability from its stack pointer. */
+void aihc_stack_set_limit(AihcCapability *capability);
 /* Set the stack pointer to the first byte after a frame. The frame must be
    the topmost live frame of its stack. */
 void aihc_stack_resume_after(AihcCapability *capability,

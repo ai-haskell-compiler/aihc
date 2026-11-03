@@ -294,6 +294,13 @@ struct AihcCapability {
      reads them when a sample interrupts the thread. See aihc_profile.c. */
   const void *profile_code;
   AihcValue *profile_frame;
+  /* The end of the stack chunk that holds the last pushed byte of the
+     running thread. Compiled code compares the stack pointer of a push with
+     it, at nine pointer words plus sixteen bytes. The runtime sets it when
+     the stack pointer goes into another chunk: a stack growth, the entry of
+     a frame in another chunk, and the resumption of a thread. Compiled code
+     never stores it. See aihc_stack_set_limit. */
+  uint8_t *stack_limit;
   /* The block cursor counts reserved bytes, including fixed allocation and
      stack charges. A refill extends the limit without a gap in the heap. */
   uint64_t nursery_taken;

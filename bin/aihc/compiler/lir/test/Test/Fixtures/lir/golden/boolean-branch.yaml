@@ -9,40 +9,40 @@ program: |
       _ ->
         constant (22 :: IntRep)
 expected: |
-  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
 
-  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %left_4: i64, %right_5: i64, %$cps_return_6: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %left_3: i64, %right_4: i64, %$cps_return_5: ptr) {
   entry:
-    %flag_7 = lt.s i64 %left_4, %right_5
-    br %flag_7, alt_9, alt_10
+    %flag_6 = lt.s i64 %left_3, %right_4
+    br %flag_6, alt_8, alt_9
+
+  alt_8:
+    %header_word_10 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_11 = and i64 %header_word_10, -4
+    %header_12 = ptr.from_int %info_word_11
+    %entry_13 = load.invariant code [%header_12 + 24] align 1 word
+    %forward_16 = eq code %entry_13, null
+    br %forward_16, continue_slow_14, continue_enter_15
+
+  cold continue_slow_14:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_5, 11)
+
+  continue_enter_15:
+    tailcall.indirect %entry_13(%hp_0, %$cps_return_5, %base_2, %$cps_return_5, 11) : (ptr, ptr, ptr, ptr, i64)
 
   alt_9:
-    %header_word_11 = load i64 [%$cps_return_6] align 8 region stack
-    %info_word_12 = and i64 %header_word_11, -4
-    %header_13 = ptr.from_int %info_word_12
-    %entry_14 = load.invariant code [%header_13 + 24] align 1 word
-    %forward_17 = eq code %entry_14, null
-    br %forward_17, continue_slow_15, continue_enter_16
+    %header_word_17 = load i64 [%$cps_return_5] align 8 region stack
+    %info_word_18 = and i64 %header_word_17, -4
+    %header_19 = ptr.from_int %info_word_18
+    %entry_20 = load.invariant code [%header_19 + 24] align 1 word
+    %forward_23 = eq code %entry_20, null
+    br %forward_23, continue_slow_21, continue_enter_22
 
-  cold continue_slow_15:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, 11)
+  cold continue_slow_21:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_5, 22)
 
-  continue_enter_16:
-    tailcall.indirect %entry_14(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, 11) : (ptr, ptr, ptr, ptr, ptr, i64)
-
-  alt_10:
-    %header_word_18 = load i64 [%$cps_return_6] align 8 region stack
-    %info_word_19 = and i64 %header_word_18, -4
-    %header_20 = ptr.from_int %info_word_19
-    %entry_21 = load.invariant code [%header_20 + 24] align 1 word
-    %forward_24 = eq code %entry_21, null
-    br %forward_24, continue_slow_22, continue_enter_23
-
-  cold continue_slow_22:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, 22)
-
-  continue_enter_23:
-    tailcall.indirect %entry_21(%hp_0, %hp_limit_1, %$cps_return_6, %sp_limit_3, %$cps_return_6, 22) : (ptr, ptr, ptr, ptr, ptr, i64)
+  continue_enter_22:
+    tailcall.indirect %entry_20(%hp_0, %$cps_return_5, %base_2, %$cps_return_5, 22) : (ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: A Boolean comparison must reach its destinations without an integer switch.

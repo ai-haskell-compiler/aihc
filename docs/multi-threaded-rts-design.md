@@ -14,7 +14,8 @@ design.
 ## Implementation status
 
 The first part of build step 1 separates `AihcCapability` from `AihcMachine`.
-Compiled code reads its capability from the stack chunk header.
+Compiled code gets its capability as a context parameter, as GHC does with
+`BaseReg`. The heap limit and the stack limit are fields of the capability.
 The C runtime takes the capability as an explicit argument.
 Programs still run with one capability on every target.
 Each capability reserves nursery space in blocks.
@@ -220,7 +221,7 @@ WASM keeps one capability until WASI supports the required thread operations.
 | Topic | Decision | GHC |
 | --- | --- | --- |
 | Execution model | Capabilities with a shared heap. One worker holds one capability. | Same |
-| Capability pointer | Loaded from the header of the stack chunk of `%sp`. No new register. | `BaseReg` is a pinned register. |
+| Capability pointer | The context parameter `%base`. The two limits are fields of the capability. | `BaseReg` is a pinned register. |
 | Nursery | One arena with one sub-range of `-A` bytes for each capability. A capability fills its own sub-range in 32 KiB blocks, in the same order in every round. | One nursery for each capability, optional `-n` chunks. |
 | Gen1 | Local blocks of each capability. A survivor stays for `-B` collections, one by default. No byte maximum. | Gen0 to-space, emptied at every collection. |
 | Write barrier | The fast path tests whether the object is in the sub-range of this capability. The test uses the aligned nursery base and size from the capability. | A generation test through the block descriptor. |
@@ -302,7 +303,17 @@ capability has no fixed address, so compiled code must find its capability.
 
 ### Decision
 
-We use option 3. The header of each stack chunk gets a `capability` field.
+We first used option 3, and we changed to option 1 later. Option 1 replaces
+the two limit registers with one capability register. The heap limit and
+the stack limit are fields of the capability, and each check loads its
+limit. A limit is read-only in compiled code, so the load is not on a
+dependency chain. The heap pointer and the stack pointer change at each
+allocation and each push, so they stay in registers. A remote store to the
+heap limit of a capability can then stop its thread at the next heap check.
+See "Safepoints, preemption, and context switches".
+
+The header of each stack chunk still has a `capability` field. The C runtime
+reads it.
 The rule is: the chunk that holds the stack pointer of a running thread names
 the capability that runs it. The existing cold paths keep this rule:
 
@@ -312,9 +323,7 @@ the capability that runs it. The existing cold paths keep this rule:
 - `aihc_stack_enter_chunk` writes it into the entered chunk.
 - The callback entry writes it after it pushes the stop frame.
 
-No hot path changes. The lowering emits the load only next to a C call that
-took `@aihc_machine` before. Such a call now takes the capability. The
-machine stays reachable through `capability->machine`.
+The machine stays reachable through `capability->machine`.
 
 The chunk header has 64 bytes and is full on 64-bit targets. The fields
 `depth` and `charged_gc` share one word. Each needs at most 32 bits.
@@ -358,8 +367,8 @@ the sub-range after each collection. No atomic operation is on the refill
 path. The RTS option `-n<size>` sets the block size.
 
 The write barrier fast path tests whether the object is in the nursery of
-this capability. It reads the capability from the stack chunk header, then
-reads `heap_start` and `nursery_bytes` from the capability. The test is:
+this capability. It reads `heap_start` and `nursery_bytes` from the
+capability. The test is:
 
 ```text
 (object xor heap_start) < nursery_bytes
@@ -419,29 +428,32 @@ object, and the collector then maps an arena of the new size.
 
 ## Safepoints, preemption, and context switches
 
-Compiled code keeps `%hp_limit` in a register. Nothing outside the worker can
-change a register. Thus another capability cannot force the next heap check
-to fail, as GHC does when it sets `HpLim` to zero.
+Compiled code first kept the heap limit in a register. Nothing outside the
+worker can change a register. Thus another capability could not force the
+next heap check to fail, as GHC does when it sets `HpLim` to zero. The heap
+limit is now a field of the capability, which each heap check loads. See
+"The capability pointer in compiled code".
 
 ### Options
 
-1. **Heap limit in memory.** Replace the `%hp_limit` register with a
+1. **Heap limit in memory.** Replace the heap limit register with a
    capability register and read the limit from memory at each heap check.
-   This is the GHC model. It costs one load at every allocation and a new
-   pinned register on every backend. A remote store then stops a capability
-   at its next allocation.
+   This is the GHC model. It costs one load at every allocation. A remote
+   store then stops a capability at its next allocation.
 2. **Block refill as the safepoint.** Keep the registers. A capability
    reaches the runtime at the end of each 32 KiB block. The runtime reads the
    interrupt flags there. A stop request waits for the allocation of at most
    one block on each running capability.
 3. **Signals that change the saved registers.** A signal handler sets the
-   `%hp_limit` register of the interrupted code to zero. The handler cannot
+   heap limit register of the interrupted code to zero. The handler cannot
    tell Haskell code from C code safely, and wasm32 has no signals. We
    rejected it.
 
 ### Decision
 
-We use option 2. The safepoints of a capability are:
+We use option 2. The heap limit is in memory now, so option 1 is
+available. No runtime code stores to the heap limit of another capability
+yet. The safepoints of a capability are:
 
 - The block refill in `aihc_heap_collect`.
 - The cold path of the write barrier. The lowering spills the live roots
@@ -978,7 +990,7 @@ without protection. The spilled value survives the collection as a root
 either way, but the reference from the old object would be missed by the
 next collection.
 
-After every barrier call, the store site loads `%hp_limit` again. The cold
+The next heap check loads the heap limit from the capability. The cold
 path sets `heap_limit` of the capability to zero when the remaining budget
 falls below the reserve of the runtime operations. The next paragraph
 gives the reserve. The next reservation of the thread then takes the slow
@@ -1070,7 +1082,7 @@ change that bound. A loop that stores into an old array without an
 allocation collects after one budget of barrier work.
 
 The barrier fast path is the sub-range test of the nursery section. The cold
-path gains one counter add, one compare, and one load of `%hp_limit`. The
+path gains one counter add and one compare. The
 spill code at each store site costs code size and no time, because it is
 outside the fast path.
 
@@ -1992,7 +2004,7 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | Release stores | `stlr` on ARM64 at update, nothing on AMD64 | Below 1 percent |
 | Inline check of an evaluated thunk | One header bit test and one kind compare on the follow path | Below 1 percent |
 | Context switch flag | Two loads and one branch for each thunk evaluation | Below 1 percent |
-| Barrier budget | One counter add, one compare, and one load of `%hp_limit` on the cold path of the write barrier | Near zero |
+| Barrier budget | One counter add and one compare on the cold path of the write barrier | Near zero |
 | `MVar` lock | One compare-and-swap pair for each `MVar` operation | Below 1 percent of such programs |
 | STM commit lock | One mutex for each transaction, one try-lock for each safepoint inside it | Small |
 | Atomic primitives | Real atomic operations for `casMutVar#` and the array atomics | Program dependent, as in GHC |
@@ -2033,7 +2045,7 @@ capability.
 | --- | --- | --- |
 | Build flavours | Non-threaded and threaded runtime libraries. | One runtime library. |
 | Default `-N` | 1 | 1 |
-| Capability access | `BaseReg`, a pinned register. | A load from the stack chunk header, only next to C calls. |
+| Capability access | `BaseReg`, a pinned register. | The context parameter `%base`. |
 | Heap check | `Hp` against `HpLim` in memory. | Two registers. |
 | Remote interrupt | Store zero to `HpLim`. | A flag read at the block refill and at thunk evaluation. |
 | Ticker | Timer thread or signal, 20 ms. | Timer thread, 20 ms, started at the second Haskell thread. |
