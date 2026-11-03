@@ -997,8 +997,11 @@ The lifetime rule follows [System.Mem.StableName](https://downloads.haskell.org/
 
 ## Byte arrays and pinned storage
 
-A byte array has six eight-byte descriptor slots followed by its payload.
-The slots contain the header, current size, contents address, pinned flag, alignment, and allocation size.
+A byte array has four eight-byte descriptor slots followed by its payload.
+The slots contain the header, current size, contents address, and allocation size.
+A pinned array has the info table `aihc_pinned_byte_array_info`.
+A movable array has `aihc_byte_array_info` when it is mutable and `aihc_frozen_byte_array_info` when it is frozen.
+A pinned array does not move, thus a freeze or a thaw keeps its table.
 An empty array still has one payload byte.
 The allocation size remains unchanged after shrink, so the collector can traverse the complete object.
 
@@ -1013,7 +1016,8 @@ The GRIN GC stage calls a size helper before each allocation or resize.
 The helper checks the size and alignment and computes the complete reservation in slots.
 The existing reservation transformation protects the source array and other live pointers.
 The Lir allocation functions consume this reservation without collection.
-Resize copies into a new array and preserves the pinned flag and alignment.
+A pinned array has a fifth slot with the alignment of its payload.
+Resize copies into a new array and preserves the pinned table and the alignment.
 
 `aihc_gc_allocate_pinned` consumes the same budget as movable allocation.
 It reduces the available space by the complete block charge and updates allocation statistics.

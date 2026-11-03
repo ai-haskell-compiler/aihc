@@ -222,11 +222,14 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
 
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcCapability *capability);
-/* The info tables of a mutable and of a frozen byte array. See
-   aihc_byte_array.lir. */
+/* The info tables of a movable mutable byte array, of a movable frozen byte
+   array, and of a pinned byte array. A pinned array never moves, thus it has
+   one table for both states. See aihc_byte_array.lir. */
 extern const AihcInfo aihc_byte_array_info;
 extern const AihcInfo aihc_frozen_byte_array_info;
-/* Six fixed slots precede the inline byte payload. */
+extern const AihcInfo aihc_pinned_byte_array_info;
+/* Four fixed slots precede the inline byte payload. The info table tells
+   whether the array is pinned. */
 typedef struct {
   AihcSlot header;
   uint64_t size;
@@ -234,10 +237,22 @@ typedef struct {
     uint8_t *contents;
     AihcSlot contents_slot;
   };
-  uint64_t pinned;
-  uint64_t alignment;
   uint64_t words;
 } AihcByteArray;
+
+/* A pinned byte array has one more slot before its payload: the alignment
+   of the payload. A resize keeps that alignment. A movable array has an
+   alignment of eight and does not record it. */
+typedef struct {
+  AihcByteArray array;
+  uint64_t alignment;
+} AihcPinnedByteArray;
+
+/* Whether a byte array is pinned. */
+static inline int aihc_byte_array_pinned(const AihcByteArray *array) {
+  return aihc_value_info_table((const AihcValue *)array) ==
+         &aihc_pinned_byte_array_info;
+}
 
 /* Two metadata slots precede each pinned object on both target word sizes.
    The second slot packs the charge of the block with its owner, its
@@ -309,10 +324,12 @@ static inline AihcPinnedBlock *aihc_pinned_block_of(const AihcValue *object) {
                              offsetof(AihcPinnedBlock, object));
 }
 
-_Static_assert(sizeof(AihcByteArray) == 48, "byte-array descriptor size");
+_Static_assert(sizeof(AihcByteArray) == 32, "byte-array descriptor size");
 _Static_assert(offsetof(AihcByteArray, contents) == 16,
                "byte-array contents offset");
-_Static_assert(offsetof(AihcByteArray, words) == 40,
+_Static_assert(offsetof(AihcPinnedByteArray, alignment) == 32,
+               "pinned byte-array alignment offset");
+_Static_assert(offsetof(AihcByteArray, words) == 24,
                "byte-array allocation size offset");
 _Static_assert(offsetof(AihcPinnedBlock, object) == 16,
                "pinned allocation metadata size");

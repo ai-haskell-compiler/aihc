@@ -306,7 +306,7 @@ typedef struct {
 } AihcSrtWorklist;
 
 struct AihcHostBuffer {
-  AihcByteArray array;
+  AihcPinnedByteArray array;
   AihcHostBuffer *next;
   _Alignas(max_align_t) uint8_t contents[];
 };
@@ -314,10 +314,6 @@ struct AihcHostBuffer {
 _Static_assert(offsetof(AihcPinnedBlock, object) % _Alignof(AihcHostBuffer) ==
                    0,
                "pinned metadata must preserve host buffer alignment");
-
-static const AihcInfo aihc_buffer_info = {
-    .object_kind = AIHC_OBJECT_BYTE_ARRAY,
-};
 
 /* The work of one collection. Each capability has its own, so local
    collections on several capabilities trace at the same time. */
@@ -547,7 +543,7 @@ static int aihc_outside_is_pinned(const AihcValue *object) {
     return 1;
   }
   return kind == AIHC_OBJECT_BYTE_ARRAY &&
-         ((const AihcByteArray *)object)->pinned != 0;
+         aihc_byte_array_pinned((const AihcByteArray *)object);
 }
 
 /* The blocks of gen1. */
@@ -4423,7 +4419,7 @@ static AihcValue *aihc_promote_object(AihcPromotion *promotion,
   memcpy(copy, original, bytes);
   aihc_promotion_insert(promotion, original, copy);
   if (aihc_value_kind(original) == AIHC_OBJECT_BYTE_ARRAY) {
-    /* The contents of a byte array that moves follow its six slots, and a
+    /* The contents of a byte array that moves follow its four slots, and a
        byte array has no pointer fields. */
     AihcByteArray *array = (AihcByteArray *)copy;
     array->contents = (uint8_t *)(array + 1);
@@ -5706,12 +5702,12 @@ void *aihc_host_byte_array(AihcCapability *capability, AihcRootFrame *frame,
                       NULL, NULL);
   AihcHostBuffer *buffer =
       (AihcHostBuffer *)aihc_gc_allocate_pinned(capability, words);
-  buffer->array.header = (AihcSlot)(uintptr_t)&aihc_buffer_info;
-  buffer->array.size = bytes;
-  buffer->array.contents = buffer->contents;
-  buffer->array.pinned = 1;
+  buffer->array.array.header =
+      (AihcSlot)(uintptr_t)&aihc_pinned_byte_array_info;
+  buffer->array.array.size = bytes;
+  buffer->array.array.contents = buffer->contents;
+  buffer->array.array.words = words;
   buffer->array.alignment = _Alignof(max_align_t);
-  buffer->array.words = words;
   buffer->next = frame->buffers;
   frame->buffers = buffer;
   return buffer;

@@ -36,7 +36,7 @@ program: |
 return: "(42, 1, 0, 1)"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 488
-  linux-amd64: 488
+  macos-arm64: 424
+  linux-amd64: 424
 status: pass
 reason: Collection must preserve array contents, pinned addresses, and alignment across resize operations.

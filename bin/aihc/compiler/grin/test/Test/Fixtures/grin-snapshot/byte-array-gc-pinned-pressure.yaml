@@ -21,7 +21,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 17600
-  linux-amd64: 17600
+  macos-arm64: 16000
+  linux-amd64: 16000
 status: pass
 reason: Pinned allocations must trigger collection when their shared heap budget is full.

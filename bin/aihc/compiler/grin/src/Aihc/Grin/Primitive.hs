@@ -204,11 +204,11 @@ uncheckedByteArrayPrimitive :: Text
 uncheckedByteArrayPrimitive = "aihcNewByteArrayUnchecked#"
 
 -- | The heap slots of a movable byte array with the given size in bytes:
--- six header slots and the payload, which has at least one byte. This is
+-- four header slots and the payload, which has at least one byte. This is
 -- the charge that aihc_byte_array_words gives for an unpinned array with an
 -- alignment of eight.
 uncheckedByteArrayWords :: Integer -> Integer
-uncheckedByteArrayWords size = (48 + max 1 size + 7) `div` 8
+uncheckedByteArrayWords size = (32 + max 1 size + 7) `div` 8
 
 -- | The largest size in bytes of an unchecked byte array. A larger array
 -- keeps the runtime path. The limit is far below the large-object size of
