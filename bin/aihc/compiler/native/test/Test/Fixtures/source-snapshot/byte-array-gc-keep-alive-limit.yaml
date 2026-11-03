@@ -4,12 +4,12 @@ rts-arguments: ["+RTS", "-M1024", "-RTS"]
 source: |
   module Test where
   import GHC.Prim
-  data Result = Result Int#
+  data Result = Result Int# Int#
   value = runRW# (\state ->
     case newPinnedByteArray# 512# state of
       (# next, owner #) -> keepAlive# owner next (\active ->
         case newPinnedByteArray# 512# active of
-          (# _, array #) -> Result (sizeofMutableByteArray# array)))
+          (# _, array #) -> Result (sizeofMutableByteArray# array) 0#))
 error: heap limit exceeded
 status: pass
-reason: The keep-alive owner must consume heap capacity until the action returns.
+reason: The keep-alive owner must consume heap capacity until the action returns. The action allocates its result while the second array is live. A result with one unlifted field would be built by the caller instead, after the second array is dead, so the result has two fields.
