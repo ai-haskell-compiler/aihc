@@ -21,10 +21,17 @@ report done action = action `catch` \(e :: AsyncException) -> putMVar done ("cau
 starts :: IORef Int
 starts = unsafePerformIO (newIORef 0)
 
--- | A shared thunk that takes much longer than one tick.
+-- | The size of the work. An 'IORef' gives it, so the shared thunk below
+-- is a thunk of the local heap and not a static CAF. With several
+-- capabilities, the runtime freezes only a thunk of the local heap.
+{-# NOINLINE size #-}
+size :: IORef Integer
+size = unsafePerformIO (newIORef 20000000)
+
+-- | Work that takes much longer than one tick.
 {-# NOINLINE expensive #-}
-expensive :: Integer
-expensive = unsafePerformIO (modifyIORef starts (+ 1)) `seq` sum [1 .. 20000000]
+expensive :: Integer -> Integer
+expensive n = unsafePerformIO (modifyIORef starts (+ 1)) `seq` sum [1 .. n]
 
 main :: IO ()
 main = do
@@ -90,7 +97,9 @@ main = do
 
   -- An interrupted evaluation is frozen. The next evaluation continues it
   -- and does not start it again.
-  first <- timeout 20000 (evaluate expensive)
+  n <- readIORef size
+  let shared = expensive n
+  first <- timeout 20000 (evaluate shared)
   print (isNothing first)
-  print =<< evaluate expensive
+  print =<< evaluate shared
   print =<< readIORef starts

@@ -2150,7 +2150,12 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
       capability->stack_next = NULL;
       __atomic_store_n(&capability->idle, 1, __ATOMIC_SEQ_CST);
       __atomic_add_fetch(&machine->idle_count, 1, __ATOMIC_SEQ_CST);
-      if (!aihc_inbox_used(capability)) {
+      /* A sender of a throwTo sets the interrupt flag before it reads the
+         idle flag, and this wait sets the idle flag before it reads the
+         interrupt flag. Thus either the sender wakes the wait, or the wait
+         does not start. */
+      if (!aihc_inbox_used(capability) &&
+          !__atomic_load_n(&capability->interrupt, __ATOMIC_SEQ_CST)) {
         (void)machine->io_backend->poll(capability, 1);
       }
       __atomic_store_n(&capability->idle, 0, __ATOMIC_SEQ_CST);
@@ -3928,7 +3933,15 @@ static const AihcResume *aihc_raise_async(AihcCapability *capability,
       frame = parent;
       continue;
     }
-    if (resumable) {
+    AihcValue *frozen =
+        (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[1];
+    /* With several capabilities, a global thunk would make the AP_STACK
+       thunk and everything its frames name global. The work that continues
+       later then updates global thunks with local values, and each update
+       is an escape. That costs more than the work again, so a global thunk
+       goes back to its code. */
+    if (resumable && (capability->machine->capability_count == 1 ||
+                      aihc_value_is_young(capability->machine, frozen))) {
       aihc_gc_refill(capability, aihc_segment_words(segment, frame),
                      count == 1 ? 2 : 1, roots, NULL);
       AihcValue *ap = aihc_build_ap_stack(capability, segment, frame, kind,

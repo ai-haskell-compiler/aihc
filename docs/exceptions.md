@@ -287,10 +287,19 @@ of the next segment is the evaluation of that thunk. After the walk, the
 exception unwinds the frames that are left, as a synchronous exception
 does.
 
+With several capabilities, the runtime freezes only a thunk of the local
+heap. A global thunk would make the AP_STACK thunk and everything that its
+frames name global. The work that continues later would then update global
+thunks with local values, and each update would be an escape. That costs
+more than the work again, so a global thunk goes back to its code.
+
 An AP_STACK thunk holds the copies, the resumption at the top of the
-segment, and the masking state there. Its entry pushes the copies above the
-continuation of the evaluation and continues the resumption. When the
-masking state differs, it pushes a restore-mask frame first.
+segment, and the masking state there. Its entry claims the thunk and clears
+the copies, as GHC blackholes an AP_STACK under evaluation. Otherwise the
+copies would keep alive what the work consumes. The entry pushes the
+copies above the continuation of the evaluation and continues the
+resumption. When the masking state differs, it pushes a restore-mask frame
+first.
 
 The resumption at the top can continue later in these places:
 
