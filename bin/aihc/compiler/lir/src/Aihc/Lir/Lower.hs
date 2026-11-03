@@ -3469,6 +3469,35 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
           unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
           bind [unchanged, final]
+    -- The bulk byte-array operations are address arithmetic and one call of
+    -- the memory helper of the C runtime. As in GHC, the ranges are
+    -- unchecked unless the bounds checks are on.
+    (_, [source, sourceOffset, destination, destinationOffset, count])
+      | Just helper <- lookup name byteArrayCopyPrimitives -> do
+          from <- byteArrayRange source sourceOffset count
+          to <- byteArrayRange destination destinationOffset count
+          bytes <- word count
+          _ <- callRuntime helper [Ptr, Ptr, I64] [] [to, from, bytes]
+          bind []
+    (_, [array, offset, address, count])
+      | name `elem` byteArrayToAddrPrimitives -> do
+          from <- byteArrayRange array offset count
+          to <- pointerValue ctx env address
+          bytes <- word count
+          _ <- callRuntime "aihc_memory_copy" [Ptr, Ptr, I64] [] [to, from, bytes]
+          bind []
+    ("copyAddrToByteArray#", [address, array, offset, count]) -> do
+      from <- pointerValue ctx env address
+      to <- byteArrayRange array offset count
+      bytes <- word count
+      _ <- callRuntime "aihc_memory_copy" [Ptr, Ptr, I64] [] [to, from, bytes]
+      bind []
+    ("setByteArray#", [array, offset, count, value]) -> do
+      to <- byteArrayRange array offset count
+      bytes <- word count
+      byte <- word value
+      _ <- callRuntime "aihc_memory_set" [Ptr, I64, I64] [] [to, byte, bytes]
+      bind []
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           let sentinel = lookup name escapingRuntimeSentinels
@@ -3552,6 +3581,23 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (literal width))
       contents <- byteArrayPayload "contents" base
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) byteOffset)
+    -- The address of the @count@ bytes at byte @offset@ of a byte array.
+    -- With the bounds checks on, both values must be non-negative and the
+    -- range must end at or before the size. A negative value is a huge
+    -- unsigned one, thus the unsigned comparisons reject it too.
+    byteArrayRange array offset count = do
+      base <- pointerValue ctx env array
+      start <- word offset
+      bytes <- word count
+      when checkPrimBounds $ do
+        size <- emitValue "size" I64 (Load I64 (heapAddress base byteArraySizeOffset) (byteAlignment 8))
+        pastEnd <- emitValue "past_end" I1 (Compare GtU I64 start (typedOperand size))
+        remaining <- emitValue "remaining" I64 (Binary Sub I64 (typedOperand size) start)
+        tooLong <- emitValue "too_long" I1 (Compare GtU I64 bytes (typedOperand remaining))
+        invalid <- emitValue "invalid" I1 (Binary Or I1 (typedOperand pastEnd) (typedOperand tooLong))
+        boundsCheck (typedOperand invalid) "aihc_byte_array_bounds_fail" "byte array access is out of bounds"
+      contents <- byteArrayPayload "contents" base
+      typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) start)
     -- The address of element @index@ of the given width. Every access uses
     -- alignment one, because the source can give an unaligned address.
     addressElement address index scale = do
@@ -3818,6 +3864,20 @@ stableNameHashOffset = 16
 -- object, and both fields are eight bytes on every target.
 threadIdOffset :: Integer
 threadIdOffset = 8
+
+-- | The copies between two byte arrays, each with the memory helper of the
+-- C runtime that does the copy. Only the non-overlapping copy can use a
+-- copy that does not permit an overlap.
+byteArrayCopyPrimitives :: [(Text, Text)]
+byteArrayCopyPrimitives =
+  [ ("copyByteArray#", "aihc_memory_move"),
+    ("copyMutableByteArray#", "aihc_memory_move"),
+    ("copyMutableByteArrayNonOverlapping#", "aihc_memory_copy")
+  ]
+
+-- | The copies from a byte array to an address.
+byteArrayToAddrPrimitives :: [Text]
+byteArrayToAddrPrimitives = ["copyByteArrayToAddr#", "copyMutableByteArrayToAddr#"]
 
 -- | Reads of one field of a runtime object. Each entry gives the type of
 -- the field and its byte offset.
