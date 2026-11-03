@@ -434,8 +434,8 @@ compileProgramUnits backend program = do
       then withTempDirectory "aihc-grin-object" $ \directory -> do
         let path = directory </> "stream.o"
             dump = directory </> "stream.lir"
-        source <- compileGrinTo True defaultModuleSettings (backendTarget backend) (Just dump) gc path
-        assertEqual "native object output" Nothing source
+        wroteSource <- compileGrinTo True defaultModuleSettings (backendTarget backend) (Just dump) gc (directory </> "stream.s") path
+        assertEqual "native object output" False wroteSource
         dumped <- loadModule dump >>= either (assertFailure . renderLoadError) pure
         assertEqual "incremental Lir dump lint" [] (map renderLintError (lintModule dumped))
         bytes <- BL.readFile path
