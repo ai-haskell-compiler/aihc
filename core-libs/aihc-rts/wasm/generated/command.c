@@ -60,6 +60,9 @@ extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_write_via_s
 __attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[method]descriptor.append-via-stream")))
 extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_append_via_stream(int32_t, int32_t);
 
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][method]descriptor.stat")))
+extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_stat(int32_t, uint8_t *);
+
 __attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][method]descriptor.open-at")))
 extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_open_at(uint8_t *, uint8_t *);
 
@@ -432,6 +435,26 @@ void wasi_cli_exit_result_void_void_free(wasi_cli_exit_result_void_void_t *ptr) 
   }
 }
 
+void wasi_filesystem_types_descriptor_type_free(wasi_filesystem_types_descriptor_type_t *ptr) {
+  switch ((int32_t) ptr->tag) {
+    case 7: {
+      break;
+    }
+  }
+}
+
+void wasi_filesystem_types_option_instant_free(wasi_filesystem_types_option_instant_t *ptr) {
+  if (ptr->is_some) {
+  }
+}
+
+void wasi_filesystem_types_descriptor_stat_free(wasi_filesystem_types_descriptor_stat_t *ptr) {
+  wasi_filesystem_types_descriptor_type_free(&ptr->type);
+  wasi_filesystem_types_option_instant_free(&ptr->data_access_timestamp);
+  wasi_filesystem_types_option_instant_free(&ptr->data_modification_timestamp);
+  wasi_filesystem_types_option_instant_free(&ptr->status_change_timestamp);
+}
+
 void wasi_filesystem_types_error_code_free(wasi_filesystem_types_error_code_t *ptr) {
   switch ((int32_t) ptr->tag) {
     case 36: {
@@ -457,6 +480,14 @@ wasi_filesystem_types_borrow_descriptor_t wasi_filesystem_types_borrow_descripto
 
 void wasi_filesystem_types_result_void_error_code_free(wasi_filesystem_types_result_void_error_code_t *ptr) {
   if (!ptr->is_err) {
+  } else {
+    wasi_filesystem_types_error_code_free(&ptr->val.err);
+  }
+}
+
+void wasi_filesystem_types_result_descriptor_stat_error_code_free(wasi_filesystem_types_result_descriptor_stat_error_code_t *ptr) {
+  if (!ptr->is_err) {
+    wasi_filesystem_types_descriptor_stat_free(&ptr->val.ok);
   } else {
     wasi_filesystem_types_error_code_free(&ptr->val.err);
   }
@@ -1267,6 +1298,10 @@ wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_meth
 wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_append_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data) {
   int32_t ret = __wasm_import_wasi_filesystem_types_method_descriptor_append_via_stream((self).__handle, ((int32_t) data));
   return ((uint32_t) ret);
+}
+
+command_subtask_status_t wasi_filesystem_types_method_descriptor_stat(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_result_descriptor_stat_error_code_t *result) {
+  return __wasm_import_wasi_filesystem_types_method_descriptor_stat((self).__handle, (uint8_t*) result);
 }
 
 command_subtask_status_t wasi_filesystem_types_method_descriptor_open_at(wasi_filesystem_types_method_descriptor_open_at_args_t *args, wasi_filesystem_types_result_own_descriptor_error_code_t *result) {

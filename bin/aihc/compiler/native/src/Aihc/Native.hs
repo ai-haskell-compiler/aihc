@@ -734,6 +734,7 @@ nativeRuntimePrimitiveCalls =
     call "ioHandleDescriptor#" "aihc_io_handle_descriptor" [GrinForeignAddr] GrinForeignInt64,
     call "ioHandlePosition#" "aihc_io_handle_position" [GrinForeignAddr] GrinForeignInt64,
     call "ioHandleSetPosition#" "aihc_io_handle_set_position" [GrinForeignAddr, GrinForeignInt64] GrinForeignInt64,
+    call "ioHandleSize#" "aihc_io_handle_size" [GrinForeignAddr] GrinForeignInt64,
     call "closeIOHandle#" "aihc_io_close" [GrinForeignAddr] GrinForeignInt64,
     call "ioOpenResultError#" "aihc_io_open_result_error" [GrinForeignAddr] GrinForeignInt64,
     call "takeIOResult#" "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt64,

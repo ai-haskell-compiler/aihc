@@ -17,6 +17,7 @@ extern int64_t aihc_wasip3_start_write(int32_t target, int32_t descriptor,
 extern int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
                                       int32_t mode);
 extern void aihc_wasip3_close(int32_t descriptor);
+extern int64_t aihc_wasip3_file_size(int32_t descriptor);
 extern uint64_t aihc_wasip3_monotonic_ns(void);
 extern int64_t aihc_wasip3_start_timer(uint64_t deadline);
 
@@ -209,6 +210,16 @@ int64_t aihc_io_handle_set_position(void *opaque_handle, int64_t position) {
   }
   handle->position = (uint64_t)position;
   return 0;
+}
+
+/* A file that the runtime opened has a size that WASI can give. A libc
+   descriptor gives its size through the libc. */
+int64_t aihc_io_handle_size(void *opaque_handle) {
+  const AihcIoHandle *handle = opaque_handle;
+  if (!aihc_wasip3_has_position(handle)) {
+    return -1;
+  }
+  return aihc_wasip3_file_size((int32_t)handle->backend_token);
 }
 
 /* Read or write a libc descriptor, which blocks the run task until the host

@@ -157,7 +157,30 @@ typedef struct {
   bool is_err;
 } wasi_cli_exit_result_void_void_t;
 
+typedef struct wasi_clocks_system_clock_instant_t {
+  int64_t   seconds;
+  uint32_t   nanoseconds;
+} wasi_clocks_system_clock_instant_t;
+
+typedef wasi_clocks_system_clock_instant_t wasi_filesystem_types_instant_t;
+
 typedef uint64_t wasi_filesystem_types_filesize_t;
+
+typedef struct wasi_filesystem_types_descriptor_type_t {
+  uint8_t tag;
+  union {
+    command_option_string_t     other;
+  } val;
+} wasi_filesystem_types_descriptor_type_t;
+
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_BLOCK_DEVICE 0
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_CHARACTER_DEVICE 1
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_DIRECTORY 2
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_FIFO 3
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_SYMBOLIC_LINK 4
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_REGULAR_FILE 5
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_SOCKET 6
+#define WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_OTHER 7
 
 typedef uint8_t wasi_filesystem_types_descriptor_flags_t;
 
@@ -178,6 +201,22 @@ typedef uint8_t wasi_filesystem_types_open_flags_t;
 #define WASI_FILESYSTEM_TYPES_OPEN_FLAGS_DIRECTORY (1 << 1)
 #define WASI_FILESYSTEM_TYPES_OPEN_FLAGS_EXCLUSIVE (1 << 2)
 #define WASI_FILESYSTEM_TYPES_OPEN_FLAGS_TRUNCATE (1 << 3)
+
+typedef uint64_t wasi_filesystem_types_link_count_t;
+
+typedef struct {
+  bool is_some;
+  wasi_filesystem_types_instant_t val;
+} wasi_filesystem_types_option_instant_t;
+
+typedef struct wasi_filesystem_types_descriptor_stat_t {
+  wasi_filesystem_types_descriptor_type_t   type;
+  wasi_filesystem_types_link_count_t   link_count;
+  wasi_filesystem_types_filesize_t   size;
+  wasi_filesystem_types_option_instant_t   data_access_timestamp;
+  wasi_filesystem_types_option_instant_t   data_modification_timestamp;
+  wasi_filesystem_types_option_instant_t   status_change_timestamp;
+} wasi_filesystem_types_descriptor_stat_t;
 
 typedef struct wasi_filesystem_types_error_code_t {
   uint8_t tag;
@@ -247,6 +286,14 @@ typedef struct {
   wasi_filesystem_types_stream_u8_t f0;
   wasi_filesystem_types_future_result_void_error_code_t f1;
 } wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t;
+
+typedef struct {
+  bool is_err;
+  union {
+    wasi_filesystem_types_descriptor_stat_t ok;
+    wasi_filesystem_types_error_code_t err;
+  } val;
+} wasi_filesystem_types_result_descriptor_stat_error_code_t;
 
 typedef struct {
   bool is_err;
@@ -681,6 +728,7 @@ extern void wasi_cli_exit_exit(wasi_cli_exit_result_void_void_t *status);
 extern void wasi_filesystem_types_method_descriptor_read_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_filesize_t offset, wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t *ret);
 extern wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_write_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data, wasi_filesystem_types_filesize_t offset);
 extern wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_append_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data);
+extern command_subtask_status_t wasi_filesystem_types_method_descriptor_stat(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_result_descriptor_stat_error_code_t *result);
 extern command_subtask_status_t wasi_filesystem_types_method_descriptor_open_at(wasi_filesystem_types_method_descriptor_open_at_args_t *args, wasi_filesystem_types_result_own_descriptor_error_code_t *result);
 
 // Imported Functions from `wasi:filesystem/preopens@0.3.0`
@@ -967,6 +1015,12 @@ void wasi_cli_stderr_future_result_void_error_code_drop_writable(wasi_cli_stderr
 
 void wasi_cli_exit_result_void_void_free(wasi_cli_exit_result_void_void_t *ptr);
 
+void wasi_filesystem_types_descriptor_type_free(wasi_filesystem_types_descriptor_type_t *ptr);
+
+void wasi_filesystem_types_option_instant_free(wasi_filesystem_types_option_instant_t *ptr);
+
+void wasi_filesystem_types_descriptor_stat_free(wasi_filesystem_types_descriptor_stat_t *ptr);
+
 void wasi_filesystem_types_error_code_free(wasi_filesystem_types_error_code_t *ptr);
 
 extern void wasi_filesystem_types_descriptor_drop_own(wasi_filesystem_types_own_descriptor_t handle);
@@ -976,6 +1030,8 @@ extern void wasi_filesystem_types_descriptor_drop_borrow(wasi_filesystem_types_b
 extern wasi_filesystem_types_borrow_descriptor_t wasi_filesystem_types_borrow_descriptor(wasi_filesystem_types_own_descriptor_t handle);
 
 void wasi_filesystem_types_result_void_error_code_free(wasi_filesystem_types_result_void_error_code_t *ptr);
+
+void wasi_filesystem_types_result_descriptor_stat_error_code_free(wasi_filesystem_types_result_descriptor_stat_error_code_t *ptr);
 
 void wasi_filesystem_types_result_own_descriptor_error_code_free(wasi_filesystem_types_result_own_descriptor_error_code_t *ptr);
 
