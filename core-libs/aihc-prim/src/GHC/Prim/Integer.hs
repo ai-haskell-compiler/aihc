@@ -628,27 +628,63 @@ integerRemWord# :: Integer -> Word# -> Word#
 integerRemWord# (IS small) divisor =
   case quotRemWord2# 0## (absoluteIntWord# small) divisor of
     (# _, remainder #) -> remainder
-integerRemWord# (IP magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
-integerRemWord# (IN magnitude) divisor = remainderWords# magnitude divisor (wordCount# magnitude -# 1#) 0##
+integerRemWord# (IP magnitude) divisor = magnitudeRemWord# magnitude divisor
+integerRemWord# (IN magnitude) divisor = magnitudeRemWord# magnitude divisor
 
--- | The remainder of a magnitude and a nonzero divisor word. A big
--- magnitude has two or more limbs. Two limbs do not use the loop. The
--- result is less than the divisor, thus it is not more than 2^63 - 1.
+-- | The remainder of a magnitude and a nonzero divisor word. One or two
+-- limbs use division instructions. More limbs use one reciprocal of the
+-- normalized divisor and no division in the loop.
 magnitudeRemWord# :: ByteArray# -> Word# -> Word#
 magnitudeRemWord# magnitude divisor =
   case wordCount# magnitude of
+    1# -> remWord# (indexWordArray# magnitude 0#) divisor
     2# ->
       case quotRemWord2# (remWord# (indexWordArray# magnitude 1#) divisor) (indexWordArray# magnitude 0#) divisor of
         (# _, remainder #) -> remainder
-    size -> remainderWords# magnitude divisor (size -# 1#) 0##
+    size ->
+      let shift = word2Int# (clz# divisor)
+          normalized = uncheckedShiftL# divisor shift
+       in case quotRemWord2# (not# normalized) (not# 0##) normalized of
+            (# inverse, _ #) ->
+              let top = size -# 1#
+               in uncheckedShiftRL# (remainderWords# magnitude shift normalized inverse top (shiftedOutBits# shift (indexWordArray# magnitude top))) shift
 
-remainderWords# :: ByteArray# -> Word# -> Int# -> Word# -> Word#
-remainderWords# magnitude divisor index remainder =
-  case index <# 0# of
-    1# -> remainder
-    _ ->
-      case quotRemWord2# remainder (indexWordArray# magnitude index) divisor of
-        (# _, next #) -> remainderWords# magnitude divisor (index -# 1#) next
+-- | Divide the magnitude shifted left by shift. The limb at index gets
+-- the high bits of the limb below it. The remainder is less than the
+-- normalized divisor.
+remainderWords# :: ByteArray# -> Int# -> Word# -> Word# -> Int# -> Word# -> Word#
+remainderWords# magnitude shift normalized inverse index remainder =
+  let limb = uncheckedShiftL# (indexWordArray# magnitude index) shift
+   in case index of
+        0# -> remainderTwoByOne# normalized inverse remainder limb
+        _ ->
+          let next = or# limb (shiftedOutBits# shift (indexWordArray# magnitude (index -# 1#)))
+           in remainderWords# magnitude shift normalized inverse (index -# 1#) (remainderTwoByOne# normalized inverse remainder next)
+
+-- | The bits that a left shift by shift moves out of the word. Two
+-- shifts make a zero shift give zero.
+shiftedOutBits# :: Int# -> Word# -> Word#
+shiftedOutBits# shift word = uncheckedShiftRL# (uncheckedShiftRL# word 1#) (63# -# shift)
+
+-- | The remainder of (high, low) and a normalized divisor with its
+-- reciprocal (Moller and Granlund, 2011). The caller makes sure that
+-- high is less than the divisor.
+remainderTwoByOne# :: Word# -> Word# -> Word# -> Word# -> Word#
+remainderTwoByOne# normalized inverse high low =
+  case timesWord2# inverse high of
+    (# productHigh, productLow #) ->
+      case addWordC# productLow low of
+        (# fraction, carry #) ->
+          let estimate = plusWord# (plusWord# productHigh high) (plusWord# 1## (int2Word# carry))
+              remainder = minusWord# low (timesWord# estimate normalized)
+              -- The first correction occurs for about half of the
+              -- inputs. A mask in place of a branch prevents a
+              -- misprediction of the branch.
+              mask = minusWord# 0## (int2Word# (ltWord# fraction remainder))
+              adjusted = plusWord# remainder (and# mask normalized)
+           in case ltWord# adjusted normalized of
+                1# -> adjusted
+                _ -> minusWord# adjusted normalized
 
 -- | Normalize the divisor, then divide one limb at a time. Each step
 -- changes the dividend scratch array in place. A remainder needs no
