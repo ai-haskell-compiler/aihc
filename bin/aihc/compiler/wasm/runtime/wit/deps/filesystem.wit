@@ -1,7 +1,20 @@
 package wasi:filesystem@0.3.0;
 
 interface types {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+
   type filesize = u64;
+
+  variant descriptor-type {
+    block-device,
+    character-device,
+    directory,
+    fifo,
+    symbolic-link,
+    regular-file,
+    socket,
+    other(option<string>),
+  }
 
   flags descriptor-flags {
     read,
@@ -21,6 +34,17 @@ interface types {
     directory,
     exclusive,
     truncate,
+  }
+
+  type link-count = u64;
+
+  record descriptor-stat {
+    %type: descriptor-type,
+    link-count: link-count,
+    size: filesize,
+    data-access-timestamp: option<instant>,
+    data-modification-timestamp: option<instant>,
+    status-change-timestamp: option<instant>,
   }
 
   variant error-code {
@@ -67,6 +91,7 @@ interface types {
     read-via-stream: func(offset: filesize) -> tuple<stream<u8>, future<result<_, error-code>>>;
     write-via-stream: func(data: stream<u8>, offset: filesize) -> future<result<_, error-code>>;
     append-via-stream: func(data: stream<u8>) -> future<result<_, error-code>>;
+    stat: async func() -> result<descriptor-stat, error-code>;
     open-at: async func(path-flags: path-flags, path: string, open-flags: open-flags, %flags: descriptor-flags) -> result<descriptor, error-code>;
   }
 }

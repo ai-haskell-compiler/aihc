@@ -366,6 +366,11 @@ int64_t aihc_io_handle_set_position(void *opaque_handle, int64_t position) {
   return -1;
 }
 
+int64_t aihc_io_handle_size(void *opaque_handle) {
+  (void)opaque_handle;
+  return -1;
+}
+
 static int64_t aihc_posix_open(AihcIoRequest *request) {
   void *opaque_path = request->buffer;
   int64_t requested_length = (int64_t)request->length;

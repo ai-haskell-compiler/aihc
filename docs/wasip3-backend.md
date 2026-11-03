@@ -30,6 +30,26 @@ another Clang executable when a host toolchain wrapper is not cross-target
 safe. The Nix development environment uses that override to select its
 unwrapped LLVM Clang.
 
+## Streaming output
+
+The main program of an `-O2` build is one large module. The backend does not
+keep its complete Lir or its complete assembly text in memory.
+`Aihc.Wasm.Lir.writeLirItems` gets the items from `lowerModuleTo` one at a
+time, as the object backends do (see `docs/native-emission.md`).
+
+The lowering runs two times:
+
+1. The first run keeps only the declarations of the items. The header lists
+   the `.functype` of each function, and a reference to an internal symbol
+   uses its `.L` name, so the backend must know each declaration first.
+2. The second run renders each function and each data item, and writes it
+   to a temporary file immediately.
+
+The backend then writes the header, the two temporary files, the globals,
+and the trap messages to the assembly file. The result is byte-identical to
+the output of `compileLirModule` for the same items. The items are linted
+only under `--lint`, as in the object backends.
+
 ## The WASI sysroot
 
 The target links the libc that wasi-sdk 34 or later builds for

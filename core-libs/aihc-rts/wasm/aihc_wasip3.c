@@ -1064,6 +1064,57 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
   return aihc_wasi_progress();
 }
 
+/* Free a string that the host lowered into the libc allocator. The generated
+   free functions do not free, because a buffer inside a host scope is a byte
+   array that the collector owns. */
+static void aihc_wasi_free_option_string(command_option_string_t *text) {
+  if (text->is_some && text->val.len != 0) {
+    free(text->val.ptr);
+  }
+}
+
+/* The size of a file that the runtime opened, or a negative error. The stat
+   call completes before this returns: the run task waits for it on a wait
+   set of its own, so a request of another thread stays pending. The host
+   lowers the result outside a host scope, so a string in it comes from the
+   libc allocator and no collection can start during the call. */
+int64_t aihc_wasip3_file_size(int32_t descriptor) {
+  AihcRootFrame *roots = aihc_wasi_roots;
+  aihc_wasi_roots = NULL;
+  wasi_filesystem_types_result_descriptor_stat_error_code_t result;
+  command_subtask_status_t status =
+      wasi_filesystem_types_method_descriptor_stat(
+          (wasi_filesystem_types_borrow_descriptor_t){descriptor}, &result);
+  if (COMMAND_SUBTASK_STATE(status) != COMMAND_SUBTASK_RETURNED) {
+    command_subtask_t subtask = COMMAND_SUBTASK_HANDLE(status);
+    command_waitable_set_t wait_set = command_waitable_set_new();
+    command_waitable_join(subtask, wait_set);
+    command_event_t event;
+    do {
+      command_waitable_set_wait(wait_set, &event);
+    } while (event.event != COMMAND_EVENT_SUBTASK ||
+             event.waitable != subtask ||
+             event.code != COMMAND_SUBTASK_RETURNED);
+    command_subtask_drop(subtask);
+    command_waitable_set_drop(wait_set);
+  }
+  aihc_wasi_roots = roots;
+  if (result.is_err) {
+    int32_t error = aihc_filesystem_error(result.val.err);
+    if (result.val.err.tag == WASI_FILESYSTEM_TYPES_ERROR_CODE_OTHER) {
+      aihc_wasi_free_option_string(&result.val.err.val.other);
+    }
+    return aihc_wasi_error(error);
+  }
+  if (result.val.ok.type.tag == WASI_FILESYSTEM_TYPES_DESCRIPTOR_TYPE_OTHER) {
+    aihc_wasi_free_option_string(&result.val.ok.type.val.other);
+  }
+  if (result.val.ok.size > (uint64_t)INT64_MAX) {
+    return aihc_wasi_error(EOVERFLOW);
+  }
+  return (int64_t)result.val.ok.size;
+}
+
 void aihc_wasip3_close(int32_t descriptor) {
   if (descriptor >= AIHC_HTTP_TOKEN_BASE) {
     aihc_http_release((size_t)(descriptor - AIHC_HTTP_TOKEN_BASE));

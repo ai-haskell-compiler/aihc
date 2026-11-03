@@ -2517,6 +2517,7 @@ runtimeIoPrimitives =
     ("ioHandleDescriptor#", ("aihc_io_handle_descriptor", [GrinForeignAddr], GrinForeignInt)),
     ("ioHandlePosition#", ("aihc_io_handle_position", [GrinForeignAddr], GrinForeignInt)),
     ("ioHandleSetPosition#", ("aihc_io_handle_set_position", [GrinForeignAddr, GrinForeignInt], GrinForeignInt)),
+    ("ioHandleSize#", ("aihc_io_handle_size", [GrinForeignAddr], GrinForeignInt)),
     ("ioOpenResultError#", ("aihc_io_open_result_error", [GrinForeignAddr], GrinForeignInt)),
     ("takeIOResult#", ("aihc_io_take_result", [GrinForeignAddr], GrinForeignInt)),
     ("takeIOOpenResult#", ("aihc_io_take_open_result", [GrinForeignAddr], GrinForeignAddr))
@@ -2633,6 +2634,9 @@ callForeign foreignCall arguments
       pure [RuntimeLit (GrinLitInt IntRep (-1))]
   | symbol == "aihc_io_handle_set_position",
     [_, _] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep (-1))]
+  | symbol == "aihc_io_handle_size",
+    [_] <- arguments =
       pure [RuntimeLit (GrinLitInt IntRep (-1))]
   | symbol == "aihc_io_close",
     [handleValue] <- arguments = do
