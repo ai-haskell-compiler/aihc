@@ -3987,19 +3987,19 @@ const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
   }
   /* The copies are linked from the top down, and a push must go from the
      bottom up. */
-  uint64_t frame_count = 0;
-  for (AihcValue *frame = (AihcValue *)(uintptr_t)ap->fields[1]; frame != NULL;
-       frame = (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[0]) {
-    ++frame_count;
-  }
-  AihcValue **frames =
-      frame_count == 0 ? NULL : malloc(frame_count * sizeof(*frames));
-  if (frame_count != 0 && frames == NULL) {
-    aihc_fail("out of memory");
-  }
   uint64_t index = 0;
+  uint64_t capacity = 0;
+  AihcValue **frames = NULL;
   for (AihcValue *frame = (AihcValue *)(uintptr_t)ap->fields[1]; frame != NULL;
        frame = (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[0]) {
+    if (index == capacity) {
+      capacity = capacity == 0 ? 16 : capacity * 2;
+      AihcValue **grown = realloc(frames, capacity * sizeof(*frames));
+      if (grown == NULL) {
+        aihc_fail("out of memory");
+      }
+      frames = grown;
+    }
     frames[index++] = frame;
   }
   AihcValue *resumed = continuation;

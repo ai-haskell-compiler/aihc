@@ -3,6 +3,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UnboxedTuples #-}
 
+-- The argument of mask has a rank-2 type, so const would need an
+-- impredicative instantiation. GHC's base uses the lambda too.
+{- HLINT ignore "Use const" -}
+
 -- | The 'IO' monad and the exception operations that the rest of @base@
 -- builds on. The mask operations are those of GHC. See "Asynchronous
 -- exceptions" in docs/exceptions.md.
