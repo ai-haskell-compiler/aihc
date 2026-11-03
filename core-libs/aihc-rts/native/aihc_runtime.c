@@ -3973,6 +3973,9 @@ static const AihcResume *aihc_raise_async(AihcCapability *capability,
 const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
                                       AihcValue *continuation) {
   AihcThread *thread = capability->current_thread;
+  if (thread == NULL) {
+    aihc_fail("AP_STACK thunk entered without a running thread");
+  }
   /* The evaluation claims the thunk at once and drops its payload, as GHC
      does with an AP_STACK under evaluation. Otherwise the copies of the
      frames keep what they named alive while the work runs: a list that
