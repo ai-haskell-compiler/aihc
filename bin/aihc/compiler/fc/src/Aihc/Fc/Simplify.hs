@@ -2871,11 +2871,13 @@ rebuildCall env headExpr' args' = do
 -- | Rebuild an application whose head no rewrite takes: speculate its
 -- cheap cases, and bind its lazy primitive arguments.
 rebuildOther :: Simpl -> Expr -> [Arg] -> SimplM Expr
-rebuildOther env headExpr' args' = do
+rebuildOther env headExpr' args0 = do
+  (wrappers, args') <- bindCheapCaseArguments env headExpr' args0
   speculated <- speculateArguments env headExpr' args'
-  case speculated of
+  inner <- case speculated of
     Just result -> pure result
     Nothing -> bindApplication env headExpr' args'
+  pure (foldr ($) inner wrappers)
 
 -- | Decide a site of a candidate, and put a copy in place when the site
 -- is taken. The original is the application as it stands.
@@ -3121,6 +3123,138 @@ speculateArguments env headExpr args
               ([\inner -> ExCase scrutinee binder (alternative {altRhs = inner} NE.:| [])], Right (altRhs alternative))
             _ -> ([], argument)
       | otherwise = pure ([], argument)
+
+-- | Evaluate the cheap cases among the lazy arguments of a call before
+-- the call. See 'cheapCase'. In a lazy argument, such a case is a
+-- thunk. The thunk holds every free variable of the case, and it is
+-- often larger than the value that the case gives. Evaluated before the
+-- call, the case allocates only the value of its alternative, and the
+-- argument is a variable. The walk also goes into the lazy constructor
+-- arguments, because a constructor application is a value that the call
+-- gets as it is, and a lazy field of it is a thunk too.
+--
+-- A constructor head keeps its arguments: a constructor application is a
+-- value, and a case around it is not. The let or the call that holds the
+-- application binds its cases.
+bindCheapCaseArguments :: Simpl -> Expr -> [Arg] -> SimplM ([Expr -> Expr], [Arg])
+bindCheapCaseArguments env headExpr args
+  | ExVar name <- headExpr,
+    isConstructorName name =
+      pure ([], args)
+  | any (either (const False) (hasCheapCase env)) args = do
+      bound <- mapM argument args
+      pure (concatMap fst bound, map snd bound)
+  | otherwise = pure ([], args)
+  where
+    argument arg =
+      case arg of
+        Left _ -> pure ([], arg)
+        Right value -> fmap Right <$> bindCheapCases env value
+
+-- | Whether an expression is a cheap case, or a constructor application
+-- with a cheap case among its arguments or the arguments of its
+-- constructor arguments.
+hasCheapCase :: Simpl -> Expr -> Bool
+hasCheapCase env expr
+  | isJust (cheapCase env expr) = True
+  | (ExVar con, args) <- collectSpine expr,
+    isConstructorName con =
+      any (hasCheapCase env) (rights args)
+  | otherwise = False
+
+-- | Bind the cheap cases of a lazy value by strict cases around it. A
+-- cheap case is bound itself. In a constructor application, the cheap
+-- cases among its arguments are bound. Each alternative of a bound case
+-- binds the cases of its own value in the same way, because the bound
+-- case evaluates the alternative and the lazy fields of its value are
+-- thunks otherwise.
+bindCheapCases :: Simpl -> Expr -> SimplM ([Expr -> Expr], Expr)
+bindCheapCases env expr
+  | Just _ <- cheapCase env expr,
+    Just ty <- exprType (spEnv env) expr = do
+      scrutinee <- evaluateCheapCase env expr
+      name <- freshLocal (Name "speculated" SortValue (OriginLocal (Unique 0)))
+      pure ([\inner -> ExCase scrutinee (Just (Binder name ty)) (Alt AltDefault [] [] inner NE.:| [])], ExVar name)
+  | (ExVar con, args) <- collectSpine expr,
+    isConstructorName con,
+    any (either (const False) (hasCheapCase env)) args = do
+      bound <- mapM argument args
+      pure (concatMap fst bound, rebuildSpine (ExVar con) (map snd bound))
+  | otherwise = pure ([], expr)
+  where
+    argument arg =
+      case arg of
+        Left _ -> pure ([], arg)
+        Right value -> fmap Right <$> bindCheapCases env value
+
+-- | A cheap case as the scrutinee of the case that evaluates it: the
+-- values of its alternatives bind their own cheap cases.
+evaluateCheapCase :: Simpl -> Expr -> SimplM Expr
+evaluateCheapCase env expr =
+  case expr of
+    ExCase scrutinee binder alternatives ->
+      ExCase scrutinee binder <$> mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> evaluateCheapCase env (altRhs alternative)) alternatives
+    ExLet bind body -> ExLet bind <$> evaluateCheapCase env body
+    ExCast body coercion -> (`ExCast` coercion) <$> evaluateCheapCase env body
+    _ -> do
+      (wrappers, value) <- bindCheapCases env expr
+      pure (foldr ($) value wrappers)
+
+-- | The words that a cheap case allocates on its costliest path, if the
+-- expression is one. A cheap case selects on an unlifted operand that
+-- cannot fail, and each alternative gives a value: an evaluated variable,
+-- a literal, a constructor application of trivial arguments or of such
+-- values, or another cheap case. An alternative can bind safe primitive
+-- calls by strict lets first.
+--
+-- Such a case cannot fail and does little work, so it can run before
+-- the point where the program evaluates it. It runs when the program
+-- does not evaluate it at all, too, so its allocation must not exceed the
+-- thunk that it replaces: a header word, an update word and a word for
+-- each free variable.
+--
+-- A case that allocates nothing only selects a variable, as @min x y@
+-- does. It stays lazy. A strict callee that is inlined later evaluates
+-- it anyway, and a strict case in its place before that changed which
+-- sites the inliner took: @compareBytes@ was no longer inlined at its
+-- calls on literal strings in @aihc-cpp@.
+cheapCase :: Simpl -> Expr -> Maybe Int
+cheapCase env expr = do
+  ExCase {} <- pure expr
+  words' <- cheapValueWords env expr
+  guard (words' > 0 && words' <= 2 + Set.size (exprValueNames expr))
+  pure words'
+
+cheapValueWords :: Simpl -> Expr -> Maybe Int
+cheapValueWords env expr =
+  case expr of
+    ExLit {} -> Just 0
+    ExCast body _ -> cheapValueWords env body
+    ExVar name
+      | isConstructorName name || Set.member name (spEvaluated env) -> Just 0
+      | otherwise -> Nothing
+    ExCase scrutinee binder alternatives
+      | unliftedOperand scrutinee,
+        not (any (isLiftedBinder (spEnv env)) binder),
+        all (null . altBinders) alternatives ->
+          maximum <$> mapM (cheapValueWords env . altRhs) (NE.toList alternatives)
+    ExLet (Bind binder rhs) body
+      | isStrictBinder (spEnv env) binder,
+        isJust (safePrimitiveCall (spEnv env) rhs) ->
+          cheapValueWords env {spEnv = extendBinder (spEnv env) binder} body
+    _
+      | (ExVar con, args) <- collectSpine expr,
+        isConstructorName con -> do
+          fields <- mapM field (rights args)
+          pure (1 + length fields + sum fields)
+      | otherwise -> Nothing
+  where
+    field value
+      | isTrivial value = Just 0
+      | otherwise = cheapValueWords env value
+    unliftedOperand operand
+      | isTrivial operand = maybe False (not . isLiftedType (spEnv env)) (exprType (spEnv env) operand)
+      | otherwise = isJust (safePrimitiveCall (spEnv env) operand)
 
 -- | Fire the first active rule that matches an application, if any. The
 -- right-hand side is copied with fresh binders, instantiated by the
@@ -3728,6 +3862,13 @@ mkLet env bind body
       (floated', value') <- freshenLets floated value
       inner <- mkLet env (Bind binder value') body
       pure (foldr ExLet inner floated')
+  -- A lazy cheap case runs before the body, and so do the cheap cases
+  -- in the fields of a lazy constructor application. See
+  -- 'bindCheapCases'.
+  | lifted,
+    hasCheapCase env rhs = do
+      (wrappers, rhs') <- bindCheapCases env rhs
+      pure (foldr ($) (ExLet (Bind binder rhs') body) wrappers)
   -- A lazy constructor application runs its safe primitive calls first,
   -- so that lowering stores the value instead of a thunk.
   | lifted,
