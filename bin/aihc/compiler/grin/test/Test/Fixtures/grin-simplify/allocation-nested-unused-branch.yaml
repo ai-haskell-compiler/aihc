@@ -1,0 +1,44 @@
+program: |
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (other :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    thunk :: BoxedRep Lifted <-
+      store (F$loop (x :: BoxedRep Lifted))
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        store (CPair (thunk :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+      _ ->
+        case (other :: IntRep) as chosen :: IntRep of
+          (0 :: IntRep) ->
+            store (CPair (x :: BoxedRep Lifted) (thunk :: BoxedRep Lifted))
+          _ ->
+            constant global-ref Unit
+expected: |-
+  constructor Unit []
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (other :: IntRep) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        thunk :: BoxedRep Lifted <-
+          store (F$loop (x :: BoxedRep Lifted))
+        store (CPair (thunk :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+      _ ->
+        case (other :: IntRep) as chosen :: IntRep of
+          (0 :: IntRep) ->
+            thunk :: BoxedRep Lifted <-
+              store (F$loop (x :: BoxedRep Lifted))
+            store (CPair (x :: BoxedRep Lifted) (thunk :: BoxedRep Lifted))
+          _ ->
+            constant global-ref Unit
+status: pass
+reason: every alternative of the outer case uses the thunk, but a path through the inner case does not, so each alternative gets its own store and the path without a use allocates nothing
