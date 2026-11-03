@@ -1,4 +1,9 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
+-- remainderOfProduct and modulusOfProduct keep their arguments: each is a
+-- NOINLINE call with the arity of its body.
+{-# HLINT ignore "Eta reduce" #-}
 
 module GHC.Real
   ( Fractional (..),
@@ -31,7 +36,7 @@ import GHC.Err (errorWithoutStackTrace)
 import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
-import GHC.Internal.Integer (Integer (..), integerQuotRem, integerRem, magnitudeRemWord#, wordToInteger)
+import GHC.Internal.Integer (Integer (..), integerMul, integerQuotRem, integerRem, magnitudeRemWord#, wordToInteger)
 import GHC.Num (Num (..))
 import GHC.Prim
   ( Int#,
@@ -47,10 +52,12 @@ import GHC.Prim
     intToInt8#,
     negateInt#,
     quotInt#,
+    quotRemWord2#,
     quotWord#,
     raise#,
     remInt#,
     remWord#,
+    timesWord2#,
     word16ToWord#,
     word2Int#,
     word32ToWord#,
@@ -354,6 +361,70 @@ integerModChecked numerator denominator =
       case signum remainder == negate (signum denominator) of
         True -> remainder + denominator
         False -> remainder
+
+-- | The remainder of a product. Two small factors and a small divisor do
+-- not allocate the product. The remainder has the sign of the product.
+integerMulRemChecked :: Integer -> Integer -> Integer -> Integer
+integerMulRemChecked (IS left) (IS right) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      let remainder = word2Int# (productRemainderWord# left right denominator)
+       in case (left <# 0#) ==# (right <# 0#) of
+            1# -> IS remainder
+            _ -> IS (negateInt# remainder)
+integerMulRemChecked left right denominator = remainderOfProduct (integerMul left right) denominator
+
+-- | The modulus of a product. Two small factors and a small divisor do
+-- not allocate the product. The result has the divisor sign.
+integerMulModChecked :: Integer -> Integer -> Integer -> Integer
+integerMulModChecked (IS left) (IS right) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      let remainder = word2Int# (productRemainderWord# left right denominator)
+       in case remainder of
+            0# -> IS 0#
+            _ ->
+              case (left <# 0#) ==# (right <# 0#) of
+                1# ->
+                  case denominator <# 0# of
+                    1# -> IS (denominator +# remainder)
+                    _ -> IS remainder
+                _ ->
+                  case denominator <# 0# of
+                    1# -> IS (negateInt# remainder)
+                    _ -> IS (denominator -# remainder)
+integerMulModChecked left right denominator = modulusOfProduct (integerMul left right) denominator
+
+-- | The remainder of the magnitude of a product and the magnitude of a
+-- nonzero divisor. The remainder is less than 2^63, thus it is an 'Int#'.
+productRemainderWord# :: Int# -> Int# -> Int# -> Word#
+productRemainderWord# left right denominator =
+  let divisor = absoluteWord# denominator
+   in case timesWord2# (absoluteWord# left) (absoluteWord# right) of
+        (# high, low #) ->
+          case quotRemWord2# (remWord# high divisor) low divisor of
+            (# _, remainder #) -> remainder
+
+-- | The general paths of the product functions. The calls must stay calls:
+-- an inlined copy gives the rules below the same application again, and
+-- the rule would then call the product function again.
+remainderOfProduct :: Integer -> Integer -> Integer
+remainderOfProduct product denominator = integerRemChecked product denominator
+{-# NOINLINE remainderOfProduct #-}
+
+modulusOfProduct :: Integer -> Integer -> Integer
+modulusOfProduct product denominator = integerModChecked product denominator
+{-# NOINLINE modulusOfProduct #-}
+
+-- A modular product is frequent in number theory code. The product of two
+-- small values is often too large for 'IS', and the rules then remove an
+-- 'IP' or 'IN' value and its byte array.
+{-# RULES
+"integerRemChecked/integerMul" forall left right denominator. integerRemChecked (integerMul left right) denominator = integerMulRemChecked left right denominator
+"integerModChecked/integerMul" forall left right denominator. integerModChecked (integerMul left right) denominator = integerMulModChecked left right denominator
+  #-}
 
 -- | The magnitude of an 'Int#' as a 'Word#'. The magnitude of the minimum
 -- Int is 2^63, and it is correct as a word.
