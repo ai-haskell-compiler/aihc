@@ -1,14 +1,15 @@
-; Byte arrays have four descriptor slots followed by an inline payload: the
-; info table, the size, the contents address, and the charge in words.
+; Byte arrays have two descriptor slots followed by an inline payload: the
+; info table and the size. The payload is always 16 bytes after the array.
 ; Ordinary arrays move. Pinned arrays use separate GC-owned blocks, and their
-; info table is @aihc_pinned_byte_array_info. A pinned array has a fifth slot
-; with the alignment of its payload, because a resize keeps it.
+; info table is @aihc_pinned_byte_array_info. The block of a pinned array
+; with a large alignment records the alignment. See aihc_pinned_offset.
 ; Unchecked allocation wrappers require a reservation for the complete charge.
 include "aihc_constants.lir"
 
 extern func @aihc_byte_array_words(i64, i64, i64) -> i64 cc c
 extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
-extern func @aihc_gc_allocate_pinned(ptr, i64) -> ptr cc c
+extern func @aihc_gc_allocate_pinned_aligned(ptr, i64, i64) -> ptr cc c
+extern func @aihc_byte_array_alignment(ptr) -> i64 cc c
 
 export data @aihc_byte_array_info align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
@@ -138,7 +139,7 @@ inside:
 ; The address of byte %offset of %array.
 func @aihc_byte_array_address(%array: ptr, %offset: i64) -> ptr {
 entry:
-  %contents = load ptr [%array + 16] align 8
+  %contents = ptr.add %array, 16
   %address = ptr.add %contents, %offset
   return %address
 }
@@ -151,7 +152,7 @@ entry:
 
 pinned:
   %pinned_words = sub i64 %charged, 2
-  %fixed = call @aihc_gc_allocate_pinned(%capability, %pinned_words)
+  %fixed = call @aihc_gc_allocate_pinned_aligned(%capability, %pinned_words, %alignment)
   jump initialize(%fixed)
 
 movable:
@@ -162,52 +163,19 @@ initialize(%array: ptr):
   return %array
 }
 
-; Initialize allocated memory. The allocator has already charged its space.
+; Initialize allocated memory. The allocator has already charged its space,
+; and it put a pinned array where its payload has the alignment. The
+; alignment argument stays for the callers.
 export func @aihc_byte_array_initialize(%array: ptr, %size: i64, %pinned: i64, %alignment: i64) -> ptr cc c {
 entry:
-  %charged = call @aihc_byte_array_words(%size, %pinned, %alignment)
+  %ignored = call @aihc_byte_array_words(%size, %pinned, %alignment)
   %is_pinned = ne i64 %pinned, 0
-  %pinned_words = sub i64 %charged, 2
-  %words = select i64 %is_pinned, %pinned_words, %charged
-  %header_bytes = select i64 %is_pinned, 40, 32
-  %raw = ptr.add %array, %header_bytes
-  %raw_address = ptr.to_int %raw
-  %slack = sub i64 %alignment, 1
-  %biased = add i64 %raw_address, %slack
-  %mask = xor i64 %slack, -1
-  %aligned_address = and i64 %biased, %mask
-  %aligned = ptr.from_int %aligned_address
   %movable_info = ptr.to_int @aihc_byte_array_info
   %pinned_info = ptr.to_int @aihc_pinned_byte_array_info
   %info = select i64 %is_pinned, %pinned_info, %movable_info
   store i64 %info, [%array] align 8
   store i64 %size, [%array + 8] align 8
-  store ptr %aligned, [%array + 16] align 8
-  store i64 %words, [%array + 24] align 8
-  br %is_pinned, pinned, movable
-
-pinned:
-  store i64 %alignment, [%array + 32] align 8
   return %array
-
-movable:
-  return %array
-}
-
-; The alignment of the payload of an array: the fifth slot of a pinned array,
-; and eight for a movable array.
-func @aihc_byte_array_alignment(%array: ptr) -> i64 {
-entry:
-  %pinned = call @aihc_byte_array_is_pinned(%array)
-  %is_pinned = ne i64 %pinned, 0
-  br %is_pinned, pinned, movable
-
-pinned:
-  %alignment = load i64 [%array + 32] align 8
-  return %alignment
-
-movable:
-  return 8
 }
 
 export func @aihc_byte_array_new(%capability: ptr, %size: i64) -> ptr cc c {
@@ -244,7 +212,7 @@ entry:
 export func @aihc_byte_array_contents(%array: ptr) -> ptr cc c {
 entry:
   %ignored = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_null_message)
-  %contents = load ptr [%array + 16] align 8
+  %contents = ptr.add %array, 16
   return %contents
 }
 
@@ -254,8 +222,21 @@ entry:
   return %size
 }
 
-; Shrink an array in place. Only the recorded size changes; the contents keep
-; their allocation, so the bytes beyond the new size are simply unreachable.
+; The bytes of an array of %size bytes, from its header to the end of its
+; last word. An empty array keeps one payload byte.
+func @aihc_byte_array_object_bytes(%size: i64) -> i64 {
+entry:
+  %empty = eq i64 %size, 0
+  %occupied = select i64 %empty, 1, %size
+  %unrounded = add i64 %occupied, 23
+  %bytes = and i64 %unrounded, -8
+  return %bytes
+}
+
+; Shrink an array in place. The object then has the words of the new size,
+; as the heap walks compute them from the size. The words it frees become
+; zero, which a heap walk skips. The zeros are written before the new size,
+; and a release store publishes the size.
 export func @aihc_byte_array_shrink(%array: ptr, %size: i64) -> i64 cc c {
 entry:
   %checked = call @aihc_byte_array_count(%size)
@@ -268,7 +249,12 @@ invalid:
   trap "invalid byte array shrink"
 
 shrink:
-  store i64 %checked, [%array + 8] align 8
+  %old_bytes = call @aihc_byte_array_object_bytes(%current)
+  %new_bytes = call @aihc_byte_array_object_bytes(%checked)
+  %freed = sub i64 %old_bytes, %new_bytes
+  %tail = ptr.add %array, %new_bytes
+  call @aihc_memory_set(%tail, 0, %freed)
+  store.atomic release i64 %checked, [%array + 8]
   return 0
 }
 
@@ -415,8 +401,8 @@ invalid:
   trap "invalid byte array comparison"
 
 compare:
-  %left_contents = load ptr [%left + 16] align 8
-  %right_contents = load ptr [%right + 16] align 8
+  %left_contents = ptr.add %left, 16
+  %right_contents = ptr.add %right, 16
   %left_bytes = ptr.add %left_contents, %left_offset
   %right_bytes = ptr.add %right_contents, %right_offset
   %result = call @aihc_memory_compare(%left_bytes, %right_bytes, %length)

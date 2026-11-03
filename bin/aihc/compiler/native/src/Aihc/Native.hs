@@ -783,7 +783,7 @@ nativeRuntimePrimitiveCalls =
     machineCall "aihcInitArrayResize#" "aihc_array_initialize_resize" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     call "aihcInitByteArray#" "aihc_byte_array_initialize" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     call "aihcInitByteArrayResize#" "aihc_byte_array_initialize_resize" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
-    call "aihcByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,
+    call "aihcByteArrayPinned#" "aihc_byte_array_pin" [GrinForeignAddr] GrinForeignWord64,
     call "aihcArrayWords#" "aihc_array_words" [GrinForeignWord64] GrinForeignWord64,
     call "aihcByteArrayWords#" "aihc_byte_array_words" [GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "aihcResizeByteArrayWords#" "aihc_byte_array_resize_words" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,

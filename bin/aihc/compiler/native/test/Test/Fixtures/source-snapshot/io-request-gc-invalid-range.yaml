@@ -25,7 +25,7 @@ return: "@0"
 heap: |
   @0 = CResult -23
 allocated-bytes:
-  macos-arm64: 208
-  linux-amd64: 208
+  macos-arm64: 184
+  linux-amd64: 184
 status: pass
 reason: Submission must reject a slice outside its pinned byte-array owner.

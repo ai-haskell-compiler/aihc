@@ -38,7 +38,7 @@ expected: |
 
   fixed ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
     $cps_return$gc :: BoxedRep Lifted <-
-      ensure-heap (6 :: WordRep) ($cps_return :: BoxedRep Lifted)
+      ensure-heap (4 :: WordRep) ($cps_return :: BoxedRep Lifted)
     $cps_result :: BoxedRep Unlifted <-
       primitive-call @(BoxedRep Unlifted) aihcNewByteArrayUnchecked# (16 :: IntRep)
     continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
@@ -57,7 +57,7 @@ status: pass
 reason: |
   Dynamic allocation returns memory before byte array initialization.
   Resize preserves the pinned flag and relocates the source array.
-  A movable array of a fixed size gets a fixed reservation of six words.
-  These are four header words and two payload words for 16 bytes.
+  A movable array of a fixed size gets a fixed reservation of four words.
+  These are two header words and two payload words for 16 bytes.
   Then aihcNewByteArrayUnchecked# makes the array without a runtime call.
   The declaration of that primitive is new for the same reason.

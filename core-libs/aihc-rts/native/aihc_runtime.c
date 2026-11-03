@@ -205,10 +205,11 @@ uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
     aihc_fail("invalid byte array alignment");
   }
   uint64_t occupied = size == 0 ? 1 : (uint64_t)size;
-  uint64_t slack = pinned && alignment > 8 ? (uint64_t)alignment - 1 : 0;
+  /* A pinned block is at an offset in its allocation when the alignment is
+     above the natural alignment of a block. See aihc_pinned_offset. */
+  uint64_t slack = pinned ? aihc_pinned_offset((uint64_t)alignment) : 0;
   uint64_t overhead =
-      pinned ? sizeof(AihcPinnedByteArray) + sizeof(AihcPinnedBlock)
-             : sizeof(AihcByteArray);
+      sizeof(AihcByteArray) + (pinned ? sizeof(AihcPinnedBlock) : 0);
   if (slack > SIZE_MAX - overhead - 7 ||
       occupied > SIZE_MAX - overhead - 7 - slack) {
     aihc_fail("byte array allocation is too large");
@@ -221,11 +222,28 @@ uint64_t aihc_byte_array_resize_words(void *opaque_array, int64_t size) {
   if (array == NULL) {
     aihc_fail("attempted to resize a null byte array");
   }
+  return aihc_byte_array_words(size, aihc_byte_array_pinned(array),
+                               (int64_t)aihc_byte_array_alignment(array));
+}
+
+/* The payload alignment of an array, which a resize keeps. A pinned block at
+   an offset holds the alignment in the word before it. Other blocks have the
+   natural alignment, and a movable array has the alignment of a word. */
+uint64_t aihc_byte_array_alignment(void *opaque_array) {
+  AihcByteArray *array = opaque_array;
   if (!aihc_byte_array_pinned(array)) {
-    return aihc_byte_array_words(size, 0, 8);
+    return sizeof(AihcSlot);
   }
-  return aihc_byte_array_words(
-      size, 1, (int64_t)((const AihcPinnedByteArray *)array)->alignment);
+  const AihcPinnedBlock *block = aihc_pinned_block_of((const AihcValue *)array);
+  if ((block->bytes & AIHC_PINNED_ALIGNED) == 0) {
+    return AIHC_PINNED_NATURAL_ALIGNMENT;
+  }
+  return aihc_pinned_recorded_alignment(block);
+}
+
+uint64_t aihc_byte_array_pin(void *opaque_array) {
+  AihcByteArray *array = opaque_array;
+  return aihc_byte_array_pinned(array) ? aihc_byte_array_alignment(array) : 0;
 }
 
 static AihcSlot aihc_make_header(const AihcInfo *info) {
@@ -260,7 +278,7 @@ uint64_t aihc_value_words(const AihcValue *value) {
   case AIHC_OBJECT_IO_REQUEST:
     return aihc_record_words(sizeof(AihcIoRequest));
   case AIHC_OBJECT_BYTE_ARRAY:
-    return ((const AihcByteArray *)value)->words;
+    return aihc_byte_array_object_words(((const AihcByteArray *)value)->size);
   case AIHC_OBJECT_STABLE_NAME:
     return aihc_record_words(sizeof(AihcStableName));
   case AIHC_OBJECT_THREAD:
@@ -664,6 +682,9 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
   switch (aihc_value_kind(object)) {
   case AIHC_OBJECT_IO_HANDLE:
+  case AIHC_OBJECT_BYTE_ARRAY:
+    /* A byte array has no pointer fields, and its payload follows its
+       header wherever the array is. */
     return 1;
   case AIHC_OBJECT_IO_REQUEST: {
     AihcIoRequest *request = (AihcIoRequest *)object;
@@ -672,13 +693,6 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
     aihc_visit_value(&request->buffer_owner, visitor, context);
     aihc_visit_value(&request->continuation, visitor, context);
     request->thread = aihc_visit_pointer(request->thread, visitor, context);
-    return 1;
-  }
-  case AIHC_OBJECT_BYTE_ARRAY: {
-    AihcByteArray *array = (AihcByteArray *)object;
-    if (!aihc_byte_array_pinned(array)) {
-      array->contents = (uint8_t *)(array + 1);
-    }
     return 1;
   }
   case AIHC_OBJECT_STABLE_NAME:
@@ -1457,17 +1471,19 @@ void *aihc_rts_publish_array(void *opaque_array) {
     return array;
   }
   size_t size = (size_t)array->size;
-  AihcPinnedByteArray *copy = malloc(sizeof(*copy) + (size == 0 ? 1 : size));
-  if (copy == NULL) {
+  /* A pinned array has a block header before it. This copy is not on a
+     pinned list, thus its block header is zero. */
+  AihcPinnedBlock *block =
+      calloc(1, sizeof(AihcPinnedBlock) + sizeof(AihcByteArray) +
+                    (size == 0 ? 1 : size));
+  if (block == NULL) {
     aihc_fail("out of memory");
   }
-  *copy = (AihcPinnedByteArray){
-      .array = {.header = (AihcSlot)(uintptr_t)&aihc_pinned_byte_array_info,
-                .size = array->size,
-                .contents = (uint8_t *)(copy + 1),
-                .words = 0},
-      .alignment = 8};
-  memcpy(copy->array.contents, array->contents, size);
+  AihcByteArray *copy = (AihcByteArray *)block->object;
+  *copy = (AihcByteArray){.header =
+                              (AihcSlot)(uintptr_t)&aihc_pinned_byte_array_info,
+                          .size = array->size};
+  memcpy(aihc_byte_array_payload(copy), aihc_byte_array_payload(array), size);
   return copy;
 }
 
@@ -2100,8 +2116,7 @@ static AihcByteArray *aihc_pinned_array_at(AihcMachine *machine,
         continue;
       }
       AihcByteArray *array = (AihcByteArray *)object;
-      uintptr_t start =
-          (uintptr_t)__atomic_load_n(&array->contents, __ATOMIC_RELAXED);
+      uintptr_t start = (uintptr_t)aihc_byte_array_payload(array);
       uint64_t size = __atomic_load_n(&array->size, __ATOMIC_RELAXED);
       if (address >= start && address - start <= size) {
         *start_out = start;

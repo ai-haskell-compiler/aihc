@@ -997,26 +997,28 @@ The lifetime rule follows [System.Mem.StableName](https://downloads.haskell.org/
 
 ## Byte arrays and pinned storage
 
-A byte array has four eight-byte descriptor slots followed by its payload.
-The slots contain the header, current size, contents address, and allocation size.
+A byte array has two eight-byte descriptor slots followed by its payload, as in GHC.
+The slots contain the header and the current size.
+The payload always starts 16 bytes after the array, thus compiled code computes its address without a load.
 A pinned array has the info table `aihc_pinned_byte_array_info`.
 A movable array has `aihc_byte_array_info` when it is mutable and `aihc_frozen_byte_array_info` when it is frozen.
 A pinned array does not move, thus a freeze or a thaw keeps its table.
 An empty array still has one payload byte.
-The allocation size remains unchanged after shrink, so the collector can traverse the complete object.
+The object size comes from the current size.
+A shrink writes zero to the words that it frees before it stores the new size, and a heap walk skips zero words.
 
 `newByteArray#` uses the movable heap.
-After relocation, the collector repairs the contents address to point after the descriptor.
 Pinned allocations contain their descriptor and payload in one separate block.
-The payload preserves the requested power-of-two alignment.
 Two metadata slots precede the object and contain the list link and complete charge.
-The metadata address is the allocation base.
+The payload is 32 bytes after the block, and the allocators give the block an alignment of 16.
+For a larger power-of-two alignment, the allocation puts the block at an offset, so that the payload has the alignment.
+The word before the block then holds the alignment, and a flag in the charge word tells the release that the block has an offset.
+The pinned operand of an allocation is zero for a movable object and the payload alignment for a pinned byte array.
 
 The GRIN GC stage calls a size helper before each allocation or resize.
 The helper checks the size and alignment and computes the complete reservation in slots.
 The existing reservation transformation protects the source array and other live pointers.
 The Lir allocation functions consume this reservation without collection.
-A pinned array has a fifth slot with the alignment of its payload.
 Resize copies into a new array and preserves the pinned table and the alignment.
 
 `aihc_gc_allocate_pinned` consumes the same budget as movable allocation.

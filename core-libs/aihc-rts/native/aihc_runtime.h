@@ -895,6 +895,11 @@ uint64_t aihc_array_words(int64_t count);
 uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
                                int64_t alignment);
 uint64_t aihc_byte_array_resize_words(void *array, int64_t size);
+/* The payload alignment that a resize of an array keeps. */
+uint64_t aihc_byte_array_alignment(void *array);
+/* Zero for a movable array, and the payload alignment of a pinned array:
+   the pinned operand of aihc_heap_allocate for a copy of the array. */
+uint64_t aihc_byte_array_pin(void *array);
 void *aihc_byte_array_new(AihcCapability *capability, int64_t size);
 void *aihc_byte_array_new_pinned(AihcCapability *capability, int64_t size);
 void *aihc_byte_array_new_aligned_pinned(AihcCapability *capability,
