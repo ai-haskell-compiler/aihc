@@ -58,9 +58,10 @@ module Aihc.Grin.Simplify
 where
 
 import Aihc.Grin.Allocation (placeGrinAllocations)
-import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars)
+import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
 import Control.Applicative ((<|>))
+import Data.Bifunctor (first)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -91,14 +92,24 @@ data Env = Env
     -- variables, by its constructor and fields. See 'knownPointer'.
     envPointers :: !(Map (Text, [GrinVar]) GrinVar),
     -- | The pointers and the fields that 'envPointers' names.
-    envPointerVars :: !(Set GrinVar)
+    envPointerVars :: !(Set GrinVar),
+    -- | The functions that return a box, with the worker that returns its
+    -- field. See 'boxWorkers'.
+    envBoxWorkers :: !(Map FunctionName BoxWorker)
   }
 
 -- | Simplify every function body of a program.
 simplifyGrinProgram :: GrinProgram -> GrinProgram
-simplifyGrinProgram program =
+simplifyGrinProgram program0 =
   placeGrinAllocations program {grinFunctions = map simplifyFunction (grinFunctions program)}
   where
+    workers = boxWorkers program0
+    -- The new workers join the program. A worker that no call names goes
+    -- in the sweep that follows. A program that an earlier run made has
+    -- its workers already.
+    existing = Set.fromList (map grinFunctionName (grinFunctions program0))
+    added = [function | worker <- Map.elems workers, let function = boxWorkerFunction worker, Set.notMember (grinFunctionName function) existing]
+    program = program0 {grinFunctions = grinFunctions program0 <> added}
     env =
       Env
         { envFunctions =
@@ -121,7 +132,8 @@ simplifyGrinProgram program =
           envKnown = Map.empty,
           envEvaluated = Set.empty,
           envPointers = Map.empty,
-          envPointerVars = Set.empty
+          envPointerVars = Set.empty,
+          envBoxWorkers = workers
         }
     simplifyFunction function =
       function {grinFunctionBody = fst (simplifyExpr env (grinFunctionBody function))}
@@ -243,7 +255,9 @@ simplifyExpr env expression =
       | isMatchFailure valueExpression -> (valueExpression, freeExprVars valueExpression)
     GrinBind vars valueExpression body ->
       let (value', valueFree) = simplifyExpr env valueExpression
-       in bindSimplified vars (value', valueFree) (simplifyExpr (bindResults env vars value') body)
+       in case unboxedCall env vars value' body of
+            Just unboxed -> simplifyExpr env unboxed
+            Nothing -> bindSimplified vars (value', valueFree) (simplifyExpr (bindResults env vars value') body)
     GrinStoreRec bindings body -> simplifyStoreRec env bindings body
     GrinStoreRecUnchecked bindings body ->
       let inner = List.foldl' (\current (var, node) -> know var node current) (forget (map fst bindings) env) bindings
@@ -287,6 +301,131 @@ simplifyExpr env expression =
                 freeValueVars scrutinee <> foldMap snd simplified
               )
     _ -> (expression, freeExprVars expression)
+
+-- | A worker of a function that returns a box: a constructor node with
+-- one unlifted field.
+data BoxWorker = BoxWorker
+  { boxWorkerConstructor :: !Text,
+    boxWorkerFieldRep :: !GrinRep,
+    boxWorkerFunction :: !GrinFunction
+  }
+
+-- | A direct call of a function that returns a box, bound to a variable,
+-- as a call of the worker that returns the field and a store of the box.
+-- A fetch of the box then reads the field, and a box that nothing uses
+-- goes. The field variable takes the unique of the bound variable, with
+-- its own name, so that it is as unique as that binder.
+unboxedCall :: Env -> [GrinVar] -> GrinExpr -> GrinExpr -> Maybe GrinExpr
+unboxedCall env vars value body =
+  case (vars, value) of
+    ([var], GrinCall resultRep name arguments)
+      | resultRep == liftedResultRep,
+        Just worker <- Map.lookup name (envBoxWorkers env) ->
+          let field = GrinVar (grinVarName var <> "_field") (grinVarUnique var) (boxWorkerFieldRep worker)
+              box = GrinStore (GrinNode (GrinConstructor (boxWorkerConstructor worker) 0) [GrinVarValue field])
+           in Just (GrinBind [field] (GrinCall (ResultRep (boxWorkerFieldRep worker)) (grinFunctionName (boxWorkerFunction worker)) arguments) (GrinBind [var] box body))
+    _ -> Nothing
+
+-- | The workers of the functions that return a box. Such a function
+-- returns, on each path, a new constructor node of one constructor with
+-- one unlifted field, or it does not return at all. Its worker returns the
+-- field instead of the node.
+--
+-- A direct call of the code of a thunk that boxes a byte, as
+-- @BS.index@ does, allocated the box only for the caller to fetch the
+-- byte. The function itself stays, because a thunk node names it and
+-- its update needs the box.
+boxWorkers :: GrinProgram -> Map FunctionName BoxWorker
+boxWorkers program =
+  Map.fromList
+    [ (grinFunctionName function, worker)
+    | function <- grinFunctions program,
+      grinFunctionResultRep function == liftedResultRep,
+      Just (constructor, fieldRep) <- [boxResult (grinFunctionBody function)],
+      -- A function of the worker's name from an earlier run must be that
+      -- worker.
+      maybe True ((== ResultRep fieldRep) . grinFunctionResultRep) (Map.lookup (workerName function) functions),
+      let worker =
+            BoxWorker
+              { boxWorkerConstructor = constructor,
+                boxWorkerFieldRep = fieldRep,
+                boxWorkerFunction =
+                  function
+                    { grinFunctionName = workerName function,
+                      grinFunctionResultRep = ResultRep fieldRep,
+                      grinFunctionBody = unboxTails constructor (maximumProgramVarUnique program + 1) (grinFunctionBody function)
+                    }
+              }
+    ]
+  where
+    functions = Map.fromList [(grinFunctionName function, function) | function <- grinFunctions program]
+    workerName function = FunctionName (unFunctionName (grinFunctionName function) <> "_unboxed")
+    layouts = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program]
+    diverging = divergingFunctions program
+    -- The constructor and the field representation of the boxes the body
+    -- returns, when every path returns one or does not return.
+    boxResult body = do
+      boxes <- tails body
+      (constructor, rep) <- case List.nub boxes of
+        [box] -> Just box
+        _ -> Nothing
+      if rep == liftedGrinRep then Nothing else Just (constructor, rep)
+    tails expression =
+      case expression of
+        GrinStore (GrinNode (GrinConstructor constructor 0) [_])
+          | Just [[rep]] <- Map.lookup constructor layouts -> Just [(constructor, rep)]
+        GrinBind _ _ body -> tails body
+        GrinStoreRec _ body -> tails body
+        GrinCase _ _ alternatives -> concat <$> mapM (tails . grinAltRhs) alternatives
+        _
+          | doesNotReturn diverging expression -> Just []
+          | otherwise -> Nothing
+
+-- | The body of a worker: each path returns the field of its box. A path
+-- that calls a function that does not return reads the field of the
+-- result, which it never gets. The result of each such call gets its own
+-- unique, from the given one up.
+unboxTails :: Text -> Int -> GrinExpr -> GrinExpr
+unboxTails constructor firstUnique = fst . go firstUnique
+  where
+    go next expression =
+      case expression of
+        GrinStore (GrinNode (GrinConstructor name 0) [field])
+          | name == constructor -> (GrinConstant [field], next)
+        GrinBind vars value body -> first (GrinBind vars value) (go next body)
+        GrinStoreRec bindings body -> first (GrinStoreRec bindings) (go next body)
+        GrinCase scrutinee binder alternatives ->
+          let step (done, current) alternative =
+                let (rhs, current') = go current (grinAltRhs alternative)
+                 in (done <> [alternative {grinAltRhs = rhs}], current')
+              (alternatives', next') = List.foldl' step ([], next) alternatives
+           in (GrinCase scrutinee binder alternatives', next')
+        GrinCall {} ->
+          let result = GrinVar "diverged" next liftedGrinRep
+           in (GrinBind [result] expression (GrinFetch (GrinConstructor constructor 0) (GrinVarValue result)), next + 1)
+        _ -> (expression, next)
+
+-- | The functions that never return: each path throws, exits, fails to
+-- match, or calls such a function.
+divergingFunctions :: GrinProgram -> Set FunctionName
+divergingFunctions program = grow Set.empty
+  where
+    grow known =
+      let known' = Set.fromList [grinFunctionName function | function <- grinFunctions program, doesNotReturn known (grinFunctionBody function)]
+       in if known' == known then known else grow (known' <> known)
+
+-- | Whether an expression never returns, given the functions that never
+-- return.
+doesNotReturn :: Set FunctionName -> GrinExpr -> Bool
+doesNotReturn diverging expression =
+  case expression of
+    GrinThrow {} -> True
+    GrinExit {} -> True
+    GrinCall _ name _ -> Set.member name diverging
+    GrinBind _ value body -> doesNotReturn diverging value || doesNotReturn diverging body
+    GrinStoreRec _ body -> doesNotReturn diverging body
+    GrinCase _ _ alternatives -> all (doesNotReturn diverging . grinAltRhs) alternatives
+    _ -> False
 
 -- | Move a small call continuation into branches that return functions.
 -- The selected branch still runs before each primitive operation in the continuation.

@@ -1,0 +1,45 @@
+program: |
+  constructor Box [IntRep]
+
+  $fail (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    throw (exception :: BoxedRep Lifted)
+
+  $box (index :: IntRep) (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (index :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        call @(BoxedRep Lifted) $fail (exception :: BoxedRep Lifted)
+      _ ->
+        store (CBox (index :: IntRep))
+
+  $entry (index :: IntRep) (exception :: BoxedRep Lifted) -> IntRep =
+    boxed :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $box (index :: IntRep) (exception :: BoxedRep Lifted)
+    value :: IntRep <-
+      fetch (CBox) (boxed :: BoxedRep Lifted)
+    constant (value :: IntRep)
+expected: |-
+  constructor Box [IntRep]
+
+  $fail (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    throw (exception :: BoxedRep Lifted)
+
+  $box (index :: IntRep) (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (index :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        call @(BoxedRep Lifted) $fail (exception :: BoxedRep Lifted)
+      _ ->
+        store (CBox (index :: IntRep))
+
+  $entry (index :: IntRep) (exception :: BoxedRep Lifted) -> IntRep =
+    call @IntRep $box_unboxed (index :: IntRep) (exception :: BoxedRep Lifted)
+
+  $box_unboxed (index :: IntRep) (exception :: BoxedRep Lifted) -> IntRep =
+    case (index :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        diverged%1 :: BoxedRep Lifted <-
+          call @(BoxedRep Lifted) $fail (exception :: BoxedRep Lifted)
+        fetch (CBox) (diverged%1 :: BoxedRep Lifted)
+      _ ->
+        constant (index :: IntRep)
+status: pass
+reason: a function returns a new one-field box on each path that returns, so a direct call whose result is only fetched calls a worker that returns the field, and no box is allocated
