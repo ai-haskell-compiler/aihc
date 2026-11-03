@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Representations of datatypes as sums of products, and the classes that
 -- convert a value to and from its representation.
@@ -444,6 +445,13 @@ newtype Generically a = Generically a
 -- | A type whose instances are defined generically, through the
 -- 'Generic1' representation. Use it with @DerivingVia@.
 newtype Generically1 (f :: Type -> Type) (a :: Type) = Generically1 (f a)
+
+instance (Generic a, Semigroup (Rep a ())) => Semigroup (Generically a) where
+  Generically left <> Generically right =
+    Generically (to (from left <> from right :: Rep a ()))
+
+instance (Generic a, Monoid (Rep a ())) => Monoid (Generically a) where
+  mempty = Generically (to (mempty :: Rep a ()))
 
 instance (Generic1 f, Functor (Rep1 f)) => Functor (Generically1 f) where
   fmap f (Generically1 values) = Generically1 (to1 (fmap f (from1 values)))
