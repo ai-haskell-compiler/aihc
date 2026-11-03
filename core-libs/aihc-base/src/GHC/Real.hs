@@ -1,6 +1,10 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
+-- remainderOfProduct and modulusOfProduct keep their arguments: each is a
+-- NOINLINE call with the arity of its body.
+{-# HLINT ignore "Eta reduce" #-}
+
 module GHC.Real
   ( Fractional (..),
     Integral (..),
