@@ -284,6 +284,10 @@ data ControlEntry
     -- of the prompt it was captured up to. A raise and a capture both pass
     -- through it, since a resume installs no prompt.
     ControlResume !ScheduledContinuation
+  | -- | An action that runs with the masking state, numbered as
+    -- getMaskingState# numbers it, and where the action returns to. The
+    -- nearest mask entry gives the state of the thread.
+    ControlMask !Integer !ScheduledContinuation
 
 newtype MVarValueWaiter = MVarValueWaiter (RuntimeValue -> ThreadAction)
 
@@ -525,11 +529,13 @@ evalScheduledExpr env expr continue =
 evalScheduledPrimitive :: Text -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
 evalScheduledPrimitive "fork#" [action] continue = do
   threadId <- allocateThread
-  -- A new thread starts with an empty control stack.
+  -- A new thread starts with an empty control stack and the masking state
+  -- of its parent, as in GHC.
+  state <- currentMaskState
   pushThread $
     ThreadAction
       threadId
-      []
+      [ControlMask state (const scheduleNextThread) | state /= unmasked]
       ( -- The child thread enters its own closure. Forking a thunk is legal, and
         -- an already forced action may sit behind an indirection, so neither is
         -- a value 'applyScheduledValue' can consume directly.
@@ -632,6 +638,18 @@ evalScheduledPrimitive "aihcControl0#" [tagValue, function] continue = do
   -- The prompt is popped with the entries above it, so the function runs
   -- where the prompt returned to.
   applyScheduledValue function [captured] promptContinue
+evalScheduledPrimitive "maskAsyncExceptions#" [action] continue = runWithMask maskedInterruptible action continue
+evalScheduledPrimitive "maskUninterruptible#" [action] continue = runWithMask maskedUninterruptible action continue
+evalScheduledPrimitive "unmaskAsyncExceptions#" [action] continue = runWithMask unmasked action continue
+-- The interpreter runs one thread at a time and has no delivery points, so
+-- only a throwTo to the running thread is supported. It raises at once.
+evalScheduledPrimitive "killThread#" [thread, exception] _ = do
+  current <- getsMachine machineCurrentThread
+  case (current, thread) of
+    (RuntimeLocation currentLocation, RuntimeLocation targetLocation)
+      | currentLocation == targetLocation -> raiseScheduled exception
+    _ ->
+      throwInterpret (InterpretControlStack "the GRIN interpreter supports a throwTo only to the running thread")
 evalScheduledPrimitive "aihcResume#" [capturedValue, action] continue = do
   GrinContinuation _ entries body <- expectContinuationPrimitiveArgument "aihcResume#" capturedValue
   modifyMachine $ \machine ->
@@ -639,6 +657,26 @@ evalScheduledPrimitive "aihcResume#" [capturedValue, action] continue = do
   forceScheduledValue action (\entered -> applyScheduledValue entered [] body)
 evalScheduledPrimitive name arguments continue =
   continue =<< evalPrimitive name arguments
+
+-- | The masking states, numbered as getMaskingState# numbers them.
+unmasked, maskedUninterruptible, maskedInterruptible :: Integer
+unmasked = 0
+maskedUninterruptible = 1
+maskedInterruptible = 2
+
+-- | The masking state of the running thread: the state of the nearest mask
+-- entry on its control stack.
+currentMaskState :: EvalM Integer
+currentMaskState = do
+  stack <- getsMachine machineControlStack
+  pure $ case [state | ControlMask state _ <- stack] of
+    state : _ -> state
+    [] -> unmasked
+
+runWithMask :: Integer -> RuntimeValue -> ScheduledContinuation -> EvalM [RuntimeValue]
+runWithMask state action continue = do
+  pushControl (ControlMask state continue)
+  forceScheduledValue action (\entered -> applyScheduledValue entered [] returnThroughControl)
 
 pushControl :: ControlEntry -> EvalM ()
 pushControl entry =
@@ -663,7 +701,14 @@ raiseScheduled exception = do
   entry <- popControl
   case entry of
     Nothing -> throwE (EvalRaised exception)
-    Just (ControlCatch handler state continue) -> applyScheduledValue handler (exception : state) continue
+    Just (ControlCatch handler state continue) -> do
+      -- The handler runs masked interruptibly, or masked uninterruptibly
+      -- when the thread was.
+      current <- currentMaskState
+      let masked = if current == maskedUninterruptible then current else maskedInterruptible
+      pushControl (ControlMask masked continue)
+      applyScheduledValue handler (exception : state) returnThroughControl
+    Just (ControlMask {}) -> raiseScheduled exception
     Just (ControlPrompt {}) -> raiseScheduled exception
     Just (ControlResume {}) -> raiseScheduled exception
     Just (ControlUpdate location cell) -> do
@@ -679,6 +724,7 @@ returnThroughControl results = do
     Just (ControlCatch _ _ continue) -> continue results
     Just (ControlPrompt _ continue) -> continue results
     Just (ControlResume continue) -> continue results
+    Just (ControlMask _ continue) -> continue results
     Just (ControlUpdate {}) -> throwInterpret (InterpretControlStack "a body returned through a thunk update")
     Nothing -> throwInterpret (InterpretControlStack "a body returned through an empty control stack")
 
@@ -1387,6 +1433,9 @@ evalPrimitive "noDuplicate#" [] = pure []
 evalPrimitive "makeStableName#" [value] = do
   name <- liftEvalIO (Host.makeStableName value)
   pure [RuntimeStableName (GrinStableName name)]
+evalPrimitive "getMaskingState#" [] = do
+  state <- currentMaskState
+  pure [RuntimeLit (GrinLitInt IntRep state)]
 evalPrimitive "myThreadId#" [] = do
   thread <- getsMachine machineCurrentThread
   pure [thread]

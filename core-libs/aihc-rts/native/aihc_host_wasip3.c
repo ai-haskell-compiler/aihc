@@ -48,6 +48,9 @@ void aihc_host_workers_start(AihcCapability *capability) {
   aihc_fail("this host has one capability");
 }
 
+/* WASI P3 has no threads, so no ticker interrupts a long computation. */
+void aihc_host_ticker_start(AihcMachine *machine) { (void)machine; }
+
 void aihc_host_sleep_ns(uint64_t duration) {
   (void)duration;
   aihc_fail("this host has one capability");

@@ -84,7 +84,15 @@ cold entry_collect:
   %entry_continuation_word = ptr.to_int %continuation
   store i64 %entry_continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(%base, 0, 2, %roots, null)
+  ; An asynchronous exception can interrupt the evaluation here.
+  %entry_interrupt = call @aihc_eval_collect(%base, 0, %roots)
+  %entry_interrupted = ne ptr %entry_interrupt, null
+  br %entry_interrupted, entry_deliver, entry_collected
+
+cold entry_deliver:
+  tailcall @aihc_lir_resume(%base, %entry_interrupt)
+
+cold entry_collected:
   %moved_entry_value_word = load i64 [%roots] align 8
   %moved_entry_value = ptr.from_int %moved_entry_value_word
   %moved_entry_continuation_word = load i64 [%roots + 8] align 8
@@ -163,7 +171,14 @@ cold stack_collect:
   %thunk_continuation_word = ptr.to_int %continuation
   store i64 %thunk_continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(%base, 0, 2, %roots, null)
+  %stack_interrupt = call @aihc_eval_collect(%base, 0, %roots)
+  %stack_interrupted = ne ptr %stack_interrupt, null
+  br %stack_interrupted, stack_deliver, stack_collected
+
+cold stack_deliver:
+  tailcall @aihc_lir_resume(%base, %stack_interrupt)
+
+cold stack_collected:
   %moved_thunk_word = load i64 [%roots] align 8
   %moved_thunk = ptr.from_int %moved_thunk_word
   %moved_thunk_continuation_word = load i64 [%roots + 8] align 8
@@ -208,7 +223,14 @@ cold collect:
   %continuation_word = ptr.to_int %continuation
   store i64 %continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(%base, @AIHC_EVAL_WAITER_WORDS, 2, %roots, null)
+  %waiter_interrupt = call @aihc_eval_collect(%base, @AIHC_EVAL_WAITER_WORDS, %roots)
+  %waiter_interrupted = ne ptr %waiter_interrupt, null
+  br %waiter_interrupted, waiter_deliver, waiter_collected
+
+cold waiter_deliver:
+  tailcall @aihc_lir_resume(%base, %waiter_interrupt)
+
+cold waiter_collected:
   %moved_value_word = load i64 [%roots] align 8
   %moved_value = ptr.from_int %moved_value_word
   %moved_continuation_word = load i64 [%roots + 8] align 8
@@ -246,7 +268,14 @@ cold entry_collect:
   %continuation_word = ptr.to_int %continuation
   store i64 %continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(%base, 0, 2, %roots, null)
+  %single_interrupt = call @aihc_eval_collect(%base, 0, %roots)
+  %single_interrupted = ne ptr %single_interrupt, null
+  br %single_interrupted, single_deliver, single_collected
+
+cold single_deliver:
+  tailcall @aihc_lir_resume(%base, %single_interrupt)
+
+cold single_collected:
   %moved_value_word = load i64 [%roots] align 8
   %moved_value = ptr.from_int %moved_value_word
   %moved_continuation_word = load i64 [%roots + 8] align 8
@@ -313,6 +342,7 @@ dispatch:
     @AIHC_RESUME_APPLY -> apply
     @AIHC_RESUME_CONTINUE -> continue
     @AIHC_RESUME_RAISE -> raise
+    @AIHC_RESUME_EVAL -> eval
     default -> invalid
   }
 
@@ -345,6 +375,9 @@ continue_one:
 raise:
   %result = call @aihc_raise(%capability, %function, %continuation)
   tailcall @aihc_lir_resume(%capability, %result)
+
+eval:
+  tailcall @aihc_lir_eval(%hp, %sp, %base, %function, %continuation)
 
 invalid:
   call @aihc_no_match()
@@ -718,7 +751,10 @@ word:
 ; Eval creates another update frame only if it enters another thunk.
 ; The update neither allocates nor reads the stack pointer, so the capability
 ; does not need the context for it.
-extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) -> ptr cc c
+extern func @aihc_eval_collect(ptr, i64, ptr) -> ptr cc c
+extern func @aihc_restore_mask(ptr, ptr, i64) -> ptr cc c
+extern func @aihc_ap_stack_enter(ptr, ptr, ptr) -> ptr cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) -> ptr cc c
 extern func @aihc_escape_collect(ptr, i64, ptr, ptr) cc c
 extern func @aihc_write_barrier(ptr, ptr) cc c
@@ -934,6 +970,69 @@ export data @aihc_lir_cps_update_info align 8 = {
   i8 @AIHC_FRAME_UPDATE,                  ; frame_kind
   i8 @AIHC_OBJECT_CLOSURE,                ; object_kind
   i8 @AIHC_NEEDS_EVAL_NONE,               ; needs_eval
+  i8 0,                                   ; padding
+  i16 0                                   ; constructor_index
+}
+
+; The restore-mask frame of the mask operations and of a catch handler:
+; the parent and the masking state to set again. The action returns one
+; value, so the frame wants a pointer. See aihc_restore_mask.
+export func @aihc_lir_restore_mask_entry(%hp: ptr, %sp: ptr, %base: ptr, %frame: ptr, %value: ptr) {
+entry:
+  store ptr %hp, [%base + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%base + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
+  %value_word = ptr.to_int %value
+  %result = call @aihc_restore_mask(%base, %frame, %value_word)
+  tailcall @aihc_lir_resume(%base, %result)
+}
+
+data @aihc_lir_restore_mask_bitmap align 1 = {
+  bytes "\x01\x00\x01"
+}
+
+export data @aihc_lir_restore_mask_info align 8 = {
+  code @aihc_lir_restore_mask_entry,      ; identity
+  ptr @aihc_lir_restore_mask_bitmap,      ; field_is_pointer
+  ptr null,                               ; next
+  code @aihc_lir_restore_mask_entry,      ; backend_entry
+  ptr null,                               ; srt
+  i8 2,                                   ; field_count
+  i8 1,                                   ; remaining_arity
+  i8 @AIHC_FRAME_RESTORE_MASK,            ; frame_kind
+  i8 @AIHC_OBJECT_CLOSURE,                ; object_kind
+  i8 @AIHC_NEEDS_EVAL_NONE,               ; needs_eval
+  i8 0,                                   ; padding
+  i16 0                                   ; constructor_index
+}
+
+; The thunk that an asynchronous exception leaves for an interrupted
+; evaluation: the owner word, the copies of the frozen frames, the function
+; and the value of the resumption at the top, and the packed resumption
+; kind, value count, and masking state. Its entry pushes the copies and
+; continues the work. See aihc_ap_stack_enter.
+export func @aihc_lir_ap_stack_entry(%hp: ptr, %sp: ptr, %base: ptr, %thunk: ptr, %continuation: ptr) {
+entry:
+  store ptr %hp, [%base + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%base + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
+  %result = call @aihc_ap_stack_enter(%base, %thunk, %continuation)
+  tailcall @aihc_lir_resume(%base, %result)
+}
+
+data @aihc_lir_ap_stack_bitmap align 1 = {
+  bytes "\x00\x01\x01\x01\x00"
+}
+
+export data @aihc_lir_ap_stack_info align 8 = {
+  code @aihc_lir_ap_stack_entry,          ; identity
+  ptr @aihc_lir_ap_stack_bitmap,          ; field_is_pointer
+  ptr null,                               ; next
+  code @aihc_lir_ap_stack_entry,          ; backend_entry
+  ptr null,                               ; srt
+  i8 5,                                   ; field_count
+  i8 0,                                   ; remaining_arity
+  i8 @AIHC_FRAME_NONE,                    ; frame_kind
+  i8 @AIHC_OBJECT_THUNK,                  ; object_kind
+  i8 @AIHC_NEEDS_EVAL_ENTER,              ; needs_eval
   i8 0,                                   ; padding
   i16 0                                   ; constructor_index
 }

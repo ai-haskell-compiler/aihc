@@ -60,10 +60,52 @@ struct AihcThread {
      runs it or will wake it. Only that capability changes the field, when
      it pushes the thread to another capability. */
   uint64_t capability;
+  /* The masking state, with the values of getMaskingState#. */
+  uint8_t mask_state;
+  /* What the thread waits for. The object lock guards the wait fields. */
+  uint8_t blocked_kind;
+  /* Whether the thread is on the async_targets list of its capability. */
+  uint8_t async_listed;
+  /* The number of cancelled waits. A waiter record keeps the epoch of its
+     wait, so the record of a cancelled wait does not match the thread. The
+     thread names no waiter record: a dead thread in gen2 then keeps no
+     young waiter and no frame of its wait alive. */
+  uint32_t wait_epoch;
+  /* The IO request of an IO wait. The requests of the capability reach it
+     anyway. */
+  AihcValue *blocked_on;
+  /* The queued throwTo messages, oldest first. Each is an MVar waiter
+     record: the sending thread, its continuation, and the exception. A
+     message whose thread is null was cancelled. The object lock guards the
+     queue. */
+  AihcMVarWaiter *pending_head;
+  AihcMVarWaiter *pending_tail;
+  /* The exception that the capability of the thread raises in it when it
+     runs next. The delivery takes it from the queue. */
+  AihcValue *async_exception;
+  /* The link of the async_targets list of the capability. */
+  AihcThread *async_next;
+};
+
+enum {
+  AIHC_MASK_UNMASKED = 0,
+  AIHC_MASK_UNINTERRUPTIBLE = 1,
+  AIHC_MASK_INTERRUPTIBLE = 2,
+};
+
+enum {
+  AIHC_BLOCKED_NONE = 0,
+  AIHC_BLOCKED_MVAR,
+  AIHC_BLOCKED_BLACKHOLE,
+  AIHC_BLOCKED_IO,
+  AIHC_BLOCKED_STM,
+  AIHC_BLOCKED_THROW_TO,
+  /* The thread ended. A throwTo to it does nothing. */
+  AIHC_BLOCKED_FINISHED,
 };
 
 /* Match the fork# reservation in Aihc.Grin.Primitive. */
-_Static_assert(sizeof(AihcThread) <= 11 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcThread) <= 17 * sizeof(AihcSlot),
                "thread exceeds the GRIN reservation");
 
 typedef struct AihcTransactionWrite AihcTransactionWrite;
@@ -109,6 +151,9 @@ struct AihcBlackholeWaiter {
   AihcThread *thread;
   AihcValue *continuation;
   AihcBlackholeWaiter *next;
+  /* The wait_epoch of the thread when it started the wait. An asynchronous
+     exception cancels the wait by a change of the epoch of the thread. */
+  uint64_t epoch;
 };
 
 /* A claimed thunk with waiters names a blackhole queue in field zero. The
@@ -125,10 +170,10 @@ struct AihcBlackholeQueue {
 };
 
 /* Match the evaluation reservation in aihc_constants.lir. */
-_Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcBlackholeWaiter) <= 5 * sizeof(AihcSlot),
                "blackhole waiter exceeds the GRIN reservation");
 _Static_assert(sizeof(AihcBlackholeWaiter) + sizeof(AihcBlackholeQueue) <=
-                   10 * sizeof(AihcSlot),
+                   11 * sizeof(AihcSlot),
                "blackhole queue exceeds the GRIN reservation");
 
 struct AihcMVarWaiter {
@@ -137,6 +182,9 @@ struct AihcMVarWaiter {
   AihcValue *continuation;
   AihcSlot value;
   AihcMVarWaiter *next;
+  /* The wait_epoch of the thread when it started the wait. See
+     AihcBlackholeWaiter. */
+  uint64_t epoch;
 };
 
 struct AihcMVar {
@@ -153,7 +201,7 @@ struct AihcMVar {
 
 _Static_assert(sizeof(AihcMVar) <= 9 * sizeof(AihcSlot),
                "MVar exceeds the GRIN reservation");
-_Static_assert(sizeof(AihcMVarWaiter) <= 5 * sizeof(AihcSlot),
+_Static_assert(sizeof(AihcMVarWaiter) <= 6 * sizeof(AihcSlot),
                "MVar waiter exceeds the GRIN reservation");
 
 /* aihc_stable_name.lir allocates and links these, so every field starts one
@@ -728,6 +776,13 @@ AihcValue *aihc_stack_push(AihcCapability *capability, uint64_t words,
    stack pointer itself. */
 AihcValue *aihc_stack_grow(AihcCapability *capability, uint8_t *stack_next,
                            uint64_t words, AihcValue *parent);
+/* The highest live frame among roots, or null when no root names a live
+   frame of the running stack. */
+AihcValue *aihc_top_live_frame(AihcCapability *capability, uint64_t count,
+                               const AihcSlot *roots);
+/* Store zero to the heap limit again when the capability has an interrupt
+   to take. Each writer of the heap limit calls it after the write. */
+void aihc_heap_limit_rearm(AihcCapability *capability);
 /* Set the stack limit of the capability from its stack pointer. */
 void aihc_stack_set_limit(AihcCapability *capability);
 /* Set the stack pointer to the first byte after a frame. The frame must be
@@ -915,6 +970,11 @@ void aihc_stop_begin(AihcCapability *capability, uint64_t root_count,
                      AihcSlot *roots);
 void aihc_stop_end(AihcCapability *capability);
 void aihc_host_sleep_ns(uint64_t duration);
+/* Start a host thread that calls aihc_machine_tick at each interval. A host
+   without threads starts nothing. */
+void aihc_host_ticker_start(AihcMachine *machine);
+/* Ask each running capability for a context switch. */
+void aihc_machine_tick(AihcMachine *machine);
 /* Replace the file at path with the given bytes. The result is zero, or an
    errno value when the host cannot write the file. */
 int aihc_host_write_file(const char *path, const void *bytes, size_t length);

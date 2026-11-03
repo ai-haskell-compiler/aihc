@@ -15,11 +15,21 @@ program: |
     (second%10 :: BoxedRep Lifted) <- store (CBox (less%8 :: IntRep))
     store (CPair (second%10 :: BoxedRep Lifted) (cell%9 :: BoxedRep Unlifted))
 expected: |
-  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) -> ptr cc c
+
+  extern func @aihc_heap_collect_replay(ptr, i64, i64, ptr, ptr, i64) -> i64 cc c
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr)
 
+  extern func @aihc_lir_resume(ptr, ptr)
+
   extern func @aihc_mutvar_new(ptr, i64) -> ptr cc c
+
+  extern func @aihc_replay_suspend(ptr, ptr) -> ptr cc c
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00\x01" }
+
+  data @aihc_f_aihc_entry___sentry_ri align 8 = { code @aihc_f_aihc_entry___sentry, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_replay_entry_p, ptr null, i8 2, i8 1, i8 0, i8 1, i8 0, i8 0, i16 0 }
 
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %$cps_return_3: ptr) {
   entry:
@@ -30,7 +40,7 @@ expected: |
     br %heap_fits_7, gc_reserved_9(%$cps_return_3, %hp_0), gc_collect_8
 
   cold gc_collect_8:
-    tailcall @aihc_lir_collect_replay_p(%hp_0, %sp_1, %base_2, %$cps_return_3, @aihc_f_aihc_entry___sentry, 5, null)
+    tailcall @aihc_lir_collect_replay_p(%hp_0, %sp_1, %base_2, %$cps_return_3, @aihc_f_aihc_entry___sentry_ri, 5)
 
   gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr):
     %hp_12 = ptr.add %hp_11, 16
@@ -55,52 +65,88 @@ expected: |
     store ptr %result_18, [%roots_4 + 8] align 8
     store ptr %hp_19, [%base_2 + 16] align 1 word
     store ptr %sp_1, [%base_2 + 32] align 1 word
-    call @aihc_heap_collect(%base_2, 5, 2, %roots_4, null)
-    %$cps_return$gc$gc_28 = load ptr [%roots_4] align 8
-    %cell$gc_29 = load ptr [%roots_4 + 8] align 8
-    %hp_30 = load ptr [%base_2 + 16] align 1 word
-    jump gc_reserved_24(%$cps_return$gc$gc_28, %cell$gc_29, %hp_30)
+    %result_28 = call @aihc_heap_collect(%base_2, 5, 2, %roots_4, null)
+    %interrupted_29 = ne ptr %result_28, null
+    br %interrupted_29, interrupt_30, collected_31
+
+  cold interrupt_30:
+    tailcall @aihc_lir_resume(%base_2, %result_28)
+
+  collected_31:
+    %$cps_return$gc$gc_32 = load ptr [%roots_4] align 8
+    %cell$gc_33 = load ptr [%roots_4 + 8] align 8
+    %hp_34 = load ptr [%base_2 + 16] align 1 word
+    jump gc_reserved_24(%$cps_return$gc$gc_32, %cell$gc_33, %hp_34)
 
   gc_reserved_24(%$cps_return$gc$gc_25: ptr, %cell$gc_26: ptr, %hp_27: ptr):
-    %hp_31 = ptr.add %hp_27, 16
+    %hp_35 = ptr.add %hp_27, 16
     store ptr @aihc_c_aihc_entry_Box_0, [%hp_27] align 8 region heap
     store i64 %wide_16, [%hp_27 + 8] align 8 region heap
-    %hp_32 = ptr.add %hp_31, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_31] align 8 region heap
-    store ptr %hp_27, [%hp_31 + 8] align 8 region heap
-    store ptr %cell$gc_26, [%hp_31 + 16] align 8 region heap
-    %header_word_33 = load i64 [%$cps_return$gc$gc_25] align 8 region stack
-    %info_word_34 = and i64 %header_word_33, -4
-    %header_35 = ptr.from_int %info_word_34
-    %entry_36 = load.invariant code [%header_35 + 24] align 1 word
-    %forward_39 = eq code %entry_36, null
-    br %forward_39, continue_slow_37, continue_enter_38
+    %hp_36 = ptr.add %hp_35, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_35] align 8 region heap
+    store ptr %hp_27, [%hp_35 + 8] align 8 region heap
+    store ptr %cell$gc_26, [%hp_35 + 16] align 8 region heap
+    %header_word_37 = load i64 [%$cps_return$gc$gc_25] align 8 region stack
+    %info_word_38 = and i64 %header_word_37, -4
+    %header_39 = ptr.from_int %info_word_38
+    %entry_40 = load.invariant code [%header_39 + 24] align 1 word
+    %forward_43 = eq code %entry_40, null
+    br %forward_43, continue_slow_41, continue_enter_42
 
-  cold continue_slow_37:
-    tailcall @aihc_lir_continue_p(%hp_32, %sp_1, %base_2, %$cps_return$gc$gc_25, %hp_31)
+  cold continue_slow_41:
+    tailcall @aihc_lir_continue_p(%hp_36, %sp_1, %base_2, %$cps_return$gc$gc_25, %hp_35)
 
-  continue_enter_38:
-    tailcall.indirect %entry_36(%hp_32, %$cps_return$gc$gc_25, %base_2, %$cps_return$gc$gc_25, %hp_31) : (ptr, ptr, ptr, ptr, ptr)
+  continue_enter_42:
+    tailcall.indirect %entry_40(%hp_36, %$cps_return$gc$gc_25, %base_2, %$cps_return$gc$gc_25, %hp_35) : (ptr, ptr, ptr, ptr, ptr)
   }
 
-  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
 
-  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 3, i16 0 }
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 3, i16 0 }
 
-  func @aihc_lir_collect_replay_p(%hp_40: ptr, %sp_41: ptr, %base_42: ptr, %value_43: ptr, %code_44: code, %words_45: i64, %srt_46: ptr) {
+  func @aihc_lir_collect_replay_p(%hp_44: ptr, %sp_45: ptr, %base_46: ptr, %value_47: ptr, %info_48: ptr, %words_49: i64) {
   entry:
-    %roots_47 = stack.alloc 8 align 8
-    store ptr %value_43, [%roots_47] align 8
-    store ptr %hp_40, [%base_42 + 16] align 1 word
-    store ptr %sp_41, [%base_42 + 32] align 1 word
-    call @aihc_heap_collect(%base_42, %words_45, 1, %roots_47, %srt_46)
-    %value_48 = load ptr [%roots_47] align 8
-    %hp_49 = load ptr [%base_42 + 16] align 1 word
-    tailcall.indirect %code_44(%hp_49, %sp_41, %base_42, %value_48) : (ptr, ptr, ptr, ptr)
+    %code_50 = load.invariant code [%info_48] align 1 word
+    %srt_51 = load.invariant ptr [%info_48 + 32] align 1 word
+    %roots_52 = stack.alloc 8 align 8
+    store ptr %value_47, [%roots_52] align 8
+    store ptr %hp_44, [%base_46 + 16] align 1 word
+    store ptr %sp_45, [%base_46 + 32] align 1 word
+    %result_53 = call @aihc_heap_collect_replay(%base_46, %words_49, 1, %roots_52, %srt_51, 3)
+    %value_54 = load ptr [%roots_52] align 8
+    %hp_55 = load ptr [%base_46 + 16] align 1 word
+    %suspended_56 = ne i64 %result_53, 0
+    br %suspended_56, suspend_57, enter_58
+
+  cold suspend_57:
+    store ptr %info_48, [%hp_55] align 8 region heap
+    store i64 -1, [%hp_55 + 8] align 8 region heap
+    store ptr %value_54, [%hp_55 + 16] align 8 region heap
+    %hp_59 = ptr.add %hp_55, 24
+    store ptr %hp_59, [%base_46 + 16] align 1 word
+    store ptr %sp_45, [%base_46 + 32] align 1 word
+    %result_60 = call @aihc_replay_suspend(%base_46, %hp_55)
+    tailcall @aihc_lir_resume(%base_46, %result_60)
+
+  enter_58:
+    tailcall.indirect %code_50(%hp_55, %sp_45, %base_46, %value_54) : (ptr, ptr, ptr, ptr)
+  }
+
+  func @aihc_lir_replay_entry_p(%hp_61: ptr, %sp_62: ptr, %base_63: ptr, %closure_64: ptr, %continuation_65: ptr) {
+  entry:
+    %index_66 = load i64 [%closure_64 + 8] align 8 region heap
+    %argument_67 = load ptr [%closure_64 + 16] align 8 region heap
+    %is_continuation_68 = eq i64 %index_66, 0
+    %argument_69 = select ptr %is_continuation_68, %continuation_65, %argument_67
+    %header_word_70 = load i64 [%closure_64] align 8 region heap
+    %info_word_71 = and i64 %header_word_70, -4
+    %header_72 = ptr.from_int %info_word_71
+    %code_73 = load.invariant code [%header_72] align 1 word
+    tailcall.indirect %code_73(%hp_61, %sp_62, %base_63, %argument_69) : (ptr, ptr, ptr, ptr)
   }
 status: pass
 reason: |

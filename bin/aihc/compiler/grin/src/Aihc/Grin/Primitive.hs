@@ -64,13 +64,15 @@ primitiveHeapWords name =
       -- A transaction variable is a mutable reference, and both make it
       -- with aihc_mutvar_new.
       ("newTVar#", 3),
-      ("fork#", 11),
+      ("fork#", 17),
+      -- The throwTo message is an MVar waiter record.
+      ("killThread#", 6),
       ("newMVar#", 9),
-      ("readMVar#", 5),
-      ("takeMVar#", 5),
-      ("putMVar#", 5),
+      ("readMVar#", 6),
+      ("takeMVar#", 6),
+      ("putMVar#", 6),
       -- A blackhole waiter and the queue that the first waiter makes.
-      ("noDuplicate#", 10)
+      ("noDuplicate#", 11)
     ]
 
 -- | The primitives whose lowering allocates.
@@ -172,7 +174,15 @@ concurrencyPrimitives =
     -- resume copies them.
     "newPromptTag#",
     "aihcControl0#",
-    "aihcResume#"
+    "aihcResume#",
+    -- The asynchronous exception calls. The mask calls push a restore-mask
+    -- frame on the stack, and a throwTo makes a message and can promote the
+    -- exception. The delivery freezes evaluations into heap objects.
+    "maskAsyncExceptions#",
+    "maskUninterruptible#",
+    "unmaskAsyncExceptions#",
+    "getMaskingState#",
+    "killThread#"
   ]
 
 -- | The primitives the lowering compiles from their argument expressions

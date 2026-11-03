@@ -137,7 +137,9 @@ globalPromotionScript =
 -- holds objects, so no bridge collection runs, and the array stays young.
 localGrowthScript :: [Command]
 localGrowthScript =
-  [ CMachine 0 1 128 0,
+  -- The driver adds the thread record to the space, and the nursery
+  -- rounds the sum up to 256 bytes, which the reservation exceeds.
+  [ CMachine 0 1 112 0,
     CCapabilities 2,
     CCurrentSrt Nothing,
     CPush 1 FSStop,
@@ -297,13 +299,13 @@ deadMVarScript :: [Command]
 deadMVarScript =
   [CMachine 3 8 128 0]
     <> [CSSrt slot Nothing | slot <- [0 .. 11]]
-    <> [CCurrentSrt Nothing, CPush 1 FSStop, CFill 7, CReserve 16]
+    <> [CCurrentSrt Nothing, CPush 1 FSStop, CFill 7, CReserve 23]
     <> [CNew identity KNode [] Nothing | identity <- [2 .. 6]]
     <> [CNew 7 KThunk [] Nothing]
     <> [CGlobal index (VHeap 2) | index <- [0 .. 2]]
     <> [CRoot index (VHeap (if index == 1 then 7 else 2)) | index <- [0 .. 7]]
     <> [CSUpdate 0 (VHeap 2), CPush 2 (FSNormal [] Nothing []), CFork 8 3 (VHeap 2), CCollect]
-    <> [CFill 21, CReserve 35, CMVar 9, CNew 10 KThunk [] Nothing, CNew 11 KNode [] Nothing, CMVar 12]
+    <> [CFill 21, CReserve 42, CMVar 9, CNew 10 KThunk [] Nothing, CNew 11 KNode [] Nothing, CMVar 12]
     <> [CGlobal 0 (VHeap 9), CGlobal 1 (VHeap 9)]
     <> [CRoot 1 (VHeap 9), CRoot 2 (VHeap 9), CRoot 3 (VHeap 9), CRoot 5 (VHeap 10), CRoot 6 (VHeap 12), CRoot 7 (VHeap 9)]
     <> [ CFork 13 4 (VHeap 2),
@@ -619,15 +621,19 @@ emptyModel =
       mFailed = False
     }
 
--- | The words of an MVar and of a thread record on the 64-bit targets.
+-- | The words of an MVar on the 64-bit targets.
 recordWords :: Int
 recordWords = 11
+
+-- | The words of a thread record on the 64-bit targets.
+threadWords :: Int
+threadWords = 17
 
 -- | The words of an MVar waiter, a blackhole waiter with the queue that the
 -- first waiter of a thunk makes, and a stable name.
 mvarWaiterWords, blackholeWaiterWords, stableNameWords :: Int
-mvarWaiterWords = 5
-blackholeWaiterWords = 10
+mvarWaiterWords = 6
+blackholeWaiterWords = 11
 stableNameWords = 4
 
 -- | The words of frames one stack chunk holds. A chunk after the first one
@@ -2025,7 +2031,7 @@ commandValues command = case command of
 commandWords :: Command -> Int
 commandWords command = case command of
   CStable _ -> stableNameWords
-  CFork {} -> recordWords
+  CFork {} -> threadWords
   CBlock _ -> blackholeWaiterWords
   CTake _ -> mvarWaiterWords
   CRead _ -> mvarWaiterWords
@@ -2395,7 +2401,9 @@ compileDriver = do
   directory <- createTempDirectory temporary "aihc-gc-fuzz"
   let source = root </> "bin" </> "aihc" </> "compiler" </> "native" </> "test" </> "gc-fuzz" </> "aihc_gc_fuzz.c"
       executable = directory </> "aihc-gc-fuzz"
-      base = ["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-DAIHC_GC_VERIFY"]
+      -- The ticker changes the heap limit at random times, and the model of
+      -- the driver gives each heap limit.
+      base = ["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-DAIHC_GC_VERIFY", "-DAIHC_NO_TICKER"]
       -- The instrumented and the plain runtime differ in their C arguments,
       -- so each attempt gets its own cached archive.
       buildAndLink extra = do

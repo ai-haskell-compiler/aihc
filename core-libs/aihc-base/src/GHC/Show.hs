@@ -25,10 +25,11 @@ import GHC.Base (Maybe (..), String, (++), (.))
 import GHC.Char (chr)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
-import GHC.Internal.Classes (Ord (..), Ordering (..))
+import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
 import GHC.Prim (Word#, chr#, eqWord#, int16ToInt#, int2Word#, int32ToInt#, int64ToInt#, int8ToInt#, minusWord#, quotRemWord#, word16ToWord#, word2Int#, word32ToWord#, word64ToWord#, word8ToWord#, (+#), (<#))
+import GHC.Prim.IO (MaskingState (..))
 import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Types (Char (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
@@ -150,6 +151,19 @@ instance Show Bool where
 
 instance Show () where
   showsPrec _ () = showString "()"
+
+-- aihc-prim defines the masking state without classes, so its instances
+-- are here.
+instance Eq MaskingState where
+  Unmasked == Unmasked = True
+  MaskedInterruptible == MaskedInterruptible = True
+  MaskedUninterruptible == MaskedUninterruptible = True
+  _ == _ = False
+
+instance Show MaskingState where
+  showsPrec _ Unmasked = showString "Unmasked"
+  showsPrec _ MaskedInterruptible = showString "MaskedInterruptible"
+  showsPrec _ MaskedUninterruptible = showString "MaskedUninterruptible"
 
 instance Show Ordering where
   showsPrec _ LT = showString "LT"
