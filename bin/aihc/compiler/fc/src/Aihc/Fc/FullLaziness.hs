@@ -1,11 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Share closed computations across function calls.
-module Aihc.Fc.FullLaziness (fullLazinessProgram, sharedAtTop) where
+module Aihc.Fc.FullLaziness (fullLazinessProgram, floatRootLetsProgram, sharedAtTop) where
 
 import Aihc.Fc.Imports (exprReferences, typeReferences)
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (collectSpine, isConstructorName, isTrivial, maxLocalUnique)
+import Aihc.Fc.Simplify (collectSpine, isConstructorName, isTrivial, maxLocalUnique, substExpr)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
@@ -49,6 +49,64 @@ declaration env decl = case decl of
     body <- walk env (valName value) False (valBody value)
     pure (DeclVal value {valBody = body})
   _ -> pure decl
+
+-- | Move the lazy lets at the root of each top-level function to private
+-- top-level values. See 'floatRootLets'.
+floatRootLetsProgram :: PackageId -> Home -> Program -> (Program, Int)
+floatRootLetsProgram primPackage home program =
+  let env = typeEnvFromProgram primPackage program
+      initial = FloatState home (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) Map.empty [] 0
+      (decls, final) = runState (mapM root (programDecls program)) initial
+      root decl = case decl of
+        DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> floatRootLets env (valName value) (valBody value)
+        _ -> pure decl
+   in (tidyProgram program {programDecls = decls <> reverse (floatDecls final)}, floatCount final)
+
+-- | Move the lazy lets at the root of a top-level value to private
+-- top-level values, when the value under them is a function.
+--
+-- A parser of a newtype over a function is often such a value:
+--
+-- > p = let y = expectedTok TkSpecialComma in (Λb. λs cok cerr eok eerr. ...) ▷ co
+--
+-- The let makes the value a thunk, so a call enters it before it calls
+-- the function, and the inliner and the arity of the value see no
+-- function. A top-level value shares its result as the let did, so the
+-- move repeats no work, and the value is then the function itself.
+floatRootLets :: TypeEnv -> Name -> Expr -> FloatM Expr
+floatRootLets env owner body
+  | rootFunction body = go Map.empty body
+  | otherwise = pure body
+  where
+    go subst expr = case expr of
+      ExLet bind rest
+        | movable bind -> do
+            name <- freshTop owner
+            emit name (bindBinder bind) (substExpr subst (bindRhs bind))
+            go (Map.insert (binderName (bindBinder bind)) (ExVar name) subst) rest
+      ExRec binds rest
+        | all movable binds -> do
+            names <- mapM (const (freshTop owner)) binds
+            let inner = Map.union (Map.fromList [(binderName (bindBinder bind), ExVar name) | (bind, name) <- zip binds names]) subst
+            mapM_ (\(bind, name) -> emit name (bindBinder bind) (substExpr inner (bindRhs bind))) (zip binds names)
+            go inner rest
+      _ -> pure (substExpr subst expr)
+    movable bind =
+      isLiftedType env (binderType (bindBinder bind))
+        && all isTop (typeReferences (binderType (bindBinder bind)))
+    emit name binder rhs = do
+      let decl = DeclVal (ValDecl Private name (binderType binder) rhs InlineDefault)
+      modify' (\st -> st {floatDecls = decl : floatDecls st, floatCount = floatCount st + 1})
+    rootFunction expr = case expr of
+      ExLet _ rest -> rootFunction rest
+      ExRec _ rest -> rootFunction rest
+      ExLam {} -> True
+      ExTyLam _ inner -> rootFunction inner
+      ExCast inner _ -> rootFunction inner
+      _ -> False
+    isTop name = case nameOrigin name of
+      OriginTop {} -> True
+      OriginLocal {} -> False
 
 -- | Select maximal closed computations only below a function parameter.
 -- The root of a declaration already has a shared result.

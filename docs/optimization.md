@@ -98,6 +98,7 @@ after each pass under `--lint`.
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassFullLaziness` | Share closed lifted computations across function calls. Preserve lazy evaluation, local scope, and direct-call arity. `Aihc.Fc.FullLaziness`. |
+| `PassFloatRootLets` | Move the lazy lets at the root of a top-level value to private top-level values, when the value under the lets is a function. The value is then a function and not a thunk, and the inliner sees its lambdas. `Aihc.Fc.FullLaziness`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassUnroll` | Copy the body of a small local loop, or of a top-level function that calls itself, at each call whose literal arguments decide its recursion, until no call is left. At most 8 copies of at most 200 nodes each. `Aihc.Fc.Unroll`. |
 | `PassStateTokens` | Use the value of an earlier read of a `MutVar#` for a read that takes its token, and remove a `touch#` that a later `touch#` of the same object makes redundant. `Aihc.Fc.StateToken`. |
