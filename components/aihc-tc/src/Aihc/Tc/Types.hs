@@ -1036,9 +1036,12 @@ decodeDataConstructorList ty =
           (field :) <$> decodeDataConstructorList rest
     _ -> Nothing
 
+-- The kind vocabulary is declared in GHC.Types. A type of another module
+-- can have the same name, such as a user type @Constraint@, and it is not
+-- a kind.
 matchesNullary :: ResolutionNamespace -> Text -> TcType -> Bool
 matchesNullary namespace expected (TcTyCon tyCon []) =
-  tyConNamespace tyCon == namespace && tyConName tyCon == expected
+  tyConNamespace tyCon == namespace && tyConName tyCon == expected && tyConModuleName tyCon == "GHC.Types"
 matchesNullary _ _ _ = False
 
 runtimeRepFromKind :: TcType -> Either String TcType
