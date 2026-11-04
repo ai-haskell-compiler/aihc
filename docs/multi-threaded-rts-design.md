@@ -128,7 +128,8 @@ The OS thread of the call keeps the capability, so a thread that the call wakes 
 `getNumCapabilities` gives the count that `-N` sets.
 A transaction that retries waits in a timer request until the next commit or the earliest STM timer.
 This first version does not keep a watcher list on each `TVar`: each commit with writes ends every wait, and each woken transaction runs again.
-The abort of a valid transaction records the commit count, so a commit between the abort and the wait ends the wait at once.
+The abort of a valid transaction records the commit count in the thread, so a commit between the abort and the wait ends the wait at once.
+The count is not a field of the capability: a context switch can run another thread between the abort and the wait, and an abort of that thread must not change the count.
 When the only work of the machine is waits without a timer, each waiting transaction raises `BlockedIndefinitelyOnSTM`.
 With one capability, a transaction that retries lets the other threads run when they have work, and otherwise it waits for the earliest timer.
 As in GHC, `forkIO` catches an exception that the action does not catch, writes it to the standard error, and ends only that thread.
