@@ -27,7 +27,9 @@
 -- A function whose every tail is a constructor of a type with one
 -- constructor has a constructed product result. Its worker returns the
 -- fields: the field itself when there is one, and an unboxed tuple of them
--- when there are more and the program has that tuple. The wrapper builds
+-- when there are more. A module that does not use that tuple gets its
+-- declaration from 'withUnboxedTuples', and 'pruneImports' then adds the
+-- import of the tuple to the program. The wrapper builds
 -- the constructor again, and at a call whose result a case takes apart,
 -- the constructor meets the case and goes away.
 --
@@ -111,7 +113,7 @@ import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, freshenExprF
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun, withUnboxedTuples)
 import Aihc.Fc.Wired (wiredGhcTypes)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
@@ -153,7 +155,7 @@ data SplitScope
 -- and a wrapper.
 workerWrapperProgram :: PackageId -> Home -> SplitScope -> Program -> (Program, WorkerWrapperReport)
 workerWrapperProgram primPackage home scope program =
-  let types = typeEnvFromProgram primPackage program
+  let types = withUnboxedTuples (typeEnvFromProgram primPackage program)
       decls = programDecls program
       signatures = topLevelSignatures types decls
       excluded = ruleNames decls
@@ -692,7 +694,7 @@ splitFunction takesApart types self declaredType workerName demands function =
       guard (not (Set.null unboxedNames) || isJust resultProduct)
       pure (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner)
     -- One unlifted field is returned as it is. More fields are returned in
-    -- an unboxed tuple, when the program has the tuple of that size.
+    -- an unboxed tuple of that size.
     returnedKind env fields =
       case fields of
         -- A lifted field is not returned as it is: the wrapper evaluates
