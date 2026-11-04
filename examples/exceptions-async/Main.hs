@@ -99,6 +99,13 @@ main = do
   killThread finished
   putStrLn "finished target"
 
+  -- A throwTo to a thread that did not start ends only that thread. With
+  -- one capability, the target does not start before the throwTo.
+  unstarted <- forkIO (putStrLn "not reached")
+  killThread unstarted
+  threadDelay 1000
+  putStrLn "unstarted target"
+
   -- bracket releases on an asynchronous exception.
   released <- newEmptyMVar
   started <- newEmptyMVar
