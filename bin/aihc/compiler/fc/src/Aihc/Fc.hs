@@ -20,6 +20,7 @@ module Aihc.Fc
     InterfacePolicy (..),
     defaultInterfacePolicy,
     moduleInterface,
+    exposeInterfaceHelpers,
     Grafted (..),
     graftInterfaces,
     stripInterfaces,
@@ -69,7 +70,7 @@ import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig, resolvedModuleOrigin)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)
-import Aihc.Fc.Interface (Grafted (..), InterfacePolicy (..), defaultInterfacePolicy, graftInterfaces, moduleInterface, stripInterfaces)
+import Aihc.Fc.Interface (Grafted (..), InterfacePolicy (..), defaultInterfacePolicy, exposeInterfaceHelpers, graftInterfaces, moduleInterface, stripInterfaces)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name

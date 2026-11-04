@@ -3249,7 +3249,10 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     -- The FC waits in memory for the backend, so equal names and types
     -- are made one object each before it is kept.
     let homes = [Just (Fc.OriginTop package name) | checked <- checkedModules, let (package, name) = Fc.resolvedModuleOrigin checked]
-        fcModules = zipWith3 FcModule moduleNames homes (map (Fc.shareProgram . dsProgram) desugarResults)
+        -- A module that publishes an interface makes public the private
+        -- values that the interface names and cannot copy.
+        expose = if interfaces then Fc.exposeInterfaceHelpers primIdentity Fc.defaultInterfacePolicy else id
+        fcModules = zipWith3 FcModule moduleNames homes (map (expose . Fc.shareProgram . dsProgram) desugarResults)
     fcErrors <-
       fmap concat $
         forM fcModules $ \fcModule -> do

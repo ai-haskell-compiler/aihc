@@ -79,7 +79,7 @@ expected: |-
   pub val 2.v$fCNat :: t$Dict$C tNat
     = c$Dict$C @tNat v$fCNat$cop
 
-  val 2.v$fCNat$cop :: tNat → tNat
+  pub val 2.v$fCNat$cop :: tNat → tNat
     = cS
 
   pub val 2.vuse :: tNat → tNat

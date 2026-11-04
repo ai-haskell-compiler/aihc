@@ -13,7 +13,7 @@ module FcGolden
 where
 
 import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), PassEnv (..), Program, SplitScope (..), declaredHome, decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
-import Aihc.Fc.Interface (Grafted (..), defaultInterfacePolicy, graftInterfaces, moduleInterface, stripInterfaces)
+import Aihc.Fc.Interface (Grafted (..), defaultInterfacePolicy, exposeInterfaceHelpers, graftInterfaces, moduleInterface, stripInterfaces)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -366,8 +366,9 @@ renderFcCase tc =
     -- its modules, with the interface of each module before it. The
     -- interface of a module comes from its desugared program, as it does
     -- in a build.
-    lintAndRenderModules programs =
+    lintAndRenderModules desugared =
       let primPackage = packageId primitivePackage
+          programs = map (exposeInterfaceHelpers primPackage defaultInterfacePolicy) desugared
           interfaces = map (moduleInterface primPackage defaultInterfacePolicy) programs
           optimize index program =
             let grafted = graftInterfaces primPackage (take index interfaces) program

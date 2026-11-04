@@ -15,8 +15,10 @@
 -- 'Aihc.Fc.Merge.mergePrograms' puts an interface into the program of a
 -- consumer.
 --
--- The three steps are:
+-- The steps are:
 --
+-- * 'exposeInterfaceHelpers' makes public each private value that an
+--   offered body needs and that a consumer cannot copy.
 -- * 'moduleInterface' selects what a module offers, from the program that
 --   the desugarer gives. The bodies are thus the bodies of the source,
 --   and not the result of the passes of the module, as the unfolding of
@@ -37,6 +39,7 @@ module Aihc.Fc.Interface
   ( InterfacePolicy (..),
     defaultInterfacePolicy,
     moduleInterface,
+    exposeInterfaceHelpers,
     Grafted (..),
     graftInterfaces,
     stripInterfaces,
@@ -159,19 +162,8 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
       Set.member (valName declaration) public
         && copies declaration
         && (requested declaration || bodySize declaration <= policyBodyLimit policy)
-    -- Whether a copy of the value in another module keeps the meaning of
-    -- the program and can pay.
-    copies declaration =
-      (isInlinable (valBody declaration) || (isDictionaryType (valType declaration) && isConstructorValue (valBody declaration)))
-        && Set.disjoint privateConstructors (exprReferences (valBody declaration))
-        && case valInline declaration of
-          InlineNever _ -> False
-          _ -> True
-    requested declaration =
-      case valInline declaration of
-        InlineAlways _ -> True
-        InlineWhenUseful _ -> True
-        _ -> False
+    copies = copiesValue privateConstructors
+    requested = requestsCopy
     offersRule rule =
       case ruleHeadName rule of
         Just ruleHead
@@ -182,6 +174,136 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- A value the consumer can name: a public value of this module, or a
     -- value of another module.
     named name = Set.member name public || Map.notMember name values
+
+-- | Whether a copy of the value in another module keeps the meaning of
+-- the program and can pay. The set holds the private constructors of the
+-- module.
+copiesValue :: Set Name -> ValDecl -> Bool
+copiesValue privateConstructors declaration =
+  (isInlinable (valBody declaration) || isDictionaryValue declaration || isAtomApplication declaration)
+    && Set.disjoint privateConstructors (exprReferences (valBody declaration))
+    && case valInline declaration of
+      InlineNever _ -> False
+      _ -> True
+
+-- | Whether the pragma of a value asks for a copy at each call.
+requestsCopy :: ValDecl -> Bool
+requestsCopy declaration =
+  case valInline declaration of
+    InlineAlways _ -> True
+    InlineWhenUseful _ -> True
+    _ -> False
+
+-- | Make public each private value that the interface of the module must
+-- name and cannot copy.
+--
+-- An offered body can reach a private value that a consumer cannot copy.
+-- Examples are a @NOINLINE@ helper that makes an error message, a method
+-- with an @INLINE@ pragma that is larger than the body limit, and a
+-- helper that names a private constructor. A rule is offered only when a
+-- consumer can name each value of the rule, so the values of a rule
+-- become public too. Without this step, such a
+-- value refuses each body that reaches it, and one refused method refuses
+-- the full dictionary. GHC gives such a value an external name for the
+-- same reason.
+--
+-- The module keeps one definition of each such value, and a consumer
+-- calls it. A value that the interface copies stays private.
+--
+-- Run this step on the program of the desugarer, before 'moduleInterface'
+-- and before the passes of the module. The passes then keep each such
+-- value as a root, and the object of the module defines its symbol.
+exposeInterfaceHelpers :: PackageId -> InterfacePolicy -> Program -> Program
+exposeInterfaceHelpers primPackage policy program =
+  program {programDecls = map expose (programDecls program)}
+  where
+    env = typeEnvFromProgram primPackage program
+    values = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls program]
+    privateConstructors = Set.fromList [conName constructor | DeclType declaration <- programDecls program, constructor <- typeCons declaration, conVis constructor == Private]
+    bodySize declaration = exprSize env (valBody declaration)
+    copies = copiesValue privateConstructors
+    -- A private value that each consumer copies.
+    copied declaration = copies declaration && bodySize declaration <= policyBodyLimit policy
+    -- A value that the interface offers when it is public.
+    offered declaration = copies declaration && (requestsCopy declaration || bodySize declaration <= policyBodyLimit policy)
+    reaches declaration = Set.toList (exprValueNames (valBody declaration))
+    roots = concat [reaches declaration | declaration <- Map.elems values, valVis declaration == Pub, offered declaration]
+    -- A rule names its head and the values of its right-hand side. A
+    -- consumer fires the rule only when it can name each of them.
+    ruleValues =
+      Set.unions
+        [ names
+        | DeclRule rule <- programDecls program,
+          Set.disjoint privateConstructors (exprReferences (ruleLhs rule) <> exprReferences (ruleRhs rule)),
+          let names = Set.filter (`Map.member` values) (exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule))
+        ]
+    exposed = walk Set.empty ruleValues roots
+    -- A copied value and an exposed value that is offered bring the
+    -- private values that their bodies reach.
+    walk _ found [] = found
+    walk seen found (name : rest)
+      | Set.member name seen = walk seen found rest
+      | otherwise =
+          case Map.lookup name values of
+            Just declaration
+              | valVis declaration /= Pub ->
+                  let seen' = Set.insert name seen
+                   in if copied declaration
+                        then walk seen' found (reaches declaration <> rest)
+                        else
+                          if offered declaration
+                            then walk seen' (Set.insert name found) (reaches declaration <> rest)
+                            else walk seen' (Set.insert name found) rest
+            _ -> walk seen found rest
+    expose decl =
+      case decl of
+        DeclVal declaration | Set.member (valName declaration) exposed -> DeclVal declaration {valVis = Pub}
+        _ -> decl
+
+-- | Whether a value is a dictionary constructor application.
+--
+-- The type of an instance with a type variable and no context, such as
+-- @Monad (ST s)@, is a quantified dictionary type, and its body is a
+-- constructor application under a type lambda.
+isDictionaryValue :: ValDecl -> Bool
+isDictionaryValue declaration =
+  dictionaryScheme (valType declaration) && isConstructorValue (valBody declaration)
+  where
+    dictionaryScheme ty =
+      case ty of
+        TyForAll _ body -> dictionaryScheme body
+        _ -> isDictionaryType ty
+
+-- | Whether a value is a function or a dictionary that applies a variable
+-- to types and variables.
+--
+-- An instance method that the class default gives has this form, for
+-- example @$fMonadSTs$creturn = $dmreturn \@(ST s) $fMonadSTs@. A copy
+-- does no more work than the call that it replaces, and the consumer can
+-- then see the default method. A value of another type, such as a table
+-- that a function calculates, stays in its module, because each consumer
+-- would calculate it again.
+isAtomApplication :: ValDecl -> Bool
+isAtomApplication declaration =
+  functionOrDictionary (valType declaration) && application (valBody declaration)
+  where
+    functionOrDictionary ty =
+      case ty of
+        TyForAll _ body -> functionOrDictionary body
+        TyFun {} -> True
+        _ -> isDictionaryType ty
+    application expr =
+      case expr of
+        ExTyLam _ body -> application body
+        ExTyApp function _ -> application function
+        ExApp function argument -> atom function && atom argument
+        _ -> False
+    atom expr =
+      case expr of
+        ExVar _ -> True
+        ExTyApp function _ -> atom function
+        ExApp function argument -> atom function && atom argument
+        _ -> False
 
 -- | What the interfaces of the imported modules gave a program.
 data Grafted = Grafted
@@ -235,9 +357,11 @@ graftInterfaces primPackage interfaces program =
           case Map.lookup name offered of
             Nothing -> close done rest
             Just declaration -> close (Set.insert name done) (Set.toList (exprValueNames (valBody declaration)) <> rest)
-    -- The heads that a rule may have: a name the program itself uses, or
-    -- a value that came in with an interface.
-    heads = reached <> wanted
+    -- The heads that a rule may have: a name the program itself uses, a
+    -- value that came in with an interface, or a name that the body of
+    -- such a value uses. An example of the last is a class method whose
+    -- body calls a large function that is the head of a rule.
+    heads = reached <> wanted <> foldMap (\name -> maybe Set.empty (exprValueNames . valBody) (Map.lookup name offered)) wanted
     restrict = restrictProgram primPackage keep
     keep decl =
       case decl of
