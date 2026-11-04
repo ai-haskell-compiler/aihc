@@ -30,6 +30,7 @@ import Aihc.Native (NativeTarget (..), backendCompiler, llvmLtoArguments, optimi
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Monad (unless, when)
 import Data.ByteString.Lazy qualified as BL
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -125,22 +126,30 @@ compileEntryObject lto profileAllocations profileTime target directory object = 
   entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target) profileAllocations profileTime)
   compileLirObject lto target (takeBaseName object) entryModule directory object
 
--- | Use shared incremental conversion for both native object paths. The Lir
--- of the module is written to @lirPath@ when one is given: an object
--- backend writes each item as conversion produces it, and a source backend
--- writes the module it lowered.
-compileGrinTo :: Bool -> Lower.ModuleSettings -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe Text)
-compileGrinTo lint settings target lirPath gcProgram path = case target of
-  AppleArm64 -> Arm64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure Nothing
-  LinuxAmd64 -> Amd64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure Nothing
-  _ -> do
+-- | Compile GC-GRIN to the object at @path@, or to the source at
+-- @sourcePath@ for the compiler driver of the target. The result tells
+-- whether a source was written. The object backends and the WebAssembly
+-- backend take each Lir item as conversion produces it, so the Lir module is
+-- never complete in memory. The Lir of the module is written to @lirPath@
+-- when one is given.
+compileGrinTo :: Bool -> Lower.ModuleSettings -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> FilePath -> IO Bool
+compileGrinTo lint settings target lirPath gcProgram sourcePath path = case target of
+  AppleArm64 -> Arm64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
+  LinuxAmd64 -> Amd64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
+  Wasm32Wasip3 -> do
+    let produce output = Lower.lowerModuleTo (lowerTargetFor target) settings (const output) gcProgram >>= either (ioError . userError . ("Lir generation failed: " <>) . show) pure
+    Wasm.writeLirItems lint produce lirPath sourcePath
+    pure True
+  Llvm -> do
     lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) settings gcProgram)
     mapM_ (\dump -> TIO.writeFile dump (renderLirModule lirModule)) lirPath
     when lint $ do
       let items = moduleItems lirModule
           errors = Lint.unreferencedDataErrors items (foldMap Lint.itemDataReferences items)
       unless (null errors) (ioError (userError ("Lir lint failed:\n" <> unlines (map (T.unpack . Lint.renderLintError) errors))))
-    compileLirTo lint target lirModule path
+    source <- compileLirTo lint target lirModule path
+    mapM_ (TIO.writeFile sourcePath) source
+    pure (isJust source)
 
 -- | The Lir text of a module, as the object backends dump it: one item to
 -- a line group, with a final newline.

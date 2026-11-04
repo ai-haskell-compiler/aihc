@@ -3505,11 +3505,10 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     writeModule name gcProgram = do
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      source <- compileGrinTo (compileLint config) lirSettings target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputObjectPath paths)
+      wroteSource <- compileGrinTo (compileLint config) lirSettings target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputNativePath paths) (outputObjectPath paths)
       when keepLir (verbose ("Write Lir: " <> T.unpack name))
-      mapM_ (TIO.writeFile (outputNativePath paths)) source
-      when (isJust source) (verbose ("Write native source: " <> T.unpack name))
-      when (isJust source) $ do
+      when wroteSource (verbose ("Write native source: " <> T.unpack name))
+      when wroteSource $ do
         (compiler, arguments) <- backendCompiler target
         -- A @--lto@ build of the LLVM target compiles the program to
         -- bitcode, and the link optimizes it with the runtime; see

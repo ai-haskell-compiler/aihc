@@ -47,7 +47,7 @@ failureFixtures target = do
         "grin" -> do
           program <- checked (Grin.parseProgram source)
           gc <- Grin.lowerGc <$> checked (Grin.toCpsGrin program)
-          pure (compileGrinTo False defaultModuleSettings target Nothing gc)
+          pure (\path -> Nothing <$ compileGrinTo False defaultModuleSettings target Nothing gc (path <> ".s") path)
         _ -> assertFailure "Unknown source language."
       forM_ [False, True] $ \existing ->
         withSystemTempDirectory "aihc-object-failure" $ \directory -> do

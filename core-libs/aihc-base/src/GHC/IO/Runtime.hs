@@ -17,6 +17,7 @@ module GHC.IO.Runtime
     ioHandleDescriptor,
     ioHandlePosition,
     ioHandleSetPosition,
+    ioHandleSize,
     adoptIOHandle,
     closeIOHandle,
     readMemoryByte,
@@ -146,6 +147,18 @@ ioHandleSetPosition :: IOHandle -> Int -> IO Int
 ioHandleSetPosition (IOHandle value) (I# position) =
   IO
     ( \state -> case ioHandleSetPosition# value position state of
+        (# next, result #) -> (# next, I# result #)
+    )
+
+-- | The size of the file of a handle with a position that the runtime keeps.
+-- The result is -1 when the operating system descriptor gives the size, and
+-- a smaller encoded error when the host cannot get it.
+foreign import prim ioHandleSize# :: IOHandle# -> State# RealWorld -> (# State# RealWorld, Int# #)
+
+ioHandleSize :: IOHandle -> IO Int
+ioHandleSize (IOHandle value) =
+  IO
+    ( \state -> case ioHandleSize# value state of
         (# next, result #) -> (# next, I# result #)
     )
 

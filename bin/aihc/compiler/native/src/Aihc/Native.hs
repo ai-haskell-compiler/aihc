@@ -738,6 +738,7 @@ nativeRuntimePrimitiveCalls =
     call "ioHandleDescriptor#" "aihc_io_handle_descriptor" [GrinForeignAddr] GrinForeignInt64,
     call "ioHandlePosition#" "aihc_io_handle_position" [GrinForeignAddr] GrinForeignInt64,
     call "ioHandleSetPosition#" "aihc_io_handle_set_position" [GrinForeignAddr, GrinForeignInt64] GrinForeignInt64,
+    call "ioHandleSize#" "aihc_io_handle_size" [GrinForeignAddr] GrinForeignInt64,
     call "closeIOHandle#" "aihc_io_close" [GrinForeignAddr] GrinForeignInt64,
     call "ioOpenResultError#" "aihc_io_open_result_error" [GrinForeignAddr] GrinForeignInt64,
     call "takeIOResult#" "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt64,
@@ -798,7 +799,6 @@ nativeRuntimePrimitiveCalls =
     machineCall "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     procedure "shrinkMutableByteArray#" "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     machineCall "resizeMutableByteArray#" "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
-    procedure "copyAddrToByteArray#" "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchAddIntArray#" "aihc_byte_array_fetch_add_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchSubIntArray#" "aihc_byte_array_fetch_sub_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchAndIntArray#" "aihc_byte_array_fetch_and_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
@@ -806,11 +806,6 @@ nativeRuntimePrimitiveCalls =
     call "fetchOrIntArray#" "aihc_byte_array_fetch_or_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchXorIntArray#" "aihc_byte_array_fetch_xor_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "casIntArray#" "aihc_byte_array_compare_and_swap_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    procedure "copyByteArray#" "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    procedure "copyMutableByteArray#" "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    procedure "copyMutableByteArrayNonOverlapping#" "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    procedure "copyByteArrayToAddr#" "aihc_byte_array_copy_to_addr" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "copyMutableByteArrayToAddr#" "aihc_byte_array_copy_to_addr" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "compareByteArrays#" "aihc_byte_array_compare" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "expDouble#" "exp" [GrinForeignDouble] GrinForeignDouble,
     call "logDouble#" "log" [GrinForeignDouble] GrinForeignDouble,
@@ -841,8 +836,7 @@ nativeRuntimePrimitiveCalls =
     call "asinhFloat#" "asinhf" [GrinForeignFloat] GrinForeignFloat,
     call "acoshFloat#" "acoshf" [GrinForeignFloat] GrinForeignFloat,
     call "atanhFloat#" "atanhf" [GrinForeignFloat] GrinForeignFloat,
-    call "powerFloat#" "powf" [GrinForeignFloat, GrinForeignFloat] GrinForeignFloat,
-    procedure "setByteArray#" "aihc_byte_array_set" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    call "powerFloat#" "powf" [GrinForeignFloat, GrinForeignFloat] GrinForeignFloat
   ]
   where
     call = runtimeCall False 1

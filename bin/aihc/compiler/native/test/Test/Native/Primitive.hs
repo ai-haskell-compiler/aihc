@@ -161,10 +161,6 @@ byteArrayRuntimeSymbols =
     ("newAlignedPinnedByteArray#", "aihc_byte_array_new_aligned_pinned"),
     ("shrinkMutableByteArray#", "aihc_byte_array_shrink"),
     ("resizeMutableByteArray#", "aihc_byte_array_resize"),
-    ("copyAddrToByteArray#", "aihc_byte_array_copy_from_addr"),
-    ("copyByteArray#", "aihc_byte_array_copy"),
-    ("copyMutableByteArray#", "aihc_byte_array_copy"),
-    ("copyMutableByteArrayNonOverlapping#", "aihc_byte_array_copy"),
     ("fetchAddIntArray#", "aihc_byte_array_fetch_add_word"),
     ("fetchSubIntArray#", "aihc_byte_array_fetch_sub_word"),
     ("fetchAndIntArray#", "aihc_byte_array_fetch_and_word"),
@@ -172,10 +168,7 @@ byteArrayRuntimeSymbols =
     ("fetchOrIntArray#", "aihc_byte_array_fetch_or_word"),
     ("fetchXorIntArray#", "aihc_byte_array_fetch_xor_word"),
     ("casIntArray#", "aihc_byte_array_compare_and_swap_word"),
-    ("copyByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
-    ("copyMutableByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
-    ("compareByteArrays#", "aihc_byte_array_compare"),
-    ("setByteArray#", "aihc_byte_array_set")
+    ("compareByteArrays#", "aihc_byte_array_compare")
   ]
 
 bitPatternCastNames :: [Text]

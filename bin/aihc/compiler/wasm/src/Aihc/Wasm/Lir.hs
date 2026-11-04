@@ -34,22 +34,28 @@
 module Aihc.Wasm.Lir
   ( WasmLirError (..),
     compileLirModule,
+    writeLirItems,
   )
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Division (lowerWideDivision)
-import Aihc.Lir.Inline (prepareCheckedModule)
+import Aihc.Lir.Inline (prepareCheckedModule, prepareModule)
 import Aihc.Lir.Lint (LintError)
+import Aihc.Lir.Lint qualified as Lint
+import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Wasm.ControlFlow (ControlFlow (..), analyzeControlFlow)
+import Control.Exception (finally)
 import Control.Monad (forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Either (fromRight)
 import Data.Functor.Const (Const (..))
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (elemIndex, find, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -59,8 +65,11 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
+import Data.Text.IO qualified as TIO
 import Data.Word (Word8)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
+import System.Directory (removePathForcibly)
+import System.IO (Handle, IOMode (WriteMode), withFile)
 
 data WasmLirError
   = WasmLirLintErrors ![LintError]
@@ -75,7 +84,7 @@ compileLirModule :: Module -> Either WasmLirError Text
 compileLirModule lirModule =
   case prepared of
     Right _ -> do
-      let items = userItems <> [ItemFunction helper | usesWideMultiply, helper <- wideHelpers] <> [ItemFunction helper | usesBitScatter, helper <- bitScatterHelpers]
+      let items = userItems <> [ItemFunction helper | wide, helper <- wideHelpers] <> [ItemFunction helper | scatter, helper <- bitScatterHelpers]
           ctx = moduleContext items
       (functions, final) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) initialState
       let traps = Map.toAscList (moduleTraps final)
@@ -96,23 +105,128 @@ compileLirModule lirModule =
   where
     prepared = prepareCheckedModule wordBytes lirModule
     Module userItems = fromRight (Module []) prepared
-    usesWideMultiply =
-      or
-        [ True
-        | ItemFunction function <- userItems,
-          block <- functionBlocks function,
-          Instruction _ (Wide op I64 _ _) <- blockInstructions block,
-          op `elem` [MulWideU, MulWideS]
-        ]
-    usesBitScatter =
-      or
-        [ True
-        | ItemFunction function <- userItems,
-          block <- functionBlocks function,
-          Instruction _ (Binary op _ _ _) <- blockInstructions block,
-          op `elem` [Pdep, Pext]
-        ]
+    wide = any usesWideMultiply [function | ItemFunction function <- userItems]
+    scatter = any usesBitScatter [function | ItemFunction function <- userItems]
     initialState = ModuleState {moduleTraps = Map.empty, moduleUsesStack = False}
+
+-- | Write the assembly of a module whose items a producer gives one at a
+-- time, as 'compileLirModule' renders it. The producer runs two times. The
+-- first run keeps only the declarations, because the header and each
+-- reference to an internal symbol need them before the first function. The
+-- second run writes each function and each data item to a file of its own
+-- as it arrives, so the module and its text are never in memory together.
+-- The header goes first in the result, and the two files follow it.
+--
+-- The items are the items that the compiler lowers, so they have no
+-- constants and no inline functions. As in the object backends, the items
+-- are linted only when @lint@ is set.
+writeLirItems :: Bool -> ((Item -> IO ()) -> IO ()) -> Maybe FilePath -> FilePath -> IO ()
+writeLirItems lint produce dumpPath path =
+  writeParts `finally` mapM_ removePathForcibly [functionsPath, dataPath]
+  where
+    functionsPath = path <> ".functions"
+    dataPath = path <> ".data"
+    writeParts = writeLirParts lint produce dumpPath path functionsPath dataPath
+
+writeLirParts :: Bool -> ((Item -> IO ()) -> IO ()) -> Maybe FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+writeLirParts lint produce dumpPath path functionsPath dataPath = do
+  declared <- newIORef []
+  produce $ \item ->
+    let value = declaration item
+     in value `seq` modifyIORef' declared (value :)
+  declarations <- reverse <$> readIORef declared
+  let ctx = moduleContext (declarations <> map ItemFunction (wideHelpers <> bitScatterHelpers))
+      (symbols, duplicateErrors) = Lint.moduleSymbols (Module [lintDeclaration item | item <- declarations])
+  when lint (checkLint duplicateErrors)
+  references <- newIORef Set.empty
+  progress <- newIORef (ModuleState {moduleTraps = Map.empty, moduleUsesStack = False}, False, False)
+  let writeFunction functions function = do
+        (state, wide, scatter) <- readIORef progress
+        (lines', next) <- either failed pure (runStateT (compileFunction ctx function) state)
+        mapM_ (TIO.hPutStrLn functions) lines'
+        writeIORef progress (next, wide || usesWideMultiply function, scatter || usesBitScatter function)
+  withFile functionsPath WriteMode $ \functions ->
+    withFile dataPath WriteMode $ \dataHandle ->
+      withDump $ \dump -> do
+        produce $ \item -> do
+          when lint $ do
+            checkLint (Lint.lintItem symbols item)
+            modifyIORef' references (Set.union (Lint.itemDataReferences item))
+          dump item
+          case prepareItem item of
+            Left message -> failed (WasmLirUnsupported message)
+            Right (ItemFunction function) -> writeFunction functions function
+            Right (ItemData dataItem) -> mapM_ (TIO.hPutStrLn dataHandle) (renderData ctx dataItem)
+            Right _ -> pure ()
+        (_, wide, scatter) <- readIORef progress
+        mapM_ (writeFunction functions) ([helper | wide, helper <- wideHelpers] <> [helper | scatter, helper <- bitScatterHelpers])
+  when lint (readIORef references >>= checkLint . Lint.unreferencedDataErrors (map lintDeclaration declarations))
+  (final, wide, scatter) <- readIORef progress
+  let headerItems = declarations <> [ItemFunction helper | wide, helper <- wideHelpers] <> [ItemFunction helper | scatter, helper <- bitScatterHelpers]
+      traps = Map.toAscList (moduleTraps final)
+  withFile path WriteMode $ \output -> do
+    TIO.hPutStr output (T.unlines (header ctx headerItems (moduleUsesStack final)))
+    copyInto output functionsPath
+    copyInto output dataPath
+    TIO.hPutStr
+      output
+      ( T.unlines
+          ( concatMap (renderGlobal ctx) [global | ItemGlobal global <- declarations]
+              <> concat
+                [ renderBytes (trapMessageSymbol index) (Text.encodeUtf8 message)
+                | (message, index) <- traps
+                ]
+              <> ["\t.no_dead_strip\t__indirect_function_table", ""]
+          )
+      )
+  where
+    failed :: WasmLirError -> IO value
+    failed = ioError . userError . ("Lir backend failed: " <>) . show
+    checkLint errors = unless (null errors) (failed (WasmLirLintErrors errors))
+    withDump action = case dumpPath of
+      Nothing -> action (const (pure ()))
+      Just dump -> withFile dump WriteMode $ \handle -> action (TIO.hPutStrLn handle . renderModule . Module . pure)
+    -- A declaration keeps what the header and the references read. The
+    -- fields are strict, so a declaration in normal form keeps no body.
+    declaration item =
+      case item of
+        ItemFunction function -> ItemFunction function {functionBlocks = []}
+        ItemData dataItem -> ItemData dataItem {dataFields = []}
+        _ -> item
+    lintDeclaration item =
+      case item of
+        ItemFunction function -> ItemExternFunction (ExternFunction (functionName function) (functionSignature function))
+        _ -> item
+    prepareItem item =
+      case item of
+        ItemFunction function | functionLinkage function == Inline -> Left ("inline function " <> unSymbol (functionName function) <> " in a lowered module")
+        ItemConstant _ -> Left "constant in a lowered module"
+        _ -> case prepareModule wordBytes (Module [item]) of
+          Module [prepared] -> Right prepared
+          _ -> Left "an item that preparation removed or split"
+
+copyInto :: Handle -> FilePath -> IO ()
+copyInto output source = BL.readFile source >>= BL.hPut output
+
+-- | Whether a function uses the wide 64-bit multiplication helpers.
+usesWideMultiply :: Function -> Bool
+usesWideMultiply function =
+  or
+    [ True
+    | block <- functionBlocks function,
+      Instruction _ (Wide op I64 _ _) <- blockInstructions block,
+      op `elem` [MulWideU, MulWideS]
+    ]
+
+-- | Whether a function uses the bit deposit or extract helpers.
+usesBitScatter :: Function -> Bool
+usesBitScatter function =
+  or
+    [ True
+    | block <- functionBlocks function,
+      Instruction _ (Binary op _ _ _) <- blockInstructions block,
+      op `elem` [Pdep, Pext]
+    ]
 
 -- | The module-level facts the functions need.
 data Ctx = Ctx

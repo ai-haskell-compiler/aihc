@@ -12,3 +12,10 @@ interface monotonic-clock {
   wait-until: async func(when: mark);
   wait-for: async func(how-long: duration);
 }
+
+interface system-clock {
+  record instant {
+    seconds: s64,
+    nanoseconds: u32,
+  }
+}

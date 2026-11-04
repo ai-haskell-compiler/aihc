@@ -42,6 +42,7 @@ import GHC.IO.Runtime
     ioHandleDescriptor,
     ioHandlePosition,
     ioHandleSetPosition,
+    ioHandleSize,
     openResultError,
     stderrHandle,
     stdinHandle,
@@ -199,8 +200,12 @@ instance IODevice FD where
         return (toInteger position)
       False -> descriptorSeek "GHC.IO.FD.tell" (fromIntegral descriptor) RelativeSeek 0
   getSize fd = do
-    descriptor <- seekableDescriptor fd
-    descriptorSize "GHC.IO.FD.getSize" descriptor
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> do
+        size <- runtimeSize "GHC.IO.FD.getSize" fd
+        return (toInteger size)
+      False -> descriptorSize "GHC.IO.FD.getSize" (fromIntegral descriptor)
 
 -- | Read up to @count@ bytes. The result is zero at the end of the input.
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> Int -> IO Int
@@ -258,26 +263,29 @@ runtimePosition fd = do
     True -> ioe_unsupportedOperation
     False -> return position
 
--- | Move that position. The size of the file is not known to the runtime, so
--- a seek from the end is unsupported.
+-- | The size of a file that the runtime opened itself. A resource with no
+-- size, such as a WASI stream, has an unsupported size.
+runtimeSize :: String -> FD -> IO Int
+runtimeSize location fd = do
+  size <- ioHandleSize (fdHandle fd)
+  case size < -1 of
+    True -> ioError (errnoToIOError location (Errno (fromIntegral (decodeError size))) Nothing Nothing)
+    False -> case size < 0 of
+      True -> ioe_unsupportedOperation
+      False -> return size
+
+-- | Move that position. A seek from the end starts at the size of the file.
 seekRuntimePosition :: FD -> SeekMode -> Integer -> IO Integer
 seekRuntimePosition fd mode offset = do
   current <- runtimePosition fd
   target <- case mode of
     AbsoluteSeek -> return offset
     RelativeSeek -> return (toInteger current + offset)
-    SeekFromEnd -> ioe_unsupportedOperation
+    SeekFromEnd -> do
+      size <- runtimeSize "GHC.IO.FD.seek" fd
+      return (toInteger size + offset)
   case target < 0 || target > toInteger (maxBound :: Int) of
     True -> ioError (errnoToIOError "GHC.IO.FD.seek" eINVAL Nothing Nothing)
     False -> do
       _ <- ioHandleSetPosition (fdHandle fd) (fromIntegral target)
       return target
-
--- | The operating system descriptor of an 'FD'. A resource that is not a
--- descriptor, such as a WASI stream, cannot seek.
-seekableDescriptor :: FD -> IO CInt
-seekableDescriptor fd = do
-  descriptor <- ioHandleDescriptor (fdHandle fd)
-  case descriptor < 0 of
-    True -> ioe_unsupportedOperation
-    False -> return (fromIntegral descriptor)

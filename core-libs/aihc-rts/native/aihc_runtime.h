@@ -931,6 +931,10 @@ int64_t aihc_io_handle_position(void *handle);
 /* Move the position that the runtime keeps. This gives 0, or -1 for a handle
    that has no such position. */
 int64_t aihc_io_handle_set_position(void *handle, int64_t position);
+/* The size of the file of a handle that has a position the runtime keeps.
+   This gives -1 for a handle whose size the operating system descriptor
+   gives, and a smaller aihc_io_error when the host cannot get the size. */
+int64_t aihc_io_handle_size(void *handle);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);
