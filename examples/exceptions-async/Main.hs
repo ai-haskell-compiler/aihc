@@ -16,22 +16,36 @@ import System.Timeout (timeout)
 report :: MVar String -> IO () -> IO ()
 report done action = action `catch` \(e :: AsyncException) -> putMVar done ("caught " ++ show e)
 
--- | The number of times the evaluation of 'expensive' started.
+-- | The number of times the evaluation of 'spin' started.
 {-# NOINLINE starts #-}
 starts :: IORef Int
 starts = unsafePerformIO (newIORef 0)
 
--- | The size of the work. An 'IORef' gives it, so the shared thunk below
--- is a thunk of the local heap and not a static CAF. With several
+-- | The start value of the work. An 'IORef' gives it, so the shared thunk
+-- below is a thunk of the local heap and not a static CAF. With several
 -- capabilities, the runtime freezes only a thunk of the local heap.
 {-# NOINLINE size #-}
 size :: IORef Integer
-size = unsafePerformIO (newIORef 20000000)
+size = unsafePerformIO (newIORef 0)
 
--- | Work that takes much longer than one tick.
-{-# NOINLINE expensive #-}
-expensive :: Integer -> Integer
-expensive n = unsafePerformIO (modifyIORef starts (+ 1)) `seq` sum [1 .. n]
+-- | The work stops when this flag is 'True'. Thus the work continues until
+-- the timeout interrupts it, and the time of the work does not depend on
+-- the speed of the machine.
+{-# NOINLINE stop #-}
+stop :: IORef Bool
+stop = unsafePerformIO (newIORef False)
+
+-- | Read the stop flag. The argument keeps the read in the loop.
+{-# NOINLINE stopped #-}
+stopped :: Integer -> Bool
+stopped i = unsafePerformIO (readIORef stop) && i >= 0
+
+-- | Work that continues until the flag 'stop' is 'True'.
+{-# NOINLINE spin #-}
+spin :: Integer -> Integer
+spin n = unsafePerformIO (modifyIORef starts (+ 1)) `seq` go n
+  where
+    go i = if stopped i then i else go (i + 1)
 
 main :: IO ()
 main = do
@@ -98,8 +112,9 @@ main = do
   -- An interrupted evaluation is frozen. The next evaluation continues it
   -- and does not start it again.
   n <- readIORef size
-  let shared = expensive n
+  let shared = spin n
   first <- timeout 20000 (evaluate shared)
   print (isNothing first)
-  print =<< evaluate shared
+  writeIORef stop True
+  print . (>= n) =<< evaluate shared
   print =<< readIORef starts
