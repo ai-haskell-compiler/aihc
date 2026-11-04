@@ -15,8 +15,10 @@
 -- 'Aihc.Fc.Merge.mergePrograms' puts an interface into the program of a
 -- consumer.
 --
--- The three steps are:
+-- The steps are:
 --
+-- * 'exposeInterfaceHelpers' makes public each private value that an
+--   offered body needs and that a consumer cannot copy.
 -- * 'moduleInterface' selects what a module offers, from the program that
 --   the desugarer gives. The bodies are thus the bodies of the source,
 --   and not the result of the passes of the module, as the unfolding of
@@ -37,6 +39,7 @@ module Aihc.Fc.Interface
   ( InterfacePolicy (..),
     defaultInterfacePolicy,
     moduleInterface,
+    exposeInterfaceHelpers,
     Grafted (..),
     graftInterfaces,
     stripInterfaces,
@@ -159,19 +162,8 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
       Set.member (valName declaration) public
         && copies declaration
         && (requested declaration || bodySize declaration <= policyBodyLimit policy)
-    -- Whether a copy of the value in another module keeps the meaning of
-    -- the program and can pay.
-    copies declaration =
-      (isInlinable (valBody declaration) || isDictionaryValue declaration || isAtomApplication declaration)
-        && Set.disjoint privateConstructors (exprReferences (valBody declaration))
-        && case valInline declaration of
-          InlineNever _ -> False
-          _ -> True
-    requested declaration =
-      case valInline declaration of
-        InlineAlways _ -> True
-        InlineWhenUseful _ -> True
-        _ -> False
+    copies = copiesValue privateConstructors
+    requested = requestsCopy
     offersRule rule =
       case ruleHeadName rule of
         Just ruleHead
@@ -182,6 +174,80 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- A value the consumer can name: a public value of this module, or a
     -- value of another module.
     named name = Set.member name public || Map.notMember name values
+
+-- | Whether a copy of the value in another module keeps the meaning of
+-- the program and can pay. The set holds the private constructors of the
+-- module.
+copiesValue :: Set Name -> ValDecl -> Bool
+copiesValue privateConstructors declaration =
+  (isInlinable (valBody declaration) || isDictionaryValue declaration || isAtomApplication declaration)
+    && Set.disjoint privateConstructors (exprReferences (valBody declaration))
+    && case valInline declaration of
+      InlineNever _ -> False
+      _ -> True
+
+-- | Whether the pragma of a value asks for a copy at each call.
+requestsCopy :: ValDecl -> Bool
+requestsCopy declaration =
+  case valInline declaration of
+    InlineAlways _ -> True
+    InlineWhenUseful _ -> True
+    _ -> False
+
+-- | Make public each private value that the interface of the module must
+-- name and cannot copy.
+--
+-- An offered body can reach a private value that a consumer cannot copy.
+-- Examples are a @NOINLINE@ helper that makes an error message, a method
+-- with an @INLINE@ pragma that is larger than the body limit, and a
+-- helper that names a private constructor. Without this step, such a
+-- value refuses each body that reaches it, and one refused method refuses
+-- the full dictionary. GHC gives such a value an external name for the
+-- same reason.
+--
+-- The module keeps one definition of each such value, and a consumer
+-- calls it. A value that the interface copies stays private.
+--
+-- Run this step on the program of the desugarer, before 'moduleInterface'
+-- and before the passes of the module. The passes then keep each such
+-- value as a root, and the object of the module defines its symbol.
+exposeInterfaceHelpers :: PackageId -> InterfacePolicy -> Program -> Program
+exposeInterfaceHelpers primPackage policy program =
+  program {programDecls = map expose (programDecls program)}
+  where
+    env = typeEnvFromProgram primPackage program
+    values = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls program]
+    privateConstructors = Set.fromList [conName constructor | DeclType declaration <- programDecls program, constructor <- typeCons declaration, conVis constructor == Private]
+    bodySize declaration = exprSize env (valBody declaration)
+    copies = copiesValue privateConstructors
+    -- A private value that each consumer copies.
+    copied declaration = copies declaration && bodySize declaration <= policyBodyLimit policy
+    -- A value that the interface offers when it is public.
+    offered declaration = copies declaration && (requestsCopy declaration || bodySize declaration <= policyBodyLimit policy)
+    reaches declaration = Set.toList (exprValueNames (valBody declaration))
+    roots = concat [reaches declaration | declaration <- Map.elems values, valVis declaration == Pub, offered declaration]
+    exposed = walk Set.empty Set.empty roots
+    -- A copied value and an exposed value that is offered bring the
+    -- private values that their bodies reach.
+    walk _ found [] = found
+    walk seen found (name : rest)
+      | Set.member name seen = walk seen found rest
+      | otherwise =
+          case Map.lookup name values of
+            Just declaration
+              | valVis declaration /= Pub ->
+                  let seen' = Set.insert name seen
+                   in if copied declaration
+                        then walk seen' found (reaches declaration <> rest)
+                        else
+                          if offered declaration
+                            then walk seen' (Set.insert name found) (reaches declaration <> rest)
+                            else walk seen' (Set.insert name found) rest
+            _ -> walk seen found rest
+    expose decl =
+      case decl of
+        DeclVal declaration | Set.member (valName declaration) exposed -> DeclVal declaration {valVis = Pub}
+        _ -> decl
 
 -- | Whether a value is a dictionary constructor application.
 --

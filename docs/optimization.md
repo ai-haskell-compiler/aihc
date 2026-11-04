@@ -34,6 +34,15 @@ A dictionary fact lets the simplifier select a method across module boundaries.
 The simplifier does not copy costly shared dictionary fields.
 `NOINLINE` values and private constructors remain unavailable to consumers.
 
+A dictionary of an instance with a type variable, such as `Monad (ST s)`, is also a fact.
+A method that the class default gives is an application of the default method.
+The interface copies such an application, because the copy does no more work than the call.
+
+An offered body can reach a private value that a consumer cannot copy.
+Examples are a `NOINLINE` helper and an `INLINE` method that is larger than the body limit.
+The module makes such a value public before its passes, and a consumer calls it.
+Thus, the value does not refuse the bodies and the dictionaries that reach it.
+
 The loader follows resolved package and module identities.
 This includes hidden modules of transitive dependencies and reexports.
 It follows only bodies and rules that the consumer reaches.
