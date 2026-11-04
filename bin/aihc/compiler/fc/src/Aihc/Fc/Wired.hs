@@ -129,8 +129,8 @@ unboxedTupleDecl package arity =
     values = [Binder name (TyApp (TyCon (typeConstructor package)) (TyVar rep)) | (name, rep) <- zip valueVariables repVariables]
     cons = TyCon (wiredGhcTypes package ":" SortDataConstructor)
     nil = TyApp (TyCon (wiredGhcTypes package "[]" SortDataConstructor)) runtimeRep
-    tupleRep = TyApp (TyCon (wiredGhcTypes package "TupleRep" SortDataConstructor)) (foldr (\rep rest -> TyApp (TyApp (TyApp cons runtimeRep) (TyVar rep)) rest) nil repVariables)
+    tupleRep = TyApp (TyCon (wiredGhcTypes package "TupleRep" SortDataConstructor)) (foldr (TyApp . TyApp (TyApp cons runtimeRep) . TyVar) nil repVariables)
     result = foldl TyApp (TyCon tyCon) (map TyVar (repVariables <> valueVariables))
     -- Each arrow but the last returns a function, which is lifted.
     fields = foldr field result (zip3 [1 :: Int ..] repVariables valueVariables)
-    field (index, rep, value) rest = TyFun (TyVar rep) (if index == arity then tupleRep else TyCon (liftedRepName package)) (TyVar value) rest
+    field (index, rep, value) = TyFun (TyVar rep) (if index == arity then tupleRep else TyCon (liftedRepName package)) (TyVar value)
