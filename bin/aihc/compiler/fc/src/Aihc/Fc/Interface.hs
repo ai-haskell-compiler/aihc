@@ -349,7 +349,17 @@ graftInterfaces primPackage interfaces program =
     own = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
     offered = Map.unions [Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls interface, Set.notMember (valName declaration) own] | interface <- interfaces]
     reached = foldMap declValueNames (programDecls program)
-    wanted = close Set.empty (Set.toList reached)
+    rules = [rule | interface <- interfaces, DeclRule rule <- programDecls interface]
+    -- A kept rule adds the values that its right side names, because the
+    -- rewrite brings calls of them into the program. An example is the
+    -- rule "map", which rewrites a call of 'map' to 'foldr' and 'mapFB'.
+    -- These values can make more rules applicable, so the set grows until
+    -- it does not change.
+    wanted = grow (close Set.empty (Set.toList reached))
+    grow done =
+      let added = foldMap (exprValueNames . ruleRhs) [rule | rule <- rules, maybe False (`Set.member` headsOf done) (ruleHeadName rule)]
+          next = close done (Set.toList added)
+       in if next == done then done else grow next
     close done [] = done
     close done (name : rest)
       | Set.member name done = close done rest
@@ -361,7 +371,8 @@ graftInterfaces primPackage interfaces program =
     -- value that came in with an interface, or a name that the body of
     -- such a value uses. An example of the last is a class method whose
     -- body calls a large function that is the head of a rule.
-    heads = reached <> wanted <> foldMap (\name -> maybe Set.empty (exprValueNames . valBody) (Map.lookup name offered)) wanted
+    headsOf values = reached <> values <> foldMap (\name -> maybe Set.empty (exprValueNames . valBody) (Map.lookup name offered)) values
+    heads = headsOf wanted
     restrict = restrictProgram primPackage keep
     keep decl =
       case decl of
