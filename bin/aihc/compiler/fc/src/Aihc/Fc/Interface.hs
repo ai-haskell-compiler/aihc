@@ -162,7 +162,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- Whether a copy of the value in another module keeps the meaning of
     -- the program and can pay.
     copies declaration =
-      (isInlinable (valBody declaration) || (isDictionaryType (valType declaration) && isConstructorValue (valBody declaration)))
+      (isInlinable (valBody declaration) || isDictionaryValue declaration)
         && Set.disjoint privateConstructors (exprReferences (valBody declaration))
         && case valInline declaration of
           InlineNever _ -> False
@@ -182,6 +182,20 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- A value the consumer can name: a public value of this module, or a
     -- value of another module.
     named name = Set.member name public || Map.notMember name values
+
+-- | Whether a value is a dictionary constructor application.
+--
+-- The type of an instance with a type variable and no context, such as
+-- @Monad (ST s)@, is a quantified dictionary type, and its body is a
+-- constructor application under a type lambda.
+isDictionaryValue :: ValDecl -> Bool
+isDictionaryValue declaration =
+  dictionaryScheme (valType declaration) && isConstructorValue (valBody declaration)
+  where
+    dictionaryScheme ty =
+      case ty of
+        TyForAll _ body -> dictionaryScheme body
+        _ -> isDictionaryType ty
 
 -- | What the interfaces of the imported modules gave a program.
 data Grafted = Grafted
