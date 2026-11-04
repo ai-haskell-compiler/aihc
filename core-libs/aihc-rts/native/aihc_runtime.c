@@ -4129,6 +4129,13 @@ const AihcResume *aihc_raise(AihcCapability *capability, AihcValue *exception,
       continuation = (AihcValue *)(uintptr_t)fields[0];
       break;
     case AIHC_FRAME_STOP:
+      /* As in GHC, an exception that no handler catches ends only a forked
+         thread. The handler of forkIO is not there when the exception
+         comes before the thread starts. */
+      if (info == capability->machine->thread_done_info) {
+        aihc_stack_resume_after(capability, continuation);
+        return aihc_thread_done(capability);
+      }
       aihc_fail("uncaught Haskell exception");
     case AIHC_FRAME_RESTORE_MASK:
       /* The unwind passes the frame, so the state it saved holds again. */
