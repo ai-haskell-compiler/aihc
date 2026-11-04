@@ -1042,6 +1042,40 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
    a store into them needs no write barrier. Each thread with a stack is
    visited. A thread that nothing reaches keeps them until a gen2 cycle
    frees its record. A thread with a resumption is on the run queue. */
+/* A transaction and its logs belong to one thread, and only that thread
+   reads or changes them. A log entry is a young object, but a collection
+   can promote the transaction or an older entry into gen2 first. The store
+   of the next entry then gives a global object a young referent. A local
+   collection without a stop does not scan the gen2 entries of its
+   remembered set, so every collection updates these links here. */
+static void aihc_visit_log_links(AihcMachine *machine,
+                                 AihcTransactionWrite **log,
+                                 AihcRootVisitor visitor, void *context) {
+  for (AihcTransactionWrite **link = log; *link != NULL;
+       link = &(*link)->next) {
+    *link = aihc_visit_pointer(*link, visitor, context);
+    AihcTransactionWrite *entry = *link;
+    if (!aihc_value_is_young(machine, entry)) {
+      entry->value = visitor(entry->value, context);
+    }
+  }
+}
+
+static void aihc_visit_transaction_links(AihcMachine *machine,
+                                         AihcTransaction **transaction,
+                                         AihcRootVisitor visitor,
+                                         void *context) {
+  for (AihcTransaction **link = transaction; *link != NULL;
+       link = &(*link)->parent) {
+    *link = aihc_visit_pointer(*link, visitor, context);
+    AihcTransaction *each = *link;
+    if (!aihc_value_is_young(machine, each)) {
+      aihc_visit_log_links(machine, &each->writes, visitor, context);
+      aihc_visit_log_links(machine, &each->reads, visitor, context);
+    }
+  }
+}
+
 static void aihc_visit_thread_roots(AihcMachine *machine,
                                     const AihcCapability *owner,
                                     AihcRootVisitor visitor, void *context) {
@@ -1050,8 +1084,8 @@ static void aihc_visit_thread_roots(AihcMachine *machine,
     if (owner != NULL && thread->capability != owner->index) {
       continue;
     }
-    thread->transaction =
-        aihc_visit_pointer(thread->transaction, visitor, context);
+    aihc_visit_transaction_links(machine, &thread->transaction, visitor,
+                                 context);
     thread->queues = aihc_visit_pointer(thread->queues, visitor, context);
     aihc_visit_value(&thread->resume_function, visitor, context);
     aihc_visit_value(&thread->resume_continuation, visitor, context);
