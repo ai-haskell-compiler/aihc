@@ -42,6 +42,8 @@ An offered body can reach a private value that a consumer cannot copy.
 Examples are a `NOINLINE` helper and an `INLINE` method that is larger than the body limit.
 The module makes such a value public before its passes, and a consumer calls it.
 Thus, the value does not refuse the bodies and the dictionaries that reach it.
+The values that a rule names also become public, so that the interface can offer the rule.
+A consumer gets a rule when it names the head, or when a body that it gets names the head.
 
 The loader follows resolved package and module identities.
 This includes hidden modules of transitive dependencies and reexports.

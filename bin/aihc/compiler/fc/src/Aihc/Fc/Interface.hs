@@ -200,7 +200,9 @@ requestsCopy declaration =
 -- An offered body can reach a private value that a consumer cannot copy.
 -- Examples are a @NOINLINE@ helper that makes an error message, a method
 -- with an @INLINE@ pragma that is larger than the body limit, and a
--- helper that names a private constructor. Without this step, such a
+-- helper that names a private constructor. A rule is offered only when a
+-- consumer can name each value of the rule, so the values of a rule
+-- become public too. Without this step, such a
 -- value refuses each body that reaches it, and one refused method refuses
 -- the full dictionary. GHC gives such a value an external name for the
 -- same reason.
@@ -226,7 +228,16 @@ exposeInterfaceHelpers primPackage policy program =
     offered declaration = copies declaration && (requestsCopy declaration || bodySize declaration <= policyBodyLimit policy)
     reaches declaration = Set.toList (exprValueNames (valBody declaration))
     roots = concat [reaches declaration | declaration <- Map.elems values, valVis declaration == Pub, offered declaration]
-    exposed = walk Set.empty Set.empty roots
+    -- A rule names its head and the values of its right-hand side. A
+    -- consumer fires the rule only when it can name each of them.
+    ruleValues =
+      Set.unions
+        [ names
+        | DeclRule rule <- programDecls program,
+          Set.disjoint privateConstructors (exprReferences (ruleLhs rule) <> exprReferences (ruleRhs rule)),
+          let names = Set.filter (`Map.member` values) (exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule))
+        ]
+    exposed = walk Set.empty ruleValues roots
     -- A copied value and an exposed value that is offered bring the
     -- private values that their bodies reach.
     walk _ found [] = found
@@ -346,9 +357,11 @@ graftInterfaces primPackage interfaces program =
           case Map.lookup name offered of
             Nothing -> close done rest
             Just declaration -> close (Set.insert name done) (Set.toList (exprValueNames (valBody declaration)) <> rest)
-    -- The heads that a rule may have: a name the program itself uses, or
-    -- a value that came in with an interface.
-    heads = reached <> wanted
+    -- The heads that a rule may have: a name the program itself uses, a
+    -- value that came in with an interface, or a name that the body of
+    -- such a value uses. An example of the last is a class method whose
+    -- body calls a large function that is the head of a rule.
+    heads = reached <> wanted <> foldMap (\name -> maybe Set.empty (exprValueNames . valBody) (Map.lookup name offered)) wanted
     restrict = restrictProgram primPackage keep
     keep decl =
       case decl of
