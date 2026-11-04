@@ -1,5 +1,8 @@
 name: Setup Nix CI
-description: Configure Nix with the shared R2 cache after checkout.
+description: >-
+  Configure Nix with the shared R2 cache after checkout. Without R2
+  credentials, such as in a pull request from a fork, the cache is read-only
+  through its public URL.
 
 inputs:
   r2-account-id:
@@ -9,11 +12,13 @@ inputs:
     description: Cloudflare R2 access key ID.
     required: true
   r2-secret-access-key:
-    description: Cloudflare R2 secret access key.
-    required: true
+    description: Cloudflare R2 secret access key. Empty for a read-only cache.
+    required: false
+    default: ""
   nix-cache-private-key:
-    description: Private signing key for the Nix cache.
-    required: true
+    description: Private signing key for the Nix cache. Empty for a read-only cache.
+    required: false
+    default: ""
   nix-preinstalled:
     description: >-
       Set to "true" when the runner already provides Nix and a configured cache,
@@ -30,7 +35,7 @@ runs:
       uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
 
     - name: Configure Cloudflare R2 cache
-      if: inputs.nix-preinstalled != 'true'
+      if: inputs.nix-preinstalled != 'true' && inputs.r2-secret-access-key != ''
       uses: lemmih/nix-s3-cache-action@1f2ffc8b285edc2e86487dc37679220ba33dbff3 # v1.0.3
       with:
         s3-endpoint: ${{ inputs.r2-account-id }}.r2.cloudflarestorage.com
@@ -39,3 +44,17 @@ runs:
         aws-access-key-id: ${{ inputs.r2-access-key }}
         aws-secret-access-key: ${{ inputs.r2-secret-access-key }}
         private-key: ${{ inputs.nix-cache-private-key }}
+
+    - name: Configure the public read-only cache
+      if: inputs.nix-preinstalled != 'true' && inputs.r2-secret-access-key == ''
+      shell: bash
+      run: |
+        config=/etc/nix/nix.conf
+        if [ -f /etc/nix/nix.custom.conf ]; then
+          config=/etc/nix/nix.custom.conf
+        fi
+        printf '%s\n' \
+          'extra-substituters = https://nix-cache.aihc.app' \
+          'extra-trusted-public-keys = nix-cache:2eICaC37vEBexPk98J0dRt5FzSX7f6hx0vRl9tPaUuM=' |
+          sudo tee -a "$config" >/dev/null
+        sudo systemctl restart nix-daemon || true
