@@ -51,7 +51,12 @@ struct AihcThread {
   AihcValue *resume_function;
   AihcValue *resume_continuation;
   AihcSlot resume_value;
-  uint64_t resume_count;
+  /* The commit count of the machine when the last transaction of this
+     thread that retried was still valid. The ticker can switch to another
+     thread between the abort and the wait of a retry, and that thread can
+     abort a transaction too. Thus the count belongs to the thread and not
+     to the capability. See aihc_stm_wait_request. */
+  uint64_t stm_retry_token;
   AihcThread *next;
   AihcTransaction *transaction;
   /* The blackhole queues of the thunks that this thread claimed. */
@@ -66,6 +71,8 @@ struct AihcThread {
   uint8_t blocked_kind;
   /* Whether the thread is on the async_targets list of its capability. */
   uint8_t async_listed;
+  /* The number of values of the resumption: zero or one. */
+  uint8_t resume_count;
   /* The number of cancelled waits. A waiter record keeps the epoch of its
      wait, so the record of a cancelled wait does not match the thread. The
      thread names no waiter record: a dead thread in gen2 then keeps no

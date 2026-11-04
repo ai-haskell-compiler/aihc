@@ -1377,6 +1377,7 @@ static AihcThread *aihc_thread_new(AihcCapability *capability,
   thread->resume_continuation = NULL;
   thread->resume_value = 0;
   thread->resume_count = 0;
+  thread->stm_retry_token = 0;
   thread->next = NULL;
   thread->transaction = NULL;
   thread->queues = NULL;
@@ -1688,7 +1689,7 @@ static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
   thread->resume_continuation = NULL;
   aihc_stack_note_top(continuation);
   thread->resume_value = value;
-  thread->resume_count = count;
+  thread->resume_count = (uint8_t)count;
 }
 
 static void aihc_suspend_eval(AihcThread *thread, AihcValue *value,
@@ -3546,7 +3547,7 @@ static const AihcResume *aihc_deliver_current(AihcCapability *capability,
   thread->resume_kind = kind;
   thread->resume_function = function;
   thread->resume_continuation = continuation;
-  thread->resume_count = count;
+  thread->resume_count = (uint8_t)count;
   thread->resume_value = value;
   aihc_write_barrier(capability, (AihcValue *)thread);
   thread->async_exception = exception;
@@ -4086,7 +4087,7 @@ const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
     break;
   case AIHC_RESUME_APPLY:
     aihc_suspend_apply(thread, function, resumed);
-    thread->resume_count = count;
+    thread->resume_count = (uint8_t)count;
     thread->resume_value = value;
     break;
   case AIHC_RESUME_EVAL:
@@ -4548,8 +4549,11 @@ uint64_t aihc_stm_abort(AihcCapability *capability) {
   aihc_object_lock(capability->machine);
   int valid = aihc_transaction_valid(transaction);
   /* The reads of a valid transaction hold at this commit count. A retry
-     that follows waits for a later commit. */
-  capability->stm_retry_token = capability->machine->stm_commit_count;
+     that follows waits for a later commit. The count is a field of the
+     thread: a context switch can run another thread of this capability
+     before the wait, and an abort of that thread must not change it. */
+  capability->current_thread->stm_retry_token =
+      capability->machine->stm_commit_count;
   aihc_object_unlock(capability->machine);
   capability->current_thread->transaction = transaction->parent;
   return (uint64_t)valid;
@@ -4764,7 +4768,8 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
     }
   }
   if (machine->workers_active) {
-    if (machine->stm_commit_count != capability->stm_retry_token) {
+    if (machine->stm_commit_count !=
+        capability->current_thread->stm_retry_token) {
       aihc_object_unlock(machine);
       request->state = AIHC_IO_COMPLETED;
       request->result = 1;
