@@ -44,6 +44,9 @@ The module makes such a value public before its passes, and a consumer calls it.
 Thus, the value does not refuse the bodies and the dictionaries that reach it.
 The values that a rule names also become public, so that the interface can offer the rule.
 A consumer gets a rule when it names the head, or when a body that it gets names the head.
+The consumer also gets the bodies of the values that the right side of the rule names.
+For example, the rule `"map"` rewrites a call of `map` to `foldr` and `mapFB`.
+Without these bodies, the consumer cannot copy `foldr` and `mapFB` after the rule fires.
 
 The loader follows resolved package and module identities.
 This includes hidden modules of transitive dependencies and reexports.
