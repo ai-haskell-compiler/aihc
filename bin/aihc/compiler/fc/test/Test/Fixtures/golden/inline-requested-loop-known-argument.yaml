@@ -1,0 +1,89 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (mapWith, run) where
+
+  import GHC.Types (Int (..))
+
+  data List a = Nil | Cons a (List a)
+
+  apply :: (a -> b) -> a -> b
+  apply f x = f x
+  {-# NOINLINE apply #-}
+
+  mapWith :: (a -> b) -> List a -> List b
+  mapWith f = go
+    where
+      go Nil = Nil
+      go (Cons z zs) = Cons (apply f z) (go zs)
+  {-# INLINE mapWith #-}
+
+  wrap :: Int -> List Int
+  wrap x = Cons x Nil
+
+  run :: List Int -> List (List Int)
+  run xs = mapWith wrap xs
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tList (a : sType) :: sType {
+    1.cNil :: ∀(a : sType). tList a;
+    1.cCons :: ∀(a : sType). a → tList a → tList a
+  }
+
+  val 1.vapply noinline :: ∀(a : sType) (b : sType). (a → b) → a → b
+    = Λ(a : sType) (b : sType). λ(x : a → b) (y : a).
+      x y
+
+  pub val 1.vmapWith inline :: ∀(a : sType) (b : sType). (a → b) → tList a → tList b
+    = Λ(a : sType) (b : sType). λ(x : a → b).
+      rec {
+        go : tList a → tList b =
+          λ(x{1} : tList a).
+            case x{1} of {
+              cNil →
+                cNil @b;
+              cCons (z : a) (zs : tList a) →
+                cCons @b (vapply @a @b x z) (go zs)
+            }
+      } in
+      go
+
+  val 1.vwrap :: tInt → tList tInt
+    = λ(x : tInt).
+      cCons @tInt x (cNil @tInt)
+
+  pub val 1.vrun :: tList tInt → tList (tList tInt)
+    = λ(x : tList tInt).
+      rec {
+        go : tList tInt → tList (tList tInt) =
+          λ(x{1} : tList tInt).
+            case x{1} of {
+              cNil →
+                cNil @(tList tInt);
+              cCons (z : tInt) (zs : tList tInt) →
+                cCons @(tList tInt) (vapply @tInt @(tList tInt) vwrap z) (go zs)
+            }
+      } in
+      go x
+status: pass
+reason: An INLINE function that binds a local loop takes a copy at a site that gives it a known function, also when the loop only passes the function on. The export keeps 'mapWith', so the copy is not one that replaces the value. GHC copies such a site too.

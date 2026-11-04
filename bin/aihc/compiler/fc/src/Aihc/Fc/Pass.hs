@@ -27,7 +27,7 @@ import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
-import Aihc.Fc.FullLaziness (fullLazinessProgram)
+import Aihc.Fc.FullLaziness (floatRootLetsProgram, fullLazinessProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.ListFusion (listFusionProgram)
 import Aihc.Fc.Name (Home, Name, Origin)
@@ -87,6 +87,9 @@ data Pass
     PassLiftConstants
   | -- | Share closed lifted computations across function calls.
     PassFullLaziness
+  | -- | Move the lazy lets at the root of a top-level function to
+    -- top-level values. @Aihc.Fc.FullLaziness@.
+    PassFloatRootLets
   | -- | Copy the body of a small local loop at each call whose literal
     -- arguments decide its recursion, until no call is left.
     -- @Aihc.Fc.Unroll@.
@@ -128,6 +131,7 @@ passPhase pass =
   case pass of
     PassListFusion -> Nothing
     PassFullLaziness -> Nothing
+    PassFloatRootLets -> Nothing
     PassLiftConstants -> Nothing
     PassUnroll -> Nothing
     PassStateTokens -> Nothing
@@ -157,6 +161,7 @@ passName pass =
   case pass of
     PassListFusion -> "list producers"
     PassFullLaziness -> "full laziness"
+    PassFloatRootLets -> "float root lets"
     PassLiftConstants -> "lift constants"
     PassUnroll -> "unroll"
     PassStateTokens -> "state tokens"
@@ -182,6 +187,9 @@ runPass env pass program =
        in (rewritten, PassReport (passName pass) (programSize primPackage program) (programSize primPackage rewritten) (count sites "producers"))
     PassFullLaziness ->
       let (floated, sites) = fullLazinessProgram primPackage home program
+       in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))
+    PassFloatRootLets ->
+      let (floated, sites) = floatRootLetsProgram primPackage home program
        in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))
     PassLiftConstants ->
       let (lifted, constants, sites) = liftConstants primPackage home program

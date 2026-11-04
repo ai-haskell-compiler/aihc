@@ -100,10 +100,13 @@ optimizationPlan lto level =
     withInterfaces current = current {planModuleInterfaces = not (planWholeProgram current) && not (null (planPasses current))}
     -- The phases count down from 2 to 0.
     -- Phase 2 keeps producer rules active until specialization finishes.
-    shrink = [Fc.PassListFusion, Fc.PassEtaExpand, Fc.PassSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
+    -- The root lets move before each inliner group, so that a parser such
+    -- as @p = let y = ... in (Λb. λs .... ) ▷ co@ is a function that the
+    -- inliner can copy. The specialization and the inliner make new roots.
+    shrink = [Fc.PassFloatRootLets, Fc.PassListFusion, Fc.PassEtaExpand, Fc.PassSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
     -- First expose dictionary calls while producer rules remain active.
     -- Specialize before the final fusion and worker/wrapper passes.
-    specialise = [Fc.PassInline Fc.growPolicy rounds 2, Fc.PassTopSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
+    specialise = [Fc.PassFloatRootLets, Fc.PassInline Fc.growPolicy rounds 2, Fc.PassTopSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
     -- The wrappers are small INLINE values, which the growing inliner
     -- copies at each call. The shrinking inliner would keep them as calls,
     -- so -Os does not split. A worker body is new, and the growing
@@ -127,7 +130,7 @@ optimizationPlan lto level =
     -- evaluate it. Its simplifying walks copy a local function at a call
     -- that the copy of a loop gives a constructor, within the site limit
     -- of the growing policy.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
+    grow = [Fc.PassFloatRootLets, Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     rounds = 4
 

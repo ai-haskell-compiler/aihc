@@ -234,6 +234,7 @@ parsePass :: Y.Value -> Y.Parser Pass
 parsePass value =
   case value of
     Y.String "full-laziness" -> pure PassFullLaziness
+    Y.String "float-root-lets" -> pure PassFloatRootLets
     Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "unroll" -> pure PassUnroll
     Y.String "state-tokens" -> pure PassStateTokens

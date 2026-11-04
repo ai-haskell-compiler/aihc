@@ -1879,7 +1879,7 @@ inlineScrutinee env name candidate args binder originalAlternatives = do
       reduction = siteReduction env candidate args'
       discount = resultDiscount env candidate alternatives
   growth <- subtract discount <$> estimateGrowth env name candidate args' reduction
-  verdict <- if keepsLoop env candidate args' reduction then pure Nothing else decideSite env candidate reduction growth
+  verdict <- if keepsLoop env name candidate args' reduction then pure Nothing else decideSite env candidate reduction growth
   case verdict of
     Nothing -> do
       alternatives' <- mapM (simplifyAlt env original binder alternatives) remaining
@@ -2128,19 +2128,38 @@ tailConstructors env = go . underLambdas
 -- This rule keeps such functions as @Data.Map.fromList@ and the loop of
 -- @++@ as calls, where earlier each site had a copy of the loop.
 --
+-- The rule does not apply to a site of an @INLINE@ value that gives an
+-- interesting argument, such as a known dictionary or a known parser.
+-- GHC copies such a site, and the copy is a loop for that argument: the
+-- methods of the dictionary are known in each turn, and a known
+-- function is a direct call. @many@ of @parser-combinators@ is such a
+-- value: a copy at each parser binds its own loop, where the call made
+-- three continuation closures for each item.
+--
 -- The rule does not apply inside a template. A loop in a template makes
 -- the template large, and the sites of the template then keep it as a
 -- call, with the loop in it once. The slow path of @ensureN@ in the
 -- @binary@ package is such a loop: with the loop kept out, the template
 -- is small, and each of its sixteen calls in a SHA schedule got a copy
 -- of the fast path and a second copy of the decoder after it.
-keepsLoop :: Simpl -> Candidate -> [Arg] -> Reduction -> Bool
-keepsLoop env candidate args reduction =
+keepsLoop :: Simpl -> Name -> Candidate -> [Arg] -> Reduction -> Bool
+keepsLoop env name candidate args reduction =
   not (spInTemplate (spFixed env))
     && guidanceLoops (candidateGuidanceOf candidate)
     && candidateSites candidate /= SitesUnconditional
     && reduction == NoReduction
     && not (givesCalledFunction env candidate args)
+    && not (requestedAtInterestingSite env name candidate args)
+
+-- | Whether a site of an @INLINE@ value gives an interesting argument.
+-- See 'keepsLoop'. A value that the left-hand side of a rewrite rule
+-- names keeps its calls, so that the rule still matches them: the rule
+-- @iterateFB Cons = iterate@ undoes a fusion that did not happen.
+requestedAtInterestingSite :: Simpl -> Name -> Candidate -> [Arg] -> Bool
+requestedAtInterestingSite env name candidate args =
+  candidateRequested candidate
+    && Set.notMember name (spRuleNames (spFixed env))
+    && any (interestingArgument env) (rights args)
 
 -- | Whether a call gives a function to a parameter that the callee
 -- calls.
@@ -2888,7 +2907,7 @@ inlineSite env name candidate original args' = do
       -- case: that case takes the result of this copy apart too.
       discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
   verdict <-
-    if keepsLoop env candidate args' reduction
+    if keepsLoop env name candidate args' reduction
       || boringLazyField env candidate reduction args'
       then pure Nothing
       else do
