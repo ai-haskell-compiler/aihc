@@ -162,7 +162,7 @@ moduleInterface primPackage policy program = restrictProgram primPackage keep pr
     -- Whether a copy of the value in another module keeps the meaning of
     -- the program and can pay.
     copies declaration =
-      (isInlinable (valBody declaration) || isDictionaryValue declaration)
+      (isInlinable (valBody declaration) || isDictionaryValue declaration || isAtomApplication declaration)
         && Set.disjoint privateConstructors (exprReferences (valBody declaration))
         && case valInline declaration of
           InlineNever _ -> False
@@ -196,6 +196,37 @@ isDictionaryValue declaration =
       case ty of
         TyForAll _ body -> dictionaryScheme body
         _ -> isDictionaryType ty
+
+-- | Whether a value is a function or a dictionary that applies a variable
+-- to types and variables.
+--
+-- An instance method that the class default gives has this form, for
+-- example @$fMonadSTs$creturn = $dmreturn \@(ST s) $fMonadSTs@. A copy
+-- does no more work than the call that it replaces, and the consumer can
+-- then see the default method. A value of another type, such as a table
+-- that a function calculates, stays in its module, because each consumer
+-- would calculate it again.
+isAtomApplication :: ValDecl -> Bool
+isAtomApplication declaration =
+  functionOrDictionary (valType declaration) && application (valBody declaration)
+  where
+    functionOrDictionary ty =
+      case ty of
+        TyForAll _ body -> functionOrDictionary body
+        TyFun {} -> True
+        _ -> isDictionaryType ty
+    application expr =
+      case expr of
+        ExTyLam _ body -> application body
+        ExTyApp function _ -> application function
+        ExApp function argument -> atom function && atom argument
+        _ -> False
+    atom expr =
+      case expr of
+        ExVar _ -> True
+        ExTyApp function _ -> atom function
+        ExApp function argument -> atom function && atom argument
+        _ -> False
 
 -- | What the interfaces of the imported modules gave a program.
 data Grafted = Grafted
