@@ -6,6 +6,7 @@ module Aihc.Fc.TypeOf
     typeEnvFromPrograms,
     unionTypeEnv,
     extendTypeEnvWithPrograms,
+    withUnboxedTuples,
     typeHead,
     typeOf,
     exprType,
@@ -120,6 +121,27 @@ extendTypeEnvWithPrograms :: TypeEnv -> [Program] -> TypeEnv
 extendTypeEnvWithPrograms = List.foldl' addProgram
   where
     addProgram env program = List.foldl' addDecl (addImports env (programImports program)) (programDecls program)
+
+-- | Add the declaration of each unboxed tuple that the environment does
+-- not know, when it knows the names that such a declaration uses.
+--
+-- A module has a header only for the tuples that it uses. A pass that
+-- makes a larger tuple, such as a worker that returns the fields of a
+-- component of its result, needs the header of that tuple.
+-- 'Aihc.Fc.Imports.pruneImports' then gives the program the imports of
+-- each such tuple that it uses.
+withUnboxedTuples :: TypeEnv -> TypeEnv
+withUnboxedTuples env
+  | all (`Map.member` teHeaders env) [runtimeRepConstructor package, typeConstructor package, wired "TupleRep", wired ":", wired "[]"],
+    Map.member (liftedRepName package) (teSynonyms env) =
+      List.foldl' addTuple env [2 .. maxUnboxedTupleArity]
+  | otherwise = env
+  where
+    package = tePrimPackage env
+    wired name = wiredGhcTypes package name SortDataConstructor
+    addTuple current arity =
+      let declaration = unboxedTupleDecl package arity
+       in if Map.member (typeName declaration) (teHeaders current) then current else addDecl current (DeclType declaration)
 
 addImports :: TypeEnv -> Imports -> TypeEnv
 addImports env imports =

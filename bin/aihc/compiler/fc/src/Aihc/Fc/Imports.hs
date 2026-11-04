@@ -24,6 +24,7 @@ import Aihc.Fc.TypeOf
     typeHead,
     unionTypeEnv,
   )
+import Aihc.Fc.Wired (unboxedTupleArity, unboxedTupleDecl)
 import Aihc.Resolve (PackageId)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -336,11 +337,27 @@ nameReference = Set.singleton
 
 -- | Keep only the imports that the declarations reach. Normalization and
 -- inlining drop bindings, and with them the last use of an import.
+--
+-- A pass can also make an unboxed tuple that the program did not use
+-- before. Such a tuple gets its imports here, from 'unboxedTupleDecl'.
 pruneImports :: Program -> Program
 pruneImports program = program {programImports = imports'}
   where
-    imports = programImports program
     direct = foldMap declReferences (programDecls program)
+    declared = Set.fromList (concatMap declaredNames (programDecls program))
+    newTuples =
+      Set.fromList
+        [ found
+        | name <- Set.toList direct,
+          Map.notMember name (importHeaders (programImports program)),
+          Set.notMember name declared,
+          Just found <- [unboxedTupleArity name]
+        ]
+    imports = foldr (mergeImports . tupleImports) (programImports program) (Set.toList newTuples)
+    tupleImports (package, arity) =
+      let declaration = unboxedTupleDecl package arity
+          env = typeEnvFromProgram package (Program emptyImports [DeclType declaration])
+       in importsForNames env (Set.fromList (typeName declaration : map conName (typeCons declaration)))
     used = close direct
     close current =
       let next = current <> importReferences current
