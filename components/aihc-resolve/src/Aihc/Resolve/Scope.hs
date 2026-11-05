@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -100,11 +101,13 @@ import Control.DeepSeq (NFData)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import GHC.Generics (Generic)
+import GHC.Generics (Generic, Generically (..))
 
 data Scope = Scope
   { scopeTerms :: Map.Map Text Entity,
@@ -144,19 +147,15 @@ instance NFData ModuleKey
 -- the packages that define that name rather than at every module of every
 -- package. An unqualified import must identify one original module.
 -- Multiple reexports of that module identify the same original module.
-data ModuleExports = ModuleExports (Map.Map Text (Map.Map Package Scope)) (Map.Map ModuleKey (PackageId, Text))
-  deriving (Eq, Generic)
+--
+-- The '<>' operator is left-biased, as 'Map.union' is: where both sides
+-- hold a scope or an origin for the same module of the same package, the
+-- left one wins.
+data ModuleExports = ModuleExports (MonoidMap Text (Map.Map Package Scope)) (Map.Map ModuleKey (PackageId, Text))
+  deriving stock (Eq, Generic)
+  deriving (Semigroup, Monoid) via Generically ModuleExports
 
 instance NFData ModuleExports
-
--- | Left-biased, as 'Map.union' is: where both sides hold a scope for the
--- same module of the same package, the left one wins.
-instance Semigroup ModuleExports where
-  ModuleExports left leftOrigins <> ModuleExports right rightOrigins =
-    ModuleExports (Map.unionWith Map.union left right) (Map.union leftOrigins rightOrigins)
-
-instance Monoid ModuleExports where
-  mempty = ModuleExports Map.empty Map.empty
 
 -- | What one module exports, as the modules that import it see it.
 newtype Exports = Exports Scope
@@ -238,8 +237,8 @@ moduleExportsFromList entries = moduleExportsFromScopes [(key, scope) | (key, Ex
 moduleExportsFromScopes :: [(ModuleKey, Scope)] -> ModuleExports
 moduleExportsFromScopes entries =
   ModuleExports
-    ( Map.fromListWith
-        Map.union
+    ( MonoidMap.fromListWith
+        (flip (<>))
         [(name, Map.singleton package scope) | (ModuleKey package name, scope) <- entries]
     )
     Map.empty
@@ -252,22 +251,19 @@ moduleExportsWithOrigins entries (ModuleExports scopes origins) =
 -- | Every module the map holds a scope for.
 moduleExportKeys :: ModuleExports -> [ModuleKey]
 moduleExportKeys (ModuleExports byName _) =
-  [ModuleKey package name | (name, byPackage) <- Map.toList byName, package <- Map.keys byPackage]
+  [ModuleKey package name | (name, byPackage) <- MonoidMap.toList byName, package <- Map.keys byPackage]
 
 lookupModuleExport :: ModuleKey -> ModuleExports -> Maybe Exports
 lookupModuleExport key exports = Exports <$> lookupExportScope key exports
 
 lookupExportScope :: ModuleKey -> ModuleExports -> Maybe Scope
 lookupExportScope (ModuleKey package name) (ModuleExports byName _) =
-  Map.lookup name byName >>= Map.lookup package
+  Map.lookup package (MonoidMap.get name byName)
 
 filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
 filterModuleExports keep (ModuleExports byName origins) =
   ModuleExports
-    ( Map.filter
-        (not . Map.null)
-        (Map.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
-    )
+    (MonoidMap.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
     (Map.filterWithKey (\key _ -> keep key) origins)
 
 collectModuleExports :: [ModuleUnit] -> ModuleExports
@@ -944,18 +940,15 @@ matchingModuleScopes currentPackage requestedPackage moduleName' exports =
 
 matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
 matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName origins) =
-  case Map.lookup moduleName' byName of
-    Nothing -> []
-    Just byPackage ->
-      List.nubBy
-        (\(left, _) (right, _) -> origin left == origin right)
-        [ (ModuleKey package moduleName', scope)
-        | (package, scope) <- Map.toList byPackage,
-          case requestedPackage of
-            Nothing -> True
-            Just "this" -> package == currentPackage
-            Just requested -> packageName package == requested
-        ]
+  List.nubBy
+    (\(left, _) (right, _) -> origin left == origin right)
+    [ (ModuleKey package moduleName', scope)
+    | (package, scope) <- Map.toList (MonoidMap.get moduleName' byName),
+      case requestedPackage of
+        Nothing -> True
+        Just "this" -> package == currentPackage
+        Just requested -> packageName package == requested
+    ]
   where
     origin key@(ModuleKey package name) = Map.findWithDefault (packageId package, name) key origins
 

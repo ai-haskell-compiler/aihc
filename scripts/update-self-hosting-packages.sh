@@ -71,8 +71,10 @@ for directory in components/* tooling/*; do
 	fi
 done
 
-# Disable both optional flags of aihc for the self-compile package list.
+# Disable both optional flags of aihc for the self-compile package list. The
+# nothunks flag of monoidmap needs ghc-heap, which aihc does not yet provide.
 "$aihc" plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" \
+	--constraint "monoidmap -nothunks" \
 	--workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
 
 # The core libraries come with aihc, so the table leaves them out, also from
@@ -123,8 +125,10 @@ package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
 `scripts/update-self-hosting-packages.sh` writes this file with
-`aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui"`. The
-plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
+`aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks"`.
+The plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
+It also disables the `nothunks` flag of monoidmap, because nothunks needs
+ghc-heap, which aihc does not yet provide.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with
