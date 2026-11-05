@@ -261,7 +261,7 @@ lookupModuleExport key exports = Exports <$> lookupExportScope key exports
 
 lookupExportScope :: ModuleKey -> ModuleExports -> Maybe Scope
 lookupExportScope (ModuleKey package name) (ModuleExports byName _) =
-  Just (MonoidMap.get name byName) >>= Map.lookup package
+  Map.lookup package (MonoidMap.get name byName)
 
 filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
 filterModuleExports keep (ModuleExports byName origins) =
