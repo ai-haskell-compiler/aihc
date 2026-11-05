@@ -64,8 +64,10 @@ trap 'rm -rf "$work_directory"' EXIT
 workspace="$work_directory/workspace"
 mkdir -p "$workspace"
 : >"$work_directory/links.tsv"
-for directory in components/* tooling/*; do
-	if compgen -G "$directory/*.cabal" >/dev/null; then
+# Some bash builds have no compgen builtin, so a loop finds the cabal files.
+for cabal_file in components/*/*.cabal tooling/*/*.cabal; do
+	if [ -f "$cabal_file" ]; then
+		directory="$(dirname "$cabal_file")"
 		ln -s "$repo_root/$directory" "$workspace/$(basename "$directory")"
 		printf '%s\t%s\n' "$workspace/$(basename "$directory")" "$directory" >>"$work_directory/links.tsv"
 	fi
@@ -81,12 +83,13 @@ done
 # the dependencies. A local path becomes a path in the repository.
 rows="$(
 	awk -F'\t' -v repo="$repo_root/" '
-		FNR == 1 { pass++ }
-		pass == 1 {
+		# The file of links can be empty, so it is found by its name.
+		FILENAME == ARGV[1] {
 			link[$1] = $2
 			next
 		}
-		pass == 2 {
+		FNR == 1 { pass++ }
+		pass == 1 {
 			if ($3 == "core") {
 				core[$1] = 1
 			}
@@ -115,6 +118,11 @@ rows="$(
 		}
 	' "$work_directory/links.tsv" "$work_directory/plan.tsv" "$work_directory/plan.tsv"
 )"
+
+if [ -z "$rows" ]; then
+	echo "The plan of aihc gave no packages." >&2
+	exit 1
+fi
 
 {
 	cat <<'HEADER'

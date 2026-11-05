@@ -164,6 +164,7 @@ library
     Aihc.Cli.Install
     Aihc.Cli.Link
     Aihc.Cli.Lto
+    Aihc.Cli.Memo
     Aihc.Cli.ModuleProvider
     Aihc.Cli.OptimizationPlan
     Aihc.Cli.Options
@@ -514,6 +515,7 @@ test-suite spec
     aihc-resolve,
     aihc-tc,
     aihc-testing,
+    async,
     base >=4.16 && <5,
     bytestring,
     containers,

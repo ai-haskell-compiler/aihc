@@ -26,14 +26,14 @@ module Aihc.Cli.ModuleProvider
 where
 
 import Aihc.Cli.BuildStamp (ModuleDigests (..), PackageDigests (..), packageDigestsPath, readStamp)
+import Aihc.Cli.Memo (newMemo)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc (interfaceFileName)
 import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
 import Aihc.Tc (MergeCheck (..), TcInterface, mergeTcInterfaces)
-import Control.Concurrent.STM (TMVar, TVar, atomically, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (SomeException, evaluate, throwIO, try)
+import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -249,31 +249,6 @@ readTypeArtifactFile :: FilePath -> IO TypeArtifact
 readTypeArtifactFile path = do
   bytes <- BL.readFile path
   either (ioError . userError . (("Invalid type artifact " <> path <> ": ") <>)) pure (decodeTypeArtifact bytes)
-
--- | A table that runs the action of a key once, however many tasks ask
--- for it at the same time. The first to ask runs the action; the others
--- wait for its result, and get its exception if it has one.
-newMemo :: (Ord key) => IO (key -> IO value -> IO value)
-newMemo = do
-  table <- newTVarIO Map.empty
-  pure (memoize table)
-
-memoize :: (Ord key) => TVar (Map key (TMVar (Either SomeException value))) -> key -> IO value -> IO value
-memoize table key action = do
-  (slot, owner) <- atomically $ do
-    entries <- readTVar table
-    case Map.lookup key entries of
-      Just slot -> pure (slot, False)
-      Nothing -> do
-        slot <- newEmptyTMVar
-        writeTVar table (Map.insert key slot entries)
-        pure (slot, True)
-  if owner
-    then do
-      result <- try action
-      atomically (putTMVar slot result)
-      either throwIO pure result
-    else atomically (readTMVar slot) >>= either throwIO pure
 
 moduleNameDirectory :: Text -> FilePath
 moduleNameDirectory = foldl (</>) "" . map T.unpack . T.splitOn "."

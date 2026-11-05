@@ -5,8 +5,10 @@ package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
 `scripts/update-self-hosting-packages.sh` writes this file with
-`aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui"`. The
-plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
+`aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks"`.
+The plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
+It also disables the `nothunks` flag of monoidmap, because nothunks needs
+ghc-heap, which aihc does not yet provide.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with
@@ -33,10 +35,13 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | bytestring | 0.12.2.0 | hackage:1 | deepseq |
 | containers | 0.8.1 | hackage:0 | array, deepseq |
 | binary | 0.8.9.3 | hackage:0 | array, bytestring, containers |
+| commutative-semigroups | 0.2.0.2 | hackage:0 | containers |
 | cryptohash-sha256 | 0.11.102.1 | hackage:6 | bytestring |
 | dlist | 1.0 | hackage:2 | deepseq |
+| groups | 0.5.3 | hackage:0 |  |
 | integer-logarithms | 1.0.5 | hackage:0 | array |
 | parser-combinators | 1.3.1 | hackage:0 |  |
+| primes | 0.2.1.0 | hackage:0 |  |
 | splitmix | 0.1.3.2 | hackage:0 | deepseq |
 | stm | 2.5.3.1 | hackage:1 | array |
 | tagged | 0.8.11 | hackage:0 | deepseq |
@@ -71,8 +76,6 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | megaparsec | 9.8.3 | hackage:0 | array, bytestring, case-insensitive, containers, deepseq, mtl, parser-combinators, scientific, text, transformers |
 | aihc-cabal-syntax | 2.0.0.0 | hackage:0 | bytestring, containers, megaparsec, parser-combinators, text |
 | aihc-parser | 5.0.0.0 | hackage:0 | bytestring, containers, deepseq, megaparsec, prettyprinter, text |
-| aihc-resolve | 0.1.0.0 | local:components/aihc-resolve | aihc-parser, containers, deepseq, text |
-| aihc-tc | 0.1.0.0 | local:components/aihc-tc | aihc-parser, aihc-resolve, containers, deepseq, text, transformers |
 | text-short | 0.1.6.1 | hackage:0 | binary, bytestring, deepseq, hashable, text |
 | these | 1.2.1 | hackage:3 | assoc, binary, deepseq, hashable |
 | strict | 0.5.1 | hackage:1 | assoc, binary, bytestring, deepseq, hashable, text, these, transformers |
@@ -92,6 +95,11 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | vector-stream | 0.1.0.1 | hackage:4 |  |
 | vector | 0.13.2.0 | hackage:5 | deepseq, primitive, vector-stream |
 | indexed-traversable-instances | 0.1.2.1 | hackage:0 | OneTuple, indexed-traversable, tagged, unordered-containers, vector |
+| monoid-subclasses | 1.2.6.1 | hackage:0 | bytestring, commutative-semigroups, containers, primes, text, vector |
+| monoidmap-internal | 0.5.1.0 | hackage:0 | containers, deepseq, monoid-subclasses |
+| monoidmap | 0.1.3.1 | hackage:0 | containers, deepseq, groups, monoid-subclasses, monoidmap-internal |
+| aihc-resolve | 0.1.0.0 | local:components/aihc-resolve | aihc-parser, containers, deepseq, monoidmap, text |
+| aihc-tc | 0.1.0.0 | local:components/aihc-tc | aihc-parser, aihc-resolve, containers, deepseq, text, transformers |
 | semialign | 1.4 | hackage:0 | containers, hashable, indexed-traversable, indexed-traversable-instances, semigroupoids, tagged, these, unordered-containers, vector |
 | witherable | 0.5 | hackage:2 | base-orphans, containers, hashable, indexed-traversable, indexed-traversable-instances, transformers, unordered-containers, vector |
 | aeson | 2.2.5.1 | hackage:0 | OneTuple, QuickCheck, bytestring, character-ps, containers, data-fix, deepseq, dlist, exceptions, hashable, indexed-traversable, integer-conversion, integer-logarithms, network-uri, primitive, scientific, semialign, strict, tagged, text, text-iso8601, text-short, th-abstraction, these, time, time-compat, unordered-containers, uuid-types, vector, witherable |
