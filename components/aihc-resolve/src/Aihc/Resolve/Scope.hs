@@ -158,7 +158,7 @@ instance Semigroup ModuleExports where
     ModuleExports (left <> right) (leftOrigins <> rightOrigins)
 
 instance Monoid ModuleExports where
-  mempty = ModuleExports MonoidMap.empty Map.empty
+  mempty = ModuleExports mempty mempty
 
 -- | What one module exports, as the modules that import it see it.
 newtype Exports = Exports Scope
