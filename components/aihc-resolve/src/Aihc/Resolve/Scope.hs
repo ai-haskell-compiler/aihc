@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -106,7 +107,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import GHC.Generics (Generic)
+import GHC.Generics (Generic, Generically (..))
 
 data Scope = Scope
   { scopeTerms :: Map.Map Text Entity,
@@ -146,19 +147,15 @@ instance NFData ModuleKey
 -- the packages that define that name rather than at every module of every
 -- package. An unqualified import must identify one original module.
 -- Multiple reexports of that module identify the same original module.
+--
+-- The '<>' operator is left-biased, as 'Map.union' is: where both sides
+-- hold a scope or an origin for the same module of the same package, the
+-- left one wins.
 data ModuleExports = ModuleExports (MonoidMap Text (Map.Map Package Scope)) (Map.Map ModuleKey (PackageId, Text))
-  deriving (Eq, Generic)
+  deriving stock (Eq, Generic)
+  deriving (Semigroup, Monoid) via Generically ModuleExports
 
 instance NFData ModuleExports
-
--- | Left-biased, as 'Map.union' is: where both sides hold a scope for the
--- same module of the same package, the left one wins.
-instance Semigroup ModuleExports where
-  ModuleExports left leftOrigins <> ModuleExports right rightOrigins =
-    ModuleExports (left <> right) (leftOrigins <> rightOrigins)
-
-instance Monoid ModuleExports where
-  mempty = ModuleExports mempty mempty
 
 -- | What one module exports, as the modules that import it see it.
 newtype Exports = Exports Scope
