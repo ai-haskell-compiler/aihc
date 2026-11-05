@@ -18,9 +18,6 @@ import Aihc.Native.Lir
 import Aihc.Native.Object (Image, Object, ObjectError, layoutObject, newObject, sealFunction)
 import Aihc.Native.ObjectWriter (withObjectWriter)
 import Aihc.Native.ObjectWriter qualified as ObjectWriter
-import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Async (concurrently_)
-import Control.Concurrent.STM (atomically, newTBQueueIO, readTBQueue, writeTBQueue)
 import Control.Monad (when)
 import Control.Monad.ST (RealWorld, ST, runST, stToIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
@@ -84,23 +81,11 @@ writeGrinObjectWith backend lint settings dumpPath gcProgram path = do
       mapM_ (writeStatement backend object) (nbAfterObject native)
   where
     native = obNative backend
-    -- Convert the next item while the consumer emits the current item.
-    -- The queue holds at most one item. The consumer preserves source order.
-    lowerItems output = do
-      capabilities <- getNumCapabilities
-      if capabilities <= 1
-        then Lower.lowerModuleTo (obLowerTarget backend) settings output gcProgram >>= checked
-        else do
-          queue <- newTBQueueIO 1
-          let produce = do
-                Lower.lowerModuleTo (obLowerTarget backend) settings (\signatures item -> atomically (writeTBQueue queue (Just (signatures, item)))) gcProgram >>= checked
-                atomically (writeTBQueue queue Nothing)
-              consume = do
-                item <- atomically (readTBQueue queue)
-                case item of
-                  Nothing -> pure ()
-                  Just (signatures, value) -> output signatures value >> consume
-          concurrently_ produce consume
+    -- The modules of a build compile in parallel, so each module lowers
+    -- and emits its items on one thread. A producer thread and a consumer
+    -- thread for each module moved each item between capabilities, and
+    -- the shared object buffers became global objects.
+    lowerItems output = Lower.lowerModuleTo (obLowerTarget backend) settings output gcProgram >>= checked
     declarations = do
       items <- newIORef []
       references <- newIORef Set.empty
