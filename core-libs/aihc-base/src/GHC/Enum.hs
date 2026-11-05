@@ -53,7 +53,7 @@ import GHC.Prim
 import GHC.Prim.Enum (Bounded (..), Enum (..))
 import GHC.Show (Show (..))
 import GHC.Tuple (Solo (..))
-import GHC.Types (Ordering (..), VecCount (..), VecElem (..), isTrue#)
+import GHC.Types (Levity (..), Ordering (..), VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
@@ -702,3 +702,17 @@ instance Enum VecElem where
 instance Bounded VecElem where
   minBound = Int8ElemRep
   maxBound = DoubleElemRep
+
+instance Enum Levity where
+  toEnum (I# index) =
+    case index of
+      0# -> Lifted
+      1# -> Unlifted
+      _ -> toEnumError "Levity" (I# index) (Lifted, Unlifted)
+
+  fromEnum Lifted = I# 0#
+  fromEnum Unlifted = I# 1#
+
+instance Bounded Levity where
+  minBound = Lifted
+  maxBound = Unlifted

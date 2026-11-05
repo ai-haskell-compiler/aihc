@@ -27,3 +27,6 @@ Int
 Box
 -- picking the Ints out of a mixed bag
 sum of the Ints: 3
+-- function type representations
+True
+True
