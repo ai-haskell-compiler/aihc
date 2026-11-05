@@ -155,7 +155,7 @@ instance NFData ModuleExports
 -- same module of the same package, the left one wins.
 instance Semigroup ModuleExports where
   ModuleExports left leftOrigins <> ModuleExports right rightOrigins =
-    ModuleExports (MonoidMap.unionWith Map.union left right) (Map.union leftOrigins rightOrigins)
+    ModuleExports (MonoidMap.unionWith (<>) left right) (leftOrigins <> rightOrigins)
 
 instance Monoid ModuleExports where
   mempty = ModuleExports MonoidMap.empty Map.empty
@@ -241,7 +241,7 @@ moduleExportsFromScopes :: [(ModuleKey, Scope)] -> ModuleExports
 moduleExportsFromScopes entries =
   ModuleExports
     ( MonoidMap.fromListWith
-        (flip Map.union)
+        (flip (<>))
         [(name, Map.singleton package scope) | (ModuleKey package name, scope) <- entries]
     )
     Map.empty
