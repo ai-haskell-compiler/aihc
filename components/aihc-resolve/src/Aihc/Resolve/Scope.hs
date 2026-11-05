@@ -946,16 +946,15 @@ matchingModuleScopes currentPackage requestedPackage moduleName' exports =
 
 matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
 matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName origins) =
-  let byPackage = MonoidMap.get moduleName' byName
-   in List.nubBy
-        (\(left, _) (right, _) -> origin left == origin right)
-        [ (ModuleKey package moduleName', scope)
-        | (package, scope) <- Map.toList byPackage,
-          case requestedPackage of
-            Nothing -> True
-            Just "this" -> package == currentPackage
-            Just requested -> packageName package == requested
-        ]
+  List.nubBy
+    (\(left, _) (right, _) -> origin left == origin right)
+    [ (ModuleKey package moduleName', scope)
+    | (package, scope) <- Map.toList (MonoidMap.get moduleName' byName),
+      case requestedPackage of
+        Nothing -> True
+        Just "this" -> package == currentPackage
+        Just requested -> packageName package == requested
+    ]
   where
     origin key@(ModuleKey package name) = Map.findWithDefault (packageId package, name) key origins
 
