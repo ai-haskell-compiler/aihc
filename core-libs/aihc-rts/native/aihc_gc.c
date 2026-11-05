@@ -3944,6 +3944,51 @@ static void aihc_collect_follow(AihcCapability *capability, int follow,
 }
 #endif
 
+/* The end of a collection on the local heaps it copied: the ages of the
+   scanned chunks, the release of the copied gen1 blocks, the reset of the
+   nurseries, and the remembered objects. A local collection without a stop
+   does these steps before it takes the heap lock again, because no other
+   capability reads this state. */
+static void aihc_collect_finish_heaps(AihcGcContext *context,
+                                      AihcHeapBlock **from1, int keep_local) {
+  AihcCapability *capability = context->capability;
+  AihcMachine *machine = capability->machine;
+  uint64_t capability_count = machine->capability_count;
+  AihcCapability *only = context->local;
+  unsigned collected = context->collected;
+  aihc_age_chunks(context);
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    AihcCapability *other = machine->capabilities[index];
+    aihc_blocks_recycle(other, from1[index]);
+    if (only != NULL && other != only) {
+      continue;
+    }
+    other->heap_next = other->heap_start;
+    other->nursery_taken = other->nursery_block_bytes < other->nursery_bytes
+                               ? other->nursery_block_bytes
+                               : other->nursery_bytes;
+    other->heap_limit = other->heap_start + other->nursery_taken;
+    aihc_heap_limit_rearm(other);
+    other->heap_alloc_base = other->heap_next;
+    other->fixed_since_gc = 0;
+    other->barrier_work = 0;
+  }
+  free(from1);
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    if (only == NULL || machine->capabilities[index] == only) {
+      aihc_gen1_note_used(machine->capabilities[index]);
+    }
+  }
+  if (keep_local && collected == 1) {
+    only->gen1_limit_bytes =
+        only->gen1.bytes > UINT64_MAX / 2 ? UINT64_MAX : 2 * only->gen1.bytes;
+  }
+  for (size_t index = 0; index < context->kept_count; ++index) {
+    aihc_remember_unique(capability, context->kept[index]);
+  }
+  free(context->kept);
+}
+
 static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
                                 unsigned collected, int start_cycle,
                                 int promote_all, int local, int concurrent,
@@ -4184,6 +4229,8 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
   aihc_trace_kept_stacks(&context);
   aihc_gen2_account(machine, context.gen2_slot_bytes);
   if (unlocked) {
+    aihc_collect_finish_heaps(&context, from1, keep_local);
+    from1 = NULL;
     aihc_heap_lock(machine);
     for (size_t index = 0; index < context.claim_count; index += 2) {
       aihc_thunk_claim(context.claims[index],
@@ -4199,38 +4246,9 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
   }
   aihc_sweep_stacks(&context);
   aihc_sweep_pinned(&context);
-  aihc_age_chunks(&context);
-
-  for (uint64_t index = 0; index < capability_count; ++index) {
-    AihcCapability *other = machine->capabilities[index];
-    aihc_blocks_recycle(other, from1[index]);
-    if (only != NULL && other != only) {
-      continue;
-    }
-    other->heap_next = other->heap_start;
-    other->nursery_taken = other->nursery_block_bytes < other->nursery_bytes
-                               ? other->nursery_block_bytes
-                               : other->nursery_bytes;
-    other->heap_limit = other->heap_start + other->nursery_taken;
-    aihc_heap_limit_rearm(other);
-    other->heap_alloc_base = other->heap_next;
-    other->fixed_since_gc = 0;
-    other->barrier_work = 0;
+  if (from1 != NULL) {
+    aihc_collect_finish_heaps(&context, from1, keep_local);
   }
-  free(from1);
-  for (uint64_t index = 0; index < capability_count; ++index) {
-    if (only == NULL || machine->capabilities[index] == only) {
-      aihc_gen1_note_used(machine->capabilities[index]);
-    }
-  }
-  if (keep_local && collected == 1) {
-    only->gen1_limit_bytes =
-        only->gen1.bytes > UINT64_MAX / 2 ? UINT64_MAX : 2 * only->gen1.bytes;
-  }
-  for (size_t index = 0; index < context.kept_count; ++index) {
-    aihc_remember_unique(capability, context.kept[index]);
-  }
-  free(context.kept);
   int follow = 0;
   if (collected == 1 && !capability->machine->gen2_cycle_active &&
       (start_cycle ||
