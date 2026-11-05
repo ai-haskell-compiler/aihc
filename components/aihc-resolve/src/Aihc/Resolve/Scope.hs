@@ -100,6 +100,8 @@ import Control.DeepSeq (NFData)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -144,7 +146,7 @@ instance NFData ModuleKey
 -- the packages that define that name rather than at every module of every
 -- package. An unqualified import must identify one original module.
 -- Multiple reexports of that module identify the same original module.
-data ModuleExports = ModuleExports (Map.Map Text (Map.Map Package Scope)) (Map.Map ModuleKey (PackageId, Text))
+data ModuleExports = ModuleExports (MonoidMap Text (Map.Map Package Scope)) (Map.Map ModuleKey (PackageId, Text))
   deriving (Eq, Generic)
 
 instance NFData ModuleExports
@@ -153,10 +155,10 @@ instance NFData ModuleExports
 -- same module of the same package, the left one wins.
 instance Semigroup ModuleExports where
   ModuleExports left leftOrigins <> ModuleExports right rightOrigins =
-    ModuleExports (Map.unionWith Map.union left right) (Map.union leftOrigins rightOrigins)
+    ModuleExports (MonoidMap.unionWith Map.union left right) (Map.union leftOrigins rightOrigins)
 
 instance Monoid ModuleExports where
-  mempty = ModuleExports Map.empty Map.empty
+  mempty = ModuleExports MonoidMap.empty Map.empty
 
 -- | What one module exports, as the modules that import it see it.
 newtype Exports = Exports Scope
@@ -238,8 +240,8 @@ moduleExportsFromList entries = moduleExportsFromScopes [(key, scope) | (key, Ex
 moduleExportsFromScopes :: [(ModuleKey, Scope)] -> ModuleExports
 moduleExportsFromScopes entries =
   ModuleExports
-    ( Map.fromListWith
-        Map.union
+    ( MonoidMap.fromListWith
+        (flip Map.union)
         [(name, Map.singleton package scope) | (ModuleKey package name, scope) <- entries]
     )
     Map.empty
@@ -252,21 +254,21 @@ moduleExportsWithOrigins entries (ModuleExports scopes origins) =
 -- | Every module the map holds a scope for.
 moduleExportKeys :: ModuleExports -> [ModuleKey]
 moduleExportKeys (ModuleExports byName _) =
-  [ModuleKey package name | (name, byPackage) <- Map.toList byName, package <- Map.keys byPackage]
+  [ModuleKey package name | (name, byPackage) <- MonoidMap.toList byName, package <- Map.keys byPackage]
 
 lookupModuleExport :: ModuleKey -> ModuleExports -> Maybe Exports
 lookupModuleExport key exports = Exports <$> lookupExportScope key exports
 
 lookupExportScope :: ModuleKey -> ModuleExports -> Maybe Scope
 lookupExportScope (ModuleKey package name) (ModuleExports byName _) =
-  Map.lookup name byName >>= Map.lookup package
+  Just (MonoidMap.get name byName) >>= Map.lookup package
 
 filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
 filterModuleExports keep (ModuleExports byName origins) =
   ModuleExports
-    ( Map.filter
+    ( MonoidMap.filter
         (not . Map.null)
-        (Map.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
+        (MonoidMap.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
     )
     (Map.filterWithKey (\key _ -> keep key) origins)
 
@@ -944,7 +946,7 @@ matchingModuleScopes currentPackage requestedPackage moduleName' exports =
 
 matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
 matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName origins) =
-  case Map.lookup moduleName' byName of
+  case Just (MonoidMap.get moduleName' byName) of
     Nothing -> []
     Just byPackage ->
       List.nubBy
