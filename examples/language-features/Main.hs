@@ -1,14 +1,17 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- Lambdas over constructor, tuple and unboxed patterns; literal equations
 -- with guarded equations between them; a constrained existential; and
--- Typeable casts.
+-- Typeable casts and function type representations.
 module Main where
 
 import Data.Coerce (coerce)
+import Data.Kind (Type)
 import Data.Typeable (Typeable, cast, tyConName, typeOf, typeRepTyCon)
 import GHC.Exts (Int (I#), isTrue#, (*#), (+#), (>#))
+import Type.Reflection (SomeTypeRep (..), TypeRep, pattern Fun, typeRep, typeRepKind)
 
 main :: IO ()
 main = do
@@ -16,6 +19,7 @@ main = do
   literalEquations
   existential
   typeableCasts
+  functionRepresentations
 
 newtype Wrapped = Wrapped Int
 
@@ -136,3 +140,18 @@ typeableCasts = do
   putStrLn "-- picking the Ints out of a mixed bag"
   let ints = sumInts [cast (1 :: Int), cast True, cast (Meters 100), cast (2 :: Int), cast "three"]
   putStrLn ("sum of the Ints: " ++ show ints)
+
+-- | A function type representation from the 'Fun' builder, and the kind of a
+-- type constructor, must be equal to the representations that the compiler
+-- gives to the same function types.
+functionRepresentations :: IO ()
+functionRepresentations = do
+  putStrLn "-- function type representations"
+  print
+    ( SomeTypeRep (Fun (typeRep :: TypeRep Int) (typeRep :: TypeRep Bool))
+        == SomeTypeRep (typeRep :: TypeRep (Int -> Bool))
+    )
+  print
+    ( SomeTypeRep (typeRepKind (typeRep :: TypeRep Maybe))
+        == SomeTypeRep (typeRep :: TypeRep (Type -> Type))
+    )

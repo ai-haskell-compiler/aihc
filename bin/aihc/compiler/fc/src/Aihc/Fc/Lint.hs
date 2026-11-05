@@ -322,8 +322,10 @@ lintFun env r1 r2 argument result = do
       typeKind = typeKindType env
   unless (typesEqual env r1Kind runtimeRep) (Left (KindMismatch "FUN r1" runtimeRep r1Kind))
   unless (typesEqual env r2Kind runtimeRep) (Left (KindMismatch "FUN r2" runtimeRep r2Kind))
-  unless (typesEqual env argumentKind (typeAppRep env r1)) (Left (KindMismatch "FUN argument" (typeAppRep env r1) argumentKind))
-  unless (typesEqual env resultKind (typeAppRep env r2)) (Left (KindMismatch "FUN result" (typeAppRep env r2) resultKind))
+  -- Local nominal evidence can refine the kinds of the argument and the
+  -- result, as in a type application.
+  unless (kindsEqual env (typeAppRep env r1) argumentKind) (Left (KindMismatch "FUN argument" (typeAppRep env r1) argumentKind))
+  unless (kindsEqual env (typeAppRep env r2) resultKind) (Left (KindMismatch "FUN result" (typeAppRep env r2) resultKind))
   Right typeKind
 
 applyKind :: TypeEnv -> Type -> Type -> Type -> Type -> Either LintError Type

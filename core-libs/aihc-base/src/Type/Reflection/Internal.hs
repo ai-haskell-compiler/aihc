@@ -235,6 +235,8 @@ splitFun _ = NotFun
 
 pattern Fun :: forall k (t :: k). () => forall (a :: Type) (b :: Type). (k ~ Type, t ~~ (a -> b)) => TypeRep a -> TypeRep b -> TypeRep t
 pattern Fun a b <- (splitFun -> IsFun a b)
+  where
+    Fun a b = TypeRep arrowCon [] [SomeTypeRep a, SomeTypeRep b]
 
 typeRepKind :: forall k (a :: k). TypeRep a -> TypeRep k
 typeRepKind (TypeRep (TyCon _ _ _ kind) kinds args) =
@@ -266,10 +268,10 @@ mapKinds kinds (x : xs) = kindRep kinds x : mapKinds kinds xs
 indexKind :: [SomeTypeRep] -> GHC.Types.Int -> SomeTypeRep
 indexKind (x : xs) index = if index GHC.Classes.== 0 then x else indexKind xs (index GHC.Num.- 1)
 
+-- | The type constructor of a function type. The compiler makes it, thus it
+-- has the same package name as the 'TypeRep' of each other function type.
 arrowCon :: TyCon
-arrowCon = TyCon (Module (TrNameD "aihc-prim") (TrNameD "GHC.Types")) (TrNameD "(->)") 0 (KindRepFun lifted (KindRepFun lifted lifted))
-  where
-    lifted = KindRepTYPE (BoxedRep Lifted)
+arrowCon = typeRepTyCon (typeRep :: TypeRep (Char -> Char))
 
 instance forall k (a :: k). Eq (TypeRep a) where
   left == right = eqSomeTypeRep (SomeTypeRep left) (SomeTypeRep right)
