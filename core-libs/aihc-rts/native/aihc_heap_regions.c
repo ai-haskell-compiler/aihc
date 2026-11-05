@@ -19,6 +19,12 @@
    mapping: 1024 regions are 64 MiB. */
 #define AIHC_REGION_FREE_CACHE ((size_t)1024)
 
+/* The fewest regions of a new mapping for a run without alignment: 64
+   regions are 4 MiB. The rest of the mapping goes into the free list, so
+   the next small runs take no host call. The collectors of all
+   capabilities take gen1 blocks of a few regions under the region lock. */
+#define AIHC_REGION_MAP_MINIMUM ((size_t)64)
+
 typedef struct AihcRegionMapping {
   uint8_t *base;
   size_t count;
@@ -235,6 +241,9 @@ static void *aihc_regions_acquire_locked(size_t count, size_t alignment,
     aihc_fail("heap allocation is too large");
   }
   size_t mapped = count + alignment - 1;
+  if (alignment == 1 && mapped < AIHC_REGION_MAP_MINIMUM) {
+    mapped = AIHC_REGION_MAP_MINIMUM;
+  }
   uint8_t *base = aihc_host_map_regions(mapped);
   if (base == NULL) {
     aihc_fail("out of memory");
@@ -248,6 +257,12 @@ static void *aihc_regions_acquire_locked(size_t count, size_t alignment,
   mapping->free_count = 0;
   if (alignment == 1) {
     aihc_regions_mark(base, count, mapping, kind, (uint32_t)count);
+    if (mapped > count) {
+      uint8_t *rest = aihc_region_at(base, count);
+      mapping->free_count = mapped - count;
+      aihc_regions_mark(rest, mapped - count, mapping, AIHC_REGION_FREE, 0);
+      aihc_free_run_insert(rest, mapped - count, mapping);
+    }
     return base;
   }
   /* Keep both alignment fragments in the free list, also on WASM. */

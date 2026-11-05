@@ -2723,7 +2723,7 @@ static void aihc_generation_scan_one(AihcGcContext *context,
   /* The scan can make an indirection of an evaluated thunk, so the words
      are read first. */
   uint64_t words = aihc_gc_words(object);
-  aihc_scan_object(context, object, generation);
+  aihc_scan_heap_object(context, object, generation);
   target->scan += sizeof(AihcSlot) * words;
 }
 
