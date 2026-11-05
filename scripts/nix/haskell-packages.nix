@@ -301,6 +301,18 @@ in rec {
             ver = "2.0.0.0";
             sha256 = "07h6l6q9bww86n2lrcniydlfaxfzrwd9dc826g9jfxdhkvz884iy";
           } {});
+          # The pinned package set has monoidmap 0.0.x.
+          # Remove these overrides once the package set has monoidmap >= 0.1.3.
+          monoidmap = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "monoidmap";
+            ver = "0.1.3.1";
+            sha256 = "1sig1q1wxsyjd32v21dls2nvdpg8wjqqsx029ikv33w14a1cd6r3";
+          } {});
+          monoidmap-internal = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "monoidmap-internal";
+            ver = "0.5.1.0";
+            sha256 = "0js87sr84qgz7lpzn8qr4jkzfmmlyp4vbsq0a43h16mgm3lk7gmh";
+          } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
