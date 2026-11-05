@@ -1,0 +1,32 @@
+annotated:
+- |-
+  module Main where
+  import GHC.Classes (Eq)
+  data Box k v = Box k v
+       │         └─ type: ∀ k v. k → v → Box k v
+       └─ type: Type → Type → Type
+  instance (Eq k, Eq v) => Eq (Box k v) where
+  └─ $fEqBoxkv ∷ ∀ k v. (Eq k, Eq v) ⇒ Eq (Box k v)
+  newtype Tree e = Node (Box e (Tree e))
+  │       │        └─ type: ∀ e. Box e (Tree e) → Tree e
+  │       └─ type: Type → Type
+  └─ deriving plans: stock Eq (Tree e) [context: Eq e] [methods: ==, /=]
+    deriving Eq
+             └─ $fEqTreee ∷ ∀ e. (Eq e) ⇒ Eq (Tree e)
+             └─ type: Tree e
+             └─ == ∷ Tree e → Tree e → Bool
+             └─ type: Tree e
+             └─ type: Box e (Tree e)
+             └─ type: Box e (Tree e) → Box e (Tree e) → GHC.Types.Bool; type-args: Box e (Tree e); evidence: $fEqBoxkv @e @Tree e (given Eq e, $fEqTreee @e (given Eq e))
+             └─ type: Box e (Tree e)
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Classes (Eq)
+  data Box k v = Box k v
+  instance (Eq k, Eq v) => Eq (Box k v) where
+  newtype Tree e = Node (Box e (Tree e))
+    deriving Eq
+reason: a default newtype strategy falls back to stock when the coerced instance needs the instance itself
+status: pass
