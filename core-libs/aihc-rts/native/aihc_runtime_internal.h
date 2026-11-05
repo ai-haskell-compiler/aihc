@@ -47,7 +47,14 @@ struct AihcThread {
      header, and both are eight bytes on every target. Thus compiled code can
      read it at one offset. Refer to docs/native-runtime-objects.md. */
   uint64_t id;
-  AihcResumeKind resume_kind;
+  /* An AihcResumeKind. Its four bytes leave room for saved_errno. */
+  uint32_t resume_kind;
+  /* The errno of the thread while it does not run. errno belongs to the OS
+     thread, and the runtime can switch to another Haskell thread or poll
+     between a foreign call and the read of errno that follows it. The
+     schedule saves errno when the thread stops, and it restores errno when
+     the thread runs again. */
+  int32_t saved_errno;
   AihcValue *resume_function;
   AihcValue *resume_continuation;
   AihcSlot resume_value;

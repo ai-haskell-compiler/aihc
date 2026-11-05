@@ -1373,6 +1373,7 @@ static AihcThread *aihc_thread_new(AihcCapability *capability,
   thread->id = __atomic_add_fetch(&capability->machine->next_thread_id, 1,
                                   __ATOMIC_RELAXED);
   thread->resume_kind = AIHC_RESUME_NONE;
+  thread->saved_errno = 0;
   thread->resume_function = NULL;
   thread->resume_continuation = NULL;
   thread->resume_value = 0;
@@ -1930,12 +1931,16 @@ static void aihc_busy_check(AihcCapability *capability, uint64_t root_count,
     return;
   }
   capability->busy_check_ns = now + AIHC_BUSY_CHECK_NS;
+  /* The poll can set errno, and the thread continues without a schedule
+     after the check. */
+  int saved_errno = errno;
   AihcForeignFrame frame;
   aihc_foreign_enter(capability, &frame, roots, root_count, srt,
                      AIHC_FOREIGN_UNSAFE);
   (void)machine->io_backend->poll(capability, 0);
   aihc_move_runnable_threads(capability);
   aihc_foreign_leave(capability, &frame);
+  errno = saved_errno;
 }
 
 typedef struct AihcStmWaiter AihcStmWaiter;
@@ -2155,6 +2160,9 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
   /* A thread that starts a wait while it is masked interruptibly, or that
      sends a throwTo, takes its own oldest message instead of the wait. */
   AihcThread *previous = capability->current_thread;
+  if (previous != NULL) {
+    previous->saved_errno = errno;
+  }
   if (previous != NULL && previous->pending_head != NULL &&
       previous->blocked_kind != AIHC_BLOCKED_NONE) {
     aihc_object_lock(machine);
@@ -2174,7 +2182,11 @@ static const AihcResume *aihc_schedule(AihcCapability *capability) {
       if (machine->workers_active) {
         aihc_push_threads(capability);
       }
-      return aihc_select_or_raise(capability, aihc_dequeue_thread(capability));
+      /* The thread runs on this OS thread now, with its own errno. A
+         thread that continues without a schedule keeps errno as it is. */
+      AihcThread *next = aihc_dequeue_thread(capability);
+      errno = next->saved_errno;
+      return aihc_select_or_raise(capability, next);
     }
     if (machine->workers_active) {
       /* A push into the inbox, a completed IO request, or a timer ends the
