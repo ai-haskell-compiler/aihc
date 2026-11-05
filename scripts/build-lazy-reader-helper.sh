@@ -88,6 +88,7 @@ JS
   -p aihc-parser -p aihc-resolve -p aihc-tc \
   -p array -p base -p binary -p bytestring -p containers -p directory -p filepath -p text -p transformers \
   -p megaparsec -p prettyprinter -p primitive -p process -p vector \
+  --constraint "monoidmap -nothunks" \
   --workspace "$work/workspace" \
   --target wasm32-wasip3 \
   --store "$store" \
