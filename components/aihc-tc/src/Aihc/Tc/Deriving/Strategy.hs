@@ -64,6 +64,10 @@ isAutomaticTypeableClass className origin
       pure (isStockClass references className origin)
 
 -- | These default strategies can use stock when newtype derivation fails.
+-- The stock instance agrees with the coerced one for each class that
+-- defaults to newtype deriving. A stock instance is structural, thus it can
+-- be recursive. For example, @newtype Tree e = Node (Map e (Tree e))@ needs
+-- @Eq (Tree e)@ for the coerced instance of @Eq (Map e (Tree e))@.
 defaultStockFallback :: Text -> Maybe (Text, Text) -> Maybe DerivingStrategy -> TcDerivingStrategy -> TcM Bool
 defaultStockFallback className origin requested selected = do
   references <- getDerivingReferences
@@ -71,7 +75,7 @@ defaultStockFallback className origin requested selected = do
     ( isNothing requested
         && selected == TcDerivingNewtype
         && isStockClass references className origin
-        && newtypeDefaultingOf className == NewtypeWithGnd
+        && newtypeDefaultingOf className `elem` [NewtypeAlways, NewtypeWithGnd]
     )
 
 selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> Maybe SourceSpan -> TcM TcDerivingStrategy
