@@ -1,0 +1,61 @@
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  class C b where
+    pick :: b -> Flag
+  instance C Flag where
+    pick b = b
+  data Box b a = Box b a
+  run :: (forall b. C b => Box b a) -> Flag
+  run (Box b _) = pick (b :: Flag)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tFlag :: sType {
+    pub 1.cOff :: tFlag;
+    pub 1.cOn :: tFlag
+  }
+
+  pub type 1.t$Dict$C (b : sType) :: sType {
+    pub 1.c$Dict$C :: ∀(b : sType). (b → tFlag) → t$Dict$C b
+  }
+
+  pub type 1.tBox (b : sType) (a : sType) :: sType {
+    pub 1.cBox :: ∀(b : sType) (a : sType). b → a → tBox b a
+  }
+
+  pub val 1.vpick :: ∀(b : sType). t$Dict$C b → b → tFlag
+    = Λ(b : sType). λ($dC : t$Dict$C b).
+      let! c$Dict$C ($cpick : b → tFlag) = $dC;
+      $cpick
+
+  pub val 1.v$fCFlag :: t$Dict$C tFlag
+    = c$Dict$C @tFlag v$fCFlag$cpick
+
+  val 1.v$fCFlag$cpick :: tFlag → tFlag
+    = λ(x : tFlag).
+      x
+
+  pub val 1.vrun :: ∀(a : sType). (∀(b : sType). t$Dict$C b → tBox b a) → tFlag
+    = Λ(a : sType). λ(x : ∀(b : sType). t$Dict$C b → tBox b a).
+      let! cBox (b : tFlag) (unused _pat : a) = x @tFlag v$fCFlag;
+      vpick @tFlag v$fCFlag b
+status: pass
+reason: A constructor pattern applies its scrutinee to the type and evidence arguments of its quantified type.

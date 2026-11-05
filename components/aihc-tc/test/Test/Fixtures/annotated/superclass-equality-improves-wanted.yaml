@@ -1,0 +1,23 @@
+extensions:
+- TypeFamilies
+- ScopedTypeVariables
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  class Kem p where
+    type Key p
+    open :: proxy p -> Key p -> Flag
+  class (Kem p, Key p ~ Wrap p) => Ml p where
+    size :: proxy p -> Flag
+  newtype Wrap p = Wrap Flag
+  data P = P
+  mlOpen :: forall p. Ml p => Key p -> Flag
+  mlOpen _ = On
+  instance Kem P where
+    type Key P = Wrap P
+    open _ = mlOpen
+  instance Ml P where
+    size _ = Off
+status: pass
+reason: The equality superclass of a wanted class constraint improves its meta variable.

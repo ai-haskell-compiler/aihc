@@ -239,17 +239,39 @@ localBinderKey name =
     _ -> Nothing
 
 checkPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
-checkPattern sp pat (TcQualTy predicates body)
-  | patternNeedsInstantiation pat = do
+checkPattern sp pat scrutTy
+  | isSigmaType scrutTy,
+    patternNeedsInstantiation pat = do
+      -- A constructor matches a value of the instantiated type, as in GHC.
+      -- The annotation gives the type arguments and the evidence that the
+      -- desugarer applies the scrutinee to.
+      (body, typeArgs, predicates) <- instantiatePatternType scrutTy
       wanted <- mapM (predToCt sp "pattern") predicates
       check <- checkPattern sp pat body
-      let annotate = PAnn (mkAnnotation TcPatternInstantiation) . annotatePendingPatternAt sp (pendingAnnotation body [] (map ctEvVar wanted) [])
+      let annotate = PAnn (mkAnnotation TcPatternInstantiation) . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
       pure check {pcWantedCts = wanted <> pcWantedCts check, pcPatterns = map annotate (pcPatterns check)}
+  where
+    isSigmaType ty = case ty of
+      TcForAllTy {} -> True
+      TcQualTy {} -> True
+      _ -> False
 checkPattern sp pat scrutTy = do
   check <- case literalPatternCheck sp pat scrutTy of
     Just literalCheck -> literalCheck
     Nothing -> checkPatternCore sp pat scrutTy
   pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
+
+-- | Instantiate the outer type variables of a sigma type with fresh meta
+-- variables. The result is the body after the first context, the type
+-- arguments, and the predicates of that context.
+instantiatePatternType :: TcType -> TcM (TcType, [TcType], [Pred])
+instantiatePatternType = go []
+  where
+    go arguments (TcForAllTy binder body) = do
+      argument <- freshMetaTvOfKind (tvKind binder)
+      go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
+    go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
+    go arguments ty = pure (ty, arguments, [])
 
 -- | A variable keeps the constrained value. A constructor uses it.
 patternNeedsInstantiation :: Pattern -> Bool

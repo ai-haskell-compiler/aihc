@@ -21,6 +21,7 @@
 -- @t0@ and @t1@.
 module Aihc.Tc.Solve.FunDep
   ( improveFunDeps,
+    superClassEqualities,
   )
 where
 
@@ -69,6 +70,21 @@ superClassClosure givens = reverse <$> foldM add [] givens
       | otherwise = do
           parents <- superClassesOf predicate
           foldM add (predicate : seen) parents
+
+-- | The equality constraints that the class constraints entail through
+-- their superclasses, transitively.
+--
+-- A wanted class constraint holds only if its superclasses hold, so an
+-- equality superclass of it must hold too. Such an equality can improve a
+-- meta variable that the wanted shares with another constraint. The class
+-- @(Key p ~ Wrap p) => Ml p@ is an example: a wanted @Ml t0@ entails @Key
+-- t0 ~ Wrap t0@, and a wanted @Key t0 ~ Wrap P@ then gives @t0 := P@.
+-- The equalities are for improvement only and carry no evidence.
+superClassEqualities :: [Ct] -> TcM [Pred]
+superClassEqualities constraints = do
+  predicates <- mapM (zonkPred . ctPred) constraints
+  closure <- superClassClosure [predicate | predicate@ClassPred {} <- predicates]
+  pure [predicate | predicate@EqPred {} <- closure]
 
 -- | The superclass constraints of a class given, instantiated at its
 -- arguments. Every other predicate has none.

@@ -26,9 +26,9 @@ import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), givenRewrites, solveEquality)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
-import Aihc.Tc.Solve.FunDep (improveFunDeps)
+import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.Interact (improveSharedFamilyApplications)
@@ -110,7 +110,8 @@ drained inerts
       if null progressed
         then do
           givens <- getGivenPredicates
-          improved <- improveStuckEqualities givens (map ctPred stuck)
+          entailed <- superClassEqualities (inertDicts inerts)
+          improved <- improveStuckEqualities givens entailed (map ctPred stuck)
           if improved
             then solveLoop (foldr addEq emptyWorkList stuck) inerts {inertEqs = []}
             else pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
@@ -118,12 +119,27 @@ drained inerts
 
 -- | Improve the stuck equalities from the injectivity annotations of the
 -- families they mention, and from the family applications they share.
-improveStuckEqualities :: [Pred] -> [Pred] -> TcM Bool
-improveStuckEqualities givens stuck = do
+-- The equality superclasses of the stuck dictionary wanteds share family
+-- applications with them too.
+--
+-- The givens rewrite a copy of each equality first, so that a family
+-- application that a given equates with another type is that type. With
+-- the given @Key p ~ Wrap p@, the wanted @Key t0 ~ Key p@ becomes @Key t0 ~
+-- Wrap p@, which shares @Key t0@ with the entailed @Key t0 ~ Wrap t0@.
+improveStuckEqualities :: [Pred] -> [Pred] -> [Pred] -> TcM Bool
+improveStuckEqualities givens entailed stuck = do
   improved <- improveInjectivity givens stuck
   if improved
     then pure True
-    else improveSharedFamilyApplications stuck
+    else do
+      rewrites <- givenRewrites givens
+      rewritten <- mapM (fmap (rewriteEquality rewrites) . zonkPred) (stuck <> entailed)
+      improveSharedFamilyApplications rewritten
+  where
+    rewriteEquality rewrites predicate =
+      case predicate of
+        EqPred left right -> EqPred (applyGivenSubst rewrites left) (applyGivenSubst rewrites right)
+        _ -> predicate
 
 -- | Separate constraints that changed after a meta variable received a
 -- solution. A change of a given that the constraint keeps from its scope
@@ -210,7 +226,8 @@ solveImplication impl = do
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
       skolems = implSkols impl
   improveImplicationWanteds givenPredicates dictionaryWanteds
-  deferredEqualities <- solveImplicationEqualities skolems givenPredicates givenEqs equalityWanteds
+  entailed <- superClassEqualities dictionaryWanteds
+  deferredEqualities <- solveImplicationEqualities skolems givenPredicates entailed givenEqs equalityWanteds
   deferredDictionaries <- concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqs) dictionaryWanteds
   pure (deferredEqualities <> deferredDictionaries)
 
@@ -227,18 +244,18 @@ improveImplicationWanteds givenPredicates constraints = do
 
 -- | Retry equalities after argument constraints solve meta variables.
 -- The result holds the equality wanteds that the enclosing scope must solve.
-solveImplicationEqualities :: [TyVarId] -> [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM [Ct]
-solveImplicationEqualities skolems predicates equalities constraints = do
+solveImplicationEqualities :: [TyVarId] -> [Pred] -> [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM [Ct]
+solveImplicationEqualities skolems predicates entailed equalities constraints = do
   results <- withGivenPredicates predicates (mapM solveEquality constraints)
   let remaining = [constraint | (constraint, result) <- zip constraints results, case result of EqSolved -> False; _ -> True]
   if length remaining < length constraints
-    then solveImplicationEqualities skolems predicates equalities remaining
+    then solveImplicationEqualities skolems predicates entailed equalities remaining
     else do
       -- The givens of the branch can name a family application that an
       -- injectivity annotation then reads back into a family argument.
-      improved <- improveStuckEqualities predicates (map ctPred remaining)
+      improved <- improveStuckEqualities predicates entailed (map ctPred remaining)
       if improved
-        then solveImplicationEqualities skolems predicates equalities remaining
+        then solveImplicationEqualities skolems predicates entailed equalities remaining
         else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
