@@ -65,7 +65,10 @@ A removed capability gives its gen1 blocks and its remembered set to the first c
 Only the collector fuzz driver uses more than one capability.
 `aihc_promote` copies an escaping value and the young objects it reaches into gen2.
 An immutable original stays as it is, and an unclaimed thunk becomes an indirection to its copy.
-A value that reaches a mutable object or a claimed thunk runs a collection that moves every young survivor into gen2.
+A value that reaches a mutable object or a claimed thunk runs an escape collection.
+The escape collection is a local collection that moves the young graph of that value into gen2 first.
+It keeps the other survivors local, and it copies gen1 only when the graph reaches gen1.
+When the graph reaches a blackhole queue, the collection moves every young survivor into gen2, because the global queues of a thread must come before its young queues.
 `unsafeFreezeByteArray#` gives a byte array a frozen info table, and `unsafeThawByteArray#` gives back the mutable one.
 A promotion copies a frozen byte array, because no thread writes it. A mutable byte array still runs the collection.
 The RTS option `-N<n>` gives the machine `n` capabilities, but every Haskell thread runs on the first one until step 4.
@@ -97,7 +100,7 @@ Each thread record names its capability, and a woken thread goes back to that ca
 Another capability puts a pushed or woken thread into the inbox of the capability, which has its own lock.
 The worker moves its inbox into its run queue at each schedule.
 At a schedule, a capability with two or more runnable threads keeps one and pushes each other thread to an idle capability, one thread to each, as GHC does.
-Before the push, a collection moves each young survivor of its local heap into gen2.
+Before the push, a collection moves the young graphs of the pushed threads into gen2: the roots of each thread record and its stack. The other survivors of the local heap stay local.
 A pushed thread gets the new capability in each chunk of its stack.
 A capability without runnable threads waits in its idle wait.
 The wait polls the pending IO requests and a wake-up pipe.

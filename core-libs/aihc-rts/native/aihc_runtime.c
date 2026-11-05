@@ -1084,25 +1084,29 @@ static void aihc_visit_thread_roots(AihcMachine *machine,
     if (owner != NULL && thread->capability != owner->index) {
       continue;
     }
-    aihc_visit_transaction_links(machine, &thread->transaction, visitor,
-                                 context);
-    thread->queues = aihc_visit_pointer(thread->queues, visitor, context);
-    aihc_visit_value(&thread->resume_function, visitor, context);
-    aihc_visit_value(&thread->resume_continuation, visitor, context);
-    if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
-         thread->resume_kind == AIHC_RESUME_APPLY) &&
-        thread->resume_count == 1) {
-      thread->resume_value = visitor(thread->resume_value, context);
-    }
-    /* A global queue of the thread can name an older young queue of the
-       thread. A local collection without a stop drops the global objects
-       from the remembered set, so every collection updates these links
-       here. The collector holds the object lock, which guards the links. */
-    for (AihcBlackholeQueue *queue = thread->queues; queue != NULL;
-         queue = queue->next) {
-      if (!aihc_value_is_young(machine, queue)) {
-        queue->next = aihc_visit_pointer(queue->next, visitor, context);
-      }
+    aihc_visit_one_thread_roots(machine, thread, visitor, context);
+  }
+}
+
+void aihc_visit_one_thread_roots(AihcMachine *machine, AihcThread *thread,
+                                 AihcRootVisitor visitor, void *context) {
+  aihc_visit_transaction_links(machine, &thread->transaction, visitor, context);
+  thread->queues = aihc_visit_pointer(thread->queues, visitor, context);
+  aihc_visit_value(&thread->resume_function, visitor, context);
+  aihc_visit_value(&thread->resume_continuation, visitor, context);
+  if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
+       thread->resume_kind == AIHC_RESUME_APPLY) &&
+      thread->resume_count == 1) {
+    thread->resume_value = visitor(thread->resume_value, context);
+  }
+  /* A global queue of the thread can name an older young queue of the
+     thread. A local collection without a stop drops the global objects
+     from the remembered set, so every collection updates these links
+     here. The collector holds the object lock, which guards the links. */
+  for (AihcBlackholeQueue *queue = thread->queues; queue != NULL;
+       queue = queue->next) {
+    if (!aihc_value_is_young(machine, queue)) {
+      queue->next = aihc_visit_pointer(queue->next, visitor, context);
     }
   }
 }
@@ -1874,24 +1878,57 @@ static int aihc_promote_unstarted_thread(AihcCapability *capability,
 /* Move at most a number of threads from the end of the run queue to idle
    capabilities, one thread to each. A moved thread must name no object of
    this local heap. A thread that has not run gets a copy of its closure.
-   For each other thread, a collection first moves each young survivor of
-   the local heap into gen2. That collection walks every stack of the
-   machine, so a push of each new thread of a large fork took seconds. */
+   For the other threads, a collection first moves the young objects that
+   they reach into gen2. The other survivors of the local heap stay local:
+   a collection that moved every survivor made each later store of the
+   threads that stay here an escape. */
 static void aihc_move_threads(AihcCapability *capability, uint64_t pushes) {
   AihcMachine *machine = capability->machine;
-  int promoted = 0;
+  uint64_t targets = 0;
+  for (uint64_t index = 0; index < machine->capability_count; ++index) {
+    if (aihc_capability_available(machine->capabilities[index])) {
+      ++targets;
+    }
+  }
+  if (pushes > targets) {
+    pushes = targets;
+  }
+  uint64_t queued = 0;
+  for (const AihcThread *thread = capability->run_queue_head; thread != NULL;
+       thread = thread->next) {
+    ++queued;
+  }
+  if (pushes > queued) {
+    pushes = queued;
+  }
+  if (pushes == 0) {
+    return;
+  }
+  /* The moved threads are the last ones of the queue. They stay on the
+     queue during the collection, which is a root of it. */
+  AihcThread **promoted = malloc(pushes * sizeof(*promoted));
+  if (promoted == NULL) {
+    aihc_fail("out of memory");
+  }
+  uint64_t promoted_count = 0;
+  uint64_t position = 0;
+  for (AihcThread *thread = capability->run_queue_head; thread != NULL;
+       thread = thread->next, ++position) {
+    if (position >= queued - pushes &&
+        !aihc_promote_unstarted_thread(capability, thread)) {
+      promoted[promoted_count++] = thread;
+    }
+  }
+  if (promoted_count != 0) {
+    aihc_promote_threads(capability, promoted, promoted_count);
+  }
+  free(promoted);
   for (uint64_t index = 0; index < machine->capability_count && pushes != 0 &&
                            capability->run_queue_head != NULL;
        ++index) {
     AihcCapability *target = machine->capabilities[index];
     if (!aihc_capability_available(target)) {
       continue;
-    }
-    /* The thread stays on the queue, which is a root of the collection. */
-    if (!promoted && !aihc_promote_unstarted_thread(
-                         capability, capability->run_queue_tail)) {
-      aihc_promote_all(capability, AIHC_GC_REASON_PUSH, 0, NULL, NULL);
-      promoted = 1;
     }
     AihcThread *thread = aihc_dequeue_last_thread(capability);
     thread->capability = target->index;
