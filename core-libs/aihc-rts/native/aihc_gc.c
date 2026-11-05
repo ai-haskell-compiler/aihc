@@ -341,9 +341,33 @@ typedef struct AihcGcWork {
      scanned. Gen2 has no Cheney cursor, because its slots are not in
      allocation order. */
   AihcValueWorklist gen2;
+  /* The value of the last promotion of the capability that needed a
+     collection, or zero, and whether its young graph reaches gen1. The
+     escape collection that follows moves only this graph into gen2. Each
+     collection of the capability clears it, because it moves the value. */
+  AihcSlot escape_value;
+  int escape_reaches_gen1;
+  /* The threads that a push moves to other capabilities, during the
+     collection before the push. See aihc_promote_threads. */
+  AihcThread **promote_threads;
+  uint64_t promote_thread_count;
+  /* The head of the young pinned list of the capability after its last
+     sweep, or NULL. Adoption puts a new block at the head, so the blocks
+     from this one on are older than the last sweep: gen1 or gen2. A sweep
+     of the nursery alone frees and moves none of them, so it stops here. */
+  struct AihcPinnedBlock *pinned_seen;
+  /* The gen1 blocks that collections of the capability copied away, for
+     the next gen1 blocks of the capability. They keep their regions, so a
+     collection takes a block without the region lock. */
+  struct AihcHeapBlock *spare_blocks;
+  size_t spare_block_count;
 } AihcGcWork;
 
 static AihcGcWork aihc_gc_works[AIHC_CAPABILITY_MAX];
+/* The promote_all argument of a collection that moves only the young
+   graph of the escape value of its capability into gen2. See
+   aihc_escape_collect. */
+#define AIHC_PROMOTE_ESCAPE 2
 /* The static objects the active gen2 cycle has marked. */
 static AihcAddressSet aihc_cycle_statics;
 static AihcSrtWorklist aihc_srt_worklist;
@@ -595,12 +619,19 @@ aihc_gen1_allocate_block(AihcCapability *capability, size_t bytes) {
     if (bytes > AIHC_HEAP_BLOCK_BYTES) {
       aihc_fail("object exceeds a heap block");
     }
-    block = malloc(sizeof(*block));
-    if (block == NULL) {
-      aihc_fail("out of memory");
+    AihcGcWork *work = &aihc_gc_works[capability->index];
+    block = work->spare_blocks;
+    if (block != NULL) {
+      work->spare_blocks = block->link;
+      --work->spare_block_count;
+    } else {
+      block = malloc(sizeof(*block));
+      if (block == NULL) {
+        aihc_fail("out of memory");
+      }
+      block->start =
+          aihc_regions_acquire(AIHC_HEAP_BLOCK_REGIONS, AIHC_REGION_GEN1);
     }
-    block->start =
-        aihc_regions_acquire(AIHC_HEAP_BLOCK_REGIONS, AIHC_REGION_GEN1);
     block->next = block->start;
     block->limit = block->start + AIHC_HEAP_BLOCK_BYTES;
     block->link = NULL;
@@ -643,6 +674,34 @@ static void aihc_blocks_release(AihcHeapBlock *blocks) {
     free(blocks);
     blocks = link;
   }
+}
+
+/* The most gen1 blocks that a capability keeps for later collections. */
+#define AIHC_SPARE_GEN1_BLOCKS ((size_t)64)
+
+/* Keep the gen1 blocks that a collection copied away for the next gen1
+   blocks of their capability, up to a bound, and release the rest. Each
+   region table change takes the region lock, and the collections of all
+   capabilities take blocks. A kept block is labeled gen1 again. */
+static void aihc_blocks_recycle(AihcCapability *owner, AihcHeapBlock *blocks) {
+  AihcGcWork *work = &aihc_gc_works[owner->index];
+  while (blocks != NULL && work->spare_block_count < AIHC_SPARE_GEN1_BLOCKS) {
+    AihcHeapBlock *link = blocks->link;
+    aihc_regions_relabel(blocks->start, AIHC_REGION_GEN1);
+    blocks->link = work->spare_blocks;
+    work->spare_blocks = blocks;
+    ++work->spare_block_count;
+    blocks = link;
+  }
+  aihc_blocks_release(blocks);
+}
+
+/* Release the kept gen1 blocks of a capability. */
+static void aihc_blocks_release_spare(AihcCapability *owner) {
+  AihcGcWork *work = &aihc_gc_works[owner->index];
+  aihc_blocks_release(work->spare_blocks);
+  work->spare_blocks = NULL;
+  work->spare_block_count = 0;
 }
 
 /* The segments of gen2. */
@@ -822,24 +881,27 @@ static AihcSegment *aihc_class_next_segment(AihcCapability *capability,
   }
 }
 
-/* Count the gen2 slots that the allocator took. */
+/* Count the gen2 slots that the allocator took. Each promotion and each
+   local collection counts its slots, so the counts are atomic and take no
+   lock. A stop changes them only while no capability runs. */
 static void aihc_gen2_account(AihcMachine *machine, uint64_t slot_bytes) {
   if (slot_bytes == 0) {
     return;
   }
-  aihc_gen2_lock_acquire();
-  machine->gen2.bytes += slot_bytes;
+  __atomic_fetch_add(&machine->gen2.bytes, slot_bytes, __ATOMIC_RELAXED);
   if (machine->gen2_cycle_active) {
     /* The object is black: the cycle counts it and owes mark work for
        it. */
     __atomic_fetch_add(&machine->gen2_marked_bytes, slot_bytes,
                        __ATOMIC_RELAXED);
     uint64_t owed = slot_bytes * machine->mark_factor;
-    machine->mark_debt = owed > UINT64_MAX - machine->mark_debt
-                             ? UINT64_MAX
-                             : machine->mark_debt + owed;
+    uint64_t debt = __atomic_load_n(&machine->mark_debt, __ATOMIC_RELAXED);
+    uint64_t next;
+    do {
+      next = owed > UINT64_MAX - debt ? UINT64_MAX : debt + owed;
+    } while (!__atomic_compare_exchange_n(&machine->mark_debt, &debt, next, 1,
+                                          __ATOMIC_RELAXED, __ATOMIC_RELAXED));
   }
-  aihc_gen2_lock_release();
 }
 
 /* Allocate a slot for a copied object in gen2, in a current segment of
@@ -3044,10 +3106,11 @@ static AihcPinnedBlock **aihc_pinned_list_link(AihcMachine *machine,
    and that nothing reached, and clear the marks of the others. On a young
    list, a block that is now in gen2 moves to the gen2 list. */
 static void aihc_sweep_pinned_list(AihcGcContext *context,
-                                   AihcPinnedBlock **link, int young) {
+                                   AihcPinnedBlock **link, int young,
+                                   const AihcPinnedBlock *stop) {
   AihcCapability *capability = context->capability;
   AihcMachine *machine = capability->machine;
-  while (*link != NULL) {
+  while (*link != NULL && *link != stop) {
     AihcPinnedBlock *block = *link;
     unsigned generation = aihc_pinned_generation(block);
     if ((block->bytes & AIHC_PINNED_MARK) != 0) {
@@ -3080,13 +3143,25 @@ static void aihc_sweep_pinned_list(AihcGcContext *context,
 static void aihc_sweep_pinned(AihcGcContext *context) {
   AihcMachine *machine = context->capability->machine;
   if (context->collected == 2) {
-    aihc_sweep_pinned_list(context, &machine->pinned_blocks, 0);
+    aihc_sweep_pinned_list(context, &machine->pinned_blocks, 0, NULL);
   }
   for (uint64_t index = 0; index < machine->capability_count; ++index) {
     AihcCapability *other = machine->capabilities[index];
     if (context->local == NULL || other == context->local) {
-      aihc_sweep_pinned_list(context, &other->young_pinned, 1);
+      AihcGcWork *work = &aihc_gc_works[other->index];
+      aihc_sweep_pinned_list(context, &other->young_pinned, 1,
+                             context->collected == 0 ? work->pinned_seen
+                                                     : NULL);
+      work->pinned_seen = other->young_pinned;
     }
+  }
+}
+
+/* Forget the swept heads of the young pinned lists, after a change of the
+   lists outside a sweep of their own: the next sweep walks each list. */
+static void aihc_forget_pinned_seen(void) {
+  for (size_t index = 0; index < AIHC_CAPABILITY_MAX; ++index) {
+    aihc_gc_works[index].pinned_seen = NULL;
   }
 }
 
@@ -3095,6 +3170,7 @@ static void aihc_sweep_pinned(AihcGcContext *context) {
    that a promotion moved into gen2, so the sweep walks every list. */
 static void aihc_sweep_pinned_cycle(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
+  aihc_forget_pinned_seen();
   for (uint64_t index = 0; index <= machine->capability_count; ++index) {
     AihcPinnedBlock **link = aihc_pinned_list_link(machine, index);
     while (*link != NULL) {
@@ -3877,6 +3953,30 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
   AihcMachine *machine = capability->machine;
   uint64_t capability_count = machine->capability_count;
   AihcCapability *only = local && collected < 2 ? capability : NULL;
+  /* The machine has its capabilities. The test is explicit for the static
+     analyzer, which follows the loops below with no capability. */
+  if (capability_count == 0) {
+    aihc_fail("a collection without capabilities");
+  }
+  /* The escape value of this collection, and the clear of the values that
+     it moves: its own, or every value for a bridge collection. */
+  AihcSlot escape_value = 0;
+  AihcThread **promote_threads = NULL;
+  uint64_t promote_thread_count = 0;
+  if (promote_all == AIHC_PROMOTE_ESCAPE) {
+    AihcGcWork *own = &aihc_gc_works[capability->index];
+    if (only != NULL && capability_count > 1) {
+      escape_value = own->escape_value;
+      promote_threads = own->promote_threads;
+      promote_thread_count = own->promote_thread_count;
+    }
+    promote_all = escape_value == 0 && promote_thread_count == 0;
+  }
+  for (uint64_t index = 0; index < capability_count; ++index) {
+    if (only == NULL || machine->capabilities[index] == only) {
+      aihc_gc_works[machine->capabilities[index]->index].escape_value = 0;
+    }
+  }
   /* A bridge collection with several capabilities promotes every young
      survivor into gen2, and gen1 too. A minor collection would leave gen1
      in place, and a promoted nursery survivor can name a gen1 object of
@@ -4004,6 +4104,39 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
       }
     }
   }
+  if (escape_value != 0 || promote_thread_count != 0) {
+    /* The young graph of the escape value goes into gen2 before any other
+       root is visited, so no object of it is in gen1 first. A gen2 copy
+       is scanned with gen2 as the floor of its referents. The targets of
+       a promotion of everything apply, so a frame that the graph reaches
+       also moves its referents. After that, the other survivors stay
+       local. */
+    unsigned young_target = context.young_target;
+    unsigned gen1_target = context.gen1_target;
+    context.young_target = 2;
+    context.gen1_target = 2;
+    if (escape_value != 0) {
+      unsigned where;
+      (void)aihc_evacuate_at(&context, escape_value, 2, &where);
+    }
+    /* A thread that a push moves: the roots of its record and its stack. */
+    for (uint64_t index = 0; index < promote_thread_count; ++index) {
+      AihcThread *thread = promote_threads[index];
+      aihc_visit_one_thread_roots(machine, thread, aihc_evacuate_root,
+                                  &context);
+      for (AihcStack *stack = machine->stacks; stack != NULL;
+           stack = stack->next) {
+        if (stack->thread == thread && stack->top != NULL &&
+            aihc_chunk_generation(aihc_stack_chunk_of(stack->top)) <=
+                context.collected) {
+          aihc_reach_frame(&context, stack->top);
+        }
+      }
+    }
+    aihc_trace(&context);
+    context.young_target = young_target;
+    context.gen1_target = gen1_target;
+  }
   if (context.concurrent) {
     aihc_visit_local_roots(capability, root_count, roots, aihc_evacuate_root,
                            &context);
@@ -4070,7 +4203,7 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
 
   for (uint64_t index = 0; index < capability_count; ++index) {
     AihcCapability *other = machine->capabilities[index];
-    aihc_blocks_release(from1[index]);
+    aihc_blocks_recycle(other, from1[index]);
     if (only != NULL && other != only) {
       continue;
     }
@@ -4366,6 +4499,14 @@ typedef struct {
   /* Whether the pause walk ran, so an unclaimed thunk is not under
      evaluation. */
   int copy_thunks;
+  /* Whether the check reached a young object outside the nurseries: an
+     object of gen1 or a young pinned block of gen1. */
+  int reaches_gen1;
+  /* Whether the check reached a blackhole queue. The global queues of a
+     thread come before its young queues, so a collection that moves only
+     part of a queue list into gen2 could break that order. The escape
+     collection then moves every young survivor. */
+  int reaches_queue;
 } AihcPromotion;
 
 static size_t aihc_promotion_slot(const AihcPromotion *promotion,
@@ -4423,31 +4564,68 @@ static void aihc_promotion_insert(AihcPromotion *promotion, AihcValue *original,
 /* The check: a visitor that queues each young object it has not seen. */
 static AihcSlot aihc_promote_check_slot(AihcSlot slot, void *opaque) {
   AihcPromotion *promotion = opaque;
+  /* A collection of the nursery alone does not follow an indirection or
+     an evaluated thunk of gen1, so the walk notes each one it follows. */
+  for (AihcValue *each = aihc_untag(slot);
+       aihc_promote_is_young(promotion->machine, each) &&
+       aihc_follows_to_field_zero(each);
+       each = aihc_untag(each->fields[0])) {
+    if (!aihc_in_any_nursery(promotion->machine, each)) {
+      promotion->reaches_gen1 = 1;
+    }
+  }
   AihcValue *value = aihc_untag(aihc_promote_follow(promotion->machine, slot));
   if (aihc_promote_is_young(promotion->machine, value) &&
       aihc_address_set_insert(&promotion->seen, value)) {
+    if (!aihc_in_any_nursery(promotion->machine, value)) {
+      promotion->reaches_gen1 = 1;
+    }
     aihc_value_worklist_push(&promotion->check, value);
   }
   return slot;
 }
 
 /* Whether the young graph of a value holds an object that a copy cannot
-   promote. */
+   promote. When it does, the walk still visits the whole young graph, so
+   reaches_gen1 tells the escape collection whether it must copy gen1. */
 static int aihc_promote_needs_collection(AihcPromotion *promotion,
                                          AihcValue *value) {
   (void)aihc_promote_check_slot((AihcSlot)(uintptr_t)value, promotion);
+  int collect = 0;
   while (promotion->check.count != 0) {
     AihcValue *object = promotion->check.items[--promotion->check.count];
     AihcPromoteRule rule = aihc_promote_rule(object, promotion->copy_thunks);
-    if (rule == AIHC_PROMOTE_COLLECT) {
-      return 1;
-    }
     if (rule == AIHC_PROMOTE_COPY &&
         aihc_value_kind(object) != AIHC_OBJECT_BYTE_ARRAY) {
       aihc_visit_plain_fields(object, aihc_promote_check_slot, promotion);
+    } else if (rule == AIHC_PROMOTE_COLLECT) {
+      collect = 1;
+      AihcObjectKind kind = aihc_value_info_table(object)->object_kind;
+      if ((object->header & AIHC_HEADER_TAG_MASK) == 0 &&
+          (kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BYTE_ARRAY)) {
+        /* A young thunk before the pause walk has plain fields, and a
+           mutable byte array has none. */
+        if (kind == AIHC_OBJECT_THUNK) {
+          aihc_visit_plain_fields(object, aihc_promote_check_slot, promotion);
+        }
+      } else {
+        /* The walk does not know the fields of a mutable object or a
+           claimed thunk, so the escape collection copies gen1. */
+        promotion->reaches_gen1 = 1;
+        AihcObjectKind word_kind =
+            (object->header & AIHC_HEADER_TAG_MASK) != 0 &&
+                    object->fields[0] != 0
+                ? aihc_value_kind(aihc_untag(object->fields[0]))
+                : kind;
+        if (kind == AIHC_OBJECT_BLACKHOLE_QUEUE ||
+            kind == AIHC_OBJECT_BLACKHOLE_WAITER ||
+            word_kind == AIHC_OBJECT_BLACKHOLE_QUEUE) {
+          promotion->reaches_queue = 1;
+        }
+      }
     }
   }
-  return 0;
+  return collect;
 }
 
 static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque);
@@ -4527,6 +4705,9 @@ static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
   free(promotion.seen.slots);
   free(promotion.check.items);
   if (collect) {
+    AihcGcWork *work = &aihc_gc_works[capability->index];
+    work->escape_value = promotion.reaches_queue ? 0 : slot;
+    work->escape_reaches_gen1 = promotion.reaches_gen1;
     return 0;
   }
   AihcSlot copy = aihc_tag_pointer(aihc_promote_object(&promotion, value),
@@ -4544,9 +4725,37 @@ static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
   return copy;
 }
 
+/* The escape collection after a promotion that needed one. It moves the
+   young graph of that value into gen2 and keeps the other survivors local,
+   so the rest of the local heap does not become global. Otherwise each
+   later store into an object of the old local heap escapes too. It copies
+   gen1 only when the graph reaches gen1. Without the value, for example
+   after another collection, it moves every young survivor into gen2. */
 void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt) {
-  aihc_promote_all(capability, AIHC_GC_REASON_ESCAPE, root_count, roots, srt);
+  AihcGcWork *work = &aihc_gc_works[capability->index];
+  if (work->escape_value == 0 || capability->machine->capability_count < 2) {
+    aihc_promote_all(capability, AIHC_GC_REASON_ESCAPE, root_count, roots, srt);
+    return;
+  }
+  aihc_collect(capability, AIHC_GC_REASON_ESCAPE,
+               work->escape_reaches_gen1 ? 1 : 0, 0, AIHC_PROMOTE_ESCAPE, 1,
+               root_count, roots, srt);
+}
+
+void aihc_promote_threads(AihcCapability *capability, AihcThread **threads,
+                          uint64_t count) {
+  if (capability->machine->capability_count < 2 || count == 0) {
+    aihc_promote_all(capability, AIHC_GC_REASON_PUSH, 0, NULL, NULL);
+    return;
+  }
+  AihcGcWork *work = &aihc_gc_works[capability->index];
+  work->promote_threads = threads;
+  work->promote_thread_count = count;
+  aihc_collect(capability, AIHC_GC_REASON_PUSH, 1, 0, AIHC_PROMOTE_ESCAPE, 1, 0,
+               NULL, NULL);
+  work->promote_threads = NULL;
+  work->promote_thread_count = 0;
 }
 
 void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
@@ -4691,6 +4900,8 @@ void aihc_machine_set_capabilities(AihcCapability *capability, uint64_t count) {
         aihc_size_classes[size_class].available = segment;
       }
     }
+    aihc_forget_pinned_seen();
+    aihc_blocks_release_spare(removed);
     while (removed->young_pinned != NULL) {
       AihcPinnedBlock *block = removed->young_pinned;
       removed->young_pinned = block->next;
@@ -4752,6 +4963,7 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
        ++index) {
     AihcCapability *each = capability->machine->capabilities[index];
     aihc_blocks_release(each->gen1.first);
+    aihc_blocks_release_spare(each);
     each->gen1 = (AihcGeneration){0};
     aihc_gen1_note_used(each);
     each->fixed_since_gc = 0;
@@ -4777,6 +4989,7 @@ void aihc_heap_reset(AihcCapability *capability, size_t nursery_bytes) {
        stack = stack->next) {
     stack->pending_count = 0;
   }
+  aihc_forget_pinned_seen();
   for (uint64_t index = 0; index <= capability->machine->capability_count;
        ++index) {
     AihcPinnedBlock **link = aihc_pinned_list_link(capability->machine, index);

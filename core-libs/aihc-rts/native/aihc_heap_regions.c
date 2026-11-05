@@ -302,6 +302,19 @@ static void aihc_regions_release_locked(void *base) {
   }
 }
 
+void aihc_regions_relabel(void *base, AihcRegionKind kind) {
+  AihcRegionEntry *entry = aihc_region_entry(base, 0);
+  if (entry == NULL || entry->mapping == NULL || entry->run == 0 ||
+      kind == AIHC_REGION_OUTSIDE || kind == AIHC_REGION_FREE) {
+    aihc_fail("relabeled memory is not an acquired run");
+  }
+  uint32_t run = entry->run;
+  for (size_t index = 0; index < run; ++index) {
+    __atomic_store_n(&aihc_region_entry(aihc_region_at(base, index), 0)->kind,
+                     (uint8_t)kind, __ATOMIC_RELAXED);
+  }
+}
+
 void aihc_regions_set_kind(void *base, AihcRegionKind kind) {
   aihc_regions_lock();
   AihcRegionEntry *entry = aihc_region_entry(base, 0);

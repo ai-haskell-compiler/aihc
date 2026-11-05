@@ -463,6 +463,9 @@ void *aihc_regions_acquire_aligned(size_t count, size_t alignment,
 void aihc_regions_release(void *base);
 /* Change the kind of every region of an acquired run. */
 void aihc_regions_set_kind(void *base, AihcRegionKind kind);
+/* Change the kind of an acquired run without the region lock. Only the
+   owner of the run may call it, and the run keeps its place in the table. */
+void aihc_regions_relabel(void *base, AihcRegionKind kind);
 /* The kind and run base from one region table lookup. */
 typedef struct {
   AihcRegionKind kind;
@@ -759,6 +762,11 @@ int64_t aihc_array_copy_escaping(AihcCapability *capability, AihcValue *source,
 void aihc_escape_collect(AihcCapability *capability, uint64_t root_count,
                          AihcSlot *roots, const AihcSrt *srt);
 /* The same collection for another reason, which the statistics count. */
+/* Before a push of threads to other capabilities: a local collection that
+   moves the young graphs of the threads into gen2, and keeps the other
+   survivors local. */
+void aihc_promote_threads(AihcCapability *capability, AihcThread **threads,
+                          uint64_t count);
 void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
                       uint64_t root_count, AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
@@ -884,6 +892,10 @@ void aihc_visit_local_roots(AihcCapability *capability, uint64_t root_count,
                             AihcSlot *roots, AihcRootVisitor visitor,
                             void *context);
 void aihc_visit_capability_roots(AihcCapability *capability,
+                                 AihcRootVisitor visitor, void *context);
+/* The roots of one thread record: its transaction, its blackhole queues,
+   and its resumption. */
+void aihc_visit_one_thread_roots(AihcMachine *machine, AihcThread *thread,
                                  AihcRootVisitor visitor, void *context);
 void aihc_visit_machine_roots(AihcMachine *machine, uint64_t root_count,
                               AihcSlot *roots, AihcRootVisitor visitor,

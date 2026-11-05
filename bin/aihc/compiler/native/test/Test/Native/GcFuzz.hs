@@ -1563,13 +1563,16 @@ replay script reports = go (zip [0 ..] script) emptyModel <> extra
       CCycle
         | rCollected report /= 1 -> ["cycle collected generation " <> show (rCollected report) <> " instead of 1"]
       CCycle -> []
+      -- An escape collection moves the young graph of the value into gen2
+      -- and keeps the other survivors local. It copies gen1 only when that
+      -- graph reaches gen1, so it collects the nursery or gen1.
       CPromote {}
-        | rCollected report /= 1 -> ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
+        | rCollected report > 1 -> ["a promotion collected generation " <> show (rCollected report) <> " instead of 0 or 1"]
       CPromote {} -> []
       _
         | escaped || isPromote command,
-          rCollected report /= 1 ->
-            ["a promotion collected generation " <> show (rCollected report) <> " instead of 1"]
+          rCollected report > 1 ->
+            ["a promotion collected generation " <> show (rCollected report) <> " instead of 0 or 1"]
         | escaped || isPromote command -> []
       _
         | rBridge report,
@@ -1619,8 +1622,11 @@ checkReport scope model report =
     -- The driver follows every indirection when it reports a value.
     deep = resolve model
     -- An object of a collected generation moves up at least one generation
-    -- and at most to gen2. An older object stays where it is.
+    -- and at most to gen2. An older object stays where it is. A local
+    -- collection with several capabilities keeps a survivor of gen1 in
+    -- gen1, because gen2 is global.
     ageProblems = concatMap ageProblem (Map.toList (rAges report))
+    keepsLocal = isJust scope && mCapabilities model > 1
     ageProblem (identity, age)
       | Set.member identity (mPromoted model) = ["object " <> show identity <> " moved to generation " <> show age | age > 2]
       -- A thread record is in the global heap from its start.
@@ -1629,10 +1635,11 @@ checkReport scope model report =
         not (isThread identity),
         Map.findWithDefault 0 identity (mOwner model) /= only =
           ["object " <> show identity <> " of another local heap moved from generation " <> show before <> " to " <> show age | age /= before]
-      | before <= collected = ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
+      | before <= collected = ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < lowest || age > 2]
       | otherwise = ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
       where
         before = Map.findWithDefault 0 identity (mAges model)
+        lowest = if keepsLocal && before == 1 then 1 else min 2 (before + 1)
         isThread object = case Map.lookup object (mHeap model) of
           Just Thread {} -> True
           _ -> False
