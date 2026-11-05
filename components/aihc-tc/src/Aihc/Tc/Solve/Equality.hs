@@ -5,6 +5,7 @@
 module Aihc.Tc.Solve.Equality
   ( solveEquality,
     solveGivenEquality,
+    givenRewrites,
     EqResult (..),
   )
 where
@@ -80,8 +81,7 @@ solveRewrittenByGivens givens ct = case ctPred ct of
   EqPred left right | not (null givens) -> do
     left' <- zonkType left
     right' <- zonkType right
-    equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
-    substitution <- concat <$> mapM orient equalities
+    substitution <- givenRewrites givens
     let rewrittenLeft = applyGivenSubst substitution left'
         rewrittenRight = applyGivenSubst substitution right'
     if null substitution || (sameType rewrittenLeft left' && sameType rewrittenRight right')
@@ -96,6 +96,13 @@ solveRewrittenByGivens givens ct = case ctPred ct of
           EqStuck _ -> pure (EqStuck ct)
           EqError _ -> pure (EqError ct)
   _ -> solveWithoutGivens ct
+
+-- | The rewrites that the given equalities allow, each from a type to the
+-- type that replaces it.
+givenRewrites :: [Pred] -> TcM [(TcType, TcType)]
+givenRewrites givens = do
+  equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
+  concat <$> mapM orient equalities
   where
     -- A rigid variable equal to a family application names that
     -- application: with the given @Sub n m ~ d@ the wanted @Proxy t0 ~

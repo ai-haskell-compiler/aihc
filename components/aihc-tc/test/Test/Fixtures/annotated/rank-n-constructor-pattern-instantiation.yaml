@@ -1,0 +1,17 @@
+extensions:
+- RankNTypes
+modules:
+- |
+  module Main where
+  data Flag = Off | On
+  class C b where
+    pick :: b -> Flag
+  instance C Flag where
+    pick b = b
+  data Box b a = Box b a
+  keep :: Flag -> a -> a
+  keep _ x = x
+  run :: (forall b. C b => Box b a) -> a
+  run (Box b x) = keep b x
+reason: A constructor pattern instantiates the quantified type of its scrutinee.
+status: pass

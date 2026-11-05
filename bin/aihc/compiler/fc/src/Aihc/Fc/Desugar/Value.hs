@@ -1866,18 +1866,29 @@ desugarMatchArguments resultType fallback binders argumentTypes works = withJoin
   expanded <- mapM (expandLazyPatterns binders argumentTypes) works
   desugarMatchColumns resultType fallback binders argumentTypes expanded
 
+-- | Whether a type quantifies type variables or has a context at the top.
+isSigmaType :: TcType -> Bool
+isSigmaType ty = case ty of
+  TcForAllTy {} -> True
+  TcQualTy {} -> True
+  _ -> False
+
 desugarMatchColumns :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
 desugarMatchColumns resultType fallback [] _ ((match, locals) : rest) = do
   failure <- matchFailure resultType fallback [] [] (Syn.matchRhs match) rest
   withMatchLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
 desugarMatchColumns _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
 desugarMatchColumns resultType fallback binders@(argument : arguments) argumentTypes works
-  | TcQualTy _ body : restTypes <- argumentTypes,
+  | argumentType : restTypes <- argumentTypes,
+    isSigmaType argumentType,
     representative : _ <- [pattern' | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], patternHasInstantiation pattern'],
     Just annotation <- patternAnnotation representative = do
+      -- The type checker instantiated the scrutinee type for the match.
+      types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+      let body = tcAnnType annotation
       field <- freshBinder "$pattern_value" body
-      let applied = foldl ExApp (ExVar (binderName argument)) evidence
+      let applied = foldl ExApp (foldl ExTyApp (ExVar (binderName argument)) types) evidence
       result <- desugarMatchArguments resultType fallback (field : arguments) (body : restTypes) works
       pure (ExLet (Bind field applied) result)
   -- Each existential pattern has its own type variables and dictionaries.
@@ -2916,6 +2927,20 @@ patternFieldTypes parent children
         (fields, _) = splitFunctionType constructorType,
     length fields == length children =
       pure fields
+  -- A child with a cast has the cast target as its checked type. The field
+  -- has the type that the constructor declares, and the match on the child
+  -- casts the field to the target. A given equality can make the two types
+  -- different: a tuple pattern can get @(Int, Wrap p)@ for the field type
+  -- @(Int, Key p)@ when @Key p ~ Wrap p@ is a given.
+  | any (isJust . patternScrutineeCast) children = do
+      maybeInfo <- patternDataCon parent
+      case maybeInfo of
+        Just info
+          | null (dciExTyVars info),
+            length (dciFields info) == length children -> do
+              substitution <- constructorPatternSubstitution parent info
+              pure [applySubst substitution (dcfiType field) | field <- dciFields info]
+        _ -> mapM requiredPatternType children
   | otherwise = mapM requiredPatternType children
 
 freshPatternBinder :: Syn.Pattern -> TcType -> ValueM Binder

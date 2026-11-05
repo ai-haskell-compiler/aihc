@@ -1,0 +1,81 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Opt a = Some a | None
+  class Kem p where
+    type Key p
+  class (Kem p, Key p ~ Wrap p) => Ml p
+  newtype Wrap p = Wrap Flag
+  second :: Ml p => Opt (Flag, Key p) -> Opt (Key p)
+  second (Some (_, k)) = Some k
+  second None = None
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tFlag :: sType {
+    pub 1.cOff :: tFlag;
+    pub 1.cOn :: tFlag
+  }
+
+  pub type 1.tOpt (a : sType) :: sType {
+    pub 1.cSome :: ∀(a : sType). a → tOpt a;
+    pub 1.cNone :: ∀(a : sType). tOpt a
+  }
+
+  pub type 1.t$Dict$Kem (p : sType) :: sType {
+    pub 1.c$Dict$Kem :: ∀(p : sType). t$Dict$Kem p
+  }
+
+  pub type 1.tKey (p : sType) :: sType @N {}
+
+  pub type 1.t$Dict$Ml (p : sType) :: sType {
+    pub 1.c$Dict$Ml :: ∀(p : sType). t$Dict$Kem p → FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tKey p ~ tWrap p) (t$Dict$Ml p)
+  }
+
+  pub type 1.tWrap (p : sType) :: sType {}
+
+  axiom 1.$ax$Wrap (p : sType) : tWrap p ~R tFlag
+
+  pub val 1.vsecond :: ∀(p : sType). t$Dict$Ml p → tOpt (tTuple2 tFlag (tKey p)) → tOpt (tKey p)
+    = Λ(p : sType). λ($dMl : t$Dict$Ml p) (x : tOpt (tTuple2 tFlag (tKey p))).
+      let $co : tKey p ~ tWrap p =
+        let! c$Dict$Ml (unused $dKem : t$Dict$Kem p) ($co{1} : tKey p ~ tWrap p) = $dMl;
+        $co{1};
+      case x of {
+        cSome (_pat : tTuple2 tFlag (tKey p)) →
+          let $co{1} : tKey p ~ tWrap p =
+            $co;
+          let! c(,) (unused _pat{1} : tFlag) (k : tWrap p) = _pat ▷ tycon-co tTuple2 (refl tFlag) ($co{1});
+          let $co{2} : tKey p ~ tWrap p =
+            $co;
+          (cSome @(tWrap p) k) ▷ sym (tycon-co tOpt ($co{2}));
+        cNone →
+          let $co{1} : tKey p ~ tWrap p =
+            $co;
+          (cNone @(tWrap p)) ▷ sym (tycon-co tOpt ($co{1}))
+      }
+status: pass
+reason: A tuple pattern casts the field of its parent constructor when a given equality rewrites the tuple type.

@@ -1,0 +1,19 @@
+extensions:
+- TypeFamilies
+- ScopedTypeVariables
+modules:
+- |
+  module Main where
+  data Flag = Off | On
+  data Opt a = Some a | None
+  class Kem p where
+    type Key p
+  class (Kem p, Key p ~ Wrap p) => Ml p where
+    size :: proxy p -> Flag
+  newtype Wrap p = Wrap Flag
+  decode :: forall p. Ml p => Flag -> Opt (Key p)
+  decode _ = None
+  decodeAt :: Ml p => proxy p -> Flag -> Opt (Key p)
+  decodeAt _ = decode
+reason: A given equality rewrites a stuck wanted, and the equality superclass of a wanted class constraint then improves its meta variable.
+status: pass
