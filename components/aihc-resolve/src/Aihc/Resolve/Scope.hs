@@ -946,10 +946,8 @@ matchingModuleScopes currentPackage requestedPackage moduleName' exports =
 
 matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
 matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName origins) =
-  case Just (MonoidMap.get moduleName' byName) of
-    Nothing -> []
-    Just byPackage ->
-      List.nubBy
+  let byPackage = MonoidMap.get moduleName' byName
+   in List.nubBy
         (\(left, _) (right, _) -> origin left == origin right)
         [ (ModuleKey package moduleName', scope)
         | (package, scope) <- Map.toList byPackage,
