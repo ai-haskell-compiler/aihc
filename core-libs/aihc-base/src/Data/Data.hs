@@ -480,6 +480,54 @@ tripleConstr = mkConstr tripleDataType "(,,)" [] Infix
 tripleDataType :: DataType
 tripleDataType = mkDataType "Prelude.(,,)" [tripleConstr]
 
+instance (Data a, Data b, Data c, Data d) => Data (a, b, c, d) where
+  gfoldl k z (a, b, c, d) = z (,,,) `k` a `k` b `k` c `k` d
+  toConstr _ = tuple4Constr
+  gunfold k z _ = k (k (k (k (z (,,,)))))
+  dataTypeOf _ = tuple4DataType
+
+tuple4Constr :: Constr
+tuple4Constr = mkConstr tuple4DataType "(,,,)" [] Infix
+
+tuple4DataType :: DataType
+tuple4DataType = mkDataType "Prelude.(,,,)" [tuple4Constr]
+
+instance (Data a, Data b, Data c, Data d, Data e) => Data (a, b, c, d, e) where
+  gfoldl k z (a, b, c, d, e) = z (,,,,) `k` a `k` b `k` c `k` d `k` e
+  toConstr _ = tuple5Constr
+  gunfold k z _ = k (k (k (k (k (z (,,,,))))))
+  dataTypeOf _ = tuple5DataType
+
+tuple5Constr :: Constr
+tuple5Constr = mkConstr tuple5DataType "(,,,,)" [] Infix
+
+tuple5DataType :: DataType
+tuple5DataType = mkDataType "Prelude.(,,,,)" [tuple5Constr]
+
+instance (Data a, Data b, Data c, Data d, Data e, Data f) => Data (a, b, c, d, e, f) where
+  gfoldl k z (a, b, c, d, e, f) = z (,,,,,) `k` a `k` b `k` c `k` d `k` e `k` f
+  toConstr _ = tuple6Constr
+  gunfold k z _ = k (k (k (k (k (k (z (,,,,,)))))))
+  dataTypeOf _ = tuple6DataType
+
+tuple6Constr :: Constr
+tuple6Constr = mkConstr tuple6DataType "(,,,,,)" [] Infix
+
+tuple6DataType :: DataType
+tuple6DataType = mkDataType "Prelude.(,,,,,)" [tuple6Constr]
+
+instance (Data a, Data b, Data c, Data d, Data e, Data f, Data g) => Data (a, b, c, d, e, f, g) where
+  gfoldl k z (a, b, c, d, e, f, g) = z (,,,,,,) `k` a `k` b `k` c `k` d `k` e `k` f `k` g
+  toConstr _ = tuple7Constr
+  gunfold k z _ = k (k (k (k (k (k (k (z (,,,,,,))))))))
+  dataTypeOf _ = tuple7DataType
+
+tuple7Constr :: Constr
+tuple7Constr = mkConstr tuple7DataType "(,,,,,,)" [] Infix
+
+tuple7DataType :: DataType
+tuple7DataType = mkDataType "Prelude.(,,,,,,)" [tuple7Constr]
+
 -- As in GHC, the instance rebuilds a ratio with '(%)', which reduces it.
 instance (Data a, Integral a) => Data (Ratio a) where
   gfoldl k z (Ratio numerator denominator) = z (%) `k` numerator `k` denominator
