@@ -166,6 +166,7 @@ project_file="$work_directory/cabal.project"
 	echo "constraints:"
 	echo "  aihc -hackage -pretty-ui"
 	echo "  , aihc-tc +fuzz"
+	echo "  , monoidmap -nothunks"
 	while IFS=$'\t' read -r name version source; do
 		case "$source" in
 		hackage:*)

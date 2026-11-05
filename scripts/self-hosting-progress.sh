@@ -277,7 +277,7 @@ while IFS=$'\t' read -r name version source depends; do
 		# Disable both optional flags of aihc, as in the package list.
 		echo "Building the executable $root_executable of $name-$version"
 		run_with_timeout "$aihc" build "$workspace/$name" --executable "$root_executable" \
-			--constraint "aihc -hackage -pretty-ui" \
+			--constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks" \
 			--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
 			>>"$log" 2>&1 || status=$?
 	else

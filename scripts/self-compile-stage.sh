@@ -236,7 +236,7 @@ echo "Building the aihc executable of $root_name for $target at -O$level"
 build_start="$(date +%s)"
 status=0
 run_with_timeout "$aihc" build "$workspace/$root_name" --executable aihc \
-	--constraint "aihc -hackage -pretty-ui" \
+	--constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks" \
 	--store "$work_directory/store" --build-root "$work_directory/build" \
 	--target "$target" -O "$level" -o "$work_directory/bin" \
 	2>&1 | tee "$log_dir/aihc.log" || status=$?
