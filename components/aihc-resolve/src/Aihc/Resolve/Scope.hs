@@ -266,10 +266,7 @@ lookupExportScope (ModuleKey package name) (ModuleExports byName _) =
 filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
 filterModuleExports keep (ModuleExports byName origins) =
   ModuleExports
-    ( MonoidMap.filter
-        (not . Map.null)
-        (MonoidMap.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
-    )
+    (MonoidMap.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
     (Map.filterWithKey (\key _ -> keep key) origins)
 
 collectModuleExports :: [ModuleUnit] -> ModuleExports
