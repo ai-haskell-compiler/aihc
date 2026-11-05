@@ -6,6 +6,7 @@ import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (BuiltProgram (..), build, buildWith)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, readLinkBundle, runLinkExe)
+import Aihc.Cli.Memo (newMemo)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), PlanOptions (..), TestOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Progress (quietProgress, withProgress)
@@ -23,7 +24,9 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (Entity (..), ExportEntry (..), GlobalName (..), LocalId (..), OperatorFixity (..), PackageId (..), ResolutionNamespace (..), exportsEntries, exportsFromEntries)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTyCons, tyConName)
 import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
-import Control.Exception (IOException, bracket, try)
+import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent.Async (async, cancel, waitCatch)
+import Control.Exception (IOException, bracket, displayException, try)
 import Control.Monad (forM_, void)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.ByteString qualified as BS
@@ -124,6 +127,10 @@ tests =
               -- This one installs aihc-prim into an empty store on purpose: it is
               -- the test that covers the install the seed store performs.
               testCase "parses Hackage package targets" test_parsePackageTarget
+            ],
+          testGroup
+            "tasks"
+            [ testCase "a cancelled memo owner gives no result to the tasks that wait" test_memoCancelledOwner
             ],
           testGroup
             "artifacts"
@@ -1775,3 +1782,21 @@ withTempDir prefix action = do
     (pure tempFile)
     removeDirectoryRecursive
     action
+
+-- | The task graph cancels the tasks of a failed graph. A cancelled task
+-- that owns a memo key must not give its cancellation to a task that
+-- waits for the key: that task then reports the cancellation in place of
+-- the failure of the graph.
+test_memoCancelledOwner :: Assertion
+test_memoCancelledOwner = do
+  memo <- newMemo
+  started <- newEmptyMVar
+  never <- newEmptyMVar
+  owner <- async (memo () (putMVar started () >> takeMVar never))
+  takeMVar started
+  waiter <- async (memo () (pure (42 :: Int)))
+  cancel owner
+  result <- waitCatch waiter
+  case result of
+    Right value -> assertEqual "the value of the waiting task" 42 value
+    Left exception -> assertFailure ("The waiting task failed: " <> displayException exception)
