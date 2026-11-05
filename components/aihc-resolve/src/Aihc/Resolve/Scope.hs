@@ -155,7 +155,7 @@ instance NFData ModuleExports
 -- same module of the same package, the left one wins.
 instance Semigroup ModuleExports where
   ModuleExports left leftOrigins <> ModuleExports right rightOrigins =
-    ModuleExports (MonoidMap.unionWith (<>) left right) (leftOrigins <> rightOrigins)
+    ModuleExports (left <> right) (leftOrigins <> rightOrigins)
 
 instance Monoid ModuleExports where
   mempty = ModuleExports MonoidMap.empty Map.empty
