@@ -782,25 +782,37 @@ tcRuleDecl rule = withAmbientSpan sp $ do
                   (UnifyOrigin sp)
                   sp
           solveResult <- solveWithImpls (lhsCts <> rhsCts <> [sidesCt]) []
-          residualPreds <- generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
+          -- GHC quantifies a rule over an equality that the sides leave
+          -- open, as in @PrimSize a ~ PrimSize b@. A rule type here holds
+          -- dictionary binders only, so such a rule keeps its source form
+          -- and reports nothing: the rule cannot rewrite, but the program
+          -- is still correct.
+          let leavesEquality = any (isEqualityPred . ctPred) (srResidual solveResult <> inertDicts (srInerts solveResult))
+          residualPreds <- if leavesEquality then pure Nothing else Just <$> generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
           pure (lhs', lhsTy, rhs', residualPreds)
-    if failed
-      then pure rule
-      else do
-        let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
-        Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds
-        let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
-        binders' <- forM binders $ \(binder, ty) ->
-          pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
-        pure
-          rule
-            { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
-              ruleBinders = binders',
-              ruleLhs = lhs',
-              ruleRhs = rhs'
-            }
+    case residualPreds of
+      Nothing -> pure rule
+      Just residualPreds'
+        | failed -> pure rule
+        | otherwise -> do
+            let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
+            Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
+            let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
+            binders' <- forM binders $ \(binder, ty) ->
+              pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
+            pure
+              rule
+                { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
+                  ruleBinders = binders',
+                  ruleLhs = lhs',
+                  ruleRhs = rhs'
+                }
   where
     sp = sourceSpanFromAnns (ruleAnns rule)
+
+    isEqualityPred predicate = case predicate of
+      EqPred {} -> True
+      _ -> False
 
     pendingTypes pending =
       pendingTcAnnType pending : pendingTcAnnTypeArgs pending <> pendingTcAnnTermArgTypes pending
