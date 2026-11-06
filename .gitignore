@@ -23,6 +23,7 @@ cabal.project.local~
 .ghc.environment.*
 worktrees/
 .aihc-target/
+.aihc-autogen/
 notes/
 
 # Nix / direnv artifacts

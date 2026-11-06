@@ -63,6 +63,9 @@ data BuildOptions = BuildOptions
     buildLto :: !Bool,
     buildOptimization :: !OptimizationLevel,
     buildNoLink :: !Bool,
+    -- | Install the store packages below the executables, and build no
+    -- local package and no executable.
+    buildOnlyDependencies :: !Bool,
     buildVerbose :: !Bool,
     buildPrintTimings :: !Bool,
     -- | The executable of a main module, or the directory the executables
@@ -309,6 +312,10 @@ buildOptionsParser =
     <*> OA.switch
       ( OA.long "no-link"
           <> OA.help "Compile only: write the objects, archives, and a link.args response file to a bundle directory instead of linking"
+      )
+    <*> OA.switch
+      ( OA.long "only-dependencies"
+          <> OA.help "Install only the Hackage packages and the core libraries that the executables need. Build no local package and no executable"
       )
     <*> OA.switch
       ( OA.long "verbose"

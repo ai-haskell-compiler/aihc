@@ -274,10 +274,11 @@ while IFS=$'\t' read -r name version source depends; do
 	status=0
 	if [ "$name" = "$root_name" ]; then
 		# Build the executable of the last package for the self-compile.
-		# Disable both optional flags of aihc, as in the package list.
+		# The workspace is not in the project, so the flag of cabal.project
+		# for monoidmap is also a constraint here, as in the package list.
 		echo "Building the executable $root_executable of $name-$version"
 		run_with_timeout "$aihc" build "$workspace/$name" --executable "$root_executable" \
-			--constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks" \
+			--constraint "monoidmap -nothunks" \
 			--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
 			>>"$log" 2>&1 || status=$?
 	else

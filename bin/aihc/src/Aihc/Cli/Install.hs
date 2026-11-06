@@ -23,6 +23,8 @@ module Aihc.Cli.Install
     defaultBuildRoot,
     install,
     installExecutables,
+    dependencyPlans,
+    installPlans,
     installWith,
     installTargetRoot,
     TargetRoot (..),
@@ -975,6 +977,30 @@ installExecutables config locations components = do
     compiled <- atomically (readTMVar (executableSlotCompiled slot))
     packages <- mapM (atomically . readTMVar . slotInstalled) (executableSlotClosure slot)
     pure compiled {compiledPackages = packages}
+
+-- | The store packages below the executables whose own closures hold no
+-- local package, each once, in the order the plan walks them. A local
+-- package and each package above it are not in the list.
+dependencyPlans :: InstallLocations -> [ExecutableComponent] -> [PackagePlan]
+dependencyPlans locations components = filter ((storeOnly LazyMap.!) . planSourcePath) (reverse everyPlan)
+  where
+    roots = concatMap componentDependencies components
+    everyPlan = snd (foldl' visit (Set.empty, []) roots)
+    visit (seen, found) plan
+      | planSourcePath plan `Set.member` seen = (seen, found)
+      | otherwise = foldl' visit (Set.insert (planSourcePath plan) seen, plan : found) (planDependencyPlans plan)
+    -- The map is lazy, so each value can read the values of the
+    -- dependencies of its package.
+    storeOnly =
+      LazyMap.fromList
+        [ (planSourcePath plan, storeBound locations plan && all ((storeOnly LazyMap.!) . planSourcePath) (planDependencyPlans plan))
+        | plan <- everyPlan
+        ]
+
+-- | Install the plans as dependencies in one task graph, so the outputs
+-- that the config keeps are not written for them.
+installPlans :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO ()
+installPlans config locations plans = void (installGraph (dependencyCompileConfig config) locations plans [])
 
 -- | Install the closure of the plans and of the executables in one task
 -- graph. A unit waits on the units it imports and on nothing else of the

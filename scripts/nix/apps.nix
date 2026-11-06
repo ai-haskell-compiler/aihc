@@ -287,7 +287,6 @@ in {
       pkgs.bash
       pkgs.cacert
       pkgs.coreutils
-      pkgs.curl
       pkgs.gnutar
       pkgs.gzip
       pkgs.gawk

@@ -100,6 +100,7 @@ runExplorerBuild input target directory level send = do
             buildLto = False,
             buildOptimization = level,
             buildNoLink = False,
+            buildOnlyDependencies = False,
             buildVerbose = False,
             buildPrintTimings = False,
             buildOutput = Just (directory </> "bin"),

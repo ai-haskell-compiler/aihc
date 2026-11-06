@@ -25,6 +25,12 @@ constraints:
 package aihc-tc
   flags: +fuzz
 
+-- The nothunks flag of monoidmap needs ghc-heap, which aihc does not yet
+-- provide. The project has no NoThunks instance. Thus, the flag is off for
+-- each compiler, and `aihc build exe:aihc` needs no constraint.
+package monoidmap
+  flags: -nothunks
+
 tests: True
 jobs: $ncpus
 semaphore: False

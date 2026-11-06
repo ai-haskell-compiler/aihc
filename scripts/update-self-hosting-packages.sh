@@ -13,9 +13,9 @@ Usage: scripts/update-self-hosting-packages.sh [OPTION]...
   --help          Show this message
 
 The aihc executable is taken from $AIHC, and defaults to `aihc` on PATH.
-The script runs `aihc plan bin/aihc --executable aihc` with both optional
-flags of aihc disabled: `hackage` and `pretty-ui`. The plan does not use a
-lock file, so it takes the versions that Hackage has now.
+The script runs `aihc plan bin/aihc --executable aihc` with the flags of
+cabal.project and the default flags of aihc. The plan does not use a lock
+file, so it takes the versions that Hackage has now.
 USAGE
 }
 
@@ -73,10 +73,9 @@ for cabal_file in components/*/*.cabal tooling/*/*.cabal; do
 	fi
 done
 
-# Disable both optional flags of aihc for the self-compile package list. The
-# nothunks flag of monoidmap needs ghc-heap, which aihc does not yet provide.
-"$aihc" plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" \
-	--constraint "monoidmap -nothunks" \
+# The package bin/aihc is in the project, so the plan takes the flags of
+# cabal.project.
+"$aihc" plan bin/aihc --executable aihc \
 	--workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
 
 # The core libraries come with aihc, so the table leaves them out, also from
@@ -133,10 +132,10 @@ package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
 `scripts/update-self-hosting-packages.sh` writes this file with
-`aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks"`.
-The plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
-It also disables the `nothunks` flag of monoidmap, because nothunks needs
-ghc-heap, which aihc does not yet provide.
+`aihc plan bin/aihc --executable aihc`.
+The plan uses the default flags of aihc and the flags of `cabal.project`.
+The project disables the `nothunks` flag of monoidmap, because nothunks
+needs ghc-heap, which aihc does not yet provide.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with

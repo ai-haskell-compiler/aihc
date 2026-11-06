@@ -125,6 +125,7 @@ testBuildOptions options =
       buildLto = testLto options,
       buildOptimization = testOptimization options,
       buildNoLink = False,
+      buildOnlyDependencies = False,
       buildVerbose = testVerbose options,
       buildPrintTimings = False,
       buildOutput = Nothing,
