@@ -179,6 +179,7 @@ library
     GHC.Int
     GHC.Integer
     GHC.Integer.Logarithms
+    GHC.Internal.ClosureTypes
     GHC.IsList
     GHC.Ix
     GHC.List

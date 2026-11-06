@@ -41,7 +41,10 @@ module GHC.TypeLits
     SChar,
     fromSChar,
     withKnownChar,
+    Natural,
     AppendSymbol,
+    CmpChar,
+    CmpSymbol,
     CharToNat,
     NatToChar,
     TypeError,
@@ -62,12 +65,13 @@ where
 import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Integer (Integer)
+import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
-import GHC.Types (Any, Char, Constraint, Symbol, Type)
+import GHC.Types (Any, Char, Constraint, Ordering, Symbol, Type)
 
 -- | The value of a known type-level natural, as an 'Integer'.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Integer
@@ -151,6 +155,12 @@ withKnownChar (UnsafeSChar value) = withDict @(KnownChar c) value
 
 type AppendSymbol :: Symbol -> Symbol -> Symbol
 type family AppendSymbol a b
+
+type CmpSymbol :: Symbol -> Symbol -> Ordering
+type family CmpSymbol a b
+
+type CmpChar :: Char -> Char -> Ordering
+type family CmpChar a b
 
 type CharToNat :: Char -> Nat
 type family CharToNat c

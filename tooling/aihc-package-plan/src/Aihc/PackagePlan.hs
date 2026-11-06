@@ -627,6 +627,8 @@ lookupCoreProvider name =
     "aihc-prim" -> Just aihcPrimProvider
     "rts" -> Just aihcRtsProvider
     "aihc-rts" -> Just aihcRtsProvider
+    "ghc-heap" -> Just aihcHeapProvider
+    "aihc-heap" -> Just aihcHeapProvider
     "ghc-internal" -> Just aihcInternalProvider
     "aihc-internal" -> Just aihcInternalProvider
     "template-haskell" -> Just aihcTemplateHaskellProvider
@@ -645,6 +647,7 @@ coreProviders = map (uncurry coreProvider) coreProviderSources
       [ ("aihc-base", "core-libs" </> "aihc-base"),
         ("aihc-prim", "core-libs" </> "aihc-prim"),
         ("aihc-rts", "core-libs" </> "aihc-rts"),
+        ("aihc-heap", "core-libs" </> "aihc-heap"),
         ("aihc-internal", "core-libs" </> "aihc-internal"),
         ("aihc-template-haskell", "core-libs" </> "aihc-template-haskell"),
         ("system-cxx-std-lib", "core-libs" </> "system-cxx-std-lib")
@@ -675,6 +678,9 @@ aihcPrimProvider = namedCoreProvider "aihc-prim"
 -- | The runtime system: the C and Lir units every program links.
 aihcRtsProvider :: CoreProvider
 aihcRtsProvider = namedCoreProvider "aihc-rts"
+
+aihcHeapProvider :: CoreProvider
+aihcHeapProvider = namedCoreProvider "aihc-heap"
 
 aihcInternalProvider :: CoreProvider
 aihcInternalProvider = namedCoreProvider "aihc-internal"

@@ -44,6 +44,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-heap = {
+      src = sources.heapSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-internal = {
       src = sources.internalSrc;
       disableProfiling = true;
