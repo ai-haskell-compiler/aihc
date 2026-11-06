@@ -68,8 +68,12 @@ module GHC.Generics
   )
 where
 
+import Data.Functor.Identity (Identity (..))
 import Data.Kind (Type)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Proxy (Proxy (..))
+import Data.Semigroup (Arg (..))
+import Data.Tuple (Solo (..))
 import Data.Void (Void)
 import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, Word#)
 import GHC.Ptr (Ptr)
@@ -568,6 +572,36 @@ instance Generic (a, b, c, d, e, f, g) where
   from (a, b, c, d, e, f, g) = M1 (M1 ((M1 (K1 a) :*: (M1 (K1 b) :*: M1 (K1 c))) :*: ((M1 (K1 d) :*: M1 (K1 e)) :*: (M1 (K1 f) :*: M1 (K1 g)))))
   to r = case unM1 (unM1 r) of
     (a :*: (b :*: c)) :*: ((d :*: e) :*: (f :*: g)) -> (unK1 (unM1 a), unK1 (unM1 b), unK1 (unM1 c), unK1 (unM1 d), unK1 (unM1 e), unK1 (unM1 f), unK1 (unM1 g))
+
+instance Generic (NonEmpty a) where
+  type
+    Rep (NonEmpty a) =
+      D1
+        (MetaD "NonEmpty" "GHC.Internal.Base" "ghc-internal")
+        (C1 ('MetaCons ":|" ('InfixI 'RightAssociative 5) 'False :: Meta) (S1 MetaS (Rec0 a) :*: S1 MetaS (Rec0 [a])))
+  from (a :| as) = M1 (M1 (M1 (K1 a) :*: M1 (K1 as)))
+  to r = case unM1 (unM1 r) of
+    a :*: as -> unK1 (unM1 a) :| unK1 (unM1 as)
+
+instance Generic (Identity a) where
+  type
+    Rep (Identity a) =
+      D1
+        ('MetaData "Identity" "GHC.Internal.Data.Functor.Identity" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Identity" 'PrefixI 'True :: Meta) (S1 ('MetaSel ('Just "runIdentity") 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy :: Meta) (Rec0 a)))
+  from (Identity a) = M1 (M1 (M1 (K1 a)))
+  to r = Identity (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Solo a) where
+  type Rep (Solo a) = D1 (MetaD "Solo" "GHC.Tuple" "ghc-prim") (C1 (MetaC "MkSolo") (S1 MetaS (Rec0 a)))
+  from (MkSolo a) = M1 (M1 (M1 (K1 a)))
+  to r = MkSolo (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Arg a b) where
+  type Rep (Arg a b) = D1 (MetaD "Arg" "Data.Semigroup" "base") (C1 (MetaC "Arg") (S1 MetaS (Rec0 a) :*: S1 MetaS (Rec0 b)))
+  from (Arg a b) = M1 (M1 (M1 (K1 a) :*: M1 (K1 b)))
+  to r = case unM1 (unM1 r) of
+    a :*: b -> Arg (unK1 (unM1 a)) (unK1 (unM1 b))
 
 -- * Functor instances
 

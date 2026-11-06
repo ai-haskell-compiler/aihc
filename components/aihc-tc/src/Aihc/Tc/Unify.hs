@@ -53,9 +53,12 @@ unifyDeferring loc origin t1 t2 = do
       if (left', right') == (left, right)
         then pure [(left, right)]
         else do
-          result <- unifyTypesAt loc left' right'
+          -- A pair that is still stuck stays deferred: only the solver can
+          -- improve it, for example from a type family injectivity
+          -- annotation.
+          result <- unifyCollecting loc left' right'
           case result of
-            Right () -> pure []
+            Right deferred -> concat <$> mapM retry deferred
             Left err -> reportUnifyError loc origin err >> pure []
 
 -- | Unify two types as 'unifyDeferring' does, but return each equality

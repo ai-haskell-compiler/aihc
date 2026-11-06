@@ -1,0 +1,47 @@
+annotated:
+- |-
+  module Test where
+  data U = U
+       │   └─ type: U
+       └─ type: Type
+  newtype T s = T U
+          │     └─ type: ∀ s. U → T s
+          └─ type: Type → Type
+  class Fusion a where
+  └─ class methods:
+    type Mut a s = mut | mut -> a
+         └─ type: Type → Type → Type
+  data MapF a = MapF { mapUpdate :: forall s. Mut a s -> T s }
+       │        └─ type: ∀ a. (∀ s. Mut a s → T s) → MapF a
+       └─ type: Type → Type
+  bindContext :: (forall s. Mut a s -> T s) -> a -> U
+  bindContext f _ = U
+  │           │ └─ type: a
+  │           └─ type: ∀ s. Mut a s → T s
+  └─ type: ∀ a. (∀ s. Mut a s → T s) → a → U
+  mapContext :: MapF a -> a -> U
+  mapContext m = bindContext (mapUpdate m)
+  │          │   ││            └─ type: MapF a → ∀ s. Mut a s → T s; type-args: a
+  │          │   ││            └─ type: Mut a s → T s; type-args: s
+  │          │   └─ type: (∀ s. Mut a s → T s) → a → U; type-args: a
+  │          │   └─ type: ∀ s. Mut a s → T s
+  │          └─ type: MapF a
+  └─ type: ∀ a. MapF a → a → U
+extensions:
+- RankNTypes
+- TypeFamilies
+- TypeFamilyDependencies
+modules:
+- |
+  module Test where
+  data U = U
+  newtype T s = T U
+  class Fusion a where
+    type Mut a s = mut | mut -> a
+  data MapF a = MapF { mapUpdate :: forall s. Mut a s -> T s }
+  bindContext :: (forall s. Mut a s -> T s) -> a -> U
+  bindContext f _ = U
+  mapContext :: MapF a -> a -> U
+  mapContext m = bindContext (mapUpdate m)
+reason: a rank-N argument whose instantiation leaves a family equality stuck keeps it for the solver, which improves it from the injectivity annotation
+status: pass

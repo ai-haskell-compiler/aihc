@@ -44,6 +44,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-heap = {
+      src = sources.heapSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-internal = {
       src = sources.internalSrc;
       disableProfiling = true;
@@ -312,6 +319,13 @@ in rec {
             pkg = "monoidmap-internal";
             ver = "0.5.1.0";
             sha256 = "0js87sr84qgz7lpzn8qr4jkzfmmlyp4vbsq0a43h16mgm3lk7gmh";
+          } {});
+          # The pinned package set has http-client-tls 0.3.x.
+          # Remove this override once the package set has http-client-tls >= 0.4.
+          http-client-tls = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "http-client-tls";
+            ver = "0.4.0";
+            sha256 = "1qgwh3zip36pbjn7c5pn1l6zv044d6l77mnariz66bdhwy9hrx1s";
           } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (

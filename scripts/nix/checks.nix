@@ -35,8 +35,10 @@
   gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
   # These examples check that Haskell threads run on several OS threads, or
   # they need the ticker. A wasm32-wasip3 program has one capability and no
-  # ticker, so they do not run there.
-  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "workers"];
+  # ticker, so they do not run there. stm-retry-timer-wake needs a commit to
+  # end an STM wait that has a timer. The wasm32-wasip3 host cannot stop a
+  # timer that it started, so that example does not run there either.
+  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "stm-retry-timer-wake" "workers"];
   wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
@@ -645,6 +647,15 @@
       archive="$(find "$store" -path '*/lib/libaihc-template-haskell.a' -print -quit)"
       test -n "$archive"
       test -s "$archive"
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
+
+      # aihc-heap depends on base only, so the install reuses aihc-base.
+      ${aihcExe} install core-libs/aihc-heap --store "$store" --immutable --keep-core --lint --target ${hostBackendTarget}
+
+      test -n "$(find "$store" -path '*/GHC/Exts/Heap/core.fc' -print -quit)"
+      heap_archive="$(find "$store" -path '*/lib/libaihc-heap.a' -print -quit)"
+      test -n "$heap_archive"
+      test -s "$heap_archive"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
     '';

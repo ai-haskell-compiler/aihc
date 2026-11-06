@@ -134,8 +134,6 @@ A package comes after all of its dependencies.
 `scripts/update-self-hosting-packages.sh` writes this file with
 `aihc plan bin/aihc --executable aihc`.
 The plan uses the default flags of aihc and the flags of `cabal.project`.
-The project disables the `nothunks` flag of monoidmap, because nothunks
-needs ghc-heap, which aihc does not yet provide.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with

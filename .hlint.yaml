@@ -68,3 +68,14 @@
 - ignore:
     name: Eta reduce
     within: Data.Data
+
+# aihc-heap keeps the names and the shapes of the ghc-heap API.
+- ignore:
+    name: Use camelCase
+    within: GHC.Exts.Heap.Constants
+- ignore:
+    name: Use camelCase
+    within: GHC.Exts.Heap.Closures
+- ignore:
+    name: Use newtype instead of data
+    within: GHC.Exts.Heap.Closures

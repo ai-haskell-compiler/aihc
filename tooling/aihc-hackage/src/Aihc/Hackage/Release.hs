@@ -51,6 +51,7 @@ emulatedGhc =
     { releaseCompilerVersion = [9, 12, 4],
       releaseBootLibraries =
         [ BootLibrary "base" "aihc-base" [4, 21, 2, 0],
+          BootLibrary "ghc-heap" "aihc-heap" [9, 12, 4],
           BootLibrary "ghc-internal" "aihc-internal" [9, 1204, 0],
           BootLibrary "ghc-prim" "aihc-prim" [0, 13, 0],
           BootLibrary "rts" "aihc-rts" [1, 0, 2],

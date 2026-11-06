@@ -1,0 +1,24 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    g :: Maybe y -> Nat
+    g Nothing = Z
+    g (Just _) = S Z
+
+    f :: Maybe b -> Nat
+    f x = g fp
+      where
+        fp :: Maybe y
+        !fp = Nothing
+output: |
+  Z
+expression: |
+  f (Just Z)
+status: pass
+reason: a strict local binding with a polymorphic signature is forced at one
+  instance of the signature

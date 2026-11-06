@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
     GuardedRhs (..),
     LambdaCaseAlt (..),
     Match (..),
+    MultiplicityTag,
     Name (..),
     PatSynDecl (..),
     PatSynDir (..),
@@ -44,12 +45,13 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), nameResolution)
 import Aihc.Resolve.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcPatternInstantiation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (GroupQuantification (..), environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
@@ -719,19 +721,64 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
               (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
-              (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
-              let sourceSpan = Nothing
-              patCheck <- checkPatterns sourceSpan [(pat, rhsTy)]
-              patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
-              cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
-              let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-              -- The declaration records the type of the right-hand side.
-              -- 'annotateLocalBindingDecl' generalizes it with the group.
-              pure (DeclAnn (mkAnnotation (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts)
+              signature <- strictBinderSignature sigs pat
+              case signature of
+                Just (name, scheme) -> inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name scheme rhs
+                Nothing -> inferLocalPatternDecl inferExpr placeholders mult pat rhs
         FunctionBind name matches -> do
           (matches', _ty, cts) <- inferLocalFunction inferExpr sigs scopedSigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)
     _ -> pure (decl, [])
+
+-- | Infer a local pattern binding that binds more than one name, or that
+-- has a bang on a binder without a signature.
+inferLocalPatternDecl :: InferExpr -> Map Entity TcType -> MultiplicityTag -> Pattern -> Rhs Expr -> TcM (Decl, [Ct])
+inferLocalPatternDecl inferExpr placeholders mult pat rhs = do
+  (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
+  let sourceSpan = Nothing
+  patCheck <- checkPatterns sourceSpan [(pat, rhsTy)]
+  patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
+  cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
+  let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+  -- The declaration records the type of the right-hand side.
+  -- 'annotateLocalBindingDecl' generalizes it with the group.
+  pure (DeclAnn (mkAnnotation (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts)
+
+-- | The binder of a pattern @!x@ and its signature, when @x@ has one.
+strictBinderSignature :: Map Entity TypeScheme -> Pattern -> TcM (Maybe (UnqualifiedName, TypeScheme))
+strictBinderSignature sigs pat =
+  case strictPatternBinderName pat of
+    Nothing -> pure Nothing
+    Just name -> do
+      key <- resolvedLocalTermKey name
+      pure ((name,) <$> Map.lookup key sigs)
+  where
+    strictPatternBinderName pattern' =
+      case pattern' of
+        PAnn _ inner -> strictPatternBinderName inner
+        PParen inner -> strictPatternBinderName inner
+        PStrict inner -> patternBinderName inner
+        _ -> Nothing
+
+-- | Infer a binding @!x = e@ where @x@ has a signature. The signature can
+-- make @x@ polymorphic, although the group is not generalized. The
+-- right-hand side is checked against the signature, as for @x = e@. The
+-- binding is forced at one instance of the signature, as in GHC. The
+-- pattern records this instance: the type arguments and the evidence that
+-- the desugarer applies the binder to before it forces the value.
+inferStrictSignatureBind :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> MultiplicityTag -> Pattern -> UnqualifiedName -> TypeScheme -> Rhs Expr -> TcM (Decl, [Ct])
+inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name scheme rhs = do
+  (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs
+  instantiation <- instantiateWithArgs scheme
+  forceCts <- mapM wantedForce (instPreds instantiation)
+  let forcePending = pendingAnnotation (instType instantiation) (instTypeArgs instantiation) (map ctEvVar forceCts) []
+      pat' = PAnn (mkAnnotation TcPatternInstantiation) (PAnn (mkAnnotation forcePending) pat)
+      declPending = pendingAnnotation (schemeToType scheme) [] [] []
+  pure (DeclAnn (mkAnnotation declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
+  where
+    wantedForce predicate = do
+      evidence <- freshEvVar
+      pure (mkWantedCt predicate evidence (LetOrigin Nothing) Nothing)
 
 inferLocalFunction :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> UnqualifiedName -> [Match] -> TcM ([Match], TcType, [Ct])
 inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do

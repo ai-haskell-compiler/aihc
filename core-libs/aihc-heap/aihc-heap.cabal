@@ -1,0 +1,54 @@
+cabal-version: 3.8
+name: aihc-heap
+version: 9.12.4
+build-type: Simple
+license: Unlicense
+license-files:
+  UNLICENSE
+
+synopsis: API-compatible stand-in for ghc-heap
+description:
+  AIHC has no GHC heap layout. Every function that needs this layout raises
+  an exception. The values and the types that do not need it, such as
+  'GHC.Exts.Heap.Constants.wORD_SIZE', have their ghc-heap definitions.
+
+library
+  exposed-modules:
+    GHC.Exts.Heap
+    GHC.Exts.Heap.ClosureTypes
+    GHC.Exts.Heap.Closures
+    GHC.Exts.Heap.Constants
+    GHC.Exts.Heap.FFIClosures
+    GHC.Exts.Heap.FFIClosures_ProfilingDisabled
+    GHC.Exts.Heap.FFIClosures_ProfilingEnabled
+    GHC.Exts.Heap.InfoTable
+    GHC.Exts.Heap.InfoTable.Types
+    GHC.Exts.Heap.InfoTableProf
+    GHC.Exts.Heap.ProfInfo.PeekProfInfo
+    GHC.Exts.Heap.ProfInfo.PeekProfInfo_ProfilingDisabled
+    GHC.Exts.Heap.ProfInfo.PeekProfInfo_ProfilingEnabled
+    GHC.Exts.Heap.ProfInfo.Types
+    GHC.Exts.Heap.Utils
+    GHC.Exts.Stack
+    GHC.Exts.Stack.Constants
+    GHC.Exts.Stack.Decode
+
+  other-modules:
+    GHC.Exts.Heap.Unsupported
+
+  hs-source-dirs: src
+  build-depends:
+    base >=4.21 && <4.22,
+    ghc-internal >=9.900 && <9.1204.99999,
+
+  default-language: GHC2021
+
+test-suite public-api-fixture
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  build-depends:
+    aihc-heap,
+    base >=4.21 && <4.22,
+
+  default-language: GHC2021

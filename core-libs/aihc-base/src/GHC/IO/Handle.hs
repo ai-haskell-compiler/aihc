@@ -40,6 +40,7 @@ module GHC.IO.Handle
     hGetBuffering,
     hIsSeekable,
     hSetEcho,
+    hIsTerminalDevice,
     hGetEcho,
     hWaitForInput,
     hGetChar,

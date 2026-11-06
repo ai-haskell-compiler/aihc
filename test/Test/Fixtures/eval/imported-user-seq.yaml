@@ -1,0 +1,24 @@
+extensions: []
+modules:
+  - |
+    module Vec where
+
+    import Prelude hiding (seq)
+    import qualified Prelude
+
+    -- A user function that has the name of the built-in seq.
+    seq :: b -> a -> a
+    seq = Prelude.seq
+  - |
+    module Test where
+
+    import qualified Vec
+
+    result :: Int
+    result = Vec.seq () 7
+output: |
+  I# 7
+expression: |
+  result
+status: pass
+reason: an imported user function named seq is an ordinary function and not the built-in seq

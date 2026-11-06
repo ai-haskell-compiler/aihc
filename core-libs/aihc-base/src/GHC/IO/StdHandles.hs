@@ -25,9 +25,9 @@ import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Internal.IO.Types (ioe_unsupportedOperation)
 import GHC.MVar (MVar)
 
--- The three standard handles are CAFs, so each one owns one MVar. The
--- runtime cannot tell a terminal from a file. GHC gives a terminal line
--- buffering, so stdout is line buffered and stderr is unbuffered.
+-- The three standard handles are CAFs, so each one owns one MVar. GHC
+-- gives a terminal line buffering. Here, stdout is always line buffered
+-- and stderr is unbuffered.
 stdin :: Handle
 stdin = unsafePerformIO (mkHandle FD.stdin "<stdin>" ReadHandle True (Just utf8) nativeNewlineMode Nothing Nothing)
 {-# NOINLINE stdin #-}

@@ -1,0 +1,29 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds #-}
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  data Marking = Sec | Pub
+       │         │     └─ type: Marking
+       │         └─ type: Marking
+       └─ type: Type
+  data U = U
+       │   └─ type: U
+       └─ type: Type
+  class Leak t where
+  └─ class methods: leak ∷ ∀ t. (Leak t) ⇒ t 'Sec → U
+    leak :: t 'Sec -> U
+extensions:
+- DataKinds
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE DataKinds #-}
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  data Marking = Sec | Pub
+  data U = U
+  class Leak t where
+    leak :: t 'Sec -> U
+reason: a promoted constructor in a class method gets its kind from its data declaration, which the checker registers first
+status: pass
