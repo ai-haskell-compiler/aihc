@@ -1,9 +1,7 @@
 	.text
 	.p2align 4
 reserve:
-	mov r9, [rbx]
-	xor r10d, r10d
-	cmp r9, r10
+	cmp qword ptr [rbx], 0x0
 	jne .Llir_0_2
 .Llir_0_1:
 	sub rsp, 0x18

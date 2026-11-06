@@ -76,7 +76,8 @@ import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcCont
 import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
-import Aihc.Lir.Simplify (eliminateCommonSubexpressions, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths)
+import Aihc.Lir.Inline (mergeTailCallees)
+import Aihc.Lir.Simplify (duplicateInvariantLoads, eliminateCommonSubexpressions, eliminateDeadInstructions, narrowExtendedCompares, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -97,6 +98,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runSta
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Foldable (for_)
+import Data.Functor.Const (Const (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -1013,16 +1015,21 @@ finishFunction symbol linkage parameters results convention = do
         simplifyWidths $
           simplifyRotations $
             simplifyBooleanBranches $
-              eliminateCommonSubexpressions $
-                simplifyMultiplications
-                  Function
-                    { functionName = symbol,
-                      functionLinkage = linkage,
-                      functionParameters = parameters,
-                      functionResults = results,
-                      functionConvention = convention,
-                      functionBlocks = reverse (stateBlocksRev state)
-                    }
+              splitConditionBranches $
+                eliminateDeadInstructions $
+                  duplicateInvariantLoads $
+                    eliminateDeadInstructions $
+                      narrowExtendedCompares $
+                        eliminateCommonSubexpressions $
+                          simplifyMultiplications
+                            Function
+                              { functionName = symbol,
+                                functionLinkage = linkage,
+                                functionParameters = parameters,
+                                functionResults = results,
+                                functionConvention = convention,
+                                functionBlocks = reverse (stateBlocksRev state)
+                              }
     )
 
 -- Target layout
@@ -1459,7 +1466,11 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram _ _ _ _ functions _ _) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
-    <> [lowerFunction env function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
+    <> [ lowerFunctionGroup env function [byName Map.! member | member <- Map.findWithDefault [] (grinFunctionName function) groups]
+       | function <- functions,
+         grinFunctionName function `Set.notMember` envForwardingFunctions env,
+         grinFunctionName function `Set.notMember` grouped
+       ]
     <> map (lowerStaticObject env) (programStaticObjects program)
     <> map lowerInfo (envInfos env)
     <> [lowerCallbackPool call signature | call <- grinForeignCalls program, GrinForeignWrapper signature <- [grinForeignCallTarget call]]
@@ -1467,6 +1478,130 @@ lowerUnitActions env program@(GrinProgram _ _ _ _ functions _ _) =
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
     <> [lowerAllocationProfile | lowerProfileAllocations (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
     <> [lowerTimeProfile env functions | lowerProfileTime (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
+  where
+    absorbed = tailCallCallers env program
+    byName = Map.fromList [(grinFunctionName function, function) | function <- functions]
+    groups = tailCallGroups absorbed [grinFunctionName function | function <- functions]
+    grouped = Set.fromList (concat (Map.elems groups))
+
+-- | The functions that one other function reaches only by tail calls, each
+-- with that caller. A function qualifies when each place that names it in
+-- the program is a direct call in tail position of the same other function.
+-- Then the lowering can merge it into the Lir function of its caller (see
+-- 'lowerFunctionGroup'). A function that the runtime or another unit can
+-- name does not qualify: an exported function, a continuation, a forwarding
+-- function, an entry of a frame or a thunk, and each function when the time
+-- profile names every function.
+tailCallCallers :: LowerEnv -> GrinProgram -> Map FunctionName FunctionName
+tailCallCallers env program
+  | lowerProfileTime (envOptions env) = Map.empty
+  | otherwise =
+      Map.fromList
+        [ (callee, caller)
+        | (callee, callers@(caller : _)) <- Map.toList tailCalls,
+          all (== caller) callers,
+          caller /= callee,
+          Set.notMember caller (envForwardingFunctions env),
+          Map.lookup callee occurrences == Just (length callers),
+          eligible callee
+        ]
+  where
+    functions = grinFunctions program
+    occurrences =
+      Map.fromListWith
+        (+)
+        ( [(name, 1 :: Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
+            <> [(name, 1) | global <- grinGlobals program, name <- grinNodeFunctionNames (grinGlobalNode global)]
+        )
+    tailCalls = Map.fromListWith (<>) [(callee, [grinFunctionName function]) | function <- functions, callee <- tailCallees (grinFunctionBody function)]
+    eligible name =
+      not
+        ( Set.member name (envExportedFunctions env)
+            || Set.member name (envContinuationFunctions env)
+            || Set.member name (envForwardingFunctions env)
+            || Map.member name (envFrameEntries env)
+            || Map.member name (envThunkEntries env)
+        )
+    tailCallees expression =
+      case expression of
+        GrinCall _ name _ -> [name]
+        GrinBind _ _ body -> tailCallees body
+        GrinStoreRec _ body -> tailCallees body
+        GrinStoreRecUnchecked _ body -> tailCallees body
+        GrinIfWhnf _ ready slow -> tailCallees ready <> tailCallees slow
+        GrinCase _ _ alternatives -> concatMap (tailCallees . grinAltRhs) alternatives
+        _ -> []
+
+-- | The members of each merge group, by the root of the group, in program
+-- order. The root of a function is the first caller on its chain of callers
+-- that is not itself a member. A chain that returns to itself names no
+-- function outside of it, so the program cannot reach it, and its
+-- functions stay apart.
+tailCallGroups :: Map FunctionName FunctionName -> [FunctionName] -> Map FunctionName [FunctionName]
+tailCallGroups callers names =
+  Map.fromListWith (flip (<>)) [(root, [name]) | name <- names, Map.member name callers, Just root <- [rootOf Set.empty name]]
+  where
+    rootOf seen name
+      | Set.member name seen = Nothing
+      | otherwise = case Map.lookup name callers of
+          Just caller -> rootOf (Set.insert name seen) caller
+          Nothing -> Just name
+
+-- | Lower a function together with the functions that only it reaches by
+-- tail calls, and merge their Lir functions into one. See
+-- 'mergeTailCallees'. When the merge is not possible, the functions stay
+-- apart. A function without such callees still gets its tail calls of
+-- itself as the jump of a loop.
+lowerFunctionGroup :: LowerEnv -> GrinFunction -> [GrinFunction] -> LowerM ()
+lowerFunctionGroup env root members = do
+  mapM_ (lowerFunction env) (root : members)
+  items <- gets stateItemsRev
+  let rootSymbol = envSymbol env (grinFunctionName root)
+      memberSymbols = map (envSymbol env . grinFunctionName) members
+      memberSet = Set.fromList memberSymbols
+      emitted = Map.fromList [(functionName function, function) | ItemFunction function <- items]
+      grouped item = case item of
+        ItemFunction function -> functionName function == rootSymbol || Set.member (functionName function) memberSet
+        _ -> False
+      namesMember item = not (Set.null (Set.intersection memberSet (itemSymbols item)))
+      merged = do
+        rootFunction <- Map.lookup rootSymbol emitted
+        memberFunctions <- mapM (`Map.lookup` emitted) memberSymbols
+        if any namesMember (filter (not . grouped) items) then Nothing else mergeTailCallees rootFunction memberFunctions
+  case merged of
+    Nothing -> pure ()
+    Just function ->
+      modify' $ \state ->
+        state
+          { stateItemsRev =
+              [ if isRoot item then ItemFunction function else item
+              | item <- stateItemsRev state,
+                not (isMember item)
+              ]
+          }
+      where
+        isRoot item = case item of
+          ItemFunction candidate -> functionName candidate == rootSymbol
+          _ -> False
+        isMember item = case item of
+          ItemFunction candidate -> Set.member (functionName candidate) memberSet
+          _ -> False
+  where
+    itemSymbols item = case item of
+      ItemFunction function ->
+        Set.fromList
+          ( concat
+              [ [named | instruction <- blockInstructions block, Call named _ <- [instructionOperation instruction]]
+                  <> [named | TailCall named _ <- [blockTerminator block]]
+                  <> [named | OperandLiteral (LitSymbol named) <- blockOperands block]
+              | block <- functionBlocks function
+              ]
+          )
+      ItemData value -> Set.fromList [named | DataSymbol named _ <- dataFields value]
+      _ -> Set.empty
+    blockOperands block =
+      concatMap (getConst . forOperationOperands (\value -> Const [value]) . instructionOperation) (blockInstructions block)
+        <> getConst (forTerminatorOperands (\value -> Const [value]) (blockTerminator block))
 
 -- | Aggregate representations describe results, never individual slots.
 validateSlotRep :: GrinRep -> LowerM ()

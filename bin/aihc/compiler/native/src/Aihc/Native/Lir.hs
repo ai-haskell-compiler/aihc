@@ -35,8 +35,10 @@ module Aihc.Native.Lir
     literalBits,
     log2,
     operandIn,
+    operandSource,
     operandTo,
     overflowBytes,
+    overflowSlot,
     parallelMove,
     resultIn,
     trapLabel,
@@ -64,7 +66,7 @@ import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust, isNothing, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -103,6 +105,19 @@ data NativeBackend statement register error = NativeBackend
     -- | The argument registers of the aihc convention. They can differ from
     -- the C registers and there can be more of them.
     nbAihcArgumentRegisters :: ![register],
+    -- | Whether an aihc parameter after the argument registers lives in its
+    -- incoming slot. Then the slots of the stack block count down from
+    -- the end of the block, and the end of the block stays at the same
+    -- address through a tail call. Thus an argument that a tail call passes
+    -- at the same position needs no move. Otherwise, the slots count up
+    -- from the start of the block, and the prologue moves each parameter to
+    -- a home of its own.
+    nbOverflowHomes :: !Bool,
+    -- | Whether an arithmetic instruction writes its result over its left
+    -- operand. Then a left operand from a slot or a constant goes directly
+    -- to the result register, which saves a move through the scratch
+    -- register.
+    nbTwoAddress :: !Bool,
     nbResultRegisters :: ![register],
     nbPreservedRegisters :: ![register],
     nbScratchLeft :: register,
@@ -110,6 +125,10 @@ data NativeBackend statement register error = NativeBackend
     nbCycleScratch :: register,
     nbSlotMoveScratch :: register,
     nbFrameOverhead :: Int,
+    -- | The bytes below the stack pointer that a signal handler leaves
+    -- alone. An aihc function that makes no call and spills no more than
+    -- that keeps its slots there and sets up no frame.
+    nbRedZone :: !Int,
     nbReturnAddressGap :: Int,
     nbMaxFrameBytes :: !(Maybe Int),
     nbCodeAlign :: Int,
@@ -164,6 +183,10 @@ data NativeBackend statement register error = NativeBackend
     nbJump :: Name -> statement,
     nbCanFuseBitTest :: !Bool,
     nbCanFuseFloatCompare :: CompareOp -> Bool,
+    -- | Whether a compare of a branch can read one operand from memory. Then
+    -- a load that only the compare reads, with no write to memory and no
+    -- call after it in the block, becomes an operand of the compare.
+    nbCanFuseLoadCompare :: !Bool,
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
     -- | Compare a register with a constant once, then branch to the label
     -- of the first comparison that holds. The comparisons are 'Eq', 'LtU',
@@ -189,7 +212,10 @@ data NativeBackend statement register error = NativeBackend
     -- constant. The first function tells if the backend has the form for a
     -- type and a count. The second gives the instructions from the type,
     -- the destination, the base, the index, and the count.
-    nbIndexedLoad :: Maybe (Type -> Int -> Bool, Type -> register -> register -> register -> Int -> [statement]),
+    -- | A load from a base plus an index shifted left by a count plus a
+    -- constant displacement, when the backend accepts the type, the count,
+    -- and the displacement.
+    nbIndexedLoad :: Maybe (Type -> Int -> Integer -> Bool, Type -> register -> register -> register -> Int -> Integer -> [statement]),
     -- | Keep the carry of an addition, or the borrow of a subtraction, in the
     -- flags until the next instruction adds it to a value. The first
     -- function gives the operation without its second result, from the
@@ -278,7 +304,7 @@ data Fusion
     FusedShift !Int
   | -- | A load of the type from the base plus the index shifted left by the
     -- count. The value is a pointer addition of the base and the index.
-    FusedLoad !Type !Int
+    FusedLoad !Type !Int !Integer
   | -- | A carry or a borrow that stays in the flags.
     FusedFlags
   | -- | An addition of a carry or a borrow that the flags hold.
@@ -299,7 +325,13 @@ data MoveSource register
   deriving (Eq, Show)
 
 -- | A comparison that the branch of the block consumes directly.
-data Fused = Fused !CompareOp !Type !Operand !Operand | FusedBit !CompareOp !Type !Operand !Int
+data Fused
+  = Fused !CompareOp !Type !Operand !Operand
+  | FusedBit !CompareOp !Type !Operand !Int
+  | -- | A compare of the value at a base plus a byte offset with another
+    -- operand. The flag tells whether the loaded value is the left operand.
+    -- See 'nbCanFuseLoadCompare'.
+    FusedLoadCompare !CompareOp !Type !Operand !Integer !Operand !Bool
 
 -- | Where the contents of a register last came from.
 data Source
@@ -538,6 +570,13 @@ typeBytes ty = max 1 (typeBits ty `div` 8)
 overflowBytes :: NativeBackend statement register error -> Int -> Int
 overflowBytes backend count =
   ((max 0 (count - length (nbAihcArgumentRegisters backend)) * 8 + 15) `div` 16) * 16
+
+-- | The byte offset in a stack block of the given size of the argument at
+-- the given position after the argument registers. See 'nbOverflowHomes'.
+overflowSlot :: NativeBackend statement register error -> Int -> Int -> Int
+overflowSlot backend bytes position
+  | nbOverflowHomes backend = bytes - 8 * (position + 1)
+  | otherwise = 8 * position
 
 -- Functions
 
@@ -826,7 +865,15 @@ functionLayout backend signatures function = do
           CConvention
             | callsAihc -> nbPreservedRegisters backend
             | otherwise -> [register | register <- allocationUsed allocation, register `elem` nbPreservedRegisters backend]
-      slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
+      registerCount = length (nbAihcArgumentRegisters backend)
+      -- A spilled aihc parameter after the argument registers keeps its
+      -- incoming slot. See 'nbOverflowHomes'.
+      overflowParameters
+        | nbOverflowHomes backend && convention == AihcConvention =
+            Map.fromList [(var, index - registerCount) | (index, (var, _)) <- zip [0 ..] (functionParameters function), index >= registerCount]
+        | otherwise = Map.empty
+      incomingHomes = [(var, position) | var <- allocationSpills allocation, Just position <- [Map.lookup var overflowParameters]]
+      slots = Map.fromList (zip (filter (`Map.notMember` overflowParameters) (allocationSpills allocation)) [0, 8 ..])
       -- The cold calls share one area of the frame. Each call puts what it
       -- saves there in order, so that the slots are next to each other. A
       -- block frame starts the area where its stack allocations would start.
@@ -842,6 +889,7 @@ functionLayout backend signatures function = do
       blockFrames
         | convention == AihcConvention,
           Map.null slots,
+          null incomingHomes,
           not (null calls),
           not tailCallFrame =
             blockFrameLabels (Set.fromList [var | (var, _, _) <- allocations]) blocks
@@ -857,17 +905,36 @@ functionLayout backend signatures function = do
   case nbMaxFrameBytes backend of
     Just limit | size > limit -> unsupported backend ("function " <> unSymbol (functionName function) <> " needs a frame larger than 32000 bytes")
     _ -> pure ()
-  pure
-    Layout
-      { layoutRegisters = allocationRegisters allocation,
-        layoutSlots = slots,
-        layoutSaved = saved,
-        layoutColdSaves = coldSaves,
-        layoutAllocs = allocs,
-        layoutSize = size,
-        layoutFramed = isNothing blockFrames && (size > 0 || not (null calls) || tailCallFrame),
-        layoutBlockFrames = blockFrames
-      }
+  let layout =
+        Layout
+          { layoutRegisters = allocationRegisters allocation,
+            layoutSlots = slots,
+            layoutSaved = saved,
+            layoutColdSaves = coldSaves,
+            layoutAllocs = allocs,
+            layoutSize = size,
+            layoutFramed = isNothing blockFrames && (size > 0 || not (null calls) || tailCallFrame),
+            layoutBlockFrames = blockFrames
+          }
+      incoming = overflowBytes backend (length (functionParameters function))
+      -- The slots go below the stack pointer, so the function needs no frame.
+      redZone =
+        convention == AihcConvention
+          && null calls
+          && null allocations
+          && coldArea == 0
+          && not (Map.null slots)
+          && 8 * Map.size slots <= nbRedZone backend
+      placed
+        | redZone =
+            layout
+              { layoutSlots = Map.map (subtract (8 * Map.size slots)) slots,
+                layoutSize = 0,
+                layoutFramed = False,
+                layoutBlockFrames = Nothing
+              }
+        | otherwise = layout
+  pure placed {layoutSlots = Map.union (layoutSlots placed) (Map.fromList [(var, incomingSlot backend placed incoming position) | (var, position) <- incomingHomes])}
 
 -- | The blocks that make a call, when each of them can have a frame of its
 -- own instead of a frame for the full function.
@@ -967,7 +1034,13 @@ functionPrologue backend ctx = do
     layout = ctxLayout ctx
     parameterLocation index
       | index < length (nbAihcArgumentRegisters backend) = LocRegister (nbAihcArgumentRegisters backend !! index)
-      | otherwise = LocSlot (frameBytes backend layout + nbReturnAddressGap backend + 8 * (index - length (nbAihcArgumentRegisters backend)))
+      | otherwise = LocSlot (incomingSlot backend layout (ctxIncomingOverflow ctx) (index - length (nbAihcArgumentRegisters backend)))
+
+-- | The offset above the stack pointer of an incoming aihc argument after
+-- the argument registers.
+incomingSlot :: NativeBackend statement register error -> Layout register -> Int -> Int -> Int
+incomingSlot backend layout incoming position =
+  frameBytes backend layout + nbReturnAddressGap backend + overflowSlot backend incoming position
 
 saveRegisters :: NativeBackend statement register error -> Ctx register -> [statement]
 saveRegisters backend ctx =
@@ -1005,6 +1078,26 @@ operandTo backend ctx ty destination operand =
         LocRegister register -> nbMove backend destination register
         LocSlot offset -> [nbLoadSlot backend destination offset]
     OperandLiteral literal -> nbLiteralInto backend ty destination literal
+
+-- | The left operand of an instruction with the given result register and
+-- other operands. See 'nbTwoAddress'. The operand goes to the result
+-- register only when no other operand is in that register.
+leftOperand :: (Eq register) => NativeBackend statement register error -> Ctx register -> Type -> register -> Operand -> [Operand] -> ([statement], register)
+leftOperand backend ctx ty dst operand others
+  | nbTwoAddress backend,
+    notInRegister operand,
+    not (any inDestination others) =
+      (operandTo backend ctx ty dst operand, dst)
+  | otherwise = operandIn backend ctx 0 ty (nbScratchLeft backend) operand
+  where
+    notInRegister value = case value of
+      OperandVar var -> case home ctx var of
+        LocRegister _ -> False
+        LocSlot _ -> True
+      OperandLiteral _ -> True
+    inDestination value = case value of
+      OperandVar var -> home ctx var == LocRegister dst
+      OperandLiteral _ -> False
 
 resultIn :: NativeBackend statement register error -> Ctx register -> register -> Var -> (register, [statement])
 resultIn backend ctx scratch var =
@@ -1079,8 +1172,81 @@ fuseCompare backend ctx instructions terminator =
       | condition == var,
         Map.lookup var (ctxReads ctx) == Just 1,
         not (isFloatType ty) || nbCanFuseFloatCompare backend op ->
-          (reverse before, Just (Fused op ty left right))
+          case loadedOperand before left right of
+            Just (kept, base, offset, other, onLeft) -> (reverse kept, Just (FusedLoadCompare op ty base offset other onLeft))
+            Nothing -> (reverse before, Just (Fused op ty left right))
     _ -> (instructions, Nothing)
+  where
+    -- The instructions are in reverse order. The load must come directly
+    -- before the compare: 'selectFusions' moves it there before the
+    -- allocation, so the base of the address stays live up to the compare.
+    loadedOperand before left right
+      | not (nbCanFuseLoadCompare backend) = Nothing
+      | otherwise = case (fromLoad before left, fromLoad before right) of
+          (Just (kept, base, offset), _) -> Just (kept, base, offset, right, True)
+          (_, Just (kept, base, offset)) -> Just (kept, base, offset, left, False)
+          _ -> Nothing
+    fromLoad before operand = case (operand, before) of
+      (OperandVar loaded, instruction : rest)
+        | Map.lookup loaded (ctxReads ctx) == Just 1,
+          Map.notMember loaded (ctxFusions ctx),
+          [loaded] == instructionResults instruction,
+          Just address <- fusibleLoad (instructionOperation instruction) ->
+            Just (rest, addressBase address, addressByteOffset wordBytes address)
+      _ -> Nothing
+    fusibleLoad operation = case operation of
+      Load ty address _ | ty == compareType -> Just address
+      LoadInvariant ty address _ | ty == compareType -> Just address
+      _ -> Nothing
+    compareType = case reverse instructions of
+      Instruction _ (Compare _ ty _ _) : _ -> ty
+      _ -> F64
+
+-- | Whether an operation can write memory or run other code. A load cannot
+-- move past one.
+writesMemory :: Operation -> Bool
+writesMemory operation = case operation of
+  Store {} -> True
+  StoreAtomic {} -> True
+  CompareSwap {} -> True
+  AtomicRmw {} -> True
+  Fence {} -> True
+  GlobalSet {} -> True
+  Call {} -> True
+  CallIndirect {} -> True
+  _ -> False
+
+-- | The integer types that a compare can read from memory.
+loadCompareType :: Type -> Bool
+loadCompareType ty = ty `elem` [I8, I16, I32, I64, Ptr, Code]
+
+-- | Move a load that only the compare of the branch reads to the place
+-- directly before the compare. See 'nbCanFuseLoadCompare'. The move is
+-- safe only when no instruction between the two writes memory or calls.
+placeCompareLoad :: (Var -> Bool) -> Block -> Block
+placeCompareLoad useOnce block =
+  case (reverse (blockInstructions block), blockTerminator block) of
+    (compare'@(Instruction [condition] (Compare _ ty left right)) : before, Branch (OperandVar branched) _ _)
+      | condition == branched,
+        useOnce condition,
+        loadCompareType ty,
+        Just reordered <- place ty left before <|> place ty right before ->
+          block {blockInstructions = reverse (compare' : reordered)}
+    _ -> block
+  where
+    place ty operand before = case operand of
+      OperandVar loaded | useOnce loaded -> go ty loaded [] before
+      _ -> Nothing
+    go ty loaded later remaining = case remaining of
+      instruction : rest
+        | [loaded] == instructionResults instruction ->
+            case instructionOperation instruction of
+              Load loadTy _ _ | loadTy == ty -> Just (instruction : reverse later <> rest)
+              LoadInvariant loadTy _ _ | loadTy == ty -> Just (instruction : reverse later <> rest)
+              _ -> Nothing
+        | writesMemory (instructionOperation instruction) -> Nothing
+        | otherwise -> go ty loaded (instruction : later) rest
+      [] -> Nothing
 
 compileTerminator :: (Eq register) => NativeBackend statement register error -> Ctx register -> Maybe Label -> Maybe Fused -> Terminator -> NativeM error [statement]
 compileTerminator backend ctx next fused terminator =
@@ -1267,9 +1433,9 @@ coldCallSaves backend ctx number statements =
 compileInstruction :: (Eq register) => NativeBackend statement register error -> Ctx register -> Instruction -> NativeM error [statement]
 compileInstruction backend ctx (Instruction results operation) =
   case operation of
-    Binary op ty left right -> do
-      let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
+    Binary op ty left right ->
       single $ \dst -> do
+        let (loads, a) = leftOperand backend ctx ty dst left [right]
         body <- case (results, nbRotatedBinary backend) of
           ([result], Just select)
             | Just count <- Map.lookup result (ctxRotations ctx) ->
@@ -1285,9 +1451,10 @@ compileInstruction backend ctx (Instruction results operation) =
                 pure (increment wideOp dst a)
           _ -> nbBinary backend ctx op ty dst a right
         pure (loads <> body)
-    Unary op ty value -> do
-      let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) value
-      single $ \dst -> pure (loads <> nbUnary backend op ty dst a)
+    Unary op ty value ->
+      single $ \dst -> do
+        let (loads, a) = leftOperand backend ctx ty dst value []
+        pure (loads <> nbUnary backend op ty dst a)
     Wide op ty left right -> do
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
           (loads', b) = operandIn backend ctx 0 ty (nbScratchRight backend) right
@@ -1342,9 +1509,9 @@ compileInstruction backend ctx (Instruction results operation) =
               let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
                in single $ \dst -> pure (loads <> loads' <> shiftedAdd dst a b count)
         ([result], _, Just (_, indexed))
-          | Just (FusedLoad ty count) <- Map.lookup result (ctxFusions ctx) ->
+          | Just (FusedLoad ty count displacement) <- Map.lookup result (ctxFusions ctx) ->
               let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
-               in single $ \dst -> pure (loads <> loads' <> indexed ty dst a b count)
+               in single $ \dst -> pure (loads <> loads' <> indexed ty dst a b count displacement)
         _ -> single $ \dst -> pure (loads <> nbPtrAdd backend ctx a offset dst)
     StackAlloc _ _ ->
       case results of
@@ -1406,7 +1573,8 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
       let (shifted, shifts, removedShifts) = maybe (blockInstructions block, Map.empty, []) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
           (loaded, table, removedLoads) = maybe (shifted, shifts, []) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
           (carried, carries, removedCarries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty, [])
-       in (block {blockInstructions = carried}, Map.union table carries, removedShifts <> removedLoads <> removedCarries)
+          placed = if nbCanFuseLoadCompare backend then placeCompareLoad useOnce block {blockInstructions = carried} else block {blockInstructions = carried}
+       in (placed, Map.union table carries, removedShifts <> removedLoads <> removedCarries)
     selectShifts accepts instructions
       | Map.null definitions = (instructions, Map.empty, [])
       | otherwise = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches, Set.toList removed)
@@ -1449,20 +1617,29 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
         match (Load ty location@Address {addressBase = OperandVar address} alignment)
           | useOnce address,
             Just (PtrAdd base (OperandLiteral (LitInt offset))) <- Map.lookup address definitions =
-              Just (address, Load ty location {addressBase = base, addressOffset = addressOffset location + offset} alignment, Nothing)
-        match (Load ty (Address (OperandVar address) 0 0 [] _) _)
+              Just (address, Load ty location {addressBase = base, addressOffset = addressOffset location + offset} alignment, Nothing, Nothing)
+        match (Load ty (Address (OperandVar address) loadOffset 0 [] _) _)
           | useOnce address,
             not (isFloatType ty),
             ty /= I1,
             Just operation <- Map.lookup address definitions,
             count <- case Map.lookup address shifts of
               Just (FusedShift shift) -> shift
-              _ -> 0,
-            accepts ty count =
-              Just (address, operation, Just (FusedLoad ty count))
+              _ -> 0 =
+              -- A base that is itself a constant offset from another base
+              -- folds into the displacement of the address.
+              case operation of
+                PtrAdd (OperandVar inner) index
+                  | Just (PtrAdd outer (OperandLiteral (LitInt constant))) <- Map.lookup inner definitions,
+                    accepts ty count (constant + loadOffset) ->
+                      Just (address, PtrAdd outer index, Just (FusedLoad ty count (constant + loadOffset)), if useOnce inner then Just inner else Nothing)
+                _
+                  | accepts ty count loadOffset ->
+                      Just (address, operation, Just (FusedLoad ty count loadOffset), Nothing)
+                _ -> Nothing
         match _ = Nothing
-        matches = Map.fromList [(v, (operation, fusion)) | Instruction [v] load <- instructions, Just (_, operation, fusion) <- [match load]]
-        removed = Set.fromList [address | Instruction [_] load <- instructions, Just (address, _, _) <- [match load]]
+        matches = Map.fromList [(v, (operation, fusion)) | Instruction [v] load <- instructions, Just (_, operation, fusion, _) <- [match load]]
+        removed = Set.fromList (concat [address : maybeToList inner | Instruction [_] load <- instructions, Just (address, _, _, inner) <- [match load]])
         rewrite (Instruction [v] _)
           | Just (operation, _) <- Map.lookup v matches = [Instruction [v] operation]
           | Set.member v removed = []

@@ -41,7 +41,7 @@ import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Int (Int32, Int64)
+import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Word (Word32, Word64, Word8)
 
@@ -133,11 +133,16 @@ data Amd64MoveSource
 data Amd64StoreSource
   = Amd64StoreRegister !Amd64Register
   | Amd64StoreImmediate !Integer
+  | -- | The address of a symbol, as a sign-extended 32-bit constant.
+    Amd64StoreSymbol !Text
   deriving (Eq, Show)
 
 data Amd64BinarySource
   = Amd64BinaryRegister !Amd64Register
   | Amd64BinaryImmediate !Integer
+  | -- | A memory source. The destination is then a register, and the
+    -- register gives the width of the operation.
+    Amd64BinaryMemory !Amd64Memory
   deriving (Eq, Show)
 
 data Amd64JumpTarget
@@ -195,6 +200,12 @@ data Amd64Instruction
   | AmdUd2
   | AmdPush !Amd64Register
   | AmdPop !Amd64Register
+  | -- | @push m64@ and @pop m64@: a move from memory to memory without a
+    -- register. An address relative to @rsp@ in @pop@ reads @rsp@ after the
+    -- pop, so the pair @push [rsp + a]; pop [rsp + b]@ moves a word from
+    -- offset @a@ to offset @b@.
+    AmdPushMemory !Amd64Memory
+  | AmdPopMemory !Amd64Memory
   | AmdCall !Text
   | AmdJmp !Amd64JumpTarget
   | AmdJe !Name
@@ -226,7 +237,13 @@ data Amd64Instruction
     -- address of a symbol. The linker of an executable that is not
     -- position-independent relaxes it to @cmp reg, imm32@.
     AmdCmpGot !Amd64Register !Text
+  | -- | @cmp m, imm@ with the width of the memory operand in bytes: 1, 2,
+    -- 4, or 8. The constant has the bits of the value at that width; the
+    -- 8-byte form sign-extends a 32-bit constant.
+    AmdCmpMemory !Int !Amd64Memory !Integer
   | AmdTest !Amd64Rm !Amd64Register
+  | -- | @test r/m32, imm32@: the flags of the low 32 bits and a mask.
+    AmdTestImmediate !Amd64Rm !Integer
   | AmdShl !Amd64Rm
   | AmdShr !Amd64Rm
   | -- | Shifts by an immediate count.
@@ -443,6 +460,8 @@ encodeInstruction instruction =
     AmdUd2 -> bytes [0x0f, 0x0b]
     AmdPush register -> encodePushPop False register
     AmdPop register -> encodePushPop True register
+    AmdPushMemory source -> encodeGroup False [0xff] 6 (memoryOperand source) []
+    AmdPopMemory destination -> encodeGroup False [0x8f] 0 (memoryOperand destination) []
     AmdCall target -> relativeBranch [0xe8] X86Plt32 (SymbolName target)
     AmdJmp (Amd64JumpLabel target) -> jump [0xe9] target
     AmdJmp (Amd64JumpRegister register) -> encodeGroup True [0xff] 4 (RegisterOperand (registerInfo register)) []
@@ -466,9 +485,11 @@ encodeInstruction instruction =
     AmdImul destination source -> encodeRegisterSource (registerWidth (registerInfo destination) == 64) [0x0f, 0xaf] destination source
     AmdCmp left right -> encodeCompare left right
     AmdCmpGot left symbol -> encodeGot 0x3b left symbol
+    AmdCmpMemory width memory immediate -> encodeCompareMemory width (memoryOperand memory) immediate
     AmdTest left right -> encodeRm (registerWidth register == 64) [0x85] (registerNumber register) (rmOperand left) False []
       where
         register = registerInfo right
+    AmdTestImmediate left mask -> encodeGroup False [0xf7] 0 (rmOperand left) (word32List (fromIntegral mask))
     AmdShl destination -> encodeGroup True [0xd3] 4 (rmOperand destination) []
     AmdShr destination -> encodeGroup True [0xd3] 5 (rmOperand destination) []
     AmdShlImmediate destination count -> encodeGroup True [0xc1] 4 (rmOperand destination) [fromIntegral count]
@@ -609,6 +630,7 @@ encodeStore destination source =
       let sourceRegister = registerInfo sourceValue
        in encodeRm (registerWidth sourceRegister == 64) [0x89] (registerNumber sourceRegister) (memoryOperand destination) False []
     Amd64StoreImmediate immediate -> encodeGroup True [0xc7] 0 (memoryOperand destination) (word32List (fromIntegral immediate))
+    Amd64StoreSymbol symbol -> encodeGroup True [0xc7] 0 (memoryOperand destination) [] <> [Apply (Fixup X86Abs32S (SymbolName symbol) 0 4 0)]
 
 encodeRegisterSource :: Bool -> [Word8] -> Amd64Register -> Amd64Rm -> [Item]
 encodeRegisterSource width64 destinationOpcode destinationSource source =
@@ -645,6 +667,7 @@ encodeBinary opcode immediateGroup destination source =
       let sourceRegister = registerInfo registerSource
        in encodeRm (registerWidth sourceRegister == 64) opcode (registerNumber sourceRegister) (rmOperand destination) False []
     Amd64BinaryImmediate immediate -> encodeGroupImmediate immediateGroup (rmOperand destination) immediate
+    Amd64BinaryMemory memory -> registerFromMemory (map (+ 2) opcode) destination memory
 
 encodeCompare :: Amd64Rm -> Amd64BinarySource -> [Item]
 encodeCompare left right =
@@ -653,6 +676,33 @@ encodeCompare left right =
       let register = registerInfo source
        in encodeRm (registerWidth register == 64) [0x39] (registerNumber register) (rmOperand left) False []
     Amd64BinaryImmediate immediate -> encodeGroupImmediate 7 (rmOperand left) immediate
+    Amd64BinaryMemory memory -> registerFromMemory [0x3b] left memory
+
+-- | @cmp m, imm@ at the width in bytes. A byte compare has an 8-bit
+-- constant. A wider compare uses the sign-extended 8-bit form when the
+-- constant fits it, as 'encodeGroupImmediate' does.
+encodeCompareMemory :: Int -> Operand -> Integer -> [Item]
+encodeCompareMemory width operand immediate =
+  case width of
+    1 -> encodeGroup False [0x80] 7 operand [fromIntegral immediate]
+    2 -> bytes [0x66] <> sized (\value -> [fromIntegral value, fromIntegral (value `shiftR` 8)]) (fromIntegral immediate :: Int16)
+    4 -> sized (word32List . fromIntegral) (fromIntegral immediate :: Int32)
+    _ -> sized (word32List . fromIntegral) (fromIntegral immediate :: Int64)
+  where
+    wide = width == 8
+    sized :: (Integral value) => (value -> [Word8]) -> value -> [Item]
+    sized encodeWide value
+      | toInteger value >= -128 && toInteger value <= 127 = encodeGroup wide [0x83] 7 operand [fromIntegral value]
+      | otherwise = encodeGroup wide [0x81] 7 operand (encodeWide value)
+
+-- | The form @op reg, r/m@ of a binary instruction with a memory source.
+registerFromMemory :: [Word8] -> Amd64Rm -> Amd64Memory -> [Item]
+registerFromMemory opcode destination memory =
+  case destination of
+    Amd64RmRegister target ->
+      let register = registerInfo target
+       in encodeRm (registerWidth register == 64) opcode (registerNumber register) (memoryOperand memory) False []
+    Amd64RmMemory _ -> error "Aihc.Amd64.Assemble: binary instruction with two memory operands"
 
 -- | An arithmetic or logical instruction of opcode group 1 with an
 -- immediate. The operand width gives the operation width. A constant from

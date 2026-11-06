@@ -31,8 +31,7 @@ single:
 	.text
 	.p2align 4
 forward:
-	push rbp
-	mov rbp, rsp
+	sub rsp, 0x8
 	mov rsi, rdi
 	movq r11, xmm0
 	mov rdi, r11
@@ -49,8 +48,7 @@ forward:
 	movq xmm0, rdi
 	mov edi, 0x2a
 	mov eax, 0x1
-	mov rsp, rbp
-	pop rbp
+	add rsp, 0x8
 	jmp double
 	.text
 	.p2align 4

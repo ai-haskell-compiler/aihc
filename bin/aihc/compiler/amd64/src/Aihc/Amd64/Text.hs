@@ -58,6 +58,8 @@ instruction code =
     AmdRet -> "ret"
     AmdUd2 -> "ud2"
     AmdPush register -> "push " <> reg register
+    AmdPushMemory source -> "push qword ptr " <> memory source
+    AmdPopMemory destination -> "pop qword ptr " <> memory destination
     AmdPop register -> "pop " <> reg register
     AmdCall target -> "call " <> T.unpack target
     AmdCallRegister register -> "call " <> reg register
@@ -81,9 +83,11 @@ instruction code =
     AmdOr destination source -> binary "or" destination source
     AmdXor destination source -> binary "xor" destination source
     AmdCmp destination source -> binary "cmp" destination source
+    AmdCmpMemory width place literal -> "cmp " <> widthName width <> " ptr " <> memory place <> ", " <> hex literal
     AmdCmpGot left symbol -> "cmp " <> reg left <> ", [rip + " <> T.unpack symbol <> "@GOTPCREL]"
     AmdImul destination source -> two "imul" destination source
     AmdTest destination source -> "test " <> rm destination <> ", " <> reg source
+    AmdTestImmediate destination mask -> "test dword " <> rm destination <> ", " <> hex mask
     AmdShl destination -> "shl " <> rm destination <> ", cl"
     AmdShlImmediate destination count -> "shl " <> rm destination <> ", " <> show count
     AmdShrImmediate destination count -> "shr " <> rm destination <> ", " <> show count
@@ -226,12 +230,14 @@ storeSource source =
   case source of
     Amd64StoreRegister register -> reg register
     Amd64StoreImmediate literal -> hex literal
+    Amd64StoreSymbol symbol -> T.unpack symbol
 
 binarySource :: Amd64BinarySource -> String
 binarySource source =
   case source of
     Amd64BinaryRegister register -> reg register
     Amd64BinaryImmediate literal -> hex literal
+    Amd64BinaryMemory place -> memory place
 
 jump :: Amd64JumpTarget -> String
 jump target =

@@ -105,6 +105,10 @@ data FixupKind
     -- (@R_X86_64_REX_GOTPCRELX@). The linker relaxes the load to @lea@ for
     -- a symbol in the executable.
     X86GotPcRelX
+  | -- | The address of a symbol as a sign-extended 32-bit constant
+    -- (@R_X86_64_32S@). It links only into an executable that is not
+    -- position-independent, which is the form the native target links.
+    X86Abs32S
   deriving (Enum, Eq, Show)
 
 -- | What a label or a fixup names: a symbol, by its text, or a label private
