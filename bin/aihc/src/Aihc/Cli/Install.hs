@@ -982,7 +982,7 @@ installExecutables config locations components = do
 -- local package, each once, in the order the plan walks them. A local
 -- package and each package above it are not in the list.
 dependencyPlans :: InstallLocations -> [ExecutableComponent] -> [PackagePlan]
-dependencyPlans locations components = filter ((storeOnly LazyMap.!) . planSourcePath) (reverse everyPlan)
+dependencyPlans locations components = reverse (filter ((storeOnly LazyMap.!) . planSourcePath) everyPlan)
   where
     roots = concatMap componentDependencies components
     everyPlan = snd (foldl' visit (Set.empty, []) roots)
