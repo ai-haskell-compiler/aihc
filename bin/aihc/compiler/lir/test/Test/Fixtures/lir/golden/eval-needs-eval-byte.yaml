@@ -69,9 +69,11 @@ expected: |
     %word_kind_38 = load.invariant i8 [%header_37 + 43] align 1
     %word_kind_39 = zext i8 %word_kind_38 to i64
     %thread_40 = eq i64 %word_kind_39, 7
+    br %thread_40, eval_slow_19, eval_owner_30$next0
+
+  cold eval_owner_30$next0:
     %queue_41 = eq i64 %word_kind_39, 15
-    %owned_42 = or i1 %thread_40, %queue_41
-    br %owned_42, eval_slow_19, eval_check_17(%word_34)
+    br %queue_41, eval_slow_19, eval_check_17(%word_34)
 
   cold eval_follow_28:
     %next_43 = load.dependent ptr [%current_20 + 8] region heap
@@ -95,10 +97,12 @@ expected: |
     %sp_53 = ptr.add %sp_13, 40
     %sp_limit_54 = load ptr [%base_14 + 88] align 1 word
     %stack_fits_55 = le.u ptr %sp_53, %sp_limit_54
+    br %stack_fits_55, force_stack_45$next0, force_helper_47
+
+  force_stack_45$next0:
     %hp_limit_56 = load ptr [%base_14 + 24] align 1 word
     %heap_fits_57 = le.u ptr %hp_12, %hp_limit_56
-    %fits_58 = and i1 %stack_fits_55, %heap_fits_57
-    br %fits_58, force_enter_46, force_helper_47
+    br %heap_fits_57, force_enter_46, force_helper_47
 
   cold force_helper_47:
     tailcall @aihc_lir_force_p(%hp_12, %sp_13, %base_14, %current_20, @aihc_lir_info_0, %$cps_return_16)
