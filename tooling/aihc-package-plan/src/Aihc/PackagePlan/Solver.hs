@@ -783,16 +783,20 @@ unknownBuildTools platform flags root gpd =
 -- | Check that an assignment, from a lock file say, still solves the
 -- configuration: every root and goal is present in the demanded range,
 -- every constraint holds, the dependencies of every package are present in
--- range, and nothing is listed that the roots do not reach. The result
--- carries the dependencies each package has under its recorded flags.
+-- range, no package needs pkg-config, and nothing is listed that the roots
+-- do not reach. The result carries the dependencies each package has under
+-- its recorded flags.
 verifySolution :: (Monad m) => SolverInputs m -> SolverConfig -> Map PackageName (Version, Maybe Int, FlagAssignment) -> m (Either String Solution)
 verifySolution inputs config recorded = do
   candidates <- foldM candidateFor (Right Map.empty) (Map.toAscList recorded)
   case candidates of
     Left problem -> pure (Left problem)
     Right chosen -> do
-      solution <- Map.traverseWithKey assignmentFor chosen
-      pure (checks solution)
+      decided <- Map.traverseWithKey assignmentFor chosen
+      -- A lock that an earlier aihc wrote can choose a pkg-config branch.
+      pure $ case [(name, packages) | (name, (_, packages@(_ : _))) <- Map.toAscList decided] of
+        (name, packages) : _ -> Left (unPackageName name <> " needs the pkg-config packages " <> intercalate ", " packages)
+        [] -> checks (Map.map fst decided)
   where
     candidateFor acc (name, (version, revision, flags)) =
       case acc of
@@ -814,13 +818,15 @@ verifySolution inputs config recorded = do
           decided = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
           full = mkFlagAssignment (Map.toAscList (Map.union decided (Map.fromList (unFlagAssignment flags))))
       pure
-        Assignment
-          { assignmentVersion = candidateVersion candidate,
-            assignmentRevision = revision,
-            assignmentFlags = full,
-            assignmentSource = candidateSource candidate,
-            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full root gpd
-          }
+        ( Assignment
+            { assignmentVersion = candidateVersion candidate,
+              assignmentRevision = revision,
+              assignmentFlags = full,
+              assignmentSource = candidateSource candidate,
+              assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full root gpd
+            },
+          pkgConfigDependencies (configPlatform config) full root gpd
+        )
 
     checks solution =
       case catMaybes (rootChecks solution <> constraintChecks solution <> dependencyChecks solution <> reachabilityChecks solution) of

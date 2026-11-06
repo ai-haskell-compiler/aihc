@@ -218,7 +218,8 @@ test_flipsFlagUnderConflict = do
 -- The zlib case: the automatic pkg-config flag defaults to on, and its
 -- branch names the C library in pkgconfig-depends. Aihc does not use
 -- pkg-config, so the solver must turn the flag off, and the package then
--- names the library in extra-libraries.
+-- names the library in extra-libraries. A lock check must also refuse the
+-- pkg-config branch.
 test_flipsFlagFromPkgConfig :: Assertion
 test_flipsFlagFromPkgConfig = do
   let packages =
@@ -243,6 +244,12 @@ test_flipsFlagFromPkgConfig = do
           ]
   solution <- expectSolution (solveWith packages (configFor ["root"]))
   assertEqual "zlib turns pkg-config off" [("pkg-config", False)] (flagsOf solution "zlib")
+  -- A lock that an earlier aihc wrote can have the flag on.
+  let locked = Map.fromList [(mkPackageName "aihc-base", (version "4.21.2.0", Nothing, mkFlagAssignment [])), (mkPackageName "root", (version "0.1", Nothing, mkFlagAssignment [])), (mkPackageName "zlib", (version "0.7.1.1", Just 0, mkFlagAssignment [(mkFlagName "pkg-config", True)]))]
+  assertEqual
+    "a lock with the pkg-config branch"
+    (Left "zlib needs the pkg-config packages zlib")
+    (fmap chosen (runIdentity (verifySolution (inputsFor packages) (configFor ["root"]) locked)))
 
 -- The process case: the root's automatic os-string flag defaults to off,
 -- its default branch pins filepath below 1.5, and directory needs 1.5 or
