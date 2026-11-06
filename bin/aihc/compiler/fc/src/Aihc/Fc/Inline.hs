@@ -578,7 +578,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
   where
     -- Here we want to include all bodies as nodes, even those that don't
     -- reference any other values.
-    graph = [(name, name, Set.toList (Map.findWithDefault Set.empty name (inRefs st0))) | name <- Map.keys (inBodies st0)]
+    graph = [(name, name, Set.toList (Map.findWithDefault mempty name (inRefs st0))) | name <- Map.keys (inBodies st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
     -- Known values use the round-start bodies, so their versions must match.
@@ -636,7 +636,7 @@ loopBreakers config st = fixed <> foldMap choose (components remaining)
     remaining = Map.keysSet (inBodies st) `Set.difference` fixed
     components names =
       stronglyConnComp
-        [(name, name, Set.toList (Map.findWithDefault Set.empty name (inRefs st) `Set.intersection` names)) | name <- Set.toList names]
+        [(name, name, Set.toList (Map.findWithDefault mempty name (inRefs st) `Set.intersection` names)) | name <- Set.toList names]
     choose (AcyclicSCC _) = Set.empty
     choose (CyclicSCC names) =
       let selected = List.maximumBy (\left right -> compare (score left) (score right)) names
@@ -659,7 +659,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
       case Map.lookup name (inBodies st) of
         Nothing -> st
         Just body ->
-          let references = Map.findWithDefault Set.empty name (inRefs st)
+          let references = Map.findWithDefault mempty name (inRefs st)
               -- A copy of a candidate brings the calls of its own body. They
               -- stayed calls in the candidate because nothing was known about
               -- its parameters; at a site that gives a known argument, such a
@@ -746,7 +746,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                             (Set.insert callee visited)
                             ( Set.toList
                                 ( maybe Set.empty exprValueNames (Map.lookup callee known)
-                                    <> Map.findWithDefault Set.empty callee (inRuleRefs st)
+                                    <> Map.findWithDefault mempty callee (inRuleRefs st)
                                 )
                                 <> rest
                             )
@@ -858,7 +858,7 @@ updateBody st name body =
     arity = functionArity body
     arities = Map.insert name arity (inBodyArities st)
     references = valueReferences (inDecls st) body
-    oldReferences = Map.findWithDefault Set.empty name (inRefs st)
+    oldReferences = Map.findWithDefault mempty name (inRefs st)
     users =
       Set.foldl'
         (\acc callee -> Map.insertWith Set.union callee (Set.singleton name) acc)
@@ -882,7 +882,7 @@ updateBody st name body =
     -- An arity change can change the guidance and known constructors of its users.
     affected
       | arity == inBodyArities st Map.! name = Set.empty
-      | otherwise = Set.delete name (Map.findWithDefault Set.empty name users)
+      | otherwise = Set.delete name (Map.findWithDefault mempty name users)
     refresh current user =
       let userBody = inBodies current Map.! user
        in updateKnown
@@ -925,7 +925,7 @@ killDead st names =
 -- | A set of values and the values their bodies reference.
 calleesOf :: Map Name (Set Name) -> Set Name -> Set Name
 calleesOf references names =
-  Set.unions (names : [Map.findWithDefault Set.empty name references | name <- Set.toList names])
+  Set.unions (names : [Map.findWithDefault mempty name references | name <- Set.toList names])
 
 -- | Drop every value that no root reaches.
 dropUnused :: Inliner -> Inliner
@@ -958,7 +958,7 @@ dropUnused st =
       | new == old = Nothing
       | otherwise = Just new
     affected =
-      Set.intersection reachable (Set.unions [Map.findWithDefault Set.empty name (inUsers st) | name <- Set.toList changedArities])
+      Set.intersection reachable (Set.unions [Map.findWithDefault mempty name (inUsers st) | name <- Set.toList changedArities])
     calls =
       List.foldl'
         (\cached caller -> Map.insert caller (countTopCalls arities (live Map.! caller)) cached)
@@ -971,7 +971,7 @@ dropUnused st =
         name : rest
           | Set.member name visited -> close visited rest
           | otherwise ->
-              close (Set.insert name visited) (Set.toList (Map.findWithDefault Set.empty name (inRefs st)) <> rest)
+              close (Set.insert name visited) (Set.toList (Map.findWithDefault mempty name (inRefs st)) <> rest)
 
 -- | How often each value occurs in the bodies.
 occurrenceCounts :: [Map Name Int] -> Map Name Int
