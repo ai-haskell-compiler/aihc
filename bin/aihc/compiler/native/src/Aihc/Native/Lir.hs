@@ -35,8 +35,10 @@ module Aihc.Native.Lir
     literalBits,
     log2,
     operandIn,
+    operandSource,
     operandTo,
     overflowBytes,
+    overflowSlot,
     parallelMove,
     resultIn,
     trapLabel,
@@ -103,6 +105,19 @@ data NativeBackend statement register error = NativeBackend
     -- | The argument registers of the aihc convention. They can differ from
     -- the C registers and there can be more of them.
     nbAihcArgumentRegisters :: ![register],
+    -- | Whether an aihc parameter after the argument registers lives in its
+    -- incoming slot. Then the slots of the stack block count down from
+    -- the end of the block, and the end of the block stays at the same
+    -- address through a tail call. Thus an argument that a tail call passes
+    -- at the same position needs no move. Otherwise, the slots count up
+    -- from the start of the block, and the prologue moves each parameter to
+    -- a home of its own.
+    nbOverflowHomes :: !Bool,
+    -- | Whether an arithmetic instruction writes its result over its left
+    -- operand. Then a left operand from a slot or a constant goes directly
+    -- to the result register, which saves a move through the scratch
+    -- register.
+    nbTwoAddress :: !Bool,
     nbResultRegisters :: ![register],
     nbPreservedRegisters :: ![register],
     nbScratchLeft :: register,
@@ -539,6 +554,13 @@ overflowBytes :: NativeBackend statement register error -> Int -> Int
 overflowBytes backend count =
   ((max 0 (count - length (nbAihcArgumentRegisters backend)) * 8 + 15) `div` 16) * 16
 
+-- | The byte offset in a stack block of the given size of the argument at
+-- the given position after the argument registers. See 'nbOverflowHomes'.
+overflowSlot :: NativeBackend statement register error -> Int -> Int -> Int
+overflowSlot backend bytes position
+  | nbOverflowHomes backend = bytes - 8 * (position + 1)
+  | otherwise = 8 * position
+
 -- Functions
 
 compileFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error [statement]
@@ -826,7 +848,15 @@ functionLayout backend signatures function = do
           CConvention
             | callsAihc -> nbPreservedRegisters backend
             | otherwise -> [register | register <- allocationUsed allocation, register `elem` nbPreservedRegisters backend]
-      slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
+      registerCount = length (nbAihcArgumentRegisters backend)
+      -- A spilled aihc parameter after the argument registers keeps its
+      -- incoming slot. See 'nbOverflowHomes'.
+      overflowParameters
+        | nbOverflowHomes backend && convention == AihcConvention =
+            Map.fromList [(var, index - registerCount) | (index, (var, _)) <- zip [0 ..] (functionParameters function), index >= registerCount]
+        | otherwise = Map.empty
+      incomingHomes = [(var, position) | var <- allocationSpills allocation, Just position <- [Map.lookup var overflowParameters]]
+      slots = Map.fromList (zip (filter (`Map.notMember` overflowParameters) (allocationSpills allocation)) [0, 8 ..])
       -- The cold calls share one area of the frame. Each call puts what it
       -- saves there in order, so that the slots are next to each other. A
       -- block frame starts the area where its stack allocations would start.
@@ -842,6 +872,7 @@ functionLayout backend signatures function = do
       blockFrames
         | convention == AihcConvention,
           Map.null slots,
+          null incomingHomes,
           not (null calls),
           not tailCallFrame =
             blockFrameLabels (Set.fromList [var | (var, _, _) <- allocations]) blocks
@@ -857,17 +888,19 @@ functionLayout backend signatures function = do
   case nbMaxFrameBytes backend of
     Just limit | size > limit -> unsupported backend ("function " <> unSymbol (functionName function) <> " needs a frame larger than 32000 bytes")
     _ -> pure ()
-  pure
-    Layout
-      { layoutRegisters = allocationRegisters allocation,
-        layoutSlots = slots,
-        layoutSaved = saved,
-        layoutColdSaves = coldSaves,
-        layoutAllocs = allocs,
-        layoutSize = size,
-        layoutFramed = isNothing blockFrames && (size > 0 || not (null calls) || tailCallFrame),
-        layoutBlockFrames = blockFrames
-      }
+  let layout =
+        Layout
+          { layoutRegisters = allocationRegisters allocation,
+            layoutSlots = slots,
+            layoutSaved = saved,
+            layoutColdSaves = coldSaves,
+            layoutAllocs = allocs,
+            layoutSize = size,
+            layoutFramed = isNothing blockFrames && (size > 0 || not (null calls) || tailCallFrame),
+            layoutBlockFrames = blockFrames
+          }
+      incoming = overflowBytes backend (length (functionParameters function))
+  pure layout {layoutSlots = Map.union slots (Map.fromList [(var, incomingSlot backend layout incoming position) | (var, position) <- incomingHomes])}
 
 -- | The blocks that make a call, when each of them can have a frame of its
 -- own instead of a frame for the full function.
@@ -967,7 +1000,13 @@ functionPrologue backend ctx = do
     layout = ctxLayout ctx
     parameterLocation index
       | index < length (nbAihcArgumentRegisters backend) = LocRegister (nbAihcArgumentRegisters backend !! index)
-      | otherwise = LocSlot (frameBytes backend layout + nbReturnAddressGap backend + 8 * (index - length (nbAihcArgumentRegisters backend)))
+      | otherwise = LocSlot (incomingSlot backend layout (ctxIncomingOverflow ctx) (index - length (nbAihcArgumentRegisters backend)))
+
+-- | The offset above the stack pointer of an incoming aihc argument after
+-- the argument registers.
+incomingSlot :: NativeBackend statement register error -> Layout register -> Int -> Int -> Int
+incomingSlot backend layout incoming position =
+  frameBytes backend layout + nbReturnAddressGap backend + overflowSlot backend incoming position
 
 saveRegisters :: NativeBackend statement register error -> Ctx register -> [statement]
 saveRegisters backend ctx =
@@ -1005,6 +1044,26 @@ operandTo backend ctx ty destination operand =
         LocRegister register -> nbMove backend destination register
         LocSlot offset -> [nbLoadSlot backend destination offset]
     OperandLiteral literal -> nbLiteralInto backend ty destination literal
+
+-- | The left operand of an instruction with the given result register and
+-- other operands. See 'nbTwoAddress'. The operand goes to the result
+-- register only when no other operand is in that register.
+leftOperand :: (Eq register) => NativeBackend statement register error -> Ctx register -> Type -> register -> Operand -> [Operand] -> ([statement], register)
+leftOperand backend ctx ty dst operand others
+  | nbTwoAddress backend,
+    notInRegister operand,
+    all (not . inDestination) others =
+      (operandTo backend ctx ty dst operand, dst)
+  | otherwise = operandIn backend ctx 0 ty (nbScratchLeft backend) operand
+  where
+    notInRegister value = case value of
+      OperandVar var -> case home ctx var of
+        LocRegister _ -> False
+        LocSlot _ -> True
+      OperandLiteral _ -> True
+    inDestination value = case value of
+      OperandVar var -> home ctx var == LocRegister dst
+      OperandLiteral _ -> False
 
 resultIn :: NativeBackend statement register error -> Ctx register -> register -> Var -> (register, [statement])
 resultIn backend ctx scratch var =
@@ -1267,9 +1326,9 @@ coldCallSaves backend ctx number statements =
 compileInstruction :: (Eq register) => NativeBackend statement register error -> Ctx register -> Instruction -> NativeM error [statement]
 compileInstruction backend ctx (Instruction results operation) =
   case operation of
-    Binary op ty left right -> do
-      let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
+    Binary op ty left right ->
       single $ \dst -> do
+        let (loads, a) = leftOperand backend ctx ty dst left [right]
         body <- case (results, nbRotatedBinary backend) of
           ([result], Just select)
             | Just count <- Map.lookup result (ctxRotations ctx) ->
@@ -1285,9 +1344,10 @@ compileInstruction backend ctx (Instruction results operation) =
                 pure (increment wideOp dst a)
           _ -> nbBinary backend ctx op ty dst a right
         pure (loads <> body)
-    Unary op ty value -> do
-      let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) value
-      single $ \dst -> pure (loads <> nbUnary backend op ty dst a)
+    Unary op ty value ->
+      single $ \dst -> do
+        let (loads, a) = leftOperand backend ctx ty dst value []
+        pure (loads <> nbUnary backend op ty dst a)
     Wide op ty left right -> do
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) left
           (loads', b) = operandIn backend ctx 0 ty (nbScratchRight backend) right

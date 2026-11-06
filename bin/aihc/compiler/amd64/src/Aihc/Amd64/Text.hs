@@ -58,6 +58,8 @@ instruction code =
     AmdRet -> "ret"
     AmdUd2 -> "ud2"
     AmdPush register -> "push " <> reg register
+    AmdPushMemory source -> "push qword ptr " <> memory source
+    AmdPopMemory destination -> "pop qword ptr " <> memory destination
     AmdPop register -> "pop " <> reg register
     AmdCall target -> "call " <> T.unpack target
     AmdCallRegister register -> "call " <> reg register
@@ -232,6 +234,7 @@ binarySource source =
   case source of
     Amd64BinaryRegister register -> reg register
     Amd64BinaryImmediate literal -> hex literal
+    Amd64BinaryMemory place -> memory place
 
 jump :: Amd64JumpTarget -> String
 jump target =

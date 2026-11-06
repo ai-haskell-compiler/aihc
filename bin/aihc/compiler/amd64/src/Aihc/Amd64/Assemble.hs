@@ -138,6 +138,9 @@ data Amd64StoreSource
 data Amd64BinarySource
   = Amd64BinaryRegister !Amd64Register
   | Amd64BinaryImmediate !Integer
+  | -- | A memory source. The destination is then a register, and the
+    -- register gives the width of the operation.
+    Amd64BinaryMemory !Amd64Memory
   deriving (Eq, Show)
 
 data Amd64JumpTarget
@@ -195,6 +198,12 @@ data Amd64Instruction
   | AmdUd2
   | AmdPush !Amd64Register
   | AmdPop !Amd64Register
+  | -- | @push m64@ and @pop m64@: a move from memory to memory without a
+    -- register. An address relative to @rsp@ in @pop@ reads @rsp@ after the
+    -- pop, so the pair @push [rsp + a]; pop [rsp + b]@ moves a word from
+    -- offset @a@ to offset @b@.
+    AmdPushMemory !Amd64Memory
+  | AmdPopMemory !Amd64Memory
   | AmdCall !Text
   | AmdJmp !Amd64JumpTarget
   | AmdJe !Name
@@ -443,6 +452,8 @@ encodeInstruction instruction =
     AmdUd2 -> bytes [0x0f, 0x0b]
     AmdPush register -> encodePushPop False register
     AmdPop register -> encodePushPop True register
+    AmdPushMemory source -> encodeGroup False [0xff] 6 (memoryOperand source) []
+    AmdPopMemory destination -> encodeGroup False [0x8f] 0 (memoryOperand destination) []
     AmdCall target -> relativeBranch [0xe8] X86Plt32 (SymbolName target)
     AmdJmp (Amd64JumpLabel target) -> jump [0xe9] target
     AmdJmp (Amd64JumpRegister register) -> encodeGroup True [0xff] 4 (RegisterOperand (registerInfo register)) []
@@ -645,6 +656,7 @@ encodeBinary opcode immediateGroup destination source =
       let sourceRegister = registerInfo registerSource
        in encodeRm (registerWidth sourceRegister == 64) opcode (registerNumber sourceRegister) (rmOperand destination) False []
     Amd64BinaryImmediate immediate -> encodeGroupImmediate immediateGroup (rmOperand destination) immediate
+    Amd64BinaryMemory memory -> registerFromMemory (map (+ 2) opcode) destination memory
 
 encodeCompare :: Amd64Rm -> Amd64BinarySource -> [Item]
 encodeCompare left right =
@@ -653,6 +665,16 @@ encodeCompare left right =
       let register = registerInfo source
        in encodeRm (registerWidth register == 64) [0x39] (registerNumber register) (rmOperand left) False []
     Amd64BinaryImmediate immediate -> encodeGroupImmediate 7 (rmOperand left) immediate
+    Amd64BinaryMemory memory -> registerFromMemory [0x3b] left memory
+
+-- | The form @op reg, r/m@ of a binary instruction with a memory source.
+registerFromMemory :: [Word8] -> Amd64Rm -> Amd64Memory -> [Item]
+registerFromMemory opcode destination memory =
+  case destination of
+    Amd64RmRegister target ->
+      let register = registerInfo target
+       in encodeRm (registerWidth register == 64) opcode (registerNumber register) (memoryOperand memory) False []
+    Amd64RmMemory _ -> error "Aihc.Amd64.Assemble: binary instruction with two memory operands"
 
 -- | An arithmetic or logical instruction of opcode group 1 with an
 -- immediate. The operand width gives the operation width. A constant from
