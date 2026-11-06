@@ -56,6 +56,8 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -350,7 +352,7 @@ data Inliner = Inliner
     inBodies :: !(Map Name Expr),
     inVersions :: !(Map Name Int),
     inVisits :: !(Map Name StableVisit),
-    inRuleRefs :: !(Map Name (Set Name)),
+    inRuleRefs :: !(MonoidMap Name (Set Name)),
     -- | The uses of each top-level value in each body.
     inBodyUses :: !(Map Name (Map Name Int)),
     -- | The calls in each body use the arities at the start of the round.
@@ -425,7 +427,7 @@ initialInliner config env decls supply =
       inBodies = bodies,
       inVersions = Map.map (const 0) bodies,
       inVisits = Map.empty,
-      inRuleRefs = Map.map (Set.unions . map (exprValueNames . ruleRhs)) rules,
+      inRuleRefs = MonoidMap.fromMap (Map.map (Set.unions . map (exprValueNames . ruleRhs)) rules),
       inBodyUses = uses,
       inBodyCalls = calls,
       inBodyArities = arities,
@@ -746,7 +748,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                             (Set.insert callee visited)
                             ( Set.toList
                                 ( maybe Set.empty exprValueNames (Map.lookup callee known)
-                                    <> Map.findWithDefault mempty callee (inRuleRefs st)
+                                    <> MonoidMap.get callee (inRuleRefs st)
                                 )
                                 <> rest
                             )
