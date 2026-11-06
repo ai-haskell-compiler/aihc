@@ -74,8 +74,9 @@ for cabal_file in components/*/*.cabal tooling/*/*.cabal; do
 done
 
 # Disable both optional flags of aihc for the self-compile package list. The
-# nothunks flag of monoidmap needs wherefrom-compat, which needs GHC.InfoProv
-# of base. aihc does not yet provide that module.
+# nothunks flag of monoidmap needs nothunks, and aihc does not yet compile it.
+# A local binding that has a bang and a polymorphic signature, as in the
+# default wNoThunks method, fails in GRIN generation.
 "$aihc" plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" \
 	--constraint "monoidmap -nothunks" \
 	--workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
@@ -136,9 +137,9 @@ A package comes after all of its dependencies.
 `scripts/update-self-hosting-packages.sh` writes this file with
 `aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks"`.
 The plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
-It also disables the `nothunks` flag of monoidmap, because nothunks needs
-wherefrom-compat, which needs `GHC.InfoProv` of base. aihc does not yet
-provide that module.
+It also disables the `nothunks` flag of monoidmap, because aihc does not yet
+compile nothunks. A local binding with a bang and a polymorphic signature
+fails in GRIN generation.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with

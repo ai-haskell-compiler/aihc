@@ -8,8 +8,8 @@ description:
   The Template Haskell modules under GHC.Internal.TH carry the real
   implementation that aihc-template-haskell re-exports, as in GHC 9.12.
   Every other module is an empty placeholder that only reserves the name.
-  Modules that aihc-prim or aihc-base define for real, GHC.Tuple and the
-  GHC.Num modules among them, are left out: an empty module of the same
+  Modules that aihc-prim or aihc-base define for real, GHC.Tuple, the
+  GHC.Num modules, and GHC.Internal.ClosureTypes among them, are left out: an empty module of the same
   name would shadow the real one.
 
 library
@@ -20,7 +20,6 @@ library
     GHC.Internal.Bits
     GHC.Internal.ByteOrder
     GHC.Internal.Clock
-    GHC.Internal.ClosureTypes
     GHC.Internal.Conc.Bound
     GHC.Internal.Conc.IO
     GHC.Internal.Conc.Signal

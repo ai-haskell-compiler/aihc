@@ -38,7 +38,8 @@ library
 
   hs-source-dirs: src
   build-depends:
-    base >=4.21 && <4.22
+    base >=4.21 && <4.22,
+    ghc-internal >=9.900 && <9.1204.99999,
 
   default-language: GHC2021
 
