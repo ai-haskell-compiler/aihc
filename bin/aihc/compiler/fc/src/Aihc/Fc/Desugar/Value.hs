@@ -3673,26 +3673,22 @@ typeApplicationArguments = go []
         _ -> accumulated
 
 desugarOrdinaryTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
-desugarOrdinaryTermReference variable types evidence termArgumentTypes
-  | nameText variable /= "seq" = do
-      foreignImports <- gets vsForeignImports
-      case nameOrigin variable of
-        OriginTop package moduleName'
-          | Just info <- Map.lookup (GlobalTerm package moduleName' (nameText variable)) foreignImports ->
-              desugarForeignReference variable (GlobalTerm package moduleName' (nameText variable)) info types evidence
-        _ -> pure ordinaryReference
-  | OriginLocal {} <- nameOrigin variable = pure ordinaryReference
-  | OriginTop package moduleName' <- nameOrigin variable = do
-      moduleOrigin <- gets vsModuleOrigin
-      primitivePackage <- gets (cePrimPackage . vsConvertEnv)
-      if (package, moduleName') == (primitivePackage, "GHC.Prim")
-        then do
+desugarOrdinaryTermReference variable types evidence termArgumentTypes = do
+  primitivePackage <- gets (cePrimPackage . vsConvertEnv)
+  -- Only the entity GHC.Prim.seq is the built-in seq.
+  -- A user function with the name seq is an ordinary function.
+  case nameOrigin variable of
+    OriginTop package moduleName'
+      | nameText variable == "seq",
+        (package, moduleName') == (primitivePackage, "GHC.Prim") -> do
           unless (null evidence) (failValue "GHC.Prim.seq has unexpected evidence arguments")
           desugarPrimitiveSeq termArgumentTypes
-        else
-          if (package, moduleName') == moduleOrigin
-            then pure ordinaryReference
-            else failValue "System FC accepts an imported seq only from the configured GHC.Prim module"
+      | otherwise -> do
+          foreignImports <- gets vsForeignImports
+          case Map.lookup (GlobalTerm package moduleName' (nameText variable)) foreignImports of
+            Just info -> desugarForeignReference variable (GlobalTerm package moduleName' (nameText variable)) info types evidence
+            Nothing -> pure ordinaryReference
+    _ -> pure ordinaryReference
   where
     ordinaryReference = foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence
 
