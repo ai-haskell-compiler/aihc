@@ -366,7 +366,7 @@ data Inliner = Inliner
     -- | The values each body references.
     inRefs :: !(MonoidMap Name (Set Name)),
     -- | The bodies that reference each value.
-    inUsers :: !(Map Name (Set Name)),
+    inUsers :: !(MonoidMap Name (Set Name)),
     -- | The size each value may grow to in this pass: its size when the
     -- pass began, grown by the policy's percentage and slack.
     inLimits :: !(Map Name Int),
@@ -434,7 +434,7 @@ initialInliner config env decls supply =
       inGuidance = guidance,
       inKnown = Map.filter isKnownValue bodies,
       inRefs = MonoidMap.fromMap references,
-      inUsers = Map.fromListWith Set.union [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
+      inUsers = MonoidMap.fromListWith (flip Set.union) [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
       inCounts = occurrenceCounts (Map.elems uses),
       inCalls = callCounts (Map.elems calls),
@@ -863,8 +863,8 @@ updateBody st name body =
     oldReferences = MonoidMap.get name (inRefs st)
     users =
       Set.foldl'
-        (\acc callee -> Map.insertWith Set.union callee (Set.singleton name) acc)
-        (Set.foldl' (flip (Map.adjust (Set.delete name))) (inUsers st) (oldReferences Set.\\ references))
+        (\acc callee -> MonoidMap.adjust (Set.union (Set.singleton name)) callee acc)
+        (Set.foldl' (flip (MonoidMap.adjust (Set.delete name))) (inUsers st) (oldReferences Set.\\ references))
         (references Set.\\ oldReferences)
     updated =
       updateKnown
@@ -884,7 +884,7 @@ updateBody st name body =
     -- An arity change can change the guidance and known constructors of its users.
     affected
       | arity == inBodyArities st Map.! name = Set.empty
-      | otherwise = Set.delete name (Map.findWithDefault mempty name users)
+      | otherwise = Set.delete name (MonoidMap.get name users)
     refresh current user =
       let userBody = inBodies current Map.! user
        in updateKnown
@@ -942,7 +942,7 @@ dropUnused st =
       inGuidance = Map.restrictKeys (inGuidance st) reachable,
       inKnown = Map.restrictKeys (inKnown st) reachable,
       inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
-      inUsers = Map.map (`Set.intersection` reachable) (Map.restrictKeys (inUsers st) reachable),
+      inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
       inCounts = occurrenceCounts (Map.elems uses),
       inCalls = callCounts (Map.elems calls),
       inArities = arities,
@@ -960,7 +960,7 @@ dropUnused st =
       | new == old = Nothing
       | otherwise = Just new
     affected =
-      Set.intersection reachable (Set.unions [Map.findWithDefault mempty name (inUsers st) | name <- Set.toList changedArities])
+      Set.intersection reachable (Set.unions [MonoidMap.get name (inUsers st) | name <- Set.toList changedArities])
     calls =
       List.foldl'
         (\cached caller -> Map.insert caller (countTopCalls arities (live Map.! caller)) cached)
