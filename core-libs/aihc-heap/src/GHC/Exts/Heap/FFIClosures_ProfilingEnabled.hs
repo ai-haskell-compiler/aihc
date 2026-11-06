@@ -1,9 +1,12 @@
 {-# LANGUAGE MagicHash #-}
 
+-- | Readers for the thread and stack records of the GHC runtime system.
+-- AIHC has no such records, so each reader raises an exception.
 module GHC.Exts.Heap.FFIClosures_ProfilingEnabled where
 
+import Data.Bits (complement, (.&.))
 import Foreign
-import GHC.Exts
+import GHC.Exts (Addr#)
 import GHC.Exts.Heap.Closures (TsoFlags, WhatNext, WhyBlocked)
 import GHC.Exts.Heap.ProfInfo.Types
 import GHC.Exts.Heap.Unsupported
@@ -21,19 +24,15 @@ data TSOFields = TSOFields
     tso_prof :: Maybe StgTSOProfInfo
   }
 
--- | AIHC has no GHC thread state objects.
 peekTSOFields :: (Ptr a -> IO (Maybe CostCentreStack)) -> Ptr tsoPtr -> IO TSOFields
 peekTSOFields _ _ = unsupported "peekTSOFields"
 
--- | AIHC has no GHC thread state objects.
 parseWhatNext :: Word16 -> WhatNext
 parseWhatNext _ = unsupported "parseWhatNext"
 
--- | AIHC has no GHC thread state objects.
 parseWhyBlocked :: Word16 -> WhyBlocked
 parseWhyBlocked _ = unsupported "parseWhyBlocked"
 
--- | AIHC has no GHC thread state objects.
 parseTsoFlags :: Word32 -> [TsoFlags]
 parseTsoFlags _ = unsupported "parseTsoFlags"
 
@@ -44,6 +43,13 @@ data StackFields = StackFields
     stack_sp :: Addr#
   }
 
--- | AIHC has no GHC stack objects.
 peekStackFields :: Ptr a -> IO StackFields
 peekStackFields _ = unsupported "peekStackFields"
+
+-- | Test if all bits of the mask are set in the word.
+isSet :: Word32 -> Word32 -> Bool
+isSet mask w = w .&. mask == mask
+
+-- | Clear the bits of the mask in the word.
+unset :: Word32 -> Word32 -> Word32
+unset mask w = w .&. complement mask

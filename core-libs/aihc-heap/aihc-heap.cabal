@@ -2,9 +2,9 @@ cabal-version: 3.8
 name: aihc-heap
 version: 9.12.4
 build-type: Simple
-license: BSD-3-Clause
+license: Unlicense
 license-files:
-  LICENSE
+  UNLICENSE
 
 synopsis: API-compatible stand-in for ghc-heap
 description:

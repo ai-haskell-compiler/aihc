@@ -1,6 +1,8 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
+-- | Offsets and sizes of the stack frames of the GHC runtime system. AIHC
+-- stack frames have another layout, so each of them raises an exception.
 module GHC.Exts.Stack.Constants where
 
 import GHC.Exts.Heap.Unsupported
@@ -11,10 +13,6 @@ newtype ByteOffset = ByteOffset {offsetInBytes :: Int}
 
 newtype WordOffset = WordOffset {offsetInWords :: Int}
   deriving newtype (Eq, Show, Integral, Real, Num, Enum, Ord)
-
--- The offsets and the sizes below describe the layout of the stack frames of
--- GHC. AIHC stack frames have another layout, so each value raises an
--- exception when a program uses it.
 
 offsetStgCatchFrameHandler :: WordOffset
 offsetStgCatchFrameHandler = unsupported "offsetStgCatchFrameHandler"
@@ -92,13 +90,10 @@ sizeStgClosure :: Int
 sizeStgClosure = unsupported "sizeStgClosure"
 
 byteOffsetToWordOffset :: ByteOffset -> WordOffset
-byteOffsetToWordOffset = WordOffset . bytesToWords . fromInteger . toInteger
+byteOffsetToWordOffset (ByteOffset bytes) = WordOffset (bytes `div` 8)
 
 bytesToWords :: Int -> Int
-bytesToWords b =
-  if b `mod` bytesInWord == 0
-    then fromIntegral $ b `div` bytesInWord
-    else error "Unexpected struct alignment!"
+bytesToWords bytes = bytes `div` 8
 
 bytesInWord :: Int
 bytesInWord = 8

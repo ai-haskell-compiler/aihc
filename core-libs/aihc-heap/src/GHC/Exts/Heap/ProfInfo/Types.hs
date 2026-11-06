@@ -1,22 +1,18 @@
 {-# LANGUAGE DeriveGeneric #-}
 
+-- | Cost-centre records. AIHC does not profile, so a program does not get
+-- values of these types from the library. They exist for API compatibility.
 module GHC.Exts.Heap.ProfInfo.Types where
 
 import Data.Word
-import GHC.Generics
+import GHC.Generics (Generic)
 import Prelude
 
--- | This is a somewhat faithful representation of StgTSOProfInfo. See
--- <https://gitlab.haskell.org/ghc/ghc/blob/master/rts/include/rts/storage/TSO.h>
--- for more details on this data structure.
 newtype StgTSOProfInfo = StgTSOProfInfo
   { cccs :: Maybe CostCentreStack
   }
   deriving (Show, Generic, Eq, Ord)
 
--- | This is a somewhat faithful representation of CostCentreStack. See
--- <https://gitlab.haskell.org/ghc/ghc/blob/master/rts/include/rts/prof/CCS.h>
--- for more details on this data structure.
 data CostCentreStack = CostCentreStack
   { ccs_ccsID :: Int,
     ccs_cc :: CostCentre,
@@ -33,9 +29,6 @@ data CostCentreStack = CostCentreStack
   }
   deriving (Show, Generic, Eq, Ord)
 
--- | This is a somewhat faithful representation of CostCentre. See
--- <https://gitlab.haskell.org/ghc/ghc/blob/master/rts/include/rts/prof/CCS.h>
--- for more details on this data structure.
 data CostCentre = CostCentre
   { cc_ccID :: Int,
     cc_label :: String,
@@ -48,9 +41,6 @@ data CostCentre = CostCentre
   }
   deriving (Show, Generic, Eq, Ord)
 
--- | This is a somewhat faithful representation of IndexTable. See
--- <https://gitlab.haskell.org/ghc/ghc/blob/master/rts/include/rts/prof/CCS.h>
--- for more details on this data structure.
 data IndexTable = IndexTable
   { it_cc :: CostCentre,
     it_ccs :: Maybe CostCentreStack,

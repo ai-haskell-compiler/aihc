@@ -1,21 +1,17 @@
 {-# LANGUAGE DeriveGeneric #-}
 
+-- | The kinds of heap object in the GHC runtime system.
 module GHC.Exts.Heap.ClosureTypes
   ( ClosureType (..),
     closureTypeHeaderSize,
   )
 where
 
--- See note [Why do we import Prelude here?]
-import GHC.Generics
+import GHC.Generics (Generic)
 import Prelude
 
-{- ---------------------------------------------
--- Enum representing closure types
--- This is a mirror of:
--- rts/include/rts/storage/ClosureTypes.h
--- ---------------------------------------------}
-
+-- | One constructor for each kind of GHC heap object, in the order of the
+-- GHC runtime system.
 data ClosureType
   = INVALID_OBJECT
   | CONSTR
@@ -85,16 +81,11 @@ data ClosureType
   | N_CLOSURE_TYPES
   deriving (Enum, Eq, Ord, Show, Generic)
 
--- | Return the size of the closures header in words
+-- | The number of header words of an object of this kind. AIHC objects are
+-- not profiled, so a thunk-like object has two header words and every other
+-- object has one.
 closureTypeHeaderSize :: ClosureType -> Int
-closureTypeHeaderSize closType =
-  case closType of
-    ct | THUNK <= ct && ct <= THUNK_0_2 -> thunkHeader
-    ct | ct == THUNK_SELECTOR -> thunkHeader
-    ct | ct == AP -> thunkHeader
-    ct | ct == AP_STACK -> thunkHeader
-    _ -> header
-  where
-    header = 1 + prof
-    thunkHeader = 2 + prof
-    prof = 0
+closureTypeHeaderSize kind
+  | kind >= THUNK && kind <= THUNK_0_2 = 2
+  | kind `elem` [THUNK_SELECTOR, AP, AP_STACK] = 2
+  | otherwise = 1

@@ -5,12 +5,16 @@ module GHC.Exts.Heap.Constants
   )
 where
 
-import Data.Bits
 import Prelude
 
--- | AIHC targets 64-bit machines only. A word has 8 bytes. The three low
--- bits of a pointer are its tag.
-wORD_SIZE, tAG_MASK, wORD_SIZE_IN_BITS :: Int
+-- | The size of a machine word in bytes. AIHC targets 64-bit machines.
+wORD_SIZE :: Int
 wORD_SIZE = 8
+
+-- | The size of a machine word in bits.
+wORD_SIZE_IN_BITS :: Int
 wORD_SIZE_IN_BITS = 64
-tAG_MASK = (1 `shift` 3) - 1
+
+-- | The mask for the tag in the three low bits of a pointer.
+tAG_MASK :: Int
+tAG_MASK = 7

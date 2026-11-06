@@ -1,3 +1,5 @@
+-- | AIHC does not profile, so this module has the same functions as
+-- "GHC.Exts.Heap.InfoTable".
 module GHC.Exts.Heap.InfoTableProf
   ( module GHC.Exts.Heap.InfoTable.Types,
     itblSize,

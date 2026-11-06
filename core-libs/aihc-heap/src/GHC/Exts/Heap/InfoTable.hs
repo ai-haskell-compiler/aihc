@@ -6,19 +6,20 @@ module GHC.Exts.Heap.InfoTable
   )
 where
 
-import Foreign
+import Foreign (Ptr)
 import GHC.Exts.Heap.InfoTable.Types
 import GHC.Exts.Heap.Unsupported
 import Prelude
 
--- | AIHC info tables do not have the layout of GHC info tables.
+-- | Read an info table. AIHC info tables do not have the GHC layout.
 peekItbl :: Ptr StgInfoTable -> IO StgInfoTable
 peekItbl _ = unsupported "peekItbl"
 
--- | AIHC info tables do not have the layout of GHC info tables.
+-- | Write an info table. AIHC info tables do not have the GHC layout.
 pokeItbl :: Ptr StgInfoTable -> StgInfoTable -> IO ()
 pokeItbl _ _ = unsupported "pokeItbl"
 
--- | Size in bytes of a standard info table.
+-- | The size in bytes of an info table. AIHC info tables do not have the GHC
+-- layout.
 itblSize :: Int
 itblSize = unsupported "itblSize"

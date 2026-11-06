@@ -4,14 +4,16 @@ module GHC.Exts.Heap.ProfInfo.PeekProfInfo_ProfilingDisabled
   )
 where
 
-import Foreign
+import Foreign (Ptr)
 import GHC.Exts.Heap.ProfInfo.Types
 import Prelude
 
--- | This implementation is used when PROFILING is undefined.
--- It always returns 'Nothing', because there is no profiling info available.
+-- | A program without profiling has no profile record, so the result is
+-- always 'Nothing'.
 peekStgTSOProfInfo :: (Ptr a -> IO (Maybe CostCentreStack)) -> Ptr tsoPtr -> IO (Maybe StgTSOProfInfo)
-peekStgTSOProfInfo _ _ = return Nothing
+peekStgTSOProfInfo _ _ = pure Nothing
 
+-- | A program without profiling has no cost-centre stack, so the result is
+-- always 'Nothing'.
 peekTopCCS :: Ptr a -> IO (Maybe CostCentreStack)
-peekTopCCS _ = return Nothing
+peekTopCCS _ = pure Nothing
