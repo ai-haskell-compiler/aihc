@@ -863,7 +863,7 @@ updateBody st name body =
     oldReferences = MonoidMap.get name (inRefs st)
     users =
       Set.foldl'
-        (\acc callee -> MonoidMap.adjust (Set.insert name) callee acc)
+        (flip (MonoidMap.adjust (Set.insert name)))
         (Set.foldl' (flip (MonoidMap.adjust (Set.delete name))) (inUsers st) (oldReferences Set.\\ references))
         (references Set.\\ oldReferences)
     updated =
