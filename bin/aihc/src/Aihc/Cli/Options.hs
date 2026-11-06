@@ -314,7 +314,7 @@ buildOptionsParser =
       )
     <*> OA.switch
       ( OA.long "no-pie"
-          <> OA.help "Link a Linux executable at a fixed address, not as a position-independent executable (PIE). WARNING: This disables address space layout randomization (ASLR) for the code and static data of the program. An attacker can then use known addresses to exploit a memory defect, for example in C code that the program calls. Use this option only for programs that do not process untrusted input. The executable is approximately 1% smaller and starts a little faster. Apple and WebAssembly targets ignore this option"
+          <> OA.help "Link a Linux executable at a fixed address, not as a position-independent executable (PIE). WARNING: This disables address space layout randomization (ASLR) for the code and static data of the program. An attacker can then use known addresses to exploit a memory defect, for example in C code that the program calls. Use this option only for programs that do not process untrusted input. Without PIE, the executable is approximately 0.4% smaller. It also starts faster, because the loader does not write the pointers of the static data. For a 17 MB program, the difference is approximately 3 ms. Apple and WebAssembly targets ignore this option"
       )
     <*> OA.switch
       ( OA.long "verbose"
