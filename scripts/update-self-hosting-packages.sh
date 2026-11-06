@@ -74,7 +74,8 @@ for cabal_file in components/*/*.cabal tooling/*/*.cabal; do
 done
 
 # Disable both optional flags of aihc for the self-compile package list. The
-# nothunks flag of monoidmap needs ghc-heap, which aihc does not yet provide.
+# nothunks flag of monoidmap needs wherefrom-compat, which needs GHC.InfoProv
+# of base. aihc does not yet provide that module.
 "$aihc" plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" \
 	--constraint "monoidmap -nothunks" \
 	--workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
@@ -136,7 +137,8 @@ A package comes after all of its dependencies.
 `aihc plan bin/aihc --executable aihc --constraint "aihc -hackage -pretty-ui" --constraint "monoidmap -nothunks"`.
 The plan disables both optional flags of aihc: `hackage` and `pretty-ui`.
 It also disables the `nothunks` flag of monoidmap, because nothunks needs
-ghc-heap, which aihc does not yet provide.
+wherefrom-compat, which needs `GHC.InfoProv` of base. aihc does not yet
+provide that module.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with

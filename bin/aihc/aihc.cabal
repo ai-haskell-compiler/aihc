@@ -575,6 +575,7 @@ test-suite dev-spec
     aihc,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-hackage,
+    aihc-heap,
     aihc-internal,
     aihc-package-plan,
     aihc-parser,

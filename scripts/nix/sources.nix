@@ -155,6 +155,12 @@ in rec {
     ".lir"
   ];
 
+  heapSrc = mkComponentSrc "/core-libs/aihc-heap" [
+    ".hs"
+    ".cabal"
+    "LICENSE.filepath"
+  ];
+
   internalSrc = mkComponentSrc "/core-libs/aihc-internal" [
     ".hs"
     ".hs-boot"

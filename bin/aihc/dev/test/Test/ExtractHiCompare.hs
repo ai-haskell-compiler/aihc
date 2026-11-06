@@ -68,7 +68,8 @@ localPackageSubsetTests =
   testGroup
     "extract-hi local package subsets"
     [ testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset,
-      testCase "aihc-template-haskell is a subset of template-haskell" test_aihcTemplateHaskellSubset
+      testCase "aihc-template-haskell is a subset of template-haskell" test_aihcTemplateHaskellSubset,
+      testCase "aihc-heap is a subset of ghc-heap" test_aihcHeapSubset
     ]
 
 test_acceptsEmptyCandidateModuleExports :: Assertion
@@ -376,6 +377,12 @@ test_coreLibsHaveOnlyKnownDivergences = do
     fixed
   where
     renderMismatch item = mismatchPath item <> ": " <> mismatchMessage item
+
+test_aihcHeapSubset :: Assertion
+test_aihcHeapSubset = do
+  candidate <- extractPackage "aihc-heap"
+  oracle <- extractPackage "ghc-heap"
+  assertEqual "aihc-heap mismatches" [] (comparePackageSubset candidate oracle)
 
 test_aihcInternalSubset :: Assertion
 test_aihcInternalSubset = do

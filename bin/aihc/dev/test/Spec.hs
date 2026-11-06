@@ -14,7 +14,7 @@ main =
       exploreDocumentTests,
       extractHiCompareTests,
       fuzzTests
-      -- localPackageSubsetTests needs aihc-internal and aihc-template-haskell
+      -- localPackageSubsetTests needs aihc-heap, aihc-internal, and aihc-template-haskell
       -- in a ghc-pkg database, which only the cabal build provides.
     ]
 

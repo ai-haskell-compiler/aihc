@@ -646,6 +646,15 @@
       test -n "$archive"
       test -s "$archive"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
+
+      # aihc-heap depends on base only, so the install reuses aihc-base.
+      ${aihcExe} install core-libs/aihc-heap --store "$store" --immutable --keep-core --lint --target ${hostBackendTarget}
+
+      test -n "$(find "$store" -path '*/GHC/Exts/Heap/core.fc' -print -quit)"
+      heap_archive="$(find "$store" -path '*/lib/libaihc-heap.a' -print -quit)"
+      test -n "$heap_archive"
+      test -s "$heap_archive"
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
     '';
 
