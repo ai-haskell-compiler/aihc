@@ -2,6 +2,8 @@
 -- repeated computations before register allocation.
 module Aihc.Lir.Simplify
   ( simplifyBooleanBranches,
+    eliminateDeadInstructions,
+    splitConditionBranches,
     threadConstantBranches,
     simplifyRotations,
     simplifyWidths,
@@ -17,6 +19,132 @@ import Data.Bits (popCount)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
+import Data.Text qualified as T
+
+-- | Drop each instruction whose results nothing reads and whose operation
+-- has no effect. A drop can make another instruction dead, so the pass
+-- repeats until nothing changes. A load is pure here: the lowering reads a
+-- field only from an object it knows. A division and a conversion stay,
+-- because they can trap.
+eliminateDeadInstructions :: Function -> Function
+eliminateDeadInstructions function
+  | null dead = function
+  | otherwise = eliminateDeadInstructions function {functionBlocks = map dropDead (functionBlocks function)}
+  where
+    uses = readCounts function
+    unread instruction = all (\result -> Map.findWithDefault 0 result uses == 0) (instructionResults instruction)
+    removable instruction = unread instruction && pure' (instructionOperation instruction)
+    dead = [() | block <- functionBlocks function, instruction <- blockInstructions block, removable instruction]
+    dropDead block = block {blockInstructions = filter (not . removable) (blockInstructions block)}
+    pure' operation = case operation of
+      Binary op _ _ _ -> op `notElem` [DivS, DivU, RemS, RemU]
+      Unary {} -> True
+      Wide {} -> True
+      Compare {} -> True
+      FloatBinary {} -> True
+      FloatUnary {} -> True
+      Convert op _ _ _ -> op `elem` [SExt, ZExt, Trunc, Bitcast, FpExt, FpTrunc]
+      PtrToInt {} -> True
+      PtrFromInt {} -> True
+      Select {} -> True
+      Load {} -> True
+      LoadInvariant {} -> True
+      PtrAdd {} -> True
+      GlobalGet {} -> True
+      _ -> False
+
+-- | Split a branch on the conjunction or the disjunction of two Booleans
+-- into two branches. A target computes each Boolean with a compare and a
+-- set instruction, and the branch then tests their combination. Two
+-- branches test the two compares directly. The second Boolean goes to a new
+-- block: its compare moves there when only the conjunction reads it, and
+-- so does a load that only that compare reads, when nothing after the load
+-- in the block writes memory. The compare of the first Boolean moves to the
+-- end of the block. Thus each compare is next to its branch.
+splitConditionBranches :: Function -> Function
+splitConditionBranches function
+  | not (any splittable (functionBlocks function)) = function
+  | otherwise = function {functionBlocks = concatMap (split (0 :: Int)) (functionBlocks function)}
+  where
+    uses = readCounts function
+    useOnce var = Map.lookup var uses == Just 1
+    labels = Set.fromList (map blockLabel (functionBlocks function))
+    splittable block = case combination block of
+      Just _ -> True
+      Nothing -> False
+    combination block =
+      case (reverse (blockInstructions block), blockTerminator block) of
+        (Instruction [joined] (Binary op I1 (OperandVar first) (OperandVar second)) : before, Branch (OperandVar condition) whenTrue whenFalse)
+          | joined == condition,
+            op `elem` [And, Or],
+            useOnce joined,
+            first /= second ->
+              Just (op, first, second, before, whenTrue, whenFalse)
+        _ -> Nothing
+    split count block =
+      case combination block of
+        Nothing -> [block]
+        Just (op, first, second, before, whenTrue, whenFalse) ->
+          let label = freshLabel count (blockLabel block)
+              -- The instructions are in reverse order.
+              (secondCode, rest) = takeDefinition second (reverse before)
+              (firstCode, kept) = takeDefinition first rest
+              next = Target label []
+              (onTrue, onFalse) = if op == And then (next, whenFalse) else (whenTrue, next)
+              head' = block {blockInstructions = kept <> firstCode, blockTerminator = Branch (OperandVar first) onTrue onFalse}
+              tail' =
+                Block
+                  { blockLabel = label,
+                    blockParameters = [],
+                    blockInstructions = secondCode,
+                    blockTerminator = Branch (OperandVar second) whenTrue whenFalse,
+                    blockCold = blockCold block
+                  }
+           in head' : split (count + 1) tail'
+    freshLabel count (Label base) =
+      let candidate n = Label (base <> "$next" <> tshow n)
+          search n
+            | Set.member (candidate n) labels = search (n + 1)
+            | otherwise = candidate n
+       in search count
+    -- The compare that defines a Boolean, with the load that only it reads,
+    -- out of the instructions in program order. A definition that is not a
+    -- compare of one use stays where it is.
+    takeDefinition var instructions =
+      case break (defines var) instructions of
+        (earlier, definition@(Instruction _ (Compare _ _ left right)) : later)
+          | useOnce var ->
+              let (loads, earlier') = takeLoads [left, right] earlier later
+               in (loads <> [definition], earlier' <> later)
+        _ -> ([], instructions)
+    -- A load moves past each instruction after it, so none of them may
+    -- write memory.
+    takeLoads operands instructions after =
+      case [var | OperandVar var <- operands, useOnce var] of
+        [] -> ([], instructions)
+        candidates ->
+          case break (\instruction -> any (`defines` instruction) candidates) instructions of
+            (earlier, load@(Instruction _ operation) : later)
+              | isLoad operation,
+                not (any writes (later <> after)) ->
+                  ([load], earlier <> later)
+            _ -> ([], instructions)
+    defines var instruction = instructionResults instruction == [var]
+    isLoad operation = case operation of
+      Load {} -> True
+      LoadInvariant {} -> True
+      _ -> False
+    writes instruction = case instructionOperation instruction of
+      Store {} -> True
+      StoreAtomic {} -> True
+      CompareSwap {} -> True
+      AtomicRmw {} -> True
+      Fence {} -> True
+      GlobalSet {} -> True
+      Call {} -> True
+      CallIndirect {} -> True
+      _ -> False
+    tshow = T.pack . show
 
 -- | A zero extension from i1 can only produce zero or one.
 -- Keep the extension if another instruction or an edge argument reads it.
