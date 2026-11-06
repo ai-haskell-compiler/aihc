@@ -6,10 +6,9 @@ enter_direct:
 	and r9, -0x4
 	mov r9, [r9]
 	mov r12, [r12 + 8]
-	mov r10, r9
-	test r10, r10
+	test r9, r9
 	je .Llir_trap_0
-	jmp r10
+	jmp r9
 	.text
 	.p2align 4
 	.globl enter_inline
@@ -18,10 +17,9 @@ enter_inline:
 	and r9, -0x4
 	mov r9, [r9]
 	mov r12, [r12 + 8]
-	mov r10, r9
-	test r10, r10
+	test r9, r9
 	je .Llir_trap_0
-	jmp r10
+	jmp r9
 	.text
 	.p2align 4
 .Llir_trap_0:

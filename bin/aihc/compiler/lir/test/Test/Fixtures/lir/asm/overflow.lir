@@ -1,10 +1,10 @@
 ; A tail call whose arguments overrun the argument registers of both targets:
-; 24 on AArch64 and 11 on AMD64 under the aihc convention.
-; The outgoing block is no larger than the incoming one, so it is written in
-; place of the incoming block. The register arguments fill every register
-; that the allocator gives out, so the stack arguments stay in frame slots
-; and the tail call copies them back. Lowered code seldom has this many
-; parameters.
+; 24 on AArch64 and 13 on AMD64 under the aihc convention.
+; The outgoing block is no larger than the incoming one. On AMD64, a stack
+; argument stays in its incoming slot, so an argument that the tail call
+; passes at the same position needs no move. On AArch64, the stack arguments
+; stay in frame slots and the tail call copies them back.
+; Lowered code seldom has this many parameters.
 func @spread(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64, %j: i64, %k: i64, %l: i64, %m: i64, %n: i64, %o: i64, %p: i64, %q: i64, %r: i64, %s: i64, %t: i64, %u: i64, %v: i64, %w: i64, %x: i64, %y: i64, %z: i64) {
 entry:
   %sum = add i64 %a, %z

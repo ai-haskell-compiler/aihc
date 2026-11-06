@@ -11,10 +11,10 @@ limb:
 	mov r9, [r12]
 	add r9, r13
 	adc rbx, 0x0
-	add rdi, r9
+	add rbp, r9
 	adc rbx, 0x0
-	mov [r12], rdi
-	mov rax, rdi
+	mov [r12], rbp
+	mov rax, rbp
 	mov rdx, rbx
 	ret
 	.section .note.GNU-stack

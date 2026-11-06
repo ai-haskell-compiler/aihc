@@ -1,9 +1,9 @@
 	.text
 	.p2align 4
 main:
-	mov r11d, 0x80
+	mov r9d, 0x80
 	mov r10d, 0xff
-	movsx rax, r11b
+	movsx rax, r9b
 	movsx r10, r10b
 	test r10, r10
 	je .Llir_trap_0
@@ -15,9 +15,9 @@ main:
 	idiv r10
 	mov r9, rdx
 	movzx r9, r9b
-	mov r11, 0x8000000000000000
+	mov r8, 0x8000000000000000
 	mov r10, 0xffffffffffffffff
-	mov rax, r11
+	mov rax, r8
 	test r10, r10
 	je .Llir_trap_0
 	cmp r10, -0x1
