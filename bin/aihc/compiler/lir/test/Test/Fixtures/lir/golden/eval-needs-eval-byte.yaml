@@ -47,13 +47,13 @@ expected: |
     %header_word_21 = load.dependent i64 [%current_20] region heap
     %info_word_22 = and i64 %header_word_21, -4
     %header_23 = ptr.from_int %info_word_22
-    %needs_eval_24 = load.invariant i8 [%header_23 + 44] align 1
-    %needs_eval_25 = zext i8 %needs_eval_24 to i64
-    %not_value_26 = ne i64 %needs_eval_25, 0
+    %needs_eval_24$load0 = load.invariant i8 [%header_23 + 44] align 1
+    %not_value_26 = ne i8 %needs_eval_24$load0, 0
     br %not_value_26, eval_not_value_27, eval_ready_18
 
   cold eval_not_value_27:
-    %indirection_31 = eq i64 %needs_eval_25, 2
+    %needs_eval_24$load1 = load.invariant i8 [%header_23 + 44] align 1
+    %indirection_31 = eq i8 %needs_eval_24$load1, 2
     br %indirection_31, eval_follow_28, eval_thunk_29
 
   cold eval_thunk_29:
@@ -66,13 +66,13 @@ expected: |
     %header_word_35 = load.dependent i64 [%word_34] region heap
     %info_word_36 = and i64 %header_word_35, -4
     %header_37 = ptr.from_int %info_word_36
-    %word_kind_38 = load.invariant i8 [%header_37 + 43] align 1
-    %word_kind_39 = zext i8 %word_kind_38 to i64
-    %thread_40 = eq i64 %word_kind_39, 7
+    %word_kind_38$load2 = load.invariant i8 [%header_37 + 43] align 1
+    %thread_40 = eq i8 %word_kind_38$load2, 7
     br %thread_40, eval_slow_19, eval_owner_30$next0
 
   cold eval_owner_30$next0:
-    %queue_41 = eq i64 %word_kind_39, 15
+    %word_kind_38$load3 = load.invariant i8 [%header_37 + 43] align 1
+    %queue_41 = eq i8 %word_kind_38$load3, 15
     br %queue_41, eval_slow_19, eval_check_17(%word_34)
 
   cold eval_follow_28:
@@ -89,8 +89,7 @@ expected: |
 
   force_thunk_44:
     %kind_50 = load.invariant i8 [%header_23 + 43] align 1
-    %kind_51 = zext i8 %kind_50 to i64
-    %thunk_52 = eq i64 %kind_51, 2
+    %thunk_52 = eq i8 %kind_50, 2
     br %thunk_52, force_stack_45, force_helper_47
 
   force_stack_45:

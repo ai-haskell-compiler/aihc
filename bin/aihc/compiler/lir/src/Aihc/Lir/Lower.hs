@@ -77,7 +77,7 @@ import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Inline (mergeTailCallees)
-import Aihc.Lir.Simplify (eliminateCommonSubexpressions, eliminateDeadInstructions, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
+import Aihc.Lir.Simplify (duplicateInvariantLoads, eliminateCommonSubexpressions, eliminateDeadInstructions, narrowExtendedCompares, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -1018,16 +1018,19 @@ finishFunction symbol linkage parameters results convention = do
             simplifyBooleanBranches $
               splitConditionBranches $
                 eliminateDeadInstructions $
-                  eliminateCommonSubexpressions $
-                    simplifyMultiplications
-                      Function
-                        { functionName = symbol,
-                          functionLinkage = linkage,
-                          functionParameters = parameters,
-                          functionResults = results,
-                          functionConvention = convention,
-                          functionBlocks = reverse (stateBlocksRev state)
-                        }
+                  duplicateInvariantLoads $
+                    eliminateDeadInstructions $
+                      narrowExtendedCompares $
+                        eliminateCommonSubexpressions $
+                          simplifyMultiplications
+                            Function
+                              { functionName = symbol,
+                                functionLinkage = linkage,
+                                functionParameters = parameters,
+                                functionResults = results,
+                                functionConvention = convention,
+                                functionBlocks = reverse (stateBlocksRev state)
+                              }
     )
 
 -- Target layout

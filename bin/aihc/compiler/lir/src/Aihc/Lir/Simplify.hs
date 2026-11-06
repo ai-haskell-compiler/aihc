@@ -3,6 +3,8 @@
 module Aihc.Lir.Simplify
   ( simplifyBooleanBranches,
     eliminateDeadInstructions,
+    narrowExtendedCompares,
+    duplicateInvariantLoads,
     splitConditionBranches,
     threadConstantBranches,
     simplifyRotations,
@@ -16,6 +18,7 @@ import Aihc.Lir.RegAlloc (operationReads, readCounts)
 import Aihc.Lir.Syntax
 import Control.Applicative ((<|>))
 import Data.Bits (popCount)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -52,6 +55,97 @@ eliminateDeadInstructions function
       PtrAdd {} -> True
       GlobalGet {} -> True
       _ -> False
+
+-- | Compare a zero-extended value with a constant at the narrow width when
+-- the constant fits it. A signed compare of such a value with a constant
+-- that is not negative is the unsigned compare. The extension can then die,
+-- and the backend can compare the narrow value where it was loaded.
+narrowExtendedCompares :: Function -> Function
+narrowExtendedCompares function
+  | Map.null extensions = function
+  | otherwise = function {functionBlocks = map narrowBlock (functionBlocks function)}
+  where
+    extensions =
+      Map.fromList
+        [ (wide, (narrowTy, narrow))
+        | block <- functionBlocks function,
+          Instruction [wide] (Convert ZExt narrowTy narrow _) <- blockInstructions block,
+          narrowTy `elem` [I8, I16, I32]
+        ]
+    narrowBlock block = block {blockInstructions = map narrowInstruction (blockInstructions block)}
+    narrowInstruction instruction =
+      case instructionOperation instruction of
+        Compare op _ (OperandVar wide) (OperandLiteral (LitInt constant))
+          | Just (narrowTy, narrow) <- Map.lookup wide extensions,
+            Just op' <- narrowed op narrowTy constant ->
+              instruction {instructionOperation = Compare op' narrowTy narrow (OperandLiteral (LitInt constant))}
+        Compare op _ (OperandLiteral (LitInt constant)) (OperandVar wide)
+          | Just (narrowTy, narrow) <- Map.lookup wide extensions,
+            Just op' <- narrowed op narrowTy constant ->
+              instruction {instructionOperation = Compare op' narrowTy (OperandLiteral (LitInt constant)) narrow}
+        _ -> instruction
+    narrowed op narrowTy constant
+      | constant < 0 || constant >= 2 ^ typeBits narrowTy = Nothing
+      | otherwise = case op of
+          LtS -> Just LtU
+          LeS -> Just LeU
+          GtS -> Just GtU
+          GeS -> Just GeU
+          _ | op `elem` [Eq, Ne, LtU, LeU, GtU, GeU] -> Just op
+          _ -> Nothing
+
+-- | Give each compare its own copy of an invariant load when every reader of
+-- the load is a compare with a constant. Invariant memory does not change,
+-- so the copy reads the same value, and the base of the address dominates
+-- each compare because the load does. A backend can then compare each copy
+-- in memory. The original load dies.
+duplicateInvariantLoads :: Function -> Function
+duplicateInvariantLoads function
+  | Map.null candidates = function
+  | otherwise = function {functionBlocks = snd (List.mapAccumL copyBlock (0 :: Int) (functionBlocks function))}
+  where
+    uses = readCounts function
+    definitions =
+      Map.fromList
+        [ (var, operation)
+        | block <- functionBlocks function,
+          Instruction [var] operation@(LoadInvariant ty _ _) <- blockInstructions block,
+          ty `elem` [I8, I16, I32, I64, Ptr, Code]
+        ]
+    compareReads =
+      Map.fromListWith
+        (+)
+        [ (var, 1 :: Int)
+        | block <- functionBlocks function,
+          Instruction _ (Compare _ _ left right) <- blockInstructions block,
+          (OperandVar var, OperandLiteral _) <- [(left, right), (right, left)]
+        ]
+    candidates =
+      Map.filterWithKey (\var _ -> Map.findWithDefault 0 var uses > 1 && Map.lookup var compareReads == Map.lookup var uses) definitions
+    names = Set.fromList (map (unVar . fst) (functionParameters function) <> [unVar name | block <- functionBlocks function, name <- map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block)])
+    fresh count (Var base) =
+      let candidate n = base <> "$load" <> tshow n
+          search n
+            | Set.member (candidate n) names = search (n + 1)
+            | otherwise = (n + 1, Var (candidate n))
+       in search count
+    copyBlock count block =
+      let (count', instructions) = List.mapAccumL copyInstruction count (blockInstructions block)
+       in (count', block {blockInstructions = concat instructions})
+    copyInstruction count instruction =
+      case instructionOperation instruction of
+        Compare op ty left right
+          | Just (var, load, side) <- loaded left right ->
+              let (count', copy) = fresh count var
+                  operation = if side then Compare op ty (OperandVar copy) right else Compare op ty left (OperandVar copy)
+               in (count', [Instruction [copy] load, instruction {instructionOperation = operation}])
+        _ -> (count, [instruction])
+    loaded left right =
+      case (left, right) of
+        (OperandVar var, OperandLiteral _) | Just load <- Map.lookup var candidates -> Just (var, load, True)
+        (OperandLiteral _, OperandVar var) | Just load <- Map.lookup var candidates -> Just (var, load, False)
+        _ -> Nothing
+    tshow = T.pack . show
 
 -- | Split a branch on the conjunction or the disjunction of two Booleans
 -- into two branches. A target computes each Boolean with a compare and a

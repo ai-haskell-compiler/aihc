@@ -198,7 +198,7 @@ amd64Backend =
       nbFloatFromVec = \_ty xmm dest -> [amd64Instruction (AmdMovqFromXmm dest xmm)],
       nbFloatToVec = \ty register xmm -> [toFloat ty xmm register],
       nbJump = amd64Instruction . AmdJmp . Amd64JumpLabel,
-      nbCanFuseBitTest = False,
+      nbCanFuseBitTest = True,
       nbCanFuseFloatCompare = \op -> op `elem` [Eq, Ne, FLt, FLe, FGt, FGe],
       nbCanFuseLoadCompare = True,
       nbConditionTest = \ctx fused condition ->
@@ -414,6 +414,7 @@ instructionEffect instruction =
     AmdCmpMemory {} -> Writes []
     AmdCmpGot _ _ -> Writes []
     AmdTest _ _ -> Writes []
+    AmdTestImmediate _ _ -> Writes []
     AmdShl destination -> modifies destination
     AmdShr destination -> modifies destination
     AmdShlImmediate destination _ -> modifies destination
@@ -613,9 +614,14 @@ data Test
 conditionTest :: Ctx Amd64Register -> Maybe Fused -> Operand -> ([Amd64Statement], Test)
 conditionTest ctx fused condition =
   case fused of
-    Just (FusedBit op ty value bit) ->
-      let (loads, register) = operandIn' ctx 0 ty scratchLeft value
-       in (loads <> [immediate scratchRight (2 ^ bit :: Integer), amd64Instruction (AmdTest (Amd64RmRegister register) scratchRight)], TestFlags (integerCondition op))
+    Just (FusedBit op ty value bit)
+      -- The 32-bit form tests a bit of the low half with one instruction.
+      | bit < 32 ->
+          let (loads, register) = operandIn' ctx 0 ty scratchLeft value
+           in (loads <> [amd64Instruction (AmdTestImmediate (Amd64RmRegister register) (2 ^ bit))], TestFlags (integerCondition op))
+      | otherwise ->
+          let (loads, register) = operandIn' ctx 0 ty scratchLeft value
+           in (loads <> [immediate scratchRight (2 ^ bit :: Integer), amd64Instruction (AmdTest (Amd64RmRegister register) scratchRight)], TestFlags (integerCondition op))
     Just (Fused op ty left right)
       | op `elem` [Eq, Ne],
         not (isFloatType ty),
