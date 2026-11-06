@@ -134,7 +134,9 @@ This first version does not keep a watcher list on each `TVar`: each commit with
 The abort of a valid transaction records the commit count in the thread, so a commit between the abort and the wait ends the wait at once.
 The count is not a field of the capability: a context switch can run another thread between the abort and the wait, and an abort of that thread must not change the count.
 When the only work of the machine is waits without a timer, each waiting transaction raises `BlockedIndefinitelyOnSTM`.
-With one capability, a transaction that retries lets the other threads run when they have work, and otherwise it waits for the earliest timer.
+With one capability, a transaction that retries also waits until the next commit or the earliest STM timer.
+Another thread of the capability can make that commit while the transaction waits.
+With one capability and no STM timer, a transaction that retries lets the other threads run when they have work.
 As in GHC, `forkIO` catches an exception that the action does not catch, writes it to the standard error, and ends only that thread.
 A local collection does not stop the other capabilities.
 It holds the heap lock, which is also the object lock, only while it visits its roots and while it sweeps.

@@ -782,25 +782,37 @@ tcRuleDecl rule = withAmbientSpan sp $ do
                   (UnifyOrigin sp)
                   sp
           solveResult <- solveWithImpls (lhsCts <> rhsCts <> [sidesCt]) []
-          residualPreds <- generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
+          -- GHC quantifies a rule over an equality that the sides leave
+          -- open, as in @PrimSize a ~ PrimSize b@. A rule type here holds
+          -- dictionary binders only, so such a rule keeps its source form
+          -- and reports nothing: the rule cannot rewrite, but the program
+          -- is still correct.
+          let leavesEquality = any (isEqualityPred . ctPred) (srResidual solveResult <> inertDicts (srInerts solveResult))
+          residualPreds <- if leavesEquality then pure Nothing else Just <$> generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
           pure (lhs', lhsTy, rhs', residualPreds)
-    if failed
-      then pure rule
-      else do
-        let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
-        Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds
-        let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
-        binders' <- forM binders $ \(binder, ty) ->
-          pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
-        pure
-          rule
-            { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
-              ruleBinders = binders',
-              ruleLhs = lhs',
-              ruleRhs = rhs'
-            }
+    case residualPreds of
+      Nothing -> pure rule
+      Just residualPreds'
+        | failed -> pure rule
+        | otherwise -> do
+            let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
+            Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
+            let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
+            binders' <- forM binders $ \(binder, ty) ->
+              pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
+            pure
+              rule
+                { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
+                  ruleBinders = binders',
+                  ruleLhs = lhs',
+                  ruleRhs = rhs'
+                }
   where
     sp = sourceSpanFromAnns (ruleAnns rule)
+
+    isEqualityPred predicate = case predicate of
+      EqPred {} -> True
+      _ -> False
 
     pendingTypes pending =
       pendingTcAnnType pending : pendingTcAnnTypeArgs pending <> pendingTcAnnTermArgTypes pending
@@ -880,7 +892,7 @@ structuralDeclGroups :: [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
 structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
   where
     numbered = zip [0 :: Int ..] declarations
-    owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration]
+    owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration <> declarationDataConKeys declaration]
     nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
     signatures = collectStandaloneKindSignatures (map snd declarations)
     kindAnnotations declaration =
@@ -889,12 +901,24 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
       [ owner
       | annotation <- annotationList declaration <> kindAnnotations declaration,
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
-        resolutionNamespace resolution == ResolutionNamespaceType,
         EntityGlobal global <- [resolutionTarget resolution],
-        Just owner <- [Map.lookup global {globalNameNamespace = ResolutionNamespaceType} owners]
+        Just owner <- [Map.lookup global {globalNameNamespace = resolutionNamespace resolution} owners]
       ]
     flatten (AcyclicSCC declaration) = [declaration]
     flatten (CyclicSCC group) = group
+
+-- | The keys of the data constructors a declaration binds. A promoted
+-- constructor in a kind or a type takes its kind from the declaration, so a
+-- declaration that uses one depends on the declaration that binds it.
+declarationDataConKeys :: Decl -> [GlobalName]
+declarationDataConKeys declaration =
+  case peelDeclAnn declaration of
+    DeclData info -> concatMap constructorKeys (dataDeclConstructors info)
+    DeclNewtype info -> maybe [] constructorKeys (newtypeDeclConstructor info)
+    _ -> []
+  where
+    constructorKeys constructor =
+      [key | DeclaredDataCon name <- dataConIdentities constructor, Just key <- [resolvedTypeKey name]]
 
 declarationTypeKeys :: Decl -> [GlobalName]
 declarationTypeKeys declaration =

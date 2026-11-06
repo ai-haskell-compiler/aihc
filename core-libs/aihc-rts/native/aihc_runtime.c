@@ -1768,6 +1768,9 @@ static const AihcResume *aihc_select_thread(AihcCapability *capability,
 
 int64_t aihc_io_error(int error) { return -((int64_t)error) - 1; }
 
+static void aihc_stm_forget_waiter(AihcMachine *machine,
+                                   AihcIoRequest *request);
+
 void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
                             int64_t result) {
   AihcThread *thread = request->thread;
@@ -1775,9 +1778,14 @@ void aihc_resume_io_request(AihcCapability *capability, AihcIoRequest *request,
   request->state = AIHC_IO_COMPLETED;
   request->result = result;
   /* An asynchronous exception cancelled the wait of a request without a
-     thread. The request ends, and nothing waits for its result. */
+     thread. The request ends, and nothing waits for its result. A timer can
+     end the wait of a transaction before a commit removes its waiter. After
+     this, the request can be garbage, so its waiter must go. */
   if (thread == NULL) {
     request->next = NULL;
+    if (request->kind == AIHC_IO_TIMER) {
+      aihc_stm_forget_waiter(capability->machine, request);
+    }
     return;
   }
   /* The thread and the continuation are deleted from an old record, as in
@@ -1988,6 +1996,39 @@ struct AihcStmWaiter {
   struct AihcStmWaiter *next;
 };
 
+/* Without workers, the machine has no STM wait lock. Only one OS thread
+   then uses the list of waiters, and it needs no lock. */
+static void aihc_stm_waiters_lock(AihcMachine *machine) {
+  if (machine->stm_wait_lock != NULL) {
+    aihc_host_lock_acquire(machine->stm_wait_lock);
+  }
+}
+
+static void aihc_stm_waiters_unlock(AihcMachine *machine) {
+  if (machine->stm_wait_lock != NULL) {
+    aihc_host_lock_release(machine->stm_wait_lock);
+  }
+}
+
+/* Remove the waiter of a request from the list, if it is there. */
+static void aihc_stm_forget_waiter(AihcMachine *machine,
+                                   AihcIoRequest *request) {
+  aihc_stm_waiters_lock(machine);
+  for (AihcStmWaiter **link = &machine->stm_waiters; *link != NULL;
+       link = &(*link)->next) {
+    AihcStmWaiter *waiter = *link;
+    if (waiter->request == request) {
+      if (request->deadline == UINT64_MAX) {
+        --machine->stm_forever_count;
+      }
+      *link = waiter->next;
+      free(waiter);
+      break;
+    }
+  }
+  aihc_stm_waiters_unlock(machine);
+}
+
 /* End the wait of each transaction that waits in retry. Each one runs
    again, or raises BlockedIndefinitelyOnSTM when it is abandoned. The
    deadline store comes before the read of the idle flag, and the idle wait
@@ -1996,10 +2037,7 @@ struct AihcStmWaiter {
    under the lock: aihc_stm_wait_result removes a waiter under the lock,
    and after that its request can be garbage. */
 static void aihc_stm_wake_waiters(AihcMachine *machine, int64_t mode) {
-  if (machine->stm_wait_lock == NULL) {
-    return;
-  }
-  aihc_host_lock_acquire(machine->stm_wait_lock);
+  aihc_stm_waiters_lock(machine);
   AihcStmWaiter *waiter = machine->stm_waiters;
   machine->stm_waiters = NULL;
   machine->stm_forever_count = 0;
@@ -2015,7 +2053,7 @@ static void aihc_stm_wake_waiters(AihcMachine *machine, int64_t mode) {
     free(waiter);
     waiter = next;
   }
-  aihc_host_lock_release(machine->stm_wait_lock);
+  aihc_stm_waiters_unlock(machine);
 }
 
 enum {
@@ -4796,13 +4834,14 @@ AihcSlot aihc_tvar_read_io(AihcCapability *capability, AihcValue *variable) {
   return __atomic_load_n(&variable->fields[1], __ATOMIC_ACQUIRE);
 }
 
-/* The request of a transaction that retries. With workers, the request
-   waits for the next commit or the earliest STM timer. A commit after the
-   reads of the transaction ends the wait at once. Without workers, nothing
-   can commit during a blocking poll. Thus the request waits for the
-   earliest STM timer. Without a timer, it lets the other threads run once
-   when they have work. Otherwise it ends at once and gives zero, and the
-   transaction raises BlockedIndefinitelyOnSTM. */
+/* The request of a transaction that retries. A commit after the reads of
+   the transaction ends the wait at once. With workers, the request waits
+   for the next commit or the earliest STM timer. Without workers, another
+   thread of the capability can commit while this thread waits. Thus a
+   request with an STM timer also waits for the next commit or that timer.
+   Without workers and without a timer, the request lets the other threads
+   run once when they have work. Otherwise it ends at once and gives zero,
+   and the transaction raises BlockedIndefinitelyOnSTM. */
 void *aihc_stm_wait_request(AihcCapability *capability) {
   AihcMachine *machine = capability->machine;
   AihcIoRequest *request = aihc_io_request_new(capability);
@@ -4816,26 +4855,28 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
       request->deadline = timer->deadline;
     }
   }
-  if (machine->workers_active) {
-    if (machine->stm_commit_count !=
-        capability->current_thread->stm_retry_token) {
-      aihc_object_unlock(machine);
-      request->state = AIHC_IO_COMPLETED;
-      request->result = 1;
-      return request;
-    }
+  /* A context switch can run another thread between the abort and this
+     request, and that thread can commit. */
+  if (machine->stm_commit_count !=
+      capability->current_thread->stm_retry_token) {
+    aihc_object_unlock(machine);
+    request->state = AIHC_IO_COMPLETED;
+    request->result = 1;
+    return request;
+  }
+  if (machine->workers_active || request->deadline != UINT64_MAX) {
     AihcStmWaiter *waiter = malloc(sizeof(*waiter));
     if (waiter == NULL) {
       aihc_fail("out of memory");
     }
     waiter->request = request;
-    aihc_host_lock_acquire(machine->stm_wait_lock);
+    aihc_stm_waiters_lock(machine);
     waiter->next = machine->stm_waiters;
     machine->stm_waiters = waiter;
     if (request->deadline == UINT64_MAX) {
       ++machine->stm_forever_count;
     }
-    aihc_host_lock_release(machine->stm_wait_lock);
+    aihc_stm_waiters_unlock(machine);
     aihc_object_unlock(machine);
     request->state = AIHC_IO_SUBMITTED;
     return request;
@@ -4859,22 +4900,7 @@ void *aihc_stm_wait_request(AihcCapability *capability) {
 int64_t aihc_stm_wait_result(AihcCapability *capability, void *request) {
   AihcMachine *machine = capability->machine;
   /* A timer ended the wait, so the request can still be in the list. */
-  if (machine->stm_wait_lock != NULL) {
-    aihc_host_lock_acquire(machine->stm_wait_lock);
-    for (AihcStmWaiter **link = &machine->stm_waiters; *link != NULL;
-         link = &(*link)->next) {
-      AihcStmWaiter *waiter = *link;
-      if (waiter->request == request) {
-        if (waiter->request->deadline == UINT64_MAX) {
-          --machine->stm_forever_count;
-        }
-        *link = waiter->next;
-        free(waiter);
-        break;
-      }
-    }
-    aihc_host_lock_release(machine->stm_wait_lock);
-  }
+  aihc_stm_forget_waiter(machine, request);
   int64_t result = aihc_io_take_result(request);
   if (result < 0) {
     aihc_fail("STM timer wait failed");
