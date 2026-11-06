@@ -133,6 +133,8 @@ data Amd64MoveSource
 data Amd64StoreSource
   = Amd64StoreRegister !Amd64Register
   | Amd64StoreImmediate !Integer
+  | -- | The address of a symbol, as a sign-extended 32-bit constant.
+    Amd64StoreSymbol !Text
   deriving (Eq, Show)
 
 data Amd64BinarySource
@@ -625,6 +627,7 @@ encodeStore destination source =
       let sourceRegister = registerInfo sourceValue
        in encodeRm (registerWidth sourceRegister == 64) [0x89] (registerNumber sourceRegister) (memoryOperand destination) False []
     Amd64StoreImmediate immediate -> encodeGroup True [0xc7] 0 (memoryOperand destination) (word32List (fromIntegral immediate))
+    Amd64StoreSymbol symbol -> encodeGroup True [0xc7] 0 (memoryOperand destination) [] <> [Apply (Fixup X86Abs32S (SymbolName symbol) 0 4 0)]
 
 encodeRegisterSource :: Bool -> [Word8] -> Amd64Register -> Amd64Rm -> [Item]
 encodeRegisterSource width64 destinationOpcode destinationSource source =
