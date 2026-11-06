@@ -576,7 +576,7 @@ runRounds config rounds st
 inlineRound :: InlineConfig -> Inliner -> Inliner
 inlineRound config st0 = List.foldl' step st0 sccs
   where
-    graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
+    graph = [(name, name, Set.toList (inRefs st0 Map.! name)) | name <- Map.keys (inRefs st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
     -- Known values use the round-start bodies, so their versions must match.
