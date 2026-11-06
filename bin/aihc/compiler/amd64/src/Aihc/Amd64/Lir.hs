@@ -1188,9 +1188,19 @@ amd64Load ctx ty base offset dst =
 
 amd64Store :: Ctx Amd64Register -> Type -> Operand -> Operand -> Integer -> [Amd64Statement]
 amd64Store ctx ty value base offset =
-  let (loads, a) = operandIn' ctx 0 ty scratchLeft value
-      (loads', baseRegister) = operandIn' ctx 0 Ptr scratchRight base
-   in loads <> loads' <> [storeMemory ty (Amd64Memory baseRegister (fromInteger offset)) a]
+  let (loads', baseRegister) = operandIn' ctx 0 Ptr scratchRight base
+      place = Amd64Memory baseRegister (fromInteger offset)
+   in case value of
+        -- A 64-bit constant or symbol address goes straight to memory.
+        OperandLiteral (LitSymbol symbol)
+          | typeBits ty == 64 -> loads' <> [amd64Instruction (AmdStore place (Amd64StoreSymbol (lirSymbol symbol)))]
+        _
+          | typeBits ty == 64,
+            Just bits <- smallImmediate ty value ->
+              loads' <> [amd64Instruction (AmdStore place (Amd64StoreImmediate bits))]
+        _ ->
+          let (loads, a) = operandIn' ctx 0 ty scratchLeft value
+           in loads <> loads' <> [storeMemory ty place a]
 
 -- | The memory operand of an atomic operation. The base is in its own
 -- register or in the right scratch register.

@@ -229,6 +229,7 @@ storeSource source =
   case source of
     Amd64StoreRegister register -> reg register
     Amd64StoreImmediate literal -> hex literal
+    Amd64StoreSymbol symbol -> T.unpack symbol
 
 binarySource :: Amd64BinarySource -> String
 binarySource source =
