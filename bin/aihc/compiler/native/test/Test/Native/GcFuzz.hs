@@ -2323,7 +2323,9 @@ genOp profile model = do
         ),
         (pThreadWeight profile, whenever (isJust topKind && entersPlain) (pure [CYield])),
         (pThreadWeight profile, whenever (isJust topKind && entersPlain && runnable) (pure [CYield])),
-        ( pThreadWeight profile,
+        -- A blackholed thunk is rare, so this weight is high. The coverage
+        -- check for this label then holds in each run.
+        ( 12 * pThreadWeight profile,
           whenever (isJust topKind && runnable && not (null blackholed)) $ do
             thunk <- Gen.element blackholed
             pure [CBlock thunk]
