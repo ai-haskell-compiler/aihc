@@ -218,7 +218,7 @@ amd64Backend =
       nbBinary = amd64Binary,
       nbRotatedBinary = Nothing,
       nbShiftedAdd = Just ((<= 3), \dst a b count -> [amd64Instruction (AmdLea dst (Amd64MemoryAddress (Amd64IndexedMemory a b count 0)))]),
-      nbIndexedLoad = Just (\_ count -> count <= 3, \ty dst base index count -> [loadMemory ty dst (Amd64IndexedMemory base index count 0)]),
+      nbIndexedLoad = Just (\_ count displacement -> count <= 3 && abs displacement < 2 ^ (31 :: Int), \ty dst base index count displacement -> [loadMemory ty dst (Amd64IndexedMemory base index count (fromInteger displacement))]),
       nbCarryIncrement = Just (carryFlags, carryIncrement),
       nbUnary = bitCount,
       nbWide = wide,

@@ -1,0 +1,11 @@
+; A load of an array element after a 16-byte header. On AMD64 the header
+; offset is the displacement of the indexed address, so the load is one
+; instruction and no lea computes the start of the elements.
+func @element(%array: ptr, %index: i64) -> i64 {
+entry:
+  %words = shl i64 %index, 3
+  %elements = ptr.add %array, 16
+  %slot = ptr.add %elements, %words
+  %value = load i64 [%slot] align 8
+  return %value
+}

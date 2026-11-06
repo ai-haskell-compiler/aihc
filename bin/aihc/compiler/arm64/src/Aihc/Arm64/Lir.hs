@@ -988,12 +988,12 @@ carryIncrement op dst value =
 
 -- | A load of a register from a base plus an index. The index is not
 -- shifted, or it is shifted by the logarithm of the access size.
-indexedLoadAccepts :: Type -> Int -> Bool
-indexedLoadAccepts ty count =
-  typeBytes ty `elem` [1, 2, 4, 8] && (count == 0 || 2 ^ count == typeBytes ty)
+indexedLoadAccepts :: Type -> Int -> Integer -> Bool
+indexedLoadAccepts ty count displacement =
+  displacement == 0 && typeBytes ty `elem` [1, 2, 4, 8] && (count == 0 || 2 ^ count == typeBytes ty)
 
-indexedLoad :: Type -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> [Arm64Statement]
-indexedLoad ty dst base index count =
+indexedLoad :: Type -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> Integer -> [Arm64Statement]
+indexedLoad ty dst base index count _ =
   [arm64Instruction (ArmLdrIndexed (typeBytes ty) dst base index (count /= 0))]
 
 compareResult :: Ctx Arm64Register -> CompareOp -> Type -> Arm64Register -> Operand -> Operand -> [Arm64Statement]
