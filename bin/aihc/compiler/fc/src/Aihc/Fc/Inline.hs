@@ -433,8 +433,8 @@ initialInliner config env decls supply =
       inBodyArities = arities,
       inGuidance = guidance,
       inKnown = Map.filter isKnownValue bodies,
-      inRefs = MonoidMap.fromMap references,
-      inUsers = MonoidMap.fromListWith (flip Set.union) [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
+      inRefs = references,
+      inUsers = MonoidMap.fromListWith (flip Set.union) [(callee, Set.singleton name) | (name, callees) <- MonoidMap.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
       inCounts = occurrenceCounts (Map.elems uses),
       inCalls = callCounts (Map.elems calls),
@@ -461,7 +461,7 @@ initialInliner config env decls supply =
     uses = Map.map countTopUses bodies
     calls = Map.map (countTopCalls arities) bodies
     guidance = Map.map (candidateGuidance env arities) bodies
-    references = Map.map (valueReferences declarations) bodies
+    references = MonoidMap.fromMapWith (valueReferences declarations) bodies
     -- A value a rule names stays, whether or not a body still calls it:
     -- the rule may put it in place later.
     roots =
