@@ -154,6 +154,7 @@ amd64Backend =
       nbCycleScratch = scratchLeft,
       nbSlotMoveScratch = scratchRight,
       nbFrameOverhead = 8,
+      nbRedZone = 128,
       nbReturnAddressGap = 8,
       nbMaxFrameBytes = Nothing,
       nbCodeAlign = 4,
@@ -1474,9 +1475,24 @@ amd64TailCall ctx callee convention parameterTypes arguments =
           outgoing = overflowBytes' (length arguments)
           top = frame + 8 + incoming
           newReturn = top - outgoing - 8
-          extra = if newReturn < 0 then 16 * ((negate newReturn + 15) `div` 16) else 0
           types = parameterTypes <> repeat I64
           typed = zip types arguments
+          -- The slots of a function without a frame are below the stack
+          -- pointer (see 'nbRedZone'). A move through @push@ and @pop@ would
+          -- write over them, so the stack pointer first goes below them when
+          -- the move can need that fallback: an indirect target in @r10@
+          -- and @rax@ in use by an argument.
+          redZoneBytes = negate (minimum (0 : Map.elems (layoutSlots layout)))
+          registerArguments = zip aihcArgumentRegisters typed
+          raxInUse =
+            RAX `elem` map fst registerArguments
+              || or [True | (_, argument) <- registerArguments, SourceLocation (LocRegister RAX) <- [Native.operandSource ctx I64 (snd argument)]]
+              || or [True | (_, argument) <- drop (length aihcArgumentRegisters) typed, SourceLocation (LocRegister RAX) <- [Native.operandSource ctx I64 argument]]
+          mayPush = redZoneBytes > 0 && target == Just scratchRight && raxInUse
+          extra =
+            max
+              (if newReturn < 0 then 16 * ((negate newReturn + 15) `div` 16) else 0)
+              (if mayPush then 16 * ((redZoneBytes + 15) `div` 16) else 0)
           source ty operand = Native.displaceSource extra (Native.operandSource ctx ty operand)
           argumentMoves =
             [(LocRegister register, source ty argument) | (register, (ty, argument)) <- zip aihcArgumentRegisters typed]
@@ -1484,7 +1500,7 @@ amd64TailCall ctx callee convention parameterTypes arguments =
                  | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) typed)
                  ]
               <> [(LocSlot (extra + newReturn), SourceLocation (LocSlot (extra + frame))) | newReturn /= frame]
-          written = [register | (LocRegister register, _) <- argumentMoves]
+          written = map fst registerArguments
           -- An indirect target stays in its own register when no move
           -- writes that register. Otherwise it moves to @r10@.
           target = case callee of
