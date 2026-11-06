@@ -64,6 +64,7 @@ data BuildOptions = BuildOptions
     buildOptimization :: !OptimizationLevel,
     buildNoLink :: !Bool,
     buildVerbose :: !Bool,
+    buildPrintTimings :: !Bool,
     -- | The executable of a main module, or the directory the executables
     -- of a package go under; a link bundle takes the place of an executable
     -- with @--no-link@.
@@ -313,6 +314,10 @@ buildOptionsParser =
       ( OA.long "verbose"
           <> OA.short 'v'
           <> OA.help "Print each build step"
+      )
+    <*> OA.switch
+      ( OA.long "print-timings"
+          <> OA.help "Print compiler stage timings"
       )
     <*> OA.optional
       ( OA.strOption

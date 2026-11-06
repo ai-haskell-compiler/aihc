@@ -153,6 +153,9 @@ foreign import capi unsafe "fcntl.h fcntl"
 foreign import capi unsafe "fcntl.h fcntl"
   c_fcntl_write :: CInt -> CInt -> CInt -> IO CInt
 
+foreign import capi unsafe "unistd.h isatty"
+  c_isatty :: CInt -> IO CInt
+
 -- | Release descriptor ownership without a close. The runtime has no file locks.
 release :: FD -> IO ()
 release _ = return ()
@@ -180,6 +183,17 @@ instance IODevice FD where
       True -> ioError (errnoToIOError "GHC.IO.FD.close" (Errno (fromIntegral (decodeError result))) Nothing Nothing)
       False -> return ()
   devType _ = return Stream
+  isTerminal fd = do
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> return False
+      False -> do
+        result <- c_isatty (fromIntegral descriptor)
+        return (result == 1)
+
+  -- The runtime has no termios layer. Thus the echo state stays as it is.
+  setEcho _ _ = return ()
+  getEcho _ = return False
   isSeekable fd = do
     descriptor <- ioHandleDescriptor (fdHandle fd)
     case descriptor < 0 of

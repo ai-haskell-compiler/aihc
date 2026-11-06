@@ -126,6 +126,7 @@ testBuildOptions options =
       buildOptimization = testOptimization options,
       buildNoLink = False,
       buildVerbose = testVerbose options,
+      buildPrintTimings = False,
       buildOutput = Nothing,
       buildExecutables = testSuites options,
       buildPlanOptions = testPlanOptions options
