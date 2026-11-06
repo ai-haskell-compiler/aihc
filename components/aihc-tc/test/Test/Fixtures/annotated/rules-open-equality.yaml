@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Test where
+  type family Size a
+              └─ type: Type → Type
+  copy :: (Size a ~ Size b) => a -> b
+  copy x = copy x
+  │    │   └─ type: a → b; type-args: a, b; evidence: given Size a ~ Size b
+  │    └─ type: a
+  └─ type: ∀ a b. ((Size a) ~ (Size b)) ⇒ a → b
+  {-# RULES
+  "copy/copy" forall x. copy (copy x) = copy x
+    #-}
+extensions:
+- TypeFamilies
+- FlexibleContexts
+modules:
+- |
+  module Test where
+  type family Size a
+  copy :: (Size a ~ Size b) => a -> b
+  copy x = copy x
+  {-# RULES
+  "copy/copy" forall x. copy (copy x) = copy x
+    #-}
+reason: a rule whose sides leave an equality open keeps its source form and reports no error, as GHC accepts the program
+status: pass
