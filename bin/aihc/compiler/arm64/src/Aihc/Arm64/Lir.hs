@@ -224,6 +224,7 @@ arm64Backend =
       nbCycleScratch = scratchExtra,
       nbSlotMoveScratch = scratchLeft,
       nbFrameOverhead = 16,
+      nbRedZone = 0,
       nbReturnAddressGap = 0,
       nbMaxFrameBytes = Just 32000,
       nbCodeAlign = 2,

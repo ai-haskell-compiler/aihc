@@ -1,0 +1,17 @@
+; A function that makes no call but has more live values than registers.
+; On AMD64 its spill slots go below the stack pointer, in the 128 bytes
+; that a signal handler leaves alone, so the function sets up no frame.
+func @mix(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64, %j: i64, %k: i64, %l: i64, %m: i64) {
+entry:
+  %x = mul i64 %a, %b
+  %y = mul i64 %c, %d
+  %z = mul i64 %e, %f
+  %w = add i64 %x, %m
+  tailcall @wide(%x, %y, %z, %w, %a, %b, %c, %d, %e, %f, %g, %h, %i, %j, %k, %l, %m)
+}
+
+func @wide(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64, %j: i64, %k: i64, %l: i64, %m: i64, %n: i64, %o: i64, %p: i64, %q: i64) {
+entry:
+  %sum = add i64 %a, %q
+  tailcall @mix(%sum, %b, %c, %d, %e, %f, %g, %h, %i, %j, %k, %l, %m)
+}

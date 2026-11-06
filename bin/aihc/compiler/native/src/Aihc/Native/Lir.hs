@@ -125,6 +125,10 @@ data NativeBackend statement register error = NativeBackend
     nbCycleScratch :: register,
     nbSlotMoveScratch :: register,
     nbFrameOverhead :: Int,
+    -- | The bytes below the stack pointer that a signal handler leaves
+    -- alone. An aihc function that makes no call and spills no more than
+    -- that keeps its slots there and sets up no frame.
+    nbRedZone :: !Int,
     nbReturnAddressGap :: Int,
     nbMaxFrameBytes :: !(Maybe Int),
     nbCodeAlign :: Int,
@@ -910,7 +914,24 @@ functionLayout backend signatures function = do
             layoutBlockFrames = blockFrames
           }
       incoming = overflowBytes backend (length (functionParameters function))
-  pure layout {layoutSlots = Map.union slots (Map.fromList [(var, incomingSlot backend layout incoming position) | (var, position) <- incomingHomes])}
+      -- The slots go below the stack pointer, so the function needs no frame.
+      redZone =
+        convention == AihcConvention
+          && null calls
+          && null allocations
+          && coldArea == 0
+          && not (Map.null slots)
+          && 8 * Map.size slots <= nbRedZone backend
+      placed
+        | redZone =
+            layout
+              { layoutSlots = Map.map (subtract (8 * Map.size slots)) slots,
+                layoutSize = 0,
+                layoutFramed = False,
+                layoutBlockFrames = Nothing
+              }
+        | otherwise = layout
+  pure placed {layoutSlots = Map.union (layoutSlots placed) (Map.fromList [(var, incomingSlot backend placed incoming position) | (var, position) <- incomingHomes])}
 
 -- | The blocks that make a call, when each of them can have a frame of its
 -- own instead of a frame for the full function.
