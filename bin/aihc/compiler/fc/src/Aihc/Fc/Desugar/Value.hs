@@ -226,12 +226,15 @@ data TopPatternGroup = TopPatternGroup !Syn.Pattern !(Syn.Rhs Syn.Expr) !TcType
 
 data LocalValueGroup
   = LocalNamedGroup !ValueGroup
+  | -- | @!x = e@ where @x@ has a signature. The annotation gives the
+    -- instance of the signature that forces the value.
+    LocalForcedGroup !ValueGroup !TcAnnotation
   | LocalPatternGroup !Syn.Pattern !(Syn.Rhs Syn.Expr) !TcType !Bool
   | -- | @?x = e@ with the checked type of @e@.
     LocalImplicitParamGroup !Text !(Syn.Rhs Syn.Expr) !TcType
 
 data LocalAllocation
-  = LocalNamedAllocation !Entity !Binder !TcType !ValueGroup
+  = LocalNamedAllocation !Entity !Binder !TcType !ValueGroup !(Maybe TcAnnotation)
   | LocalPatternAllocation !Syn.Pattern !(Syn.Rhs Syn.Expr) !Binder !TcType ![(Entity, Binder, TcType)] !Bool
   | LocalImplicitParamAllocation !Text !(Syn.Rhs Syn.Expr) !Binder !TcType
 
@@ -1465,6 +1468,12 @@ groupLocalValues (declaration : rest) =
         Just (_, name, _, Nothing) -> failValue ("pattern binding " <> T.unpack name <> " does not have a checked type annotation")
         Nothing ->
           case Syn.peelDeclAnn declaration of
+            Syn.DeclValue (Syn.PatternBind _ pattern' rhs)
+              | Just (name, force) <- forcedPatternBinder pattern' ->
+                  case (binderTermKey name, declarationType declaration) of
+                    (Just key, Just checkedType) ->
+                      (LocalForcedGroup (PatternGroup key (Syn.unqualifiedNameText name) rhs checkedType) force :) <$> groupLocalValues rest
+                    _ -> failValue ("strict binding " <> T.unpack (Syn.unqualifiedNameText name) <> " does not have a resolved binder and a checked type")
             Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> do
               -- The declaration gives the type of the right-hand side,
               -- which is polymorphic when the type checker generalized the
@@ -1477,6 +1486,24 @@ groupLocalValues (declaration : rest) =
                   (LocalImplicitParamGroup name (Syn.UnguardedRhs [] expr whereDecls) checkedType :) <$> groupLocalValues rest
                 Nothing -> failValue ("implicit parameter binding " <> T.unpack name <> " does not have a checked type annotation")
             _ -> groupLocalValues rest
+
+-- | The binder of a pattern @!x@ that the type checker instantiated, with
+-- the instance that forces the value. Only a binder with a signature has
+-- the instance.
+forcedPatternBinder :: Syn.Pattern -> Maybe (Syn.UnqualifiedName, TcAnnotation)
+forcedPatternBinder pattern'
+  | patternHasInstantiation pattern',
+    Just force <- patternAnnotation pattern',
+    Just name <- strictBinder pattern' =
+      Just (name, force)
+  | otherwise = Nothing
+  where
+    strictBinder current =
+      case current of
+        Syn.PAnn _ inner -> strictBinder inner
+        Syn.PParen inner -> strictBinder inner
+        Syn.PStrict inner -> barePatternBinder inner
+        _ -> Nothing
 
 patternIsStrict :: Syn.Pattern -> Bool
 patternIsStrict pattern' =
@@ -5328,7 +5355,7 @@ desugarLocalDecls declarations bodyType body = do
       kindEnv <- gets (ceKindEnv . vsConvertEnv)
       let types =
             case allocation of
-              LocalNamedAllocation _ _ ty _ -> [ty]
+              LocalNamedAllocation _ _ ty _ _ -> [ty]
               LocalPatternAllocation _ _ _ rhsType binders _ -> rhsType : [ty | (_, _, ty) <- binders]
               LocalImplicitParamAllocation _ _ _ ty -> [ty]
       pure (any (isUnliftedTypeInEnv kinds kindEnv) types)
@@ -5337,7 +5364,10 @@ desugarLocalDecls declarations bodyType body = do
           name = groupName group
           ty = groupType group
       binder <- freshBinder name ty
-      pure (LocalNamedAllocation key binder ty group)
+      pure (LocalNamedAllocation key binder ty group Nothing)
+    allocateLocal (LocalForcedGroup group force) = do
+      binder <- freshBinder (groupName group) (groupType group)
+      pure (LocalNamedAllocation (groupKey group) binder (groupType group) group (Just force))
     allocateLocal (LocalPatternGroup pattern' rhs rhsType strict) = do
       rhsBinder <- freshBinder "_pat_rhs" rhsType
       specs <- patternBinderSchemes pattern'
@@ -5346,7 +5376,7 @@ desugarLocalDecls declarations bodyType body = do
     allocateLocal (LocalImplicitParamGroup name rhs rhsType) = do
       binder <- freshBinder ("$ip" <> T.drop 1 name) rhsType
       pure (LocalImplicitParamAllocation name rhs binder rhsType)
-    desugarLocal (LocalNamedAllocation _ binder ty group) = do
+    desugarLocal (LocalNamedAllocation _ binder ty group _) = do
       rhs <-
         case group of
           FunctionGroup _ _ matches _ -> desugarMatches ty matches
@@ -5386,6 +5416,15 @@ desugarLocalDecls declarations bodyType body = do
       case allocation of
         LocalPatternAllocation pattern' _ rhsBinder rhsType _ True ->
           desugarDoPattern resultType rhsBinder rhsType pattern' success
+        LocalNamedAllocation _ binder _ _ (Just force) -> do
+          -- Apply the binder to the instance of its signature, then force
+          -- the value of that instance.
+          types <- mapM convertCheckedType (tcAnnTypeArgs force)
+          evidence <- mapM desugarEvidence (tcAnnEvidenceTerms force)
+          forced <- freshBinder "_strict_value" (tcAnnType force)
+          let applied = foldl ExApp (foldl ExTyApp (ExVar (binderName binder)) types) evidence
+          forcedValue <- forceDefaultPattern resultType forced Syn.PWildcard =<< success
+          pure (ExLet (Bind forced applied) forcedValue)
         _ -> success
 
 -- | One dependency component of a local binding group.
@@ -5474,7 +5513,7 @@ expressionFreeNames expression =
 allocationLocals :: LocalAllocation -> [(Entity, (Binder, TcType))]
 allocationLocals allocation =
   case allocation of
-    LocalNamedAllocation key binder ty _ -> [(key, (binder, ty))]
+    LocalNamedAllocation key binder ty _ _ -> [(key, (binder, ty))]
     LocalPatternAllocation _ _ _ _ binders _ -> [(key, (binder, ty)) | (key, binder, ty) <- binders]
     LocalImplicitParamAllocation {} -> []
 
@@ -6337,6 +6376,7 @@ localGroupBinderTypes :: LocalValueGroup -> ValueM [(Entity, TcType)]
 localGroupBinderTypes group =
   case group of
     LocalNamedGroup named -> pure [(groupKey named, groupType named)]
+    LocalForcedGroup named _ -> pure [(groupKey named, groupType named)]
     LocalPatternGroup pattern' _ _ _ -> map (\(key, _, ty) -> (key, ty)) <$> patternBinderSchemes pattern'
     LocalImplicitParamGroup {} -> pure []
 

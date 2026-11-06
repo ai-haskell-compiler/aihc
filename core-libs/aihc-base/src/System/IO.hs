@@ -194,10 +194,6 @@ foreign import capi unsafe "fcntl.h open"
 foreign import capi unsafe "unistd.h close"
   closeTemporaryFile :: CInt -> IO CInt
 
--- | Handles cannot tell whether they are terminals.
-hIsTerminalDevice :: Handle -> IO Bool
-hIsTerminalDevice _ = pure False
-
 hReady :: Handle -> IO Bool
 hReady handle = hWaitForInput handle 0
 

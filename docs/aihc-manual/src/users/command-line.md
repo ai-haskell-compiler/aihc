@@ -41,6 +41,7 @@ aihc build INPUT [OPTIONS]
 | `--lto` | Compile each module to System FC only, and compile the merged program once. |
 | `--no-link` | Compile only. Write the objects and a `link.args` response file to a bundle directory. |
 | `--verbose` | Print each build step. |
+| `--print-timings` | Print the time of each compiler stage. |
 
 ## Test
 

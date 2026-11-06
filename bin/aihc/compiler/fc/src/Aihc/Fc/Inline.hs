@@ -56,6 +56,8 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -350,7 +352,7 @@ data Inliner = Inliner
     inBodies :: !(Map Name Expr),
     inVersions :: !(Map Name Int),
     inVisits :: !(Map Name StableVisit),
-    inRuleRefs :: !(Map Name (Set Name)),
+    inRuleRefs :: !(MonoidMap Name (Set Name)),
     -- | The uses of each top-level value in each body.
     inBodyUses :: !(Map Name (Map Name Int)),
     -- | The calls in each body use the arities at the start of the round.
@@ -362,9 +364,9 @@ data Inliner = Inliner
     -- | The current bodies that are known constructor applications.
     inKnown :: !(Map Name Expr),
     -- | The values each body references.
-    inRefs :: !(Map Name (Set Name)),
+    inRefs :: !(MonoidMap Name (Set Name)),
     -- | The bodies that reference each value.
-    inUsers :: !(Map Name (Set Name)),
+    inUsers :: !(MonoidMap Name (Set Name)),
     -- | The size each value may grow to in this pass: its size when the
     -- pass began, grown by the policy's percentage and slack.
     inLimits :: !(Map Name Int),
@@ -425,14 +427,14 @@ initialInliner config env decls supply =
       inBodies = bodies,
       inVersions = Map.map (const 0) bodies,
       inVisits = Map.empty,
-      inRuleRefs = Map.map (Set.unions . map (exprValueNames . ruleRhs)) rules,
+      inRuleRefs = MonoidMap.fromMapWith (Set.unions . map (exprValueNames . ruleRhs)) rules,
       inBodyUses = uses,
       inBodyCalls = calls,
       inBodyArities = arities,
       inGuidance = guidance,
       inKnown = Map.filter isKnownValue bodies,
       inRefs = references,
-      inUsers = Map.fromListWith Set.union [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
+      inUsers = MonoidMap.fromList [(callee, Set.singleton name) | (name, callees) <- MonoidMap.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
       inCounts = occurrenceCounts (Map.elems uses),
       inCalls = callCounts (Map.elems calls),
@@ -459,7 +461,7 @@ initialInliner config env decls supply =
     uses = Map.map countTopUses bodies
     calls = Map.map (countTopCalls arities) bodies
     guidance = Map.map (candidateGuidance env arities) bodies
-    references = Map.map (valueReferences declarations) bodies
+    references = MonoidMap.fromMapWith (valueReferences declarations) bodies
     -- A value a rule names stays, whether or not a body still calls it:
     -- the rule may put it in place later.
     roots =
@@ -576,7 +578,9 @@ runRounds config rounds st
 inlineRound :: InlineConfig -> Inliner -> Inliner
 inlineRound config st0 = List.foldl' step st0 sccs
   where
-    graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
+    -- Here we want to include all bodies as nodes, even those that don't
+    -- reference any other values.
+    graph = [(name, name, Set.toList (MonoidMap.get name (inRefs st0))) | name <- Map.keys (inBodies st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
     -- Known values use the round-start bodies, so their versions must match.
@@ -591,7 +595,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
       Map.unionsWith
         (+)
         [ Map.fromSet (const calls) references
-        | (name, references) <- Map.toList (inRefs st0),
+        | (name, references) <- MonoidMap.toList (inRefs st0),
           isTemplate st0 name,
           let calls = Map.findWithDefault 0 name (inCalls st0),
           calls > 0
@@ -634,7 +638,7 @@ loopBreakers config st = fixed <> foldMap choose (components remaining)
     remaining = Map.keysSet (inBodies st) `Set.difference` fixed
     components names =
       stronglyConnComp
-        [(name, name, Set.toList (Map.findWithDefault Set.empty name (inRefs st) `Set.intersection` names)) | name <- Set.toList names]
+        [(name, name, Set.toList (MonoidMap.get name (inRefs st) `Set.intersection` names)) | name <- Set.toList names]
     choose (AcyclicSCC _) = Set.empty
     choose (CyclicSCC names) =
       let selected = List.maximumBy (\left right -> compare (score left) (score right)) names
@@ -657,7 +661,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
       case Map.lookup name (inBodies st) of
         Nothing -> st
         Just body ->
-          let references = Map.findWithDefault Set.empty name (inRefs st)
+          let references = MonoidMap.get name (inRefs st)
               -- A copy of a candidate brings the calls of its own body. They
               -- stayed calls in the candidate because nothing was known about
               -- its parameters; at a site that gives a known argument, such a
@@ -744,7 +748,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                             (Set.insert callee visited)
                             ( Set.toList
                                 ( maybe Set.empty exprValueNames (Map.lookup callee known)
-                                    <> Map.findWithDefault Set.empty callee (inRuleRefs st)
+                                    <> MonoidMap.get callee (inRuleRefs st)
                                 )
                                 <> rest
                             )
@@ -856,11 +860,11 @@ updateBody st name body =
     arity = functionArity body
     arities = Map.insert name arity (inBodyArities st)
     references = valueReferences (inDecls st) body
-    oldReferences = inRefs st Map.! name
+    oldReferences = MonoidMap.get name (inRefs st)
     users =
       Set.foldl'
-        (\acc callee -> Map.insertWith Set.union callee (Set.singleton name) acc)
-        (Set.foldl' (flip (Map.adjust (Set.delete name))) (inUsers st) (oldReferences Set.\\ references))
+        (flip (MonoidMap.adjust (Set.insert name)))
+        (Set.foldl' (flip (MonoidMap.adjust (Set.delete name))) (inUsers st) (oldReferences Set.\\ references))
         (references Set.\\ oldReferences)
     updated =
       updateKnown
@@ -872,7 +876,7 @@ updateBody st name body =
             inBodyCalls = Map.insert name (countTopCalls (inArities st) body) (inBodyCalls st),
             inBodyArities = arities,
             inGuidance = Map.insert name (candidateGuidance (inEnv st) arities body) (inGuidance st),
-            inRefs = Map.insert name references (inRefs st),
+            inRefs = MonoidMap.set name references (inRefs st),
             inUsers = users
           }
         name
@@ -880,7 +884,7 @@ updateBody st name body =
     -- An arity change can change the guidance and known constructors of its users.
     affected
       | arity == inBodyArities st Map.! name = Set.empty
-      | otherwise = Set.delete name (Map.findWithDefault Set.empty name users)
+      | otherwise = Set.delete name (MonoidMap.get name users)
     refresh current user =
       let userBody = inBodies current Map.! user
        in updateKnown
@@ -921,9 +925,9 @@ killDead st names =
       | otherwise -> killDead st rest
 
 -- | A set of values and the values their bodies reference.
-calleesOf :: Map Name (Set Name) -> Set Name -> Set Name
+calleesOf :: MonoidMap Name (Set Name) -> Set Name -> Set Name
 calleesOf references names =
-  Set.unions (names : [Map.findWithDefault Set.empty name references | name <- Set.toList names])
+  Set.unions (names : [MonoidMap.get name references | name <- Set.toList names])
 
 -- | Drop every value that no root reaches.
 dropUnused :: Inliner -> Inliner
@@ -937,8 +941,8 @@ dropUnused st =
       inBodyArities = arities,
       inGuidance = Map.restrictKeys (inGuidance st) reachable,
       inKnown = Map.restrictKeys (inKnown st) reachable,
-      inRefs = Map.restrictKeys (inRefs st) reachable,
-      inUsers = Map.map (`Set.intersection` reachable) (Map.restrictKeys (inUsers st) reachable),
+      inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
+      inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
       inCounts = occurrenceCounts (Map.elems uses),
       inCalls = callCounts (Map.elems calls),
       inArities = arities,
@@ -956,7 +960,7 @@ dropUnused st =
       | new == old = Nothing
       | otherwise = Just new
     affected =
-      Set.intersection reachable (Set.unions [Map.findWithDefault Set.empty name (inUsers st) | name <- Set.toList changedArities])
+      Set.intersection reachable (Set.unions [MonoidMap.get name (inUsers st) | name <- Set.toList changedArities])
     calls =
       List.foldl'
         (\cached caller -> Map.insert caller (countTopCalls arities (live Map.! caller)) cached)
@@ -969,7 +973,7 @@ dropUnused st =
         name : rest
           | Set.member name visited -> close visited rest
           | otherwise ->
-              close (Set.insert name visited) (Set.toList (Map.findWithDefault Set.empty name (inRefs st)) <> rest)
+              close (Set.insert name visited) (Set.toList (MonoidMap.get name (inRefs st)) <> rest)
 
 -- | How often each value occurs in the bodies.
 occurrenceCounts :: [Map Name Int] -> Map Name Int
