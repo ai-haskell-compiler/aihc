@@ -5,7 +5,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UnboxedTuples #-}
 
 -- |
 -- Module      :  GHC.Exts.Heap
@@ -324,7 +323,7 @@ getClosureDataFromHeapRepPrim getConDesc decodeCCS itbl heapRep pts = do
                       thread_label = case other of
                         [tl] -> Just tl
                         [] -> Nothing
-                        _ -> error $ "thead_label:Expected 0 or 1 extra arguments",
+                        _ -> error "thead_label:Expected 0 or 1 extra arguments",
                       what_next = FFIClosures.tso_what_next fields,
                       why_blocked = FFIClosures.tso_why_blocked fields,
                       flags = FFIClosures.tso_flags fields,
