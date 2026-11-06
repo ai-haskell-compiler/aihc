@@ -199,6 +199,7 @@ amd64Backend =
       nbJump = amd64Instruction . AmdJmp . Amd64JumpLabel,
       nbCanFuseBitTest = False,
       nbCanFuseFloatCompare = \op -> op `elem` [Eq, Ne, FLt, FLe, FGt, FGe],
+      nbCanFuseLoadCompare = True,
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
          in pure (setup, BranchTest (branchWhen test) (branchUnless test)),
@@ -409,6 +410,7 @@ instructionEffect instruction =
     AmdXor destination _ -> modifies destination
     AmdImul destination _ -> writes [destination]
     AmdCmp _ _ -> Writes []
+    AmdCmpMemory {} -> Writes []
     AmdCmpGot _ _ -> Writes []
     AmdTest _ _ -> Writes []
     AmdShl destination -> modifies destination
@@ -632,9 +634,63 @@ conditionTest ctx fused condition =
               signed = op `elem` [LtS, LeS, GtS, GeS]
               (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft register else ([], register)
            in (loads <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+    Just (FusedLoadCompare op ty base offset other onLeft) ->
+      let (baseLoads, baseRegister) = operandIn' ctx 0 Ptr scratchLeft base
+          place = Amd64Memory baseRegister (fromInteger offset)
+          width = typeBytes ty
+          -- The compare computes the loaded value minus the other operand,
+          -- so a loaded right operand reverses the condition.
+          condition' = integerCondition (if onLeft then op else swapCompare op)
+          immediateCompare value = (baseLoads <> [amd64Instruction (AmdCmpMemory width place value)], TestFlags condition')
+       in case other of
+            OperandLiteral literal
+              | width < 8,
+                Just bits <- Native.literalBits ty literal ->
+                  immediateCompare bits
+            _
+              | width == 8,
+                Just value <- smallImmediate ty other ->
+                  immediateCompare value
+              | width == 8 ->
+                  let (otherLoads, register) = operandIn' ctx 0 ty scratchRight other
+                      compare'
+                        | onLeft = AmdCmp (Amd64RmMemory place) (Amd64BinaryRegister register)
+                        | otherwise = AmdCmp (Amd64RmRegister register) (Amd64BinaryMemory place)
+                   in (baseLoads <> otherLoads <> [amd64Instruction compare'], TestFlags (integerCondition op))
+              | otherwise ->
+                  -- A narrow value against a register: load it, then
+                  -- compare as before.
+                  let loaded = [loadMemory ty scratchLeft place]
+                      (left, right) = if onLeft then (OperandLiteral (LitInt 0), other) else (other, OperandLiteral (LitInt 0))
+                      signed = op `elem` [LtS, LeS, GtS, GeS]
+                   in if onLeft
+                        then
+                          let (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft scratchLeft else ([], scratchLeft)
+                           in (baseLoads <> loaded <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+                        else
+                          let (otherLoads, register) = operandIn' ctx 0 ty scratchRight left
+                              (extendLeft, leftRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
+                              (extendRight, rightRegister) = if signed then signExtendInto ty scratchLeft scratchLeft else ([], scratchLeft)
+                           in ( baseLoads <> loaded <> otherLoads <> extendLeft <> extendRight <> [amd64Instruction (AmdCmp (Amd64RmRegister leftRegister) (Amd64BinaryRegister rightRegister))],
+                                TestFlags (integerCondition op)
+                              )
     Nothing ->
       let (loads, register) = operandIn' ctx 0 I1 scratchLeft condition
        in (loads, TestNonZero register)
+
+-- | The compare with the operands in the other order.
+swapCompare :: CompareOp -> CompareOp
+swapCompare op =
+  case op of
+    LtS -> GtS
+    LeS -> GeS
+    GtS -> LtS
+    GeS -> LeS
+    LtU -> GtU
+    LeU -> GeU
+    GtU -> LtU
+    GeU -> LeU
+    _ -> op
 
 floatFlags :: Ctx Amd64Register -> CompareOp -> Type -> Operand -> Operand -> ([Amd64Statement], Amd64Condition)
 floatFlags ctx op ty left right =

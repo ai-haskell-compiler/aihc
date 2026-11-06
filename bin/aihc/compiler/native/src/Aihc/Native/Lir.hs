@@ -179,6 +179,10 @@ data NativeBackend statement register error = NativeBackend
     nbJump :: Name -> statement,
     nbCanFuseBitTest :: !Bool,
     nbCanFuseFloatCompare :: CompareOp -> Bool,
+    -- | Whether a compare of a branch can read one operand from memory. Then
+    -- a load that only the compare reads, with no write to memory and no
+    -- call after it in the block, becomes an operand of the compare.
+    nbCanFuseLoadCompare :: !Bool,
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
     -- | Compare a register with a constant once, then branch to the label
     -- of the first comparison that holds. The comparisons are 'Eq', 'LtU',
@@ -314,7 +318,13 @@ data MoveSource register
   deriving (Eq, Show)
 
 -- | A comparison that the branch of the block consumes directly.
-data Fused = Fused !CompareOp !Type !Operand !Operand | FusedBit !CompareOp !Type !Operand !Int
+data Fused
+  = Fused !CompareOp !Type !Operand !Operand
+  | FusedBit !CompareOp !Type !Operand !Int
+  | -- | A compare of the value at a base plus a byte offset with another
+    -- operand. The flag tells whether the loaded value is the left operand.
+    -- See 'nbCanFuseLoadCompare'.
+    FusedLoadCompare !CompareOp !Type !Operand !Integer !Operand !Bool
 
 -- | Where the contents of a register last came from.
 data Source
@@ -1138,8 +1148,46 @@ fuseCompare backend ctx instructions terminator =
       | condition == var,
         Map.lookup var (ctxReads ctx) == Just 1,
         not (isFloatType ty) || nbCanFuseFloatCompare backend op ->
-          (reverse before, Just (Fused op ty left right))
+          case loadedOperand before left right of
+            Just (kept, base, offset, other, onLeft) -> (reverse kept, Just (FusedLoadCompare op ty base offset other onLeft))
+            Nothing -> (reverse before, Just (Fused op ty left right))
     _ -> (instructions, Nothing)
+  where
+    -- The instructions are in reverse order. The load must be in the block,
+    -- and nothing between it and the compare may write memory or call.
+    loadedOperand before left right
+      | not (nbCanFuseLoadCompare backend) = Nothing
+      | otherwise = case (fromLoad before left, fromLoad before right) of
+          (Just (kept, base, offset), _) -> Just (kept, base, offset, right, True)
+          (_, Just (kept, base, offset)) -> Just (kept, base, offset, left, False)
+          _ -> Nothing
+    fromLoad before operand = case operand of
+      OperandVar loaded
+        | Map.lookup loaded (ctxReads ctx) == Just 1,
+          Map.notMember loaded (ctxFusions ctx) ->
+            search [] loaded before
+      _ -> Nothing
+    search later loaded remaining = case remaining of
+      instruction : rest
+        | [loaded] == instructionResults instruction ->
+            case instructionOperation instruction of
+              Load ty address _ | integerType ty -> Just (reverse later <> rest, addressBase address, addressByteOffset wordBytes address)
+              LoadInvariant ty address _ | integerType ty -> Just (reverse later <> rest, addressBase address, addressByteOffset wordBytes address)
+              _ -> Nothing
+        | writes (instructionOperation instruction) -> Nothing
+        | otherwise -> search (instruction : later) loaded rest
+      [] -> Nothing
+    integerType ty = ty `elem` [I8, I16, I32, I64, Ptr, Code]
+    writes operation = case operation of
+      Store {} -> True
+      StoreAtomic {} -> True
+      CompareSwap {} -> True
+      AtomicRmw {} -> True
+      Fence {} -> True
+      GlobalSet {} -> True
+      Call {} -> True
+      CallIndirect {} -> True
+      _ -> False
 
 compileTerminator :: (Eq register) => NativeBackend statement register error -> Ctx register -> Maybe Label -> Maybe Fused -> Terminator -> NativeM error [statement]
 compileTerminator backend ctx next fused terminator =

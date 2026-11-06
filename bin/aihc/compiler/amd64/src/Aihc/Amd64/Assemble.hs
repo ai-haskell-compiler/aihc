@@ -41,7 +41,7 @@ import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Int (Int32, Int64)
+import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Word (Word32, Word64, Word8)
 
@@ -235,6 +235,10 @@ data Amd64Instruction
     -- address of a symbol. The linker of an executable that is not
     -- position-independent relaxes it to @cmp reg, imm32@.
     AmdCmpGot !Amd64Register !Text
+  | -- | @cmp m, imm@ with the width of the memory operand in bytes: 1, 2,
+    -- 4, or 8. The constant has the bits of the value at that width; the
+    -- 8-byte form sign-extends a 32-bit constant.
+    AmdCmpMemory !Int !Amd64Memory !Integer
   | AmdTest !Amd64Rm !Amd64Register
   | AmdShl !Amd64Rm
   | AmdShr !Amd64Rm
@@ -477,6 +481,7 @@ encodeInstruction instruction =
     AmdImul destination source -> encodeRegisterSource (registerWidth (registerInfo destination) == 64) [0x0f, 0xaf] destination source
     AmdCmp left right -> encodeCompare left right
     AmdCmpGot left symbol -> encodeGot 0x3b left symbol
+    AmdCmpMemory width memory immediate -> encodeCompareMemory width (memoryOperand memory) immediate
     AmdTest left right -> encodeRm (registerWidth register == 64) [0x85] (registerNumber register) (rmOperand left) False []
       where
         register = registerInfo right
@@ -666,6 +671,23 @@ encodeCompare left right =
        in encodeRm (registerWidth register == 64) [0x39] (registerNumber register) (rmOperand left) False []
     Amd64BinaryImmediate immediate -> encodeGroupImmediate 7 (rmOperand left) immediate
     Amd64BinaryMemory memory -> registerFromMemory [0x3b] left memory
+
+-- | @cmp m, imm@ at the width in bytes. A byte compare has an 8-bit
+-- constant. A wider compare uses the sign-extended 8-bit form when the
+-- constant fits it, as 'encodeGroupImmediate' does.
+encodeCompareMemory :: Int -> Operand -> Integer -> [Item]
+encodeCompareMemory width operand immediate =
+  case width of
+    1 -> encodeGroup False [0x80] 7 operand [fromIntegral immediate]
+    2 -> bytes [0x66] <> sized (\value -> [fromIntegral value, fromIntegral (value `shiftR` 8)]) (fromIntegral immediate :: Int16)
+    4 -> sized (word32List . fromIntegral) (fromIntegral immediate :: Int32)
+    _ -> sized (word32List . fromIntegral) (fromIntegral immediate :: Int64)
+  where
+    wide = width == 8
+    sized :: (Integral value) => (value -> [Word8]) -> value -> [Item]
+    sized encodeWide value
+      | toInteger value >= -128 && toInteger value <= 127 = encodeGroup wide [0x83] 7 operand [fromIntegral value]
+      | otherwise = encodeGroup wide [0x81] 7 operand (encodeWide value)
 
 -- | The form @op reg, r/m@ of a binary instruction with a memory source.
 registerFromMemory :: [Word8] -> Amd64Rm -> Amd64Memory -> [Item]

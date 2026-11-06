@@ -215,6 +215,7 @@ arm64Backend =
       nbArgumentRegisters = argumentRegisters,
       nbAihcArgumentRegisters = aihcArgumentRegisters,
       nbOverflowHomes = False,
+      nbCanFuseLoadCompare = False,
       nbTwoAddress = False,
       nbResultRegisters = argumentRegisters,
       nbPreservedRegisters = preservedRegisters,
@@ -662,6 +663,8 @@ conditionTest ctx fused condition =
               signed = op `elem` [LtS, LeS, GtS, GeS]
               (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft register else ([], register)
            in (loads <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+    -- 'nbCanFuseLoadCompare' is off, so the shared walk makes no such test.
+    Just FusedLoadCompare {} -> error "Aihc.Arm64.Lir: a load compare reached the AArch64 backend"
     Nothing ->
       let (loads, register) = operandIn' ctx 0 I1 scratchLeft condition
        in (loads, TestNonZero register)
