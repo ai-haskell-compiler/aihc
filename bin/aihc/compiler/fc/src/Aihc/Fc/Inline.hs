@@ -578,7 +578,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
   where
     -- Here we want to include all bodies as nodes, even those that don't
     -- reference any other values.
-    graph = [(name, name, Set.toList (inRefs st0 Map.! name)) | name <- Map.keys (inBodies st0)]
+    graph = [(name, name, Set.toList (Map.findWithDefault Set.empty name (inRefs st0))) | name <- Map.keys (inBodies st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
     -- Known values use the round-start bodies, so their versions must match.
@@ -858,7 +858,7 @@ updateBody st name body =
     arity = functionArity body
     arities = Map.insert name arity (inBodyArities st)
     references = valueReferences (inDecls st) body
-    oldReferences = inRefs st Map.! name
+    oldReferences = Map.findWithDefault Set.empty name (inRefs st)
     users =
       Set.foldl'
         (\acc callee -> Map.insertWith Set.union callee (Set.singleton name) acc)
