@@ -880,7 +880,7 @@ structuralDeclGroups :: [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
 structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
   where
     numbered = zip [0 :: Int ..] declarations
-    owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration]
+    owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration <> declarationDataConKeys declaration]
     nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
     signatures = collectStandaloneKindSignatures (map snd declarations)
     kindAnnotations declaration =
@@ -889,12 +889,24 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
       [ owner
       | annotation <- annotationList declaration <> kindAnnotations declaration,
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
-        resolutionNamespace resolution == ResolutionNamespaceType,
         EntityGlobal global <- [resolutionTarget resolution],
-        Just owner <- [Map.lookup global {globalNameNamespace = ResolutionNamespaceType} owners]
+        Just owner <- [Map.lookup global {globalNameNamespace = resolutionNamespace resolution} owners]
       ]
     flatten (AcyclicSCC declaration) = [declaration]
     flatten (CyclicSCC group) = group
+
+-- | The keys of the data constructors a declaration binds. A promoted
+-- constructor in a kind or a type takes its kind from the declaration, so a
+-- declaration that uses one depends on the declaration that binds it.
+declarationDataConKeys :: Decl -> [GlobalName]
+declarationDataConKeys declaration =
+  case peelDeclAnn declaration of
+    DeclData info -> concatMap constructorKeys (dataDeclConstructors info)
+    DeclNewtype info -> maybe [] constructorKeys (newtypeDeclConstructor info)
+    _ -> []
+  where
+    constructorKeys constructor =
+      [key | DeclaredDataCon name <- dataConIdentities constructor, Just key <- [resolvedTypeKey name]]
 
 declarationTypeKeys :: Decl -> [GlobalName]
 declarationTypeKeys declaration =
