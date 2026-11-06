@@ -16,7 +16,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, executableLinkArguments, hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), PositionIndependence (..), backendArchiver, backendCompiler, executableLinkArguments, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Project (ProjectSelection (..))
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
@@ -609,6 +609,7 @@ withBuildModuleSandbox getStore prefix action = do
               buildLto = False,
               buildOptimization = O0,
               buildNoLink = False,
+              buildNoPie = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Just (sandboxRoot sandbox </> "program"),
@@ -898,7 +899,7 @@ test_ltoLlvm getStore =
           | System.Info.arch /= "x86_64" = []
           | System.Info.os == "darwin" = ["-Wl,-mllvm,-enable-shrink-wrap=false"]
           | otherwise = ["-Wl,-plugin-opt=-enable-shrink-wrap=false"]
-    assertEqual "bundle records the LLVM link arguments" (executableLinkArguments Llvm <> ["-flto", "-O2"] <> shrinkWrapArguments <> ["-lm", "-lpthread"]) (filter (not . ("inputs/" `isPrefixOf`)) (linkBundleArguments bundleManifest))
+    assertEqual "bundle records the LLVM link arguments" (executableLinkArguments PositionIndependent Llvm <> ["-flto", "-O2"] <> shrinkWrapArguments <> ["-lm", "-lpthread"]) (filter (not . ("inputs/" `isPrefixOf`)) (linkBundleArguments bundleManifest))
     -- The link reads no archive: the wrapper objects of the packages are
     -- among the objects, and the C objects were already.
     assertEqual "bundle lists no archive" [] (filter (".a" `isSuffixOf`) (linkBundleArguments bundleManifest))
@@ -984,6 +985,7 @@ withBuildPackageSandbox getStore prefix action = do
               buildLto = False,
               buildOptimization = O0,
               buildNoLink = False,
+              buildNoPie = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
@@ -1224,6 +1226,7 @@ test_buildCxxSources getStore = do
               buildLto = False,
               buildOptimization = O0,
               buildNoLink = False,
+              buildNoPie = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
@@ -1289,6 +1292,7 @@ test_buildExtraLibraries getStore = do
               buildLto = False,
               buildOptimization = O0,
               buildNoLink = False,
+              buildNoPie = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,

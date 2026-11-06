@@ -46,6 +46,7 @@ section role =
     TextSection -> indent ".text"
     TextConstantsSection -> indent ".section .rodata.cst8"
     ReadOnlySection -> indent ".section .rodata"
+    RelocatedReadOnlySection -> indent ".section .data.rel.ro,\"aw\""
     DataSection -> indent ".data"
     NoExecuteStackSection -> indent ".section .note.GNU-stack"
 

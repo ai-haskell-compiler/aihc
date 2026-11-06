@@ -511,7 +511,7 @@ renderTraps backend = do
 
 compileData :: NativeBackend statement register error -> DataItem -> [statement]
 compileData backend dataItem =
-  [ nbSection backend (if dataMutable dataItem then DataSection else ReadOnlySection),
+  [ nbSection backend role,
     nbAlign backend (log2 (dataAlignment dataItem))
   ]
     <> [nbGlobal backend symbol | dataLinkage dataItem == Export]
@@ -519,6 +519,17 @@ compileData backend dataItem =
     <> concatMap field (dataFields dataItem)
   where
     symbol = nbSymbol backend (dataName dataItem)
+    -- Constant data with an absolute address goes in the relocated
+    -- read-only section. Other constant data stays read-only.
+    role
+      | dataMutable dataItem = DataSection
+      | any holdsAddress (dataFields dataItem) = RelocatedReadOnlySection
+      | otherwise = ReadOnlySection
+    holdsAddress dataField =
+      case dataField of
+        DataSymbol {} -> True
+        DataCode (Just _) -> True
+        _ -> False
     field dataField =
       case dataField of
         DataIntConstant _ constant -> unresolvedConstant constant

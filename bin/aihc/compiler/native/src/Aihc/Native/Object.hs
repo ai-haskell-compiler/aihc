@@ -75,6 +75,12 @@ data SectionRole
   = TextSection
   | TextConstantsSection
   | ReadOnlySection
+  | -- | Data that the program does not change, but that holds the address
+    -- of a symbol. In a position-independent executable, the dynamic loader
+    -- writes these addresses at load time and then makes the pages
+    -- read-only (RELRO). Thus the data must not be in the read-only
+    -- segment, or the executable needs text relocations.
+    RelocatedReadOnlySection
   | DataSection
   | NoExecuteStackSection
   deriving (Enum, Eq, Ord, Show)
