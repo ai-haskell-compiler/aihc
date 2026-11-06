@@ -158,6 +158,7 @@ in rec {
   heapSrc = mkComponentSrc "/core-libs/aihc-heap" [
     ".hs"
     ".cabal"
+    "UNLICENSE"
   ];
 
   internalSrc = mkComponentSrc "/core-libs/aihc-internal" [
