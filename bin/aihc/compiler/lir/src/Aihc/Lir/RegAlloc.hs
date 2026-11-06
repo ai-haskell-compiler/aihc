@@ -718,13 +718,15 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
                    )
           `orElse` searchRow (encReads encoded) (encDefiner encoded ! value) (readArray assigned) value
           `orElse` firstFree value 0
-      -- The acceptable interval that is touched least loses its register:
-      -- a spilled value costs a memory access at each touch. The new value
-      -- itself goes to a frame slot when no active interval is touched less
-      -- often. Of two values touched equally often, the one that reaches
+      -- The acceptable interval with the fewest touches for its length loses
+      -- its register: a spilled value costs a memory access at each touch,
+      -- and a long interval holds its register for long. The new value
+      -- itself goes to a frame slot when no active interval has fewer
+      -- touches for its length. Of two equal values, the one that reaches
       -- further loses, so that its register serves more of the function.
       -- The active list is sorted by end, so the walk from the end finds
       -- that one first.
+      density value = (costs ! value * 1024) `div` (ends ! value - starts ! value + 1)
       spill value = do
         count <- readArray activeCount 0
         let victim index best
@@ -735,12 +737,12 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
                   candidate <- readArray holder register
                   let better = case best of
                         Nothing -> True
-                        Just (_, other) -> costs ! candidate < costs ! other
+                        Just (_, other) -> density candidate < density other
                   victim (index - 1) (if ok && better then Just (index, candidate) else best)
         found <- victim (count - 1) Nothing
         for_ found $ \(at, loser) -> do
           register <- readArray active at
-          when (costs ! loser < costs ! value || (costs ! loser == costs ! value && ends ! loser > ends ! value)) $ do
+          when (density loser < density value || (density loser == density value && ends ! loser > ends ! value)) $ do
             writeArray assigned loser (-1)
             writeArray holder register (-1)
             dropActive at 1 count
@@ -941,23 +943,52 @@ accessCounts encoded = do
   forUpTo (lengthOf (encParameters encoded)) (\at -> addTo counts (encParameters encoded ! at) 1)
   pure counts
 
--- | How many loops enclose each block, as a guess from the block order. An
--- edge whose target does not come after its source closes a loop, and the
--- blocks between the two are inside that loop. A loop that the block order
--- breaks apart counts for less, which costs a little code quality and no
--- correctness: the depth only weights the count of touches.
+-- | How many loops enclose each block. An edge whose target does not come
+-- after its source closes a loop, and the target is its head. The body of
+-- the loop is the head and each block that reaches the source of the edge
+-- without a pass through the head: a natural loop. A block that leaves the
+-- loop, such as a tail call or a cold path, is not in the body, so its
+-- touches do not count as touches in the loop. An edge back to a block
+-- that the order breaks apart from its loop gives a smaller body, which
+-- costs a little code quality and no correctness: the depth only weights
+-- the count of touches.
 loopDepths :: Encoded -> ST s (STUArray s Int Int)
 loopDepths encoded = do
   let blockCount = encBlocks encoded
-  edges <- newInts (blockCount + 1) 0
-  forBlocks encoded $ \index ->
-    forRow (encTargets encoded) index $ \successor ->
-      when (successor <= index) (addTo edges successor 1 >> addTo edges (index + 1) (-1))
+  predecessors <- buildRows blockCount (\act -> forBlocks encoded (\index -> forRow (encTargets encoded) index (\successor -> act successor index)))
   depths <- newInts blockCount 0
-  forUpTo blockCount $ \index -> do
-    enclosing <- if index == 0 then pure 0 else readArray depths (index - 1)
-    opened <- readArray edges index
-    writeArray depths index (enclosing + opened)
+  -- The mark of each block is the number of the last back edge that put
+  -- it in a body, so that a block counts once for each loop.
+  marks <- newInts blockCount (-1)
+  stack <- newInts (max 1 blockCount) 0
+  edge <- newInts 1 0
+  forBlocks encoded $ \source ->
+    forRow (encTargets encoded) source $ \head' ->
+      when (head' <= source) $ do
+        number <- readArray edge 0
+        writeArray edge 0 (number + 1)
+        writeArray marks head' number
+        addTo depths head' 1
+        let visit block top = do
+              mark <- readArray marks block
+              if mark == number
+                then pure top
+                else do
+                  writeArray marks block number
+                  addTo depths block 1
+                  writeArray stack top block
+                  pure (top + 1)
+            drain top
+              | top <= 0 = pure ()
+              | otherwise = do
+                  block <- readArray stack (top - 1)
+                  let push at next
+                        | at >= rowTo predecessors block = pure next
+                        | otherwise = visit (rowAt predecessors at) next >>= push (at + 1)
+                  next <- push (rowFrom predecessors block) (top - 1)
+                  drain next
+        start <- visit source 0
+        drain start
   pure depths
 
 -- | The values in the order the scan visits them: by the start of the
