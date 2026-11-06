@@ -150,6 +150,7 @@ linkPrograms reporter options adjust targetsOf = do
       targetDirectory = nativeTargetStoreDirectory target
       report = progressReport reporter
       verbose message = when (buildVerbose options) (report (ProgressLog message))
+      printTimings message = when (buildPrintTimings options) (report (ProgressLog message))
   levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options || buildProfileTime options) (buildOptimization options)
   let config =
         adjust
@@ -163,6 +164,7 @@ linkPrograms reporter options adjust targetsOf = do
               compileProfileAllocations = buildProfileAllocations options,
               compileProfileTime = buildProfileTime options,
               compileVerbose = verbose,
+              compilePrintTimings = printTimings,
               compileUseColor = progressColor reporter,
               compileProgress = reporter
             }
