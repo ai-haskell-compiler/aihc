@@ -1546,7 +1546,8 @@ tailCallGroups callers names =
 -- | Lower a function together with the functions that only it reaches by
 -- tail calls, and merge their Lir functions into one. See
 -- 'mergeTailCallees'. When the merge is not possible, the functions stay
--- apart.
+-- apart. A function without such callees still gets its tail calls of
+-- itself as the jump of a loop.
 lowerFunctionGroup :: LowerEnv -> GrinFunction -> [GrinFunction] -> LowerM ()
 lowerFunctionGroup env root members = do
   mapM_ (lowerFunction env) (root : members)

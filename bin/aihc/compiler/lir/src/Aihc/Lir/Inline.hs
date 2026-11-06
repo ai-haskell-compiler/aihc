@@ -227,7 +227,11 @@ spliceBlock inlines prefix = go []
 -- one function, the values that a loop passes on without a change stay
 -- where they are.
 --
--- The result is 'Nothing' when one of the functions is not a candidate: it
+-- With no other functions, only a tail call of the root to itself changes:
+-- it becomes the jump of the loop.
+--
+-- The result is 'Nothing' when nothing changes, or when one of the
+-- functions is not a candidate: it
 -- has another convention or other results, it is not internal, it has a
 -- stack allocation (which only the entry block can have), or a function of
 -- the group names it other than by a tail call. The caller then keeps the
@@ -235,7 +239,7 @@ spliceBlock inlines prefix = go []
 -- group names a function of the group.
 mergeTailCallees :: Function -> [Function] -> Maybe Function
 mergeTailCallees root members
-  | null members = Nothing
+  | null members && not loops = Nothing
   | not (all fits members) = Nothing
   | any namesOtherwise (root : members) = Nothing
   | otherwise = Just root {functionBlocks = mergeBlocks (map redirect (rootBlocks <> concatMap (\copy -> copyBlocks copy False Return) copies))}

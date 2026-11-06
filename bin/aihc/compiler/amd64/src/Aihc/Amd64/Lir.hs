@@ -61,6 +61,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -539,6 +540,7 @@ smallImmediate ty operand =
   case operand of
     OperandLiteral (LitInt value)
       | not (isFloatType ty) -> signedImmediate (canonicalInteger ty value)
+    OperandLiteral LitNull -> Just 0
     _ -> Nothing
 
 -- | A narrow constant as a signed value of its width. It fits a
@@ -614,7 +616,7 @@ conditionTest ctx fused condition =
     Just (Fused op ty left right)
       | op `elem` [Eq, Ne],
         not (isFloatType ty),
-        right == OperandLiteral (LitInt 0) ->
+        right `elem` [OperandLiteral (LitInt 0), OperandLiteral LitNull] ->
           let (loads, register) = operandIn' ctx 0 ty scratchLeft left
            in (loads, if op == Eq then TestZero register else TestNonZero register)
       | isFloatType ty ->
@@ -1420,24 +1422,37 @@ amd64TailCall ctx callee convention parameterTypes arguments =
           types = parameterTypes <> repeat I64
           typed = zip types arguments
           source ty operand = Native.displaceSource extra (Native.operandSource ctx ty operand)
-          moves =
-            [(LocRegister scratchRight, source Code operand) | Right operand <- [callee]]
-              <> [(LocRegister register, source ty argument) | (register, (ty, argument)) <- zip aihcArgumentRegisters typed]
+          argumentMoves =
+            [(LocRegister register, source ty argument) | (register, (ty, argument)) <- zip aihcArgumentRegisters typed]
               <> [ (LocSlot (extra + top - 8 * (position + 1)), source ty argument)
                  | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) typed)
                  ]
               <> [(LocSlot (extra + newReturn), SourceLocation (LocSlot (extra + frame))) | newReturn /= frame]
-          branch = case callee of
-            Left label -> jump label
-            Right _ -> amd64Instruction (AmdJmp (Amd64JumpRegister scratchRight))
+          written = [register | (LocRegister register, _) <- argumentMoves]
+          -- An indirect target stays in its own register when no move
+          -- writes that register. Otherwise it moves to @r10@.
+          target = case callee of
+            Right (OperandVar var)
+              | LocRegister register <- Native.home ctx var,
+                register `notElem` written,
+                register /= scratchLeft ->
+                  Just register
+            Right _ -> Just scratchRight
+            Left _ -> Nothing
+          moves =
+            [(LocRegister scratchRight, source Code operand) | Right operand <- [callee], target == Just scratchRight]
+              <> argumentMoves
+          branch = case (callee, target) of
+            (Right _, Just register) -> amd64Instruction (AmdJmp (Amd64JumpRegister register))
+            _ -> either jump (const (amd64Instruction (AmdJmp (Amd64JumpRegister scratchRight)))) callee
       check <-
         case callee of
           Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure []
           Left _ -> pure []
           Right _ -> do
             stub <- trapLabel "indirect call to a non-function"
-            pure [testZero scratchRight, amd64Instruction (AmdJe stub)]
-      pure (adjustStack AmdSub extra <> tailMoves [scratchRight | Left _ <- [callee]] moves <> check <> adjustStack AmdAdd (extra + newReturn) <> [branch])
+            pure [testZero (fromMaybe scratchRight target), amd64Instruction (AmdJe stub)]
+      pure (adjustStack AmdSub extra <> tailMoves [scratchRight | target /= Just scratchRight] (maybeToList target) moves <> check <> adjustStack AmdAdd (extra + newReturn) <> [branch])
     -- An aihc callee preserves no register, and a C function must keep
     -- the preserved registers of its caller. So a C function cannot pass
     -- control to an aihc function with a tail call.
@@ -1445,12 +1460,13 @@ amd64TailCall ctx callee convention parameterTypes arguments =
 
 -- | A parallel move of a tail call. @r11@ parks a value of a cycle. A move
 -- from a slot to a slot goes through a free register: one of the given free
--- registers, or @rax@ when no move reads or writes it. Without one, the move
+-- registers, or @rax@ when no move reads or writes it and it does not hold
+-- a kept value. Without one, the move
 -- uses @push@ and @pop@, which need no register but are slower. A constant
 -- that needs a register to reach a slot goes there after the other moves,
 -- through @r11@.
-tailMoves :: [Amd64Register] -> [(Location Amd64Register, MoveSource Amd64Register)] -> [Amd64Statement]
-tailMoves free moves =
+tailMoves :: [Amd64Register] -> [Amd64Register] -> [(Location Amd64Register, MoveSource Amd64Register)] -> [Amd64Statement]
+tailMoves free kept moves =
   concatMap emit (orderMoves locationOf SourceLocation (LocRegister scratchLeft) direct)
     <> concat [literalInto ty scratchLeft literal <> [storeSlot scratchLeft offset] | (offset, ty, literal) <- late]
   where
@@ -1476,7 +1492,7 @@ tailMoves free moves =
             Nothing -> [amd64Instruction (AmdPushMemory (slotMemory from)), amd64Instruction (AmdPopMemory (slotMemory offset))]
         (LocSlot offset, SourceLiteral ty literal) ->
           maybe [] pure (Native.literalBits ty literal >>= storeSlotImmediate offset)
-    used = [register | (LocRegister register, _) <- moves] <> [register | (_, SourceLocation (LocRegister register)) <- moves]
+    used = kept <> [register | (LocRegister register, _) <- moves] <> [register | (_, SourceLocation (LocRegister register)) <- moves]
     slotScratch = case free <> [RAX | RAX `notElem` used] of
       register : _ -> Just register
       [] -> Nothing

@@ -5,8 +5,7 @@ return:
 	mov [rsp], rbx
 	mov r9, [r15]
 	mov rbx, [r9 + 24]
-	xor r10d, r10d
-	cmp rbx, r10
+	test rbx, rbx
 	je .Llir_0_4
 .Llir_0_1:
 	cmp r15, r14
