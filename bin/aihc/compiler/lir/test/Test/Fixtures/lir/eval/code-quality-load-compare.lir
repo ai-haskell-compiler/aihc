@@ -1,0 +1,109 @@
+; expect: 1, 1, 1, 1, 1, 1, 1, 1
+; reason: On AMD64, a branch that compares a loaded value reads the value
+; from memory. The compare has the width of the load and keeps the
+; signedness of the compare. When the loaded value is the right operand,
+; the condition is reversed. Each function compares one loaded value and
+; returns 1 when the compare holds.
+
+data @inputs align 8 = { i64 -4000, i64 7, i32 4294967280, i8 144, i8 0, i16 65000 }
+
+func @signed_byte() -> i1 {
+entry:
+  %c = load i8 [@inputs + 20] align 1
+  %t = lt.s i8 %c, -100
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @unsigned_byte() -> i1 {
+entry:
+  %c = load i8 [@inputs + 20] align 1
+  %t = gt.u i8 %c, 100
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @zero_byte() -> i1 {
+entry:
+  %c = load i8 [@inputs + 21] align 1
+  %t = eq i8 %c, 0
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @unsigned_half() -> i1 {
+entry:
+  %h = load i16 [@inputs + 22] align 2
+  %t = gt.u i16 %h, 64999
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @unsigned_word() -> i1 {
+entry:
+  %w = load i32 [@inputs + 16] align 4
+  %t = ge.u i32 %w, 4294963200
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @signed_right() -> i1 {
+entry:
+  %n = load i64 [@inputs] align 8
+  %t = lt.s i64 -5000, %n
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @register_left(%k: i64) -> i1 {
+entry:
+  %x = load i64 [@inputs + 8] align 8
+  %t = eq i64 %x, %k
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @register_right(%k: i64) -> i1 {
+entry:
+  %x = load i64 [@inputs + 8] align 8
+  %t = lt.u i64 %k, %x
+  br %t, yes, no
+yes:
+  return 1
+no:
+  return 0
+}
+
+func @main() -> (i1, i1, i1, i1, i1, i1, i1, i1) {
+entry:
+  %a = call @signed_byte()
+  %b = call @unsigned_byte()
+  %c = call @zero_byte()
+  %d = call @unsigned_half()
+  %e = call @unsigned_word()
+  %f = call @signed_right()
+  %g = call @register_left(7)
+  %h = call @register_right(3)
+  return %a, %b, %c, %d, %e, %f, %g, %h
+}

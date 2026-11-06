@@ -71,7 +71,7 @@ import Data.Array.ST (STUArray, readArray, writeArray)
 import Data.Array.Unboxed (Array, UArray, elems, listArray, (!))
 import Data.Array.Unsafe (unsafeFreeze)
 import Data.Bits (complement, countTrailingZeros, shiftL, (.&.), (.|.))
-import Data.Foldable (traverse_)
+import Data.Foldable (for_, traverse_)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (elemIndex)
@@ -584,6 +584,15 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
   (crossed, coldCrossings) <- callCrossings encoded live
   earns <- earnedRegisters encoded preservedCost
   hints <- buildRows valueCount (forHints encoded)
+  -- A parameter without an argument register arrives in a stack slot. In
+  -- that slot it costs no load at the entry, and a tail call that passes it
+  -- on in the same slot costs no store, so it is the cheaper value to spill.
+  counted <- accessCounts encoded
+  forUpTo (lengthOf (encParameters encoded)) $ \at -> do
+    let parameter = encParameters encoded ! at
+    when (rowTo hints parameter == rowFrom hints parameter) $
+      readArray counted parameter >>= writeArray counted parameter . max 0 . subtract 2
+  costs <- freezeInts counted
   partners <- buildRows valueCount (\act -> forJumpPairs encoded act >> forJumpPairs encoded (flip act) >> forCopyPairs encoded act >> forCopyPairs encoded (flip act))
   order <- orderByStart encoded starts hints partners
   assigned <- newInts valueCount (-1)
@@ -709,20 +718,29 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
                    )
           `orElse` searchRow (encReads encoded) (encDefiner encoded ! value) (readArray assigned) value
           `orElse` firstFree value 0
-      -- The furthest-reaching acceptable interval loses its register. The
-      -- active list is sorted by end, so it is the last acceptable one.
+      -- The acceptable interval that is touched least loses its register:
+      -- a spilled value costs a memory access at each touch. The new value
+      -- itself goes to a frame slot when no active interval is touched less
+      -- often. Of two values touched equally often, the one that reaches
+      -- further loses, so that its register serves more of the function.
+      -- The active list is sorted by end, so the walk from the end finds
+      -- that one first.
       spill value = do
         count <- readArray activeCount 0
-        let victim index
-              | index < 0 = pure (-1)
+        let victim index best
+              | index < 0 = pure best
               | otherwise = do
                   register <- readArray active index
-                  accepts value register >>= \ok -> if ok then pure index else victim (index - 1)
-        at <- victim (count - 1)
-        when (at >= 0) $ do
+                  ok <- accepts value register
+                  candidate <- readArray holder register
+                  let better = case best of
+                        Nothing -> True
+                        Just (_, other) -> costs ! candidate < costs ! other
+                  victim (index - 1) (if ok && better then Just (index, candidate) else best)
+        found <- victim (count - 1) Nothing
+        for_ found $ \(at, loser) -> do
           register <- readArray active at
-          loser <- readArray holder register
-          when (ends ! loser > ends ! value) $ do
+          when (costs ! loser < costs ! value || (costs ! loser == costs ! value && ends ! loser > ends ! value)) $ do
             writeArray assigned loser (-1)
             writeArray holder register (-1)
             dropActive at 1 count

@@ -1153,41 +1153,76 @@ fuseCompare backend ctx instructions terminator =
             Nothing -> (reverse before, Just (Fused op ty left right))
     _ -> (instructions, Nothing)
   where
-    -- The instructions are in reverse order. The load must be in the block,
-    -- and nothing between it and the compare may write memory or call.
+    -- The instructions are in reverse order. The load must come directly
+    -- before the compare: 'selectFusions' moves it there before the
+    -- allocation, so the base of the address stays live up to the compare.
     loadedOperand before left right
       | not (nbCanFuseLoadCompare backend) = Nothing
       | otherwise = case (fromLoad before left, fromLoad before right) of
           (Just (kept, base, offset), _) -> Just (kept, base, offset, right, True)
           (_, Just (kept, base, offset)) -> Just (kept, base, offset, left, False)
           _ -> Nothing
-    fromLoad before operand = case operand of
-      OperandVar loaded
+    fromLoad before operand = case (operand, before) of
+      (OperandVar loaded, instruction : rest)
         | Map.lookup loaded (ctxReads ctx) == Just 1,
-          Map.notMember loaded (ctxFusions ctx) ->
-            search [] loaded before
+          Map.notMember loaded (ctxFusions ctx),
+          [loaded] == instructionResults instruction,
+          Just address <- fusibleLoad (instructionOperation instruction) ->
+            Just (rest, addressBase address, addressByteOffset wordBytes address)
       _ -> Nothing
-    search later loaded remaining = case remaining of
+    fusibleLoad operation = case operation of
+      Load ty address _ | ty == compareType -> Just address
+      LoadInvariant ty address _ | ty == compareType -> Just address
+      _ -> Nothing
+    compareType = case reverse instructions of
+      Instruction _ (Compare _ ty _ _) : _ -> ty
+      _ -> F64
+
+-- | Whether an operation can write memory or run other code. A load cannot
+-- move past one.
+writesMemory :: Operation -> Bool
+writesMemory operation = case operation of
+  Store {} -> True
+  StoreAtomic {} -> True
+  CompareSwap {} -> True
+  AtomicRmw {} -> True
+  Fence {} -> True
+  GlobalSet {} -> True
+  Call {} -> True
+  CallIndirect {} -> True
+  _ -> False
+
+-- | The integer types that a compare can read from memory.
+loadCompareType :: Type -> Bool
+loadCompareType ty = ty `elem` [I8, I16, I32, I64, Ptr, Code]
+
+-- | Move a load that only the compare of the branch reads to the place
+-- directly before the compare. See 'nbCanFuseLoadCompare'. The move is
+-- safe only when no instruction between the two writes memory or calls.
+placeCompareLoad :: (Var -> Bool) -> Block -> Block
+placeCompareLoad useOnce block =
+  case (reverse (blockInstructions block), blockTerminator block) of
+    (compare'@(Instruction [condition] (Compare _ ty left right)) : before, Branch (OperandVar branched) _ _)
+      | condition == branched,
+        useOnce condition,
+        loadCompareType ty,
+        Just reordered <- place ty left before <|> place ty right before ->
+          block {blockInstructions = reverse (compare' : reordered)}
+    _ -> block
+  where
+    place ty operand before = case operand of
+      OperandVar loaded | useOnce loaded -> go ty loaded [] before
+      _ -> Nothing
+    go ty loaded later remaining = case remaining of
       instruction : rest
         | [loaded] == instructionResults instruction ->
             case instructionOperation instruction of
-              Load ty address _ | integerType ty -> Just (reverse later <> rest, addressBase address, addressByteOffset wordBytes address)
-              LoadInvariant ty address _ | integerType ty -> Just (reverse later <> rest, addressBase address, addressByteOffset wordBytes address)
+              Load loadTy _ _ | loadTy == ty -> Just (instruction : reverse later <> rest)
+              LoadInvariant loadTy _ _ | loadTy == ty -> Just (instruction : reverse later <> rest)
               _ -> Nothing
-        | writes (instructionOperation instruction) -> Nothing
-        | otherwise -> search (instruction : later) loaded rest
+        | writesMemory (instructionOperation instruction) -> Nothing
+        | otherwise -> go ty loaded (instruction : later) rest
       [] -> Nothing
-    integerType ty = ty `elem` [I8, I16, I32, I64, Ptr, Code]
-    writes operation = case operation of
-      Store {} -> True
-      StoreAtomic {} -> True
-      CompareSwap {} -> True
-      AtomicRmw {} -> True
-      Fence {} -> True
-      GlobalSet {} -> True
-      Call {} -> True
-      CallIndirect {} -> True
-      _ -> False
 
 compileTerminator :: (Eq register) => NativeBackend statement register error -> Ctx register -> Maybe Label -> Maybe Fused -> Terminator -> NativeM error [statement]
 compileTerminator backend ctx next fused terminator =
@@ -1514,7 +1549,8 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
       let (shifted, shifts, removedShifts) = maybe (blockInstructions block, Map.empty, []) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
           (loaded, table, removedLoads) = maybe (shifted, shifts, []) (\(accepts, _) -> selectLoads accepts shifts shifted) (nbIndexedLoad backend)
           (carried, carries, removedCarries) = if isJust (nbCarryIncrement backend) then selectCarries loaded else (loaded, Map.empty, [])
-       in (block {blockInstructions = carried}, Map.union table carries, removedShifts <> removedLoads <> removedCarries)
+          placed = if nbCanFuseLoadCompare backend then placeCompareLoad useOnce block {blockInstructions = carried} else block {blockInstructions = carried}
+       in (placed, Map.union table carries, removedShifts <> removedLoads <> removedCarries)
     selectShifts accepts instructions
       | Map.null definitions = (instructions, Map.empty, [])
       | otherwise = (concatMap rewrite instructions, Map.map (\(_, _, count) -> FusedShift count) matches, Set.toList removed)
