@@ -7,6 +7,7 @@ import Aihc.Cli.Backend (compileGrinTo, compileLirTo)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower (defaultModuleSettings)
+import Aihc.Llvm.Lir (CodeGoal (..))
 import Aihc.Native (NativeTarget)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, forM_, void, when)
@@ -47,7 +48,7 @@ failureFixtures target = do
         "grin" -> do
           program <- checked (Grin.parseProgram source)
           gc <- Grin.lowerGc <$> checked (Grin.toCpsGrin program)
-          pure (\path -> Nothing <$ compileGrinTo False defaultModuleSettings target Nothing gc (path <> ".s") path)
+          pure (\path -> Nothing <$ compileGrinTo False defaultModuleSettings FastCode target Nothing gc (path <> ".s") path)
         _ -> assertFailure "Unknown source language."
       forM_ [False, True] $ \existing ->
         withSystemTempDirectory "aihc-object-failure" $ \directory -> do
