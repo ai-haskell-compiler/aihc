@@ -955,7 +955,7 @@ accessCounts encoded = do
 loopDepths :: Encoded -> ST s (STUArray s Int Int)
 loopDepths encoded = do
   let blockCount = encBlocks encoded
-  predecessors <- buildRows blockCount (\act -> forBlocks encoded (\index -> forRow (encTargets encoded) index (\successor -> act successor index)))
+  predecessors <- buildRows blockCount (\act -> forBlocks encoded (\index -> forRow (encTargets encoded) index (`act` index)))
   depths <- newInts blockCount 0
   -- The mark of each block is the number of the last back edge that put
   -- it in a body, so that a block counts once for each loop.
