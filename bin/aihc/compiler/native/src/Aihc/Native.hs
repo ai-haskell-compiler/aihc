@@ -321,11 +321,19 @@ llvmLtoArguments target lto = ["-flto" | llvmLto target lto]
 -- | The arguments of the link of a link-time optimized build: the LTO
 -- argument, and the level the optimizer of the linker runs at. A link that
 -- reads no bitcode takes none.
+--
+-- At @-Os@, the link also removes the local symbols. LLVM gives each
+-- @internal@ function and datum of the program a local symbol with its
+-- name, and the linker keeps these symbols. MicroHs has approximately
+-- 86,000 of them, and they make 5 MB of a 13 MB executable. The object
+-- backends name their local symbols with the linker-private prefix @l@,
+-- so their executables do not keep them. At the other levels, the symbols
+-- stay for profilers and debuggers.
 llvmLtoLinkArguments :: NativeTarget -> Bool -> OptimizationLevel -> [String]
 llvmLtoLinkArguments target lto level =
   case llvmLtoArguments target lto of
     [] -> []
-    arguments -> arguments <> [optimizationArgument level] <> llvmLinkCodeGenerationArguments
+    arguments -> arguments <> [optimizationArgument level] <> llvmLinkCodeGenerationArguments <> ["-Wl,-x" | level == Os]
 
 -- | The LLVM code generator options of the @llvm@ target.
 --
