@@ -852,11 +852,14 @@ The lowering keeps the control model of CPS-GRIN:
 - When the code before a reservation only reads values (constants, fields,
   WHNF tests, and case tests), the slow block is one `tailcall` of a shared
   helper `aihc_lir_collect_replay_<shape>`. It takes the context, the
-  arguments of the function, the code of the function, the words, and the
-  static reference table of the function. The helper stores the pointer
-  arguments in its root array, calls `aihc_heap_collect`, and enters the
-  function again with the relocated arguments. The function then makes the
-  reservation again. A read from a frame that the entry popped ends the
+  arguments of the function, the code of the function, the static reference
+  table of the function, and the words. The helper stores the pointer
+  arguments in its root array, calls `aihc_heap_collect_replay`, and enters
+  the function again with the relocated arguments. The function then makes
+  the reservation again. When the runtime suspends the thread, the helper
+  puts the code, the table, and the arguments into a replay closure. The
+  info table of the closure is `aihc_lir_replay_info_<shape>`, one for each
+  shape in the unit. A read from a frame that the entry popped ends the
   replay, because a collection does not relocate that frame.
 - A reservation of a dynamic size compares the room below the heap limit
   in words with the size, and first tests that the heap pointer is not

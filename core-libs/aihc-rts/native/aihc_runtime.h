@@ -619,6 +619,30 @@ static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
   return (const AihcInfo *)(uintptr_t)(value->header & ~AIHC_HEADER_TAG_MASK);
 }
 
+/* A replay closure holds the state of a function that a heap check
+   interrupted: field zero is the index of the argument that is the
+   continuation, field one the code, field two the static reference table,
+   and the arguments start at AIHC_REPLAY_FIRST_ARGUMENT. One info table
+   serves every function of an argument shape, so its srt field is the
+   marker aihc_replay_srt. */
+enum {
+  AIHC_REPLAY_SRT_FIELD = 2,
+  AIHC_REPLAY_FIRST_ARGUMENT = 3,
+};
+extern AihcSrt aihc_replay_srt;
+
+/* The static objects that the code of an object reaches. A replay closure
+   holds its table in a field. Use this function and not info->srt for a
+   heap object. A frame never has the marker. */
+static inline const AihcSrt *aihc_object_srt(const AihcInfo *info,
+                                             const AihcValue *object) {
+  const AihcSrt *srt = info->srt;
+  if (__builtin_expect(srt == &aihc_replay_srt, 0)) {
+    srt = (const AihcSrt *)(uintptr_t)object->fields[AIHC_REPLAY_SRT_FIELD];
+  }
+  return srt;
+}
+
 /* A pointer to a value in weak head normal form can carry a tag in its
    low three bits: one to six is the constructor index plus one or the
    arity of a function, and seven says that the reader must read the

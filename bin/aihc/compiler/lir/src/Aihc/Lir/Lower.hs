@@ -924,10 +924,9 @@ helperSignature helper = case helper of
   HelperContinueSlot -> running [Ptr, I64]
   HelperApplySlot -> running [Ptr, Ptr, I64]
   -- The arguments of the function come first, so they can stay where the
-  -- function received them. The replay info table of the function and the
-  -- words follow them. The info table names the code and the static
-  -- reference table of the function.
-  HelperCollectReplay shape -> running (map fst shape <> [Ptr, I64])
+  -- function received them. The code of the function, its static reference
+  -- table, and the words follow them.
+  HelperCollectReplay shape -> running (map fst shape <> [Code, Ptr, I64])
   HelperReplayEntry _ -> running [Ptr, Ptr]
   HelperForce _ shape -> running (Ptr : Ptr : shape)
   HelperCStringLength -> Signature [Ptr] [I64] CConvention
@@ -2421,28 +2420,40 @@ resumeTransfer capability resume = do
 -- code gives up its computation and transfers to it. Otherwise the code
 -- continues in a new block.
 -- | The words of a replay closure: the header, the index of the argument
--- that is the continuation, and the arguments.
+-- that is the continuation, the code of the function, its static reference
+-- table, and the arguments.
 replayClosureWords :: [(Type, Bool)] -> Integer
-replayClosureWords shape = 2 + toInteger (length shape)
+replayClosureWords shape = toInteger replayArgumentSlot + toInteger (length shape)
 
--- | The replay info table of the function under construction: a closure
--- table whose identity is the code of the function and whose static
--- reference table is the table of the function. A replay closure keeps the
--- static objects of the code alive while its thread does not run. The
--- table is made once for each function.
-replayInfo :: FunctionCtx -> Symbol -> [(Type, Bool)] -> LowerM Operand
-replayInfo ctx code shape = do
+-- | The slot of the first argument in a replay closure. The slots before it
+-- hold the header, the index of the continuation, the code, and the static
+-- reference table. @AIHC_REPLAY_FIRST_ARGUMENT@ in the runtime is the same
+-- slot as a field index, so it is one less.
+replayArgumentSlot :: Int
+replayArgumentSlot = 4
+
+-- | The runtime marker that a replay info table holds in place of a static
+-- reference table. The collector then reads the table of the object from
+-- its third slot. See @aihc_object_srt@ in the runtime.
+replaySrtMarker :: Symbol
+replaySrtMarker = Symbol "aihc_replay_srt"
+
+-- | The replay info table of an argument shape: a closure table whose fields
+-- are the index of the continuation, the code, the static reference table,
+-- and the arguments of the function. One table serves every function of the
+-- shape in the unit. The closure keeps the code and the static objects of the
+-- function alive while its thread does not run. The identity of the table is
+-- its entry, because no function owns the table.
+replayInfo :: [(Type, Bool)] -> LowerM Operand
+replayInfo shape = do
   target <- targetM
-  let symbol = Symbol (unSymbol code <> "_ri")
+  let symbol = Symbol ("aihc_lir_replay_info_" <> replayShapeName shape)
       byte = DataInt I8 . toInteger
   defined <- gets stateDefined
   unless (Set.member symbol defined) $ do
     entry <- requireHelper (HelperReplayEntry shape)
-    bitmap <- internBitmap (BS.pack (0 : [if root then 1 else 0 | (_, root) <- shape]))
-    srt <- useSrt ctx
-    let srtField = case srt of
-          OperandLiteral (LitSymbol table) -> DataSymbol table 0
-          _ -> DataNull
+    requireExternData replaySrtMarker
+    bitmap <- internBitmap (BS.pack (replicate (replayArgumentSlot - 1) 0 <> [if root then 1 else 0 | (_, root) <- shape]))
     emitItem
       ( ItemData
           DataItem
@@ -2451,12 +2462,12 @@ replayInfo ctx code shape = do
               dataMutable = False,
               dataAlignment = toInteger (lowerWordSize target),
               dataFields =
-                [ DataCode (Just code),
+                [ DataCode (Just entry),
                   maybe DataNull (`DataSymbol` 0) bitmap,
                   DataNull,
                   DataCode (Just entry),
-                  srtField,
-                  byte (1 + length shape),
+                  DataSymbol replaySrtMarker 0,
+                  byte (replayArgumentSlot - 1 + length shape),
                   byte (1 :: Int),
                   byte (0 :: Int),
                   byte runtimeObjectClosure,
@@ -2671,8 +2682,8 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
         Just (frame, bytes) -> do
           stack <- emitValue "sp" Ptr (PtrAdd frame (OperandLiteral (LitInt bytes)))
           pure context {contextStack = typedOperand stack}
-      info <- replayInfo ctx code [(ty, root) | (_, ty, root) <- arguments]
-      terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [info, words']))
+      srt <- useSrt ctx
+      terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), srt, words']))
     Nothing -> do
       forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
         storeSlot AnyRegion Ptr root array (toInteger (8 * index))
@@ -4805,12 +4816,10 @@ generateHelper env helper =
     HelperCollectReplay shape -> do
       (context, contextParameters) <- freshContext
       values <- forM shape $ \(ty, root) -> (,ty,root) <$> fresh "value"
-      info <- fresh "info"
+      code <- fresh "code"
+      srt <- fresh "srt"
       words' <- fresh "words"
       beginBlock (Label "entry") []
-      target <- targetM
-      code <- loadInfoCode "code" (OperandVar info) 0
-      srt <- emitValue "srt" Ptr (LoadInvariant Ptr (byteAddress (OperandVar info) (toInteger (4 * lowerWordSize target))) (wordAlignment 1))
       let roots = [OperandVar var | (var, _, True) <- values]
           closureWords = replayClosureWords shape
       array <-
@@ -4825,7 +4834,7 @@ generateHelper env helper =
       -- waits for this thread. It then reserved the words of a replay
       -- closure, which holds the state of the function so it can continue
       -- later.
-      suspend <- callRuntime "aihc_heap_collect_replay" [Ptr, I64, I64, Ptr, Ptr, I64] [I64] [capability, OperandVar words', OperandLiteral (LitInt (toInteger (length roots))), array, typedOperand srt, OperandLiteral (LitInt closureWords)]
+      suspend <- callRuntime "aihc_heap_collect_replay" [Ptr, I64, I64, Ptr, Ptr, I64] [I64] [capability, OperandVar words', OperandLiteral (LitInt (toInteger (length roots))), array, OperandVar srt, OperandLiteral (LitInt closureWords)]
       relocated <- relocate array (0 :: Int) values
       collected <- loadHeapContext capability context
       suspended <- emitValue "suspended" I1 (Compare Ne I64 suspend (OperandLiteral (LitInt 0)))
@@ -4834,17 +4843,22 @@ generateHelper env helper =
       terminate (Branch (typedOperand suspended) (Target suspendLabel []) (Target enterLabel []))
       beginColdBlock suspendLabel []
       let closure = contextHeap collected
-      storeSlot HeapRegion Ptr (OperandVar info) closure 0
+      info <- replayInfo shape
+      storeSlot HeapRegion Ptr info closure 0
       storeSlot HeapRegion I64 (OperandLiteral (LitInt (-1))) closure 8
+      -- The code slot is no pointer slot, so the high bytes of the slot do
+      -- not matter on a 32-bit target.
+      emit [] (Store Code (OperandVar code) (slotAddress HeapRegion closure 16) (byteAlignment 8))
+      storeSlot HeapRegion Ptr (OperandVar srt) closure 24
       forM_ (zip [0 :: Int ..] (zip relocated values)) $ \(index, (value, (_, ty, _))) ->
-        storeSlot HeapRegion ty value closure (toInteger (16 + 8 * index))
+        storeSlot HeapRegion ty value closure (toInteger (8 * (replayArgumentSlot + index)))
       next <- emitValue "hp" Ptr (PtrAdd closure (OperandLiteral (LitInt (8 * closureWords))))
       storeContext capability collected {contextHeap = typedOperand next}
       resume <- callRuntime "aihc_replay_suspend" [Ptr, Ptr] [Ptr] [capability, closure]
       resumeTransfer capability resume
       beginBlock enterLabel []
-      terminate (TailCallIndirect (typedOperand code) (contextOperands collected <> relocated) (Signature (contextTypes <> [ty | (_, ty, _) <- values]) [] AihcConvention))
-      finishFunction symbol Internal (contextParameters <> [(var, ty) | (var, ty, _) <- values] <> [(info, Ptr), (words', I64)]) [] AihcConvention
+      terminate (TailCallIndirect (OperandVar code) (contextOperands collected <> relocated) (Signature (contextTypes <> [ty | (_, ty, _) <- values]) [] AihcConvention))
+      finishFunction symbol Internal (contextParameters <> [(var, ty) | (var, ty, _) <- values] <> [(code, Code), (srt, Ptr), (words', I64)]) [] AihcConvention
       where
         relocate array index values = case values of
           [] -> pure []
@@ -4863,14 +4877,13 @@ generateHelper env helper =
       beginBlock (Label "entry") []
       index <- loadSlot HeapRegion "index" I64 (OperandVar closure) 8
       arguments <- forM (zip [0 :: Integer ..] shape) $ \(position, (ty, root)) -> do
-        value <- loadSlot HeapRegion "argument" ty (OperandVar closure) (16 + 8 * position)
+        value <- loadSlot HeapRegion "argument" ty (OperandVar closure) (8 * (toInteger replayArgumentSlot + position))
         if root
           then do
             isContinuation <- emitValue "is_continuation" I1 (Compare Eq I64 (typedOperand index) (OperandLiteral (LitInt position)))
             typedOperand <$> emitValue "argument" Ptr (Select Ptr (typedOperand isContinuation) (OperandVar continuation) (typedOperand value))
           else pure (typedOperand value)
-      header <- loadObjectInfo HeapRegion (OperandVar closure)
-      code <- loadInfoCode "code" (typedOperand header) 0
+      code <- emitValue "code" Code (Load Code (slotAddress HeapRegion (OperandVar closure) 16) (byteAlignment 8))
       terminate (TailCallIndirect (typedOperand code) (contextOperands context <> arguments) (Signature (contextTypes <> map fst shape) [] AihcConvention))
       finishFunction symbol Internal (contextParameters <> [(closure, Ptr), (continuation, Ptr)]) [] AihcConvention
     -- See 'compileForce'.
