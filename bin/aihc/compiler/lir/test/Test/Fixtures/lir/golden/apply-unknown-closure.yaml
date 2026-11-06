@@ -10,14 +10,12 @@ expected: |
     %info_word_7 = and i64 %header_word_6, -4
     %header_8 = ptr.from_int %info_word_7
     %kind_9 = load.invariant i8 [%header_8 + 43] align 1
-    %kind_10 = zext i8 %kind_9 to i64
-    %arity_11 = load.invariant i8 [%header_8 + 41] align 1
-    %arity_12 = zext i8 %arity_11 to i64
-    %closure_13 = eq i64 %kind_10, 1
+    %closure_13 = eq i8 %kind_9, 1
     br %closure_13, entry$next0, apply_helper_17
 
   entry$next0:
-    %saturated_14 = eq i64 %arity_12, 1
+    %arity_11 = load.invariant i8 [%header_8 + 41] align 1
+    %saturated_14 = eq i8 %arity_11, 1
     br %saturated_14, apply_enter_16, apply_helper_17
 
   cold apply_helper_17:

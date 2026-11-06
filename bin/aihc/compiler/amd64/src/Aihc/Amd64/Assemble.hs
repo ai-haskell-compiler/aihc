@@ -242,6 +242,8 @@ data Amd64Instruction
     -- 8-byte form sign-extends a 32-bit constant.
     AmdCmpMemory !Int !Amd64Memory !Integer
   | AmdTest !Amd64Rm !Amd64Register
+  | -- | @test r/m32, imm32@: the flags of the low 32 bits and a mask.
+    AmdTestImmediate !Amd64Rm !Integer
   | AmdShl !Amd64Rm
   | AmdShr !Amd64Rm
   | -- | Shifts by an immediate count.
@@ -487,6 +489,7 @@ encodeInstruction instruction =
     AmdTest left right -> encodeRm (registerWidth register == 64) [0x85] (registerNumber register) (rmOperand left) False []
       where
         register = registerInfo right
+    AmdTestImmediate left mask -> encodeGroup False [0xf7] 0 (rmOperand left) (word32List (fromIntegral mask))
     AmdShl destination -> encodeGroup True [0xd3] 4 (rmOperand destination) []
     AmdShr destination -> encodeGroup True [0xd3] 5 (rmOperand destination) []
     AmdShlImmediate destination count -> encodeGroup True [0xc1] 4 (rmOperand destination) [fromIntegral count]
