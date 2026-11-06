@@ -576,6 +576,8 @@ runRounds config rounds st
 inlineRound :: InlineConfig -> Inliner -> Inliner
 inlineRound config st0 = List.foldl' step st0 sccs
   where
+    -- Here we want to include all bodies as nodes, even those that don't
+    -- reference any other values.
     graph = [(name, name, Set.toList (inRefs st0 Map.! name)) | name <- Map.keys (inBodies st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
