@@ -21,6 +21,7 @@ module Aihc.Lir.Inline
     prepareCheckedModule,
     inlineModule,
     hasInlineFunctions,
+    mergeTailCallees,
   )
 where
 
@@ -29,6 +30,7 @@ import Aihc.Lir.Resolve (resolveConstants)
 import Aihc.Lir.Simplify (eliminateCommonSubexpressions, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, threadConstantBranches)
 import Aihc.Lir.Syntax
 import Control.Monad.Trans.State.Strict (State, runState, state)
+import Data.Functor.Const (Const (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -210,6 +212,81 @@ spliceBlock inlines prefix = go []
         Call _ arguments -> arguments
         _ -> error "Lir inline splice reached a call it did not select"
     copyOf callee = state (\index -> (Copy prefix index callee, index + 1))
+
+-- | Merge into a root function the functions that only the root reaches,
+-- each one only by tail calls. Each such function becomes a renamed copy of
+-- its body in the root, and each tail call of it becomes a jump to the
+-- entry block of the copy. When the merged function then calls the root
+-- itself with a tail call, the body of the root also becomes a copy, and
+-- the new entry block jumps to it. Thus the loop is a jump, and the
+-- register allocator can give each value of the loop one home.
+--
+-- A function that is mutually recursive with others has its arguments in
+-- the argument registers and the stack slots of the convention at each
+-- call. On a target with few registers, each call moves most of them. In
+-- one function, the values that a loop passes on without a change stay
+-- where they are.
+--
+-- The result is 'Nothing' when one of the functions is not a candidate: it
+-- has another convention or other results, it is not internal, it has a
+-- stack allocation (which only the entry block can have), or a function of
+-- the group names it other than by a tail call. The caller then keeps the
+-- functions as they are. The caller makes sure that nothing outside the
+-- group names a function of the group.
+mergeTailCallees :: Function -> [Function] -> Maybe Function
+mergeTailCallees root members
+  | null members = Nothing
+  | not (all fits members) = Nothing
+  | any namesOtherwise (root : members) = Nothing
+  | otherwise = Just root {functionBlocks = mergeBlocks (map redirect (rootBlocks <> concatMap (\copy -> copyBlocks copy False Return) copies))}
+  where
+    fits member =
+      functionConvention member == functionConvention root
+        && functionResults member == functionResults root
+        && functionLinkage member == Internal
+        && not (allocates member)
+    allocates function = or [True | block <- functionBlocks function, Instruction _ (StackAlloc _ _) <- blockInstructions block]
+    symbols = Set.fromList (map functionName members)
+    namesOtherwise function =
+      or
+        [ True
+        | block <- functionBlocks function,
+          instruction <- blockInstructions block,
+          named <- operationSymbols (instructionOperation instruction),
+          Set.member named symbols
+        ]
+        || or
+          [ True
+          | block <- functionBlocks function,
+            OperandLiteral (LitSymbol named) <- terminatorOperands (blockTerminator block),
+            Set.member named symbols
+          ]
+    operationSymbols operation =
+      [named | Call named _ <- [operation]]
+        <> [named | OperandLiteral (LitSymbol named) <- getConst (forOperationOperands (\value -> Const [value]) operation)]
+    terminatorOperands = getConst . forTerminatorOperands (\value -> Const [value])
+    loops =
+      not (allocates root)
+        && or [True | function <- root : members, block <- functionBlocks function, TailCall named _ <- [blockTerminator block], named == functionName root]
+    prefix = freshPrefix root
+    copies = zipWith (Copy prefix) [0 ..] (members <> [root | loops])
+    entries = Map.fromList [(functionName callee, copyEntry copy) | copy@(Copy _ _ callee) <- copies]
+    rootBlocks
+      | loops =
+          [ Block
+              { blockLabel = Label (prefix <> "loop"),
+                blockParameters = [],
+                blockInstructions = [],
+                blockTerminator = Jump (Target (entries Map.! functionName root) (map (OperandVar . fst) (functionParameters root))),
+                blockCold = False
+              }
+          ]
+      | otherwise = functionBlocks root
+    redirect block =
+      case blockTerminator block of
+        TailCall named arguments
+          | Just label <- Map.lookup named entries -> block {blockTerminator = Jump (Target label arguments)}
+        _ -> block
 
 -- | One renamed copy of the body of an inline function.
 data Copy = Copy !Text !Int !Function
