@@ -77,6 +77,7 @@ import Aihc.Cabal
     autogenModules,
     buildTools,
     buildable,
+    asmSources,
     cSources,
     cabalVersion,
     ccOptions,
@@ -168,6 +169,7 @@ filePreprocessor :: FilePath -> Maybe Preprocessor
 filePreprocessor path = preprocessorForExtension (drop 1 (takeExtension path))
 
 -- | C compile inputs from the active library @c-sources@, @cxx-sources@,
+-- @asm-sources@,
 -- @include-dirs@, @cc-options@, and @cxx-options@ fields, and the link
 -- inputs from its @extra-libraries@, @extra-lib-dirs@, @frameworks@,
 -- @extra-framework-dirs@, and @ld-options@ fields.
@@ -177,6 +179,10 @@ data CCompileInfo = CCompileInfo
     -- the @cxx-options@, and a package that has any links the C++ standard
     -- library into every executable that depends on it.
     cCompileCxxSources :: [FilePath],
+    -- | The @asm-sources@ of the package. The C compiler assembles them
+    -- with the @cc-options@ and the include directories, and runs the C
+    -- preprocessor on a @.S@ file.
+    cCompileAsmSources :: [FilePath],
     -- | The Lir units of the package, from the aihc-specific field
     -- @x-aihc-lir-sources@. They are compiled with the Lir backend of the
     -- target and their objects join the C objects of the package.
@@ -268,6 +274,7 @@ cCompileInfoFromBuild spec packageRoot build = do
     CCompileInfo
       { cCompileSources = extractCSources packageRoot build,
         cCompileCxxSources = extractCxxSources packageRoot build,
+        cCompileAsmSources = nub [packageRoot </> path | path <- asmSources build],
         cCompileLirSources = lirSources,
         cCompileIncludeDirs = extractIncludeDirs packageRoot build,
         cCompileInstallIncludes = installIncludes build,
@@ -285,6 +292,7 @@ mergeCCompileInfo items =
   CCompileInfo
     { cCompileSources = nub (concatMap cCompileSources items),
       cCompileCxxSources = nub (concatMap cCompileCxxSources items),
+      cCompileAsmSources = nub (concatMap cCompileAsmSources items),
       cCompileLirSources = nub (concatMap cCompileLirSources items),
       cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
       cCompileInstallIncludes = nub (concatMap cCompileInstallIncludes items),

@@ -2082,7 +2082,7 @@ storePackageIdentity config dependencies inputs = do
       -- So does hsc2hs, which computes its constants with the C compiler of
       -- the target.
       usesPreprocessor = any (isJust . HackageCabal.fileInfoPreprocessor) (inputSources inputs)
-      usesSysroot = isJust (inputConfigureScript inputs) || usesPreprocessor || not (compileNoCode config || (null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs)))
+      usesSysroot = isJust (inputConfigureScript inputs) || usesPreprocessor || not (compileNoCode config || (null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs) && null (HackageCabal.cCompileAsmSources cInputs)))
   cSysrootArguments <-
     if usesSysroot
       then wasmSysrootIncludeArguments (compileTarget config)
@@ -2131,9 +2131,9 @@ archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> Pa
 archiveInputsHash config root dependencies inputs headerHash = do
   let cInputs = inputCCompileInfo inputs
   lirSources <- lirSourceFiles (HackageCabal.cCompileLirSources cInputs)
-  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileCxxSources cInputs <> lirSources)
+  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileCxxSources cInputs <> HackageCabal.cCompileAsmSources cInputs <> lirSources)
   cSysrootArguments <-
-    if null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs)
+    if null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs) && null (HackageCabal.cCompileAsmSources cInputs)
       then pure []
       else wasmSysrootIncludeArguments (compileTarget config)
   -- The C sources include the headers configure wrote.
@@ -3716,7 +3716,7 @@ removeFileIfPresent path = do
 -- program; see 'llvmLtoArguments'.
 compilePackageCFiles :: NativeTarget -> OptimizationLevel -> Bool -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
 compilePackageCFiles target level lto headerDirectory verbose packageRoot storePath info
-  | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileCxxSources info) && null (HackageCabal.cCompileLirSources info) = pure []
+  | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileCxxSources info) && null (HackageCabal.cCompileAsmSources info) && null (HackageCabal.cCompileLirSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
       sysrootIncludes <- wasmSysrootIncludeArguments target
@@ -3761,6 +3761,20 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
               <> ["-x", "c++", "-c", source, "-o", object]
           )
         pure object
+      -- The assembly has no LLVM bitcode form, so it gets no LTO arguments.
+      asmObjects <- forM (HackageCabal.cCompileAsmSources info) $ \source -> do
+        exists <- doesFileExist source
+        unless exists (ioError (userError ("Assembly source is absent: " <> source)))
+        let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
+        verbose ("Assemble source: " <> source)
+        runTool
+          compiler
+          ( targetArguments
+              <> HackageCabal.cCompileCcOptions info
+              <> includeArguments
+              <> ["-c", source, "-o", object]
+          )
+        pure object
       lirObjects <- forM (HackageCabal.cCompileLirSources info) $ \source -> do
         exists <- doesFileExist source
         unless exists (ioError (userError ("Lir source is absent: " <> source)))
@@ -3774,7 +3788,7 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
             compileLirObject lto target (dropExtension (takeFileName object)) lirModule objectRoot object
             pure (Just object)
           else pure Nothing
-      pure (cObjects <> cxxObjects <> catMaybes lirObjects)
+      pure (cObjects <> cxxObjects <> asmObjects <> catMaybes lirObjects)
 
 -- | Run the configure script of a @build-type: Configure@ package, and
 -- return the directory that holds its outputs. A package without a script

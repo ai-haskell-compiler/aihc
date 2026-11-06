@@ -101,7 +101,7 @@ mainModuleExecutable options sourceRoot outputRoot request = do
 
 -- | A main module has no Cabal file, so it has no C inputs.
 noCCompileInfo :: HackageCabal.CCompileInfo
-noCCompileInfo = HackageCabal.CCompileInfo [] [] [] [] [] [] [] [] [] [] [] []
+noCCompileInfo = HackageCabal.CCompileInfo [] [] [] [] [] [] [] [] [] [] [] [] []
 
 -- | The plan of one package, which the solver must have chosen.
 plannedPackage :: PlannedPackages -> PackageName -> IO PackagePlan
