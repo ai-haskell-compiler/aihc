@@ -1440,7 +1440,7 @@ amd64TailCall ctx callee convention parameterTypes arguments =
             Right _ -> Just scratchRight
             Left _ -> Nothing
           moves =
-            [(LocRegister scratchRight, source Code operand) | Right operand <- [callee], target == Just scratchRight]
+            [(LocRegister scratchRight, source Code operand) | target == Just scratchRight, Right operand <- [callee]]
               <> argumentMoves
           branch = case (callee, target) of
             (Right _, Just register) -> amd64Instruction (AmdJmp (Amd64JumpRegister register))

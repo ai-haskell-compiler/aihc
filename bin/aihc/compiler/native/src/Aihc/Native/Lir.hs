@@ -1052,7 +1052,7 @@ leftOperand :: (Eq register) => NativeBackend statement register error -> Ctx re
 leftOperand backend ctx ty dst operand others
   | nbTwoAddress backend,
     notInRegister operand,
-    all (not . inDestination) others =
+    not (any inDestination others) =
       (operandTo backend ctx ty dst operand, dst)
   | otherwise = operandIn backend ctx 0 ty (nbScratchLeft backend) operand
   where

@@ -1535,7 +1535,7 @@ tailCallCallers env program
 -- functions stay apart.
 tailCallGroups :: Map FunctionName FunctionName -> [FunctionName] -> Map FunctionName [FunctionName]
 tailCallGroups callers names =
-  Map.fromListWith (flip (<>)) [(root, [name]) | name <- names, Just root <- [rootOf Set.empty name], Map.member name callers]
+  Map.fromListWith (flip (<>)) [(root, [name]) | name <- names, Map.member name callers, Just root <- [rootOf Set.empty name]]
   where
     rootOf seen name
       | Set.member name seen = Nothing
