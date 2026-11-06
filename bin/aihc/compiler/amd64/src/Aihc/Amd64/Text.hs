@@ -87,6 +87,7 @@ instruction code =
     AmdCmpGot left symbol -> "cmp " <> reg left <> ", [rip + " <> T.unpack symbol <> "@GOTPCREL]"
     AmdImul destination source -> two "imul" destination source
     AmdTest destination source -> "test " <> rm destination <> ", " <> reg source
+    AmdTestImmediate destination mask -> "test dword " <> rm destination <> ", " <> hex mask
     AmdShl destination -> "shl " <> rm destination <> ", cl"
     AmdShlImmediate destination count -> "shl " <> rm destination <> ", " <> show count
     AmdShrImmediate destination count -> "shr " <> rm destination <> ", " <> show count
@@ -229,6 +230,7 @@ storeSource source =
   case source of
     Amd64StoreRegister register -> reg register
     Amd64StoreImmediate literal -> hex literal
+    Amd64StoreSymbol symbol -> T.unpack symbol
 
 binarySource :: Amd64BinarySource -> String
 binarySource source =

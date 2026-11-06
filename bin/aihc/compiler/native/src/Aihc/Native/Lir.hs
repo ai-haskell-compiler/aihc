@@ -66,7 +66,7 @@ import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust, isNothing, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -125,6 +125,10 @@ data NativeBackend statement register error = NativeBackend
     nbCycleScratch :: register,
     nbSlotMoveScratch :: register,
     nbFrameOverhead :: Int,
+    -- | The bytes below the stack pointer that a signal handler leaves
+    -- alone. An aihc function that makes no call and spills no more than
+    -- that keeps its slots there and sets up no frame.
+    nbRedZone :: !Int,
     nbReturnAddressGap :: Int,
     nbMaxFrameBytes :: !(Maybe Int),
     nbCodeAlign :: Int,
@@ -208,7 +212,10 @@ data NativeBackend statement register error = NativeBackend
     -- constant. The first function tells if the backend has the form for a
     -- type and a count. The second gives the instructions from the type,
     -- the destination, the base, the index, and the count.
-    nbIndexedLoad :: Maybe (Type -> Int -> Bool, Type -> register -> register -> register -> Int -> [statement]),
+    -- | A load from a base plus an index shifted left by a count plus a
+    -- constant displacement, when the backend accepts the type, the count,
+    -- and the displacement.
+    nbIndexedLoad :: Maybe (Type -> Int -> Integer -> Bool, Type -> register -> register -> register -> Int -> Integer -> [statement]),
     -- | Keep the carry of an addition, or the borrow of a subtraction, in the
     -- flags until the next instruction adds it to a value. The first
     -- function gives the operation without its second result, from the
@@ -297,7 +304,7 @@ data Fusion
     FusedShift !Int
   | -- | A load of the type from the base plus the index shifted left by the
     -- count. The value is a pointer addition of the base and the index.
-    FusedLoad !Type !Int
+    FusedLoad !Type !Int !Integer
   | -- | A carry or a borrow that stays in the flags.
     FusedFlags
   | -- | An addition of a carry or a borrow that the flags hold.
@@ -910,7 +917,24 @@ functionLayout backend signatures function = do
             layoutBlockFrames = blockFrames
           }
       incoming = overflowBytes backend (length (functionParameters function))
-  pure layout {layoutSlots = Map.union slots (Map.fromList [(var, incomingSlot backend layout incoming position) | (var, position) <- incomingHomes])}
+      -- The slots go below the stack pointer, so the function needs no frame.
+      redZone =
+        convention == AihcConvention
+          && null calls
+          && null allocations
+          && coldArea == 0
+          && not (Map.null slots)
+          && 8 * Map.size slots <= nbRedZone backend
+      placed
+        | redZone =
+            layout
+              { layoutSlots = Map.map (subtract (8 * Map.size slots)) slots,
+                layoutSize = 0,
+                layoutFramed = False,
+                layoutBlockFrames = Nothing
+              }
+        | otherwise = layout
+  pure placed {layoutSlots = Map.union (layoutSlots placed) (Map.fromList [(var, incomingSlot backend placed incoming position) | (var, position) <- incomingHomes])}
 
 -- | The blocks that make a call, when each of them can have a frame of its
 -- own instead of a frame for the full function.
@@ -1485,9 +1509,9 @@ compileInstruction backend ctx (Instruction results operation) =
               let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
                in single $ \dst -> pure (loads <> loads' <> shiftedAdd dst a b count)
         ([result], _, Just (_, indexed))
-          | Just (FusedLoad ty count) <- Map.lookup result (ctxFusions ctx) ->
+          | Just (FusedLoad ty count displacement) <- Map.lookup result (ctxFusions ctx) ->
               let (loads', b) = operandIn backend ctx 0 I64 (nbScratchRight backend) offset
-               in single $ \dst -> pure (loads <> loads' <> indexed ty dst a b count)
+               in single $ \dst -> pure (loads <> loads' <> indexed ty dst a b count displacement)
         _ -> single $ \dst -> pure (loads <> nbPtrAdd backend ctx a offset dst)
     StackAlloc _ _ ->
       case results of
@@ -1593,20 +1617,29 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
         match (Load ty location@Address {addressBase = OperandVar address} alignment)
           | useOnce address,
             Just (PtrAdd base (OperandLiteral (LitInt offset))) <- Map.lookup address definitions =
-              Just (address, Load ty location {addressBase = base, addressOffset = addressOffset location + offset} alignment, Nothing)
-        match (Load ty (Address (OperandVar address) 0 0 [] _) _)
+              Just (address, Load ty location {addressBase = base, addressOffset = addressOffset location + offset} alignment, Nothing, Nothing)
+        match (Load ty (Address (OperandVar address) loadOffset 0 [] _) _)
           | useOnce address,
             not (isFloatType ty),
             ty /= I1,
             Just operation <- Map.lookup address definitions,
             count <- case Map.lookup address shifts of
               Just (FusedShift shift) -> shift
-              _ -> 0,
-            accepts ty count =
-              Just (address, operation, Just (FusedLoad ty count))
+              _ -> 0 =
+              -- A base that is itself a constant offset from another base
+              -- folds into the displacement of the address.
+              case operation of
+                PtrAdd (OperandVar inner) index
+                  | Just (PtrAdd outer (OperandLiteral (LitInt constant))) <- Map.lookup inner definitions,
+                    accepts ty count (constant + loadOffset) ->
+                      Just (address, PtrAdd outer index, Just (FusedLoad ty count (constant + loadOffset)), if useOnce inner then Just inner else Nothing)
+                _
+                  | accepts ty count loadOffset ->
+                      Just (address, operation, Just (FusedLoad ty count loadOffset), Nothing)
+                _ -> Nothing
         match _ = Nothing
-        matches = Map.fromList [(v, (operation, fusion)) | Instruction [v] load <- instructions, Just (_, operation, fusion) <- [match load]]
-        removed = Set.fromList [address | Instruction [_] load <- instructions, Just (address, _, _) <- [match load]]
+        matches = Map.fromList [(v, (operation, fusion)) | Instruction [v] load <- instructions, Just (_, operation, fusion, _) <- [match load]]
+        removed = Set.fromList (concat [address : maybeToList inner | Instruction [_] load <- instructions, Just (address, _, _, inner) <- [match load]])
         rewrite (Instruction [v] _)
           | Just (operation, _) <- Map.lookup v matches = [Instruction [v] operation]
           | Set.member v removed = []

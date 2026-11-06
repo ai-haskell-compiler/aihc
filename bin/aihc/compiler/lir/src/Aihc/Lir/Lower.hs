@@ -77,7 +77,7 @@ import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Inline (mergeTailCallees)
-import Aihc.Lir.Simplify (eliminateCommonSubexpressions, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths)
+import Aihc.Lir.Simplify (duplicateInvariantLoads, eliminateCommonSubexpressions, eliminateDeadInstructions, narrowExtendedCompares, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -1016,16 +1016,21 @@ finishFunction symbol linkage parameters results convention = do
         simplifyWidths $
           simplifyRotations $
             simplifyBooleanBranches $
-              eliminateCommonSubexpressions $
-                simplifyMultiplications
-                  Function
-                    { functionName = symbol,
-                      functionLinkage = linkage,
-                      functionParameters = parameters,
-                      functionResults = results,
-                      functionConvention = convention,
-                      functionBlocks = reverse (stateBlocksRev state)
-                    }
+              splitConditionBranches $
+                eliminateDeadInstructions $
+                  duplicateInvariantLoads $
+                    eliminateDeadInstructions $
+                      narrowExtendedCompares $
+                        eliminateCommonSubexpressions $
+                          simplifyMultiplications
+                            Function
+                              { functionName = symbol,
+                                functionLinkage = linkage,
+                                functionParameters = parameters,
+                                functionResults = results,
+                                functionConvention = convention,
+                                functionBlocks = reverse (stateBlocksRev state)
+                              }
     )
 
 -- Target layout

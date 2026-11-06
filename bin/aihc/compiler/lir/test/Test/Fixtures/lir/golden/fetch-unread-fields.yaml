@@ -1,0 +1,30 @@
+program: |
+  constructor Triple/3 [IntRep, IntRep, IntRep]
+
+  $entry (triple%1 :: BoxedRep Unlifted) -> IntRep =
+    (first%2 :: IntRep), (second%3 :: IntRep), (third%4 :: IntRep) <- fetch (CTriple) (triple%1 :: BoxedRep Unlifted)
+    constant (second%3 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %triple_3: ptr, %$cps_return_4: ptr) {
+  entry:
+    %second_6 = load i64 [%triple_3 + 16] align 8 region heap
+    %header_word_8 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_9 = and i64 %header_word_8, -4
+    %header_10 = ptr.from_int %info_word_9
+    %entry_11 = load.invariant code [%header_10 + 24] align 1 word
+    %forward_14 = eq code %entry_11, null
+    br %forward_14, continue_slow_12, continue_enter_13
+
+  cold continue_slow_12:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, %second_6)
+
+  continue_enter_13:
+    tailcall.indirect %entry_11(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %second_6) : (ptr, ptr, ptr, ptr, i64)
+  }
+status: pass
+reason: |
+  The fetch reads three fields, and the body reads only the second one.
+  The Lir function loads only that field: a load of a field that nothing
+  reads is dropped.
