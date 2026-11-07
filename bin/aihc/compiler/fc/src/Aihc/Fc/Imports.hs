@@ -243,7 +243,7 @@ declReferences decl =
         <> exprReferences (ruleRhs declaration)
 
 axiomReferences :: AxiomDecl -> References
-axiomReferences declaration = axiomRefs Set.empty declaration
+axiomReferences = axiomRefs Set.empty
 
 binderReferences :: Binder -> References
 binderReferences = typeReferences . binderType
