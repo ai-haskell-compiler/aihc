@@ -995,8 +995,8 @@ countTopCalls arities = go
         ExLam _ body -> go body
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> List.foldl' (<>) (go body) (map (go . bindRhs) binds)
-        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (<>) (go scrutinee) (map (go . altRhs) alternatives)
+        ExRec binds body -> go body <> mconcat (map (go . bindRhs) binds)
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> mconcat (map (go . altRhs) alternatives)
         ExForeignCall _ _ args -> mconcat (map go args)
         _ -> mempty
 
@@ -1015,8 +1015,8 @@ countTopUses = go
         ExLam _ body -> go body
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> List.foldl' (<>) (go body) (map (go . bindRhs) binds)
-        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (<>) (go scrutinee) (map (go . altRhs) alternatives)
+        ExRec binds body -> go body <> mconcat (map (go . bindRhs) binds)
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> mconcat (map (go . altRhs) alternatives)
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> mconcat (map go arguments)
