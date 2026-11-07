@@ -356,9 +356,9 @@ data Inliner = Inliner
     inVisits :: !(Map Name StableVisit),
     inRuleRefs :: !(MonoidMap Name (Set Name)),
     -- | The uses of each top-level value in each body.
-    inBodyUses :: !(Map Name (MonoidMap Name (Sum Int))),
+    inBodyUses :: !(MonoidMap Name (MonoidMap Name (Sum Int))),
     -- | The calls in each body use the arities at the start of the round.
-    inBodyCalls :: !(Map Name (MonoidMap Name (Sum Int))),
+    inBodyCalls :: !(MonoidMap Name (MonoidMap Name (Sum Int))),
     -- | The current arity of each body.
     inBodyArities :: !(Map Name Int),
     -- | The size and guidance of each current body.
@@ -460,8 +460,8 @@ initialInliner config env decls supply =
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
     arities = Map.map functionArity bodies
-    uses = Map.map countTopUses bodies
-    calls = Map.map (countTopCalls arities) bodies
+    uses = MonoidMap.fromMapWith countTopUses bodies
+    calls = MonoidMap.fromMapWith (countTopCalls arities) bodies
     guidance = Map.map (candidateGuidance env arities) bodies
     references = MonoidMap.fromMapWith (valueReferences declarations) bodies
     -- A value a rule names stays, whether or not a body still calls it:
@@ -737,9 +737,9 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
               dependencies = close Set.empty (Set.toList initialReferences)
                 where
                   initialReferences =
-                    MonoidMap.nonNullKeys (inBodyUses st Map.! name)
+                    MonoidMap.nonNullKeys (MonoidMap.get name (inBodyUses st))
                       <> Map.keysSet candidates
-                      <> Set.unions [MonoidMap.nonNullKeys (inBodyUses st Map.! callee) | callee <- Map.keys candidates]
+                      <> Set.unions [MonoidMap.nonNullKeys (MonoidMap.get callee (inBodyUses st)) | callee <- Map.keys candidates]
                   close visited pending = case pending of
                     [] -> visited
                     callee : rest
@@ -784,7 +784,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                         inRulesFired = inRulesFired st + visitRules previous,
                         inLimits = Map.adjust (+ visitExempt previous) name (inLimits st)
                       }
-                    (Set.toList (MonoidMap.nonNullKeys (inBodyUses st Map.! name)))
+                    (Set.toList (MonoidMap.nonNullKeys (MonoidMap.get name (inBodyUses st))))
                 Nothing ->
                   if skip
                     then st
@@ -818,10 +818,10 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                             | changed = Map.delete name (inVisits st)
                             | otherwise = Map.insert name (visit simplState) (inVisits st)
                           updated = if changed then updateBody st name body' else st
-                          oldUses = inBodyUses st Map.! name
-                          newUses = inBodyUses updated Map.! name
+                          oldUses = MonoidMap.get name (inBodyUses st)
+                          newUses = MonoidMap.get name (inBodyUses updated)
                           counts' = (inCounts st <> newUses) `MonoidMap.minus` oldUses
-                          calls' = (inCalls st <> inBodyCalls updated Map.! name) `MonoidMap.minus` (inBodyCalls st Map.! name)
+                          calls' = (inCalls st <> MonoidMap.get name (inBodyCalls updated)) `MonoidMap.minus` MonoidMap.get name (inBodyCalls st)
                        in killDead
                             updated
                               { inVisits = visits,
@@ -873,8 +873,8 @@ updateBody st name body =
           { inBodies = Map.insert name body (inBodies st),
             inVersions = Map.adjust (+ 1) name (inVersions st),
             inVisits = Map.delete name (inVisits st),
-            inBodyUses = Map.insert name (countTopUses body) (inBodyUses st),
-            inBodyCalls = Map.insert name (countTopCalls (inArities st) body) (inBodyCalls st),
+            inBodyUses = MonoidMap.set name (countTopUses body) (inBodyUses st),
+            inBodyCalls = MonoidMap.set name (countTopCalls (inArities st) body) (inBodyCalls st),
             inBodyArities = arities,
             inGuidance = Map.insert name (candidateGuidance (inEnv st) arities body) (inGuidance st),
             inRefs = MonoidMap.set name references (inRefs st),
@@ -913,9 +913,9 @@ killDead st names =
           || MonoidMap.get name (inCounts st) > 0 ->
           killDead st rest
       | Map.member name (inBodies st) ->
-          let uses = inBodyUses st Map.! name
+          let uses = MonoidMap.get name (inBodyUses st)
               counts' = inCounts st `MonoidMap.minus` uses
-              calls' = inCalls st `MonoidMap.minus` (inBodyCalls st Map.! name)
+              calls' = inCalls st `MonoidMap.minus` MonoidMap.get name (inBodyCalls st)
            in killDead
                 st
                   { inDead = Set.insert name (inDead st),
@@ -954,7 +954,7 @@ dropUnused st =
     live = Map.restrictKeys (inBodies st) reachable
     -- No live body references a removed value, so its cached data stays correct.
     arities = Map.restrictKeys (inBodyArities st) reachable
-    uses = Map.restrictKeys (inBodyUses st) reachable
+    uses = MonoidMap.nullifyKeysNotIn reachable (inBodyUses st)
     -- Only users of a changed arity need new call counts for the next round.
     changedArities = Map.keysSet (Map.differenceWith changed arities (inArities st))
     changed new old
@@ -964,8 +964,8 @@ dropUnused st =
       Set.intersection reachable (Set.unions [MonoidMap.get name (inUsers st) | name <- Set.toList changedArities])
     calls =
       List.foldl'
-        (\cached caller -> Map.insert caller (countTopCalls arities (live Map.! caller)) cached)
-        (Map.restrictKeys (inBodyCalls st) reachable)
+        (\cached caller -> MonoidMap.set caller (countTopCalls arities (live Map.! caller)) cached)
+        (MonoidMap.nullifyKeysNotIn reachable (inBodyCalls st))
         (Set.toList affected)
     reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inRoots st)))
     close visited pending =
