@@ -259,6 +259,7 @@ sectionKind role =
     TextSection -> (".text", 1, 0x6)
     TextConstantsSection -> (".rodata", 1, 0x2)
     ReadOnlySection -> (".rodata", 1, 0x2)
+    RelocatedReadOnlySection -> (".data.rel.ro", 1, 0x3)
     DataSection -> (".data", 1, 0x3)
     NoExecuteStackSection -> (".note.GNU-stack", 1, 0)
 
@@ -271,7 +272,6 @@ validateRelocations section = mapM_ validate (imageSectionRelocations section)
         X86Pc32 -> pure ()
         X86Plt32 -> pure ()
         X86GotPcRelX -> pure ()
-        X86Abs32S -> pure ()
         kind -> Left (ObjectInvalidFixup kind)
 
 placePiece :: Word64 -> Piece -> (Word64, PlacedPiece)
@@ -331,7 +331,6 @@ putRelocation (offset, kind, (symbolIndex, addend)) = do
           X86Pc32 -> 2
           X86Plt32 -> 4
           X86GotPcRelX -> 42
-          X86Abs32S -> 11
           _ -> 0
   putWord64le offset
   putWord64le (fromIntegral symbolIndex `shiftL` 32 .|. relocationType)

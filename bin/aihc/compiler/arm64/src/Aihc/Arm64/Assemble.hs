@@ -305,8 +305,13 @@ assembleMachO statements = assembleObject id writeArm64MachO (`applyStatements` 
 applyStatements :: Object s -> [Arm64Statement] -> ST s (Either ObjectError ())
 applyStatements object = applyAll (applyStatement object)
 
+-- | A Mach-O executable writes the addresses in @__DATA,__const@ with
+-- chained fixups, so the target has no separate relocated read-only section.
 arm64Section :: SectionRole -> Arm64Statement
-arm64Section = Arm64Section
+arm64Section role =
+  case role of
+    RelocatedReadOnlySection -> Arm64Section ReadOnlySection
+    _ -> Arm64Section role
 
 arm64Align :: Int -> Arm64Statement
 arm64Align = Arm64Align

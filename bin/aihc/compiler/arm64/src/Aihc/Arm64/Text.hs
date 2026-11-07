@@ -45,6 +45,7 @@ section role =
     TextSection -> indent ".text"
     TextConstantsSection -> indent ".section __TEXT,__const"
     ReadOnlySection -> indent ".section __TEXT,__const"
+    RelocatedReadOnlySection -> indent ".section __TEXT,__const"
     DataSection -> indent ".data"
     NoExecuteStackSection -> indent ".section __DATA,__nx_stack"
 
