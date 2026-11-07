@@ -784,7 +784,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                         inRulesFired = inRulesFired st + visitRules previous,
                         inLimits = Map.adjust (+ visitExempt previous) name (inLimits st)
                       }
-                    (Map.keys (inBodyUses st Map.! name))
+                    (Set.toList (Map.keysSet (inBodyUses st Map.! name)))
                 Nothing ->
                   if skip
                     then st
@@ -833,7 +833,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                                 inRulesFired = inRulesFired st + ssRulesFired simplState,
                                 inChanged = inChanged st || changed
                               }
-                            (Map.keys oldUses)
+                            (Set.toList (Map.keysSet oldUses))
   where
     policy = inlinePolicy config
     arities = inBodyArities st
@@ -922,7 +922,7 @@ killDead st names =
                     inCounts = counts',
                     inCalls = calls'
                   }
-                (Map.keys uses ++ rest)
+                (Set.toList (Map.keysSet uses) ++ rest)
       | otherwise -> killDead st rest
 
 -- | A set of values and the values their bodies reference.
