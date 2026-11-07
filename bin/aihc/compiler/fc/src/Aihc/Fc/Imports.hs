@@ -10,6 +10,7 @@ module Aihc.Fc.Imports
     pruneImports,
     referencesFromImports,
     restrictProgram,
+    restrictProgramWith,
     typeReferences,
     unusedImports,
   )
@@ -63,9 +64,15 @@ importsForProgramLookup primPackage lookupFact program = do
 -- program of a module after the values of an interface are removed again.
 restrictProgram :: PackageId -> (Decl -> Bool) -> Program -> Program
 restrictProgram primPackage keep program =
+  restrictProgramWith (typeEnvFromProgram primPackage program) keep program
+
+-- | 'restrictProgram' with the type environment of the program already
+-- known. A caller that restricts one program many times builds that
+-- environment one time.
+restrictProgramWith :: TypeEnv -> (Decl -> Bool) -> Program -> Program
+restrictProgramWith available keep program =
   pruneImports program {programImports = imports, programDecls = kept}
   where
-    available = typeEnvFromProgram primPackage program
     kept = filter keep (programDecls program)
     declared = Set.fromList (concatMap declaredNames kept)
     roots = foldMap declReferences kept `Set.difference` declared

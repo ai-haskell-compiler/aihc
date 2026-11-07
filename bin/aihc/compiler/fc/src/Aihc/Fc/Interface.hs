@@ -42,20 +42,24 @@ module Aihc.Fc.Interface
     exposeInterfaceHelpers,
     Grafted (..),
     graftInterfaces,
+    InterfaceIndex,
+    interfaceIndex,
+    graftIndexed,
     stripInterfaces,
   )
 where
 
-import Aihc.Fc.Imports (exprReferences, restrictProgram)
+import Aihc.Fc.Imports (exprReferences, restrictProgram, restrictProgramWith)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (ruleHeadName)
 import Aihc.Fc.Simplify (isConstructorValue, isDictionaryType, isInlinable)
 import Aihc.Fc.Size (exprSize)
 import Aihc.Fc.Syntax
-import Aihc.Fc.TypeOf (typeEnvFromProgram)
+import Aihc.Fc.TypeOf (TypeEnv, typeEnvFromProgram)
 import Aihc.Fc.Views (exprValueNames)
 import Aihc.Resolve (PackageId)
+import Data.IntSet qualified as IntSet
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -338,42 +342,120 @@ data Grafted = Grafted
 -- A rule of an imported value fires in the program even when the
 -- interface offers no body for that value.
 graftInterfaces :: PackageId -> [Program] -> Program -> Grafted
-graftInterfaces primPackage interfaces program =
+graftInterfaces primPackage interfaces = graftIndexed (interfaceIndex primPackage interfaces)
+
+-- | The interfaces that a unit reads, in a form that each module of the
+-- unit can search. A unit builds this index one time. Each graft then
+-- does work for the values that its module reaches, and not for the full
+-- size of the interfaces.
+data InterfaceIndex = InterfaceIndex
+  { -- | The interfaces in their order, each with its type environment.
+    -- An interface that gives a module no declaration does not come into
+    -- that module, so its environment is not built for it.
+    indexInterfaces :: ![IndexedInterface],
+    -- | The value declarations of the interfaces. If two interfaces
+    -- declare one name, the first interface gives the declaration.
+    indexOffered :: !(Map.Map Name Offer),
+    -- | The rules of the interfaces, by the head of the left-hand side. A
+    -- rule without a head does not come in.
+    indexRules :: !(Map.Map Name [IndexedRule])
+  }
+
+data IndexedInterface = IndexedInterface
+  { indexedNumber :: !Int,
+    indexedProgram :: !Program,
+    indexedEnv :: TypeEnv
+  }
+
+data Offer = Offer
+  { offerDecl :: !ValDecl,
+    -- | The values that the body names.
+    offerNames :: Set Name,
+    -- | Each interface that declares the value.
+    offerSources :: ![Int]
+  }
+
+data IndexedRule = IndexedRule
+  { ruleSource :: !Int,
+    -- | The values that the right-hand side names.
+    ruleNames :: Set Name
+  }
+
+-- | Index the interfaces that a unit reads.
+interfaceIndex :: PackageId -> [Program] -> InterfaceIndex
+interfaceIndex primPackage interfaces =
+  InterfaceIndex
+    { indexInterfaces = [IndexedInterface number interface (typeEnvFromProgram primPackage interface) | (number, interface) <- numbered],
+      indexOffered = Map.unionsWith joinOffers [Map.fromList [(valName declaration, offer number declaration) | DeclVal declaration <- programDecls interface] | (number, interface) <- numbered],
+      indexRules = Map.fromListWith (flip (<>)) [(name, [IndexedRule number (exprValueNames (ruleRhs rule))]) | (number, interface) <- numbered, DeclRule rule <- programDecls interface, Just name <- [ruleHeadName rule]]
+    }
+  where
+    numbered = zip [0 ..] interfaces
+    offer number declaration = Offer declaration (exprValueNames (valBody declaration)) [number]
+    -- The first interface gives the declaration.
+    joinOffers first later = first {offerSources = offerSources first <> offerSources later}
+
+-- | 'graftInterfaces' with an index of the interfaces.
+graftIndexed :: InterfaceIndex -> Program -> Grafted
+graftIndexed index program =
   Grafted
-    { graftedProgram = mergePrograms (program : map restrict interfaces),
+    { graftedProgram = mergePrograms (program : map restrict touched),
       graftedExported = Set.filter exported wanted,
       graftedPrivate = Set.filter (not . exported) wanted
     }
   where
-    exported name = maybe False ((== Pub) . valVis) (Map.lookup name offered)
     own = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
-    offered = Map.unions [Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls interface, Set.notMember (valName declaration) own] | interface <- interfaces]
-    reached = foldMap declValueNames (programDecls program)
-    rules = [rule | interface <- interfaces, DeclRule rule <- programDecls interface]
+    -- The program keeps its own declaration of a name that an interface
+    -- also declares.
+    offered name
+      | Set.member name own = Nothing
+      | otherwise = Map.lookup name (indexOffered index)
+    exported name = maybe False ((== Pub) . valVis . offerDecl) (offered name)
+    reached = Set.toList (foldMap declValueNames (programDecls program))
+    -- The values that come in, and the heads that a rule may have. A head
+    -- is a name the program itself uses, a value that came in with an
+    -- interface, or a name that the body of such a value uses. An example
+    -- of the last is a class method whose body calls a large function
+    -- that is the head of a rule.
+    --
     -- A kept rule adds the values that its right side names, because the
     -- rewrite brings calls of them into the program. An example is the
     -- rule "map", which rewrites a call of 'map' to 'foldr' and 'mapFB'.
-    -- These values can make more rules applicable, so the set grows until
-    -- it does not change.
-    wanted = grow (close Set.empty (Set.toList reached))
-    grow done =
-      let added = foldMap (exprValueNames . ruleRhs) [rule | rule <- rules, maybe False (`Set.member` headsOf done) (ruleHeadName rule)]
-          next = close done (Set.toList added)
-       in if next == done then done else grow next
-    close done [] = done
-    close done (name : rest)
-      | Set.member name done = close done rest
-      | otherwise =
-          case Map.lookup name offered of
-            Nothing -> close done rest
-            Just declaration -> close (Set.insert name done) (Set.toList (exprValueNames (valBody declaration)) <> rest)
-    -- The heads that a rule may have: a name the program itself uses, a
-    -- value that came in with an interface, or a name that the body of
-    -- such a value uses. An example of the last is a class method whose
-    -- body calls a large function that is the head of a rule.
-    headsOf values = reached <> values <> foldMap (\name -> maybe Set.empty (exprValueNames . valBody) (Map.lookup name offered)) values
-    heads = headsOf wanted
-    restrict = restrictProgram primPackage keep
+    -- These values can make more rules applicable, so the sets grow until
+    -- they do not change.
+    (wanted, heads, sources) = saturate Set.empty Set.empty IntSet.empty reached reached
+    saturate values headSet numbers pendingHeads pendingValues =
+      case pendingHeads of
+        name : rest
+          | Set.member name headSet -> saturate values headSet numbers rest pendingValues
+          | otherwise ->
+              let fired = Map.findWithDefault [] name (indexRules index)
+               in saturate
+                    values
+                    (Set.insert name headSet)
+                    (foldr (IntSet.insert . ruleSource) numbers fired)
+                    rest
+                    (foldr (\rule more -> Set.toList (ruleNames rule) <> more) pendingValues fired)
+        [] ->
+          case pendingValues of
+            [] -> (values, headSet, numbers)
+            name : rest
+              | Set.member name values -> saturate values headSet numbers [] rest
+              | otherwise ->
+                  case offered name of
+                    Nothing -> saturate values headSet numbers [] rest
+                    Just found ->
+                      let names = Set.toList (offerNames found)
+                       in saturate
+                            (Set.insert name values)
+                            headSet
+                            (foldr IntSet.insert numbers (offerSources found))
+                            (name : names)
+                            (names <> rest)
+    -- An interface that gives no declaration is empty after
+    -- 'restrictProgramWith', so it does not come in.
+    touched = [interface | interface <- indexInterfaces index, IntSet.member (indexedNumber interface) sources]
+    restrict interface = restrictProgramWith (indexedEnv interface) keep (indexedProgram interface)
     keep decl =
       case decl of
         DeclVal declaration -> Set.member (valName declaration) wanted

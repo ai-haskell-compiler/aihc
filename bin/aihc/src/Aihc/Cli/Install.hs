@@ -3344,7 +3344,7 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
         -- so it offers nothing: its own passes have not run.
         optimized <- forM (pendingFcModules pending) $ \fcModule -> do
           let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
-              grafted = Fc.graftInterfaces primPackage interfaces (fcProgram fcModule)
+              grafted = Fc.graftIndexed index (fcProgram fcModule)
           unless (null interfaces) $
             verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedExported grafted) + Set.size (Fc.graftedPrivate grafted)) <> " values")
           program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
@@ -3367,6 +3367,9 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
   where
     lto = compileLto config
     target = compileTarget config
+    -- The modules of the unit read the same interfaces, so the unit
+    -- indexes them one time.
+    index = Fc.interfaceIndex primPackage interfaces
 
     -- The C wrappers of a module's capi imports are compiled beside its
     -- object and archived with it, so a module that declares none must leave
