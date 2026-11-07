@@ -3506,7 +3506,10 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     target = compileTarget config
     -- An @-Os@ build asks LLVM for small code; see 'Llvm.CodeGoal'.
     codeGoal = if compileOptimization config == Os then Llvm.SmallCode else Llvm.FastCode
-    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config && compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config)
+    -- An @-O1@ or @-O2@ build copies small continuations into their
+    -- callers. An @-O0@ build and an @-Os@ build do not, because the
+    -- copies make the code larger.
+    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config && compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config) (compileOptimization config `elem` [O1, O2])
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
         if null (Fc.programDecls (fcProgram fcModule))

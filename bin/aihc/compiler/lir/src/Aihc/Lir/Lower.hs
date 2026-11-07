@@ -92,6 +92,7 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     renderLinkedPartialConstructorInfoSymbol,
   )
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM, forM_, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
@@ -178,7 +179,11 @@ data LowerOptions = LowerOptions
     -- functions and info tables, and the executable entry registers it with
     -- the runtime. Only a whole program can ask for it, for the same reason
     -- as 'lowerProfileAllocations'.
-    lowerProfileTime :: !Bool
+    lowerProfileTime :: !Bool,
+    -- | Copy small continuations into the functions that call them by
+    -- tail calls. See 'copiedContinuations'. The copies make the code
+    -- faster and larger.
+    lowerCopyContinuations :: !Bool
   }
   deriving (Eq, Show)
 
@@ -189,13 +194,15 @@ data ModuleSettings = ModuleSettings
     -- | See 'lowerProfileAllocations'.
     moduleProfileAllocations :: !Bool,
     -- | See 'lowerProfileTime'.
-    moduleProfileTime :: !Bool
+    moduleProfileTime :: !Bool,
+    -- | See 'lowerCopyContinuations'.
+    moduleCopyContinuations :: !Bool
   }
   deriving (Eq, Show)
 
--- | No bounds checks and no profile.
+-- | No bounds checks, no profile, and copies of continuations.
 defaultModuleSettings :: ModuleSettings
-defaultModuleSettings = ModuleSettings {moduleCheckPrimBounds = False, moduleProfileAllocations = False, moduleProfileTime = False}
+defaultModuleSettings = ModuleSettings {moduleCheckPrimBounds = False, moduleProfileAllocations = False, moduleProfileTime = False, moduleCopyContinuations = True}
 
 libraryOptions :: LowerTarget -> ModuleSettings -> LowerOptions
 libraryOptions target settings =
@@ -205,7 +212,8 @@ libraryOptions target settings =
       lowerTarget = target,
       lowerCheckPrimBounds = moduleCheckPrimBounds settings,
       lowerProfileAllocations = moduleProfileAllocations settings,
-      lowerProfileTime = moduleProfileTime settings
+      lowerProfileTime = moduleProfileTime settings,
+      lowerCopyContinuations = moduleCopyContinuations settings
     }
 
 -- | Lower one library module with the settings of the build.
@@ -219,7 +227,7 @@ lowerModule target settings =
 lowerEntry :: LowerTarget -> Bool -> Bool -> Either LowerError Module
 lowerEntry target profileAllocations profileTime = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -1466,7 +1474,7 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram _ _ _ _ functions _ _) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
-    <> [ lowerFunctionGroup env function [byName Map.! member | member <- Map.findWithDefault [] (grinFunctionName function) groups]
+    <> [ lowerFunctionGroup env function (members function) (copiedContinuations env byName grouped (grinFunctionName function : map grinFunctionName (members function)))
        | function <- functions,
          grinFunctionName function `Set.notMember` envForwardingFunctions env,
          grinFunctionName function `Set.notMember` grouped
@@ -1483,6 +1491,75 @@ lowerUnitActions env program@(GrinProgram _ _ _ _ functions _ _) =
     byName = Map.fromList [(grinFunctionName function, function) | function <- functions]
     groups = tailCallGroups absorbed [grinFunctionName function | function <- functions]
     grouped = Set.fromList (concat (Map.elems groups))
+    members function = [byName Map.! member | member <- Map.findWithDefault [] (grinFunctionName function) groups]
+
+-- | The small continuations that a merge group reaches by tail calls, and
+-- that the lowering copies into the group. A continuation that is called
+-- directly is the fast path of an evaluation: the value was already in
+-- weak head normal form. Other functions and the runtime also enter the
+-- continuation, so the original stays. In the copy, the register allocator
+-- sees the caller and the continuation as one function. A loop through a
+-- continuation then keeps its values in the same registers, and a tail call
+-- does not move them to the argument registers of the continuation.
+--
+-- A copy can call more continuations, which can also be copied. The limits
+-- keep the code that the copies add small.
+copiedContinuations :: LowerEnv -> Map FunctionName GrinFunction -> Set FunctionName -> [FunctionName] -> [GrinFunction]
+copiedContinuations env byName grouped group
+  | lowerProfileTime (envOptions env) || not (lowerCopyContinuations (envOptions env)) = []
+  | otherwise = go (Set.fromList group) 0 (concatMap callees group) []
+  where
+    go seen total pending copies = case pending of
+      [] -> reverse copies
+      name : rest
+        | Set.member name seen -> go seen total rest copies
+        | Just function <- Map.lookup name byName,
+          copyable name,
+          size <- grinExprSizeOf (grinFunctionBody function),
+          size <= continuationCopyLimit,
+          total + size <= groupCopyLimit ->
+            go (Set.insert name seen) (total + size) (rest <> callees name) (function : copies)
+        | otherwise -> go (Set.insert name seen) total rest copies
+    -- A function that another group absorbs has no symbol of its own, so
+    -- a copy cannot call it.
+    copyable name =
+      Set.member name (envContinuationFunctions env)
+        && Set.notMember name (envForwardingFunctions env)
+        && all (\callee -> Set.notMember callee grouped || callee `elem` group) (callees name)
+    callees name = maybe [] (tailCallees . grinFunctionBody) (Map.lookup name byName)
+
+-- | The largest continuation, in GRIN expression nodes, that a merge group
+-- copies.
+continuationCopyLimit :: Int
+continuationCopyLimit = 24
+
+-- | The largest sum of the sizes of the continuations that one merge group
+-- copies.
+groupCopyLimit :: Int
+groupCopyLimit = 48
+
+-- | The number of expression nodes in a GRIN expression.
+grinExprSizeOf :: GrinExpr -> Int
+grinExprSizeOf expression =
+  1 + case expression of
+    GrinBind _ value body -> grinExprSizeOf value + grinExprSizeOf body
+    GrinStoreRec _ body -> grinExprSizeOf body
+    GrinStoreRecUnchecked _ body -> grinExprSizeOf body
+    GrinIfWhnf _ ready slow -> grinExprSizeOf ready + grinExprSizeOf slow
+    GrinCase _ _ alternatives -> sum (map (grinExprSizeOf . grinAltRhs) alternatives)
+    _ -> 0
+
+-- | The functions that an expression calls in tail position.
+tailCallees :: GrinExpr -> [FunctionName]
+tailCallees expression =
+  case expression of
+    GrinCall _ name _ -> [name]
+    GrinBind _ _ body -> tailCallees body
+    GrinStoreRec _ body -> tailCallees body
+    GrinStoreRecUnchecked _ body -> tailCallees body
+    GrinIfWhnf _ ready slow -> tailCallees ready <> tailCallees slow
+    GrinCase _ _ alternatives -> concatMap (tailCallees . grinAltRhs) alternatives
+    _ -> []
 
 -- | The functions that one other function reaches only by tail calls, each
 -- with that caller. A function qualifies when each place that names it in
@@ -1522,15 +1599,6 @@ tailCallCallers env program
             || Map.member name (envFrameEntries env)
             || Map.member name (envThunkEntries env)
         )
-    tailCallees expression =
-      case expression of
-        GrinCall _ name _ -> [name]
-        GrinBind _ _ body -> tailCallees body
-        GrinStoreRec _ body -> tailCallees body
-        GrinStoreRecUnchecked _ body -> tailCallees body
-        GrinIfWhnf _ ready slow -> tailCallees ready <> tailCallees slow
-        GrinCase _ _ alternatives -> concatMap (tailCallees . grinAltRhs) alternatives
-        _ -> []
 
 -- | The members of each merge group, by the root of the group, in program
 -- order. The root of a function is the first caller on its chain of callers
@@ -1555,9 +1623,10 @@ tailCallGroups callers names =
 -- do not change, thus 'eliminateRedundantBlockParameters' removes those
 -- parameters. The object writer compiles each item as the lowering emits
 -- it, without 'Aihc.Lir.Inline.prepareModule', thus the pass runs here.
-lowerFunctionGroup :: LowerEnv -> GrinFunction -> [GrinFunction] -> LowerM ()
-lowerFunctionGroup env root members = do
+lowerFunctionGroup :: LowerEnv -> GrinFunction -> [GrinFunction] -> [GrinFunction] -> LowerM ()
+lowerFunctionGroup env root members copies = do
   mapM_ (lowerFunction env) (root : members)
+  copyFunctions <- if null copies then pure [] else lowerCopies env copies
   items <- gets stateItemsRev
   let rootSymbol = envSymbol env (grinFunctionName root)
       memberSymbols = map (envSymbol env . grinFunctionName) members
@@ -1570,7 +1639,11 @@ lowerFunctionGroup env root members = do
       merged = do
         rootFunction <- Map.lookup rootSymbol emitted
         memberFunctions <- mapM (`Map.lookup` emitted) memberSymbols
-        if any namesMember (filter (not . grouped) items) then Nothing else mergeTailCallees rootFunction memberFunctions
+        if any namesMember (filter (not . grouped) items)
+          then Nothing
+          else
+            (if null copyFunctions then Nothing else mergeTailCallees rootFunction (memberFunctions <> copyFunctions))
+              <|> mergeTailCallees rootFunction memberFunctions
   case merged of
     Nothing -> pure ()
     Just function ->
@@ -1885,6 +1958,23 @@ data FunctionCtx = FunctionCtx
   }
 
 type ValueEnv = Map GrinVar Typed
+
+-- | Lower functions that also stay apart, and return their Lir functions.
+-- The items keep only the other items that the lowering emits, such as the
+-- bitmaps that it emits first: the original functions are emitted by their
+-- own lowering.
+lowerCopies :: LowerEnv -> [GrinFunction] -> LowerM [Function]
+lowerCopies env functions = do
+  before <- gets stateItemsRev
+  modify' (\state -> state {stateItemsRev = []})
+  mapM_ (lowerFunction env) functions
+  added <- gets stateItemsRev
+  modify' (\state -> state {stateItemsRev = [item | item <- added, not (isFunction item)] <> before})
+  pure (reverse [function | ItemFunction function <- added])
+  where
+    isFunction item = case item of
+      ItemFunction _ -> True
+      _ -> False
 
 lowerFunction :: LowerEnv -> GrinFunction -> LowerM ()
 lowerFunction env function = do

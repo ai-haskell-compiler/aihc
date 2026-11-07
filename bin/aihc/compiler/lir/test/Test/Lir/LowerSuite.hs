@@ -80,7 +80,7 @@ parseFixture =
     LowerFixture
       <$> object .: "program"
       <*> pure target
-      <*> (ModuleSettings <$> object .:? "check-prim-bounds" .!= False <*> object .:? "profile-allocations" .!= False <*> object .:? "profile-time" .!= False)
+      <*> (ModuleSettings <$> object .:? "check-prim-bounds" .!= False <*> object .:? "profile-allocations" .!= False <*> object .:? "profile-time" .!= False <*> object .:? "copy-continuations" .!= True)
       <*> object .: "expected"
       <*> object .:? "check-data-references" .!= False
 
