@@ -28,6 +28,7 @@ library
   c-sources:
     native/aihc_gc.c
     native/aihc_heap_regions.c
+    native/aihc_limbs.c
     native/aihc_runtime.c
 
   x-aihc-lir-sources: native/rts.lir

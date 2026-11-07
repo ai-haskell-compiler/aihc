@@ -3638,6 +3638,28 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       bytes <- word count
       _ <- callRuntime "aihc_memory_copy" [Ptr, Ptr, I64] [] [to, from, bytes]
       bind []
+    -- A limb kernel of Integer arithmetic is one call of the runtime
+    -- kernel. The indices and the count are in limbs of eight bytes.
+    (_, [destination, destinationIndex, source, sourceIndex, count, multiplier])
+      | Just kernel <- lookup name limbKernelPrimitives -> do
+          to <- limbRange destination destinationIndex count
+          from <- limbRange source sourceIndex count
+          limbs <- word count
+          factor <- word multiplier
+          carry <- callRuntime kernel [Ptr, Ptr, I64, I64] [I64] [to, from, limbs, factor]
+          bind [Typed carry I64]
+    -- The schoolbook division of Integer arithmetic. The kernel reads and
+    -- writes the payloads of the arrays, and the arguments say which limbs.
+    ("aihcLimbsDivide#", [quotient, dividend, top, divisor, divisorSize, inverse, wantQuotient]) -> do
+      quotientLimbs <- byteArrayPayloadOf quotient
+      dividendLimbs <- byteArrayPayloadOf dividend
+      divisorLimbs <- byteArrayPayloadOf divisor
+      operands <- mapM word [top, divisorSize, inverse, wantQuotient]
+      case operands of
+        [topOperand, sizeOperand, inverseOperand, flagOperand] -> do
+          _ <- callRuntime "aihc_limbs_divide" [Ptr, Ptr, I64, Ptr, I64, I64, I64] [] [quotientLimbs, dividendLimbs, topOperand, divisorLimbs, sizeOperand, inverseOperand, flagOperand]
+          bind []
+        _ -> failWith (LowerUnsupportedExpression "aihcLimbsDivide# operands")
     ("setByteArray#", [array, offset, count, value]) -> do
       to <- byteArrayRange array offset count
       bytes <- word count
@@ -3732,9 +3754,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- range must end at or before the size. A negative value is a huge
     -- unsigned one, thus the unsigned comparisons reject it too.
     byteArrayRange array offset count = do
-      base <- pointerValue ctx env array
       start <- word offset
       bytes <- word count
+      byteArrayRange' array start bytes
+    byteArrayRange' array start bytes = do
+      base <- pointerValue ctx env array
       when checkPrimBounds $ do
         size <- emitValue "size" I64 (Load I64 (heapAddress base byteArraySizeOffset) (byteAlignment 8))
         pastEnd <- emitValue "past_end" I1 (Compare GtU I64 start (typedOperand size))
@@ -3744,6 +3768,16 @@ compilePrimitive ctx env vars runtimeRep name arguments =
         boundsCheck (typedOperand invalid) "aihc_byte_array_bounds_fail" "byte array access is out of bounds"
       contents <- byteArrayPayload "contents" base
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) start)
+    -- The address of the payload of a byte array.
+    byteArrayPayloadOf array = do
+      base <- pointerValue ctx env array
+      typedOperand <$> byteArrayPayload "contents" base
+    -- The address of @count@ limbs at limb @index@ of a byte array.
+    limbRange array index count = do
+      start <- word index >>= scaleLimbs
+      bytes <- word count >>= scaleLimbs
+      byteArrayRange' array start bytes
+    scaleLimbs operand = typedOperand <$> emitValue "bytes" I64 (Binary Mul I64 operand (OperandLiteral (LitInt 8)))
     -- The address of element @index@ of the given width. Every access uses
     -- alignment one, because the source can give an unaligned address.
     addressElement address index scale = do
@@ -4019,6 +4053,16 @@ byteArrayCopyPrimitives =
   [ ("copyByteArray#", "aihc_memory_move"),
     ("copyMutableByteArray#", "aihc_memory_move"),
     ("copyMutableByteArrayNonOverlapping#", "aihc_memory_copy")
+  ]
+
+-- | The limb kernels of Integer arithmetic, each with its runtime kernel
+-- in aihc_limbs.c. Each primitive takes the destination array, the limb
+-- index of the destination, the source array, the limb index of the source,
+-- the limb count, and the multiplier limb. It gives the carry limb.
+limbKernelPrimitives :: [(Text, Text)]
+limbKernelPrimitives =
+  [ ("aihcLimbsMul#", "aihc_limbs_mul_1"),
+    ("aihcLimbsMulAdd#", "aihc_limbs_addmul_1")
   ]
 
 -- | The copies from a byte array to an address.
