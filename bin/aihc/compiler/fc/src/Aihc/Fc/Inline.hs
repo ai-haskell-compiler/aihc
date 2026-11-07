@@ -50,6 +50,7 @@ import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv, typeEnvFromProgram)
 import Aihc.Resolve (PackageId)
 import Control.Monad.Trans.State.Strict (runState, state)
+import Data.Foldable (fold)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -437,8 +438,8 @@ initialInliner config env decls supply =
       inRefs = references,
       inUsers = MonoidMap.fromList [(callee, Set.singleton name) | (name, callees) <- MonoidMap.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
-      inCounts = mconcat (Map.elems uses),
-      inCalls = mconcat (Map.elems calls),
+      inCounts = fold uses,
+      inCalls = fold calls,
       inArities = arities,
       inCallArities = topCallArities escaping (Map.elems bodies),
       inEscaping = escaping,
@@ -943,8 +944,8 @@ dropUnused st =
       inKnown = Map.restrictKeys (inKnown st) reachable,
       inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
       inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
-      inCounts = mconcat (Map.elems uses),
-      inCalls = mconcat (Map.elems calls),
+      inCounts = fold uses,
+      inCalls = fold calls,
       inArities = arities,
       inCallArities = topCallArities (inEscaping st) (Map.elems live),
       inDead = Set.empty
