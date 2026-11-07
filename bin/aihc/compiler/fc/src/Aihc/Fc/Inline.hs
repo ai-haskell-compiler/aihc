@@ -821,8 +821,8 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                           updated = if changed then updateBody st name body' else st
                           oldUses = inBodyUses st Map.! name
                           newUses = inBodyUses updated Map.! name
-                          counts' = (inCounts st <> newUses) <> MonoidMap.map negate oldUses
-                          calls' = (inCalls st <> inBodyCalls updated Map.! name) <> MonoidMap.map negate (inBodyCalls st Map.! name)
+                          counts' = (inCounts st <> newUses) <> MonoidMap.invert oldUses
+                          calls' = (inCalls st <> inBodyCalls updated Map.! name) <> MonoidMap.invert (inBodyCalls st Map.! name)
                        in killDead
                             updated
                               { inVisits = visits,
@@ -915,8 +915,8 @@ killDead st names =
           killDead st rest
       | Map.member name (inBodies st) ->
           let uses = inBodyUses st Map.! name
-              counts' = inCounts st <> MonoidMap.map negate uses
-              calls' = inCalls st <> MonoidMap.map negate (inBodyCalls st Map.! name)
+              counts' = inCounts st <> MonoidMap.invert uses
+              calls' = inCalls st <> MonoidMap.invert (inBodyCalls st Map.! name)
            in killDead
                 st
                   { inDead = Set.insert name (inDead st),
