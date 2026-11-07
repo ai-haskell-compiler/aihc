@@ -592,8 +592,9 @@ inlineRound config st0 = List.foldl' step st0 sccs
     -- at every call in the phases its pragma names, so a use inside it is
     -- repeated once per call of the template.
     inTemplates =
-      Map.unionsWith
-        (+)
+      List.foldl'
+        (Map.unionWith (+))
+        Map.empty
         [ Map.fromSet (const calls) references
         | (name, references) <- MonoidMap.toList (inRefs st0),
           isTemplate st0 name,
