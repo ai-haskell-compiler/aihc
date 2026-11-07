@@ -995,9 +995,9 @@ countTopCalls arities = go
         ExLam _ body -> go body
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> go body <> mconcat (map (go . bindRhs) binds)
-        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> mconcat (map (go . altRhs) alternatives)
-        ExForeignCall _ _ args -> mconcat (map go args)
+        ExRec binds body -> go body <> foldMap (go . bindRhs) binds
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExForeignCall _ _ args -> foldMap go args
         _ -> mempty
 
 countTopUses :: Expr -> MonoidMap Name (Sum Int)
@@ -1015,11 +1015,11 @@ countTopUses = go
         ExLam _ body -> go body
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> go body <> mconcat (map (go . bindRhs) binds)
-        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> mconcat (map (go . altRhs) alternatives)
+        ExRec binds body -> go body <> foldMap (go . bindRhs) binds
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
-        ExForeignCall _ _ arguments -> mconcat (map go arguments)
+        ExForeignCall _ _ arguments -> foldMap go arguments
     isTop name =
       case nameOrigin name of
         OriginTop {} -> True
