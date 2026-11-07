@@ -258,7 +258,11 @@ workerWrapperProgram primPackage home scope program =
               then pure declaration
               else (\body -> declaration {valBody = body}) <$> foldM (\current (name, wrapperBody) -> replaceCalls name wrapperBody current) (valBody declaration) others
       rewritten = evalState (traverse (\decl -> case decl of DeclVal declaration -> DeclVal <$> groupCalls declaration; _ -> pure decl) (concat splits)) supply0
-   in (tidyProgram (addTupleImports program {programDecls = rewritten}), final)
+   in -- A pass that splits nothing leaves each body as it is, so it does
+      -- not tidy the program again.
+      if reportWorkers final == 0
+        then (program, final)
+        else (tidyProgram (addTupleImports program {programDecls = rewritten}), final)
 
 addReports :: WorkerWrapperReport -> WorkerWrapperReport -> WorkerWrapperReport
 addReports a b =
