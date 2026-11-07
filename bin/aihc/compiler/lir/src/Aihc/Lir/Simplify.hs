@@ -27,20 +27,46 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 
 -- | Drop each instruction whose results nothing reads and whose operation
--- has no effect. A drop can make another instruction dead, so the pass
--- repeats until nothing changes. A load is pure here: the lowering reads a
--- field only from an object it knows. A division and a conversion stay,
--- because they can trap.
+-- has no effect. A drop can make another instruction dead. Thus the pass
+-- counts the reads one time, and a drop takes the reads of the dropped
+-- instruction off the counts. When the last read of a result goes, the
+-- instruction that makes it is tested again. A load is pure here: the
+-- lowering reads a field only from an object it knows. A division and a
+-- conversion stay, because they can trap.
 eliminateDeadInstructions :: Function -> Function
 eliminateDeadInstructions function
-  | null dead = function
-  | otherwise = eliminateDeadInstructions function {functionBlocks = map dropDead (functionBlocks function)}
+  | null initial = function
+  | otherwise = function {functionBlocks = zipWith dropDead [0 ..] (functionBlocks function)}
   where
-    uses = readCounts function
-    unread instruction = all (\result -> Map.findWithDefault 0 result uses == 0) (instructionResults instruction)
-    removable instruction = unread instruction && pure' (instructionOperation instruction)
-    dead = [() | block <- functionBlocks function, instruction <- blockInstructions block, removable instruction]
-    dropDead block = block {blockInstructions = filter (not . removable) (blockInstructions block)}
+    numbered = [((blockIndex, index), instruction) | (blockIndex, block) <- zip [0 :: Int ..] (functionBlocks function), (index, instruction) <- zip [0 :: Int ..] (blockInstructions block)]
+    instructions = Map.fromList numbered
+    -- The instructions that make each value.
+    makers = Map.fromListWith (<>) [(result, [key]) | (key, instruction) <- numbered, result <- instructionResults instruction]
+    unread uses instruction = all (\result -> Map.findWithDefault 0 result uses == 0) (instructionResults instruction)
+    removable uses instruction = pure' (instructionOperation instruction) && unread uses instruction
+    uses0 = readCounts function
+    initial = [key | (key, instruction) <- numbered, removable uses0 instruction]
+    dead = sweep uses0 (Set.fromList initial) initial
+    sweep _ found [] = found
+    sweep uses found (key : rest) =
+      case Map.lookup key instructions of
+        Nothing -> sweep uses found rest
+        Just instruction ->
+          let (uses', emptied) = List.foldl' release (uses, []) (operationReads (instructionOperation instruction))
+              newlyDead =
+                [ maker
+                | result <- emptied,
+                  maker <- Map.findWithDefault [] result makers,
+                  Set.notMember maker found,
+                  Just candidate <- [Map.lookup maker instructions],
+                  removable uses' candidate
+                ]
+              found' = List.foldl' (flip Set.insert) found newlyDead
+           in sweep uses' found' (List.nub newlyDead <> rest)
+    release (uses, emptied) var =
+      let count = Map.findWithDefault 0 var uses - 1
+       in (Map.insert var count uses, if count == 0 then var : emptied else emptied)
+    dropDead blockIndex block = block {blockInstructions = [instruction | (index, instruction) <- zip [0 ..] (blockInstructions block), Set.notMember (blockIndex, index) dead]}
     pure' operation = case operation of
       Binary op _ _ _ -> op `notElem` [DivS, DivU, RemS, RemU]
       Unary {} -> True
