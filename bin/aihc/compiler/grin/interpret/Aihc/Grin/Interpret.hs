@@ -2008,6 +2008,29 @@ evalPrimitive name [destinationValue, destinationIndex, sourceValue, sourceIndex
             pure next
       carry <- liftEvalIO (foldM step 0 [0 .. fromInteger count - 1])
       pure [wordRuntimeValue carry]
+-- The kernel gives the remainder in the low divisor limbs and zero above
+-- them, as aihc_limbs_divide does.
+evalPrimitive "aihcLimbsDivide#" [quotientValue, dividendValue, topValue, divisorValue, sizeValue, _, wantValue] = do
+  let name = "aihcLimbsDivide#"
+  quotientArray <- expectByteArrayPrimitiveArgument name quotientValue
+  dividend <- expectByteArrayPrimitiveArgument name dividendValue
+  divisor <- expectByteArrayPrimitiveArgument name divisorValue
+  top <- expectIntPrimitiveArgument name topValue
+  divisorSize <- expectIntPrimitiveArgument name sizeValue
+  want <- expectIntPrimitiveArgument name wantValue
+  let dividendSize = top + divisorSize + 1
+  _ <- checkedByteArrayRange name dividend 0 (dividendSize * 8)
+  _ <- checkedByteArrayRange name divisor 0 (divisorSize * 8)
+  when (want /= 0) (() <$ checkedByteArrayRange name quotientArray 0 ((top + 1) * 8))
+  let readLimbs array count = liftEvalIO (mapM (\index -> toInteger <$> (peekByteOff (grinByteArrayContents array) (index * 8) :: IO Word64)) [0 .. fromInteger count - 1])
+      writeLimbs array count value = liftEvalIO (mapM_ (\index -> pokeByteOff (grinByteArrayContents array) (index * 8) (fromInteger (shiftR value (index * 64) .&. 0xffffffffffffffff) :: Word64)) [0 .. fromInteger count - 1])
+      fromLimbs = foldr (\limb accumulated -> accumulated * 2 ^ (64 :: Int) + limb) 0
+  numerator <- fromLimbs <$> readLimbs dividend dividendSize
+  denominator <- fromLimbs <$> readLimbs divisor divisorSize
+  let (quotientInteger, remainderInteger) = quotRem numerator denominator
+  writeLimbs dividend dividendSize remainderInteger
+  when (want /= 0) (writeLimbs quotientArray (top + 1) quotientInteger)
+  pure []
 evalPrimitive "setByteArray#" [value, offset, byteCount, byteValue] = do
   byteArray <- expectByteArrayPrimitiveArgument "setByteArray#" value
   checkedOffset <- expectIntPrimitiveArgument "setByteArray#" offset
@@ -2208,8 +2231,7 @@ checkedByteArrayAlignment symbol alignment
 limbKernels :: [(Text, Integer -> Integer -> (Integer, Integer))]
 limbKernels =
   [ ("aihcLimbsMul#", \_ term -> splitLimb term),
-    ("aihcLimbsMulAdd#", \existing term -> splitLimb (existing + term)),
-    ("aihcLimbsMulSub#", \existing term -> let (low, high) = splitLimb term in (mod (existing - low) limbBase, high + (if existing < low then 1 else 0)))
+    ("aihcLimbsMulAdd#", \existing term -> splitLimb (existing + term))
   ]
   where
     limbBase = 2 ^ (64 :: Int)

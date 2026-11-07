@@ -28,6 +28,32 @@ uint64_t aihc_limbs_addmul_1(uint64_t *rp, const uint64_t *up, int64_t n,
                              uint64_t v);
 uint64_t aihc_limbs_submul_1(uint64_t *rp, const uint64_t *up, int64_t n,
                              uint64_t v);
+void aihc_limbs_divide(uint64_t *qp, uint64_t *np, int64_t top,
+                       const uint64_t *dp, int64_t dn, uint64_t inverse,
+                       int64_t want_quotient);
+
+/* The product of two limbs as a high and a low limb. */
+static inline void aihc_limbs_product(uint64_t left, uint64_t right,
+                                      uint64_t *high, uint64_t *low) {
+#if defined(__SIZEOF_INT128__)
+  __extension__ typedef unsigned __int128 aihc_limbs_wide;
+  aihc_limbs_wide product = (aihc_limbs_wide)left * right;
+  *high = (uint64_t)(product >> 64);
+  *low = (uint64_t)product;
+#else
+  uint64_t leftLow = left & 0xffffffffu;
+  uint64_t leftHigh = left >> 32;
+  uint64_t rightLow = right & 0xffffffffu;
+  uint64_t rightHigh = right >> 32;
+  uint64_t lowLow = leftLow * rightLow;
+  uint64_t highLow = leftHigh * rightLow;
+  uint64_t lowHigh = leftLow * rightHigh;
+  uint64_t highHigh = leftHigh * rightHigh;
+  uint64_t middle = (lowLow >> 32) + (highLow & 0xffffffffu) + lowHigh;
+  *high = highHigh + (highLow >> 32) + (middle >> 32);
+  *low = (middle << 32) | (lowLow & 0xffffffffu);
+#endif
+}
 
 #if defined(__APPLE__)
 #define AIHC_LIMBS_SYMBOL(name) "_" #name
@@ -335,29 +361,6 @@ __asm__(
 
 #else
 
-/* The product of two limbs as a high and a low limb. */
-static inline void aihc_limbs_product(uint64_t left, uint64_t right,
-                                      uint64_t *high, uint64_t *low) {
-#if defined(__SIZEOF_INT128__)
-  __extension__ typedef unsigned __int128 aihc_limbs_wide;
-  aihc_limbs_wide product = (aihc_limbs_wide)left * right;
-  *high = (uint64_t)(product >> 64);
-  *low = (uint64_t)product;
-#else
-  uint64_t leftLow = left & 0xffffffffu;
-  uint64_t leftHigh = left >> 32;
-  uint64_t rightLow = right & 0xffffffffu;
-  uint64_t rightHigh = right >> 32;
-  uint64_t lowLow = leftLow * rightLow;
-  uint64_t highLow = leftHigh * rightLow;
-  uint64_t lowHigh = leftLow * rightHigh;
-  uint64_t highHigh = leftHigh * rightHigh;
-  uint64_t middle = (lowLow >> 32) + (highLow & 0xffffffffu) + lowHigh;
-  *high = highHigh + (highLow >> 32) + (middle >> 32);
-  *low = (middle << 32) | (lowLow & 0xffffffffu);
-#endif
-}
-
 uint64_t aihc_limbs_mul_1(uint64_t *rp, const uint64_t *up, int64_t n,
                           uint64_t v) {
   uint64_t carry = 0;
@@ -405,3 +408,96 @@ uint64_t aihc_limbs_submul_1(uint64_t *rp, const uint64_t *up, int64_t n,
 }
 
 #endif
+
+/* Divide the three limbs (high, low, next) by the two limbs (top, second)
+   with the reciprocal of the divisor (Moller and Granlund, "Improved
+   division by invariant integers", 2011). The caller makes sure that
+   (high, low) is less than (top, second). */
+static inline uint64_t aihc_limbs_divide_three_by_two(
+    uint64_t high, uint64_t low, uint64_t next, uint64_t top, uint64_t second,
+    uint64_t inverse, uint64_t *remainder_high, uint64_t *remainder_low) {
+  uint64_t product_high;
+  uint64_t product_low;
+  aihc_limbs_product(inverse, high, &product_high, &product_low);
+  uint64_t fraction = product_low + low;
+  uint64_t estimate = product_high + high + (fraction < product_low);
+  uint64_t partial_high = low - estimate * top;
+  uint64_t partial_low = next - second;
+  uint64_t borrow = next < second;
+  uint64_t term_high;
+  uint64_t term_low;
+  aihc_limbs_product(second, estimate, &term_high, &term_low);
+  uint64_t result_low = partial_low - term_low;
+  uint64_t borrow1 = partial_low < term_low;
+  uint64_t result_high = partial_high - top - borrow - (term_high + borrow1);
+  if (result_high < fraction) {
+    estimate++;
+  } else {
+    uint64_t restored_low = result_low + second;
+    result_high = result_high + top + (restored_low < result_low);
+    result_low = restored_low;
+  }
+  if (result_high > top || (result_high == top && result_low >= second)) {
+    uint64_t borrow2 = result_low < second;
+    estimate++;
+    result_high = result_high - top - borrow2;
+    result_low = result_low - second;
+  }
+  *remainder_high = result_high;
+  *remainder_low = result_low;
+  return estimate;
+}
+
+/* The schoolbook division of a normalized dividend by a normalized divisor
+   of dn >= 2 limbs. np has top + dn + 1 limbs, and the highest dn limbs of
+   it are less than the divisor. inverse is the reciprocal of the two top
+   divisor limbs. At the end, the low dn limbs of np are the remainder and
+   the limbs above it are zero. If want_quotient is not zero, the kernel
+   writes the top + 1 quotient limbs at qp. */
+void aihc_limbs_divide(uint64_t *qp, uint64_t *np, int64_t top,
+                       const uint64_t *dp, int64_t dn, uint64_t inverse,
+                       int64_t want_quotient) {
+  uint64_t divisor_top = dp[dn - 1];
+  uint64_t divisor_second = dp[dn - 2];
+  for (int64_t offset = top; offset >= 0; offset--) {
+    uint64_t *window = np + offset;
+    uint64_t high = window[dn];
+    uint64_t low = window[dn - 1];
+    uint64_t quotient;
+    uint64_t borrow;
+    if (high == divisor_top && low == divisor_second) {
+      /* The quotient limb is the maximum limb. */
+      quotient = ~(uint64_t)0;
+      uint64_t carry = aihc_limbs_submul_1(window, dp, dn, quotient);
+      window[dn] = high - carry;
+      borrow = high < carry;
+    } else {
+      uint64_t remainder_high;
+      uint64_t remainder_low;
+      quotient = aihc_limbs_divide_three_by_two(
+          high, low, window[dn - 2], divisor_top, divisor_second, inverse,
+          &remainder_high, &remainder_low);
+      uint64_t carry = aihc_limbs_submul_1(window, dp, dn - 2, quotient);
+      uint64_t borrow_low = remainder_low < carry;
+      window[dn - 2] = remainder_low - carry;
+      borrow = remainder_high < borrow_low;
+      window[dn - 1] = remainder_high - borrow_low;
+      window[dn] = (uint64_t)0 - borrow;
+    }
+    if (borrow != 0) {
+      /* The estimate was one too large: add one divisor back. */
+      uint64_t carry = 0;
+      for (int64_t index = 0; index < dn; index++) {
+        uint64_t sum = window[index] + dp[index];
+        uint64_t result = sum + carry;
+        carry = (uint64_t)(sum < dp[index]) + (uint64_t)(result < sum);
+        window[index] = result;
+      }
+      window[dn] += carry;
+      quotient--;
+    }
+    if (want_quotient != 0) {
+      qp[offset] = quotient;
+    }
+  }
+}

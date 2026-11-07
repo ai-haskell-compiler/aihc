@@ -3648,6 +3648,18 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           factor <- word multiplier
           carry <- callRuntime kernel [Ptr, Ptr, I64, I64] [I64] [to, from, limbs, factor]
           bind [Typed carry I64]
+    -- The schoolbook division of Integer arithmetic. The kernel reads and
+    -- writes the payloads of the arrays, and the arguments say which limbs.
+    ("aihcLimbsDivide#", [quotient, dividend, top, divisor, divisorSize, inverse, wantQuotient]) -> do
+      quotientLimbs <- byteArrayPayloadOf quotient
+      dividendLimbs <- byteArrayPayloadOf dividend
+      divisorLimbs <- byteArrayPayloadOf divisor
+      operands <- mapM word [top, divisorSize, inverse, wantQuotient]
+      case operands of
+        [topOperand, sizeOperand, inverseOperand, flagOperand] -> do
+          _ <- callRuntime "aihc_limbs_divide" [Ptr, Ptr, I64, Ptr, I64, I64, I64] [] [quotientLimbs, dividendLimbs, topOperand, divisorLimbs, sizeOperand, inverseOperand, flagOperand]
+          bind []
+        _ -> failWith (LowerUnsupportedExpression "aihcLimbsDivide# operands")
     ("setByteArray#", [array, offset, count, value]) -> do
       to <- byteArrayRange array offset count
       bytes <- word count
@@ -3756,6 +3768,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
         boundsCheck (typedOperand invalid) "aihc_byte_array_bounds_fail" "byte array access is out of bounds"
       contents <- byteArrayPayload "contents" base
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) start)
+    -- The address of the payload of a byte array.
+    byteArrayPayloadOf array = do
+      base <- pointerValue ctx env array
+      typedOperand <$> byteArrayPayload "contents" base
     -- The address of @count@ limbs at limb @index@ of a byte array.
     limbRange array index count = do
       start <- word index >>= scaleLimbs
@@ -4046,8 +4062,7 @@ byteArrayCopyPrimitives =
 limbKernelPrimitives :: [(Text, Text)]
 limbKernelPrimitives =
   [ ("aihcLimbsMul#", "aihc_limbs_mul_1"),
-    ("aihcLimbsMulAdd#", "aihc_limbs_addmul_1"),
-    ("aihcLimbsMulSub#", "aihc_limbs_submul_1")
+    ("aihcLimbsMulAdd#", "aihc_limbs_addmul_1")
   ]
 
 -- | The copies from a byte array to an address.
