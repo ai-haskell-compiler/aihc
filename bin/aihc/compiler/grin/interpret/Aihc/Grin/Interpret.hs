@@ -15,7 +15,7 @@ import Aihc.Fc.Fold (depositBits, extractBits, reverseBits)
 import Aihc.Grin.Syntax
 import Control.Concurrent qualified as Host
 import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
-import Control.Monad (foldM, when, zipWithM, zipWithM_)
+import Control.Monad (foldM, void, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
@@ -2021,7 +2021,7 @@ evalPrimitive "aihcLimbsDivide#" [quotientValue, dividendValue, topValue, diviso
   let dividendSize = top + divisorSize + 1
   _ <- checkedByteArrayRange name dividend 0 (dividendSize * 8)
   _ <- checkedByteArrayRange name divisor 0 (divisorSize * 8)
-  when (want /= 0) (() <$ checkedByteArrayRange name quotientArray 0 ((top + 1) * 8))
+  when (want /= 0) (void (checkedByteArrayRange name quotientArray 0 ((top + 1) * 8)))
   let readLimbs array count = liftEvalIO (mapM (\index -> toInteger <$> (peekByteOff (grinByteArrayContents array) (index * 8) :: IO Word64)) [0 .. fromInteger count - 1])
       writeLimbs array count value = liftEvalIO (mapM_ (\index -> pokeByteOff (grinByteArrayContents array) (index * 8) (fromInteger (shiftR value (index * 64) .&. 0xffffffffffffffff) :: Word64)) [0 .. fromInteger count - 1])
       fromLimbs = foldr (\limb accumulated -> accumulated * 2 ^ (64 :: Int) + limb) 0
