@@ -56,6 +56,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Monoid (Sum (..))
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
@@ -683,7 +684,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
                     isInlinable calleeBody,
                     let size = guidanceSize (inGuidance st Map.! callee)
-                        every = unconditional callee size
+                        every = unconditional callee (Sum size)
                         requested = inliningRequested (inlinePhase config) spec
                         withinLimit = size <= policyCalleeLimit policy
                         sites
@@ -848,8 +849,8 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
     -- uses too.
     unconditional callee size =
       removable callee
-        && let uses = Map.findWithDefault 0 callee (inCounts st) + Map.findWithDefault 0 callee inTemplates
-               calls = Map.findWithDefault 0 callee (inCalls st)
+        && let uses = Sum (Map.findWithDefault 0 callee (inCounts st)) + Sum (Map.findWithDefault 0 callee inTemplates)
+               calls = Sum (Map.findWithDefault 0 callee (inCalls st))
             in calls >= uses && uses * (size - 1) - (size + 1) <= 0
     removable callee = callee `Set.notMember` inRoots st
 
@@ -910,7 +911,7 @@ killDead st names =
     name : rest
       | name `Set.member` inDead st
           || name `Set.member` inRoots st
-          || Map.findWithDefault 0 name (inCounts st) > 0 ->
+          || Sum (Map.findWithDefault 0 name (inCounts st)) > 0 ->
           killDead st rest
       | Map.member name (inBodies st) ->
           let uses = inBodyUses st Map.! name
