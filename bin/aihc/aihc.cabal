@@ -348,11 +348,11 @@ executable aihc
     base >=4.16 && <5,
 
   ghc-options:
+    -- The RTS option -A64m gives each capability a 64 MiB allocation area.
+    -- With the default area, minor collections stop all capabilities too frequently.
     -Wall
     -threaded
     -rtsopts
-    -- Each capability gets a 64 MiB allocation area. With the default
-    -- area, the minor collections stop all capabilities too frequently.
     "-with-rtsopts=-N -A64m"
 
   default-language: GHC2021
@@ -437,11 +437,11 @@ executable aihc-dev
 
   default-extensions: OverloadedStrings
   ghc-options:
+    -- The RTS option -A64m gives each capability a 64 MiB allocation area.
+    -- With the default area, minor collections stop all capabilities too frequently.
     -Wall
     -threaded
     -rtsopts
-    -- Each capability gets a 64 MiB allocation area. With the default
-    -- area, the minor collections stop all capabilities too frequently.
     "-with-rtsopts=-N -A64m"
 
   default-language: GHC2021
