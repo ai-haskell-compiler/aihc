@@ -404,6 +404,11 @@ data Inliner = Inliner
     inRoots :: !(Set Name),
     -- | The rules that fire in this pass, by head.
     inRules :: !RuleTable,
+    -- | The values that the left-hand side of a rule names. The rules do
+    -- not change in a pass, so the pass collects these names one time.
+    inRuleLhsNames :: !(Set Name),
+    -- | The values that a side of a rule names.
+    inRuleNames :: !(Set Name),
     -- | The demand signatures of the values, from their bodies when the
     -- pass begins. A copy changes how a body computes its result, not
     -- what the body evaluates, so a signature holds for the whole pass.
@@ -449,6 +454,8 @@ initialInliner config env decls supply =
       inChanged = False,
       inRoots = roots,
       inRules = rules,
+      inRuleLhsNames = lhsNames,
+      inRuleNames = lhsNames <> Set.unions [exprValueNames (ruleRhs rule) | entries <- Map.elems rules, rule <- entries],
       inSignatures = topLevelSignatures env decls,
       inSpecs = Map.union (Map.map snd aliases) (Map.map valInline declarations),
       inDictionaryFunctions = Map.keysSet (Map.filter dictionaryFunction declarations),
@@ -457,6 +464,7 @@ initialInliner config env decls supply =
     }
   where
     rules = ruleTable (inlinePhase config) decls
+    lhsNames = Set.unions [exprValueNames (ruleLhs rule) | entries <- Map.elems rules, rule <- entries]
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
     arities = Map.map functionArity bodies
@@ -711,13 +719,12 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                   candidates
               -- The bodies that a call with constant arguments can
               -- specialise. See 'constantCallPattern'.
-              ruleNames = Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | rules <- Map.elems (inRules st), rule <- rules]
               patternBodies =
                 Map.filterWithKey
                   ( \callee _ ->
                       callee /= name
                         && callPatternSpec (Map.findWithDefault InlineDefault callee (inSpecs st))
-                        && Set.notMember callee ruleNames
+                        && Set.notMember callee (inRuleNames st)
                         && guidanceSize (inGuidance st Map.! callee) <= callPatternBodyLimit
                   )
                   (Map.restrictKeys (inBodies st) references)
@@ -808,7 +815,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                                 spLocalCandidates = Map.empty,
                                 spFacts = emptyFacts,
                                 spEscapes = True,
-                                spFixed = SimplFixed {spKnown = known, spArity = arities, spSiteLimit = policySiteLimit policy, spRequestedSiteLimit = policyRequestedSiteLimit policy, spReducingSiteLimit = policyReducingSiteLimit policy, spDiscount = policyFunctionArgumentDiscount policy, spRules = inRules st, spSignatures = inSignatures st, spInTemplate = isTemplate st name, spDiverging = diverging, spBodies = patternBodies, spRuleNames = Set.unions [exprValueNames (ruleLhs rule) | rules <- Map.elems (inRules st), rule <- rules]}
+                                spFixed = SimplFixed {spKnown = known, spArity = arities, spSiteLimit = policySiteLimit policy, spRequestedSiteLimit = policyRequestedSiteLimit policy, spReducingSiteLimit = policyReducingSiteLimit policy, spDiscount = policyFunctionArgumentDiscount policy, spRules = inRules st, spSignatures = inSignatures st, spInTemplate = isTemplate st name, spDiverging = diverging, spBodies = patternBodies, spRuleNames = inRuleLhsNames st}
                               }
                           (body', simplState) =
                             runState (simplifyExpr simpl body) (initialSimplState (inSupply st) allowance)

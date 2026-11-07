@@ -1,5 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
-
 -- | Select and check the facts that a System FC program imports.
 module Aihc.Fc.Imports
   ( axiomReferences,
@@ -10,6 +8,7 @@ module Aihc.Fc.Imports
     pruneImports,
     referencesFromImports,
     restrictProgram,
+    restrictProgramWith,
     typeReferences,
     unusedImports,
   )
@@ -26,7 +25,6 @@ import Aihc.Fc.TypeOf
   )
 import Aihc.Fc.Wired (unboxedTupleArity, unboxedTupleDecl)
 import Aihc.Resolve (PackageId)
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -63,9 +61,15 @@ importsForProgramLookup primPackage lookupFact program = do
 -- program of a module after the values of an interface are removed again.
 restrictProgram :: PackageId -> (Decl -> Bool) -> Program -> Program
 restrictProgram primPackage keep program =
+  restrictProgramWith (typeEnvFromProgram primPackage program) keep program
+
+-- | 'restrictProgram' with the type environment of the program already
+-- known. A caller that restricts one program many times builds that
+-- environment one time.
+restrictProgramWith :: TypeEnv -> (Decl -> Bool) -> Program -> Program
+restrictProgramWith available keep program =
   pruneImports program {programImports = imports, programDecls = kept}
   where
-    available = typeEnvFromProgram primPackage program
     kept = filter keep (programDecls program)
     declared = Set.fromList (concatMap declaredNames kept)
     roots = foldMap declReferences kept `Set.difference` declared
@@ -238,102 +242,109 @@ declReferences decl =
         <> exprReferences (ruleLhs declaration)
         <> exprReferences (ruleRhs declaration)
 
-foreignImportDependencyReferences :: ForeignImportDependency -> References
-foreignImportDependencyReferences dependency =
-  case dependency of
-    ForeignAxiom name -> nameReference name
-    ForeignConstructor name -> nameReference name
-
 axiomReferences :: AxiomDecl -> References
-axiomReferences declaration =
-  foldMap binderReferences (axiomBinders declaration)
-    <> typeReferences (axiomLeft declaration)
-    <> typeReferences (axiomRight declaration)
+axiomReferences = axiomRefs Set.empty
 
 binderReferences :: Binder -> References
 binderReferences = typeReferences . binderType
 
 typeReferences :: Type -> References
-typeReferences ty =
-  case ty of
-    TyVar name -> nameReference name
-    TyCon name -> nameReference name
-    TyApp function argument -> typeReferences function <> typeReferences argument
-    TyFun r1 r2 argument result -> foldMap typeReferences [r1, r2, argument, result]
-    TyForAll binder body -> binderReferences binder <> typeReferences body
-    TyEq left right -> typeReferences left <> typeReferences right
-    TyLit kindName _ -> nameReference kindName
+typeReferences = typeRefs Set.empty
 
 exprReferences :: Expr -> References
-exprReferences expr =
+exprReferences = exprRefs Set.empty
+
+-- The functions below add the references to a set. Each name goes into
+-- the set one time, without a set for each part of the term.
+
+axiomRefs :: References -> AxiomDecl -> References
+axiomRefs refs declaration =
+  typeRefs (typeRefs (foldl' binderRefs refs (axiomBinders declaration)) (axiomLeft declaration)) (axiomRight declaration)
+
+binderRefs :: References -> Binder -> References
+binderRefs refs = typeRefs refs . binderType
+
+typeRefs :: References -> Type -> References
+typeRefs !refs ty =
+  case ty of
+    TyVar name -> Set.insert name refs
+    TyCon name -> Set.insert name refs
+    TyApp function argument -> typeRefs (typeRefs refs function) argument
+    TyFun r1 r2 argument result -> typeRefs (typeRefs (typeRefs (typeRefs refs r1) r2) argument) result
+    TyForAll binder body -> typeRefs (binderRefs refs binder) body
+    TyEq left right -> typeRefs (typeRefs refs left) right
+    TyLit kindName _ -> Set.insert kindName refs
+
+exprRefs :: References -> Expr -> References
+exprRefs !refs expr =
   case expr of
-    ExVar name -> nameReference name
-    ExLit literal ty -> literalReferences literal <> typeReferences ty
-    ExApp function argument -> exprReferences function <> exprReferences argument
-    ExTyApp function argument -> exprReferences function <> typeReferences argument
-    ExLam binder body -> binderReferences binder <> exprReferences body
-    ExTyLam binder body -> binderReferences binder <> exprReferences body
-    ExLet binding body -> bindReferences binding <> exprReferences body
-    ExRec bindings body -> foldMap bindReferences bindings <> exprReferences body
-    ExCase scrutinee binder (NE.toList -> alts) ->
-      exprReferences scrutinee
-        <> foldMap binderReferences binder
-        <> foldMap altReferences alts
-    ExCoercion proof -> coercionReferences proof
-    ExAbsurd scrutinee resultType -> exprReferences scrutinee <> typeReferences resultType
-    ExCast body coercion -> exprReferences body <> coercionReferences coercion
+    ExVar name -> Set.insert name refs
+    ExLit literal ty -> typeRefs (literalRefs refs literal) ty
+    ExApp function argument -> exprRefs (exprRefs refs function) argument
+    ExTyApp function argument -> typeRefs (exprRefs refs function) argument
+    ExLam binder body -> exprRefs (binderRefs refs binder) body
+    ExTyLam binder body -> exprRefs (binderRefs refs binder) body
+    ExLet binding body -> exprRefs (bindRefs refs binding) body
+    ExRec bindings body -> exprRefs (foldl' bindRefs refs bindings) body
+    ExCase scrutinee binder alts ->
+      foldl' altRefs (foldl' binderRefs (exprRefs refs scrutinee) binder) alts
+    ExCoercion proof -> coercionRefs refs proof
+    ExAbsurd scrutinee resultType -> typeRefs (exprRefs refs scrutinee) resultType
+    ExCast body coercion -> coercionRefs (exprRefs refs body) coercion
     ExForeignCall call types arguments ->
-      foreignCallReferences call
-        <> foldMap typeReferences types
-        <> foldMap exprReferences arguments
+      foldl' exprRefs (foldl' typeRefs (foreignCallRefs refs call) types) arguments
 
--- | A foreign call carries its own type, so the imported name of the foreign
--- import is not a reference. Its type and its dependencies are.
-foreignCallReferences :: ForeignCall -> References
-foreignCallReferences call =
-  typeReferences (foreignCallType call)
-    <> foldMap foreignImportDependencyReferences (foreignCallDependencies call)
+-- A foreign call carries its own type, so the imported name of the
+-- foreign import is not a reference. Its type and its dependencies are.
+foreignCallRefs :: References -> ForeignCall -> References
+foreignCallRefs refs call =
+  foldl' dependencyRefs (typeRefs refs (foreignCallType call)) (foreignCallDependencies call)
+  where
+    dependencyRefs current dependency =
+      case dependency of
+        ForeignAxiom name -> Set.insert name current
+        ForeignConstructor name -> Set.insert name current
 
-bindReferences :: Bind -> References
-bindReferences binding = binderReferences (bindBinder binding) <> exprReferences (bindRhs binding)
+bindRefs :: References -> Bind -> References
+bindRefs refs binding = exprRefs (binderRefs refs (bindBinder binding)) (bindRhs binding)
 
-altReferences :: Alt -> References
-altReferences alternative =
-  altConReferences (altCon alternative)
-    <> foldMap binderReferences (altTypeBinders alternative)
-    <> foldMap binderReferences (altBinders alternative)
-    <> exprReferences (altRhs alternative)
+altRefs :: References -> Alt -> References
+altRefs refs alternative =
+  exprRefs
+    ( foldl'
+        binderRefs
+        (foldl' binderRefs (altConRefs refs (altCon alternative)) (altTypeBinders alternative))
+        (altBinders alternative)
+    )
+    (altRhs alternative)
 
-altConReferences :: AltCon -> References
-altConReferences altCon =
+altConRefs :: References -> AltCon -> References
+altConRefs refs altCon =
   case altCon of
-    AltData name -> nameReference name
-    AltLit literal -> literalReferences literal
-    AltDefault -> mempty
+    AltData name -> Set.insert name refs
+    AltLit literal -> literalRefs refs literal
+    AltDefault -> refs
 
-literalReferences :: Literal -> References
-literalReferences literal =
+literalRefs :: References -> Literal -> References
+literalRefs refs literal =
   case literal of
-    LitInt representation _ -> typeReferences representation
-    LitChar representation _ -> typeReferences representation
-    LitAddr representation _ -> typeReferences representation
+    LitInt representation _ -> typeRefs refs representation
+    LitChar representation _ -> typeRefs refs representation
+    LitAddr representation _ -> typeRefs refs representation
 
-coercionReferences :: Coercion -> References
-coercionReferences coercion =
+coercionRefs :: References -> Coercion -> References
+coercionRefs !refs coercion =
   case coercion of
-    CoVar name -> nameReference name
-    CoRefl ty -> typeReferences ty
-    CoSym inner -> coercionReferences inner
-    CoTrans left right -> coercionReferences left <> coercionReferences right
-    CoApp function argument -> coercionReferences function <> coercionReferences argument
-    CoNth _ proof -> coercionReferences proof
-    CoFun domain range -> coercionReferences domain <> coercionReferences range
-    CoForAll binder body -> binderReferences binder <> coercionReferences body
-    CoTyConApp name arguments -> nameReference name <> foldMap coercionReferences arguments
-    CoAxiom name arguments -> nameReference name <> foldMap typeReferences arguments
-
-nameReference :: Name -> References
-nameReference = Set.singleton
+    CoVar name -> Set.insert name refs
+    CoRefl ty -> typeRefs refs ty
+    CoSym inner -> coercionRefs refs inner
+    CoTrans left right -> coercionRefs (coercionRefs refs left) right
+    CoApp function argument -> coercionRefs (coercionRefs refs function) argument
+    CoNth _ proof -> coercionRefs refs proof
+    CoFun domain range -> coercionRefs (coercionRefs refs domain) range
+    CoForAll binder body -> coercionRefs (binderRefs refs binder) body
+    CoTyConApp name arguments -> foldl' coercionRefs (Set.insert name refs) arguments
+    CoAxiom name arguments -> foldl' typeRefs (Set.insert name refs) arguments
 
 -- | Keep only the imports that the declarations reach. Normalization and
 -- inlining drop bindings, and with them the last use of an import.
@@ -358,21 +369,30 @@ pruneImports program = program {programImports = imports'}
       let declaration = unboxedTupleDecl package arity
           env = typeEnvFromProgram package (Program emptyImports [DeclType declaration])
        in importsForNames env (Set.fromList (typeName declaration : map conName (typeCons declaration)))
-    used = close direct
-    close current =
-      let next = current <> importReferences current
-       in if Set.size next == Set.size current then current else close next
-    importReferences current =
-      Set.unions
-        [ typeReferences ty
-        | (name, ty) <- Map.toList (importHeaders imports) <> Map.toList (importSynonyms imports) <> Map.toList (importBinders imports),
-          Set.member name current
+    used = close Set.empty (Set.toList direct)
+    -- Each name comes in one time, and brings the references of its own
+    -- imports. A nominal equation comes in with a name of its left side.
+    close done pending =
+      case pending of
+        [] -> done
+        name : rest
+          | Set.member name done -> close done rest
+          | otherwise -> close (Set.insert name done) (Set.toList (referencesOf name) <> rest)
+    referencesOf name =
+      foldMap typeReferences (Map.lookup name (importHeaders imports))
+        <> foldMap typeReferences (Map.lookup name (importSynonyms imports))
+        <> foldMap typeReferences (Map.lookup name (importBinders imports))
+        <> foldMap axiomReferences (Map.lookup name (importAxioms imports))
+        <> foldMap axiomReferences (Map.findWithDefault [] name nominalEquations)
+    -- The nominal equations, by each name of their left side.
+    nominalEquations =
+      Map.fromListWith
+        (<>)
+        [ (reference, [axiom])
+        | axiom <- Map.elems (importAxioms imports),
+          axiomRole axiom == Nominal,
+          reference <- Set.toList (typeReferences (axiomLeft axiom))
         ]
-        <> Set.unions
-          [ axiomReferences axiom
-          | (name, axiom) <- Map.toList (importAxioms imports),
-            keepAxiom current name axiom
-          ]
     -- An equation of a family that the program uses stays with the family.
     keepAxiom current name axiom =
       Set.member name current

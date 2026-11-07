@@ -86,6 +86,7 @@ import Aihc.Fc.TypeOf
     viewForAll,
     viewFun,
   )
+import Aihc.Fc.Views (exprValueNames)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
@@ -1092,23 +1093,7 @@ trimArityType :: Int -> ArityType -> ArityType
 trimArityType limit (AT lams) = AT (take limit lams)
 
 valueReferences :: Expr -> Set Name
-valueReferences = go
-  where
-    go expr =
-      case expr of
-        ExVar name -> Set.singleton name
-        ExLit {} -> Set.empty
-        ExCoercion {} -> Set.empty
-        ExApp function argument -> go function <> go argument
-        ExTyApp function _ -> go function
-        ExLam _ body -> go body
-        ExTyLam _ body -> go body
-        ExAbsurd scrutinee _ -> go scrutinee
-        ExCast body _ -> go body
-        ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> foldMap (go . bindRhs) binds <> go body
-        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
-        ExForeignCall _ _ arguments -> foldMap go arguments
+valueReferences = exprValueNames
 
 type ExpandM = State (Int, EtaReport)
 

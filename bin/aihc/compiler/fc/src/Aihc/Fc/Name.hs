@@ -60,8 +60,8 @@ nameClass sort =
 
 -- | Where a name is bound.
 data Origin
-  = OriginLocal Unique
-  | OriginTop PackageId Text
+  = OriginLocal !Unique
+  | OriginTop !PackageId !Text
   deriving stock (Eq, Ord, Show, Read, Generic)
 
 -- A unique is an 'Int' and a package identifier is a strict 'Text', so
@@ -76,9 +76,9 @@ instance NFData Origin where
 -- text, sort, and origin all agree, so a type constructor never equals a
 -- synonym and a value never equals a data constructor of the same name.
 data Name = Name
-  { nameText :: Text,
-    nameSort :: Sort,
-    nameOrigin :: Origin
+  { nameText :: !Text,
+    nameSort :: !Sort,
+    nameOrigin :: !Origin
   }
   deriving stock (Show, Read, Generic)
   deriving anyclass (NFData)
