@@ -437,8 +437,8 @@ initialInliner config env decls supply =
       inRefs = references,
       inUsers = MonoidMap.fromList [(callee, Set.singleton name) | (name, callees) <- MonoidMap.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
-      inCounts = List.foldl' (<>) MonoidMap.empty (Map.elems uses),
-      inCalls = List.foldl' (<>) MonoidMap.empty (Map.elems calls),
+      inCounts = List.foldl' (<>) mempty (Map.elems uses),
+      inCalls = List.foldl' (<>) mempty (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities escaping (Map.elems bodies),
       inEscaping = escaping,
@@ -595,7 +595,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
     inTemplates =
       List.foldl'
         (<>)
-        MonoidMap.empty
+        mempty
         [ MonoidMap.fromSet (const calls) references
         | (name, references) <- MonoidMap.toList (inRefs st0),
           isTemplate st0 name,
@@ -945,8 +945,8 @@ dropUnused st =
       inKnown = Map.restrictKeys (inKnown st) reachable,
       inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
       inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
-      inCounts = List.foldl' (<>) MonoidMap.empty (Map.elems uses),
-      inCalls = List.foldl' (<>) MonoidMap.empty (Map.elems calls),
+      inCounts = List.foldl' (<>) mempty (Map.elems uses),
+      inCalls = List.foldl' (<>) mempty (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities (inEscaping st) (Map.elems live),
       inDead = Set.empty
@@ -990,7 +990,7 @@ countTopCalls arities = go
             length [() | Right _ <- args] >= arity ->
               MonoidMap.singleton name 1 <> arguments args
         (function, args) -> bare function <> arguments args
-    arguments args = List.foldl' (<>) MonoidMap.empty [go argument | Right argument <- args]
+    arguments args = List.foldl' (<>) mempty [go argument | Right argument <- args]
     bare expr =
       case expr of
         ExAbsurd scrutinee _ -> go scrutinee
@@ -999,8 +999,8 @@ countTopCalls arities = go
         ExLet bind body -> go (bindRhs bind) <> go body
         ExRec binds body -> List.foldl' (<>) (go body) (map (go . bindRhs) binds)
         ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (<>) (go scrutinee) (map (go . altRhs) alternatives)
-        ExForeignCall _ _ args -> List.foldl' (<>) MonoidMap.empty (map go args)
-        _ -> MonoidMap.empty
+        ExForeignCall _ _ args -> List.foldl' (<>) mempty (map go args)
+        _ -> mempty
 
 countTopUses :: Expr -> MonoidMap Name (Sum Int)
 countTopUses = go
@@ -1009,9 +1009,9 @@ countTopUses = go
       case expr of
         ExVar name
           | isTop name -> MonoidMap.singleton name 1
-          | otherwise -> MonoidMap.empty
-        ExLit {} -> MonoidMap.empty
-        ExCoercion {} -> MonoidMap.empty
+          | otherwise -> mempty
+        ExLit {} -> mempty
+        ExCoercion {} -> mempty
         ExApp function argument -> go function <> go argument
         ExTyApp function _ -> go function
         ExLam _ body -> go body
@@ -1021,7 +1021,7 @@ countTopUses = go
         ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (<>) (go scrutinee) (map (go . altRhs) alternatives)
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
-        ExForeignCall _ _ arguments -> List.foldl' (<>) MonoidMap.empty (map go arguments)
+        ExForeignCall _ _ arguments -> List.foldl' (<>) mempty (map go arguments)
     isTop name =
       case nameOrigin name of
         OriginTop {} -> True
