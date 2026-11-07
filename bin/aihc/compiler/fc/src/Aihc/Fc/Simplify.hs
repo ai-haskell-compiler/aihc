@@ -82,7 +82,7 @@ import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, exprType
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeCaseAlternatives)
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
@@ -176,7 +176,7 @@ simplifyProgram primPackage phase siteLimit program =
              in (\body -> DeclVal declaration {valBody = body}) <$> (simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration) >>= shareAlternatives env)
           _ -> pure decl
       (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
-      result = tidyProgram (pruneImports (floatBottoms env diverging program {programDecls = decls}))
+      result = tidyProgram (addTupleImports (floatBottoms env diverging program {programDecls = decls}))
    in (result, SimplifyReport size0 (programSize primPackage result) (ssRulesFired final))
   where
     size0 = programSize primPackage program
@@ -5409,17 +5409,26 @@ mergeEqualAlternatives env alternatives =
       null (altTypeBinders alternative)
         && uniformAlternative env alternative
         && all ((`unused` altRhs alternative) . binderName) (altBinders alternative)
-    sameAs rhs alternative = mergeable alternative && alphaEquivalent (altRhs alternative) rhs
+    -- The test of the right-hand side is cheaper, so it comes first.
+    sameAs rhs alternative = alphaEquivalent (altRhs alternative) rhs && mergeable alternative
+    -- The groups of equal mergeable alternatives, in the order of their
+    -- first members. An alternative that is equal to no other cannot be in
+    -- a group of two, so the walks of 'mergeable' skip it.
     largestGroup =
       List.foldl'
         (\best group -> if length group > length best then group else best)
         []
-        (groups (filter mergeable alternatives))
+        (map snd (List.sortOn fst mergeableGroups))
+    mergeableGroups =
+      [ (firstIndex, map snd members)
+      | equal@(_ : _ : _) <- groups (zip [0 :: Int ..] alternatives),
+        members@((firstIndex, _) : _) <- [filter (mergeable . snd) equal]
+      ]
     groups candidates =
       case candidates of
         [] -> []
         leader : rest ->
-          let (same, different) = List.partition (alphaEquivalent (altRhs leader) . altRhs) rest
+          let (same, different) = List.partition (alphaEquivalent (altRhs (snd leader)) . altRhs . snd) rest
            in (leader : same) : groups different
 
 -- | Rewrite a case on a comparison of a value with a literal into a case

@@ -47,6 +47,7 @@ module Aihc.Fc
     PassEnv (..),
     moduleEnv,
     programEnv,
+    finishPasses,
     PassReport (..),
     SplitScope (..),
     passName,
@@ -79,7 +80,7 @@ import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Origins (declaredHome)
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
-import Aihc.Fc.Pass (Pass (..), PassEnv (..), PassReport (..), moduleEnv, passName, programEnv, runPass, runPasses)
+import Aihc.Fc.Pass (Pass (..), PassEnv (..), PassReport (..), finishPasses, moduleEnv, passName, programEnv, runPass, runPasses)
 import Aihc.Fc.Pretty (renderProgram, renderProgramSections)
 import Aihc.Fc.Prune (dropRules, pruneProgram)
 import Aihc.Fc.Share (shareProgram)

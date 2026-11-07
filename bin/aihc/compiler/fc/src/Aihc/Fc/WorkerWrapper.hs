@@ -107,7 +107,7 @@ module Aihc.Fc.WorkerWrapper
 where
 
 import Aihc.Fc.Demand (Demand (..), Signature (..), Signatures, buildProduct, functionSignature, hasStrictLiftedField, maxStrictWorkerArguments, productConstructor, recursiveSignatures, splitTypeApplication, topLevelSignatures)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall, substExpr)
 import Aihc.Fc.Size (isLiftedType)
@@ -258,7 +258,7 @@ workerWrapperProgram primPackage home scope program =
               then pure declaration
               else (\body -> declaration {valBody = body}) <$> foldM (\current (name, wrapperBody) -> replaceCalls name wrapperBody current) (valBody declaration) others
       rewritten = evalState (traverse (\decl -> case decl of DeclVal declaration -> DeclVal <$> groupCalls declaration; _ -> pure decl) (concat splits)) supply0
-   in (tidyProgram (pruneImports program {programDecls = rewritten}), final)
+   in (tidyProgram (addTupleImports program {programDecls = rewritten}), final)
 
 addReports :: WorkerWrapperReport -> WorkerWrapperReport -> WorkerWrapperReport
 addReports a b =
