@@ -43,9 +43,9 @@ nativeTests = do
       { backendName = "aihc-amd64",
         backendTarget = LinuxAmd64,
         backendLowerTarget = posixTarget64,
-        -- The native target links executables that are not
-        -- position-independent, as 'executableLinkArguments' does.
-        backendClangArguments = ["--target=x86_64-unknown-linux-gnu", "-no-pie"],
+        -- The native target links position-independent executables by
+        -- default, as 'executableLinkArguments' does.
+        backendClangArguments = ["--target=x86_64-unknown-linux-gnu", "-pie"],
         backendRuns = (arch == "x86_64" && os == "linux") || forced,
         backendAllocationKey = "linux-amd64",
         backendSourceExtension = ".o",

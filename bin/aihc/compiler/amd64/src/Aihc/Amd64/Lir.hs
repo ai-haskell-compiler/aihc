@@ -1197,9 +1197,10 @@ amd64Store ctx ty value base offset =
   let (loads', baseRegister) = operandIn' ctx 0 Ptr scratchRight base
       place = Amd64Memory baseRegister (fromInteger offset)
    in case value of
-        -- A 64-bit constant or symbol address goes straight to memory.
-        OperandLiteral (LitSymbol symbol)
-          | typeBits ty == 64 -> loads' <> [amd64Instruction (AmdStore place (Amd64StoreSymbol (lirSymbol symbol)))]
+        -- A small 64-bit constant goes straight to memory. A symbol
+        -- address does not: its 32-bit form (@R_X86_64_32S@) cannot link
+        -- into a position-independent executable, so the address goes
+        -- through a register.
         _
           | typeBits ty == 64,
             Just bits <- smallImmediate ty value ->
