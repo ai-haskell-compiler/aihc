@@ -25,7 +25,7 @@ guide:
 
 # Auto-format Nix, Cabal, Haskell, and C files (excludes dist-newstyle, result, .git, the benchmarks submodule; Haskell excludes test fixtures)
 fmt:
-  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0 | xargs -0 -r alejandra; while IFS= read -r -d "" file; do cabal-gild --mode format --io "$file"; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0); ormolu --mode inplace $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*"); find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format -i'
+  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0 | xargs -0 -r alejandra; while IFS= read -r -d "" file; do cabal-gild --mode format --io "$file"; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0); ormolu --mode inplace $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/.aihc-autogen/*" -not -path "*/test/Test/Fixtures/*"); find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format -i'
 
 # Apply HLint hints in place via apply-refact (HLint --refactor accepts one file at a time; same file set as fmt/check)
 hlint-refactor:
@@ -35,7 +35,7 @@ hlint-refactor:
     'set -euo pipefail
      while IFS= read -r -d "" f; do
        hlint --refactor --refactor-options="--inplace" "$f"
-     done < <(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -print0)'
+     done < <(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/.aihc-autogen/*" -not -path "*/test/Test/Fixtures/*" -print0)'
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
@@ -43,8 +43,8 @@ check:
   nix build .#vscode-lir --no-link
   nix build .#manual --no-link
   nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0); exit "$failed"'
-  nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/.aihc-autogen/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/.aihc-autogen/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format --dry-run --Werror'
   nix develop --quiet --command bash -c 'set -euo pipefail; while IFS= read -r -d "" file; do if [[ "$file" == *core-libs/aihc-rts/wasm/*.c || "$file" == *aihc_host_wasip3.c ]]; then clang-tidy-unwrapped --quiet "$file" -- --target=wasm32-wasip3 --sysroot="$AIHC_WASM_SYSROOT" -std=c11 -Wall -Wextra -Wpedantic -Icore-libs/aihc-rts/wasm -Icore-libs/aihc-rts/native -isystem core-libs/aihc-rts/wasm/generated; else clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic -Icore-libs/aihc-rts/native; fi; done < <(find components tooling bin core-libs scripts test -type f -name "*.c" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0)'
   nix develop --quiet --command scripts/update-wit-bindings.sh --check

@@ -1,0 +1,20 @@
+cabal-version: 3.0
+name: asm-sources
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Answer
+  hs-source-dirs: src
+  asm-sources: cbits/answer.S
+  build-depends: base
+  default-language: Haskell2010
+
+executable answer
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    asm-sources,
+    base,
+
+  default-language: Haskell2010

@@ -26,6 +26,10 @@ constraints:
 package aihc-tc
   flags: +fuzz
 
+-- Aihc does not use pkg-config. Thus, zlib links with extra-libraries: z.
+package zlib
+  flags: -pkg-config
+
 tests: True
 jobs: $ncpus
 semaphore: False

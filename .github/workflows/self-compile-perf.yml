@@ -7,8 +7,8 @@ name: Self-Compile Performance
 # -O2 stage 1 compiles the -O2 stage 2. Stage 0 also compiles stage 1 at -O1,
 # and the -O2 stage 1 also compiles stage 2 at -O1. Thus, the two stage 2
 # builds use the same compiler, and only the level is different.
-# Each stage uses the minimal configuration of aihc: no `hackage` flag and no
-# `pretty-ui` flag. The workflow opens a PR that puts the times in the README.
+# Each stage uses the default flags of aihc. The workflow opens a PR that puts
+# the times in the README.
 #
 # Each stage installs the dependencies of aihc before the time starts. Thus,
 # each time is for the local packages and the aihc executable only.
@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.CABAL_DIR }}/packages
-          key: self-compile-perf-cabal-${{ hashFiles('docs/self-hosting-packages.md') }}
+          key: self-compile-perf-cabal-${{ hashFiles('cabal.project', '**/*.cabal') }}
           restore-keys: |
             self-compile-perf-cabal-
 

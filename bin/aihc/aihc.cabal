@@ -34,6 +34,10 @@ extra-source-files:
   compiler/native/test/Test/Fixtures/source-snapshot/*.yaml
   compiler/native/test/Test/Runtime/aihc_snapshot.c
   compiler/native/test/Test/Runtime/aihc_snapshot.h
+  test/Test/Fixtures/build/asm-sources/app/Main.hs
+  test/Test/Fixtures/build/asm-sources/asm-sources.cabal
+  test/Test/Fixtures/build/asm-sources/cbits/answer.S
+  test/Test/Fixtures/build/asm-sources/src/Answer.hs
   test/Test/Fixtures/build/cxx-sources/app/Main.hs
   test/Test/Fixtures/build/cxx-sources/cbits/triangle.cpp
   test/Test/Fixtures/build/cxx-sources/cxx-sources.cabal

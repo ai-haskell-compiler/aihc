@@ -2,9 +2,8 @@ name: Self-Compile
 
 # Make sure that aihc can compile itself to a fixed point. GHC compiles stage
 # 0, stage 0 compiles stage 1, and stage 1 compiles stage 2. Each stage after
-# stage 0 uses the native backend at -O2, and the minimal configuration of
-# aihc: no `hackage` flag and no `pretty-ui` flag. The workflow fails when
-# stage 1 and stage 2 are not byte-for-byte identical.
+# stage 0 uses the native backend at -O2, and the default flags of aihc. The
+# workflow fails when stage 1 and stage 2 are not byte-for-byte identical.
 #
 # The paths of the work directory get into the executable. Thus, both stages
 # use the same WORK_DIR. Each stage is a separate job, so each stage gets the

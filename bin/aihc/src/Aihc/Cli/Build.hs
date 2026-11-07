@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | The @build@ command: an install with extra steps that link
@@ -39,7 +40,9 @@ import Aihc.Cli.Install
     TargetRoot (..),
     cabalPlatformForTarget,
     defaultBuildRoot,
+    dependencyPlans,
     installExecutables,
+    installPlans,
     installTargetRoot,
     newModuleCompileConfig,
     planProgressItems,
@@ -178,19 +181,24 @@ linkPrograms reporter options adjust targetsOf = do
               compileProgress = reporter
             }
   (locations, targets) <- targetsOf options config (storeRoot </> targetDirectory)
-  if null targets
-    then pure []
-    else do
-      let components = map executableComponent targets
-      report (ProgressPlan (planProgressItems (concatMap componentDependencies components) <> map componentItem components))
-      compiled <- installExecutables config locations components
-      forM (zip targets compiled) $ \(executable, compiledExecutable) -> do
-        let output = executableOutput executable
-            component = executableComponent executable
-        report (ProgressLink (componentItem component))
-        linkCompiledExecutable config (positionIndependence options) (buildNoLink options) (componentOutputRoot component) output compiledExecutable
-        report (ProgressDone (componentItem component))
-        pure (BuiltProgram (executableName executable) (componentSourceRoot component) output)
+  if
+    | null targets -> pure []
+    | buildOnlyDependencies options -> do
+        let plans = dependencyPlans locations (map executableComponent targets)
+        report (ProgressPlan (planProgressItems plans))
+        installPlans config locations plans
+        pure []
+    | otherwise -> do
+        let components = map executableComponent targets
+        report (ProgressPlan (planProgressItems (concatMap componentDependencies components) <> map componentItem components))
+        compiled <- installExecutables config locations components
+        forM (zip targets compiled) $ \(executable, compiledExecutable) -> do
+          let output = executableOutput executable
+              component = executableComponent executable
+          report (ProgressLink (componentItem component))
+          linkCompiledExecutable config (positionIndependence options) (buildNoLink options) (componentOutputRoot component) output compiledExecutable
+          report (ProgressDone (componentItem component))
+          pure (BuiltProgram (executableName executable) (componentSourceRoot component) output)
 
 -- | The executable of a main module. Its modules build under the build
 -- root, and the packages that the constraints name go into the store. A

@@ -240,6 +240,8 @@ in rec {
       ".lir"
       # The golden assembly of the native backends.
       ".s"
+      # The assembly source of the asm-sources build fixture.
+      ".S"
       "expected.txt"
       # The configure script and header template of the install fixture for
       # build-type Configure packages.
