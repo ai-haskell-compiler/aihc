@@ -351,7 +351,9 @@ executable aihc
     -Wall
     -threaded
     -rtsopts
-    -with-rtsopts=-N
+    -- Each capability gets a 64 MiB allocation area. With the default
+    -- area, the minor collections stop all capabilities too frequently.
+    "-with-rtsopts=-N -A64m"
 
   default-language: GHC2021
 
@@ -438,7 +440,9 @@ executable aihc-dev
     -Wall
     -threaded
     -rtsopts
-    -with-rtsopts=-N
+    -- Each capability gets a 64 MiB allocation area. With the default
+    -- area, the minor collections stop all capabilities too frequently.
+    "-with-rtsopts=-N -A64m"
 
   default-language: GHC2021
 
