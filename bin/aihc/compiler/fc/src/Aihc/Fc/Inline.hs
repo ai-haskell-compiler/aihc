@@ -987,7 +987,7 @@ countTopCalls arities = go
         (ExVar name, args)
           | Just arity <- Map.lookup name arities,
             length [() | Right _ <- args] >= arity ->
-              MonoidMap.singleton name 1 <> arguments args
+              MonoidMap.adjust (+ 1) name (arguments args)
         (function, args) -> bare function <> arguments args
     arguments args = mconcat [go argument | Right argument <- args]
     bare expr =
