@@ -74,13 +74,10 @@ import Aihc.Cabal
     Condition (..),
     Conditional (..),
     Dependency (..),
-    FieldValue,
     Package,
     ToolDependency (..),
     buildTools,
     dependencies,
-    extraFields,
-    fieldText,
     flagDefault,
     flagManual,
     flagName,
@@ -253,9 +250,6 @@ data Rejection
   = -- | The candidate needs a package in a range that the version already
     -- assigned to it does not satisfy.
     RejectedDependency !PackageName !VersionRange !Version
-  | -- | The candidate needs these @pkgconfig-depends@ packages, and aihc
-    -- does not run @pkg-config@.
-    RejectedPkgConfig ![String]
   | -- | The candidate was assigned, and the search under it failed.
     RejectedSubtree !SolveFailure
   deriving (Eq, Show)
@@ -311,8 +305,6 @@ renderSolveFailure = intercalate "\n" . render
        in case rejection of
             RejectedDependency dependency range assigned ->
               [label <> " needs " <> unPackageName dependency <> " " <> showVersionRange range <> ", but " <> unPackageName dependency <> "-" <> showVersion assigned <> " is chosen"]
-            RejectedPkgConfig packages ->
-              [label <> " needs the pkg-config packages " <> intercalate ", " packages <> ", and aihc does not use pkg-config"]
             RejectedSubtree inner ->
               (label <> " was tried, and then:") : map ("    " <>) (render inner)
 
@@ -543,13 +535,6 @@ search inputs config state = do
 
     tryFlags name goal outside _ _ _ _ [] rest failures conflicts =
       tryCandidates name goal outside rest failures conflicts
-    -- Cabal rejects an assignment whose pkg-config packages pkg-config does
-    -- not know. Aihc does not use pkg-config, so it rejects each such
-    -- assignment. An automatic flag, such as the pkg-config flag of zlib,
-    -- then takes its other value.
-    tryFlags name goal outside candidate revision gpd root (flags : moreFlags) rest failures conflicts
-      | packages@(_ : _) <- pkgConfigDependencies (configPlatform config) flags root gpd =
-          tryFlags name goal outside candidate revision gpd root moreFlags rest (CandidateFailure candidate flags (RejectedPkgConfig packages) : failures) conflicts
     tryFlags name goal outside candidate revision gpd root (flags : moreFlags) rest failures conflicts = do
       let dependencies = candidateDependencies (configPlatform config) (configAliases config) flags root gpd
           conflicting =
@@ -685,7 +670,6 @@ guardingFlags tree =
         )
     hasDependencies subtree =
       not (null (dependencies (unconditional subtree)))
-        || not (null (pkgConfigFields (unconditional subtree)))
         || any (\(Branch _ t e) -> hasDependencies t || maybe False hasDependencies e) (branches subtree)
 
 conditionFlags :: Condition -> Set.Set FlagName
@@ -745,25 +729,6 @@ candidateDependencies platform aliases flags root gpd =
   where
     self = fromMaybe (packageNameOf gpd) (Map.lookup (packageNameOf gpd) aliases)
 
--- | The @pkgconfig-depends@ packages of the contributing components under
--- one flag assignment, each once.
-pkgConfigDependencies :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> Package -> [String]
-pkgConfigDependencies platform flags root gpd =
-  Set.toAscList
-    ( Set.fromList
-        [ T.unpack name
-        | build <- contributingBuildInfos platform flags root gpd,
-          field <- pkgConfigFields build,
-          item <- T.splitOn (T.pack ",") (fieldText field),
-          name : _ <- [T.words item]
-        ]
-    )
-
--- | The values of the @pkgconfig-depends@ field. The parser keeps the
--- field as text.
-pkgConfigFields :: BuildInfo -> [FieldValue]
-pkgConfigFields = Map.findWithDefault [] (T.pack "pkgconfig-depends") . extraFields
-
 -- | The build tools the contributing components ask for that the host
 -- cannot run. Tools run on the build host, so they are checked against the
 -- preprocessor table rather than solved against the target plan.
@@ -783,20 +748,16 @@ unknownBuildTools platform flags root gpd =
 -- | Check that an assignment, from a lock file say, still solves the
 -- configuration: every root and goal is present in the demanded range,
 -- every constraint holds, the dependencies of every package are present in
--- range, no package needs pkg-config, and nothing is listed that the roots
--- do not reach. The result carries the dependencies each package has under
--- its recorded flags.
+-- range, and nothing is listed that the roots do not reach. The result
+-- carries the dependencies each package has under its recorded flags.
 verifySolution :: (Monad m) => SolverInputs m -> SolverConfig -> Map PackageName (Version, Maybe Int, FlagAssignment) -> m (Either String Solution)
 verifySolution inputs config recorded = do
   candidates <- foldM candidateFor (Right Map.empty) (Map.toAscList recorded)
   case candidates of
     Left problem -> pure (Left problem)
     Right chosen -> do
-      decided <- Map.traverseWithKey assignmentFor chosen
-      -- A lock that an earlier aihc wrote can choose a pkg-config branch.
-      pure $ case [(name, packages) | (name, (_, packages@(_ : _))) <- Map.toAscList decided] of
-        (name, packages) : _ -> Left (unPackageName name <> " needs the pkg-config packages " <> intercalate ", " packages)
-        [] -> checks (Map.map fst decided)
+      solution <- Map.traverseWithKey assignmentFor chosen
+      pure (checks solution)
   where
     candidateFor acc (name, (version, revision, flags)) =
       case acc of
@@ -818,15 +779,13 @@ verifySolution inputs config recorded = do
           decided = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
           full = mkFlagAssignment (Map.toAscList (Map.union decided (Map.fromList (unFlagAssignment flags))))
       pure
-        ( Assignment
-            { assignmentVersion = candidateVersion candidate,
-              assignmentRevision = revision,
-              assignmentFlags = full,
-              assignmentSource = candidateSource candidate,
-              assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full root gpd
-            },
-          pkgConfigDependencies (configPlatform config) full root gpd
-        )
+        Assignment
+          { assignmentVersion = candidateVersion candidate,
+            assignmentRevision = revision,
+            assignmentFlags = full,
+            assignmentSource = candidateSource candidate,
+            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full root gpd
+          }
 
     checks solution =
       case catMaybes (rootChecks solution <> constraintChecks solution <> dependencyChecks solution <> reachabilityChecks solution) of
