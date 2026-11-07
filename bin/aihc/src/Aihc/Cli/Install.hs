@@ -247,7 +247,7 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.Async (async, mapConcurrently, wait)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
@@ -958,7 +958,10 @@ data PackageBuild = PackageBuild
     buildHeaderHash :: !String,
     buildReexports :: !(Map.Map Text (Text, Text)),
     -- | The dependencies as they are while they build.
-    buildDependencies :: ![InstalledPackage]
+    buildDependencies :: ![InstalledPackage],
+    -- | The objects of the C sources, from a compile that started with the
+    -- package. See 'startPackageCFiles'.
+    buildCObjects :: !(Maybe (IO [FilePath]))
   }
 
 installPackagePlan :: ModuleCompileConfig -> InstallLocations -> PackagePlan -> IO InstalledPackage
@@ -1603,12 +1606,35 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
             buildCCompileInfo = cCompileInfo,
             buildHeaderHash = headerHash,
             buildReexports = reexports,
-            buildDependencies = dependencies
+            buildDependencies = dependencies,
+            buildCObjects = Nothing
           }
       -- The compiled modules are known once the modules are parsed; the
       -- manifest written at the finish names them.
       manifest = packageBuildManifest config build []
-  pure (installedPackageOf build (InstallResult buildPath [] []) manifest, Just build)
+  cObjects <- startPackageCFiles config build
+  pure (installedPackageOf build (InstallResult buildPath [] []) manifest, Just build {buildCObjects = cObjects})
+
+-- | Start the compile of the C sources of a package when the archive of the
+-- package must be made again whatever its modules do: when there is no
+-- archive, or when the inputs of the archive changed. The C sources do not
+-- depend on the modules of the package, so the compile runs while the
+-- modules compile, and not after them. The result is the action that waits
+-- for the objects. Otherwise, 'finishPackageBuild' decides at the finish.
+startPackageCFiles :: ModuleCompileConfig -> PackageBuild -> IO (Maybe (IO [FilePath]))
+startPackageCFiles config build
+  | compileNoCode config = pure Nothing
+  | otherwise = do
+      let storePath = buildPath build
+          archive = storePath </> "lib" </> "lib" <> T.unpack (HackagePackage.packageNameText (packageNameOf (inputDescription (buildInputs build)))) <> ".a"
+      archiveInputs <- archiveInputsHash config (buildSourceRoot build) (buildDependencies build) (buildInputs build) (buildHeaderHash build)
+      previous <- readStampText (storePath </> "lib" </> "archive.hash")
+      archiveExists <- doesFileExist archive
+      if archiveExists && previous == Just archiveInputs
+        then pure Nothing
+        else do
+          compiling <- async (compilePackageCFiles (compileTarget config) (compileOptimization config) (compileLto config) (compileHeaderDirectory config) (compileVerbose config) (buildSourceRoot build) storePath (buildCCompileInfo build))
+          pure (Just (wait compiling))
 
 installedPackageOf :: PackageBuild -> InstallResult -> PackageManifest -> InstalledPackage
 installedPackageOf build result manifest =
@@ -1717,7 +1743,7 @@ finishPackageBuild config build compiled = do
     let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
     if current
       then do
-        cObjects <- compilePackageCFiles target (compileOptimization config) (compileLto config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
+        cObjects <- fromMaybe (compilePackageCFiles target (compileOptimization config) (compileLto config) (compileHeaderDirectory config) verbose root storePath cCompileInfo) (buildCObjects build)
         buildLibraryArchive target (compileLto config) verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
@@ -3749,7 +3775,13 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
           ltoArguments = llvmLtoArguments target lto
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
-      cObjects <- forM (HackageCabal.cCompileSources info) $ \source -> do
+      -- The sources are independent, and a package such as @crypton@ has
+      -- many. Thus the compiles run in parallel, with a maximum of one tool
+      -- for each capability, as 'preprocessPackage' does.
+      capabilities <- getNumCapabilities
+      limit <- newQSem (max 1 capabilities)
+      let forEach sources action = mapConcurrently (bracket_ (waitQSem limit) (signalQSem limit) . action) sources
+      cObjects <- forEach (HackageCabal.cCompileSources info) $ \source -> do
         exists <- doesFileExist source
         unless exists (ioError (userError ("C source is absent: " <> source)))
         let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
@@ -3765,7 +3797,7 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
               <> ["-c", source, "-o", object]
           )
         pure object
-      cxxObjects <- forM (HackageCabal.cCompileCxxSources info) $ \source -> do
+      cxxObjects <- forEach (HackageCabal.cCompileCxxSources info) $ \source -> do
         exists <- doesFileExist source
         unless exists (ioError (userError ("C++ source is absent: " <> source)))
         let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
@@ -3782,7 +3814,7 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
           )
         pure object
       -- The assembly has no LLVM bitcode form, so it gets no LTO arguments.
-      asmObjects <- forM (HackageCabal.cCompileAsmSources info) $ \source -> do
+      asmObjects <- forEach (HackageCabal.cCompileAsmSources info) $ \source -> do
         exists <- doesFileExist source
         unless exists (ioError (userError ("Assembly source is absent: " <> source)))
         let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
