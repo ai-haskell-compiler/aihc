@@ -737,9 +737,9 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
               dependencies = close Set.empty (Set.toList initialReferences)
                 where
                   initialReferences =
-                    MonoidMap.nonNullKeys (inBodyUses st Map.! name)
+                    MonoidMap.nonNullKeys (Map.findWithDefault mempty name (inBodyUses st))
                       <> Map.keysSet candidates
-                      <> Set.unions [MonoidMap.nonNullKeys (inBodyUses st Map.! callee) | callee <- Map.keys candidates]
+                      <> Set.unions [MonoidMap.nonNullKeys (Map.findWithDefault mempty callee (inBodyUses st)) | callee <- Map.keys candidates]
                   close visited pending = case pending of
                     [] -> visited
                     callee : rest
@@ -784,7 +784,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                         inRulesFired = inRulesFired st + visitRules previous,
                         inLimits = Map.adjust (+ visitExempt previous) name (inLimits st)
                       }
-                    (Set.toList (MonoidMap.nonNullKeys (inBodyUses st Map.! name)))
+                    (Set.toList (MonoidMap.nonNullKeys (Map.findWithDefault mempty name (inBodyUses st))))
                 Nothing ->
                   if skip
                     then st
@@ -818,10 +818,10 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                             | changed = Map.delete name (inVisits st)
                             | otherwise = Map.insert name (visit simplState) (inVisits st)
                           updated = if changed then updateBody st name body' else st
-                          oldUses = inBodyUses st Map.! name
-                          newUses = inBodyUses updated Map.! name
+                          oldUses = Map.findWithDefault mempty name (inBodyUses st)
+                          newUses = Map.findWithDefault mempty name (inBodyUses updated)
                           counts' = (inCounts st <> newUses) `MonoidMap.minus` oldUses
-                          calls' = (inCalls st <> inBodyCalls updated Map.! name) `MonoidMap.minus` (inBodyCalls st Map.! name)
+                          calls' = (inCalls st <> Map.findWithDefault mempty name (inBodyCalls updated)) `MonoidMap.minus` Map.findWithDefault mempty name (inBodyCalls st)
                        in killDead
                             updated
                               { inVisits = visits,
@@ -913,9 +913,9 @@ killDead st names =
           || MonoidMap.get name (inCounts st) > 0 ->
           killDead st rest
       | Map.member name (inBodies st) ->
-          let uses = inBodyUses st Map.! name
+          let uses = Map.findWithDefault mempty name (inBodyUses st)
               counts' = inCounts st `MonoidMap.minus` uses
-              calls' = inCalls st `MonoidMap.minus` (inBodyCalls st Map.! name)
+              calls' = inCalls st `MonoidMap.minus` Map.findWithDefault mempty name (inBodyCalls st)
            in killDead
                 st
                   { inDead = Set.insert name (inDead st),
