@@ -1,0 +1,38 @@
+; Two blocks of a loop jump to each other and pass the same values on each
+; jump, as in a group that mergeTailCallees merged. The values do not change,
+; thus the block parameters that receive them go away before register
+; allocation. Each value then has one home, and a jump of the loop moves only
+; the two values that change. With the parameters, the values are more than
+; the registers, and each jump copies the spilled ones from slot to slot.
+func @nested(%n: i64, %a0: i64, %a1: i64, %a2: i64, %a3: i64, %a4: i64, %a5: i64, %a6: i64, %a7: i64, %a8: i64, %a9: i64, %a10: i64, %a11: i64, %a12: i64, %a13: i64) -> i64 {
+entry:
+  jump outer(0, 0, %a0, %a1, %a2, %a3, %a4, %a5, %a6, %a7, %a8, %a9, %a10, %a11, %a12, %a13)
+
+outer(%i: i64, %acc: i64, %p0: i64, %p1: i64, %p2: i64, %p3: i64, %p4: i64, %p5: i64, %p6: i64, %p7: i64, %p8: i64, %p9: i64, %p10: i64, %p11: i64, %p12: i64, %p13: i64):
+  %done = ge.s i64 %i, %n
+  br %done, finish, step
+
+step:
+  %t = add i64 %acc, %p0
+  jump inner(%i, %t, %p0, %p1, %p2, %p3, %p4, %p5, %p6, %p7, %p8, %p9, %p10, %p11, %p12, %p13)
+
+inner(%j: i64, %s: i64, %q0: i64, %q1: i64, %q2: i64, %q3: i64, %q4: i64, %q5: i64, %q6: i64, %q7: i64, %q8: i64, %q9: i64, %q10: i64, %q11: i64, %q12: i64, %q13: i64):
+  %m1 = mul i64 %s, %q1
+  %m2 = mul i64 %m1, %q2
+  %m3 = mul i64 %m2, %q3
+  %m4 = mul i64 %m3, %q4
+  %m5 = mul i64 %m4, %q5
+  %m6 = mul i64 %m5, %q6
+  %m7 = mul i64 %m6, %q7
+  %m8 = mul i64 %m7, %q8
+  %m9 = mul i64 %m8, %q9
+  %m10 = mul i64 %m9, %q10
+  %m11 = mul i64 %m10, %q11
+  %m12 = mul i64 %m11, %q12
+  %m13 = mul i64 %m12, %q13
+  %k = add i64 %j, 1
+  jump outer(%k, %m13, %q0, %q1, %q2, %q3, %q4, %q5, %q6, %q7, %q8, %q9, %q10, %q11, %q12, %q13)
+
+finish:
+  return %acc
+}

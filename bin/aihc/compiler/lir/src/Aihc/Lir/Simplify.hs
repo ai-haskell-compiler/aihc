@@ -11,6 +11,7 @@ module Aihc.Lir.Simplify
     simplifyWidths,
     simplifyMultiplications,
     eliminateCommonSubexpressions,
+    eliminateRedundantBlockParameters,
   )
 where
 
@@ -18,9 +19,10 @@ import Aihc.Lir.RegAlloc (operationReads, readCounts)
 import Aihc.Lir.Syntax
 import Control.Applicative ((<|>))
 import Data.Bits (popCount)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 
@@ -551,3 +553,86 @@ eliminateCommonSubexpressions function
         Call {} -> True
         CallIndirect {} -> True
         _ -> False
+
+-- | Remove each block parameter that receives the same value on every edge
+-- into its block, and use that value in place of the parameter.
+--
+-- A parameter can also receive itself, or another parameter that the pass
+-- removes for the same reason. This is the shape of a loop that
+-- 'Aihc.Lir.Inline.mergeTailCallees' makes: the merged blocks jump to each
+-- other and pass the values that do not change. Each such value then needs
+-- only one home in the register allocator, and a jump of the loop moves only
+-- the values that change.
+--
+-- The value is a variable. Each edge into the block gives it, thus the
+-- definition of the value is on each path to the block, and it dominates
+-- each use of the parameter. A literal stays a parameter, because some
+-- operands take only a variable.
+--
+-- Only a block in a cycle of the control flow loses parameters. A value that
+-- a loop passes on lives across the loop anyway. A block after the loop
+-- keeps its parameters: the interval of a register allocator that keeps no
+-- holes would otherwise reach from the loop to the block, across the code
+-- between them.
+eliminateRedundantBlockParameters :: Function -> Function
+eliminateRedundantBlockParameters function
+  | Map.null replacements = function
+  | otherwise = function {functionBlocks = map rewrite (functionBlocks function)}
+  where
+    blocks = functionBlocks function
+    parameterLists = Map.fromList [(blockLabel block, map fst (blockParameters block)) | block <- blocks]
+    cyclic =
+      Set.fromList
+        [ label
+        | CyclicSCC labels <- stronglyConnComp [(block, blockLabel block, map targetLabel (terminatorTargets (blockTerminator block))) | block <- blocks],
+          label <- map blockLabel labels,
+          -- The entry block also starts the function, without a jump.
+          Just label /= fmap blockLabel (listToMaybe blocks)
+        ]
+    candidates = Set.fromList [parameter | (label, names) <- Map.toList parameterLists, Set.member label cyclic, parameter <- names]
+    -- The values that each parameter receives. A literal is 'Nothing'.
+    incoming =
+      Map.fromListWith
+        (<>)
+        [ (parameter, [variable argument])
+        | block <- blocks,
+          target <- terminatorTargets (blockTerminator block),
+          Just names <- [Map.lookup (targetLabel target) parameterLists],
+          length names == length (targetArguments target),
+          (parameter, argument) <- zip names (targetArguments target)
+        ]
+    variable argument = case argument of
+      OperandVar var -> Just var
+      OperandLiteral _ -> Nothing
+    parameters = concat (Map.elems parameterLists)
+    replacements = settle Map.empty
+    settle current =
+      let next = List.foldl' remove current parameters
+       in if Map.size next == Map.size current then current else settle next
+    remove current parameter
+      | Map.member parameter current || not (Set.member parameter candidates) = current
+      | otherwise =
+          case Set.toList (Set.delete (Just parameter) (Set.fromList (map (fmap (resolve current)) (Map.findWithDefault [] parameter incoming)))) of
+            [Just value] -> Map.insert parameter value current
+            _ -> current
+    resolve current var = maybe var (resolve current) (Map.lookup var current)
+    operand value = case value of
+      OperandVar var -> OperandVar (resolve replacements var)
+      OperandLiteral _ -> value
+    kept var = not (Map.member var replacements)
+    keepArguments target = case Map.lookup (targetLabel target) parameterLists of
+      Just names
+        | length names == length (targetArguments target) ->
+            target {targetArguments = [argument | (name, argument) <- zip names (targetArguments target), kept name]}
+      _ -> target
+    rewrite block =
+      block
+        { blockParameters = filter (kept . fst) (blockParameters block),
+          blockInstructions = [instruction {instructionOperation = mapOperation operand (instructionOperation instruction)} | instruction <- blockInstructions block],
+          blockTerminator = mapTargets keepArguments (mapTerminator operand id Return (blockTerminator block))
+        }
+    mapTargets change terminator = case terminator of
+      Jump target -> Jump (change target)
+      Branch condition whenTrue whenFalse -> Branch condition (change whenTrue) (change whenFalse)
+      Switch ty scrutinee cases fallback -> Switch ty scrutinee [switchCase {switchCaseTarget = change (switchCaseTarget switchCase)} | switchCase <- cases] (fmap change fallback)
+      other -> other

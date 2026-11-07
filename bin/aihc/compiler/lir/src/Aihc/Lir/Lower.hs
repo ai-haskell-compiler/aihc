@@ -77,7 +77,7 @@ import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Inline (mergeTailCallees)
-import Aihc.Lir.Simplify (duplicateInvariantLoads, eliminateCommonSubexpressions, eliminateDeadInstructions, narrowExtendedCompares, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
+import Aihc.Lir.Simplify (duplicateInvariantLoads, eliminateCommonSubexpressions, eliminateDeadInstructions, eliminateRedundantBlockParameters, narrowExtendedCompares, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -1551,7 +1551,10 @@ tailCallGroups callers names =
 -- tail calls, and merge their Lir functions into one. See
 -- 'mergeTailCallees'. When the merge is not possible, the functions stay
 -- apart. A function without such callees still gets its tail calls of
--- itself as the jump of a loop.
+-- itself as the jump of a loop. The merged blocks pass on many values that
+-- do not change, thus 'eliminateRedundantBlockParameters' removes those
+-- parameters. The object writer compiles each item as the lowering emits
+-- it, without 'Aihc.Lir.Inline.prepareModule', thus the pass runs here.
 lowerFunctionGroup :: LowerEnv -> GrinFunction -> [GrinFunction] -> LowerM ()
 lowerFunctionGroup env root members = do
   mapM_ (lowerFunction env) (root : members)
@@ -1574,7 +1577,7 @@ lowerFunctionGroup env root members = do
       modify' $ \state ->
         state
           { stateItemsRev =
-              [ if isRoot item then ItemFunction function else item
+              [ if isRoot item then ItemFunction (eliminateRedundantBlockParameters function) else item
               | item <- stateItemsRev state,
                 not (isMember item)
               ]

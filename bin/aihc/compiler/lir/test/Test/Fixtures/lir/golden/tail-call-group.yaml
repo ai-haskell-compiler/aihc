@@ -19,16 +19,16 @@ expected: |
 
   func @aihc_f_aihc_entry___sloop(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %n_3: i64, %$cps_return_4: ptr) {
   inlloop:
-    jump inl1$entry(%hp_0, %sp_1, %base_2, %n_3, %$cps_return_4)
+    jump inl1$entry(%n_3)
 
-  inl1$entry(%inl1$hp_0: ptr, %inl1$sp_1: ptr, %inl1$base_2: ptr, %inl1$n_3: i64, %inl1$$cps_return_4: ptr):
+  inl1$entry(%inl1$n_3: i64):
     switch i64 %inl1$n_3 {
       0 -> inl1$alt_5
       default -> inl1$alt_6
     }
 
   inl1$alt_5:
-    %inl1$header_word_7 = load i64 [%inl1$$cps_return_4] align 8 region stack
+    %inl1$header_word_7 = load i64 [%$cps_return_4] align 8 region stack
     %inl1$info_word_8 = and i64 %inl1$header_word_7, -4
     %inl1$header_9 = ptr.from_int %inl1$info_word_8
     %inl1$entry_10 = load.invariant code [%inl1$header_9 + 24] align 1 word
@@ -36,14 +36,14 @@ expected: |
     br %inl1$forward_13, inl1$continue_slow_11, inl1$continue_enter_12
 
   cold inl1$continue_slow_11:
-    tailcall @aihc_lir_continue_i(%inl1$hp_0, %inl1$sp_1, %inl1$base_2, %inl1$$cps_return_4, 0)
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, 0)
 
   inl1$continue_enter_12:
-    tailcall.indirect %inl1$entry_10(%inl1$hp_0, %inl1$$cps_return_4, %inl1$base_2, %inl1$$cps_return_4, 0) : (ptr, ptr, ptr, ptr, i64)
+    tailcall.indirect %inl1$entry_10(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 0) : (ptr, ptr, ptr, ptr, i64)
 
   inl1$alt_6:
     %inl0$result_19 = sub i64 %inl1$n_3, 1
-    jump inl1$entry(%inl1$hp_0, %inl1$sp_1, %inl1$base_2, %inl0$result_19, %inl1$$cps_return_4)
+    jump inl1$entry(%inl0$result_19)
   }
 
   func @aihc_f_aihc_entry___sentry(%hp_20: ptr, %sp_21: ptr, %base_22: ptr, %n_23: i64, %$cps_return_24: ptr) {
@@ -56,3 +56,5 @@ reason: |
   Thus $step is a block of the Lir function of $loop.
   The tail call of $loop from $step is then a jump to the loop block.
   $entry stays a separate function.
+  The loop block passes on the context and the continuation without a change.
+  Thus these block parameters go away, and the loop block keeps only n.

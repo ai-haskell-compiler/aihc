@@ -27,7 +27,7 @@ where
 
 import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants)
-import Aihc.Lir.Simplify (eliminateCommonSubexpressions, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, threadConstantBranches)
+import Aihc.Lir.Simplify (eliminateCommonSubexpressions, eliminateRedundantBlockParameters, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, threadConstantBranches)
 import Aihc.Lir.Syntax
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Functor.Const (Const (..))
@@ -39,12 +39,14 @@ import Data.Text qualified as T
 
 -- | Prepare LIR for each backend and the interpreter.
 -- Resolve constants before inline expansion to avoid repeated work.
--- Simplify Boolean branches after inline expansion.
+-- Simplify Boolean branches after inline expansion. Remove the block
+-- parameters that always receive one value first, so that the later passes
+-- see the values that the blocks share.
 prepareModule :: Integer -> Module -> Module
 prepareModule wordBytes = simplify . inlineModule . resolveConstants wordBytes
   where
     simplify (Module items) = Module (map simplifyItem items)
-    simplifyItem (ItemFunction function) = ItemFunction (threadConstantBranches (simplifyWidths (simplifyRotations (simplifyBooleanBranches (eliminateCommonSubexpressions (simplifyMultiplications function))))))
+    simplifyItem (ItemFunction function) = ItemFunction (threadConstantBranches (simplifyWidths (simplifyRotations (simplifyBooleanBranches (eliminateCommonSubexpressions (simplifyMultiplications (eliminateRedundantBlockParameters function)))))))
     simplifyItem item = item
 
 -- | 'prepareModule', with the module linted as it was written and again as
