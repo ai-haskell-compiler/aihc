@@ -73,6 +73,9 @@ module Aihc.Fc.Simplify
     -- * Call arity
     callArityAnalysis,
     topCallArities,
+    topCallAritiesFrom,
+    topUses,
+    Use,
     ruleValueNames,
   )
 where
@@ -5991,13 +5994,23 @@ isFunctionRhs expr =
 -- escaping ones, which another scope can use in any way: the exported
 -- values of a module and the values a rewrite rule names.
 topCallArities :: Set Name -> [Expr] -> Map Name Int
-topCallArities escaping bodies =
-  Map.filterWithKey (\name _ -> isTop name) (Map.map (\(Use args _) -> args) (List.foldl' (Map.unionWith (<>)) Map.empty [fst (callArityAnalysis 0 False body) | body <- bodies])) `Map.withoutKeys` escaping
+topCallArities escaping bodies = topCallAritiesFrom escaping (map topUses bodies)
+
+-- | The uses of the top-level values in one body. A caller that keeps
+-- the bodies across rounds keeps these too, and computes them again only
+-- for a body that changed.
+topUses :: Expr -> Map Name Use
+topUses body = Map.filterWithKey (\name _ -> isTop name) (fst (callArityAnalysis 0 False body))
   where
     isTop candidate =
       case nameOrigin candidate of
         OriginTop {} -> True
         OriginLocal {} -> False
+
+-- | 'topCallArities' from the 'topUses' of each body.
+topCallAritiesFrom :: Set Name -> [Map Name Use] -> Map Name Int
+topCallAritiesFrom escaping uses =
+  Map.map (\(Use args _) -> args) (List.foldl' (Map.unionWith (<>)) Map.empty uses) `Map.withoutKeys` escaping
 
 -- | The values that the rewrite rules of a program name.
 ruleValueNames :: [Decl] -> Set Name

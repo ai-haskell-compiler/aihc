@@ -390,6 +390,9 @@ data Inliner = Inliner
     -- 'topCallArities'. A copy made in the round can only remove a use
     -- or copy one with its arguments, so the arities hold for the round.
     inCallArities :: !(Map Name Int),
+    -- | The uses of the top-level values in each body, for
+    -- 'inCallArities'. A body that changes gets its uses again.
+    inTopUses :: !(Map Name (Map Name Use)),
     -- | The values another scope can use in any way: the roots, the
     -- exported values, and the values a rule names. Their call arity is
     -- zero.
@@ -453,7 +456,8 @@ initialInliner config env decls supply =
       inCounts = fold uses,
       inCalls = fold calls,
       inArities = arities,
-      inCallArities = topCallArities escaping (Map.elems bodies),
+      inCallArities = topCallAritiesFrom escaping (Map.elems topUsesOfBodies),
+      inTopUses = topUsesOfBodies,
       inEscaping = escaping,
       inDead = Set.empty,
       inSupply = supply,
@@ -475,6 +479,7 @@ initialInliner config env decls supply =
     lhsNames = Set.unions [exprValueNames (ruleLhs rule) | entries <- Map.elems rules, rule <- entries]
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
+    topUsesOfBodies = Map.map topUses bodies
     arities = Map.map functionArity bodies
     uses = MonoidMap.fromMapWith countTopUses bodies
     calls = MonoidMap.fromMapWith (countTopCalls arities) bodies
@@ -893,7 +898,8 @@ updateBody st name body =
             inBodyArities = arities,
             inGuidance = Map.insert name (candidateGuidance (inEnv st) arities body) (inGuidance st),
             inRefs = MonoidMap.set name references (inRefs st),
-            inUsers = users
+            inUsers = users,
+            inTopUses = Map.insert name (topUses body) (inTopUses st)
           }
         name
         body
@@ -962,11 +968,13 @@ dropUnused st =
       inCounts = fold uses,
       inCalls = fold calls,
       inArities = arities,
-      inCallArities = topCallArities (inEscaping st) (Map.elems live),
+      inCallArities = topCallAritiesFrom (inEscaping st) (Map.elems liveUses),
+      inTopUses = liveUses,
       inDead = Set.empty
     }
   where
     live = Map.restrictKeys (inBodies st) reachable
+    liveUses = Map.restrictKeys (inTopUses st) reachable
     -- No live body references a removed value, so its cached data stays correct.
     arities = Map.restrictKeys (inBodyArities st) reachable
     uses = MonoidMap.nullifyKeysNotIn reachable (inBodyUses st)
