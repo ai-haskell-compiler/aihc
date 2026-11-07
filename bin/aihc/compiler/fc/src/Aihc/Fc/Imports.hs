@@ -275,84 +275,84 @@ data Walks = Walks
 walksWith :: (Name -> References -> References) -> Walks
 walksWith insert = Walks axiomRefs binderRefs typeRefs exprRefs
   where
-      axiomRefs refs declaration =
-        typeRefs (typeRefs (foldl' binderRefs refs (axiomBinders declaration)) (axiomLeft declaration)) (axiomRight declaration)
+    axiomRefs refs declaration =
+      typeRefs (typeRefs (foldl' binderRefs refs (axiomBinders declaration)) (axiomLeft declaration)) (axiomRight declaration)
 
-      binderRefs refs = typeRefs refs . binderType
+    binderRefs refs = typeRefs refs . binderType
 
-      typeRefs !refs ty =
-        case ty of
-          TyVar name -> insert name refs
-          TyCon name -> insert name refs
-          TyApp function argument -> typeRefs (typeRefs refs function) argument
-          TyFun r1 r2 argument result -> typeRefs (typeRefs (typeRefs (typeRefs refs r1) r2) argument) result
-          TyForAll binder body -> typeRefs (binderRefs refs binder) body
-          TyEq left right -> typeRefs (typeRefs refs left) right
-          TyLit kindName _ -> insert kindName refs
+    typeRefs !refs ty =
+      case ty of
+        TyVar name -> insert name refs
+        TyCon name -> insert name refs
+        TyApp function argument -> typeRefs (typeRefs refs function) argument
+        TyFun r1 r2 argument result -> typeRefs (typeRefs (typeRefs (typeRefs refs r1) r2) argument) result
+        TyForAll binder body -> typeRefs (binderRefs refs binder) body
+        TyEq left right -> typeRefs (typeRefs refs left) right
+        TyLit kindName _ -> insert kindName refs
 
-      exprRefs !refs expr =
-        case expr of
-          ExVar name -> insert name refs
-          ExLit literal ty -> typeRefs (literalRefs refs literal) ty
-          ExApp function argument -> exprRefs (exprRefs refs function) argument
-          ExTyApp function argument -> typeRefs (exprRefs refs function) argument
-          ExLam binder body -> exprRefs (binderRefs refs binder) body
-          ExTyLam binder body -> exprRefs (binderRefs refs binder) body
-          ExLet binding body -> exprRefs (bindRefs refs binding) body
-          ExRec bindings body -> exprRefs (foldl' bindRefs refs bindings) body
-          ExCase scrutinee binder alts ->
-            foldl' altRefs (foldl' binderRefs (exprRefs refs scrutinee) binder) alts
-          ExCoercion proof -> coercionRefs refs proof
-          ExAbsurd scrutinee resultType -> typeRefs (exprRefs refs scrutinee) resultType
-          ExCast body coercion -> coercionRefs (exprRefs refs body) coercion
-          ExForeignCall call types arguments ->
-            foldl' exprRefs (foldl' typeRefs (foreignCallRefs refs call) types) arguments
+    exprRefs !refs expr =
+      case expr of
+        ExVar name -> insert name refs
+        ExLit literal ty -> typeRefs (literalRefs refs literal) ty
+        ExApp function argument -> exprRefs (exprRefs refs function) argument
+        ExTyApp function argument -> typeRefs (exprRefs refs function) argument
+        ExLam binder body -> exprRefs (binderRefs refs binder) body
+        ExTyLam binder body -> exprRefs (binderRefs refs binder) body
+        ExLet binding body -> exprRefs (bindRefs refs binding) body
+        ExRec bindings body -> exprRefs (foldl' bindRefs refs bindings) body
+        ExCase scrutinee binder alts ->
+          foldl' altRefs (foldl' binderRefs (exprRefs refs scrutinee) binder) alts
+        ExCoercion proof -> coercionRefs refs proof
+        ExAbsurd scrutinee resultType -> typeRefs (exprRefs refs scrutinee) resultType
+        ExCast body coercion -> coercionRefs (exprRefs refs body) coercion
+        ExForeignCall call types arguments ->
+          foldl' exprRefs (foldl' typeRefs (foreignCallRefs refs call) types) arguments
 
-      -- A foreign call carries its own type, so the imported name of the
-      -- foreign import is not a reference. Its type and its dependencies are.
-      foreignCallRefs refs call =
-        foldl' dependencyRefs (typeRefs refs (foreignCallType call)) (foreignCallDependencies call)
-        where
-          dependencyRefs current dependency =
-            case dependency of
-              ForeignAxiom name -> insert name current
-              ForeignConstructor name -> insert name current
+    -- A foreign call carries its own type, so the imported name of the
+    -- foreign import is not a reference. Its type and its dependencies are.
+    foreignCallRefs refs call =
+      foldl' dependencyRefs (typeRefs refs (foreignCallType call)) (foreignCallDependencies call)
+      where
+        dependencyRefs current dependency =
+          case dependency of
+            ForeignAxiom name -> insert name current
+            ForeignConstructor name -> insert name current
 
-      bindRefs refs binding = exprRefs (binderRefs refs (bindBinder binding)) (bindRhs binding)
+    bindRefs refs binding = exprRefs (binderRefs refs (bindBinder binding)) (bindRhs binding)
 
-      altRefs refs alternative =
-        exprRefs
-          ( foldl'
-              binderRefs
-              (foldl' binderRefs (altConRefs refs (altCon alternative)) (altTypeBinders alternative))
-              (altBinders alternative)
-          )
-          (altRhs alternative)
+    altRefs refs alternative =
+      exprRefs
+        ( foldl'
+            binderRefs
+            (foldl' binderRefs (altConRefs refs (altCon alternative)) (altTypeBinders alternative))
+            (altBinders alternative)
+        )
+        (altRhs alternative)
 
-      altConRefs refs altCon =
-        case altCon of
-          AltData name -> insert name refs
-          AltLit literal -> literalRefs refs literal
-          AltDefault -> refs
+    altConRefs refs altCon =
+      case altCon of
+        AltData name -> insert name refs
+        AltLit literal -> literalRefs refs literal
+        AltDefault -> refs
 
-      literalRefs refs literal =
-        case literal of
-          LitInt representation _ -> typeRefs refs representation
-          LitChar representation _ -> typeRefs refs representation
-          LitAddr representation _ -> typeRefs refs representation
+    literalRefs refs literal =
+      case literal of
+        LitInt representation _ -> typeRefs refs representation
+        LitChar representation _ -> typeRefs refs representation
+        LitAddr representation _ -> typeRefs refs representation
 
-      coercionRefs !refs coercion =
-        case coercion of
-          CoVar name -> insert name refs
-          CoRefl ty -> typeRefs refs ty
-          CoSym inner -> coercionRefs refs inner
-          CoTrans left right -> coercionRefs (coercionRefs refs left) right
-          CoApp function argument -> coercionRefs (coercionRefs refs function) argument
-          CoNth _ proof -> coercionRefs refs proof
-          CoFun domain range -> coercionRefs (coercionRefs refs domain) range
-          CoForAll binder body -> coercionRefs (binderRefs refs binder) body
-          CoTyConApp name arguments -> foldl' coercionRefs (insert name refs) arguments
-          CoAxiom name arguments -> foldl' typeRefs (insert name refs) arguments
+    coercionRefs !refs coercion =
+      case coercion of
+        CoVar name -> insert name refs
+        CoRefl ty -> typeRefs refs ty
+        CoSym inner -> coercionRefs refs inner
+        CoTrans left right -> coercionRefs (coercionRefs refs left) right
+        CoApp function argument -> coercionRefs (coercionRefs refs function) argument
+        CoNth _ proof -> coercionRefs refs proof
+        CoFun domain range -> coercionRefs (coercionRefs refs domain) range
+        CoForAll binder body -> coercionRefs (binderRefs refs binder) body
+        CoTyConApp name arguments -> foldl' coercionRefs (insert name refs) arguments
+        CoAxiom name arguments -> foldl' typeRefs (insert name refs) arguments
 
 -- | Every name: the top-level names and the local ones.
 allWalks :: Walks
