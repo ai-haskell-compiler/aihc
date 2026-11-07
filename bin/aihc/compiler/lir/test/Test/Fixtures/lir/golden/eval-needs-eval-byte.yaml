@@ -80,7 +80,13 @@ expected: |
     jump eval_check_17(%next_43)
 
   eval_ready_18:
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_12, %sp_13, %base_14, %$cps_return_16, %current_20)
+    %inl0$payload_66 = load i64 [%current_20 + 8] align 8 region heap
+    %inl0$header_word_67 = load i64 [%$cps_return_16] align 8 region stack
+    %inl0$info_word_68 = and i64 %inl0$header_word_67, -4
+    %inl0$header_69 = ptr.from_int %inl0$info_word_68
+    %inl0$entry_70 = load.invariant code [%inl0$header_69 + 24] align 1 word
+    %inl0$forward_73 = eq code %inl0$entry_70, null
+    br %inl0$forward_73, inl0$continue_slow_71, inl0$continue_enter_72
 
   eval_slow_19:
     %tag_48 = and i64 %header_word_21, 1
@@ -115,23 +121,29 @@ expected: |
     store ptr %current_20, [%update_59 + 16] align 8 region stack
     %entry_60 = load.invariant code [%header_23 + 24] align 1 word
     tailcall.indirect %entry_60(%hp_12, %sp_53, %base_14, %current_20, %update_59) : (ptr, ptr, ptr, ptr, ptr)
+
+  cold inl0$continue_slow_71:
+    tailcall @aihc_lir_continue_i(%hp_12, %sp_13, %base_14, %$cps_return_16, %inl0$payload_66)
+
+  inl0$continue_enter_72:
+    tailcall.indirect %inl0$entry_70(%hp_12, %$cps_return_16, %base_14, %$cps_return_16, %inl0$payload_66) : (ptr, ptr, ptr, ptr, i64)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%hp_61: ptr, %sp_62: ptr, %base_63: ptr, %$cps_return_64: ptr, %ready_65: ptr) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_74: ptr, %sp_75: ptr, %base_76: ptr, %$cps_return_77: ptr, %ready_78: ptr) {
   entry:
-    %payload_66 = load i64 [%ready_65 + 8] align 8 region heap
-    %header_word_67 = load i64 [%$cps_return_64] align 8 region stack
-    %info_word_68 = and i64 %header_word_67, -4
-    %header_69 = ptr.from_int %info_word_68
-    %entry_70 = load.invariant code [%header_69 + 24] align 1 word
-    %forward_73 = eq code %entry_70, null
-    br %forward_73, continue_slow_71, continue_enter_72
+    %payload_79 = load i64 [%ready_78 + 8] align 8 region heap
+    %header_word_80 = load i64 [%$cps_return_77] align 8 region stack
+    %info_word_81 = and i64 %header_word_80, -4
+    %header_82 = ptr.from_int %info_word_81
+    %entry_83 = load.invariant code [%header_82 + 24] align 1 word
+    %forward_86 = eq code %entry_83, null
+    br %forward_86, continue_slow_84, continue_enter_85
 
-  cold continue_slow_71:
-    tailcall @aihc_lir_continue_i(%hp_61, %sp_62, %base_63, %$cps_return_64, %payload_66)
+  cold continue_slow_84:
+    tailcall @aihc_lir_continue_i(%hp_74, %sp_75, %base_76, %$cps_return_77, %payload_79)
 
-  continue_enter_72:
-    tailcall.indirect %entry_70(%hp_61, %$cps_return_64, %base_63, %$cps_return_64, %payload_66) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_85:
+    tailcall.indirect %entry_83(%hp_74, %$cps_return_77, %base_76, %$cps_return_77, %payload_79) : (ptr, ptr, ptr, ptr, i64)
   }
 
   data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_1, zero 8 }
@@ -142,10 +154,10 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
 
-  func @aihc_lir_info_0_e(%hp_74: ptr, %sp_75: ptr, %base_76: ptr, %object_77: ptr, %supplied_79: ptr) {
+  func @aihc_lir_info_0_e(%hp_87: ptr, %sp_88: ptr, %base_89: ptr, %object_90: ptr, %supplied_92: ptr) {
   entry:
-    %stored_80 = load ptr [%object_77 + 8] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_74, %sp_75, %base_76, %stored_80, %supplied_79)
+    %stored_93 = load ptr [%object_90 + 8] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_87, %sp_88, %base_89, %stored_93, %supplied_92)
   }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 2, i16 0 }
@@ -154,24 +166,24 @@ expected: |
 
   data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sdelayed, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 2, i16 0 }
 
-  func @aihc_lir_force_p(%hp_81: ptr, %sp_82: ptr, %base_83: ptr, %value_84: ptr, %info_85: ptr, %field_86: ptr) {
+  func @aihc_lir_force_p(%hp_94: ptr, %sp_95: ptr, %base_96: ptr, %value_97: ptr, %info_98: ptr, %field_99: ptr) {
   entry:
-    %sp_87 = ptr.add %sp_82, 16
-    %sp_limit_88 = load ptr [%base_83 + 88] align 1 word
-    %stack_fits_89 = le.u ptr %sp_87, %sp_limit_88
-    br %stack_fits_89, stack_pushed_91(%sp_82, %sp_87, %field_86), stack_grow_90
+    %sp_100 = ptr.add %sp_95, 16
+    %sp_limit_101 = load ptr [%base_96 + 88] align 1 word
+    %stack_fits_102 = le.u ptr %sp_100, %sp_limit_101
+    br %stack_fits_102, stack_pushed_104(%sp_95, %sp_100, %field_99), stack_grow_103
 
-  cold stack_grow_90:
-    store ptr %hp_81, [%base_83 + 16] align 1 word
-    %result_92 = call @aihc_stack_grow(%base_83, %sp_82, 2, %field_86)
-    %sp_93 = ptr.add %result_92, 16
-    %parent_94 = ptr.add %result_92, -16
-    jump stack_pushed_91(%result_92, %sp_93, %parent_94)
+  cold stack_grow_103:
+    store ptr %hp_94, [%base_96 + 16] align 1 word
+    %result_105 = call @aihc_stack_grow(%base_96, %sp_95, 2, %field_99)
+    %sp_106 = ptr.add %result_105, 16
+    %parent_107 = ptr.add %result_105, -16
+    jump stack_pushed_104(%result_105, %sp_106, %parent_107)
 
-  stack_pushed_91(%frame_95: ptr, %sp_96: ptr, %parent_97: ptr):
-    store ptr %info_85, [%frame_95] align 8 region stack
-    store ptr %parent_97, [%frame_95 + 8] align 8 region stack
-    tailcall @aihc_lir_eval(%hp_81, %sp_96, %base_83, %value_84, %frame_95)
+  stack_pushed_104(%frame_108: ptr, %sp_109: ptr, %parent_110: ptr):
+    store ptr %info_98, [%frame_108] align 8 region stack
+    store ptr %parent_110, [%frame_108 + 8] align 8 region stack
+    tailcall @aihc_lir_eval(%hp_94, %sp_109, %base_96, %value_97, %frame_108)
   }
 status: pass
 reason: |
@@ -183,3 +195,6 @@ reason: |
   frame, and the fields to a shared force helper. The helper pushes the frame
   and evaluates the value. Each info table has five byte fields, and the thunk table
   has a needs_eval byte of 1.
+  The ready branch contains a copy of the continuation of $entry. The copy
+  loads the payload and continues with it, without a tail call to the
+  continuation. The original continuation stays for the frame.
