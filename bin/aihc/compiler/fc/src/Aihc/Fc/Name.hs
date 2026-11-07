@@ -59,9 +59,11 @@ nameClass sort =
     SortTypeVariable -> NameClassTypeVar
 
 -- | Where a name is bound.
+-- The texts are unpacked: a comparison of two names then reads the bytes
+-- of each text without a load of a separate text object.
 data Origin
   = OriginLocal !Unique
-  | OriginTop !PackageId !Text
+  | OriginTop {-# UNPACK #-} !PackageId {-# UNPACK #-} !Text
   deriving stock (Eq, Ord, Show, Read, Generic)
 
 -- A unique is an 'Int' and a package identifier is a strict 'Text', so
@@ -76,7 +78,7 @@ instance NFData Origin where
 -- text, sort, and origin all agree, so a type constructor never equals a
 -- synonym and a value never equals a data constructor of the same name.
 data Name = Name
-  { nameText :: !Text,
+  { nameText :: {-# UNPACK #-} !Text,
     nameSort :: !Sort,
     nameOrigin :: !Origin
   }
