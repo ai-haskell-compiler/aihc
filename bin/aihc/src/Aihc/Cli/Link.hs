@@ -25,7 +25,7 @@ import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.Options (LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), PositionIndependence (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
 import Control.Monad (filterM, forM, forM_, unless, when)
 import Data.Char (isSpace)
@@ -52,8 +52,8 @@ import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode, 
 -- is the @aihc-rts@ package among the packages; the entry unit is generated
 -- in the build directory of the executable, where a @--lto@ build also
 -- writes the program object.
-linkCompiledExecutable :: ModuleCompileConfig -> Bool -> FilePath -> FilePath -> CompiledExecutable -> IO ()
-linkCompiledExecutable compileConfig noLink buildRoot output executable = do
+linkCompiledExecutable :: ModuleCompileConfig -> PositionIndependence -> Bool -> FilePath -> FilePath -> CompiledExecutable -> IO ()
+linkCompiledExecutable compileConfig independence noLink buildRoot output executable = do
   let target = compileTarget compileConfig
       packages = compiledPackages executable
       cCompileInfo = compiledCCompileInfo executable
@@ -116,7 +116,8 @@ linkCompiledExecutable compileConfig noLink buildRoot output executable = do
         LinkLibraries
           { linkCxxStdLib = cxxStdLib,
             linkArguments,
-            linkLtoArguments = llvmLtoLinkArguments target lto (compileOptimization compileConfig)
+            linkLtoArguments = llvmLtoLinkArguments target lto (compileOptimization compileConfig),
+            linkPositionIndependence = independence
           }
   if noLink
     then writeLinkBundle target output libraries objects archives
@@ -296,7 +297,9 @@ data LinkLibraries = LinkLibraries
     linkArguments :: ![String],
     -- | The arguments of a link whose inputs are bitcode: the LTO argument
     -- and the level of the build. Empty for every other link.
-    linkLtoArguments :: ![String]
+    linkLtoArguments :: ![String],
+    -- | Whether an ELF executable is position independent.
+    linkPositionIndependence :: !PositionIndependence
   }
 
 -- | Link the objects and archives into the executable. The runtime units
@@ -337,9 +340,9 @@ linkExecutable target output libraries objects archives = do
 
 -- | Keep input order. System libraries follow all objects and archives.
 nativeLinkArguments :: NativeTarget -> LinkLibraries -> [FilePath] -> Either String [String]
-nativeLinkArguments target LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments} inputs = do
+nativeLinkArguments target LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments, linkPositionIndependence} inputs = do
   cxxArguments <- if linkCxxStdLib then cxxStandardLibraryArguments target else pure []
-  pure (executableLinkArguments target <> linkLtoArguments <> inputs <> linkArguments <> ["-lm", "-lpthread"] <> cxxArguments)
+  pure (executableLinkArguments linkPositionIndependence target <> linkLtoArguments <> inputs <> linkArguments <> ["-lm", "-lpthread"] <> cxxArguments)
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do

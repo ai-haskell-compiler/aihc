@@ -6,7 +6,7 @@ cons:
 	ja .Llir_0_2
 .Llir_0_1:
 	mov [rbx + 8], r15
-	mov [rbx + 16], rdi
+	mov [rbx + 16], rbp
 	mov r15, rbx
 	mov rbx, r9
 	jmp next

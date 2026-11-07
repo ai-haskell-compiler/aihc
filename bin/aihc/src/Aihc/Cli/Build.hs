@@ -57,7 +57,7 @@ import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Package (mkPackageName, unPackageName)
-import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), PositionIndependence (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan
   ( PackagePlan (..),
     PlanOrigin (..),
@@ -74,14 +74,23 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import System.Directory (canonicalizePath, doesFileExist, getCurrentDirectory)
 import System.FilePath (dropExtension, takeFileName, (<.>), (</>))
-import System.IO (stderr, stdout)
+import System.IO (hPutStrLn, stderr, stdout)
 
 -- | Build with the progress on stderr, and name each output on stdout.
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
+  when (buildNoPie options) $
+    hPutStrLn stderr "warning: --no-pie links each Linux executable at a fixed address. ASLR cannot then move its code and static data. Do not use --no-pie for a program that processes untrusted input."
   outputs <- withProgress stderr (`buildWith` options)
   let label = if buildNoLink options then "bundle: " else "executable: "
   mapM_ (putStrLn . (label <>)) outputs
+
+-- | Whether the executables are position independent. The default is a
+-- position-independent executable.
+positionIndependence :: BuildOptions -> PositionIndependence
+positionIndependence options
+  | buildNoPie options = PositionDependent
+  | otherwise = PositionIndependent
 
 -- | Build without progress. The verbose messages go to stdout. A library
 -- caller, such as a test, uses this entry point.
@@ -187,7 +196,7 @@ linkPrograms reporter options adjust targetsOf = do
           let output = executableOutput executable
               component = executableComponent executable
           report (ProgressLink (componentItem component))
-          linkCompiledExecutable config (buildNoLink options) (componentOutputRoot component) output compiledExecutable
+          linkCompiledExecutable config (positionIndependence options) (buildNoLink options) (componentOutputRoot component) output compiledExecutable
           report (ProgressDone (componentItem component))
           pure (BuiltProgram (executableName executable) (componentSourceRoot component) output)
 

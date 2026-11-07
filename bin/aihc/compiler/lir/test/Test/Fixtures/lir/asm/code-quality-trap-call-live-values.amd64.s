@@ -10,7 +10,7 @@ pick:
 	add rsp, 0x8
 	jmp .Llir_trap_0
 .Llir_0_2:
-	add r15, rdi
+	add r15, rbp
 	jmp next
 	.text
 	.p2align 4

@@ -54,13 +54,14 @@ import Aihc.Native.Elf (writeAmd64Elf)
 import Aihc.Native.Emit qualified as Emit
 import Aihc.Native.Lir
 import Aihc.Native.Lir qualified as Native
+import Aihc.Native.Move (orderMoves)
 import Control.Monad (when)
 import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -144,6 +145,8 @@ amd64Backend =
       nbSymbol = lirSymbol,
       nbArgumentRegisters = argumentRegisters,
       nbAihcArgumentRegisters = aihcArgumentRegisters,
+      nbOverflowHomes = True,
+      nbTwoAddress = True,
       nbResultRegisters = resultRegisters,
       nbPreservedRegisters = preservedRegisters,
       nbScratchLeft = scratchLeft,
@@ -151,6 +154,7 @@ amd64Backend =
       nbCycleScratch = scratchLeft,
       nbSlotMoveScratch = scratchRight,
       nbFrameOverhead = 8,
+      nbRedZone = 128,
       nbReturnAddressGap = 8,
       nbMaxFrameBytes = Nothing,
       nbCodeAlign = 4,
@@ -194,8 +198,9 @@ amd64Backend =
       nbFloatFromVec = \_ty xmm dest -> [amd64Instruction (AmdMovqFromXmm dest xmm)],
       nbFloatToVec = \ty register xmm -> [toFloat ty xmm register],
       nbJump = amd64Instruction . AmdJmp . Amd64JumpLabel,
-      nbCanFuseBitTest = False,
+      nbCanFuseBitTest = True,
       nbCanFuseFloatCompare = \op -> op `elem` [Eq, Ne, FLt, FLe, FGt, FGe],
+      nbCanFuseLoadCompare = True,
       nbConditionTest = \ctx fused condition ->
         let (setup, test) = conditionTest ctx fused condition
          in pure (setup, BranchTest (branchWhen test) (branchUnless test)),
@@ -213,7 +218,7 @@ amd64Backend =
       nbBinary = amd64Binary,
       nbRotatedBinary = Nothing,
       nbShiftedAdd = Just ((<= 3), \dst a b count -> [amd64Instruction (AmdLea dst (Amd64MemoryAddress (Amd64IndexedMemory a b count 0)))]),
-      nbIndexedLoad = Just (\_ count -> count <= 3, \ty dst base index count -> [loadMemory ty dst (Amd64IndexedMemory base index count 0)]),
+      nbIndexedLoad = Just (\_ count displacement -> count <= 3 && abs displacement < 2 ^ (31 :: Int), \ty dst base index count displacement -> [loadMemory ty dst (Amd64IndexedMemory base index count (fromInteger displacement))]),
       nbCarryIncrement = Just (carryFlags, carryIncrement),
       nbUnary = bitCount,
       nbWide = wide,
@@ -284,20 +289,18 @@ trapStubLabel index = ".Llir_trap_" <> tshow index
 argumentRegisters :: [Amd64Register]
 argumentRegisters = [RDI, RSI, RDX, RCX, R8, R9]
 
--- | The argument registers of the aihc convention. The first four carry the
--- heap and stack context of a lowered function, and the fifth carries its
--- first GRIN argument. They are preserved registers, so a C call does not
--- move them. An aihc tail call
--- with a stack block uses @rax@ after the argument moves, so @rax@ carries
--- no argument.
+-- | The argument registers of the aihc convention. The first three carry
+-- the heap and stack context of a lowered function, and the fourth carries
+-- its first GRIN argument. They are preserved registers, so a C call does
+-- not move them.
 aihcArgumentRegisters :: [Amd64Register]
-aihcArgumentRegisters = preservedRegisters <> argumentRegisters
+aihcArgumentRegisters = preservedRegisters <> argumentRegisters <> [RAX]
 
 resultRegisters :: [Amd64Register]
 resultRegisters = [RAX, RDX, RCX, RSI, RDI, R8, R9, R10]
 
 preservedRegisters :: [Amd64Register]
-preservedRegisters = [RBX, R12, R13, R14, R15]
+preservedRegisters = [RBX, R12, R13, R14, R15, RBP]
 
 scratchLeft, scratchRight :: Amd64Register
 scratchLeft = R11
@@ -368,6 +371,8 @@ instructionEffect instruction =
     AmdUd2 -> Forgets
     AmdPush _ -> Forgets
     AmdPop _ -> Forgets
+    AmdPushMemory _ -> Forgets
+    AmdPopMemory _ -> Forgets
     AmdCall _ -> Forgets
     AmdCallRegister _ -> Forgets
     AmdJmp _ -> Forgets
@@ -406,8 +411,10 @@ instructionEffect instruction =
     AmdXor destination _ -> modifies destination
     AmdImul destination _ -> writes [destination]
     AmdCmp _ _ -> Writes []
+    AmdCmpMemory {} -> Writes []
     AmdCmpGot _ _ -> Writes []
     AmdTest _ _ -> Writes []
+    AmdTestImmediate _ _ -> Writes []
     AmdShl destination -> modifies destination
     AmdShr destination -> modifies destination
     AmdShlImmediate destination _ -> modifies destination
@@ -467,12 +474,12 @@ registerCount :: Int
 registerCount = 16
 
 prologueFrame :: Bool -> Int -> [Amd64Statement]
+
+-- | A frame has no frame pointer: @rbp@ is a register of the allocator.
+-- The frame is 8 bytes larger than its contents, so that the stack pointer
+-- is 16-byte aligned in the frame.
 prologueFrame framed size
-  | framed =
-      [ amd64Instruction (AmdPush RBP),
-        amd64Instruction (AmdMov RBP (Amd64MoveRegister RSP))
-      ]
-        <> adjustStack AmdSub size
+  | framed = adjustStack AmdSub (size + 8)
   | otherwise = []
 
 canonicalizeRegister :: Type -> Amd64Register -> [Amd64Statement]
@@ -494,7 +501,7 @@ leaveFrame :: Ctx Amd64Register -> Int -> [Amd64Statement]
 leaveFrame ctx displacement =
   restoreRegisters ctx displacement
     <> ( if layoutFramed (ctxLayout ctx)
-           then [amd64Instruction (AmdMov RSP (Amd64MoveRegister RBP)), amd64Instruction (AmdPop RBP)]
+           then adjustStack AmdAdd (layoutSize (ctxLayout ctx) + 8 + displacement)
            else adjustStack AmdAdd displacement
        )
 
@@ -537,6 +544,7 @@ smallImmediate ty operand =
   case operand of
     OperandLiteral (LitInt value)
       | not (isFloatType ty) -> signedImmediate (canonicalInteger ty value)
+    OperandLiteral LitNull -> Just 0
     _ -> Nothing
 
 -- | A narrow constant as a signed value of its width. It fits a
@@ -606,13 +614,18 @@ data Test
 conditionTest :: Ctx Amd64Register -> Maybe Fused -> Operand -> ([Amd64Statement], Test)
 conditionTest ctx fused condition =
   case fused of
-    Just (FusedBit op ty value bit) ->
-      let (loads, register) = operandIn' ctx 0 ty scratchLeft value
-       in (loads <> [immediate scratchRight (2 ^ bit :: Integer), amd64Instruction (AmdTest (Amd64RmRegister register) scratchRight)], TestFlags (integerCondition op))
+    Just (FusedBit op ty value bit)
+      -- The 32-bit form tests a bit of the low half with one instruction.
+      | bit < 32 ->
+          let (loads, register) = operandIn' ctx 0 ty scratchLeft value
+           in (loads <> [amd64Instruction (AmdTestImmediate (Amd64RmRegister register) (2 ^ bit))], TestFlags (integerCondition op))
+      | otherwise ->
+          let (loads, register) = operandIn' ctx 0 ty scratchLeft value
+           in (loads <> [immediate scratchRight (2 ^ bit :: Integer), amd64Instruction (AmdTest (Amd64RmRegister register) scratchRight)], TestFlags (integerCondition op))
     Just (Fused op ty left right)
       | op `elem` [Eq, Ne],
         not (isFloatType ty),
-        right == OperandLiteral (LitInt 0) ->
+        right `elem` [OperandLiteral (LitInt 0), OperandLiteral LitNull] ->
           let (loads, register) = operandIn' ctx 0 ty scratchLeft left
            in (loads, if op == Eq then TestZero register else TestNonZero register)
       | isFloatType ty ->
@@ -628,9 +641,63 @@ conditionTest ctx fused condition =
               signed = op `elem` [LtS, LeS, GtS, GeS]
               (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft register else ([], register)
            in (loads <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+    Just (FusedLoadCompare op ty base offset other onLeft) ->
+      let (baseLoads, baseRegister) = operandIn' ctx 0 Ptr scratchLeft base
+          place = Amd64Memory baseRegister (fromInteger offset)
+          width = typeBytes ty
+          -- The compare computes the loaded value minus the other operand,
+          -- so a loaded right operand reverses the condition.
+          condition' = integerCondition (if onLeft then op else swapCompare op)
+          immediateCompare value = (baseLoads <> [amd64Instruction (AmdCmpMemory width place value)], TestFlags condition')
+       in case other of
+            OperandLiteral literal
+              | width < 8,
+                Just bits <- Native.literalBits ty literal ->
+                  immediateCompare bits
+            _
+              | width == 8,
+                Just value <- smallImmediate ty other ->
+                  immediateCompare value
+              | width == 8 ->
+                  let (otherLoads, register) = operandIn' ctx 0 ty scratchRight other
+                      compare'
+                        | onLeft = AmdCmp (Amd64RmMemory place) (Amd64BinaryRegister register)
+                        | otherwise = AmdCmp (Amd64RmRegister register) (Amd64BinaryMemory place)
+                   in (baseLoads <> otherLoads <> [amd64Instruction compare'], TestFlags (integerCondition op))
+              | otherwise ->
+                  -- A narrow value against a register: load it, then
+                  -- compare as before.
+                  let loaded = [loadMemory ty scratchLeft place]
+                      (left, right) = if onLeft then (OperandLiteral (LitInt 0), other) else (other, OperandLiteral (LitInt 0))
+                      signed = op `elem` [LtS, LeS, GtS, GeS]
+                   in if onLeft
+                        then
+                          let (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft scratchLeft else ([], scratchLeft)
+                           in (baseLoads <> loaded <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+                        else
+                          let (otherLoads, register) = operandIn' ctx 0 ty scratchRight left
+                              (extendLeft, leftRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
+                              (extendRight, rightRegister) = if signed then signExtendInto ty scratchLeft scratchLeft else ([], scratchLeft)
+                           in ( baseLoads <> loaded <> otherLoads <> extendLeft <> extendRight <> [amd64Instruction (AmdCmp (Amd64RmRegister leftRegister) (Amd64BinaryRegister rightRegister))],
+                                TestFlags (integerCondition op)
+                              )
     Nothing ->
       let (loads, register) = operandIn' ctx 0 I1 scratchLeft condition
        in (loads, TestNonZero register)
+
+-- | The compare with the operands in the other order.
+swapCompare :: CompareOp -> CompareOp
+swapCompare op =
+  case op of
+    LtS -> GtS
+    LeS -> GeS
+    GtS -> LtS
+    GeS -> LeS
+    LtU -> GtU
+    LeU -> GeU
+    GtU -> LtU
+    GeU -> LeU
+    _ -> op
 
 floatFlags :: Ctx Amd64Register -> CompareOp -> Type -> Operand -> Operand -> ([Amd64Statement], Amd64Condition)
 floatFlags ctx op ty left right =
@@ -675,6 +742,13 @@ compareWith ctx ty signed left right =
       | OperandLiteral (LitSymbol symbol) <- right,
         typeBits ty == 64 ->
           [amd64Instruction (AmdCmpGot left (lirSymbol symbol))]
+    -- A canonical value in a slot compares as a 64-bit word. A signed
+    -- narrow compare needs the value sign-extended in a register.
+    _
+      | OperandVar var <- right,
+        LocSlot offset <- home ctx var,
+        not signed || typeBits ty >= 64 ->
+          [amd64Instruction (AmdCmp (Amd64RmRegister left) (Amd64BinaryMemory (slotMemory offset)))]
     _ ->
       let (loads, register) = operandIn' ctx 0 ty scratchRight right
           (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
@@ -705,12 +779,15 @@ branchWhen test label =
 data RightOperand
   = RightRegister !Amd64Register
   | RightImmediate !Integer
+  | -- | A spilled value, read from its slot.
+    RightMemory !Amd64Memory
 
 binarySource :: RightOperand -> Amd64BinarySource
 binarySource operand =
   case operand of
     RightRegister register -> Amd64BinaryRegister register
     RightImmediate value -> Amd64BinaryImmediate value
+    RightMemory place -> Amd64BinaryMemory place
 
 amd64Binary :: Ctx Amd64Register -> BinaryOp -> Type -> Amd64Register -> Amd64Register -> Operand -> M [Amd64Statement]
 amd64Binary ctx op ty dst a right =
@@ -725,7 +802,7 @@ amd64Binary ctx op ty dst a right =
                   dst
                   ( case b of
                       RightImmediate value -> addImmediate dst a value
-                      RightRegister _ -> arith True AmdAdd dst a b
+                      _ -> arith True AmdAdd dst a b
                   )
             )
     Sub | ty == I32 -> pure (arithmetic32 False AmdSub)
@@ -784,6 +861,7 @@ amd64Binary ctx op ty dst a right =
           source = case b of
             RightImmediate value -> RightImmediate value
             RightRegister register -> RightRegister (dwordRegister register)
+            RightMemory place -> RightMemory place
        in loads <> arith commutative instruction (dwordRegister dst) (dwordRegister a) source
     rotateBits leftward
       | ty == I1 = move dst a
@@ -812,6 +890,10 @@ amd64Binary ctx op ty dst a right =
     rightValue operandTy operand =
       case smallImmediate operandTy operand of
         Just value -> ([], RightImmediate value)
+        Nothing
+          | OperandVar var <- operand,
+            LocSlot offset <- home ctx var ->
+              ([], RightMemory (slotMemory offset))
         Nothing ->
           let (loads, b) = operandIn' ctx 0 operandTy scratchRight operand
            in (loads, RightRegister b)
@@ -1112,9 +1194,20 @@ amd64Load ctx ty base offset dst =
 
 amd64Store :: Ctx Amd64Register -> Type -> Operand -> Operand -> Integer -> [Amd64Statement]
 amd64Store ctx ty value base offset =
-  let (loads, a) = operandIn' ctx 0 ty scratchLeft value
-      (loads', baseRegister) = operandIn' ctx 0 Ptr scratchRight base
-   in loads <> loads' <> [storeMemory ty (Amd64Memory baseRegister (fromInteger offset)) a]
+  let (loads', baseRegister) = operandIn' ctx 0 Ptr scratchRight base
+      place = Amd64Memory baseRegister (fromInteger offset)
+   in case value of
+        -- A small 64-bit constant goes straight to memory. A symbol
+        -- address does not: its 32-bit form (@R_X86_64_32S@) cannot link
+        -- into a position-independent executable, so the address goes
+        -- through a register.
+        _
+          | typeBits ty == 64,
+            Just bits <- smallImmediate ty value ->
+              loads' <> [amd64Instruction (AmdStore place (Amd64StoreImmediate bits))]
+        _ ->
+          let (loads, a) = operandIn' ctx 0 ty scratchLeft value
+           in loads <> loads' <> [storeMemory ty place a]
 
 -- | The memory operand of an atomic operation. The base is in its own
 -- register or in the right scratch register.
@@ -1311,7 +1404,7 @@ amd64CallWith ctx convention resultTypes parameterTypes branch arguments results
       argumentMoves = case convention of
         AihcConvention ->
           concat
-            [ loads <> [storeSlot register (8 * position)]
+            [ loads <> [storeSlot register (Native.overflowSlot amd64Backend outgoing position)]
             | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) (zip types arguments)),
               let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
             ]
@@ -1334,10 +1427,6 @@ amd64CallWith ctx convention resultTypes parameterTypes branch arguments results
               ]
    in adjustStack AmdSub outgoing <> argumentMoves <> branch <> cleanup <> resultMoves
   where
-    operandSource ctx' ty operand =
-      case operand of
-        OperandVar var -> SourceLocation (home ctx' var)
-        OperandLiteral literal -> SourceLiteral ty literal
     floatResult ty =
       case ty of
         F64 -> [amd64Instruction (AmdMovqFromXmm RAX 0)]
@@ -1353,7 +1442,9 @@ amd64CallIndirect ctx target arguments signature results = do
 amd64TailCall :: Ctx Amd64Register -> Either Text Operand -> CallingConvention -> [Type] -> [Operand] -> M [Amd64Statement]
 amd64TailCall ctx callee convention parameterTypes arguments =
   case convention of
-    AihcConvention -> aihcTailCall
+    AihcConvention
+      | functionConvention (ctxFunction ctx) == AihcConvention -> blockTailCall
+      | otherwise -> aihcTailCall
     CConvention -> do
       when (ctxIncomingOverflow ctx /= 0) $
         unsupportedText "C tail call from a function with an overflow parameter block"
@@ -1386,87 +1477,114 @@ amd64TailCall ctx callee convention parameterTypes arguments =
   where
     layout = ctxLayout ctx
     jump label = amd64Instruction (AmdJmp (Amd64JumpLabel (SymbolName label)))
-    aihcTailCall = do
-      let outgoing = overflowBytes' (length arguments)
+    -- A tail call from an aihc function. The end of the stack block of the
+    -- function stays where it is, and each argument slot is at the same
+    -- distance below it in each function (see 'nbOverflowHomes'). The
+    -- return address moves when the callee needs a stack block of another
+    -- size. One parallel move puts the arguments, the indirect target, and
+    -- the return address in place. An argument that
+    -- is already in its slot needs no move. When the new return address is
+    -- below the stack pointer, the stack pointer first goes down, so that a
+    -- signal cannot write over a slot.
+    blockTailCall = do
+      let frame = frameBytes' layout
           incoming = ctxIncomingOverflow ctx
+          outgoing = overflowBytes' (length arguments)
+          top = frame + 8 + incoming
+          newReturn = top - outgoing - 8
           types = parameterTypes <> repeat I64
-          overflow = drop (length aihcArgumentRegisters) (zip types arguments)
-          registerMoves displacement =
-            parallelMove'
-              [ (LocRegister register, Native.displaceSource displacement (operandSource ctx ty argument))
-              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
-              ]
-          overflowStores displacement base =
-            concat
-              [ loads <> [storeSlot register (base + 8 * position)]
-              | (position, (ty, argument)) <- zip [0 :: Int ..] overflow,
-                let (loads, register) = operandIn' ctx displacement ty scratchLeft argument
-              ]
-          branch = case callee of
-            Left label -> jump label
-            Right _ -> amd64Instruction (AmdJmp (Amd64JumpRegister scratchRight))
-          returnSlot = frameBytes' layout
-          operandSource ctx' ty operand =
-            case operand of
-              OperandVar var -> SourceLocation (home ctx' var)
-              OperandLiteral literal -> SourceLiteral ty literal
-      stub <-
+          typed = zip types arguments
+          -- The slots of a function without a frame are below the stack
+          -- pointer (see 'nbRedZone'). A move through @push@ and @pop@ would
+          -- write over them, so the stack pointer first goes below them when
+          -- the move can need that fallback: an indirect target in @r10@
+          -- and @rax@ in use by an argument.
+          redZoneBytes = negate (minimum (0 : Map.elems (layoutSlots layout)))
+          registerArguments = zip aihcArgumentRegisters typed
+          raxInUse =
+            RAX `elem` map fst registerArguments
+              || or [True | (_, argument) <- registerArguments, SourceLocation (LocRegister RAX) <- [Native.operandSource ctx I64 (snd argument)]]
+              || or [True | (_, argument) <- drop (length aihcArgumentRegisters) typed, SourceLocation (LocRegister RAX) <- [Native.operandSource ctx I64 argument]]
+          mayPush = redZoneBytes > 0 && target == Just scratchRight && raxInUse
+          extra =
+            max
+              (if newReturn < 0 then 16 * ((negate newReturn + 15) `div` 16) else 0)
+              (if mayPush then 16 * ((redZoneBytes + 15) `div` 16) else 0)
+          source ty operand = Native.displaceSource extra (Native.operandSource ctx ty operand)
+          argumentMoves =
+            [(LocRegister register, source ty argument) | (register, (ty, argument)) <- zip aihcArgumentRegisters typed]
+              <> [ (LocSlot (extra + top - 8 * (position + 1)), source ty argument)
+                 | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) typed)
+                 ]
+              <> [(LocSlot (extra + newReturn), SourceLocation (LocSlot (extra + frame))) | newReturn /= frame]
+          written = map fst registerArguments
+          -- An indirect target stays in its own register when no move
+          -- writes that register. Otherwise it moves to @r10@.
+          target = case callee of
+            Right (OperandVar var)
+              | LocRegister register <- Native.home ctx var,
+                register `notElem` written,
+                register /= scratchLeft ->
+                  Just register
+            Right _ -> Just scratchRight
+            Left _ -> Nothing
+          moves =
+            [(LocRegister scratchRight, source Code operand) | target == Just scratchRight, Right operand <- [callee]]
+              <> argumentMoves
+          branch = case (callee, target) of
+            (Right _, Just register) -> amd64Instruction (AmdJmp (Amd64JumpRegister register))
+            _ -> either jump (const (amd64Instruction (AmdJmp (Amd64JumpRegister scratchRight)))) callee
+      check <-
         case callee of
-          Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure Nothing
-          Left _ -> pure Nothing
-          Right _ -> Just <$> trapLabel "indirect call to a non-function"
-      let targetLoad displacement =
-            case callee of
-              Right operand ->
-                let (loads, register) = operandIn' ctx displacement Code scratchRight operand
-                 in loads <> move scratchRight register <> concat [[testZero scratchRight, amd64Instruction (AmdJe label)] | Just label <- [stub]]
-              Left _ -> []
-      pure $
-        if outgoing <= incoming
-          then
-            overflowStores 0 (returnSlot + 8 + incoming - outgoing)
-              <> targetLoad 0
-              <> registerMoves 0
-              <> ( if outgoing == incoming
-                     then []
-                     else
-                       [ loadSlot scratchLeft returnSlot,
-                         storeSlot scratchLeft (returnSlot + incoming - outgoing)
-                       ]
-                 )
-              <> leaveFrame ctx 0
-              <> adjustStack AmdAdd (incoming - outgoing)
-              <> [branch]
-          else
-            if not (layoutFramed layout)
-              then
-                [loadSlot scratchLeft 0]
-                  <> adjustStack AmdSub (outgoing - incoming)
-                  <> [storeSlot scratchLeft 0]
-                  <> overflowStores 0 8
-                  <> targetLoad 0
-                  <> registerMoves 0
-                  <> [branch]
-              else
-                let temporary = 8 + outgoing
-                    delta = fromIntegral (8 + incoming - outgoing) :: Int64
-                 in adjustStack AmdSub temporary
-                      <> overflowStores temporary 8
-                      <> targetLoad temporary
-                      <> registerMoves temporary
-                      <> restoreRegisters ctx temporary
-                      <> [ amd64Instruction (AmdMov RAX (Amd64MoveRegister RBP)),
-                           amd64Instruction (AmdMov scratchLeft (Amd64MoveMemory (Amd64Memory RAX 8))),
-                           storeSlot scratchLeft 0,
-                           amd64Instruction (AmdMov RBP (Amd64MoveMemory (Amd64Memory RAX 0)))
-                         ]
-                      <> concat
-                        [ [ loadSlot scratchLeft (8 * position),
-                            amd64Instruction (AmdStore (Amd64Memory RAX (delta + fromIntegral (8 * position))) (Amd64StoreRegister scratchLeft))
-                          ]
-                        | position <- reverse [0 .. length overflow]
-                        ]
-                      <> [amd64Instruction (AmdLea RSP (Amd64MemoryAddress (Amd64Memory RAX delta))), branch]
+          Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure []
+          Left _ -> pure []
+          Right _ -> do
+            stub <- trapLabel "indirect call to a non-function"
+            pure [testZero (fromMaybe scratchRight target), amd64Instruction (AmdJe stub)]
+      pure (adjustStack AmdSub extra <> tailMoves [scratchRight | target /= Just scratchRight] (maybeToList target) moves <> check <> adjustStack AmdAdd (extra + newReturn) <> [branch])
+    -- An aihc callee preserves no register, and a C function must keep
+    -- the preserved registers of its caller. So a C function cannot pass
+    -- control to an aihc function with a tail call.
+    aihcTailCall = unsupportedText "aihc tail call from a C function"
+
+-- | A parallel move of a tail call. @r11@ parks a value of a cycle. A move
+-- from a slot to a slot goes through a free register: one of the given free
+-- registers, or @rax@ when no move reads or writes it and it does not hold
+-- a kept value. Without one, the move
+-- uses @push@ and @pop@, which need no register but are slower. A constant
+-- that needs a register to reach a slot goes there after the other moves,
+-- through @r11@.
+tailMoves :: [Amd64Register] -> [Amd64Register] -> [(Location Amd64Register, MoveSource Amd64Register)] -> [Amd64Statement]
+tailMoves free kept moves =
+  concatMap emit (orderMoves locationOf SourceLocation (LocRegister scratchLeft) direct)
+    <> concat [literalInto ty scratchLeft literal <> [storeSlot scratchLeft offset] | (offset, ty, literal) <- late]
+  where
+    (direct, late) = foldr split ([], []) moves
+    split entry (now, later) =
+      case entry of
+        (LocSlot offset, SourceLiteral ty literal)
+          | Nothing <- Native.literalBits ty literal >>= storeSlotImmediate offset -> (now, (offset, ty, literal) : later)
+        _ -> (entry : now, later)
+    locationOf source =
+      case source of
+        SourceLocation location -> Just location
+        SourceLiteral _ _ -> Nothing
+    emit (destination, source) =
+      case (destination, source) of
+        (LocRegister target, SourceLocation (LocRegister register)) -> move target register
+        (LocRegister target, SourceLocation (LocSlot offset)) -> [loadSlot target offset]
+        (LocRegister target, SourceLiteral ty literal) -> literalInto ty target literal
+        (LocSlot offset, SourceLocation (LocRegister register)) -> [storeSlot register offset]
+        (LocSlot offset, SourceLocation (LocSlot from)) ->
+          case slotScratch of
+            Just register -> [loadSlot register from, storeSlot register offset]
+            Nothing -> [amd64Instruction (AmdPushMemory (slotMemory from)), amd64Instruction (AmdPopMemory (slotMemory offset))]
+        (LocSlot offset, SourceLiteral ty literal) ->
+          maybe [] pure (Native.literalBits ty literal >>= storeSlotImmediate offset)
+    used = kept <> [register | (LocRegister register, _) <- moves] <> [register | (_, SourceLocation (LocRegister register)) <- moves]
+    slotScratch = case free <> [RAX | RAX `notElem` used] of
+      register : _ -> Just register
+      [] -> Nothing
 
 testZero :: Amd64Register -> Amd64Statement
 testZero register = amd64Instruction (AmdTest (Amd64RmRegister register) register)

@@ -88,6 +88,7 @@ describeSection section =
     TextSection -> description "__TEXT" "__text" 0x80000400
     TextConstantsSection -> description "__TEXT" "__const" 0
     ReadOnlySection -> description "__DATA" "__const" 0
+    RelocatedReadOnlySection -> Left (ObjectInvalidInput "Mach-O relocated read-only section: use the read-only section")
     DataSection -> description "__DATA" "__data" 0
     NoExecuteStackSection -> Left (ObjectInvalidInput "Mach-O stack section")
   where

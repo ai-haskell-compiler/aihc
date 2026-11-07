@@ -143,6 +143,7 @@ import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVari
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Resolve qualified as Lir
+import Aihc.Llvm.Lir qualified as Llvm
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyVersions,
@@ -3503,6 +3504,8 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     -- native source is that same text for @--keep-native@ as well.
     keepLir = keepsLirText config
     target = compileTarget config
+    -- An @-Os@ build asks LLVM for small code; see 'Llvm.CodeGoal'.
+    codeGoal = if compileOptimization config == Os then Llvm.SmallCode else Llvm.FastCode
     lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config && compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config)
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
@@ -3534,7 +3537,7 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     writeModule name gcProgram = do
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      wroteSource <- compileGrinTo (compileLint config) lirSettings target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputNativePath paths) (outputObjectPath paths)
+      wroteSource <- compileGrinTo (compileLint config) lirSettings codeGoal target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputNativePath paths) (outputObjectPath paths)
       when keepLir (verbose ("Write Lir: " <> T.unpack name))
       when wroteSource (verbose ("Write native source: " <> T.unpack name))
       when wroteSource $ do

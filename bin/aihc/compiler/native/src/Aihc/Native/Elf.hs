@@ -259,6 +259,7 @@ sectionKind role =
     TextSection -> (".text", 1, 0x6)
     TextConstantsSection -> (".rodata", 1, 0x2)
     ReadOnlySection -> (".rodata", 1, 0x2)
+    RelocatedReadOnlySection -> (".data.rel.ro", 1, 0x3)
     DataSection -> (".data", 1, 0x3)
     NoExecuteStackSection -> (".note.GNU-stack", 1, 0)
 

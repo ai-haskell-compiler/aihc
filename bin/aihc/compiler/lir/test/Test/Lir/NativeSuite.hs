@@ -18,6 +18,7 @@ import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Interpret (Value (..), renderValues)
 import Aihc.Lir.Lower (LowerTarget, defaultModuleSettings, lowerEntry, lowerModule)
+import Aihc.Llvm.Lir (CodeGoal (..))
 import Aihc.Native (NativeTarget (..), executableEntryName, renderNativeTarget)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
 import Aihc.Resolve (PackageId (..))
@@ -436,7 +437,7 @@ compileProgramUnits backend program = do
       then withTempDirectory "aihc-grin-object" $ \directory -> do
         let path = directory </> "stream.o"
             dump = directory </> "stream.lir"
-        wroteSource <- compileGrinTo True defaultModuleSettings (backendTarget backend) (Just dump) gc (directory </> "stream.s") path
+        wroteSource <- compileGrinTo True defaultModuleSettings FastCode (backendTarget backend) (Just dump) gc (directory </> "stream.s") path
         assertEqual "native object output" False wroteSource
         dumped <- loadModule dump >>= either (assertFailure . renderLoadError) pure
         assertEqual "incremental Lir dump lint" [] (map renderLintError (lintModule dumped))

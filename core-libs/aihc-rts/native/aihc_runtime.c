@@ -3715,16 +3715,22 @@ int64_t aihc_heap_collect_replay(AihcCapability *capability, uint64_t words,
   return 0;
 }
 
+/* The marker of a replay info table. Its counts are zero, so a walk of it
+   reaches nothing. See aihc_object_srt. */
+AihcSrt aihc_replay_srt;
+
 /* The state of a function that its replay helper put into a closure: the
-   info table names the code, and the fields are the arguments. The highest
-   live frame among them is the continuation of the function. */
+   fields hold the code, the static reference table, and the arguments. The
+   highest live frame among the arguments is the continuation of the
+   function. */
 const AihcResume *aihc_replay_suspend(AihcCapability *capability,
                                       AihcValue *closure) {
   const AihcInfo *info = aihc_value_info_table(closure);
   /* Only a pointer field can name the frame. */
   AihcSlot pointers[256];
   uint64_t count = 0;
-  for (uint64_t index = 1; index < info->field_count; ++index) {
+  for (uint64_t index = AIHC_REPLAY_FIRST_ARGUMENT; index < info->field_count;
+       ++index) {
     if (info->field_is_pointer[index]) {
       pointers[count++] = closure->fields[index];
     }
@@ -3734,10 +3740,11 @@ const AihcResume *aihc_replay_suspend(AihcCapability *capability,
     aihc_fail("replay closure without a continuation");
   }
   uint64_t position = 0;
-  for (uint64_t index = 1; index < info->field_count; ++index) {
+  for (uint64_t index = AIHC_REPLAY_FIRST_ARGUMENT; index < info->field_count;
+       ++index) {
     if (info->field_is_pointer[index] &&
         aihc_untag(closure->fields[index]) == continuation) {
-      position = index - 1;
+      position = index - AIHC_REPLAY_FIRST_ARGUMENT;
       break;
     }
   }
@@ -3745,7 +3752,7 @@ const AihcResume *aihc_replay_suspend(AihcCapability *capability,
   /* The entry gives the argument its new continuation. The old pointer must
      not stay in the closure: the closure can outlive the frame, and the
      address can hold other frames later. */
-  closure->fields[1 + position] = 0;
+  closure->fields[AIHC_REPLAY_FIRST_ARGUMENT + position] = 0;
   AihcThread *current = capability->current_thread;
   if (current->pending_head != NULL &&
       current->mask_state == AIHC_MASK_UNMASKED) {

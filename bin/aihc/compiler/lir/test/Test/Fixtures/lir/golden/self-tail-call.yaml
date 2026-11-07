@@ -1,0 +1,46 @@
+program: |
+  primitive -#%1 :: IntRep/2
+
+  $count (n%1 :: IntRep) -> IntRep =
+    case (n%1 :: IntRep) as scrutinee%2 :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (m%3 :: IntRep) <- primitive-call @IntRep -# (n%1 :: IntRep) (1 :: IntRep)
+        call @IntRep $count (m%3 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
+
+  func @aihc_f_aihc_entry___scount(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %n_3: i64, %$cps_return_4: ptr) {
+  inlloop:
+    jump inl0$entry(%hp_0, %sp_1, %base_2, %n_3, %$cps_return_4)
+
+  inl0$entry(%inl0$hp_0: ptr, %inl0$sp_1: ptr, %inl0$base_2: ptr, %inl0$n_3: i64, %inl0$$cps_return_4: ptr):
+    switch i64 %inl0$n_3 {
+      0 -> inl0$alt_5
+      default -> inl0$alt_6
+    }
+
+  inl0$alt_5:
+    %inl0$header_word_7 = load i64 [%inl0$$cps_return_4] align 8 region stack
+    %inl0$info_word_8 = and i64 %inl0$header_word_7, -4
+    %inl0$header_9 = ptr.from_int %inl0$info_word_8
+    %inl0$entry_10 = load.invariant code [%inl0$header_9 + 24] align 1 word
+    %inl0$forward_13 = eq code %inl0$entry_10, null
+    br %inl0$forward_13, inl0$continue_slow_11, inl0$continue_enter_12
+
+  cold inl0$continue_slow_11:
+    tailcall @aihc_lir_continue_i(%inl0$hp_0, %inl0$sp_1, %inl0$base_2, %inl0$$cps_return_4, 0)
+
+  inl0$continue_enter_12:
+    tailcall.indirect %inl0$entry_10(%inl0$hp_0, %inl0$$cps_return_4, %inl0$base_2, %inl0$$cps_return_4, 0) : (ptr, ptr, ptr, ptr, i64)
+
+  inl0$alt_6:
+    %inl0$result_14 = sub i64 %inl0$n_3, 1
+    jump inl0$entry(%inl0$hp_0, %inl0$sp_1, %inl0$base_2, %inl0$result_14, %inl0$$cps_return_4)
+  }
+status: pass
+reason: |
+  The tail call of $count to itself is a jump to the loop block.
+  The new entry block jumps to that block with the parameters.
+  Thus the backend does not set up the frame again on each iteration.

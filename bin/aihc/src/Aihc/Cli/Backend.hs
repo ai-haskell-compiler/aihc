@@ -30,7 +30,6 @@ import Aihc.Native (NativeTarget (..), backendCompiler, llvmLtoArguments, optimi
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Monad (unless, when)
 import Data.ByteString.Lazy qualified as BL
-import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -131,9 +130,10 @@ compileEntryObject lto profileAllocations profileTime target directory object = 
 -- whether a source was written. The object backends and the WebAssembly
 -- backend take each Lir item as conversion produces it, so the Lir module is
 -- never complete in memory. The Lir of the module is written to @lirPath@
--- when one is given.
-compileGrinTo :: Bool -> Lower.ModuleSettings -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> FilePath -> IO Bool
-compileGrinTo lint settings target lirPath gcProgram sourcePath path = case target of
+-- when one is given. The LLVM target writes IR for the code goal, and the
+-- other targets ignore it.
+compileGrinTo :: Bool -> Lower.ModuleSettings -> Llvm.CodeGoal -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> FilePath -> IO Bool
+compileGrinTo lint settings goal target lirPath gcProgram sourcePath path = case target of
   AppleArm64 -> Arm64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
   LinuxAmd64 -> Amd64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
   Wasm32Wasip3 -> do
@@ -147,9 +147,9 @@ compileGrinTo lint settings target lirPath gcProgram sourcePath path = case targ
       let items = moduleItems lirModule
           errors = Lint.unreferencedDataErrors items (foldMap Lint.itemDataReferences items)
       unless (null errors) (ioError (userError ("Lir lint failed:\n" <> unlines (map (T.unpack . Lint.renderLintError) errors))))
-    source <- compileLirTo lint target lirModule path
-    mapM_ (TIO.writeFile sourcePath) source
-    pure (isJust source)
+    source <- either (ioError . userError . ("Lir backend failed: " <>) . show) pure (Llvm.compileLirModuleFor goal lirModule)
+    TIO.writeFile sourcePath source
+    pure True
 
 -- | The Lir text of a module, as the object backends dump it: one item to
 -- a line group, with a final newline.

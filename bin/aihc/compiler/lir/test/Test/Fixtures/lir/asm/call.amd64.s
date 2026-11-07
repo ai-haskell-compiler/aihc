@@ -1,9 +1,7 @@
 	.text
 	.p2align 4
 twice:
-	push rbp
-	mov rbp, rsp
-	sub rsp, 0x10
+	sub rsp, 0x18
 	mov [rsp], rbx
 	mov [rsp + 8], r12
 	mov rbx, rdi
@@ -17,7 +15,6 @@ twice:
 	add rax, rbx
 	mov rbx, [rsp]
 	mov r12, [rsp + 8]
-	mov rsp, rbp
-	pop rbp
+	add rsp, 0x18
 	ret
 	.section .note.GNU-stack

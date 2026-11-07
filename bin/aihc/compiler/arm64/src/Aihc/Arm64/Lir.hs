@@ -214,6 +214,9 @@ arm64Backend =
       nbSymbol = lirSymbol,
       nbArgumentRegisters = argumentRegisters,
       nbAihcArgumentRegisters = aihcArgumentRegisters,
+      nbOverflowHomes = False,
+      nbCanFuseLoadCompare = False,
+      nbTwoAddress = False,
       nbResultRegisters = argumentRegisters,
       nbPreservedRegisters = preservedRegisters,
       nbScratchLeft = scratchLeft,
@@ -221,6 +224,7 @@ arm64Backend =
       nbCycleScratch = scratchExtra,
       nbSlotMoveScratch = scratchLeft,
       nbFrameOverhead = 16,
+      nbRedZone = 0,
       nbReturnAddressGap = 0,
       nbMaxFrameBytes = Just 32000,
       nbCodeAlign = 2,
@@ -660,6 +664,8 @@ conditionTest ctx fused condition =
               signed = op `elem` [LtS, LeS, GtS, GeS]
               (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft register else ([], register)
            in (loads <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+    -- 'nbCanFuseLoadCompare' is off, so the shared walk makes no such test.
+    Just FusedLoadCompare {} -> error "Aihc.Arm64.Lir: a load compare reached the AArch64 backend"
     Nothing ->
       let (loads, register) = operandIn' ctx 0 I1 scratchLeft condition
        in (loads, TestNonZero register)
@@ -982,12 +988,12 @@ carryIncrement op dst value =
 
 -- | A load of a register from a base plus an index. The index is not
 -- shifted, or it is shifted by the logarithm of the access size.
-indexedLoadAccepts :: Type -> Int -> Bool
-indexedLoadAccepts ty count =
-  typeBytes ty `elem` [1, 2, 4, 8] && (count == 0 || 2 ^ count == typeBytes ty)
+indexedLoadAccepts :: Type -> Int -> Integer -> Bool
+indexedLoadAccepts ty count displacement =
+  displacement == 0 && typeBytes ty `elem` [1, 2, 4, 8] && (count == 0 || 2 ^ count == typeBytes ty)
 
-indexedLoad :: Type -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> [Arm64Statement]
-indexedLoad ty dst base index count =
+indexedLoad :: Type -> Arm64Register -> Arm64Register -> Arm64Register -> Int -> Integer -> [Arm64Statement]
+indexedLoad ty dst base index count _ =
   [arm64Instruction (ArmLdrIndexed (typeBytes ty) dst base index (count /= 0))]
 
 compareResult :: Ctx Arm64Register -> CompareOp -> Type -> Arm64Register -> Operand -> Operand -> [Arm64Statement]
@@ -1299,10 +1305,6 @@ arm64CallWith ctx convention resultTypes parameterTypes branch arguments results
         AihcConvention -> []
    in adjustStack ArmSub outgoing <> argumentMoves <> branch <> cleanup <> resultMoves
   where
-    operandSource ctx' ty operand =
-      case operand of
-        OperandVar var -> SourceLocation (home ctx' var)
-        OperandLiteral literal -> SourceLiteral ty literal
     floatResult ty register =
       case convention of
         CConvention | isFloatType ty -> [arm64Instruction (ArmFmovFromFloat (ty == F64) register 0)]
@@ -1373,10 +1375,6 @@ arm64TailCall ctx callee convention parameterTypes arguments =
           branch = case callee of
             Left label -> arm64Instruction (ArmB (SymbolName label))
             Right _ -> arm64Instruction (ArmBr scratchTarget)
-          operandSource ctx' ty operand =
-            case operand of
-              OperandVar var -> SourceLocation (home ctx' var)
-              OperandLiteral literal -> SourceLiteral ty literal
       stub <-
         case callee of
           Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure Nothing

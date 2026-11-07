@@ -309,9 +309,13 @@ The resumption at the top can continue later in these places:
   resumption record. A cancelled wait has only its continuation, so its
   thunk goes back to its code;
 - a replay reservation, where the state is the code and the arguments of
-  the function. The replay helper puts them into a replay closure. The
-  replay info table of the function names the code and its static
-  reference table. The closure entry gives the argument that was the
+  the function. The replay helper puts them into a replay closure. Field
+  zero of the closure is the index of the continuation argument. Field one
+  is the code, field two is the static reference table of the function, and
+  the arguments follow. One replay info table serves all functions of an
+  argument shape in a unit. Its `srt` field is the runtime marker
+  `aihc_replay_srt`, so the collector reads the table from field two (see
+  `aihc_object_srt`). The closure entry gives the argument that was the
   continuation a new continuation, because the copies of the frames are at
   new addresses.
 

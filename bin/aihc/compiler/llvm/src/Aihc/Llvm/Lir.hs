@@ -18,7 +18,9 @@
 -- so LLVM moves a stack load past a heap store. See 'regionMetadata'.
 module Aihc.Llvm.Lir
   ( LlvmLirError (..),
+    CodeGoal (..),
     compileLirModule,
+    compileLirModuleFor,
   )
 where
 
@@ -57,10 +59,29 @@ data LlvmLirError
   | LlvmLirUnsupported !Text
   deriving (Eq, Show)
 
+-- | What the LLVM optimizer must make the code of a module: fast or small.
+--
+-- Clang puts @optsize@ or @minsize@ on each function of a C source at
+-- @-Os@ or @-Oz@. Clang does not add these attributes to an IR input.
+-- Most size decisions of LLVM read the attributes and not the level. The
+-- LTO pipeline also has no size level. Thus the IR must state the goal.
+-- 'SmallCode' gives each function @optsize@, as Clang does at @-Os@.
+-- It does not give @minsize@. With @minsize@, the MicroHs text was 33%
+-- smaller than with @optsize@, but the program used 92% more cycles.
+data CodeGoal
+  = FastCode
+  | SmallCode
+  deriving (Eq, Show)
+
 -- | Lint the module as written and as this backend receives it, then render
--- it.
+-- it with code that is fast.
 compileLirModule :: Module -> Either LlvmLirError Text
-compileLirModule lirModule =
+compileLirModule = compileLirModuleFor FastCode
+
+-- | Lint the module as written and as this backend receives it, then render
+-- it for the code goal.
+compileLirModuleFor :: CodeGoal -> Module -> Either LlvmLirError Text
+compileLirModuleFor goal lirModule =
   case prepared of
     Right _ -> do
       (functions, ModuleState traps shims metadata) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty Map.empty Map.empty)
@@ -78,7 +99,7 @@ compileLirModule lirModule =
                 <> [""]
                 <> concat functions
                 <> concatMap (uncurry renderCallShim) (Map.toAscList shims)
-                <> attributeGroups
+                <> attributeGroups goal
                 <> ["!" <> tshow index <> " = " <> body | (body, index) <- sortOn snd (Map.toList metadata)]
             )
         )
@@ -218,11 +239,16 @@ trapMessageName index = ".Llir_trap_" <> tshow index
 -- | The attribute groups of the module. Every function definition and
 -- declaration carries 'functionAttributes', and the trap blocks call
 -- @write@ and @_exit@ through 'coldCallAttributes'.
-attributeGroups :: [Text]
-attributeGroups =
-  [ "attributes " <> functionAttributes <> " = { nounwind }",
+attributeGroups :: CodeGoal -> [Text]
+attributeGroups goal =
+  [ "attributes " <> functionAttributes <> " = { " <> T.unwords ("nounwind" : goalAttributes) <> " }",
     "attributes " <> coldCallAttributes <> " = { cold }"
   ]
+  where
+    goalAttributes =
+      case goal of
+        FastCode -> []
+        SmallCode -> ["optsize"]
 
 -- | The attribute group of every function. The program never unwinds
 -- through a frame: an exception is a tail call to @aihc_raise@, and the

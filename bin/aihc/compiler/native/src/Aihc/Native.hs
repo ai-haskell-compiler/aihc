@@ -12,6 +12,7 @@ module Aihc.Native
     backendCompiler,
     cxxStandardLibraryArguments,
     executableLinkArguments,
+    PositionIndependence (..),
     nativeTargetHasFrameworks,
     handwrittenCArguments,
     handwrittenCOverrideArguments,
@@ -321,11 +322,19 @@ llvmLtoArguments target lto = ["-flto" | llvmLto target lto]
 -- | The arguments of the link of a link-time optimized build: the LTO
 -- argument, and the level the optimizer of the linker runs at. A link that
 -- reads no bitcode takes none.
+--
+-- At @-Os@, the link also removes the local symbols. LLVM gives each
+-- @internal@ function and datum of the program a local symbol with its
+-- name, and the linker keeps these symbols. MicroHs has approximately
+-- 86,000 of them, and they make 5 MB of a 13 MB executable. The object
+-- backends name their local symbols with the linker-private prefix @l@,
+-- so their executables do not keep them. At the other levels, the symbols
+-- stay for profilers and debuggers.
 llvmLtoLinkArguments :: NativeTarget -> Bool -> OptimizationLevel -> [String]
 llvmLtoLinkArguments target lto level =
   case llvmLtoArguments target lto of
     [] -> []
-    arguments -> arguments <> [optimizationArgument level] <> llvmLinkCodeGenerationArguments
+    arguments -> arguments <> [optimizationArgument level] <> llvmLinkCodeGenerationArguments <> ["-Wl,-x" | level == Os]
 
 -- | The LLVM code generator options of the @llvm@ target.
 --
@@ -431,22 +440,38 @@ appleMinimumVersionArgument = "-mmacos-version-min=11.0"
 elfSectionArguments :: [String]
 elfSectionArguments = ["-ffunction-sections", "-fdata-sections"]
 
+-- | Whether an ELF executable is position independent (PIE). The kernel
+-- loads a PIE at a random address (ASLR), so an attacker cannot know the
+-- address of its code and data. A Mach-O executable on arm64 and a
+-- WebAssembly component ignore this setting.
+data PositionIndependence
+  = PositionIndependent
+  | -- | The executable loads at a fixed address. This is less safe: the
+    -- addresses of all code and static data are known before the program
+    -- starts.
+    PositionDependent
+  deriving (Eq, Show)
+
 -- | The link arguments of an executable. The linker removes the functions
 -- and the data that nothing reaches from the entry. On macOS, the
 -- executable also exports no symbol: nothing loads it as a library, so the
 -- export trie is dead weight. An ELF executable exports no symbol unless
 -- the link asks for it.
 --
--- An ELF executable is not position independent. AIHC info tables and
--- static closures hold absolute pointers. A PIE needs one 24-byte
--- @R_X86_64_RELATIVE@ entry for each of these pointers. Because the tables
--- are in @.rodata@, a PIE also needs text relocations (@DT_TEXTREL@). GHC
--- also links its Linux executables without PIE.
+-- AIHC info tables and static closures hold absolute pointers. In an ELF
+-- PIE, the dynamic loader writes each of these pointers at load time. A
+-- usual @R_X86_64_RELATIVE@ entry is 24 bytes for each pointer, which
+-- makes the executable approximately 40% larger. Thus the link packs the
+-- relative relocations (@DT_RELR@). The pointers are adjacent, so a bitmap
+-- word of 8 bytes holds up to 63 of them. glibc 2.36 and later read
+-- @DT_RELR@. An older linker ignores the option with a warning. The
+-- constant data with pointers is in @.data.rel.ro@, not @.rodata@, so the
+-- executable has no text relocations (@DT_TEXTREL@).
 --
 -- The WebAssembly linker removes unreachable functions without an
 -- argument, and exports only what the link names.
-executableLinkArguments :: NativeTarget -> [String]
-executableLinkArguments target =
+executableLinkArguments :: PositionIndependence -> NativeTarget -> [String]
+executableLinkArguments independence target =
   case target of
     AppleArm64 -> appleArguments
     LinuxAmd64 -> elfArguments
@@ -456,7 +481,10 @@ executableLinkArguments target =
     Wasm32Wasip3 -> []
   where
     appleArguments = ["-Wl,-dead_strip", "-Wl,-no_exported_symbols"]
-    elfArguments = ["-Wl,--gc-sections", "-no-pie"]
+    elfArguments =
+      "-Wl,--gc-sections" : case independence of
+        PositionIndependent -> ["-pie", "-Wl,-z,pack-relative-relocs"]
+        PositionDependent -> ["-no-pie"]
 
 -- | Whether the linker of a target takes macOS frameworks. Cabal gives the
 -- @frameworks@ of a package to the linker on macOS only. The @llvm@ target

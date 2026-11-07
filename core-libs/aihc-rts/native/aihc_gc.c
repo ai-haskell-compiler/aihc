@@ -2572,7 +2572,7 @@ static void aihc_scan_one(AihcGcContext *context, AihcValue *object,
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
              kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
     if (context->collected == 2) {
-      aihc_walk_srt(info->srt);
+      aihc_walk_srt(aihc_object_srt(info, object));
     }
     const uint8_t *pointers = info->field_is_pointer;
     if (pointers != NULL) {
@@ -2586,7 +2586,7 @@ static void aihc_scan_one(AihcGcContext *context, AihcValue *object,
     }
   } else if (!aihc_visit_runtime_object(object, aihc_scan_slot, &scan)) {
     if (context->collected == 2) {
-      aihc_walk_srt(info->srt);
+      aihc_walk_srt(aihc_object_srt(info, object));
     }
     if (info->object_kind == AIHC_OBJECT_ARRAY && aihc_has_cards(object)) {
       aihc_scan_large_array(context, object, generation, 0);
@@ -3330,7 +3330,7 @@ static int aihc_mark_plain_object(AihcCapability *capability,
         return 1;
       }
     }
-    aihc_walk_srt(info->srt);
+    aihc_walk_srt(aihc_object_srt(info, object));
     const uint8_t *pointers = info->field_is_pointer;
     if (pointers != NULL) {
       for (uint64_t index = 0; index < info->field_count; ++index) {
@@ -3357,7 +3357,7 @@ static uint64_t aihc_mark_scan(AihcCapability *capability, AihcValue *object,
     return sizeof(AihcSlot) * aihc_value_words(object);
   }
   const AihcInfo *info = aihc_value_info_table(object);
-  aihc_walk_srt(info->srt);
+  aihc_walk_srt(aihc_object_srt(info, object));
   if (info->object_kind == AIHC_OBJECT_ARRAY) {
     uint64_t length = aihc_array_length(object);
     uint64_t end = start + AIHC_MARK_ARRAY_PIECE;
@@ -3486,7 +3486,7 @@ static void aihc_shade_fields(AihcCapability *capability, AihcValue *object) {
      static objects through its table, and the objects that the code made
      after the snapshot can name them, so the table is shaded too. After
      the update, the marker finds an indirection, which has no table. */
-  aihc_walk_srt(aihc_value_info_table(object)->srt);
+  aihc_walk_srt(aihc_object_srt(aihc_value_info_table(object), object));
   aihc_visit_plain_fields(object, aihc_mark_slot, capability);
 }
 
@@ -3527,7 +3527,7 @@ static void aihc_mark_young_object(AihcCapability *capability,
       aihc_visit_runtime_object(object, aihc_mark_slot, capability)) {
     return;
   }
-  aihc_walk_srt(aihc_value_info_table(object)->srt);
+  aihc_walk_srt(aihc_object_srt(aihc_value_info_table(object), object));
   aihc_visit_plain_fields(object, aihc_mark_slot, capability);
 }
 
@@ -3710,7 +3710,7 @@ static void aihc_mark_slice(AihcCapability *capability, uint64_t budget) {
            kind == AIHC_OBJECT_THUNK)) {
         /* The ordinary objects of compiled code, as aihc_mark_plain_object
            marks them, without a call for each object. */
-        aihc_walk_srt(info->srt);
+        aihc_walk_srt(aihc_object_srt(info, object));
         uint64_t count = info->field_count;
         for (uint64_t index = 0; index < count; ++index) {
           if (pointers[index]) {
@@ -5729,7 +5729,7 @@ static void aihc_verify_scan(AihcValue *object) {
     return;
   }
   const AihcInfo *info = aihc_value_info_table(object);
-  aihc_verify_srt(info->srt);
+  aihc_verify_srt(aihc_object_srt(info, object));
   aihc_visit_plain_fields(object, aihc_verify_slot, NULL);
   if (aihc_region_kind(object) == AIHC_REGION_STACK && info->field_count != 0) {
     /* A frame pointer carries no tag, so the parent link is read as it

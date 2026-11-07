@@ -6,8 +6,7 @@ update:
 	test r9, r9
 	jne .Llir_0_2
 .Llir_0_1:
-	mov r11d, 0x1
-	mov [r15 + 8], r11
+	mov [r15 + 8], 0x1
 	jmp .Llir_0_4
 .Llir_0_2:
 	sub rsp, 0x8
