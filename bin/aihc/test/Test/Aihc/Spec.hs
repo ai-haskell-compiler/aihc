@@ -1228,6 +1228,7 @@ test_buildAsmSources getStore = do
               buildOptimization = O0,
               buildNoLink = False,
               buildOnlyDependencies = False,
+              buildNoPie = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
