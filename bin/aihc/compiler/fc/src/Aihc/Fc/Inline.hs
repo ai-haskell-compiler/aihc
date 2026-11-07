@@ -436,8 +436,8 @@ initialInliner config env decls supply =
       inRefs = references,
       inUsers = MonoidMap.fromList [(callee, Set.singleton name) | (name, callees) <- MonoidMap.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
-      inCounts = occurrenceCounts (Map.elems uses),
-      inCalls = callCounts (Map.elems calls),
+      inCounts = List.foldl' (Map.unionWith (+)) Map.empty (Map.elems uses),
+      inCalls = List.foldl' (Map.unionWith (+)) Map.empty (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities escaping (Map.elems bodies),
       inEscaping = escaping,
@@ -943,8 +943,8 @@ dropUnused st =
       inKnown = Map.restrictKeys (inKnown st) reachable,
       inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
       inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
-      inCounts = occurrenceCounts (Map.elems uses),
-      inCalls = callCounts (Map.elems calls),
+      inCounts = List.foldl' (Map.unionWith (+)) Map.empty (Map.elems uses),
+      inCalls = List.foldl' (Map.unionWith (+)) Map.empty (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities (inEscaping st) (Map.elems live),
       inDead = Set.empty
@@ -974,13 +974,6 @@ dropUnused st =
           | Set.member name visited -> close visited rest
           | otherwise ->
               close (Set.insert name visited) (Set.toList (MonoidMap.get name (inRefs st)) <> rest)
-
--- | How often each value occurs in the bodies.
-occurrenceCounts :: [Map Name Int] -> Map Name Int
-occurrenceCounts = List.foldl' (Map.unionWith (+)) Map.empty
-
-callCounts :: [Map Name Int] -> Map Name Int
-callCounts = occurrenceCounts
 
 -- | How often each top-level value of the arity map occurs in the head
 -- of an application that gives it every parameter. A value of arity zero
