@@ -5420,9 +5420,9 @@ mergeEqualAlternatives env alternatives =
         []
         (map snd (List.sortOn fst mergeableGroups))
     mergeableGroups =
-      [ (first, map snd members)
+      [ (firstIndex, map snd members)
       | equal@(_ : _ : _) <- groups (zip [0 :: Int ..] alternatives),
-        members@((first, _) : _) <- [filter (mergeable . snd) equal]
+        members@((firstIndex, _) : _) <- [filter (mergeable . snd) equal]
       ]
     groups candidates =
       case candidates of

@@ -249,16 +249,13 @@ declRefs walks refs decl =
         (ruleRhs declaration)
 
 axiomReferences :: AxiomDecl -> References
-axiomReferences = axiomRefs Set.empty
-
-binderReferences :: Binder -> References
-binderReferences = typeReferences . binderType
+axiomReferences = walkAxiom allWalks Set.empty
 
 typeReferences :: Type -> References
-typeReferences = typeRefs Set.empty
+typeReferences = walkType allWalks Set.empty
 
 exprReferences :: Expr -> References
-exprReferences = exprRefs Set.empty
+exprReferences = walkExpr allWalks Set.empty
 
 -- The functions below add the references to a set. Each name goes into
 -- the set one time, without a set for each part of the term.
@@ -370,18 +367,6 @@ topWalks = walksWith insertTop
       case nameOrigin name of
         OriginLocal {} -> refs
         OriginTop {} -> Set.insert name refs
-
-axiomRefs :: References -> AxiomDecl -> References
-axiomRefs = walkAxiom allWalks
-
-binderRefs :: References -> Binder -> References
-binderRefs = walkBinder allWalks
-
-typeRefs :: References -> Type -> References
-typeRefs = walkType allWalks
-
-exprRefs :: References -> Expr -> References
-exprRefs = walkExpr allWalks
 
 -- | Add the imports of each unboxed tuple that the declarations name and
 -- that the program neither imports nor declares. A pass can make an
