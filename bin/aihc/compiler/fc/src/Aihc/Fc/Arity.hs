@@ -86,7 +86,7 @@ import Aihc.Fc.TypeOf
     viewForAll,
     viewFun,
   )
-import Aihc.Fc.Views (exprValueNames)
+import Aihc.Fc.Views (exprMentionsAny, exprValueNames)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
@@ -1000,7 +1000,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
     isVar expr = case expr of
       ExVar _ -> True
       _ -> False
-    mentions binder expr = Set.member binder (valueReferences expr)
+    mentions binder = exprMentionsAny (Set.singleton binder)
     valueCount arguments = length [() | Right _ <- arguments]
     -- The head of an application and its arguments, through casts on the
     -- function.
