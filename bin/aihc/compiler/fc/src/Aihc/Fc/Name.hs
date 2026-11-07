@@ -95,6 +95,9 @@ instance Eq Name where
 -- Local uniques distinguish most local names without a text comparison.
 -- Top-level names keep their lexical order.
 instance Ord Name where
+  -- The containers specialise their functions at 'Name', and the
+  -- comparison then runs inside them without a call.
+  {-# INLINE compare #-}
   compare left right =
     case (nameOrigin left, nameOrigin right) of
       (OriginLocal unique, OriginLocal other) ->
