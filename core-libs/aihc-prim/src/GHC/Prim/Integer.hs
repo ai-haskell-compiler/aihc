@@ -1,3 +1,4 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -149,25 +150,25 @@ multiplyMagnitudeByWord# magnitude factor =
   let count = wordCount# magnitude
    in case newByteArray# ((count +# 1#) *# 8#) realWorld# of
         (# state, mutable #) ->
-          case multiplyWordLoop# magnitude factor mutable count 0# (int2Word# 0#) state of
-            (# state1, used #) -> freezeTrimmed# mutable used state1
+          case aihcLimbsMul# mutable 0# magnitude 0# count factor state of
+            (# state1, carry #) ->
+              case eqWord# carry 0## of
+                1# -> freezeTrimmed# mutable count state1
+                _ ->
+                  case writeWordArray# mutable count carry state1 of
+                    state2 -> freezeTrimmed# mutable (count +# 1#) state2
 
-multiplyWordLoop# :: ByteArray# -> Word# -> MutableByteArray# RealWorld -> Int# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Int# #)
-multiplyWordLoop# magnitude factor mutable count index carry state =
-  case index ==# count of
-    1# ->
-      case eqWord# carry (int2Word# 0#) of
-        1# -> (# state, count #)
-        _ ->
-          case writeWordArray# mutable index carry state of
-            state1 -> (# state1, count +# 1# #)
-    _ ->
-      case timesWord2# (indexWordArray# magnitude index) factor of
-        (# high, low #) ->
-          case addWordC# low carry of
-            (# result, overflow #) ->
-              case writeWordArray# mutable index result state of
-                state1 -> multiplyWordLoop# magnitude factor mutable count (index +# 1#) (plusWord# high (int2Word# overflow)) state1
+-- | The limb kernels of the runtime (aihc_limbs.c). Each kernel takes the
+-- destination array and its limb index, the source array and its limb
+-- index, the limb count, and the multiplier limb. It gives the limb that
+-- does not fit in the destination range. aihcLimbsMul# sets the range to
+-- the product, aihcLimbsMulAdd# adds the product to it, and
+-- aihcLimbsMulSub# subtracts the product from it.
+foreign import prim aihcLimbsMul# :: MutableByteArray# s -> Int# -> ByteArray# -> Int# -> Int# -> Word# -> State# s -> (# State# s, Word# #)
+
+foreign import prim aihcLimbsMulAdd# :: MutableByteArray# s -> Int# -> ByteArray# -> Int# -> Int# -> Word# -> State# s -> (# State# s, Word# #)
+
+foreign import prim aihcLimbsMulSub# :: MutableByteArray# s -> Int# -> ByteArray# -> Int# -> Int# -> Word# -> State# s -> (# State# s, Word# #)
 
 integerNegate :: Integer -> Integer
 integerNegate (IP magnitude) = negatePositiveMagnitude# magnitude
@@ -771,7 +772,7 @@ divideLimbLoop# divisor dividend quotient count offset wantQuotient top second i
                     (# state3, next #) ->
                       case divideThreeByTwo# high low next top second inverse of
                         (# estimate, remainderHigh, remainderLow #) ->
-                          case subtractDivisorProduct# divisor dividend (count -# 2#) offset estimate 0# 0## state3 of
+                          case subtractDivisorProduct# divisor dividend (count -# 2#) offset estimate state3 of
                             (# state4, carry #) ->
                               case subWordC# remainderLow carry of
                                 (# resultLow, borrowLow #) ->
@@ -786,7 +787,7 @@ divideLimbLoop# divisor dividend quotient count offset wantQuotient top second i
                 -- The top two limbs are equal to the divisor limbs. Then the
                 -- quotient limb is the maximum word.
                 _ ->
-                  case subtractDivisorProduct# divisor dividend count offset (not# 0##) 0# 0## state2 of
+                  case subtractDivisorProduct# divisor dividend count offset (not# 0##) state2 of
                     (# state3, carry #) ->
                       case subWordC# high carry of
                         (# result, borrow #) ->
@@ -877,21 +878,9 @@ checkThreeByTwo# top second estimate remainderHigh remainderLow =
 
 -- | Subtract the quotient limb times the first count divisor limbs. The
 -- result is the high word that the next dividend limb must lose.
-subtractDivisorProduct# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Word# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Word# #)
-subtractDivisorProduct# divisor dividend count offset quotient index carry state =
-  case index ==# count of
-    1# -> (# state, carry #)
-    _ ->
-      case timesWord2# quotient (indexWordArray# divisor index) of
-        (# high, low #) ->
-          case addWordC# low carry of
-            (# product, overflow #) ->
-              case readWordArray# dividend (offset +# index) state of
-                (# state1, word #) ->
-                  case subWordC# word product of
-                    (# result, borrow #) ->
-                      case writeWordArray# dividend (offset +# index) result state1 of
-                        state2 -> subtractDivisorProduct# divisor dividend count offset quotient (index +# 1#) (plusWord# (plusWord# high (int2Word# overflow)) (int2Word# borrow)) state2
+subtractDivisorProduct# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Word# #)
+subtractDivisorProduct# divisor dividend count offset quotient state =
+  aihcLimbsMulSub# dividend offset divisor 0# count quotient state
 
 -- | If the estimate was one too large, restore one divisor in place.
 addDivisorBack# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> State# RealWorld
@@ -1252,8 +1241,8 @@ squareCrossProducts# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int
 squareCrossProducts# magnitude mutable size index state =
   case (index +# 1#) <# size of
     1# ->
-      case multiplyInner# magnitude mutable size (indexWordArray# magnitude index) index (index +# 1#) 0## state of
-        (# state1, _ #) -> squareCrossProducts# magnitude mutable size (index +# 1#) state1
+      case multiplyInner# magnitude mutable size (indexWordArray# magnitude index) index (index +# 1#) state of
+        state1 -> squareCrossProducts# magnitude mutable size (index +# 1#) state1
     _ -> state
 
 -- | The sum of the cross products is less than half of the square. Thus
@@ -1299,26 +1288,16 @@ multiplyOuter# left right mutable leftSize rightSize rightIndex state =
   case rightIndex ==# rightSize of
     1# -> (# state, rightIndex #)
     _ ->
-      case multiplyInner# left mutable leftSize (indexWordArray# right rightIndex) rightIndex 0# (int2Word# 0#) state of
-        (# state1, _ #) -> multiplyOuter# left right mutable leftSize rightSize (rightIndex +# 1#) state1
+      case multiplyInner# left mutable leftSize (indexWordArray# right rightIndex) rightIndex 0# state of
+        state1 -> multiplyOuter# left right mutable leftSize rightSize (rightIndex +# 1#) state1
 
-multiplyInner# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Word# -> Int# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Word# #)
-multiplyInner# left mutable leftSize rightWord rightIndex leftIndex carry state =
-  case leftIndex ==# leftSize of
-    1# ->
-      case writeWordArray# mutable (leftSize +# rightIndex) carry state of
-        state1 -> (# state1, carry #)
-    _ ->
-      case timesWord2# (indexWordArray# left leftIndex) rightWord of
-        (# high, low #) ->
-          case readWordArray# mutable (leftIndex +# rightIndex) state of
-            (# state1, existing #) ->
-              case addWordC# low existing of
-                (# partial, carry0 #) ->
-                  case addWordC# partial carry of
-                    (# result, carry1 #) ->
-                      case writeWordArray# mutable (leftIndex +# rightIndex) result state1 of
-                        state2 -> multiplyInner# left mutable leftSize rightWord rightIndex (leftIndex +# 1#) (plusWord# (plusWord# high (int2Word# carry0)) (int2Word# carry1)) state2
+-- | Add the limbs of left from leftIndex, times rightWord, at the position
+-- leftIndex + rightIndex. The carry limb goes to the position
+-- leftSize + rightIndex, which the caller has not written yet.
+multiplyInner# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Word# -> Int# -> Int# -> State# RealWorld -> State# RealWorld
+multiplyInner# left mutable leftSize rightWord rightIndex leftIndex state =
+  case aihcLimbsMulAdd# mutable (leftIndex +# rightIndex) left leftIndex (leftSize -# leftIndex) rightWord state of
+    (# state1, carry #) -> writeWordArray# mutable (leftSize +# rightIndex) carry state1
 
 trimMagnitudeWords# :: MutableByteArray# RealWorld -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
 trimMagnitudeWords# mutable index state =
