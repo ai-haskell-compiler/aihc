@@ -437,8 +437,8 @@ initialInliner config env decls supply =
       inRefs = references,
       inUsers = MonoidMap.fromList [(callee, Set.singleton name) | (name, callees) <- MonoidMap.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
-      inCounts = List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty (Map.elems uses),
-      inCalls = List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty (Map.elems calls),
+      inCounts = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (Map.elems uses),
+      inCalls = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities escaping (Map.elems bodies),
       inEscaping = escaping,
@@ -594,7 +594,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
     -- repeated once per call of the template.
     inTemplates =
       List.foldl'
-        (MonoidMap.unionWith (+))
+        (MonoidMap.unionWith (<>))
         MonoidMap.empty
         [ MonoidMap.fromSet (const calls) references
         | (name, references) <- MonoidMap.toList (inRefs st0),
@@ -821,8 +821,8 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                           updated = if changed then updateBody st name body' else st
                           oldUses = inBodyUses st Map.! name
                           newUses = inBodyUses updated Map.! name
-                          counts' = MonoidMap.unionWith (+) (MonoidMap.unionWith (+) (inCounts st) newUses) (MonoidMap.map negate oldUses)
-                          calls' = MonoidMap.unionWith (+) (MonoidMap.unionWith (+) (inCalls st) (inBodyCalls updated Map.! name)) (MonoidMap.map negate (inBodyCalls st Map.! name))
+                          counts' = MonoidMap.unionWith (<>) (MonoidMap.unionWith (<>) (inCounts st) newUses) (MonoidMap.map negate oldUses)
+                          calls' = MonoidMap.unionWith (<>) (MonoidMap.unionWith (<>) (inCalls st) (inBodyCalls updated Map.! name)) (MonoidMap.map negate (inBodyCalls st Map.! name))
                        in killDead
                             updated
                               { inVisits = visits,
@@ -915,8 +915,8 @@ killDead st names =
           killDead st rest
       | Map.member name (inBodies st) ->
           let uses = inBodyUses st Map.! name
-              counts' = MonoidMap.unionWith (+) (inCounts st) (MonoidMap.map negate uses)
-              calls' = MonoidMap.unionWith (+) (inCalls st) (MonoidMap.map negate (inBodyCalls st Map.! name))
+              counts' = MonoidMap.unionWith (<>) (inCounts st) (MonoidMap.map negate uses)
+              calls' = MonoidMap.unionWith (<>) (inCalls st) (MonoidMap.map negate (inBodyCalls st Map.! name))
            in killDead
                 st
                   { inDead = Set.insert name (inDead st),
@@ -945,8 +945,8 @@ dropUnused st =
       inKnown = Map.restrictKeys (inKnown st) reachable,
       inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
       inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
-      inCounts = List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty (Map.elems uses),
-      inCalls = List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty (Map.elems calls),
+      inCounts = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (Map.elems uses),
+      inCalls = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities (inEscaping st) (Map.elems live),
       inDead = Set.empty
@@ -988,18 +988,18 @@ countTopCalls arities = go
         (ExVar name, args)
           | Just arity <- Map.lookup name arities,
             length [() | Right _ <- args] >= arity ->
-              MonoidMap.unionWith (+) (MonoidMap.singleton name 1) (arguments args)
-        (function, args) -> MonoidMap.unionWith (+) (bare function) (arguments args)
-    arguments args = List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty [go argument | Right argument <- args]
+              MonoidMap.unionWith (<>) (MonoidMap.singleton name 1) (arguments args)
+        (function, args) -> MonoidMap.unionWith (<>) (bare function) (arguments args)
+    arguments args = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty [go argument | Right argument <- args]
     bare expr =
       case expr of
         ExAbsurd scrutinee _ -> go scrutinee
         ExLam _ body -> go body
         ExTyLam _ body -> go body
-        ExLet bind body -> MonoidMap.unionWith (+) (go (bindRhs bind)) (go body)
-        ExRec binds body -> List.foldl' (MonoidMap.unionWith (+)) (go body) (map (go . bindRhs) binds)
-        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (MonoidMap.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
-        ExForeignCall _ _ args -> List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty (map go args)
+        ExLet bind body -> MonoidMap.unionWith (<>) (go (bindRhs bind)) (go body)
+        ExRec binds body -> List.foldl' (MonoidMap.unionWith (<>)) (go body) (map (go . bindRhs) binds)
+        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (MonoidMap.unionWith (<>)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExForeignCall _ _ args -> List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (map go args)
         _ -> MonoidMap.empty
 
 countTopUses :: Expr -> MonoidMap Name (Sum Int)
@@ -1012,16 +1012,16 @@ countTopUses = go
           | otherwise -> MonoidMap.empty
         ExLit {} -> MonoidMap.empty
         ExCoercion {} -> MonoidMap.empty
-        ExApp function argument -> MonoidMap.unionWith (+) (go function) (go argument)
+        ExApp function argument -> MonoidMap.unionWith (<>) (go function) (go argument)
         ExTyApp function _ -> go function
         ExLam _ body -> go body
         ExTyLam _ body -> go body
-        ExLet bind body -> MonoidMap.unionWith (+) (go (bindRhs bind)) (go body)
-        ExRec binds body -> List.foldl' (MonoidMap.unionWith (+)) (go body) (map (go . bindRhs) binds)
-        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (MonoidMap.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExLet bind body -> MonoidMap.unionWith (<>) (go (bindRhs bind)) (go body)
+        ExRec binds body -> List.foldl' (MonoidMap.unionWith (<>)) (go body) (map (go . bindRhs) binds)
+        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (MonoidMap.unionWith (<>)) (go scrutinee) (map (go . altRhs) alternatives)
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
-        ExForeignCall _ _ arguments -> List.foldl' (MonoidMap.unionWith (+)) MonoidMap.empty (map go arguments)
+        ExForeignCall _ _ arguments -> List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (map go arguments)
     isTop name =
       case nameOrigin name of
         OriginTop {} -> True
