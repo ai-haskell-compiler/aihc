@@ -2,6 +2,7 @@
 module Aihc.Fc.Imports
   ( axiomReferences,
     declReferences,
+    declTopReferences,
     exprReferences,
     emptyImports,
     importsForProgramLookup,
@@ -72,7 +73,7 @@ restrictProgramWith available keep program =
   where
     kept = filter keep (programDecls program)
     declared = Set.fromList (concatMap declaredNames kept)
-    roots = foldMap declReferences kept `Set.difference` declared
+    roots = foldl' (declRefs topWalks) Set.empty kept `Set.difference` declared
     needed = closeReferences available declared roots
     imports = mergeImports (programImports program) (importsForNames available needed)
 
@@ -224,23 +225,27 @@ entryAxiomReferences :: Name -> AxiomDecl -> References
 entryAxiomReferences name = Set.delete name . axiomReferences
 
 declReferences :: Decl -> References
-declReferences decl =
+declReferences = declRefs allWalks Set.empty
+
+-- | The top-level names that a declaration names. These are the names
+-- that can be imports.
+declTopReferences :: Decl -> References
+declTopReferences = declRefs topWalks Set.empty
+
+declRefs :: Walks -> References -> Decl -> References
+declRefs walks refs decl =
   case decl of
     DeclType declaration ->
-      foldMap binderReferences (typeBinders declaration)
-        <> typeReferences (typeResult declaration)
-        <> foldMap (typeReferences . conType) (typeCons declaration)
+      foldl' (walkType walks) (foldl' (walkBinder walks) refs (typeBinders declaration)) (typeResult declaration : map conType (typeCons declaration))
     DeclSynonym declaration ->
-      foldMap binderReferences (synBinders declaration)
-        <> typeReferences (synResult declaration)
-        <> typeReferences (synBody declaration)
-    DeclAxiom declaration -> axiomReferences declaration
-    DeclVal declaration -> typeReferences (valType declaration) <> exprReferences (valBody declaration)
+      walkType walks (walkType walks (foldl' (walkBinder walks) refs (synBinders declaration)) (synResult declaration)) (synBody declaration)
+    DeclAxiom declaration -> walkAxiom walks refs declaration
+    DeclVal declaration -> walkExpr walks (walkType walks refs (valType declaration)) (valBody declaration)
     DeclRule declaration ->
-      foldMap binderReferences (ruleTypeBinders declaration <> ruleBinders declaration)
-        <> typeReferences (ruleType declaration)
-        <> exprReferences (ruleLhs declaration)
-        <> exprReferences (ruleRhs declaration)
+      walkExpr
+        walks
+        (walkExpr walks (walkType walks (foldl' (walkBinder walks) refs (ruleTypeBinders declaration <> ruleBinders declaration)) (ruleType declaration)) (ruleLhs declaration))
+        (ruleRhs declaration)
 
 axiomReferences :: AxiomDecl -> References
 axiomReferences = axiomRefs Set.empty
@@ -257,94 +262,125 @@ exprReferences = exprRefs Set.empty
 -- The functions below add the references to a set. Each name goes into
 -- the set one time, without a set for each part of the term.
 
+-- | The walks over the parts of a program, with the function that adds
+-- one name to the set.
+data Walks = Walks
+  { walkAxiom :: References -> AxiomDecl -> References,
+    walkBinder :: References -> Binder -> References,
+    walkType :: References -> Type -> References,
+    walkExpr :: References -> Expr -> References
+  }
+
+-- Each use of 'walksWith' gets its own copy of the walks, with the
+-- function inlined.
+{-# INLINE walksWith #-}
+walksWith :: (Name -> References -> References) -> Walks
+walksWith insert = Walks axiomRefs binderRefs typeRefs exprRefs
+  where
+      axiomRefs refs declaration =
+        typeRefs (typeRefs (foldl' binderRefs refs (axiomBinders declaration)) (axiomLeft declaration)) (axiomRight declaration)
+
+      binderRefs refs = typeRefs refs . binderType
+
+      typeRefs !refs ty =
+        case ty of
+          TyVar name -> insert name refs
+          TyCon name -> insert name refs
+          TyApp function argument -> typeRefs (typeRefs refs function) argument
+          TyFun r1 r2 argument result -> typeRefs (typeRefs (typeRefs (typeRefs refs r1) r2) argument) result
+          TyForAll binder body -> typeRefs (binderRefs refs binder) body
+          TyEq left right -> typeRefs (typeRefs refs left) right
+          TyLit kindName _ -> insert kindName refs
+
+      exprRefs !refs expr =
+        case expr of
+          ExVar name -> insert name refs
+          ExLit literal ty -> typeRefs (literalRefs refs literal) ty
+          ExApp function argument -> exprRefs (exprRefs refs function) argument
+          ExTyApp function argument -> typeRefs (exprRefs refs function) argument
+          ExLam binder body -> exprRefs (binderRefs refs binder) body
+          ExTyLam binder body -> exprRefs (binderRefs refs binder) body
+          ExLet binding body -> exprRefs (bindRefs refs binding) body
+          ExRec bindings body -> exprRefs (foldl' bindRefs refs bindings) body
+          ExCase scrutinee binder alts ->
+            foldl' altRefs (foldl' binderRefs (exprRefs refs scrutinee) binder) alts
+          ExCoercion proof -> coercionRefs refs proof
+          ExAbsurd scrutinee resultType -> typeRefs (exprRefs refs scrutinee) resultType
+          ExCast body coercion -> coercionRefs (exprRefs refs body) coercion
+          ExForeignCall call types arguments ->
+            foldl' exprRefs (foldl' typeRefs (foreignCallRefs refs call) types) arguments
+
+      -- A foreign call carries its own type, so the imported name of the
+      -- foreign import is not a reference. Its type and its dependencies are.
+      foreignCallRefs refs call =
+        foldl' dependencyRefs (typeRefs refs (foreignCallType call)) (foreignCallDependencies call)
+        where
+          dependencyRefs current dependency =
+            case dependency of
+              ForeignAxiom name -> insert name current
+              ForeignConstructor name -> insert name current
+
+      bindRefs refs binding = exprRefs (binderRefs refs (bindBinder binding)) (bindRhs binding)
+
+      altRefs refs alternative =
+        exprRefs
+          ( foldl'
+              binderRefs
+              (foldl' binderRefs (altConRefs refs (altCon alternative)) (altTypeBinders alternative))
+              (altBinders alternative)
+          )
+          (altRhs alternative)
+
+      altConRefs refs altCon =
+        case altCon of
+          AltData name -> insert name refs
+          AltLit literal -> literalRefs refs literal
+          AltDefault -> refs
+
+      literalRefs refs literal =
+        case literal of
+          LitInt representation _ -> typeRefs refs representation
+          LitChar representation _ -> typeRefs refs representation
+          LitAddr representation _ -> typeRefs refs representation
+
+      coercionRefs !refs coercion =
+        case coercion of
+          CoVar name -> insert name refs
+          CoRefl ty -> typeRefs refs ty
+          CoSym inner -> coercionRefs refs inner
+          CoTrans left right -> coercionRefs (coercionRefs refs left) right
+          CoApp function argument -> coercionRefs (coercionRefs refs function) argument
+          CoNth _ proof -> coercionRefs refs proof
+          CoFun domain range -> coercionRefs (coercionRefs refs domain) range
+          CoForAll binder body -> coercionRefs (binderRefs refs binder) body
+          CoTyConApp name arguments -> foldl' coercionRefs (insert name refs) arguments
+          CoAxiom name arguments -> foldl' typeRefs (insert name refs) arguments
+
+-- | Every name: the top-level names and the local ones.
+allWalks :: Walks
+allWalks = walksWith Set.insert
+
+-- | The top-level names only. A local name is never an import, so a walk
+-- that looks for imports does not put the local names in its set.
+topWalks :: Walks
+topWalks = walksWith insertTop
+  where
+    insertTop name refs =
+      case nameOrigin name of
+        OriginLocal {} -> refs
+        OriginTop {} -> Set.insert name refs
+
 axiomRefs :: References -> AxiomDecl -> References
-axiomRefs refs declaration =
-  typeRefs (typeRefs (foldl' binderRefs refs (axiomBinders declaration)) (axiomLeft declaration)) (axiomRight declaration)
+axiomRefs = walkAxiom allWalks
 
 binderRefs :: References -> Binder -> References
-binderRefs refs = typeRefs refs . binderType
+binderRefs = walkBinder allWalks
 
 typeRefs :: References -> Type -> References
-typeRefs !refs ty =
-  case ty of
-    TyVar name -> Set.insert name refs
-    TyCon name -> Set.insert name refs
-    TyApp function argument -> typeRefs (typeRefs refs function) argument
-    TyFun r1 r2 argument result -> typeRefs (typeRefs (typeRefs (typeRefs refs r1) r2) argument) result
-    TyForAll binder body -> typeRefs (binderRefs refs binder) body
-    TyEq left right -> typeRefs (typeRefs refs left) right
-    TyLit kindName _ -> Set.insert kindName refs
+typeRefs = walkType allWalks
 
 exprRefs :: References -> Expr -> References
-exprRefs !refs expr =
-  case expr of
-    ExVar name -> Set.insert name refs
-    ExLit literal ty -> typeRefs (literalRefs refs literal) ty
-    ExApp function argument -> exprRefs (exprRefs refs function) argument
-    ExTyApp function argument -> typeRefs (exprRefs refs function) argument
-    ExLam binder body -> exprRefs (binderRefs refs binder) body
-    ExTyLam binder body -> exprRefs (binderRefs refs binder) body
-    ExLet binding body -> exprRefs (bindRefs refs binding) body
-    ExRec bindings body -> exprRefs (foldl' bindRefs refs bindings) body
-    ExCase scrutinee binder alts ->
-      foldl' altRefs (foldl' binderRefs (exprRefs refs scrutinee) binder) alts
-    ExCoercion proof -> coercionRefs refs proof
-    ExAbsurd scrutinee resultType -> typeRefs (exprRefs refs scrutinee) resultType
-    ExCast body coercion -> coercionRefs (exprRefs refs body) coercion
-    ExForeignCall call types arguments ->
-      foldl' exprRefs (foldl' typeRefs (foreignCallRefs refs call) types) arguments
-
--- A foreign call carries its own type, so the imported name of the
--- foreign import is not a reference. Its type and its dependencies are.
-foreignCallRefs :: References -> ForeignCall -> References
-foreignCallRefs refs call =
-  foldl' dependencyRefs (typeRefs refs (foreignCallType call)) (foreignCallDependencies call)
-  where
-    dependencyRefs current dependency =
-      case dependency of
-        ForeignAxiom name -> Set.insert name current
-        ForeignConstructor name -> Set.insert name current
-
-bindRefs :: References -> Bind -> References
-bindRefs refs binding = exprRefs (binderRefs refs (bindBinder binding)) (bindRhs binding)
-
-altRefs :: References -> Alt -> References
-altRefs refs alternative =
-  exprRefs
-    ( foldl'
-        binderRefs
-        (foldl' binderRefs (altConRefs refs (altCon alternative)) (altTypeBinders alternative))
-        (altBinders alternative)
-    )
-    (altRhs alternative)
-
-altConRefs :: References -> AltCon -> References
-altConRefs refs altCon =
-  case altCon of
-    AltData name -> Set.insert name refs
-    AltLit literal -> literalRefs refs literal
-    AltDefault -> refs
-
-literalRefs :: References -> Literal -> References
-literalRefs refs literal =
-  case literal of
-    LitInt representation _ -> typeRefs refs representation
-    LitChar representation _ -> typeRefs refs representation
-    LitAddr representation _ -> typeRefs refs representation
-
-coercionRefs :: References -> Coercion -> References
-coercionRefs !refs coercion =
-  case coercion of
-    CoVar name -> Set.insert name refs
-    CoRefl ty -> typeRefs refs ty
-    CoSym inner -> coercionRefs refs inner
-    CoTrans left right -> coercionRefs (coercionRefs refs left) right
-    CoApp function argument -> coercionRefs (coercionRefs refs function) argument
-    CoNth _ proof -> coercionRefs refs proof
-    CoFun domain range -> coercionRefs (coercionRefs refs domain) range
-    CoForAll binder body -> coercionRefs (binderRefs refs binder) body
-    CoTyConApp name arguments -> foldl' coercionRefs (Set.insert name refs) arguments
-    CoAxiom name arguments -> foldl' typeRefs (Set.insert name refs) arguments
+exprRefs = walkExpr allWalks
 
 -- | Keep only the imports that the declarations reach. Normalization and
 -- inlining drop bindings, and with them the last use of an import.
@@ -354,7 +390,8 @@ coercionRefs !refs coercion =
 pruneImports :: Program -> Program
 pruneImports program = program {programImports = imports'}
   where
-    direct = foldMap declReferences (programDecls program)
+    -- Only a top-level name can be an import.
+    direct = foldl' (declRefs topWalks) Set.empty (programDecls program)
     declared = Set.fromList (concatMap declaredNames (programDecls program))
     newTuples =
       Set.fromList

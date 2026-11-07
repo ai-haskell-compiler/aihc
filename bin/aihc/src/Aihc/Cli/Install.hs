@@ -133,7 +133,7 @@ import Aihc.Cli.TaskGraph
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
-import Aihc.Fc.Imports (declReferences)
+import Aihc.Fc.Imports (declTopReferences)
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
@@ -3084,11 +3084,19 @@ readUnitInterfaces context runtime programs
       outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name)
         : providerInterfacePaths provider name
     ownPackage = packageId (taskResolvePackage context)
+    -- Many values come from one module, so the modules come first, and
+    -- each module gives its path one time.
     referenced inputs =
       [ path
-      | value <- Set.toList (foldMap (foldMap declReferences . Fc.programDecls) inputs),
-        Fc.nameSort value == Fc.SortValue,
-        Fc.OriginTop identity name <- [Fc.nameOrigin value],
+      | (identity, name) <-
+          Set.toList
+            ( Set.fromList
+                [ (identity, name)
+                | value <- Set.toList (foldMap (foldMap declTopReferences . Fc.programDecls) inputs),
+                  Fc.nameSort value == Fc.SortValue,
+                  Fc.OriginTop identity name <- [Fc.nameOrigin value]
+                ]
+            ),
         path <-
           if identity == ownPackage
             then [outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name) | name `notElem` own]
