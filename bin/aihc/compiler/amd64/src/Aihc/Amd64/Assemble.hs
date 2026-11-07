@@ -133,6 +133,8 @@ data Amd64MoveSource
 data Amd64StoreSource
   = Amd64StoreRegister !Amd64Register
   | Amd64StoreImmediate !Integer
+  | -- | The address of a symbol, as a sign-extended 32-bit constant.
+    Amd64StoreSymbol !Text
   deriving (Eq, Show)
 
 data Amd64BinarySource
@@ -240,6 +242,8 @@ data Amd64Instruction
     -- 8-byte form sign-extends a 32-bit constant.
     AmdCmpMemory !Int !Amd64Memory !Integer
   | AmdTest !Amd64Rm !Amd64Register
+  | -- | @test r/m32, imm32@: the flags of the low 32 bits and a mask.
+    AmdTestImmediate !Amd64Rm !Integer
   | AmdShl !Amd64Rm
   | AmdShr !Amd64Rm
   | -- | Shifts by an immediate count.
@@ -485,6 +489,7 @@ encodeInstruction instruction =
     AmdTest left right -> encodeRm (registerWidth register == 64) [0x85] (registerNumber register) (rmOperand left) False []
       where
         register = registerInfo right
+    AmdTestImmediate left mask -> encodeGroup False [0xf7] 0 (rmOperand left) (word32List (fromIntegral mask))
     AmdShl destination -> encodeGroup True [0xd3] 4 (rmOperand destination) []
     AmdShr destination -> encodeGroup True [0xd3] 5 (rmOperand destination) []
     AmdShlImmediate destination count -> encodeGroup True [0xc1] 4 (rmOperand destination) [fromIntegral count]
@@ -625,6 +630,7 @@ encodeStore destination source =
       let sourceRegister = registerInfo sourceValue
        in encodeRm (registerWidth sourceRegister == 64) [0x89] (registerNumber sourceRegister) (memoryOperand destination) False []
     Amd64StoreImmediate immediate -> encodeGroup True [0xc7] 0 (memoryOperand destination) (word32List (fromIntegral immediate))
+    Amd64StoreSymbol symbol -> encodeGroup True [0xc7] 0 (memoryOperand destination) [] <> [Apply (Fixup X86Abs32S (SymbolName symbol) 0 4 0)]
 
 encodeRegisterSource :: Bool -> [Word8] -> Amd64Register -> Amd64Rm -> [Item]
 encodeRegisterSource width64 destinationOpcode destinationSource source =
