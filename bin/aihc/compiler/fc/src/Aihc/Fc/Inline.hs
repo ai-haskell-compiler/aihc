@@ -168,6 +168,10 @@ data InlineConfig = InlineConfig
     -- | The values the program must keep. 'Nothing' keeps every public
     -- value. A root that the program does not declare has no effect.
     inlineRoots :: !(Maybe [Name]),
+    -- | The public values that are copies of the values of other modules.
+    -- They stay public for the decisions of a site, but the pass removes
+    -- one that no kept value reaches.
+    inlineImported :: !(Set Name),
     -- | The largest number of walks over the program.
     inlineRounds :: !Int,
     -- | The phase the pass runs in, which decides the rules that fire.
@@ -402,6 +406,9 @@ data Inliner = Inliner
     -- for the next round.
     inChanged :: !Bool,
     inRoots :: !(Set Name),
+    -- | The values the pass must keep: the roots without the imported
+    -- copies, which stay only while a kept value reaches them.
+    inKept :: !(Set Name),
     -- | The rules that fire in this pass, by head.
     inRules :: !RuleTable,
     -- | The values that the left-hand side of a rule names. The rules do
@@ -453,6 +460,7 @@ initialInliner config env decls supply =
       inSites = 0,
       inChanged = False,
       inRoots = roots,
+      inKept = Set.filter (`Map.member` declarations) ruleReferences <> Set.difference roots (inlineImported config),
       inRules = rules,
       inRuleLhsNames = lhsNames,
       inRuleNames = lhsNames <> Set.unions [exprValueNames (ruleRhs rule) | entries <- Map.elems rules, rule <- entries],
@@ -916,7 +924,7 @@ killDead st names =
     [] -> st
     name : rest
       | name `Set.member` inDead st
-          || name `Set.member` inRoots st
+          || name `Set.member` inKept st
           || MonoidMap.get name (inCounts st) > 0 ->
           killDead st rest
       | Map.member name (inBodies st) ->
@@ -974,7 +982,7 @@ dropUnused st =
         (\cached caller -> MonoidMap.set caller (countTopCalls arities (live Map.! caller)) cached)
         (MonoidMap.nullifyKeysNotIn reachable (inBodyCalls st))
         (Set.toList affected)
-    reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inRoots st)))
+    reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inKept st)))
     close visited pending =
       case pending of
         [] -> visited

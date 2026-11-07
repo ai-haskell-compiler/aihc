@@ -3343,8 +3343,8 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
         -- imports. A module of the same unit is in a cycle with this one,
         -- so it offers nothing: its own passes have not run.
         optimized <- forM (pendingFcModules pending) $ \fcModule -> do
-          let env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing}
-              grafted = Fc.graftIndexed index (fcProgram fcModule)
+          let grafted = Fc.graftIndexed index (fcProgram fcModule)
+              env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted}
           unless (null interfaces) $
             verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedExported grafted) + Set.size (Fc.graftedPrivate grafted)) <> " values")
           program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
