@@ -110,6 +110,7 @@ import Aihc.Cli.ModuleProvider
     providerModuleOrigin,
     providerOriginInterfacePath,
     providerPackagesOf,
+    providerReadInterface,
     providerResolved,
     providerTyped,
   )
@@ -3116,12 +3117,14 @@ readUnitInterfaces context runtime programs
       if not exists
         then pure []
         else do
-          loaded <- Fc.readProgramFile path
-          case loaded of
-            Left message -> ioError (userError ("Invalid System FC interface " <> T.unpack message))
-            Right program -> do
-              compileVerbose config ("Read FC interface: " <> path)
-              pure [(path, program)]
+          program <- providerReadInterface provider path $ do
+            loaded <- Fc.readProgramFile path
+            case loaded of
+              Left message -> ioError (userError ("Invalid System FC interface " <> T.unpack message))
+              Right program -> do
+                compileVerbose config ("Read FC interface: " <> path)
+                pure program
+          pure [(path, program)]
 
 unitStampDirectory :: FilePath
 unitStampDirectory = ".units"

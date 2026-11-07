@@ -21,6 +21,7 @@ module Aihc.Cli.ModuleProvider
     providerResolved,
     providerTyped,
     providerInstanceFacts,
+    providerReadInterface,
     moduleNameDirectory,
   )
 where
@@ -30,6 +31,7 @@ import Aihc.Cli.Memo (newMemo)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc (interfaceFileName)
+import Aihc.Fc qualified as Fc
 import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
 import Aihc.Tc (MergeCheck (..), TcInterface, mergeTcInterfaces)
 import Control.DeepSeq (NFData (..), force)
@@ -99,7 +101,11 @@ data ModuleProvider = ModuleProvider
     providerReexports :: Map ModuleKey (PackageId, Text),
     -- | The instance facts of the given providers, merged as a unit merges
     -- the facts of the units below it.
-    providerInstanceFacts :: Set InstanceProvider -> IO TcInterface
+    providerInstanceFacts :: Set InstanceProvider -> IO TcInterface,
+    -- | Decode an optimizer interface with the given action one time for
+    -- each path. The caller reads only a file that exists, so the cache
+    -- never holds an interface that a running unit has not written yet.
+    providerReadInterface :: FilePath -> IO Fc.Program -> IO Fc.Program
   }
 
 -- | The dependency packages that expose a module of the name.
@@ -137,12 +143,16 @@ data ProviderCache = ProviderCache
     -- | The key is the package directory and the module name.
     cacheResolved :: (FilePath, Text) -> IO ResolvedModuleFacts -> IO ResolvedModuleFacts,
     cacheTyped :: (FilePath, Text) -> IO TypedModuleFacts -> IO TypedModuleFacts,
-    cacheFacts :: FilePath -> IO TypeArtifact -> IO TypeArtifact
+    cacheFacts :: FilePath -> IO TypeArtifact -> IO TypeArtifact,
+    -- | The key is the path of an optimizer interface. Each unit reads the
+    -- interfaces of the modules it imports, and many units import one
+    -- module, so the cache decodes each interface one time.
+    cacheInterfaces :: FilePath -> IO Fc.Program -> IO Fc.Program
   }
 
 -- | An empty cache for the providers of one graph.
 newProviderCache :: IO ProviderCache
-newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo
+newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo <*> newMemo
 
 -- | A provider over the dependencies of a package, each with the modules
 -- it exposes and where its facts come from, and the locator for every
@@ -242,7 +252,8 @@ newModuleProvider cache locator dependencies = do
         providerTyped = typed,
         providerRoots = Map.mapMaybe sourceRoot (Map.union sources locator),
         providerReexports = reexports,
-        providerInstanceFacts = instanceFacts
+        providerInstanceFacts = instanceFacts,
+        providerReadInterface = cacheInterfaces cache
       }
 
 readTypeArtifactFile :: FilePath -> IO TypeArtifact
