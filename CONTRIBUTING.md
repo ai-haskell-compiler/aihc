@@ -2,8 +2,10 @@
 
 Thank you for your interest in AIHC.
 This document tells you how to make a change and how to get it merged.
-The file [AGENTS.md](AGENTS.md) gives the full rules for code, tests, and text.
-Humans and AI agents obey the same rules.
+The file [AGENTS.md](AGENTS.md) gives the rules for AI agents.
+The sections on component boundaries, tests, and commits also apply to human contributors.
+The language rule of ASD-STE100 does not apply to human contributors.
+Write in plain English.
 
 ## Who can contribute
 
