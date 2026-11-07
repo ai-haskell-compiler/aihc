@@ -3448,13 +3448,16 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
 -- call types: equal calls are equal values.
 optimizeFcProgram :: Fc.PassEnv -> ModuleCompileConfig -> (String -> IO ()) -> Text -> Fc.Program -> IO Fc.Program
 optimizeFcProgram env config verbose name input =
-  Fc.canonicalForeignCalls <$> foldM step input (compilePasses config)
+  Fc.canonicalForeignCalls . Fc.finishPasses (compilePasses config) <$> foldM step input (compilePasses config)
   where
     primPackage = Fc.envPrimPackage env
     step program pass = do
       let (program', report) = Fc.runPass env pass program
       verbose (renderPassReport name report)
-      lintOptimized primPackage config (T.unpack (Fc.reportPass report)) name program'
+      -- The passes keep the imports that the program no longer reaches,
+      -- and the lint rejects such an import, so the lint sees the program
+      -- that the plan would give after this pass.
+      lintOptimized primPackage config (T.unpack (Fc.reportPass report)) name (Fc.finishPasses [pass] program')
       pure program'
 
 -- | One log line for a pass: its name, the program, the sizes before and

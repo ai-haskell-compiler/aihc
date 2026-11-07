@@ -3,7 +3,7 @@
 -- | Express local list producers with foldr/build before list fusion.
 module Aihc.Fc.ListFusion (listFusionProgram) where
 
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (collectSpine, exprValueNames, maxLocalUnique)
 import Aihc.Fc.Syntax
@@ -24,7 +24,7 @@ listFusionProgram primPackage program =
   case libraryPair of
     Just (build, foldrName) ->
       let (decls, (_, count)) = runState (mapM (onDecl build foldrName) (programDecls program)) (maxLocalUnique program + 1, 0)
-       in (pruneImports program {programDecls = decls}, count)
+       in (addTupleImports program {programDecls = decls}, count)
     _ -> (program, 0)
   where
     env = typeEnvFromProgram primPackage program

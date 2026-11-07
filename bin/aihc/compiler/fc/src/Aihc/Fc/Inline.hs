@@ -40,7 +40,7 @@ import Aihc.Fc.Demand (Signatures, topLevelSignatures)
 import Aihc.Fc.Diverge (Diverging, divergingValues)
 import Aihc.Fc.Facts (emptyFacts)
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (RuleTable, ruleActiveIn, ruleTable)
 import Aihc.Fc.Simplify
@@ -199,7 +199,7 @@ inlineProgram primPackage config program =
       decls = rebuildDecls lifted final
       result =
         tidyProgram
-          ( pruneImports
+          ( addTupleImports
               program {programDecls = decls}
           )
       report =

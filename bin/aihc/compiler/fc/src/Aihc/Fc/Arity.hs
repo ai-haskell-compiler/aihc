@@ -69,7 +69,7 @@ where
 import Aihc.Fc.Diverge (Diverging, diverges, divergingValues)
 import Aihc.Fc.Fold (isCheapPrimitive)
 import Aihc.Fc.FullLaziness (sharedAtTop)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
@@ -1036,7 +1036,7 @@ etaExpandProgram primPackage roots program =
    in -- An expansion names the axiom of every newtype it unfolded, and
       -- a merged whole program arrives with imports that no longer
       -- match its declarations, so the import table is rebuilt here.
-      (pruneImports program {programDecls = decls}, report)
+      (addTupleImports program {programDecls = decls}, report)
 
 -- | Drop each one-shot copy that takes no more lambdas than its value
 -- after the expansion. Such a copy only grows the program. Its callers

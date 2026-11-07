@@ -18,6 +18,7 @@ module Aihc.Fc.Pass
     passPhase,
     runPass,
     runPasses,
+    finishPasses,
   )
 where
 
@@ -27,6 +28,7 @@ import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
+import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.FullLaziness (floatRootLetsProgram, fullLazinessProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.ListFusion (listFusionProgram)
@@ -334,11 +336,20 @@ runPass env pass program =
     home = envHome env
     count n what = T.pack (show n) <> " " <> what
 
+-- | Drop the imports that the program no longer reaches. The passes keep
+-- every import and add the unboxed tuples they make (see
+-- 'Aihc.Fc.Imports.addTupleImports'), so a plan prunes one time, after its
+-- last pass. A plan without passes leaves the program as it is.
+finishPasses :: [Pass] -> Program -> Program
+finishPasses passes program
+  | null passes = program
+  | otherwise = pruneImports program
+
 -- | Run the passes in order, and collect the report of each.
 runPasses :: PassEnv -> [Pass] -> Program -> (Program, [PassReport])
 runPasses env passes program0 =
   let (final, reports) = List.foldl' step (program0, []) passes
-   in (canonicalForeignCalls final, reverse reports)
+   in (canonicalForeignCalls (finishPasses passes final), reverse reports)
   where
     step (program, reports) pass =
       let (program', report) = runPass env pass program

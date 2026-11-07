@@ -82,7 +82,7 @@ import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, exprType
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeCaseAlternatives)
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
@@ -176,7 +176,7 @@ simplifyProgram primPackage phase siteLimit program =
              in (\body -> DeclVal declaration {valBody = body}) <$> (simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration) >>= shareAlternatives env)
           _ -> pure decl
       (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
-      result = tidyProgram (pruneImports (floatBottoms env diverging program {programDecls = decls}))
+      result = tidyProgram (addTupleImports (floatBottoms env diverging program {programDecls = decls}))
    in (result, SimplifyReport size0 (programSize primPackage result) (ssRulesFired final))
   where
     size0 = programSize primPackage program

@@ -1,6 +1,7 @@
 -- | Select and check the facts that a System FC program imports.
 module Aihc.Fc.Imports
-  ( axiomReferences,
+  ( addTupleImports,
+    axiomReferences,
     declReferences,
     declTopReferences,
     exprReferences,
@@ -382,6 +383,47 @@ typeRefs = walkType allWalks
 exprRefs :: References -> Expr -> References
 exprRefs = walkExpr allWalks
 
+-- | Add the imports of each unboxed tuple that the declarations name and
+-- that the program neither imports nor declares. A pass can make an
+-- unboxed tuple that the program did not use before, and the passes that
+-- follow need its type.
+--
+-- The passes call this, and not 'pruneImports'. An import that no
+-- declaration reaches any more does no harm to a pass, and a pass never
+-- needs an import that 'pruneImports' would add: it adds the tuples only.
+-- Thus the plan prunes one time, after its last pass. This walk puts only
+-- the names of unboxed tuples in its set, so it costs much less than the
+-- walk of 'pruneImports'.
+addTupleImports :: Program -> Program
+addTupleImports program
+  | null newTuples = program
+  | otherwise = program {programImports = foldr (mergeImports . tupleImportsFor) (programImports program) newTuples}
+  where
+    tuples = foldl' (declRefs tupleWalks) Set.empty (programDecls program)
+    imported = importHeaders (programImports program)
+    candidates = [name | name <- Set.toList tuples, Map.notMember name imported]
+    declared = Set.fromList (concatMap declaredNames (programDecls program))
+    newTuples =
+      if null candidates
+        then []
+        else Set.toList (Set.fromList [found | name <- candidates, Set.notMember name declared, Just found <- [unboxedTupleArity name]])
+    tupleWalks = walksWith insertTuple
+    insertTuple name refs =
+      case nameSort name of
+        SortTypeConstructor | isTuple name -> Set.insert name refs
+        SortDataConstructor | isTuple name -> Set.insert name refs
+        _ -> refs
+    isTuple name = case unboxedTupleArity name of
+      Just _ -> True
+      Nothing -> False
+
+-- | The imports of the unboxed tuple of a package and an arity.
+tupleImportsFor :: (PackageId, Int) -> Imports
+tupleImportsFor (package, arity) =
+  let declaration = unboxedTupleDecl package arity
+      env = typeEnvFromProgram package (Program emptyImports [DeclType declaration])
+   in importsForNames env (Set.fromList (typeName declaration : map conName (typeCons declaration)))
+
 -- | Keep only the imports that the declarations reach. Normalization and
 -- inlining drop bindings, and with them the last use of an import.
 --
@@ -401,11 +443,7 @@ pruneImports program = program {programImports = imports'}
           Set.notMember name declared,
           Just found <- [unboxedTupleArity name]
         ]
-    imports = foldr (mergeImports . tupleImports) (programImports program) (Set.toList newTuples)
-    tupleImports (package, arity) =
-      let declaration = unboxedTupleDecl package arity
-          env = typeEnvFromProgram package (Program emptyImports [DeclType declaration])
-       in importsForNames env (Set.fromList (typeName declaration : map conName (typeCons declaration)))
+    imports = foldr (mergeImports . tupleImportsFor) (programImports program) (Set.toList newTuples)
     used = close Set.empty (Set.toList direct)
     -- Each name comes in one time, and brings the references of its own
     -- imports. A nominal equation comes in with a name of its left side.
