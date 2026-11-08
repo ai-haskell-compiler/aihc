@@ -286,6 +286,44 @@ in {
       exec bash ./scripts/self-hosting-progress.sh "$@"
     '';
 
+  # Compile new Hackage packages with GHC and aihc, and add the results to
+  # docs/hackage-survey.md. The GHC build uses the cabal-install and GHC of
+  # the project. The C libraries and pkg-config serve packages that bind to
+  # zlib, libffi, or ncurses.
+  hackage-survey =
+    mkAppWithInputs "hackage-survey" [
+      pkgs.bash
+      pkgs.cabal-install
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.findutils
+      pkgs.gawk
+      pkgs.gnugrep
+      pkgs.gnused
+      pkgs.pkg-config
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang
+      pkgs.haskellPackages.hsc2hs
+      pkgs.haskellPackages.happy
+      pkgs.haskellPackages.alex
+      hsPkgs.ghc
+    ] ''
+      set -euo pipefail
+      ${repoRootGuard}
+      # GHCRTS=-N would stop the ghc-pkg of GHC, which is not threaded, so
+      # the script gives the option to aihc only.
+      export AIHC_GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC="''${AIHC:-${aihcExe}}"
+      export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
+      export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+      export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" selfHostingCLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      exec bash ./scripts/hackage-survey.sh "$@"
+    '';
+
   # One stage of the self-compile. Stage 0 is the GHC-built aihc, so AIHC
   # defaults to it. To build a later stage, set AIHC to the previous stage.
   self-compile-stage =
