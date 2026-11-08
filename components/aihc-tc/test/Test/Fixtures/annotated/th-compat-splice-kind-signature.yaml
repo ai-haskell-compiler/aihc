@@ -4,8 +4,8 @@ annotated:
   module Test where
   import GHC.Types (RuntimeRep, TYPE, Type, Int)
   newtype TExp (a :: TYPE r) = TExp Int
-          │                    └─ type: ∀ k0 a. GHC.Types.Int → TExp a
-          └─ type: GHC.Types.TYPE k0 → Type
+          │                    └─ type: ∀ r a. GHC.Types.Int → TExp a
+          └─ type: GHC.Types.TYPE r → Type
   type Code :: (Type -> Type) -> forall r. TYPE r -> Type
   newtype Code m a = Code (m (TExp a))
           │          └─ type: ∀ r m a. m (TExp a) → Code m a
