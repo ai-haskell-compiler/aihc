@@ -52,9 +52,13 @@ castedSpine = go []
 exprValueNames :: Expr -> Set Name
 exprValueNames = go Set.empty
   where
+    -- A name that the set holds stays: an insert of an equal name would
+    -- copy the path to it.
     go !names expr =
       case expr of
-        ExVar name -> Set.insert name names
+        ExVar name
+          | Set.member name names -> names
+          | otherwise -> Set.insert name names
         ExLit {} -> names
         ExCoercion {} -> names
         ExApp function argument -> go (go names function) argument

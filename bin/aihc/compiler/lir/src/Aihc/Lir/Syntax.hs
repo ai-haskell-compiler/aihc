@@ -1,3 +1,5 @@
+{-# LANGUAGE MagicHash #-}
+
 -- | Lir: the low-level intermediate language between GC-GRIN and the machine
 -- backends. See @docs/lir.md@ for the specification.
 --
@@ -6,6 +8,7 @@
 -- instructions.
 module Aihc.Lir.Syntax
   ( Module (..),
+    sameObject,
     Item (..),
     Symbol (..),
     Var (..),
@@ -66,6 +69,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
 import Data.Text (Text)
+import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 
 -- | A whole Lir module. Item order is preserved by the pretty-printer.
 newtype Module = Module
@@ -610,3 +614,11 @@ mapTerminator operand label onReturn terminator =
        in case switchCase of
             SwitchCase value _ -> SwitchCase value target
             SwitchCaseConstant symbol _ -> SwitchCaseConstant symbol target
+
+-- | Whether two values are the same heap object. A pass that gives its
+-- function back as it is lets the pipeline keep what it knows about the
+-- function. Two different objects can be equal, so a 'False' only means
+-- that the pass made a new object.
+sameObject :: a -> a -> Bool
+sameObject left right = isTrue# (reallyUnsafePtrEquality# left right)
+{-# INLINE sameObject #-}

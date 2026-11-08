@@ -24,6 +24,7 @@ module Aihc.Fc.TypeOf
     lookupBinderType,
     lookupHeaderType,
     extendBinder,
+    extendBinders,
     substType,
     substTypes,
     reduceType,
@@ -286,9 +287,18 @@ extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =
   env {teBinders = Map.insert (binderName binder) (binderType binder) (teBinders env)}
 
+-- | Put binders in scope with one new environment.
+extendBinders :: TypeEnv -> [Binder] -> TypeEnv
+extendBinders env binders =
+  case binders of
+    [] -> env
+    _ -> env {teBinders = List.foldl' (\scope binder -> Map.insert (binderName binder) (binderType binder) scope) (teBinders env) binders}
+
 substType :: Name -> Type -> Type -> Type
 substType target replacement = go
   where
+    -- A part without the variable stays the same object, so the result
+    -- shares every part of the input that does not change.
     go ty =
       case ty of
         TyVar name
@@ -296,40 +306,77 @@ substType target replacement = go
           | otherwise -> ty
         TyCon {} -> ty
         TyLit {} -> ty
-        TyApp function argument -> TyApp (go function) (go argument)
-        TyFun r1 r2 argument result -> TyFun (go r1) (go r2) (go argument) (go result)
+        TyApp function argument ->
+          let !function' = go function
+              !argument' = go argument
+           in if sameObject function function' && sameObject argument argument' then ty else TyApp function' argument'
+        TyFun r1 r2 argument result ->
+          let !r1' = go r1
+              !r2' = go r2
+              !argument' = go argument
+              !result' = go result
+           in if sameObject r1 r1' && sameObject r2 r2' && sameObject argument argument' && sameObject result result' then ty else TyFun r1' r2' argument' result'
         TyForAll binder body
-          | binderName binder == target -> TyForAll binder {binderType = go (binderType binder)} body
+          | binderName binder == target -> rebuildForAll ty binder (go (binderType binder)) body
           | binderName binder `elem` typeVariableNames replacement ->
               let freshName = freshTypeVariableName (binderName binder) (target : typeVariableNames replacement <> typeVariableNames body)
                   freshBinder = binder {binderName = freshName, binderType = go (binderType binder)}
                   freshBody = substType (binderName binder) (TyVar freshName) body
                in TyForAll freshBinder (go freshBody)
-          | otherwise -> TyForAll binder {binderType = go (binderType binder)} (go body)
-        TyEq left right -> TyEq (go left) (go right)
+          | otherwise ->
+              let !kind' = go (binderType binder)
+                  !body' = go body
+               in if sameObject (binderType binder) kind' && sameObject body body' then ty else TyForAll binder {binderType = kind'} body'
+        TyEq left right ->
+          let !left' = go left
+              !right' = go right
+           in if sameObject left left' && sameObject right right' then ty else TyEq left' right'
+
+-- | A forall whose body stays, with a new kind of its binder when the
+-- kind changed.
+rebuildForAll :: Type -> Binder -> Type -> Type -> Type
+rebuildForAll ty binder kind' body
+  | sameObject (binderType binder) kind' = ty
+  | otherwise = TyForAll binder {binderType = kind'} body
 
 -- | Substitute types at the same time.
 substTypes :: Map Name Type -> Type -> Type
 substTypes = go
   where
-    go current ty =
-      case ty of
-        TyVar name -> Map.findWithDefault ty name current
-        TyCon {} -> ty
-        TyLit {} -> ty
-        TyApp function argument -> TyApp (go current function) (go current argument)
-        TyFun r1 r2 argument result -> TyFun (go current r1) (go current r2) (go current argument) (go current result)
-        TyForAll binder body
-          | binderName binder `elem` concatMap typeVariableNames (Map.elems bodySubstitutions) ->
-              let usedNames = Map.keys current <> concatMap typeVariableNames (Map.elems current) <> typeVariableNames body
-                  freshName = freshTypeVariableName (binderName binder) usedNames
-                  freshBinder = binder {binderName = freshName, binderType = go current (binderType binder)}
-                  freshBody = substType (binderName binder) (TyVar freshName) body
-               in TyForAll freshBinder (go (Map.delete freshName bodySubstitutions) freshBody)
-          | otherwise -> TyForAll binder {binderType = go current (binderType binder)} (go bodySubstitutions body)
-          where
-            bodySubstitutions = Map.delete (binderName binder) current
-        TyEq left right -> TyEq (go current left) (go current right)
+    go current ty
+      | Map.null current = ty
+      | otherwise =
+          case ty of
+            TyVar name -> Map.findWithDefault ty name current
+            TyCon {} -> ty
+            TyLit {} -> ty
+            TyApp function argument ->
+              let !function' = go current function
+                  !argument' = go current argument
+               in if sameObject function function' && sameObject argument argument' then ty else TyApp function' argument'
+            TyFun r1 r2 argument result ->
+              let !r1' = go current r1
+                  !r2' = go current r2
+                  !argument' = go current argument
+                  !result' = go current result
+               in if sameObject r1 r1' && sameObject r2 r2' && sameObject argument argument' && sameObject result result' then ty else TyFun r1' r2' argument' result'
+            TyForAll binder body
+              | binderName binder `elem` concatMap typeVariableNames (Map.elems bodySubstitutions) ->
+                  let usedNames = Map.keys current <> concatMap typeVariableNames (Map.elems current) <> typeVariableNames body
+                      freshName = freshTypeVariableName (binderName binder) usedNames
+                      freshBinder = binder {binderName = freshName, binderType = go current (binderType binder)}
+                      freshBody = substType (binderName binder) (TyVar freshName) body
+                   in TyForAll freshBinder (go (Map.delete freshName bodySubstitutions) freshBody)
+              | otherwise ->
+                  let !kind' = go current (binderType binder)
+                      !body' = go bodySubstitutions body
+                   in if sameObject (binderType binder) kind' && sameObject body body' then ty else TyForAll binder {binderType = kind'} body'
+              where
+                bodySubstitutions = Map.delete (binderName binder) current
+            TyEq left right ->
+              let !left' = go current left
+                  !right' = go current right
+               in if sameObject left left' && sameObject right right' then ty else TyEq left' right'
 
 typeVariableNames :: Type -> [Name]
 typeVariableNames ty =
@@ -422,10 +469,18 @@ reduceTypeWith families env ty =
     -- is cheap, and most types fail it, so the reductions come after it.
     reduceFamily reduced
       | families,
-        Just family <- typeHead reduced,
-        Map.member family (teFamilyAxioms env) || builtinFamilyName family =
+        familyHeaded reduced,
+        Just family <- typeHead reduced =
           reduceKnownFamily family reduced
       | otherwise = reduced
+    -- Whether the head of the spine names a family. The test walks the
+    -- spine and allocates nothing, so the head is taken only for the few
+    -- types that pass it.
+    familyHeaded reduced =
+      case reduced of
+        TyCon name -> Map.member name (teFamilyAxioms env) || builtinFamilyName name
+        TyApp function _ -> familyHeaded function
+        _ -> False
     reduceKnownFamily family reduced
       | Just result <- builtinFamily env reduced =
           reduceTypeWith families env result

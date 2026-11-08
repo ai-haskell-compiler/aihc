@@ -92,7 +92,7 @@ import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, extendBinders, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprMentionsAny, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (liftedRepName, wiredGhcTypes)
 import Aihc.Resolve (PackageId)
@@ -2569,19 +2569,37 @@ hasLocalCandidate = go
 shadowNames :: [Name] -> Simpl -> Simpl
 shadowNames names env
   | null names = env
+  -- The maps keep their object when they hold none of the names, and the
+  -- environment then keeps its own.
+  | sameObject evaluated (spEvaluated env)
+      && sameObject locals (spLocals env)
+      && sameObject dictionaries (spLocalDictionaries env)
+      && sameObject done (spDone env)
+      && sameObject cse (spCse env)
+      && sameObject excluded (spExcluded env)
+      && null captured
+      && sameObject facts (spFacts env) =
+      env
   | otherwise =
       env
-        { spEvaluated = List.foldl' (flip Set.delete) (spEvaluated env) names,
-          spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
-          spLocalDictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names,
-          spDone = List.foldl' (flip Map.delete) (spDone env) names,
-          spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
-          spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
+        { spEvaluated = evaluated,
+          spLocals = locals,
+          spLocalDictionaries = dictionaries,
+          spDone = done,
+          spCse = cse,
+          spExcluded = excluded,
           spInline = List.foldl' (flip Map.delete) (spInline env) captured,
           spLocalCandidates = List.foldl' (flip Map.delete) (spLocalCandidates env) captured,
-          spFacts = forgetNames shadowed (spFacts env)
+          spFacts = facts
         }
   where
+    !evaluated = List.foldl' (flip Set.delete) (spEvaluated env) names
+    !locals = List.foldl' (flip Map.delete) (spLocals env) names
+    !dictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names
+    !done = List.foldl' (flip Map.delete) (spDone env) names
+    !cse = if Map.null (spCse env) then spCse env else Map.filter (`Set.notMember` shadowed) (spCse env)
+    !excluded = List.foldl' (\current name -> Map.delete (ExVar name) current) (spExcluded env) names
+    !facts = forgetNames shadowed (spFacts env)
     shadowed = Set.fromList names
     -- A local candidate that one of the names binds again, or whose body
     -- mentions one of them.
@@ -2596,7 +2614,14 @@ shadowNames names env
 -- then only names it, as on any evaluated variable.
 markUnlifted :: [Binder] -> Simpl -> Simpl
 markUnlifted binders env =
-  markEvaluated [binderName binder | binder <- binders, not (isLiftedBinder (spEnv env) binder)] env {spEnv = List.foldl' extendBinder (spEnv env) binders}
+  case binders of
+    [] -> env
+    _ ->
+      let !types = extendBinders (spEnv env) binders
+          names = [binderName binder | binder <- binders, not (isLiftedBinder types binder)]
+       in if null names
+            then env {spEnv = types}
+            else env {spEnv = types, spEvaluated = List.foldl' (flip Set.insert) (spEvaluated env) names}
 
 -- | Record that binders hold values in weak-head normal form.
 markEvaluated :: [Name] -> Simpl -> Simpl
@@ -2652,22 +2677,28 @@ simplifyAlt env scrutinee binder alternatives alternative = do
 -- later case on that variable, cast the same way, selects its fields.
 alternativeEnv :: Simpl -> Expr -> Maybe Binder -> [Alt] -> Alt -> Simpl
 alternativeEnv env0 scrutinee binder alternatives alternative =
-  markUnlifted (altBinders alternative) . markEvaluated (map binderName (foldr (:) [] binder) <> maybe [] pure scrutineeName <> strictBinders) $ case known of
-    Just application ->
-      typeEnv
-        { spLocals =
-            maybe id (\named -> Map.insert (binderName named) application) binder
-              . maybe id (\name -> Map.insert name (List.foldl' (\body co -> ExCast body (coSym co)) application (reverse scrutineeCasts))) scrutineeName
-              $ spLocals typeEnv
-        }
-    Nothing -> typeEnv
+  -- One new environment holds every change, in place of one for each
+  -- step.
+  env
+    { spEnv = types,
+      spExcluded = exclusions,
+      spFacts = facts,
+      spLocals = locals,
+      spEvaluated = List.foldl' (flip Set.insert) (spEvaluated env) (map binderName (foldr (:) [] binder) <> maybe [] pure scrutineeName <> strictBinders <> unliftedBinders)
+    }
   where
-    env = shadowNames (map binderName (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative)) env0
-    typeEnv =
-      (List.foldl' extendTypeBinder env (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative))
-        { spExcluded = exclusions,
-          spFacts = facts
-        }
+    allBinders = foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative
+    env = shadowNames (map binderName allBinders) env0
+    !types = extendBinders (spEnv env) allBinders
+    -- The binders of an unlifted type hold values. See 'markUnlifted'.
+    unliftedBinders = [binderName field | field <- altBinders alternative, not (isLiftedBinder types field)]
+    locals =
+      case known of
+        Just application ->
+          maybe id (\named -> Map.insert (binderName named) application) binder
+            . maybe id (\name -> Map.insert name (List.foldl' (\body co -> ExCast body (coSym co)) application (reverse scrutineeCasts))) scrutineeName
+            $ spLocals env
+        Nothing -> spLocals env
     -- A fact about the scrutinee holds inside the alternative only when
     -- no binder of the alternative binds a name of the scrutinee again.
     facts
@@ -4209,7 +4240,7 @@ caseOfCase env scrutinee binder alternatives onTaken = do
         ExLet bind body
           | not (null typed),
             free (binderName (bindBinder bind)),
-            not (any ((`Set.member` exprFreeNames (bindRhs bind)) . fst) typed) ->
+            not (any ((`exprMentionsFree` bindRhs bind) . fst) typed) ->
               ExLet bind <$> placeJoins free (bindingEnv env' (bindBinder bind) (bindRhs bind)) typed kept body
         ExCase inner caseBinder (alternative NE.:| [])
           | not (null typed),
@@ -4450,14 +4481,14 @@ expandJoins env joins = go env
           | isTrivial (bindRhs bind) -> go env' (substExpr (Map.singleton (binderName (bindBinder bind)) (bindRhs bind)) body)
           -- A join point of the scrutinee took the small case into its
           -- body, so its tails call the join points too.
-          | any (`Map.member` joins) (Set.toList (exprFreeNames (bindRhs bind))) -> do
+          | exprHasFreeName (`Map.member` joins) (bindRhs bind) -> do
               rhs <- lambdaBody env' (bindRhs bind)
               ExLet bind {bindRhs = rhs} <$> go (bindingEnv env' (bindBinder bind) rhs) body
           | otherwise -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
         -- A recursive join point of the scrutinee took the small case
         -- into its tails too.
         ExRec binds body -> do
-          binds' <- mapM (\bind -> if any (`Map.member` joins) (Set.toList (exprFreeNames (bindRhs bind))) then (\rhs -> bind {bindRhs = rhs}) <$> lambdaBody env' (bindRhs bind) else pure bind) binds
+          binds' <- mapM (\bind -> if exprHasFreeName (`Map.member` joins) (bindRhs bind) then (\rhs -> bind {bindRhs = rhs}) <$> lambdaBody env' (bindRhs bind) else pure bind) binds
           ExRec binds' <$> go env' body
         ExCase scrutinee binder alternatives -> do
           -- A small alternative that takes a binder apart before its
@@ -4512,7 +4543,7 @@ caseOfCaseRaw env scrutinee binder alternatives
     -- of the loop as a thunk.
     closed alternative =
       let bound = Set.fromList (map binderName (altBinders alternative <> foldr (:) [] binder))
-       in all (\name -> Set.member name bound || not (isLocalName name)) (Set.toList (exprFreeNames (altRhs alternative)))
+       in not (exprHasFreeName (\name -> Set.notMember name bound && isLocalName name) (altRhs alternative))
     -- The case binder is a parameter of every join point: each copy of
     -- the small case binds it under a fresh name, and the call passes
     -- that name.
@@ -5869,29 +5900,73 @@ occurrences = occurrencesUnder False 0 False
 -- a recursive group, and the alternatives of a case.
 -- Stop at two uses when only zero and one can change the decision.
 occurrencesUnder :: Bool -> Int -> Bool -> Name -> Expr -> Occurrences
-occurrencesUnder bounded credit0 inside0 name expr0 = go credit0 inside0 False expr0 mempty
+occurrencesUnder bounded credit0 inside0 name expr0 =
+  case go credit0 inside0 False expr0 0 False of
+    Found count repeated -> Occurrences count repeated
   where
-    go credit inside repeated expr seen@(Occurrences count _)
-      | bounded && count >= 2 = seen
+    -- The walk threads the count and the flag as two values, so a step
+    -- allocates nothing. Each list of parts gets its own loop, so no step
+    -- builds a closure.
+    go :: Int -> Bool -> Bool -> Expr -> Int -> Bool -> Found
+    go !credit !inside !repeated expr !count !seenRepeated
+      | bounded && count >= 2 = Found count seenRepeated
       | otherwise = case expr of
-          ExVar var -> if var == name then seen <> Occurrences 1 repeated else seen
-          ExLit {} -> seen
-          ExApp function argument -> go 0 False repeated argument (go 0 False repeated function seen)
-          ExTyApp function _ -> go 0 False repeated function seen
-          ExLam _ body -> go (max 0 (credit - 1)) True (repeated || not (inside && credit > 0)) body seen
-          ExTyLam _ body -> go credit inside repeated body seen
-          ExLet bind body -> go credit inside repeated body (go 0 False repeated (bindRhs bind) seen)
-          ExRec binds body -> go credit inside repeated body (walk (go 0 False True . bindRhs) binds seen)
-          ExCase scrutinee _ (NE.toList -> alternatives) -> walk (go credit inside repeated . altRhs) alternatives (go 0 False repeated scrutinee seen)
-          ExAbsurd scrutinee _ -> go 0 False repeated scrutinee seen
-          ExCast body coercion -> coercionUses repeated coercion (go credit inside repeated body seen)
-          ExCoercion coercion -> coercionUses repeated coercion seen
-          ExForeignCall _ _ arguments -> walk (go 0 False repeated) arguments seen
-    coercionUses repeated coercion = walk (\var seen -> if var == name then seen <> Occurrences 1 repeated else seen) (coercionVariables coercion)
-    walk step values seen@(Occurrences count _)
-      | bounded && count >= 2 = seen
-      | value : rest <- values = walk step rest (step value seen)
-      | otherwise = seen
+          ExVar var -> if var == name then Found (count + 1) (seenRepeated || repeated) else Found count seenRepeated
+          ExLit {} -> Found count seenRepeated
+          ExApp function argument ->
+            case go 0 False repeated function count seenRepeated of
+              Found count' seen' -> go 0 False repeated argument count' seen'
+          ExTyApp function _ -> go 0 False repeated function count seenRepeated
+          ExLam _ body -> go (max 0 (credit - 1)) True (repeated || not (inside && credit > 0)) body count seenRepeated
+          ExTyLam _ body -> go credit inside repeated body count seenRepeated
+          ExLet bind body ->
+            case go 0 False repeated (bindRhs bind) count seenRepeated of
+              Found count' seen' -> go credit inside repeated body count' seen'
+          ExRec binds body ->
+            case binders binds count seenRepeated of
+              Found count' seen' -> go credit inside repeated body count' seen'
+          ExCase scrutinee _ alternatives ->
+            case go 0 False repeated scrutinee count seenRepeated of
+              Found count' seen' -> branches credit inside repeated (NE.toList alternatives) count' seen'
+          ExAbsurd scrutinee _ -> go 0 False repeated scrutinee count seenRepeated
+          ExCast body coercion ->
+            case go credit inside repeated body count seenRepeated of
+              Found count' seen' -> coercionUses repeated (coercionVariables coercion) count' seen'
+          ExCoercion coercion -> coercionUses repeated (coercionVariables coercion) count seenRepeated
+          ExForeignCall _ _ arguments -> parts repeated arguments count seenRepeated
+    binders :: [Bind] -> Int -> Bool -> Found
+    binders binds !count !seenRepeated
+      | bounded && count >= 2 = Found count seenRepeated
+      | bind : rest <- binds =
+          case go 0 False True (bindRhs bind) count seenRepeated of
+            Found count' seen' -> binders rest count' seen'
+      | otherwise = Found count seenRepeated
+    branches :: Int -> Bool -> Bool -> [Alt] -> Int -> Bool -> Found
+    branches credit inside repeated alternatives !count !seenRepeated
+      | bounded && count >= 2 = Found count seenRepeated
+      | alternative : rest <- alternatives =
+          case go credit inside repeated (altRhs alternative) count seenRepeated of
+            Found count' seen' -> branches credit inside repeated rest count' seen'
+      | otherwise = Found count seenRepeated
+    parts :: Bool -> [Expr] -> Int -> Bool -> Found
+    parts repeated arguments !count !seenRepeated
+      | bounded && count >= 2 = Found count seenRepeated
+      | argument : rest <- arguments =
+          case go 0 False repeated argument count seenRepeated of
+            Found count' seen' -> parts repeated rest count' seen'
+      | otherwise = Found count seenRepeated
+    coercionUses :: Bool -> [Name] -> Int -> Bool -> Found
+    coercionUses repeated variables !count !seenRepeated
+      | bounded && count >= 2 = Found count seenRepeated
+      | var : rest <- variables =
+          if var == name
+            then coercionUses repeated rest (count + 1) (seenRepeated || repeated)
+            else coercionUses repeated rest count seenRepeated
+      | otherwise = Found count seenRepeated
+
+-- | The result of a walk of 'occurrencesUnder': the count and whether an
+-- occurrence is under a repeated lambda.
+data Found = Found !Int !Bool
 
 -- * Call arity
 
@@ -6407,7 +6482,7 @@ independentLets name outside expr =
     ExCase (ExVar var) Nothing (Alt AltDefault [] [] rest NE.:| [])
       | var == name -> independentLets name outside rest
     ExLet bind rest
-      | Set.notMember name (exprFreeNames (bindRhs bind)),
+      | not (exprMentionsFree name (bindRhs bind)),
         Set.notMember (binderName (bindBinder bind)) outside,
         binderName (bindBinder bind) /= name ->
           first (bind :) (independentLets name outside rest)

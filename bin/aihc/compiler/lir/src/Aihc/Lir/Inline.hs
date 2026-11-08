@@ -26,6 +26,7 @@ module Aihc.Lir.Inline
 where
 
 import Aihc.Lir.Lint (LintError, lintModuleFor)
+import Aihc.Lir.RegAlloc (readCounts)
 import Aihc.Lir.Resolve (resolveConstants)
 import Aihc.Lir.Simplify (eliminateCommonSubexpressions, eliminateRedundantBlockParameters, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, threadConstantBranches)
 import Aihc.Lir.Syntax
@@ -46,7 +47,13 @@ prepareModule :: Integer -> Module -> Module
 prepareModule wordBytes = simplify . inlineModule . resolveConstants wordBytes
   where
     simplify (Module items) = Module (map simplifyItem items)
-    simplifyItem (ItemFunction function) = ItemFunction (threadConstantBranches (simplifyWidths (simplifyRotations (simplifyBooleanBranches (eliminateCommonSubexpressions (simplifyMultiplications (eliminateRedundantBlockParameters function)))))))
+    simplifyItem (ItemFunction function) =
+      let shared = eliminateCommonSubexpressions (simplifyMultiplications (eliminateRedundantBlockParameters function))
+          counts = readCounts shared
+          branched = simplifyBooleanBranches counts shared
+          rotated = simplifyRotations branched
+          counts' = if sameObject rotated branched then counts else readCounts rotated
+       in ItemFunction (threadConstantBranches (simplifyWidths counts' rotated))
     simplifyItem item = item
 
 -- | 'prepareModule', with the module linted as it was written and again as

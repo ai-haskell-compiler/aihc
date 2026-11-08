@@ -56,7 +56,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Monoid (Sum (..))
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
@@ -340,10 +340,12 @@ data CandidateVersion = CandidateVersion !Int !CandidateSites !Bool !Bool
 -- A cache hit preserves counters and the fresh-name supply.
 data StableVisit = StableVisit
   { visitCandidates :: !(Map Name CandidateVersion),
-    visitReferences :: !(Set Name),
-    visitKnown :: !(Map Name Int),
-    visitArities :: !(Map Name Int),
-    visitDiverging :: !Diverging,
+    -- | What the visit saw for each reference: the known version, the
+    -- arity, and the divergence, or 'Nothing' where there was none. Each
+    -- map has the shape of the references, so a lookup builds it.
+    visitKnown :: !(Map Name (Maybe Int)),
+    visitArities :: !(Map Name (Maybe Int)),
+    visitDiverging :: !(Map Name (Maybe Int)),
     visitCredit :: !Int,
     visitAllowance :: !Int,
     visitSupply :: !Int,
@@ -690,12 +692,18 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
               -- call can reduce, so the callees of the candidates are
               -- candidates too. Deeper callees are not: every level would
               -- try copies of copies at each site, for little more.
-              reachable = calleesOf (inRefs st) references
+              -- The references and their callees, each one time. A map
+              -- of the candidates collects them without a set of all of
+              -- them first.
               candidates =
-                Map.fromList
-                  [ (callee, Candidate calleeBody sites requested (inGuidance st Map.! callee))
-                  | callee <- Set.toList reachable,
-                    callee /= name,
+                List.foldl'
+                  (\found callee -> maybe found (\candidate -> Map.insert callee candidate found) (candidateOf callee))
+                  Map.empty
+                  (Set.toList references <> concatMap (Set.toList . (`MonoidMap.get` inRefs st)) (Set.toList references))
+              candidateOf callee =
+                listToMaybe
+                  [ Candidate calleeBody sites requested (inGuidance st Map.! callee)
+                  | callee /= name,
                     callee `Set.notMember` blocked,
                     callee `Set.notMember` inDictionaryFunctions st,
                     Map.lookup name (inAliases st) /= Just callee,
@@ -748,9 +756,9 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                 visitCandidates previous == candidateVersions
                   && visitCredit previous == credit
                   && visitAllowance previous == allowance
-                  && restrictedEquals (visitReferences previous) (visitKnown previous) knownVersions
-                  && restrictedEquals (visitReferences previous) (visitArities previous) arities
-                  && restrictedEquals (visitReferences previous) (visitDiverging previous) diverging
+                  && sameLookups (visitKnown previous) knownVersions
+                  && sameLookups (visitArities previous) arities
+                  && sameLookups (visitDiverging previous) diverging
               cached = Map.lookup name (inVisits st) >>= \previous -> if sameVisit previous then Just previous else Nothing
               -- Follow only bodies that the simplifier can expose at this visit.
               -- Ordinary callees outside the candidate map remain opaque.
@@ -776,10 +784,9 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
               visit simplState =
                 StableVisit
                   candidateVersions
-                  dependencies
-                  (Map.restrictKeys knownVersions dependencies)
-                  (Map.restrictKeys arities dependencies)
-                  (Map.restrictKeys diverging dependencies)
+                  (Map.fromSet (`Map.lookup` knownVersions) dependencies)
+                  (Map.fromSet (`Map.lookup` arities) dependencies)
+                  (Map.fromSet (`Map.lookup` diverging) dependencies)
                   credit
                   allowance
                   (ssSupply simplState - inSupply st)
@@ -873,12 +880,10 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
             in calls >= uses && uses * (size - 1) - (size + 1) <= 0
     removable callee = callee `Set.notMember` inRoots st
 
--- | Whether a map that was the restriction of a map to a set of keys
--- equals the restriction of the given map to the same keys. The check
--- looks each key up in both maps, and makes no restricted map.
-restrictedEquals :: (Eq value) => Set Name -> Map Name value -> Map Name value -> Bool
-restrictedEquals keys stored current =
-  all (\key -> Map.lookup key stored == Map.lookup key current) keys
+-- | Whether each key of the stored lookups gives the same answer in the
+-- given map. The check makes no new map.
+sameLookups :: (Eq value) => Map Name (Maybe value) -> Map Name value -> Bool
+sameLookups stored current = Map.foldrWithKey (\key seen rest -> Map.lookup key current == seen && rest) True stored
 
 -- | Update a changed body and its data before the next value.
 updateBody :: Inliner -> Name -> Expr -> Inliner
@@ -953,38 +958,48 @@ killDead st names =
                 (Set.toList (MonoidMap.nonNullKeys uses) ++ rest)
       | otherwise -> killDead st rest
 
--- | A set of values and the values their bodies reference.
-calleesOf :: MonoidMap Name (Set Name) -> Set Name -> Set Name
-calleesOf references names =
-  Set.unions (names : [MonoidMap.get name references | name <- Set.toList names])
-
 -- | Drop every value that no root reaches.
 dropUnused :: Inliner -> Inliner
-dropUnused st =
-  st
-    { inBodies = live,
-      inVersions = Map.restrictKeys (inVersions st) reachable,
-      inVisits = Map.restrictKeys (inVisits st) reachable,
-      inBodyUses = uses,
-      inBodyCalls = calls,
-      inBodyArities = arities,
-      inGuidance = Map.restrictKeys (inGuidance st) reachable,
-      inKnown = Map.restrictKeys (inKnown st) reachable,
-      inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
-      inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
-      inCounts = fold uses,
-      inCalls = fold calls,
-      inArities = arities,
-      inCallArities = topCallAritiesFrom (inEscaping st) (Map.elems liveUses),
-      inTopUses = liveUses,
-      inDead = Set.empty
-    }
+dropUnused st
+  -- Every value is reachable: no map loses a key, so the maps stay as
+  -- they are, and only the data that an arity change affects is counted
+  -- again.
+  | allReachable =
+      st
+        { inBodyCalls = calls,
+          inCounts = fold uses,
+          inCalls = fold calls,
+          inArities = arities,
+          inCallArities = topCallAritiesFrom (inEscaping st) (Map.elems liveUses),
+          inDead = Set.empty
+        }
+  | otherwise =
+      st
+        { inBodies = live,
+          inVersions = Map.restrictKeys (inVersions st) reachable,
+          inVisits = Map.restrictKeys (inVisits st) reachable,
+          inBodyUses = uses,
+          inBodyCalls = calls,
+          inBodyArities = arities,
+          inGuidance = Map.restrictKeys (inGuidance st) reachable,
+          inKnown = Map.restrictKeys (inKnown st) reachable,
+          inRefs = MonoidMap.nullifyKeysNotIn reachable (inRefs st),
+          inUsers = MonoidMap.map (`Set.intersection` reachable) (MonoidMap.nullifyKeysNotIn reachable (inUsers st)),
+          inCounts = fold uses,
+          inCalls = fold calls,
+          inArities = arities,
+          inCallArities = topCallAritiesFrom (inEscaping st) (Map.elems liveUses),
+          inTopUses = liveUses,
+          inDead = Set.empty
+        }
   where
-    live = Map.restrictKeys (inBodies st) reachable
-    liveUses = Map.restrictKeys (inTopUses st) reachable
+    allReachable = Set.size reachable == Map.size (inBodies st)
+    keep restrict current = if allReachable then current else restrict current
+    live = keep (`Map.restrictKeys` reachable) (inBodies st)
+    liveUses = keep (`Map.restrictKeys` reachable) (inTopUses st)
     -- No live body references a removed value, so its cached data stays correct.
-    arities = Map.restrictKeys (inBodyArities st) reachable
-    uses = MonoidMap.nullifyKeysNotIn reachable (inBodyUses st)
+    arities = keep (`Map.restrictKeys` reachable) (inBodyArities st)
+    uses = keep (MonoidMap.nullifyKeysNotIn reachable) (inBodyUses st)
     -- Only users of a changed arity need new call counts for the next round.
     changedArities = Map.keysSet (Map.differenceWith changed arities (inArities st))
     changed new old
@@ -995,7 +1010,7 @@ dropUnused st =
     calls =
       List.foldl'
         (\cached caller -> MonoidMap.set caller (countTopCalls arities (live Map.! caller)) cached)
-        (MonoidMap.nullifyKeysNotIn reachable (inBodyCalls st))
+        (keep (MonoidMap.nullifyKeysNotIn reachable) (inBodyCalls st))
         (Set.toList affected)
     reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inKept st)))
     close visited pending =
