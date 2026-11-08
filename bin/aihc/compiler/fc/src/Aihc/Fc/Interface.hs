@@ -46,6 +46,7 @@ module Aihc.Fc.Interface
     interfaceIndex,
     graftIndexed,
     stripInterfaces,
+    stripInterfaceCopies,
     graftedSettled,
     settleOwnInterface,
   )
@@ -497,9 +498,19 @@ graftIndexed index program =
 -- module are its own, and the module emits them whether a value of it
 -- names them or not.
 stripInterfaces :: PackageId -> Grafted -> Program -> Program
-stripInterfaces primPackage grafted program = restrictProgram primPackage keep program
+stripInterfaces primPackage grafted program = stripGraftedWith (graftedExported grafted) primPackage program
+
+-- | The interface of a module after its passes: every grafted value goes,
+-- the private ones too. A consumer reads each value from the interface of
+-- the module that declares it, so an interface that kept a copy would
+-- grow with everything its bodies reach. The private values that the
+-- passes of this module made stay with the public values that reach them.
+stripInterfaceCopies :: PackageId -> Grafted -> Program -> Program
+stripInterfaceCopies primPackage grafted program = stripGraftedWith (graftedExported grafted <> graftedPrivate grafted) primPackage program
+
+stripGraftedWith :: Set Name -> PackageId -> Program -> Program
+stripGraftedWith removed primPackage program = restrictProgram primPackage keep program
   where
-    removed = graftedExported grafted
     values = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- programDecls program, Set.notMember (valName declaration) removed]
     -- The values that the module must keep: its public values, the values
     -- a kept rule names, and the private values that those reach.

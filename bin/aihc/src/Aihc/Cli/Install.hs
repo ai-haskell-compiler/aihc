@@ -3114,11 +3114,11 @@ writeUnitInterfaces primIdentity config verbose outputPaths index fcModules = do
               templates = Set.fromList [Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls offered, Fc.InlineAlways _ <- [Fc.valInline declaration]]
               env = Fc.PassEnv {Fc.envPrimPackage = primIdentity, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted, Fc.envSettled = Fc.graftedSettled grafted <> templates}
           optimized <- optimizeFcProgram env config verbose (fcModuleName fcModule <> " interface") (Fc.graftedProgram grafted)
-          -- The interface keeps a copy of each private value of another
-          -- module that an offered body reaches, as the object of the
-          -- module does. A consumer takes each such copy from one
-          -- interface.
-          let stripped = Fc.stripInterfaces primIdentity grafted optimized
+          -- The interface declares the values of this module only. A
+          -- consumer reads a value of another module from the interface
+          -- of that module, so no interface grows with the values that
+          -- its bodies reach.
+          let stripped = Fc.stripInterfaceCopies primIdentity grafted optimized
           lintOptimized primIdentity config "strip interfaces" (fcModuleName fcModule <> " interface") stripped
           pure stripped
 
