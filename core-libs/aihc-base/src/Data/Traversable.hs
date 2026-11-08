@@ -6,6 +6,8 @@ module Data.Traversable
     forM,
     mapAccumL,
     mapAccumR,
+    mapAccumM,
+    forAccumM,
     fmapDefault,
     foldMapDefault,
   )
@@ -15,7 +17,7 @@ import Control.Applicative (Const (..))
 import Control.Monad (forM)
 import Data.Monoid (Monoid)
 import GHC.Internal.Traversable (Traversable (..))
-import Prelude (Applicative (..), Functor (..), (.))
+import Prelude (Applicative (..), Functor (..), Monad (..), (.))
 
 for :: (Traversable t, Applicative f) => t a -> (a -> f b) -> f (t b)
 for structure f = traverse f structure
@@ -55,6 +57,28 @@ mapAccumL f initial values = runStateL (traverse (\value -> StateL (`f` value)) 
 
 mapAccumR :: (Traversable t) => (s -> a -> (s, b)) -> s -> t a -> (s, t b)
 mapAccumR f initial values = runStateR (traverse (\value -> StateR (`f` value)) values) initial
+
+newtype StateM s m a = StateM {runStateM :: s -> m (s, a)}
+
+instance (Monad m) => Functor (StateM s m) where
+  fmap f (StateM action) = StateM (\s -> action s >>= \(next, value) -> pure (next, f value))
+
+instance (Monad m) => Applicative (StateM s m) where
+  pure value = StateM (\s -> pure (s, value))
+  StateM function <*> StateM argument =
+    StateM
+      ( \s ->
+          function s >>= \(next, f) ->
+            argument next >>= \(final, value) -> pure (final, f value)
+      )
+
+-- | A monadic 'mapAccumL'.
+mapAccumM :: (Monad m, Traversable t) => (s -> a -> m (s, b)) -> s -> t a -> m (s, t b)
+mapAccumM f initial values = runStateM (traverse (\value -> StateM (`f` value)) values) initial
+
+-- | 'mapAccumM' with the arguments in a different order.
+forAccumM :: (Monad m, Traversable t) => s -> t a -> (s -> a -> m (s, b)) -> m (s, t b)
+forAccumM initial values f = mapAccumM f initial values
 
 foldMapDefault :: (Traversable t, Monoid m) => (a -> m) -> t a -> m
 foldMapDefault f values = getConst (traverse (Const . f) values)

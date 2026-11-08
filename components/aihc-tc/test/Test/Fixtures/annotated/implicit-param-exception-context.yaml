@@ -1,0 +1,56 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  {-# LANGUAGE ConstraintKinds #-}
+  {-# LANGUAGE ExistentialQuantification #-}
+  module Test where
+  data Annotation = Annotation
+       │            └─ type: Annotation
+       └─ type: Type
+  data ExceptionContext = ExceptionContext [Annotation]
+       └─ type: Type      └─ type: [Annotation] → ExceptionContext
+  type HasExceptionContext = (?exceptionContext :: ExceptionContext)
+       └─ type: GHC.Types.Constraint
+  emptyExceptionContext :: ExceptionContext
+  emptyExceptionContext = ExceptionContext []
+  └─ type: ExceptionContext                └─ type: [Annotation]; type-args: Annotation
+  data SomeException = forall e. (HasExceptionContext) => SomeException e
+       └─ type: Type   └─ type: ∀ e. (?exceptionContext ∷ ExceptionContext) ⇒ e → SomeException
+  wrap :: e -> SomeException
+  wrap value = SomeException value
+  │    │       └─ type: e → SomeException; type-args: e; evidence: emptyExceptionContext
+  │    └─ type: e
+  └─ type: ∀ e. e → SomeException
+  inferred value = SomeException value
+  │        │       └─ type: a → SomeException; type-args: a; evidence: emptyExceptionContext
+  │        └─ type: a
+  └─ type: ∀ a. a → SomeException
+  context :: SomeException -> ExceptionContext
+  context (SomeException _) = ?exceptionContext
+  │        │             │    └─ type: ExceptionContext; evidence: given ?exceptionContext ∷ ExceptionContext
+  │        │             └─ type: e
+  │        └─ type: e → SomeException; type-args: e; evidence: given ?exceptionContext ∷ ExceptionContext
+  └─ type: SomeException → ExceptionContext
+extensions:
+- ImplicitParams
+- ConstraintKinds
+- ExistentialQuantification
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  {-# LANGUAGE ConstraintKinds #-}
+  {-# LANGUAGE ExistentialQuantification #-}
+  module Test where
+  data Annotation = Annotation
+  data ExceptionContext = ExceptionContext [Annotation]
+  type HasExceptionContext = (?exceptionContext :: ExceptionContext)
+  emptyExceptionContext :: ExceptionContext
+  emptyExceptionContext = ExceptionContext []
+  data SomeException = forall e. (HasExceptionContext) => SomeException e
+  wrap :: e -> SomeException
+  wrap value = SomeException value
+  inferred value = SomeException value
+  context :: SomeException -> ExceptionContext
+  context (SomeException _) = ?exceptionContext
+reason: an unsolved exception-context parameter gets the empty exception context, and a constructor match supplies the given context
+status: pass

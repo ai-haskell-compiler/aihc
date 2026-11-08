@@ -5631,6 +5631,8 @@ desugarEvidence evidence =
       ExApp <$> desugarEvidence function <*> desugarEvidence argument
     Ev.EvCallStackPush (packageName, moduleName') function site parent -> desugarCallStackPush (packageName, moduleName') function site parent
     Ev.EvCallStackEmpty origin -> desugarCallStackEmpty origin
+    Ev.EvExceptionContextEmpty (packageName, moduleName') ->
+      pure (ExVar (Name "emptyExceptionContext" SortValue (OriginTop (PackageId packageName) moduleName')))
     Ev.EvRecursive predicate dictionaryType body -> withoutEvidenceScope $ do
       -- The body names the dictionary as a given of its own predicate.
       binder <- freshEvidenceBinder dictionaryType

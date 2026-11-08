@@ -4484,7 +4484,7 @@ addReferencedFacts extraRoots extraTerms complete = go
            in closeTyCons (Set.insert tyCon found) (dependencies <> pending)
     go interface =
       interface
-        { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
+        { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms <> exceptionContextSupportTerms),
           tcInterfaceTyConMap = Map.restrictKeys availableTyCons reachableKeys,
           tcInterfaceDataTypeMap = Map.restrictKeys availableDataTypes reachableKeys,
           tcInterfaceClassMap = Map.restrictKeys availableClasses reachableKeys,
@@ -4543,6 +4543,17 @@ addReferencedFacts extraRoots extraTerms complete = go
             name <- ["typeRep#", "typeRepNat", "typeRepSymbol", "typeRepChar"],
             let moduleName' = if name == "typeRep#" then tyConModuleName tyCon else "Type.Reflection.Literal",
             let key = GlobalTerm (tyConPackageId tyCon) moduleName' name,
+            key `Map.notMember` tcInterfaceTermMap interface,
+            Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
+          ]
+        -- An unsolved exception-context parameter desugars to a reference to
+        -- the empty exception context, which the module does not have to
+        -- import. It is in the module of the ExceptionContext type.
+        exceptionContextSupportTerms =
+          [ (key, scheme)
+          | tyCon <- Set.toList ordinaryReachable,
+            tyConName tyCon == "ExceptionContext",
+            let key = GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon) "emptyExceptionContext",
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]

@@ -11,7 +11,7 @@ module Aihc.Tc.Solve.Dict
     solveDictWithGivens,
     DictResult (..),
     callStackOrigin,
-    isCallStackPred,
+    isDefaultedImplicitParam,
     reportUnsolvedDict,
     classFieldTypes,
     mostSpecificInstances,
@@ -683,6 +683,7 @@ mentionsGiven predicate evidence =
     EvTypeLit {} -> False
     EvWithDict {} -> False
     EvCallStackEmpty {} -> False
+    EvExceptionContextEmpty {} -> False
 
 -- | The instances whose heads match the arguments, without an instance that
 -- a more specific match overlaps. For @MonadState s (StateT s m)@ the
@@ -894,10 +895,27 @@ callStackOrigin _name payload =
           Just (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
     _ -> Nothing
 
-isCallStackPred :: Pred -> Bool
-isCallStackPred predicate =
+-- | The package and module of the @ExceptionContext@ type when the
+-- implicit parameter has the type @ExceptionContext@.
+--
+-- Like GHC, the solver gives the empty exception context to an unsolved
+-- parameter of this type. Thus, the construction of a @SomeException@
+-- outside a handler does not need a binding of @?exceptionContext@.
+exceptionContextOrigin :: TcType -> Maybe (Text, Text)
+exceptionContextOrigin payload =
+  case payload of
+    TcTyCon tyCon []
+      | tyConName tyCon == "ExceptionContext" ->
+          Just (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
+    _ -> Nothing
+
+-- | True for an implicit parameter that gets a default value when it is
+-- unsolved: a call stack or an exception context. GHC never infers these
+-- constraints.
+isDefaultedImplicitParam :: Pred -> Bool
+isDefaultedImplicitParam predicate =
   case predicate of
-    IParamPred name payload -> isJust (callStackOrigin name payload)
+    IParamPred name payload -> isJust (callStackOrigin name payload) || isJust (exceptionContextOrigin payload)
     _ -> False
 
 -- | Report an unsolved dictionary constraint.
@@ -927,6 +945,9 @@ reportUnsolvedDict ct = do
     IParamPred name payload
       | Just origin <- callStackOrigin name payload ->
           bindEvidence (ctEvVar ct) (implicitParamEvidence ct name payload (EvCallStackEmpty origin))
+    IParamPred _ payload
+      | Just origin <- exceptionContextOrigin payload ->
+          bindEvidence (ctEvVar ct) (EvExceptionContextEmpty origin)
     -- A custom type error is not an unsolved constraint but a message the
     -- library author wrote. It stands where a constraint would, so it
     -- arrives here; what it says is the diagnostic.
