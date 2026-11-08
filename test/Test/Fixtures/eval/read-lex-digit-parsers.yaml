@@ -1,0 +1,25 @@
+modules:
+  - |
+    module Test where
+
+    import Text.ParserCombinators.ReadP (readP_to_S)
+    import Text.Read.Lex (readBinP, readDecP, readHexP, readOctP)
+
+    main :: IO ()
+    main = do
+      print (readP_to_S readDecP "120:x" :: [(Integer, String)])
+      print (readP_to_S readHexP "fF0g" :: [(Int, String)])
+      print (readP_to_S readOctP "178" :: [(Int, String)])
+      print (readP_to_S readBinP "1012" :: [(Int, String)])
+      print (readP_to_S readDecP "x1" :: [(Int, String)])
+expression: main
+stdout: |
+  [(120,":x")]
+  [(4080,"g")]
+  [(15,"8")]
+  [(5,"2")]
+  []
+output: |
+  ()
+status: pass
+reason: Text.Read.Lex exports the digit parsers of base, and each parser reads the longest run of digits in its base
