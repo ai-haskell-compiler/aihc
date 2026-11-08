@@ -12,13 +12,13 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | --- | --- | --- |
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
-| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `123/123` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `400/405` (`98.76%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1084/1121` (`96.69%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `268/268` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `823/5013` (`16.42%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2273/10061` (`22.59%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
-| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●● `76/76` (`100.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
+| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `124/124` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `413/418` (`98.80%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1117/1153` (`96.87%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `274/274` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `828/5013` (`16.52%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2293/10061` (`22.79%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `131/132` (`99.24%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Getting started
 
@@ -72,7 +72,7 @@ Expand the details to see the required packages and their installation status.
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 76 install, 0 fail, 0 wait for a dependency</summary>
+<summary>Self-compile packages: 131 install, 1 fail, 0 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -81,6 +81,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | OneTuple | 0.4.3 | ✅ installs |
 | array | 0.5.8.0 | ✅ installs |
 | assoc | 1.1.1 | ✅ installs |
+| atomic-counter | 0.1.2.4 | ✅ installs |
 | base-orphans | 0.9.4 | ✅ installs |
 | character-ps | 0.1 | ✅ installs |
 | colour | 2.3.7 | ✅ installs |
@@ -88,21 +89,41 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | ansi-terminal | 1.1.5 | ✅ installs |
 | deepseq | 1.5.2.0 | ✅ installs |
 | bytestring | 0.12.2.0 | ✅ installs |
-| containers | 0.8.1 | ✅ installs |
+| appar | 0.1.8 | ✅ installs |
+| base16-bytestring | 1.0.2.0 | ✅ installs |
+| base64-bytestring | 1.2.1.0 | ✅ installs |
+| containers | 0.7 | ✅ installs |
 | binary | 0.8.9.3 | ✅ installs |
+| cereal | 0.5.8.3 | ✅ installs |
+| commutative-semigroups | 0.2.0.2 | ✅ installs |
+| cryptohash-md5 | 0.11.101.0 | ✅ installs |
 | cryptohash-sha256 | 0.11.102.1 | ✅ installs |
+| data-default | 0.8.0.2 | ✅ installs |
+| data-default-class | 0.2.0.0 | ✅ installs |
 | dlist | 1.0 | ✅ installs |
+| ghc-bignum | 1.3 | ✅ installs |
+| groups | 0.5.3 | ✅ installs |
+| half | 0.3.3 | ✅ installs |
+| integer-gmp | 1.1 | ✅ installs |
 | integer-logarithms | 1.0.5 | ✅ installs |
+| network-byte-order | 0.1.9 | ✅ installs |
 | parser-combinators | 1.3.1 | ✅ installs |
+| primes | 0.2.1.0 | ✅ installs |
+| ram | 0.22.1 | ✅ installs |
 | splitmix | 0.1.3.2 | ✅ installs |
 | stm | 2.5.3.1 | ✅ installs |
 | tagged | 0.8.11 | ✅ installs |
+| terminal-size | 0.3.4 | ✅ installs |
 | text | 2.1.4 | ✅ installs |
+| blaze-builder | 0.4.4.1 | ✅ installs |
+| mime-types | 0.1.2.2 | ✅ installs |
 | prettyprinter | 1.7.2 | ✅ installs |
 | prettyprinter-ansi-terminal | 1.1.4 | ✅ installs |
 | th-abstraction | 0.7.2.0 | ✅ installs |
 | th-compat | 0.1.7 | ✅ installs |
 | time | 1.14 | ✅ installs |
+| cookie | 0.5.1 | ✅ installs |
+| time-hourglass | 0.3.0 | ✅ installs |
 | transformers | 0.6.3.0 | ✅ installs |
 | StateVar | 1.2.2 | ✅ installs |
 | contravariant | 1.5.6 | ✅ installs |
@@ -115,12 +136,15 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | os-string | 2.0.11 | ✅ installs |
 | filepath | 1.5.5.0 | ✅ installs |
 | aihc-cpp | 2.0.0.0 | ✅ installs |
+| ech-config | 0.0.2 | ✅ installs |
 | hashable | 1.5.1.0 | ✅ installs |
-| case-insensitive | 1.2.1.0 | ✅ installs |
+| case-insensitive | 1.2.2.0 | ✅ installs |
 | data-fix | 0.3.4 | ✅ installs |
+| http-types | 0.12.6 | ✅ installs |
 | parsec | 3.1.18.0 | ✅ installs |
 | network-uri | 2.6.4.2 | ✅ installs |
 | primitive | 0.9.1.0 | ✅ installs |
+| cborg | 0.2.10.0 | ✅ installs |
 | integer-conversion | 0.1.1 | ✅ installs |
 | random | 1.3.1 | ✅ installs |
 | QuickCheck | 2.18.0.0 | ✅ installs |
@@ -128,20 +152,36 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | megaparsec | 9.8.3 | ✅ installs |
 | aihc-cabal-syntax | 2.0.0.0 | ✅ installs |
 | aihc-parser | 5.0.0.0 | ✅ installs |
-| aihc-resolve | 0.1.0.0 | ✅ installs |
-| aihc-tc | 0.1.0.0 | ✅ installs |
 | text-short | 0.1.6.1 | ✅ installs |
+| base16 | 2.0 | ✅ installs |
+| base64 | 2.1 | ✅ installs |
+| crypton | 2.2.6 | ✅ installs |
+| crypton-asn1-types | 0.4.1 | ✅ installs |
+| crypton-asn1-encoding | 0.10.0 | ✅ installs |
+| crypton-asn1-parse | 0.10.0 | ✅ installs |
+| crypton-pem | 0.3.0 | ✅ installs |
+| crypton-x509 | 1.10.1 | ✅ installs |
+| hpke | 0.4.0 | ✅ installs |
 | these | 1.2.1 | ✅ installs |
 | strict | 0.5.1 | ✅ installs |
 | time-compat | 1.9.9 | ✅ installs |
 | text-iso8601 | 0.1.1.2 | ✅ installs |
 | transformers-compat | 0.7.2 | ✅ installs |
 | unix | 2.8.8.0 | ✅ installs |
-| file-io | 0.2.0 | ✅ installs |
+| directory-ospath-streaming | 0.3 | ✅ installs |
+| file-io | 0.1.6 | ✅ installs |
 | directory | 1.3.11.0 | ✅ installs |
 | aihc-hackage | 0.1.0.0 | ✅ installs |
+| crypton-x509-store | 1.10.0 | ✅ installs |
+| network | 3.2.12.0 | ✅ installs |
+| crypton-socks | 0.6.2 | ✅ installs |
+| iproute | 1.8.0 | ✅ installs |
+| crypton-x509-validation | 1.10.1 | ✅ installs |
 | process | 1.6.30.0 | ✅ installs |
+| crypton-x509-system | 1.10.0 | ✅ installs |
 | optparse-applicative | 0.18.1.0 | ✅ installs |
+| tar | 0.6.4.0 | ✅ installs |
+| unix-time | 0.6.0 | ✅ installs |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
 | semigroupoids | 6.0.2 | ✅ installs |
@@ -149,11 +189,27 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | vector-stream | 0.1.0.1 | ✅ installs |
 | vector | 0.13.2.0 | ✅ installs |
 | indexed-traversable-instances | 0.1.2.1 | ✅ installs |
+| monoid-subclasses | 1.2.6.1 | ✅ installs |
+| monoidmap-internal | 0.5.1.0 | ✅ installs |
 | semialign | 1.4 | ✅ installs |
+| serialise | 0.2.6.1 | ✅ installs |
+| wherefrom-compat | 0.2.0.0 | ✅ installs |
+| nothunks | 0.3.2 | ✅ installs |
+| monoidmap | 0.1.3.1 | ✅ installs |
+| aihc-resolve | 0.1.0.0 | ✅ installs |
+| aihc-tc | 0.1.0.0 | ✅ installs |
 | witherable | 0.5 | ✅ installs |
 | aeson | 2.2.5.1 | ✅ installs |
 | aihc-package-plan | 0.1.0.0 | ✅ installs |
-| aihc | 0.1.0.0 | ✅ installs |
+| zlib | 0.7.1.1 | ✅ installs |
+| streaming-commons | 0.2.3.1 | ✅ installs |
+| http-client | 0.7.19 | ✅ installs |
+| tls | 2.5.1 | ✅ installs |
+| crypton-connection | 0.4.6 | ✅ installs |
+| http-client-tls | 0.4.0 | ✅ installs |
+| aihc-http | 0.1.0.0 | ✅ installs |
+| aihc-hackage-fetch | 0.1.0.0 | ✅ installs |
+| aihc | 0.1.0.0 | ❌ fails (linker command failed with exit code 1 (use -v to see invocation)) |
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->

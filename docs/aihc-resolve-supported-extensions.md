@@ -35,7 +35,7 @@
 | StandaloneDeriving        |   🟢    | 1/1           |
 | StandaloneKindSignatures  |   🟢    | 1/1           |
 | TemplateHaskellQuotes     |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 7/7           |
+| TypeFamilies              |   🟢    | 8/8           |
 | TypeOperators             |   🟢    | 10/10         |
 | UnboxedSums               |   🟢    | 1/1           |
 | UnboxedTuples             |   🟢    | 1/1           |
