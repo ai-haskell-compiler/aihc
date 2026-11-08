@@ -373,7 +373,7 @@ mergeBlocks blocks =
     -- Every block a terminator can continue at, with repeats: a block that a
     -- switch names twice has two predecessors and stays where it is.
     predecessors =
-      MonoidMap.fromListWith (+) [(targetLabel target, 1 :: Sum Int) | block <- blocks, target <- terminatorTargets (blockTerminator block)]
+      MonoidMap.fromListWith (<>) [(targetLabel target, 1 :: Sum Int) | block <- blocks, target <- terminatorTargets (blockTerminator block)]
     absorbable block =
       case blockTerminator block of
         Jump target
