@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, GADTs, ConstraintKinds #-}
+  module Test where
+  data Ident a b s t where
+       └─ type: Type → Type → Type → Type → Type
+    Ident :: Ident a b a b
+    └─ type: ∀ a b s t. (s ~ a, t ~ b) ⇒ Ident a b s t
+  subst :: Ident s t a b -> ((s ~ a, t ~ b) => r) -> r
+  subst Ident r = r
+  │     │     │   └─ type: r; evidence: sym (given a ~ s), sym (given b ~ t)
+  │     │     └─ type: (s ~ a, t ~ b) ⇒ r
+  │     └─ type: Ident s t a b; type-args: s, t, a, b; evidence: given a ~ s, given b ~ t
+  └─ type: ∀ s t a b r. Ident s t a b → ((s ~ a, t ~ b) ⇒ r) → r
+  mapEq :: Ident s t a b -> f s -> f a
+  mapEq l r = subst l r
+  │     │ │   └─ type: (s ~ a, t ~ b) ⇒ f a
+  │     │ │   └─ type: Ident s t a b → ((s ~ a, t ~ b) ⇒ f a) → f a; type-args: s, t, a, b, f a
+  │     │ └─ type: f s
+  │     └─ type: Ident s t a b
+  └─ type: ∀ s t a b f. Ident s t a b → f s → f a
+extensions: []
+modules:
+- |
+  {-# LANGUAGE RankNTypes, GADTs, ConstraintKinds #-}
+  module Test where
+  data Ident a b s t where
+    Ident :: Ident a b a b
+  subst :: Ident s t a b -> ((s ~ a, t ~ b) => r) -> r
+  subst Ident r = r
+  mapEq :: Ident s t a b -> f s -> f a
+  mapEq l r = subst l r
+reason: A variable argument is checked against a qualified polytype under its given equalities. Thus the given s ~ a proves that f s is f a.
+status: pass

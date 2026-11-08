@@ -12,6 +12,7 @@ module GHC.IO.Exception
     AllocationLimitExceeded (..),
     allocationLimitExceeded,
     AssertionFailed (..),
+    CompactionFailed (..),
     SomeAsyncException (..),
     asyncExceptionToException,
     asyncExceptionFromException,
@@ -104,6 +105,14 @@ instance Exception AssertionFailed
 
 instance Show AssertionFailed where
   showsPrec _ (AssertionFailed message) = showString message
+
+-- | A compact region operation failed. The text gives the reason.
+newtype CompactionFailed = CompactionFailed String
+
+instance Exception CompactionFailed
+
+instance Show CompactionFailed where
+  showsPrec _ (CompactionFailed why) = showString "compaction failed: " . showString why
 
 -- | The parent of every asynchronous exception.
 data SomeAsyncException = forall e. (Exception e) => SomeAsyncException e

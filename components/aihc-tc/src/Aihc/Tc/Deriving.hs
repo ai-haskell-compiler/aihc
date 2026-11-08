@@ -166,7 +166,13 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                 mapM_ (emitError classSpan . OtherError . unboundViaTyVarError) (unboundViaTyVars tvEnv strategy)
                 pure Nothing
             | otherwise -> do
-                checkedArguments <- zipWithM (checkSurfaceType tvEnv) suppliedArguments (map tvKind prefixClassVars)
+                -- A variable that only the class arguments mention, as @s@
+                -- in @deriving newtype (MonadState s)@, is a parameter of
+                -- the derived instance, as in GHC.
+                extraParams <- mapM argumentParam (nub (concatMap freeTypeVars suppliedArguments) \\ Map.keys tvEnv)
+                let argumentEnv = tvEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- extraParams]
+                checkedArguments <- mapM defaultTypeKinds =<< zipWithM (checkSurfaceType argumentEnv) suppliedArguments (map tvKind prefixClassVars)
+                argumentParams <- mapM defaultArgumentParam extraParams
                 targetKind <- defaultKindMetas (tvKind targetClassVar)
                 targetType <- attachedTargetType classSpan targetInfo params targetKind
                 checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
@@ -175,8 +181,17 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                 methods <- derivingClassMethods classInfo
                 let headTypes = checkedArguments <> [targetType]
                     strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
-                    quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
+                    quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) (params <> argumentParams)
                 pure (Just ((mkDerivingPlan kinds classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
+  where
+    argumentParam name = do
+      rawTyVar <- freshSkolemTv name
+      kind <- freshKindMeta
+      let tyVar = setTyVarKind kind rawTyVar
+      pure ParamInfo {paramName = name, paramTyVar = tyVar, paramKind = kind}
+    defaultArgumentParam param = do
+      tyVar <- defaultTyVarKinds (paramTyVar param)
+      pure param {paramTyVar = tyVar, paramKind = tvKind tyVar}
 
 -- | The variables a via type mentions that the datatype head does not bind.
 -- A standalone declaration binds its own, but an attached clause has only

@@ -1,0 +1,23 @@
+extensions:
+- DerivingStrategies
+- FlexibleInstances
+- FunctionalDependencies
+- GeneralizedNewtypeDeriving
+- MultiParamTypeClasses
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, FlexibleInstances, FunctionalDependencies, GeneralizedNewtypeDeriving, MultiParamTypeClasses, UndecidableInstances, NoImplicitPrelude #-}
+  module Test where
+  class Has s m | m -> s where
+    grab :: m s
+  newtype Wrap m a = Wrap (m a)
+  instance Has s m => Has s (Wrap m) where
+    grab = Wrap grab
+  -- Only the class argument mentions s, as in
+  -- @deriving newtype (MonadState s)@. The derived instance quantifies s,
+  -- and its context is @Has s m@.
+  newtype App m a = App (Wrap m a)
+    deriving newtype (Has s)
+status: pass
+reason: a type variable that only the class arguments of a deriving clause mention is a parameter of the derived instance

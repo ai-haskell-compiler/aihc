@@ -72,6 +72,7 @@ test-suite spec
     aihc-hackage,
     aihc-hackage-fetch,
     aihc-package-plan,
+    aihc-parser,
     base >=4.16 && <5,
     bytestring,
     containers,
@@ -81,6 +82,7 @@ test-suite spec
     tasty,
     tasty-hedgehog,
     tasty-hunit,
+    text,
 
   ghc-options:
     -Wall

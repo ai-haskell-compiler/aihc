@@ -1,6 +1,6 @@
 -- | The types that a fractional literal desugars to.
 --
--- A fractional literal becomes @fromRational (Ratio numerator denominator)@.
+-- A fractional literal becomes @fromRational (numerator :% denominator)@.
 -- The compiler builds that expression from the built-in scope, so the
 -- ratio type and the Fractional class must live in the primitive package.
 -- @GHC.Real@ of @aihc-base@ exports these declarations again.
@@ -14,7 +14,8 @@ where
 import GHC.Prim.Integer (Integer)
 import GHC.Prim.Num (Num)
 
-data Ratio a = Ratio a a
+-- | As in @base@, the constructor is @(:%)@.
+data Ratio a = a :% a
 
 type Rational = Ratio Integer
 

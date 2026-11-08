@@ -106,9 +106,7 @@ annotated:
   │              └─ type: a
   └─ type: ∀ a. (C a) ⇒ a → a
   "op/nat" forall (x :: Nat). op (op x) = x
-                                  └─ error: unsolved constraint C Nat
   "wrong" forall (x :: Nat). identity x = Nil
   └─ error: expression has type List t0, but expected Nat
     #-}
-
 status: pass

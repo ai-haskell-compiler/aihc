@@ -769,7 +769,7 @@ tuple7DataType = mkDataType "Prelude.(,,,,,,)" [tuple7Constr]
 
 -- As in GHC, the instance rebuilds a ratio with '(%)', which reduces it.
 instance (Data a, Integral a) => Data (Ratio a) where
-  gfoldl k z (Ratio numerator denominator) = z (%) `k` numerator `k` denominator
+  gfoldl k z (numerator :% denominator) = z (%) `k` numerator `k` denominator
   toConstr _ = ratioConstr
   gunfold k z _ = k (k (z (%)))
   dataTypeOf _ = ratioDataType

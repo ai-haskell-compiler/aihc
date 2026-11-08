@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Aihc.Cabal (Package)
+import Aihc.Hackage.Cabal (FileInfo (..))
 import Aihc.Hackage.Cache (getHackageCacheDir)
 import Aihc.Hackage.Fetch (hackageSourceFor)
 import Aihc.Hackage.Package
@@ -26,6 +27,8 @@ import Aihc.PackagePlan
 import Aihc.PackagePlan.Lock
 import Aihc.PackagePlan.Project
 import Aihc.PackagePlan.Solver
+import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), parseInterfaceBytes)
+import Aihc.Parser.Syntax (ImportDecl (..), Module (..))
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_)
 import Data.ByteString.Char8 qualified as BSC
@@ -34,6 +37,7 @@ import Data.Functor.Identity (Identity (..))
 import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
 import Hedgehog (Property, property, success)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
@@ -52,6 +56,7 @@ main =
       testCase "tries deprecated versions last" test_deprecatedLast,
       testCase "keeps the preferred version of a lock" test_prefersLockedVersion,
       testCase "maps boot library names to their standins" test_aliasesBootLibraries,
+      testCase "maps the package of a boot library import to its standin" test_aliasesImportPackages,
       testCase "reports the goal that ran out of candidates" test_reportsExhaustedGoal,
       testCase "reports an unknown package" test_reportsUnknownPackage,
       testCase "applies version and flag constraints" test_appliesConstraints,
@@ -324,6 +329,35 @@ test_aliasesBootLibraries = do
   case solveWith tooOld (configFor ["root"]) of
     Right _ -> assertFailure "a range that excludes the standin must fail"
     Left failure -> assertBool ("names the standin: " <> renderSolveFailure failure) ("No version of aihc-base satisfies <4.20" `isInfixOf` renderSolveFailure failure)
+
+-- | A package-qualified import names a boot library as the source spells
+-- it. The plan builds the standin, so the import must name the standin.
+test_aliasesImportPackages :: Assertion
+test_aliasesImportPackages = do
+  let source =
+        BSC.pack
+          ( unlines
+              [ "{-# LANGUAGE PackageImports #-}",
+                "module M where",
+                "import \"template-haskell\" Language.Haskell.TH",
+                "import \"containers\" Data.Map"
+              ]
+          )
+      fileInfo =
+        FileInfo
+          { fileInfoPath = "M.hs",
+            fileInfoExtensions = [],
+            fileInfoCppOptions = [],
+            fileInfoIncludeDirs = [],
+            fileInfoLanguage = Nothing,
+            fileInfoDependencies = [],
+            fileInfoPreprocessor = Nothing
+          }
+  parsed <- parseInterfaceBytes "." "." Map.empty fileInfo source
+  assertEqual
+    "the boot library import names the standin, and the other import is unchanged"
+    [Just "aihc-template-haskell", Just "containers"]
+    (map (fmap T.unpack . importDeclPackage) (moduleImports (parsedFileModule parsed)))
 
 test_reportsExhaustedGoal :: Assertion
 test_reportsExhaustedGoal = do

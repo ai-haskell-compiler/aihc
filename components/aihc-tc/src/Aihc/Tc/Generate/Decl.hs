@@ -787,8 +787,20 @@ tcRuleDecl rule = withAmbientSpan sp $ do
           -- dictionary binders only, so such a rule keeps its source form
           -- and reports nothing: the rule cannot rewrite, but the program
           -- is still correct.
-          let leavesEquality = any (isEqualityPred . ctPred) (srResidual solveResult <> inertDicts (srInerts solveResult))
-          residualPreds <- if leavesEquality then pure Nothing else Just <$> generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
+          --
+          -- GHC also quantifies a rule over a class constraint of the
+          -- left-hand side that no instance solves, as in
+          -- @Indexable Int64 (Indexed Int)@. No program can supply that
+          -- dictionary, so the rule never rewrites. Such a rule also keeps
+          -- its source form and reports nothing.
+          residualCts <- mapM zonkCt (srResidual solveResult <> inertDicts (srInerts solveResult))
+          let leavesEquality = any (isEqualityPred . ctPred) residualCts
+          lhsPreds <- mapM (zonkPred . ctPred) lhsCts
+          let leavesConcreteDictionary = any (\ct -> isConcreteClassPred (ctPred ct) && ctPred ct `elem` lhsPreds) residualCts
+          residualPreds <-
+            if leavesEquality || leavesConcreteDictionary
+              then pure Nothing
+              else Just <$> generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
           pure (lhs', lhsTy, rhs', residualPreds)
     case residualPreds of
       Nothing -> pure rule
@@ -813,6 +825,17 @@ tcRuleDecl rule = withAmbientSpan sp $ do
     isEqualityPred predicate = case predicate of
       EqPred {} -> True
       _ -> False
+
+    isConcreteClassPred predicate = case predicate of
+      ClassPred _ arguments ->
+        null (predMetaVars predicate)
+          && all (null . typeTyVars) arguments
+          && not (isCallStackPred predicate)
+      _ -> False
+
+    zonkCt ct = do
+      predicate <- zonkPred (ctPred ct)
+      pure ct {ctPred = predicate}
 
     pendingTypes pending =
       pendingTcAnnType pending : pendingTcAnnTypeArgs pending <> pendingTcAnnTermArgTypes pending
@@ -3332,7 +3355,8 @@ patSynLayoutScheme layout =
 -- | The layout of a pattern synonym signature. A signature
 -- @req => prov => body@ gives a scheme with the required context and a
 -- qualified body with the provided context. A variable that the scrutinee
--- type mentions is universal. The other variables are existential.
+-- type or the required context mentions is universal, as in GHC. The other
+-- variables are existential.
 patSynLayoutFromSig :: Text -> Int -> CheckedSig -> TcM (Maybe PatSynLayout)
 patSynLayoutFromSig name arity sig = do
   let ForAll tyVars required qualifiedBody = checkedSigScheme sig
@@ -3342,7 +3366,8 @@ patSynLayoutFromSig name arity sig = do
           TcQualTy predicates inner -> (predicates, inner)
           _ -> ([], innerBody)
       (argTys, resultType) = splitFunTy body arity
-      (universals, implicitExistentials) = partition (`typeMentionsTyVar` resultType) tyVars
+      isUniversal tyVar = typeMentionsTyVar tyVar resultType || any (predicateMentionsTyVar tyVar) required
+      (universals, implicitExistentials) = partition isUniversal tyVars
       existentials = implicitExistentials <> explicitExistentials
   if length argTys /= arity
     then do

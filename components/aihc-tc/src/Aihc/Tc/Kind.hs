@@ -118,6 +118,10 @@ signatureScheme floatResult ty = do
   let implicitEnv = scoped <> Map.fromList (zip freeVars (zip implicitTvs kinds))
   explicitParams <- makeParamEnvWith implicitEnv explicitBinders
   let explicitTvs = map paramTyVar explicitParams
+      -- A binder written as @forall {k}@ is inferred, as in GHC: a visible
+      -- type application skips it.
+      inferredTvs = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBInferred]
+      specifiedTvs = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBSpecified]
       tvEnv =
         implicitEnv
           <> Map.fromList
@@ -129,12 +133,7 @@ signatureScheme floatResult ty = do
   let (floatedTvs, floatedPreds, tcTy)
         | floatResult = floatResultQuantifiers checkedBody
         | otherwise = ([], [], checkedBody)
-  -- An explicit binder in braces, as @k@ in @forall {k} (a :: k).@, is
-  -- inferred. A type application does not give it a type argument.
-  let explicitInferred = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBInferred]
-      isExplicitInferred tyVar = tvUnique tyVar `elem` map tvUnique explicitInferred
-      specified = filter (not . isExplicitInferred) (implicitTvs <> explicitTvs <> floatedTvs)
-  pure (Scheme explicitInferred specified (preds <> floatedPreds) tcTy)
+  pure (Scheme inferredTvs (implicitTvs <> specifiedTvs <> floatedTvs) (preds <> floatedPreds) tcTy)
 
 -- | Move the quantifiers and contexts of a function result to the front of
 -- the type. A type synonym can put them there: with @type Action a =

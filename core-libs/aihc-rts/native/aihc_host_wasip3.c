@@ -42,6 +42,9 @@ void aihc_program_environment_initialize(void) {}
 
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
+/* WASI gives no processor count. */
+int64_t aihc_host_processor_count(void) { return 1; }
+
 /* WASM keeps one capability, so it has no workers and no locks. The
    runtime reaches the functions below that fail only with workers. */
 void aihc_host_workers_start(AihcCapability *capability) {

@@ -2642,6 +2642,11 @@ callForeign foreignCall arguments
   | symbol == "aihc_capability_count",
     [] <- arguments =
       pure [RuntimeLit (GrinLitInt IntRep 1)]
+  -- The interpreter gives one processor, so that a result does not depend
+  -- on the host machine.
+  | symbol == "aihc_processor_count",
+    [] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep 1)]
   | symbol == "aihc_errno_get",
     [] <- arguments = do
       Errno current <- liftEvalIO getErrno

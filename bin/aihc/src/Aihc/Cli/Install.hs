@@ -4532,7 +4532,7 @@ addReferencedFacts extraRoots extraTerms complete = go
         ordinaryReachable = closeTyCons Set.empty (Set.toList referenced)
         reachable = closeTyCons ordinaryReachable (Set.toList (Set.unions (map (typeSchemeTyCons . snd) typeableSupportTerms)))
         -- Typeable evidence for an applied type desugars to a call of the
-        -- class's @typeRep@ selector on the evidence of each argument. The
+        -- class's @typeRep#@ selector on the evidence of each argument. The
         -- class reaches a module as the superclass of one it names, so the
         -- module may hold the class without ever importing the selector.
         typeableSupportTerms =
@@ -4540,8 +4540,8 @@ addReferencedFacts extraRoots extraTerms complete = go
           | tyCon <- Set.toList ordinaryReachable,
             tyConName tyCon == "Typeable",
             tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
-            name <- ["typeRep", "typeRepNat", "typeRepSymbol", "typeRepChar"],
-            let moduleName' = if name == "typeRep" then tyConModuleName tyCon else "Type.Reflection.Literal",
+            name <- ["typeRep#", "typeRepNat", "typeRepSymbol", "typeRepChar"],
+            let moduleName' = if name == "typeRep#" then tyConModuleName tyCon else "Type.Reflection.Literal",
             let key = GlobalTerm (tyConPackageId tyCon) moduleName' name,
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]

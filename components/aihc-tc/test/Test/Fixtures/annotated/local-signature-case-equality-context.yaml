@@ -1,0 +1,39 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Answer b a = b ~ a => Hit a | Miss
+       │            │                └─ type: ∀ b a. Answer b a
+       │            └─ type: ∀ b a. (b ~ a) ⇒ a → Answer b a
+       └─ type: Type → Type → Type
+  outer :: a -> a
+  outer x = x
+  │     └─ type: a
+  └─ type: ∀ a. a → a
+    where
+      go :: Answer d b -> d -> d
+      go o s = case o of
+      │  │ │   └─ type: d
+      │  │ └─ type: d
+      │  └─ type: Answer d b
+      └─ type: ∀ d b. Answer d b → d → d
+        Hit y -> y
+        │   └─ type: b
+        └─ type: b → Answer d b; type-args: d, b; evidence: given d ~ b
+        Miss -> s
+        └─ type: Answer d b
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Answer b a = b ~ a => Hit a | Miss
+  outer :: a -> a
+  outer x = x
+    where
+      go :: Answer d b -> d -> d
+      go o s = case o of
+        Hit y -> y
+        Miss -> s
+reason: A local equation with a signature checks its right-hand side against the result type of the signature. Thus the given equality of the first case branch does not fix the type of the other branch.
+status: pass

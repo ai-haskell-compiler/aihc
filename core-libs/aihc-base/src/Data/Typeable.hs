@@ -21,6 +21,7 @@ module Data.Typeable
     showsTypeRep,
     typeRepArgs,
     typeRepTyCon,
+    splitTyConApp,
     tyConPackage,
     tyConModule,
     tyConName,
@@ -64,6 +65,10 @@ typeRepArgs :: TypeRep -> [TypeRep]
 typeRepArgs (SomeTypeRep rep) =
   case splitApps rep of
     (_, arguments) -> arguments
+
+-- | The type constructor and the arguments of a type.
+splitTyConApp :: TypeRep -> (TyCon, [TypeRep])
+splitTyConApp (SomeTypeRep rep) = splitApps rep
 
 cast :: (Typeable a, Typeable b) => a -> Maybe b
 cast value = castWith value Proxy

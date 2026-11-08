@@ -67,9 +67,10 @@ data TypeRep (a :: k) = TypeRep TyCon [SomeTypeRep] [SomeTypeRep]
 data SomeTypeRep where
   SomeTypeRep :: forall k (a :: k). TypeRep a -> SomeTypeRep
 
--- The class method takes the class kind @k@ as a specified type argument.
--- Thus, @typeRep# \@Int@ gives a type argument to @k@ and not to @a@.
--- The function 'typeRep' makes @k@ inferred, as GHC does.
+-- | As in @base@, the method is @typeRep#@ and 'typeRep' is a function.
+-- The kind of the class variable is a specified variable of the method,
+-- but it is an inferred variable of 'typeRep'. Thus @typeRep \@a@ applies
+-- 'typeRep' to @a@ and not to its kind.
 class Typeable (a :: k) where
   typeRep# :: TypeRep a
 

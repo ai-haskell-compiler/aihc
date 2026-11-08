@@ -49,6 +49,7 @@ import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcPatternInstantiation (..
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (GroupQuantification (..), environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
+import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
@@ -827,7 +828,7 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
         results <-
           withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
             withGivenPredicates sigPredicates $
-              mapM (tcMatchEquation inferExpr argTys resTy) matches
+              mapM (tcMatchEquation argTys resTy) matches
         let matches' = map fst results
             matchCts = concatMap snd results
         residualCts <- solveWithSigGivens scheme matchCts
@@ -927,7 +928,7 @@ tcMatches inferExpr matches@(m0 : _) = do
     else do
       argTys <- mapM (const freshMetaTv) [1 .. nArgs]
       resTy <- freshMetaTv
-      results <- mapM (tcMatchEquation inferExpr argTys resTy) matches
+      results <- mapM (tcMatchEquation argTys resTy) matches
       let matches' = map fst results
           allCts = concatMap snd results
       pure (matches', foldr TcFunTy resTy argTys, allCts)
@@ -937,14 +938,17 @@ inferZeroArgMatch inferExpr match = do
   (rhs', ty, cts) <- inferRhsWithLocals inferExpr (matchRhs match)
   pure (match {matchRhs = rhs'}, ty, cts)
 
-tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
-tcMatchEquation inferExpr argTys resTy match = do
+tcMatchEquation :: [TcType] -> TcType -> Match -> TcM (Match, [Ct])
+tcMatchEquation argTys resTy match = do
   let pats = matchPats match
       matchSpan = sourceSpanFromAnnotations (matchAnns match)
   when (length pats > length argTys) $
     abortTc ("internal type checker error: equation with " <> show (length pats) <> " patterns checked against " <> show (length argTys) <> " argument types")
   patCheck <- checkFunctionPatterns matchSpan (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withPatternScope patCheck (inferRhsWithLocals inferExpr (matchRhs match))
+  -- The right-hand side gets the expected result type, as a top-level
+  -- equation does. A case branch that a constructor context refines then
+  -- does not fix the type of the other branches.
+  (rhs', rhsTy, rhsCts) <- withPatternScope patCheck (checkRhs resTy (matchRhs match))
   ev <- freshEvVar
   let rhsLocation = (<|>) (rhsSourceSpan (matchRhs match)) matchSpan
       pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)

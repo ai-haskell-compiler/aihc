@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts #-}
+  module Test where
+  data A = A
+       │   └─ type: A
+       └─ type: Type
+  data B = B
+       │   └─ type: B
+       └─ type: Type
+  class C i p where
+  └─ class methods: c ∷ ∀ i p. (C i p) ⇒ i → p → p
+    c :: i -> p -> p
+  newtype W i = W i
+          │     └─ type: ∀ i. i → W i
+          └─ type: Type → Type
+  instance C i (W i) where
+  └─ $fCiWi ∷ ∀ i. () ⇒ C i (W i)
+    c _ p = p
+    │ │ └─ type: W i
+    │ └─ type: i
+    └─ c ∷ i → W i → W i
+  f :: C A p => p -> p
+  f p = c A p
+  │ │   └─ type: A → p → p; type-args: A, p; evidence: given C A p
+  │ └─ type: p
+  └─ type: ∀ p. (C A p) ⇒ p → p
+  g :: W B -> W B
+  g p = p
+  │ └─ type: W B
+  └─ type: W B → W B
+  {-# RULES "f/g" f = g #-}
+extensions: []
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts #-}
+  module Test where
+  data A = A
+  data B = B
+  class C i p where
+    c :: i -> p -> p
+  newtype W i = W i
+  instance C i (W i) where
+    c _ p = p
+  f :: C A p => p -> p
+  f p = c A p
+  g :: W B -> W B
+  g p = p
+  {-# RULES "f/g" f = g #-}
+reason: A rule whose left-hand side leaves a class constraint that no instance solves keeps its source form and reports nothing, as GHC accepts the program.
+status: pass
