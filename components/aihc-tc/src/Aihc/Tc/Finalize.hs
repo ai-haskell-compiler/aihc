@@ -395,6 +395,7 @@ firstMetaCoerced body =
         ++ [ firstMetaCoercion (tcCoercedMethodCoercion method)
                <|> firstJusts (map (firstMetaType . tvKind) (tcCoercedMethodTyVars method))
                <|> firstJusts (map firstMetaPred (tcCoercedMethodPredicates method))
+               <|> firstJusts [firstMetaCoercion proof | Just proof <- tcCoercedMethodPredicateCasts method]
            | method <- tcCoercedMethods body
            ]
     )

@@ -1,0 +1,60 @@
+extensions:
+- DefaultSignatures
+- FlexibleContexts
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, FlexibleContexts, TypeFamilies #-}
+  module Test where
+  data Maybe a = Nothing | Just a
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+  instance Functor Maybe where
+    fmap _ Nothing = Nothing
+    fmap g (Just x) = Just (g x)
+  type family Element mono
+  type instance Element (Maybe a) = a
+  class MonoFunctor mono where
+    omap :: (Element mono -> Element mono) -> mono -> mono
+    default omap :: (Functor f, Element (f a) ~ a, f a ~ mono) => (Element mono -> Element mono) -> mono -> mono
+    omap = fmap
+  instance MonoFunctor (Maybe a)
+status: pass
+reason: An instance that takes a default signature gets its stuck constraints solved after the equality "f a ~ mono" chooses f and a.
+annotated:
+- |-
+  {-# LANGUAGE DefaultSignatures, FlexibleContexts, TypeFamilies #-}
+  module Test where
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  class Functor f where
+  └─ class methods: fmap ∷ ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+    fmap :: (a -> b) -> f a -> f b
+  instance Functor Maybe where
+  └─ $fFunctorMaybe ∷ () ⇒ Functor Maybe
+    fmap _ Nothing = Nothing
+    │    │ │         └─ type: Maybe b; type-args: b
+    │    │ └─ type: Maybe a
+    │    └─ type: a → b
+    └─ fmap ∷ ∀ a b. (a → b) → Maybe a → Maybe b
+    fmap g (Just x) = Just (g x)
+    │    │  │    │    └─ type: b → Maybe b; type-args: b
+    │    │  │    └─ type: a
+    │    │  └─ type: Maybe a
+    │    └─ type: a → b
+    └─ fmap ∷ ∀ a b. (a → b) → Maybe a → Maybe b
+  type family Element mono
+              └─ type: Type → Type
+  type instance Element (Maybe a) = a
+  class MonoFunctor mono where
+  └─ class methods: omap ∷ ∀ mono. (MonoFunctor mono) ⇒ (Element mono → Element mono) → mono → mono
+    omap :: (Element mono -> Element mono) -> mono -> mono
+    default omap :: (Functor f, Element (f a) ~ a, f a ~ mono) => (Element mono -> Element mono) -> mono -> mono
+    omap = fmap
+    │      └─ type: (a → a) → f a → f a; type-args: f, a, a; evidence: given Functor f
+    └─ omap ∷ ∀ mono f a. (MonoFunctor mono, Functor f, (Element (f a)) ~ a, (f a) ~ mono) ⇒ (Element mono → Element mono) → mono → mono
+  instance MonoFunctor (Maybe a)
+  └─ $fMonoFunctorMaybea ∷ ∀ a. () ⇒ MonoFunctor (Maybe a)
+
