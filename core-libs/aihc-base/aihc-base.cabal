@@ -317,6 +317,9 @@ library
     hs-source-dirs: src-aarch64
   elif arch(x86_64)
     hs-source-dirs: src-x86_64
+  -- The include directory has the struct stat accessors of
+  -- System.Posix.Internals. Each capi import there calls one of them.
+  include-dirs: include
   build-depends: aihc-prim ==0.13.0
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall
