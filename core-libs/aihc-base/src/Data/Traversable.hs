@@ -61,15 +61,16 @@ mapAccumR f initial values = runStateR (traverse (\value -> StateR (`f` value)) 
 newtype StateM s m a = StateM {runStateM :: s -> m (s, a)}
 
 instance (Monad m) => Functor (StateM s m) where
-  fmap f (StateM action) = StateM (\s -> action s >>= \(next, value) -> pure (next, f value))
+  fmap f (StateM action) = StateM (fmap (fmap f) . action)
 
 instance (Monad m) => Applicative (StateM s m) where
   pure value = StateM (\s -> pure (s, value))
   StateM function <*> StateM argument =
     StateM
-      ( \s ->
-          function s >>= \(next, f) ->
-            argument next >>= \(final, value) -> pure (final, f value)
+      ( \s -> do
+          (next, f) <- function s
+          (final, value) <- argument next
+          pure (final, f value)
       )
 
 -- | A monadic 'mapAccumL'.
