@@ -938,19 +938,30 @@ matchingModuleScopes :: Package -> Maybe Text -> Text -> ModuleExports -> [Scope
 matchingModuleScopes currentPackage requestedPackage moduleName' exports =
   map snd (matchingModuleEntries currentPackage requestedPackage moduleName' exports)
 
+-- | The modules that an import of a module name can name.
+--
+-- An import without a package qualifier names a module of the current
+-- package before a module of a dependency, as in GHC. Thus, a package can
+-- have its own @Prelude@ that imports the @Prelude@ of @base@.
 matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
 matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName origins) =
-  List.nubBy
-    (\(left, _) (right, _) -> origin left == origin right)
-    [ (ModuleKey package moduleName', scope)
-    | (package, scope) <- Map.toList (MonoidMap.get moduleName' byName),
-      case requestedPackage of
-        Nothing -> True
-        Just "this" -> package == currentPackage
-        Just requested -> packageName package == requested
-    ]
+  preferCurrentPackage $
+    List.nubBy
+      (\(left, _) (right, _) -> origin left == origin right)
+      [ (ModuleKey package moduleName', scope)
+      | (package, scope) <- Map.toList (MonoidMap.get moduleName' byName),
+        case requestedPackage of
+          Nothing -> True
+          Just "this" -> package == currentPackage
+          Just requested -> packageName package == requested
+      ]
   where
     origin key@(ModuleKey package name) = Map.findWithDefault (packageId package, name) key origins
+    preferCurrentPackage entries
+      | Nothing <- requestedPackage,
+        current@(_ : _) <- filter ((== currentPackage) . moduleKeyPackage . fst) entries =
+          current
+      | otherwise = entries
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
