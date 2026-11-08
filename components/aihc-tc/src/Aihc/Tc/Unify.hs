@@ -65,14 +65,18 @@ unifyDeferring loc origin t1 t2 = do
 -- that a type family application holds back without a retry. A caller
 -- with givens in scope uses it: a given can prove such an equality when
 -- no solution of a meta variable can, as the given @StM m a ~ a@ proves
--- @StM m a ~ a@.
-unifyDeferringUnderGivens :: Maybe SourceSpan -> CtOrigin -> TcType -> TcType -> TcM [(TcType, TcType)]
-unifyDeferringUnderGivens loc origin t1 t2 = do
+-- @StM m a ~ a@. A pair that does not unify is returned too, for the same
+-- reason. The caller makes each returned pair a wanted equality.
+unifyDeferringUnderGivens :: Maybe SourceSpan -> TcType -> TcType -> TcM [(TcType, TcType)]
+unifyDeferringUnderGivens loc t1 t2 = do
   t1' <- zonkType t1 >>= reduceTypeFamilies
   t2' <- zonkType t2 >>= reduceTypeFamilies
   result <- unifyCollecting loc t1' t2'
   case result of
-    Left err -> reportUnifyError loc origin err >> pure []
+    -- A given equality can prove what the unifier cannot, as the given
+    -- @s ~ a@ proves @s ~ a@. The solver then decides the pair under the
+    -- givens and reports it when they do not prove it.
+    Left _ -> pure [(t1', t2')]
     Right deferred -> pure deferred
 
 reportUnifyError :: Maybe SourceSpan -> CtOrigin -> TcErrorKind -> TcM ()

@@ -970,7 +970,11 @@ checkPatSynPattern :: Maybe SourceSpan -> Pattern -> Text -> PatSynInfo -> TypeS
 checkPatSynPattern sp originalPat conName info scheme subPats scrutTy = do
   when (length subPats /= psiArity info) $
     emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
-  (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
+  -- A variable of the required context is universal, as a variable of the
+  -- result type is, also when the result type does not mention it.
+  let ForAll _ schemePredicates _ = scheme
+      requiredVariables = foldMap predTyVars (take (length (psiReqTheta info)) schemePredicates)
+  (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPatternWith requiredVariables scrutTy scheme
   let (requiredPreds, providedPreds) = splitAt (length (psiReqTheta info)) predicates
   (argTys, conResTy) <- splitConTy (length subPats) conTy
   scrutCt <- wantedEq sp scrutTy conResTy
@@ -1011,9 +1015,14 @@ constructorGiven sp constructorName predicate = do
       }
 
 instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
-instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
+instantiateConstructorPattern = instantiateConstructorPatternWith Set.empty
+
+-- | Instantiate a constructor pattern. The set holds more universal
+-- variables than the result type gives.
+instantiateConstructorPatternWith :: Set.Set Unique -> TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
+instantiateConstructorPatternWith extraUniversals scrutTy (ForAll tyVars predicates body) = do
   matched <- matchConstructorResult (Set.fromList (map tvUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
-  let resultTyVars = constructorResultTyVars body
+  let resultTyVars = constructorResultTyVars body <> extraUniversals
       isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
   (substitution, skolems) <- foldM (instantiateTyVar matched isUniversal) (Map.empty, []) tyVars
   let instantiateType = applySubst substitution

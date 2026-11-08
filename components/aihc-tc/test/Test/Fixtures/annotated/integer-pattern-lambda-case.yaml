@@ -13,6 +13,7 @@ annotated:
   import GHC.Classes ((==))
   import GHC.Num (fromInteger)
   match = \case
+  │       └─ type: a → ()
   └─ type: ∀ a. (GHC.Classes.Eq a, GHC.Num.Num a) ⇒ a → ()
     1 -> ()
     ││    └─ type: ()

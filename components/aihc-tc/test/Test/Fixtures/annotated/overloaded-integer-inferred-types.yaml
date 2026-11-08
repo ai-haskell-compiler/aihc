@@ -16,6 +16,7 @@ annotated:
   │         └─ type: a; type-args: a; evidence: given Num a
   └─ type: ∀ a. (GHC.Num.Num a) ⇒ a
   match = \case
+  │       └─ type: a → ()
   └─ type: ∀ a. (GHC.Classes.Eq a, GHC.Num.Num a) ⇒ a → ()
     1 -> ()
     ││    └─ type: ()
