@@ -82,6 +82,10 @@ module Data.List
     findIndices,
     zip4,
     zipWith4,
+    unzip4,
+    unzip5,
+    unzip6,
+    unzip7,
     nub,
     nubBy,
     delete,
@@ -104,6 +108,7 @@ module Data.List
     genericDrop,
     genericSplitAt,
     genericReplicate,
+    genericIndex,
     dropWhileEnd,
     singleton,
     lines,
@@ -142,6 +147,7 @@ import Prelude
     lines,
     notElem,
     or,
+    otherwise,
     snd,
     unlines,
     unwords,
@@ -290,6 +296,33 @@ zipWith4 combine (valueOne : onesRest) (valueTwo : twosRest) (valueThree : three
   combine valueOne valueTwo valueThree valueFour : zipWith4 combine onesRest twosRest threesRest foursRest
 zipWith4 _ _ _ _ _ = []
 
+-- The unzip functions use lazy patterns, as in @base@: each result list
+-- is available before the input list ends.
+
+unzip4 :: [(a, b, c, d)] -> ([a], [b], [c], [d])
+unzip4 =
+  foldr
+    (\(a, b, c, d) ~(as, bs, cs, ds) -> (a : as, b : bs, c : cs, d : ds))
+    ([], [], [], [])
+
+unzip5 :: [(a, b, c, d, e)] -> ([a], [b], [c], [d], [e])
+unzip5 =
+  foldr
+    (\(a, b, c, d, e) ~(as, bs, cs, ds, es) -> (a : as, b : bs, c : cs, d : ds, e : es))
+    ([], [], [], [], [])
+
+unzip6 :: [(a, b, c, d, e, f)] -> ([a], [b], [c], [d], [e], [f])
+unzip6 =
+  foldr
+    (\(a, b, c, d, e, f) ~(as, bs, cs, ds, es, fs) -> (a : as, b : bs, c : cs, d : ds, e : es, f : fs))
+    ([], [], [], [], [], [])
+
+unzip7 :: [(a, b, c, d, e, f, g)] -> ([a], [b], [c], [d], [e], [f], [g])
+unzip7 =
+  foldr
+    (\(a, b, c, d, e, f, g) ~(as, bs, cs, ds, es, fs, gs) -> (a : as, b : bs, c : cs, d : ds, e : es, f : fs, g : gs))
+    ([], [], [], [], [], [], [])
+
 nub :: (Eq a) => [a] -> [a]
 nub = nubBy (==)
 
@@ -417,6 +450,14 @@ genericSplitAt count values = (genericTake count values, genericDrop count value
 
 genericReplicate :: (Integral i) => i -> a -> [a]
 genericReplicate count = replicate (fromIntegral count)
+
+-- | The element at the given index. The index can have any integral type.
+genericIndex :: (Integral i) => [a] -> i -> a
+genericIndex (value : rest) index
+  | index > 0 = genericIndex rest (index - 1)
+  | index == 0 = value
+  | otherwise = errorWithoutStackTrace "List.genericIndex: negative argument."
+genericIndex _ _ = errorWithoutStackTrace "List.genericIndex: index too large."
 
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd drops = foldr (\value rest -> if drops value && null rest then [] else value : rest) []

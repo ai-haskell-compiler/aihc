@@ -1,0 +1,25 @@
+extensions:
+- DefaultSignatures
+- GADTs
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, GADTs, NoImplicitPrelude #-}
+  module Test where
+  data N = N
+  class Trans t where
+    liftT :: m a -> t m a
+  newtype Rd r m a = Rd (r -> m a)
+  instance Trans (Rd r) where
+    liftT m = Rd (\_ -> m)
+  -- The equality m ~ t n comes after the dictionaries that need t and n,
+  -- as in the lifting default of a monad transformer class.
+  class Source m where
+    source :: m N
+    default source :: (Trans t, Source n, m ~ t n) => m N
+    source = liftT source
+  data Id a = Id a
+  instance Source Id where
+    source = Id N
+  instance Source m => Source (Rd r m)
+status: pass
+reason: the instance solves the equalities of a default signature before its dictionaries, because an equality can give the type variables of the dictionaries

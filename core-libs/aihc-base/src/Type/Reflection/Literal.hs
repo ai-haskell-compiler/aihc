@@ -12,7 +12,7 @@ where
 import Data.Proxy (Proxy (..))
 import GHC.TypeLits (KnownChar, KnownNat, KnownSymbol, Nat, Symbol, charVal, natVal, symbolVal)
 import GHC.Types (KindRep (..), TrName (..), TyCon (..))
-import Type.Reflection.Internal (TypeRep (..), Typeable (typeRep))
+import Type.Reflection.Internal (TypeRep (..), typeRep)
 import Prelude (Char, Show (show), String)
 
 -- | Construct a type literal representation from its singleton dictionary.

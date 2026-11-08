@@ -2178,10 +2178,30 @@ classMethodFromInfo info index (methodName, scheme) =
 -- the equalities first gives the dictionaries that variable; without it
 -- @f@ in @(RandomGen f, FrozenGen f m, g ~ MutableGen f m)@ would stay a
 -- meta variable that no predicate on its own can solve.
+--
+-- For the same reason the equalities are solved before the dictionaries:
+-- @m ~ t n@ in @(MonadTrans t, C n, m ~ t n)@ gives @t@ and @n@ to the two
+-- dictionary predicates before them. The evidence keeps the order of the
+-- predicates.
 solveInstanceDefaultSignature :: Text -> [Pred] -> [Pred] -> TcM [EvTerm]
 solveInstanceDefaultSignature className givens predicates = do
   _ <- improveInjectivity givens [predicate | predicate@EqPred {} <- predicates]
-  mapM (solveInstanceSuperClass className givens) predicates
+  equalityEvidence <- mapM (solveInstanceSuperClass className givens) [predicate | (_, predicate@EqPred {}) <- numbered]
+  dictionaryEvidence <-
+    mapM
+      (solveInstanceSuperClass className givens <=< zonkPred)
+      [predicate | (_, predicate) <- numbered, not (isEqPred predicate)]
+  let evidence =
+        Map.fromList
+          ( zip [index | (index, EqPred {}) <- numbered] equalityEvidence
+              <> zip [index | (index, predicate) <- numbered, not (isEqPred predicate)] dictionaryEvidence
+          )
+  pure (Map.elems evidence)
+  where
+    numbered = zip [0 :: Int ..] predicates
+    isEqPred predicate = case predicate of
+      EqPred {} -> True
+      _ -> False
 
 solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do

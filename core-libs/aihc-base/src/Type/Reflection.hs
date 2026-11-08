@@ -1,7 +1,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Type.Reflection
-  ( Typeable (..),
+  ( Typeable,
+    typeRep,
     TypeRep,
     withTypeable,
     (:~~:) (..),

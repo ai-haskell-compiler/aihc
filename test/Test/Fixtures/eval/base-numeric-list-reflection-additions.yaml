@@ -1,0 +1,45 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE DataKinds, ScopedTypeVariables, TypeApplications, TypeOperators #-}
+    module Test where
+
+    import Data.List (genericIndex, unzip4)
+    import Data.Proxy (Proxy (..))
+    import Data.Type.Equality (TestEquality (..), type (==), (:~:) (..))
+    import GHC.Real (Ratio ((:%)), integralEnumFromThen, integralEnumFromTo)
+    import Numeric (fromRat, readFloat, showHFloat)
+    import Type.Reflection (Typeable, typeRep)
+
+    -- @typeRep \@a@ applies to a: the kind of a is an inferred binder.
+    typeName :: forall a. (Typeable a) => Proxy a -> String
+    typeName _ = show (typeRep @a)
+
+    sameType :: (Int == Int) :~: 'True
+    sameType = Refl
+
+    main :: IO ()
+    main = do
+      print (genericIndex "abc" (2 :: Integer))
+      print (unzip4 [(1 :: Int, 'a', True, "x"), (2, 'b', False, "y")])
+      print (case 6 / 8 :: Rational of numerator :% denominator -> (numerator, denominator))
+      print (integralEnumFromTo (3 :: Int) 6, integralEnumFromThen (maxBound - 2 :: Int) (maxBound - 1))
+      print (fst (head (readFloat "1.5e2 rest")) :: Double)
+      print (fromRat (1 / 8) :: Double)
+      putStrLn (showHFloat (212.21 :: Double) (showHFloat (-0.5 :: Float) ""))
+      putStrLn (typeName (Proxy :: Proxy Bool))
+      print (fmap (\Refl -> ()) (testEquality (Refl :: Int :~: Int) (Refl :: Int :~: Int)), case sameType of Refl -> True)
+expression: main
+stdout: |
+  'c'
+  ([1,2],"ab",[True,False],["x","y"])
+  (3,4)
+  ([3,4,5,6],[9223372036854775805,9223372036854775806,9223372036854775807])
+  150.0
+  0.125
+  0x1.a86b851eb851fp7-0x1p-1
+  Bool
+  (Just (),True)
+output: ()
+status: pass
+reason: base exports these Numeric, Data.List, GHC.Real, Data.Type.Equality, and Type.Reflection names, and they compute the values that GHC computes.

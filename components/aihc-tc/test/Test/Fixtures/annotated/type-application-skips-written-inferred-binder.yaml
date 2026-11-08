@@ -1,0 +1,21 @@
+extensions:
+- KindSignatures
+- PolyKinds
+- RankNTypes
+- ScopedTypeVariables
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, NoImplicitPrelude #-}
+  module Test where
+  data Proxy t = Proxy
+  data Unit = Unit
+  -- The source writes k as an inferred binder, as base writes
+  -- @typeRep :: forall {k} (a :: k). Typeable a => TypeRep a@. Thus
+  -- @proxyOf \@Unit@ applies to a and not to k.
+  proxyOf :: forall {k} (a :: k). Proxy a
+  proxyOf = Proxy
+  unitProxy :: Proxy Unit
+  unitProxy = proxyOf @Unit
+status: pass
+reason: a binder that a signature writes in braces is an inferred binder, so a visible type application skips it
