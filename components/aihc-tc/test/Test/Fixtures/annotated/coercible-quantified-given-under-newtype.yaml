@@ -1,0 +1,34 @@
+extensions: [FlexibleContexts, QuantifiedConstraints]
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts, QuantifiedConstraints #-}
+    module Test where
+    import GHC.Types (Coercible)
+    -- The superclass of the instance unwraps the newtype to @m (a, w)@.
+    -- Only the quantified superclass of @Lift m@ solves that pair.
+    class (forall a b. Coercible a b => Coercible (m a) (m b)) => Lift m
+    newtype Pair w m a = Pair (m (a, w))
+    instance Lift m => Lift (Pair w m)
+    newtype Arrow s m a = Arrow (s -> m (a, s))
+    instance Lift m => Lift (Arrow s m)
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, QuantifiedConstraints #-}
+  module Test where
+  import GHC.Types (Coercible)
+  -- The superclass of the instance unwraps the newtype to @m (a, w)@.
+  -- Only the quantified superclass of @Lift m@ solves that pair.
+  class (forall a b. Coercible a b => Coercible (m a) (m b)) => Lift m
+  └─ class methods:
+  newtype Pair w m a = Pair (m (a, w))
+          │            └─ type: ∀ w m a. m (a, w) → Pair w m a
+          └─ type: Type → (Type → Type) → Type → Type
+  instance Lift m => Lift (Pair w m)
+  └─ $fLiftPairwm ∷ ∀ m w. (Lift m) ⇒ Lift (Pair w m) [superclasses: Λa. Λb. λ(_ ∷ Coercible a b). coercible @Pair w m a @Pair w m b]
+  newtype Arrow s m a = Arrow (s -> m (a, s))
+          │             └─ type: ∀ s m a. (s → m (a, s)) → Arrow s m a
+          └─ type: Type → (Type → Type) → Type → Type
+  instance Lift m => Lift (Arrow s m)
+  └─ $fLiftArrowsm ∷ ∀ m s. (Lift m) ⇒ Lift (Arrow s m) [superclasses: Λa. Λb. λ(_ ∷ Coercible a b). coercible @Arrow s m a @Arrow s m b]
+status: pass
+reason: a quantified Coercible given solves an inner pair after a newtype unwraps

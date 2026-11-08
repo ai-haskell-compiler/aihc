@@ -119,7 +119,7 @@ solveNormalizedDict visited givens ct
                     Just classInfo
                       | null (ciMethods classInfo),
                         null (ciSuperClassTypes classInfo) -> do
-                          direct <- solveCoercible className givens' left right
+                          direct <- solveCoercible className givens' (nestedCoercible className givens') left right
                           if direct
                             then pure True
                             else solveCoercibleFromGivens className givens' left right
@@ -521,6 +521,19 @@ solveNormalizedDict visited givens ct
                   pure DictSolved
                 Nothing -> pure (DictStuck ct)
             Nothing -> pure (DictStuck ct)
+
+    -- An inner pair of a @Coercible@ wanted can follow from a quantified
+    -- given, such as the superclass @forall a b. Coercible a b =>
+    -- Coercible (m a) (m b)@ of a class. Solve the pair as a new wanted
+    -- with all the given machinery. A failed attempt keeps no unifications.
+    nestedCoercible className givens' left right = do
+      saved <- lift get
+      proof <- freshEvVar
+      let predicate = ClassPred className [left, right]
+      result <- solveDictWithGivensVisited (ctPred ct : visited) givens' ct {ctPred = predicate, ctEvVar = proof}
+      case result of
+        DictSolved -> pure True
+        DictStuck _ -> False <$ lift (put saved)
 
     solveQuantifiedWanted visited' localGivens (QuantifiedPred variables antecedents consequent) = do
       (freshVariables, substitution) <- freshQuantifiedVariables variables
