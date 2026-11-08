@@ -2867,16 +2867,14 @@ runTypeUnit context runtimes runtime = do
         mergeTcInterfaces
           (configMergeCheck config)
           ( importedInstanceInterface
-              : [ interface
-                | interface <-
-                    Map.elems $
-                      Map.fromList
-                        [ ((package, name), interface)
-                        | dependency@(_, name) <- dependencies,
-                          (package, interface) <- byModuleLookupName name availableTypes,
-                          importSelects resolvePackage unitNames dependency package
-                        ]
-                ]
+              : Map.elems
+                ( Map.fromList
+                    [ ((package, name), interface)
+                    | dependency@(_, name) <- dependencies,
+                      (package, interface) <- byModuleLookupName name availableTypes,
+                      importSelects resolvePackage unitNames dependency package
+                    ]
+                )
           )
       checkUnit = do
         let resolved =
