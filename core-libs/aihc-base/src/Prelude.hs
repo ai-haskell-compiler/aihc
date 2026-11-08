@@ -218,6 +218,7 @@ import GHC.Real
     (^^),
   )
 import GHC.ST (ST (..))
+import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
 import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
@@ -760,6 +761,30 @@ instance Show Char where
 
 instance (Show a) => Show [a] where
   showsPrec _ = showList
+
+instance Show SrcLoc where
+  showsPrec precedence location =
+    showParen
+      (precedence >= 11)
+      ( showString "SrcLoc {srcLocPackage = "
+          . shows (srcLocPackage location)
+          . showString ", srcLocModule = "
+          . shows (srcLocModule location)
+          . showString ", srcLocFile = "
+          . shows (srcLocFile location)
+          . showString ", srcLocStartLine = "
+          . shows (srcLocStartLine location)
+          . showString ", srcLocStartCol = "
+          . shows (srcLocStartCol location)
+          . showString ", srcLocEndLine = "
+          . shows (srcLocEndLine location)
+          . showString ", srcLocEndCol = "
+          . shows (srcLocEndCol location)
+          . showChar '}'
+      )
+
+instance Show CallStack where
+  showsPrec _ stack = shows (getCallStack stack)
 
 instance (Show a, Show b) => Show (Either a b) where
   showsPrec precedence (Left value) =

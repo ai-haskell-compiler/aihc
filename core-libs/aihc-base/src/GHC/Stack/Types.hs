@@ -13,7 +13,9 @@ module GHC.Stack.Types
   )
 where
 
+import Data.Bool ((&&))
 import GHC.Base (String)
+import GHC.Internal.Classes (Eq (..))
 import GHC.Types (Int, List (..))
 
 -- | A source location for one call site.
@@ -26,6 +28,17 @@ data SrcLoc = SrcLoc
     srcLocEndLine :: Int,
     srcLocEndCol :: Int
   }
+
+instance Eq SrcLoc where
+  SrcLoc package1 module1 file1 startLine1 startCol1 endLine1 endCol1
+    == SrcLoc package2 module2 file2 startLine2 startCol2 endLine2 endCol2 =
+      package1 == package2
+        && module1 == module2
+        && file1 == file2
+        && startLine1 == startLine2
+        && startCol1 == startCol2
+        && endLine1 == endLine2
+        && endCol1 == endCol2
 
 -- | A call stack with an optional freeze marker.
 data CallStack
