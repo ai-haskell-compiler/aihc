@@ -35,6 +35,7 @@
 -- A grafted value that survives the passes is removed, and the call that
 -- names it becomes a call of the value of the module that declares it.
 -- The object of a module thus holds the values of that module alone.
+{-# LANGUAGE TupleSections #-}
 module Aihc.Fc.Interface
   ( InterfacePolicy (..),
     defaultInterfacePolicy,
@@ -423,7 +424,17 @@ graftIndexed index program =
     -- rule "map", which rewrites a call of 'map' to 'foldr' and 'mapFB'.
     -- These values can make more rules applicable, so the sets grow until
     -- they do not change.
-    (wanted, heads, sources) = saturate Set.empty Set.empty IntSet.empty reached reached
+    (wanted, heads, sources) = saturate Set.empty Set.empty IntSet.empty reached (map (0 :: Int,) reached)
+    -- EXPERIMENT: a body comes in only within this many steps from a
+    -- reference of the program. The names that a rule brings in start a
+    -- new walk.
+    depthLimit = 2
+    callable declaration =
+      valVis declaration == Pub
+        && not (isConstructorWrapperName (valName declaration))
+        && case valInline declaration of
+          InlineAlways _ -> False
+          _ -> True
     saturate values headSet numbers pendingHeads pendingValues =
       case pendingHeads of
         name : rest
@@ -435,15 +446,25 @@ graftIndexed index program =
                     (Set.insert name headSet)
                     (foldr (IntSet.insert . ruleSource) numbers fired)
                     rest
-                    (foldr (\rule more -> Set.toList (ruleNames rule) <> more) pendingValues fired)
+                    (foldr (\rule more -> map (0,) (Set.toList (ruleNames rule)) <> more) pendingValues fired)
         [] ->
           case pendingValues of
             [] -> (values, headSet, numbers)
-            name : rest
+            (depth, name) : rest
               | Set.member name values -> saturate values headSet numbers [] rest
               | otherwise ->
                   case offered name of
                     Nothing -> saturate values headSet numbers [] rest
+                    -- A public value past the limit stays a call of the
+                    -- value that its module defines. A value whose
+                    -- definition no object exports comes in at any depth:
+                    -- a private value, an @INLINE@ value such as a
+                    -- dictionary application that the inliner expands and
+                    -- removes, and a constructor wrapper.
+                    Just found
+                      | depth > depthLimit,
+                        callable (offerDecl found) ->
+                          saturate values headSet numbers [] rest
                     Just found ->
                       let names = Set.toList (offerNames found)
                        in saturate
@@ -451,7 +472,7 @@ graftIndexed index program =
                             headSet
                             (foldr IntSet.insert numbers (offerSources found))
                             (name : names)
-                            (names <> rest)
+                            (map (depth + 1,) names <> rest)
     -- An interface that gives no declaration is empty after
     -- 'restrictProgramWith', so it does not come in.
     touched = [interface | interface <- indexInterfaces index, IntSet.member (indexedNumber interface) sources]
