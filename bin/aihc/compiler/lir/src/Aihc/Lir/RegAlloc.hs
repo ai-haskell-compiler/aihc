@@ -78,6 +78,9 @@ import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 -- | Where every value of one function lives.
@@ -1036,9 +1039,9 @@ orderByStart encoded starts hints partners = do
 -- Uses
 
 -- | How many times the function reads each value, unweighted.
-readCounts :: Function -> Map Var Int
+readCounts :: Function -> MonoidMap Var (Sum Int)
 readCounts function =
-  Map.fromListWith
+  MonoidMap.fromListWith
     (+)
     [ (var, 1)
     | block <- functionBlocks function,

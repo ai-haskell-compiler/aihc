@@ -33,6 +33,8 @@ import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Functor.Const (Const (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Monoid (Sum)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -371,14 +373,14 @@ mergeBlocks blocks =
     -- Every block a terminator can continue at, with repeats: a block that a
     -- switch names twice has two predecessors and stays where it is.
     predecessors =
-      Map.fromListWith (+) [(targetLabel target, 1 :: Int) | block <- blocks, target <- terminatorTargets (blockTerminator block)]
+      MonoidMap.fromListWith (+) [(targetLabel target, 1 :: Sum Int) | block <- blocks, target <- terminatorTargets (blockTerminator block)]
     absorbable block =
       case blockTerminator block of
         Jump target
           | label <- targetLabel target,
             label `notElem` entry,
             label /= blockLabel block,
-            Map.findWithDefault 0 label predecessors == 1,
+            MonoidMap.get label predecessors == 1,
             Just absorbed <- Map.lookup label byLabel ->
               Just (target, absorbed)
         _ -> Nothing

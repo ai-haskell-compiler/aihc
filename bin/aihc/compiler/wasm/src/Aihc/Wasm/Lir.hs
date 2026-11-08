@@ -60,6 +60,9 @@ import Data.List (elemIndex, find, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Monoid (Sum (..))
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -453,7 +456,7 @@ data Fn = Fn
     -- | The type of each parameter and each value of the function.
     fnTypes :: !(Map Var Type),
     -- | The number of reads of each value.
-    fnUses :: !(Map Var Int),
+    fnUses :: !(MonoidMap Var (Sum Int)),
     -- | The values that can stay on the operand stack: each one is the only
     -- result of its instruction, and only its own block reads it.
     fnCandidates :: !(Set Var),
@@ -536,7 +539,7 @@ compileFunction ctx input = do
       frameSize = ((frameEnd + 15) `div` 16) * 16
       hasFrame = not (null allocations)
       readers = valueReaders blocks
-      uses = Map.map fst readers
+      uses = MonoidMap.fromMapWith (Sum . fst) readers
       candidates =
         Set.fromList
           [ var
@@ -623,7 +626,7 @@ valueReaders blocks =
 -- a candidate that only one instruction of the block reads. A load can wait
 -- only when no instruction writes memory before the reader runs. The reader
 -- runs when its own reader runs, if it also waits.
-deferredInstructions :: Map Var Int -> Set Var -> [Block] -> Map Var Instruction
+deferredInstructions :: MonoidMap Var (Sum Int) -> Set Var -> [Block] -> Map Var Instruction
 deferredInstructions uses candidates = Map.unions . map blockDeferred
   where
     blockDeferred block =
@@ -639,7 +642,7 @@ deferredInstructions uses candidates = Map.unions . map blockDeferred
             case results of
               [var]
                 | deferrable operation,
-                  Map.findWithDefault 0 var uses == 1,
+                  MonoidMap.get var uses == 1,
                   Set.member var candidates,
                   Just reader <- Map.lookup var readers,
                   reader > index,
@@ -757,11 +760,11 @@ assignLocals fn consumed body = (map snd declared, map render resolved)
       SlotVar var -> Map.findWithDefault 0 var coloring
       _ -> Map.findWithDefault 0 slot specialIds
     types = slotTypes <> Map.fromList [(index, specialType slot) | (slot, index) <- Map.toList specialIds]
-    counts = Map.fromListWith (+) [(slotId slot, 1 :: Int) | Right (_, slot) <- resolved]
+    counts = MonoidMap.fromListWith (+) [(slotId slot, 1 :: Sum Int) | Right (_, slot) <- resolved]
     -- The most used locals take the indices that encode in one byte. Each
     -- of the two groups is sorted by type, so that the declarations are a
     -- few runs of one type.
-    others = sortOn (negate . flip (Map.findWithDefault 0) counts) [index | index <- Map.keys types, index >= parameterCount, Map.member index counts]
+    others = sortOn (negate . flip MonoidMap.get counts) [index | index <- Map.keys types, index >= parameterCount, MonoidMap.nonNullKey index counts]
     (hot, cold) = splitAt (max 0 (128 - parameterCount)) others
     byType = sortOn (typeOrder . (types Map.!))
     declared = [(index, types Map.! index) | index <- byType hot <> byType cold]
@@ -1106,7 +1109,7 @@ setVar fn var = do
 -- instruction reads it from there or from its local.
 define :: Fn -> Var -> M ()
 define fn var
-  | Map.findWithDefault 0 var (fnUses fn) == 0 = emit "drop"
+  | MonoidMap.get var (fnUses fn) == 0 = emit "drop"
   | Set.member var (fnCandidates fn) = do
       addLine (LineDef var)
       modify' $ \state -> state {functionPending = var : functionPending state}

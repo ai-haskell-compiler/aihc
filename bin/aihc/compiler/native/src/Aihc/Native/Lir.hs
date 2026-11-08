@@ -67,6 +67,9 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing, maybeToList)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -289,7 +292,7 @@ data Ctx register = Ctx
     ctxBlockParameters :: !(Map Label [(Var, Type)]),
     ctxSignatures :: !(Map Symbol Signature),
     ctxIncomingOverflow :: Int,
-    ctxReads :: !(Map Var Int),
+    ctxReads :: !(MonoidMap Var (Sum Int)),
     ctxRotations :: !(Map Var Int),
     ctxFusions :: !(Map Var Fusion),
     -- | The code values that the terminator of the current block knows are
@@ -609,10 +612,10 @@ compileFunctionTo backend output signatures index input state =
     lowered = dropUnreadStackAllocations forwardedReads forwarded
     (rotated, rotations, rotatedReads) =
       if isJust (nbRotatedBinary backend)
-        then let (rotatedFunction, counts, removed) = selectRotatedOperands forwardedReads lowered in (rotatedFunction, counts, foldr Map.delete forwardedReads removed)
+        then let (rotatedFunction, counts, removed) = selectRotatedOperands forwardedReads lowered in (rotatedFunction, counts, foldr MonoidMap.nullify forwardedReads removed)
         else (lowered, Map.empty, forwardedReads)
     (function, fusions, removedByFusion) = selectFusions backend rotatedReads rotated
-    functionReads = foldr Map.delete rotatedReads removedByFusion
+    functionReads = foldr MonoidMap.nullify rotatedReads removedByFusion
     native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
     native = mapStateT (ExceptT . pure)
     emitStatement statement = do
@@ -764,13 +767,13 @@ forwardCopies function
 -- costs a frame setup on each path through the function. An allocation
 -- with an alignment that the frame cannot give stays, so that the backend
 -- still reports it.
-dropUnreadStackAllocations :: Map Var Int -> Function -> Function
+dropUnreadStackAllocations :: MonoidMap Var (Sum Int) -> Function -> Function
 dropUnreadStackAllocations readers function
   | any unread allocations = function {functionBlocks = map dropBlock (functionBlocks function)}
   | otherwise = function
   where
     allocations = [result | block <- functionBlocks function, Instruction [result] (StackAlloc _ _) <- blockInstructions block]
-    unread result = Map.findWithDefault 0 result readers == 0
+    unread result = MonoidMap.get result readers == 0
     dropBlock block =
       block
         { blockInstructions =
@@ -795,7 +798,7 @@ layoutBlocks blocks = case blocks of
   entry : rest -> entry : filter (not . blockCold . fst) rest <> filter (blockCold . fst) rest
   [] -> []
 
-prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Map Var Int -> Function -> NativeM error (Ctx register, [statement])
+prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> MonoidMap Var (Sum Int) -> Function -> NativeM error (Ctx register, [statement])
 prepareFunction backend signatures index functionReads function = do
   modify (\state -> state {objectFunctionIndex = index, objectFunctionTraps = Map.empty})
   layout <- functionLayout backend signatures function
@@ -1175,13 +1178,13 @@ fuseCompare backend ctx instructions terminator =
         masked == maskVar,
         ty == maskTy,
         ty `elem` [I32, I64],
-        Map.findWithDefault 0 var (ctxReads ctx) == 1,
-        Map.findWithDefault 0 masked (ctxReads ctx) == 1,
+        MonoidMap.get var (ctxReads ctx) == 1,
+        MonoidMap.get masked (ctxReads ctx) == 1,
         Just bit <- lookup mask [(2 ^ n, n) | n <- [0 .. if ty == I32 then 31 else 63]] ->
           (reverse before, Just (FusedBit op ty value bit))
     (Instruction [var] (Compare op ty left right) : before, Branch (OperandVar condition) _ _)
       | condition == var,
-        Map.findWithDefault 0 var (ctxReads ctx) == 1,
+        MonoidMap.get var (ctxReads ctx) == 1,
         not (isFloatType ty) || nbCanFuseFloatCompare backend op ->
           case loadedOperand before left right of
             Just (kept, base, offset, other, onLeft) -> (reverse kept, Just (FusedLoadCompare op ty base offset other onLeft))
@@ -1199,7 +1202,7 @@ fuseCompare backend ctx instructions terminator =
           _ -> Nothing
     fromLoad before operand = case (operand, before) of
       (OperandVar loaded, instruction : rest)
-        | Map.findWithDefault 0 loaded (ctxReads ctx) == 1,
+        | MonoidMap.get loaded (ctxReads ctx) == 1,
           Map.notMember loaded (ctxFusions ctx),
           [loaded] == instructionResults instruction,
           Just address <- fusibleLoad (instructionOperation instruction) ->
@@ -1575,10 +1578,10 @@ compileInstruction backend ctx (Instruction results operation) =
 -- Each rewrite keeps the reads that the allocation must see. The result
 -- names the values whose one read a rewrite took with their definition:
 -- the reads of every other value stay as the counts give them.
-selectFusions :: NativeBackend statement register error -> Map Var Int -> Function -> (Function, Map Var Fusion, [Var])
+selectFusions :: NativeBackend statement register error -> MonoidMap Var (Sum Int) -> Function -> (Function, Map Var Fusion, [Var])
 selectFusions backend uses function = (function {functionBlocks = [block | (block, _, _) <- selected]}, Map.unions [table | (_, table, _) <- selected], concat [removed | (_, _, removed) <- selected])
   where
-    useOnce v = Map.findWithDefault 0 v uses == 1
+    useOnce v = MonoidMap.get v uses == 1
     selected = map selectBlock (functionBlocks function)
     selectBlock block =
       let (shifted, shifts, removedShifts) = maybe (blockInstructions block, Map.empty, []) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
@@ -1688,7 +1691,7 @@ selectFusions backend uses function = (function {functionBlocks = [block | (bloc
 -- The side table retains the count for instruction emission.
 -- The result names the rotates that the rewrites removed: each had the one
 -- read that its operand now has.
-selectRotatedOperands :: Map Var Int -> Function -> (Function, Map Var Int, [Var])
+selectRotatedOperands :: MonoidMap Var (Sum Int) -> Function -> (Function, Map Var Int, [Var])
 selectRotatedOperands uses function = (function {functionBlocks = [block | (block, _, _) <- selected]}, Map.unions [counts | (_, counts, _) <- selected], concat [removed | (_, _, removed) <- selected])
   where
     selected = map selectBlock (functionBlocks function)
@@ -1707,7 +1710,7 @@ selectRotatedOperands uses function = (function {functionBlocks = [block | (bloc
         rewrite instruction = [instruction]
         match ty left (OperandVar rotated) = do
           Binary operation operandTy source (OperandLiteral (LitInt amount)) <- Map.lookup rotated definitions
-          if operandTy == ty && operation `elem` [RotL, RotR] && Map.findWithDefault 0 rotated uses == 1
+          if operandTy == ty && operation `elem` [RotL, RotR] && MonoidMap.get rotated uses == 1
             then Just (left, source, rotated, fromInteger ((if operation == RotL then negate amount else amount) `mod` toInteger (typeBits ty)))
             else Nothing
         match _ _ _ = Nothing
