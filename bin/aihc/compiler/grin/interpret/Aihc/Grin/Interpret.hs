@@ -1436,6 +1436,10 @@ evalPrimitive "wordToWord64#" [value] = evalWordNarrow "wordToWord64#" Word64Rep
 evalPrimitive "word16ToWord#" [value] =
   (: []) . wordRuntimeValue <$> expectRuntimeRepPrimitiveArgument "word16ToWord#" Word16Rep value
 evalPrimitive "touch#" [_] = pure []
+-- The interpreter runs one thread at a time, so a memory barrier of the
+-- atomic-primops package has no effect.
+evalPrimitive name []
+  | name `elem` ["hs_atomic_primops_store_load_barrier", "hs_atomic_primops_load_load_barrier", "hs_atomic_primops_write_barrier"] = pure []
 evalPrimitive "ord#" [value] = do
   charValue <- expectCharPrimitiveArgument "ord#" value
   pure [RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue)))]

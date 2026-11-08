@@ -213,7 +213,8 @@ getForeignImport table = expectArray 2 >> ((,) <$!> getTermKey <*!> getForeignIm
 putForeignImportInfo :: PartIndex -> TcForeignImportInfo -> Builder.Builder
 putForeignImportInfo table info =
   case info of
-    TcForeignPrimImport -> cborArray 1 <> cborWord 0
+    TcForeignPrimImport Nothing -> cborArray 1 <> cborWord 0
+    TcForeignPrimImport (Just entity) -> cborArray 2 <> cborWord 0 <> cborText entity
     TcForeignCCallImport safety plan ->
       cborArray 3 <> cborWord 1 <> putForeignSafety safety <> putForeignPlan table plan
 
@@ -222,7 +223,8 @@ getForeignImportInfo table = do
   length' <- getArrayLength
   tag <- getWord
   case (length', tag) of
-    (1, 0) -> pure TcForeignPrimImport
+    (1, 0) -> pure (TcForeignPrimImport Nothing)
+    (2, 0) -> TcForeignPrimImport . Just <$!> getText
     (3, 1) -> TcForeignCCallImport <$!> getForeignSafety <*!> getForeignPlan table
     _ -> fail "unsupported foreign import info"
 

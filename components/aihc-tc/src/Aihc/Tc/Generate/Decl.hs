@@ -1568,7 +1568,14 @@ annotateForeignDeclTc foreignDecl = do
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
       checkPrimitiveImportType sourceSpan key ty
-      registerForeignImport key TcForeignPrimImport
+      let entity = case foreignEntity foreignDecl of
+            ForeignEntityNamed text
+              | named <- T.strip text,
+                not (T.null named),
+                named /= unqualifiedNameText (foreignName foreignDecl) ->
+                  Just named
+            _ -> Nothing
+      registerForeignImport key (TcForeignPrimImport entity)
       pure annotated
     _ -> pure annotated
 

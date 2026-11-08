@@ -3651,6 +3651,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           contents <- compileRuntimeCall ctx env tryCall [mvar]
           flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand contents) (OperandLiteral (LitInt 0))) >>= widen
           bind [flag, contents]
+    -- A memory barrier of the atomic-primops package is one fence. In GHC,
+    -- each barrier is a Cmm function that the package supplies.
+    (_, [])
+      | Just order <- lookup name fencePrimitives -> do
+          emit [] (Fence order)
+          bind []
     -- The atomic primitives of an Int# element are sequentially consistent.
     ("atomicReadIntArray#", [array, index]) -> do
       address <- byteArrayElement array index I64 ElementIndex
@@ -4132,6 +4138,15 @@ threadIdOffset = 8
 -- | The copies between two byte arrays, each with the memory helper of the
 -- C runtime that does the copy. Only the non-overlapping copy can use a
 -- copy that does not permit an overlap.
+-- | The Cmm entities of @foreign import prim@ that are only a fence, with
+-- the order of each fence.
+fencePrimitives :: [(Text, MemoryOrder)]
+fencePrimitives =
+  [ ("hs_atomic_primops_store_load_barrier", SeqCst),
+    ("hs_atomic_primops_load_load_barrier", Acquire),
+    ("hs_atomic_primops_write_barrier", Release)
+  ]
+
 byteArrayCopyPrimitives :: [(Text, Text)]
 byteArrayCopyPrimitives =
   [ ("copyByteArray#", "aihc_memory_move"),
