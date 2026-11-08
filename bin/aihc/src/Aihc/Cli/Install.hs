@@ -359,13 +359,14 @@ byModuleLookupName name = maybe [] Map.toList . Map.lookup name
 
 -- | The stamp inputs of a unit for the digests of the modules it imports
 -- from outside itself, one for each package that holds such a module.
-dependencyInputs :: Text -> [Text] -> [Text] -> ByModule Text -> [(Text, Text)]
-dependencyInputs label unitNames dependencyNames digests =
-  [ (label <> packageIdText (packageId package) <> ":" <> name, digest)
-  | name <- dependencyNames,
-    name `notElem` unitNames,
-    (package, digest) <- byModuleLookupName name digests
-  ]
+dependencyInputs :: Text -> Package -> [Text] -> [(Maybe Text, Text)] -> ByModule Text -> [(Text, Text)]
+dependencyInputs label own unitNames dependencies digests =
+  nub
+    [ (label <> packageIdText (packageId package) <> ":" <> name, digest)
+    | dependency@(_, name) <- dependencies,
+      (package, digest) <- byModuleLookupName name digests,
+      importSelects own unitNames dependency package
+    ]
 
 data ModuleOutputPaths = ModuleOutputPaths
   { outputFcPath :: !FilePath,
@@ -1909,7 +1910,7 @@ partitionModules graph shared build sourceSlots = do
       localReexports = Map.map snd (Map.filterWithKey (\name (identity, original) -> identity == packageIdText (packageId resolvePackage) && name /= original) reexports)
   parsed <- mapM (atomically . readTMVar) sourceSlots
   dependencies <- moduleBuildDependencies build
-  units <- evaluate (sourceModuleUnitsWithReexports localReexports parsed)
+  units <- evaluate (sourceModuleUnitsWithReexports (packageName resolvePackage) localReexports parsed)
   -- The graph this task builds is which units there are and which units
   -- each waits on. The modules in them are its input, forced when they
   -- were parsed; forcing them here would only move that work out of the
@@ -1951,14 +1952,11 @@ partitionModules graph shared build sourceSlots = do
       -- imports, as the provider finds them.
       importedRuntimes unit =
         [ runtime
-        | key <- externalModuleKeys provider [] (unitExternalNames unit),
+        | key <- externalModuleKeys provider resolvePackage (map sourceName (sourceUnitSources unit)) (unitDependencies unit),
           let origin = providerModuleOrigin provider key,
           Just runtime <- [Map.lookup origin (Map.unions (map dependencyUnits dependencies))]
         ]
-      unitExternalNames unit =
-        let sources = sourceUnitSources unit
-            names = map sourceName sources
-         in [name | name <- nub (concatMap sourceDependencyNames sources <> wiredInterfaceModules), name `notElem` names]
+      unitDependencies unit = nub (concatMap sourceDependencies (sourceUnitSources unit) <> map (Nothing,) wiredInterfaceModules)
       -- The type-check task of a unit says that the package compiles, and
       -- the last task of a unit reports its modules as compiled.
       reportCompiling = progressReport (compileProgress config) (ProgressCompile (moduleBuildItem build))
@@ -2312,27 +2310,50 @@ loadInstalledPackage immutable storePath = do
 
 -- | The keys of the modules a unit imports from the dependency packages:
 -- every package that exposes a module of an imported name, since the
--- resolver sees them all and decides between them.
-externalModuleKeys :: ModuleProvider -> [Text] -> [Text] -> [ModuleKey]
-externalModuleKeys provider unitNames dependencyNames =
-  [ ModuleKey package name
-  | name <- dependencyNames,
-    name `notElem` unitNames,
-    package <- providerPackagesOf provider name
-  ]
+-- resolver sees them all and decides between them. An import with a
+-- package qualifier takes only the module of that package.
+externalModuleKeys :: ModuleProvider -> Package -> [Text] -> [(Maybe Text, Text)] -> [ModuleKey]
+externalModuleKeys provider own unitNames dependencies =
+  nub
+    [ ModuleKey package name
+    | dependency@(_, name) <- dependencies,
+      package <- providerPackagesOf provider name,
+      importSelects own unitNames dependency package
+    ]
+
+-- | Whether an import of a unit can take its module from a package
+-- outside the unit. An import without a package qualifier takes a module
+-- of the unit when the unit has one of that name. An import with the
+-- qualifier of a different package takes only the module of that
+-- package, also when the unit has a module of the same name.
+importSelects :: Package -> [Text] -> (Maybe Text, Text) -> Package -> Bool
+importSelects own unitNames (qualifier, name) package =
+  case qualifier of
+    Just requested
+      | not (importCanBeLocal (packageName own) qualifier) -> packageName package == requested
+    _ -> name `notElem` unitNames
+
+-- | Whether an import can name a module of the package itself: it has no
+-- package qualifier, the qualifier @this@, or the name of the package.
+importCanBeLocal :: Text -> Maybe Text -> Bool
+importCanBeLocal ownName qualifier =
+  case qualifier of
+    Nothing -> True
+    Just "this" -> True
+    Just requested -> requested == ownName
 
 -- | The resolve facts of the modules a unit imports from the dependency
 -- packages, read now if no unit read them before.
-externalResolvedFacts :: ModuleProvider -> [Text] -> [Text] -> IO [(ModuleKey, ResolvedModuleFacts)]
-externalResolvedFacts provider unitNames dependencyNames =
-  forM (externalModuleKeys provider unitNames dependencyNames) $ \key ->
+externalResolvedFacts :: ModuleProvider -> Package -> [Text] -> [(Maybe Text, Text)] -> IO [(ModuleKey, ResolvedModuleFacts)]
+externalResolvedFacts provider own unitNames dependencies =
+  forM (externalModuleKeys provider own unitNames dependencies) $ \key ->
     (,) key <$> providerResolved provider key
 
 -- | The type facts of the modules a unit imports from the dependency
 -- packages.
-externalTypedFacts :: ModuleProvider -> [Text] -> [Text] -> IO [(ModuleKey, TypedModuleFacts)]
-externalTypedFacts provider unitNames dependencyNames =
-  forM (externalModuleKeys provider unitNames dependencyNames) $ \key ->
+externalTypedFacts :: ModuleProvider -> Package -> [Text] -> [(Maybe Text, Text)] -> IO [(ModuleKey, TypedModuleFacts)]
+externalTypedFacts provider own unitNames dependencies =
+  forM (externalModuleKeys provider own unitNames dependencies) $ \key ->
     (,) key <$> providerTyped provider key
 
 parseSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
@@ -2376,15 +2397,17 @@ parseSource headerDir root versions fileInfo = do
         sourceModuleParseDiagnostics = parseDiagnostics
       }
 
-sourceModuleUnits :: [SourceModule] -> [SourceUnit]
-sourceModuleUnits = sourceModuleUnitsWithReexports Map.empty
+-- | The units of the modules of a package. The argument is the name of
+-- the package.
+sourceModuleUnits :: Text -> [SourceModule] -> [SourceUnit]
+sourceModuleUnits ownName = sourceModuleUnitsWithReexports ownName Map.empty
 
-sourceModuleUnitsWithReexports :: Map.Map Text Text -> [SourceModule] -> [SourceUnit]
-sourceModuleUnitsWithReexports reexports sources = zipWith makeUnit [0 ..] orderedComponents
+sourceModuleUnitsWithReexports :: Text -> Map.Map Text Text -> [SourceModule] -> [SourceUnit]
+sourceModuleUnitsWithReexports ownName reexports sources = zipWith makeUnit [0 ..] orderedComponents
   where
     node source = (source, sourceName source, moduleDependencies source)
     moduleDependencies source =
-      nub (filter (/= sourceName source) wiredTypeModules <> map (\name -> Map.findWithDefault name name reexports) (sourceDependencyNames source))
+      nub (filter (/= sourceName source) wiredTypeModules <> map (\name -> Map.findWithDefault name name reexports) (sourceLocalDependencyNames ownName source))
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
     components = map (sortOn sourceName . flatten) (stronglyConnComp (map node sources))
@@ -2602,9 +2625,20 @@ takePackageModuleUnits package sources = do
   pure (modulesInPackage package (zip parsed (map sourceModuleExtensions sources)))
 
 sourceDependencyNames :: SourceModule -> [Text]
-sourceDependencyNames source =
-  map snd (sourceModuleImports source)
-    <> ["Prelude" | moduleUsesImplicitPrelude source]
+sourceDependencyNames = map snd . sourceDependencies
+
+-- | The imports of a module with their package qualifiers, and the
+-- implicit Prelude import.
+sourceDependencies :: SourceModule -> [(Maybe Text, Text)]
+sourceDependencies source =
+  sourceModuleImports source
+    <> [(Nothing, "Prelude") | moduleUsesImplicitPrelude source]
+
+-- | The names of the imports of a module that can name a module of the
+-- package itself. The argument is the name of the package.
+sourceLocalDependencyNames :: Text -> SourceModule -> [Text]
+sourceLocalDependencyNames ownName source =
+  [name | (qualifier, name) <- sourceDependencies source, importCanBeLocal ownName qualifier]
 
 moduleUsesImplicitPrelude :: SourceModule -> Bool
 moduleUsesImplicitPrelude = elem ImplicitPrelude . sourceModuleExtensions
@@ -2662,14 +2696,13 @@ runResolveUnit context runtimes runtime = do
       verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
-      importedNames = nub (concatMap sourceDependencyNames sources)
-      dependencyNames = nub (importedNames <> wiredInterfaceModules)
-  externalResolved <- externalResolvedFacts (taskModuleProvider context) unitNames dependencyNames
+      dependencies = nub (concatMap sourceDependencies sources <> map (Nothing,) wiredInterfaceModules)
+  externalResolved <- externalResolvedFacts (taskModuleProvider context) resolvePackage unitNames dependencies
   let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
       availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResults) <> dependencyExports)
       availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResults ++ [dependencyScopeHashes]))
-      scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
+      scopeInputs = dependencyInputs "scope:" resolvePackage unitNames dependencies availableScopeHashes
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
       inputs = sortOn fst (sourceHashes <> scopeInputs <> [("options:reexports", T.pack (show (taskLocalReexports context)))])
       resolvePath source = sourceModuleDirectory source </> "resolve.cbor"
@@ -2767,10 +2800,9 @@ runTypeUnit context runtimes runtime = do
       verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
-      importedNames = nub (concatMap sourceDependencyNames sources)
-      dependencyNames = nub (importedNames <> wiredInterfaceModules)
-  externalResolved <- externalResolvedFacts provider unitNames dependencyNames
-  externalTyped <- externalTypedFacts provider unitNames dependencyNames
+      dependencies = nub (concatMap sourceDependencies sources <> map (Nothing,) wiredInterfaceModules)
+  externalResolved <- externalResolvedFacts provider resolvePackage unitNames dependencies
+  externalTyped <- externalTypedFacts provider resolvePackage unitNames dependencies
   -- The instances a unit sees from the dependency packages come from the
   -- providers of the modules it imports, which can be in packages below
   -- the dependencies.
@@ -2785,8 +2817,8 @@ runTypeUnit context runtimes runtime = do
       availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports)
       availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResolveResults ++ [dependencyScopeHashes]))
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
-      scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
-      typeInputs = dependencyInputs "type:" unitNames dependencyNames availableTypeHashes
+      scopeInputs = dependencyInputs "scope:" resolvePackage unitNames dependencies availableScopeHashes
+      typeInputs = dependencyInputs "type:" resolvePackage unitNames dependencies availableTypeHashes
       -- The instances a unit sees come from every unit below it and from
       -- the dependency packages that supply an imported module. A facts
       -- digest covers the facts of the units below the one it names.
@@ -2796,7 +2828,7 @@ runTypeUnit context runtimes runtime = do
         ]
       -- The facts of a dependency package reach the unit through the units
       -- that hold the modules it imports, so their digests are its inputs.
-      packageFactsInputs = dependencyInputs "facts:" unitNames dependencyNames dependencyFactsDigests
+      packageFactsInputs = dependencyInputs "facts:" resolvePackage unitNames dependencies dependencyFactsDigests
       inputs =
         sortOn fst $
           sourceHashes
@@ -2836,9 +2868,14 @@ runTypeUnit context runtimes runtime = do
           (configMergeCheck config)
           ( importedInstanceInterface
               : [ interface
-                | name <- dependencyNames,
-                  name `notElem` unitNames,
-                  (_, interface) <- byModuleLookupName name availableTypes
+                | interface <-
+                    Map.elems $
+                      Map.fromList
+                        [ ((package, name), interface)
+                        | dependency@(_, name) <- dependencies,
+                          (package, interface) <- byModuleLookupName name availableTypes,
+                          importSelects resolvePackage unitNames dependency package
+                        ]
                 ]
           )
       checkUnit = do
@@ -3100,16 +3137,19 @@ runBackendUnit context runtime = do
 readUnitInterfaces :: PackageTaskContext -> UnitRuntime -> [Fc.Program] -> IO [(FilePath, Fc.Program)]
 readUnitInterfaces context runtime programs
   | not (compileModuleInterfaces config) = pure []
-  | otherwise = load Set.empty [] (concatMap candidatePaths names)
+  | otherwise = load Set.empty [] (concatMap candidatePaths (nub (concatMap sourceDependencies (sourceUnitSources unit))))
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
     own = map sourceName (sourceUnitSources unit)
     provider = taskModuleProvider context
-    names = [name | name <- nub (concatMap sourceDependencyNames (sourceUnitSources unit)), name `notElem` own]
-    candidatePaths name =
-      outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name)
-        : providerInterfacePaths provider name
+    resolvePackage = taskResolvePackage context
+    candidatePaths dependency@(qualifier, name) =
+      [ outputInterfacePath (moduleOutputPaths (taskStorePath context) (compileTarget config) name)
+      | importCanBeLocal (packageName resolvePackage) qualifier,
+        name `notElem` own
+      ]
+        <> providerInterfacePaths provider (importSelects resolvePackage own dependency) name
     ownPackage = packageId (taskResolvePackage context)
     -- Many values come from one module, so the modules come first, and
     -- each module gives its path one time.
