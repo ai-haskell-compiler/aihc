@@ -163,7 +163,7 @@ splitConditionBranches function
   | otherwise = function {functionBlocks = concatMap (split (0 :: Int)) (functionBlocks function)}
   where
     uses = readCounts function
-    useOnce var = Map.lookup var uses == Just 1
+    useOnce var = Map.findWithDefault 0 var uses == 1
     labels = Set.fromList (map blockLabel (functionBlocks function))
     splittable block = case combination block of
       Just _ -> True
@@ -260,7 +260,7 @@ simplifyBooleanBranches function =
             Just whenFalse <- lookup 0 targets <|> fallback ->
               block
                 { blockInstructions =
-                    if Map.lookup wide uses == Just 1
+                    if Map.findWithDefault 0 wide uses == 1
                       then reverse before
                       else blockInstructions block,
                   blockTerminator = Branch condition whenTrue whenFalse
@@ -409,7 +409,7 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
         Convert Trunc I64 (OperandVar wide) I32
           | Just (Binary op I64 a b) <- Map.lookup wide definitions,
             modular op,
-            Map.lookup wide uses == Just 1,
+            Map.findWithDefault 0 wide uses == 1,
             cheapOperand definitions a || cheapOperand definitions b ->
               let (leftCode, left, names') = narrowOperand definitions names v "_left" a
                   (rightCode, right, names'') = narrowOperand definitions names' v "_right" b

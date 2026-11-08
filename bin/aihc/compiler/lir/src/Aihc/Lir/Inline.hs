@@ -378,7 +378,7 @@ mergeBlocks blocks =
           | label <- targetLabel target,
             label `notElem` entry,
             label /= blockLabel block,
-            Map.lookup label predecessors == Just 1,
+            Map.findWithDefault 0 label predecessors == 1,
             Just absorbed <- Map.lookup label byLabel ->
               Just (target, absorbed)
         _ -> Nothing

@@ -1175,13 +1175,13 @@ fuseCompare backend ctx instructions terminator =
         masked == maskVar,
         ty == maskTy,
         ty `elem` [I32, I64],
-        Map.lookup var (ctxReads ctx) == Just 1,
-        Map.lookup masked (ctxReads ctx) == Just 1,
+        Map.findWithDefault 0 var (ctxReads ctx) == 1,
+        Map.findWithDefault 0 masked (ctxReads ctx) == 1,
         Just bit <- lookup mask [(2 ^ n, n) | n <- [0 .. if ty == I32 then 31 else 63]] ->
           (reverse before, Just (FusedBit op ty value bit))
     (Instruction [var] (Compare op ty left right) : before, Branch (OperandVar condition) _ _)
       | condition == var,
-        Map.lookup var (ctxReads ctx) == Just 1,
+        Map.findWithDefault 0 var (ctxReads ctx) == 1,
         not (isFloatType ty) || nbCanFuseFloatCompare backend op ->
           case loadedOperand before left right of
             Just (kept, base, offset, other, onLeft) -> (reverse kept, Just (FusedLoadCompare op ty base offset other onLeft))
@@ -1199,7 +1199,7 @@ fuseCompare backend ctx instructions terminator =
           _ -> Nothing
     fromLoad before operand = case (operand, before) of
       (OperandVar loaded, instruction : rest)
-        | Map.lookup loaded (ctxReads ctx) == Just 1,
+        | Map.findWithDefault 0 loaded (ctxReads ctx) == 1,
           Map.notMember loaded (ctxFusions ctx),
           [loaded] == instructionResults instruction,
           Just address <- fusibleLoad (instructionOperation instruction) ->
@@ -1578,7 +1578,7 @@ compileInstruction backend ctx (Instruction results operation) =
 selectFusions :: NativeBackend statement register error -> Map Var Int -> Function -> (Function, Map Var Fusion, [Var])
 selectFusions backend uses function = (function {functionBlocks = [block | (block, _, _) <- selected]}, Map.unions [table | (_, table, _) <- selected], concat [removed | (_, _, removed) <- selected])
   where
-    useOnce v = Map.lookup v uses == Just 1
+    useOnce v = Map.findWithDefault 0 v uses == 1
     selected = map selectBlock (functionBlocks function)
     selectBlock block =
       let (shifted, shifts, removedShifts) = maybe (blockInstructions block, Map.empty, []) (\(accepts, _) -> selectShifts accepts (blockInstructions block)) (nbShiftedAdd backend)
@@ -1707,7 +1707,7 @@ selectRotatedOperands uses function = (function {functionBlocks = [block | (bloc
         rewrite instruction = [instruction]
         match ty left (OperandVar rotated) = do
           Binary operation operandTy source (OperandLiteral (LitInt amount)) <- Map.lookup rotated definitions
-          if operandTy == ty && operation `elem` [RotL, RotR] && Map.lookup rotated uses == Just 1
+          if operandTy == ty && operation `elem` [RotL, RotR] && Map.findWithDefault 0 rotated uses == 1
             then Just (left, source, rotated, fromInteger ((if operation == RotL then negate amount else amount) `mod` toInteger (typeBits ty)))
             else Nothing
         match _ _ _ = Nothing
