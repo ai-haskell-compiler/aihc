@@ -73,6 +73,9 @@ data EvTerm
     EvCallStackPush !(Text, Text) !Text !CallSite !EvTerm
   | -- | The empty call stack, with the origin of the @CallStack@ type.
     EvCallStackEmpty !(Text, Text)
+  | -- | The empty exception context, with the origin of the
+    -- @ExceptionContext@ type.
+    EvExceptionContextEmpty !(Text, Text)
   | -- | A recursive dictionary for a class predicate, with its type. The
     -- body builds the dictionary from an instance. An 'EvGiven' of the
     -- same predicate in the body names the dictionary itself.

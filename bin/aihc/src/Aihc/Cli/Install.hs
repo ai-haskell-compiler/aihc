@@ -4438,6 +4438,15 @@ typeLiteralKindTyCons :: TcKinds -> [TyCon]
 typeLiteralKindTyCons kinds =
   [kindsNaturalTyCon kinds, kindsSymbolTyCon kinds, kindsCharTyCon kinds]
 
+-- | The terms and type constructors that the evidence of a defaulted
+-- implicit parameter refers to, for each type of such a parameter. They
+-- are in the module of that type.
+implicitParamHelpers :: [(Text, ([Text], [Text]))]
+implicitParamHelpers =
+  [ ("CallStack", (["pushCallStack", "emptyCallStack"], ["SrcLoc"])),
+    ("ExceptionContext", (["emptyExceptionContext"], []))
+  ]
+
 -- | The terms that the evidence of a known type-level literal and a large
 -- 'Integer' literal are built from. The desugarer writes a call of these
 -- whether or not the module names the module they come from.
@@ -4484,7 +4493,7 @@ addReferencedFacts extraRoots extraTerms complete = go
            in closeTyCons (Set.insert tyCon found) (dependencies <> pending)
     go interface =
       interface
-        { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
+        { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (implicitParamSupportTerms <> typeableSupportTerms),
           tcInterfaceTyConMap = Map.restrictKeys availableTyCons reachableKeys,
           tcInterfaceDataTypeMap = Map.restrictKeys availableDataTypes reachableKeys,
           tcInterfaceClassMap = Map.restrictKeys availableClasses reachableKeys,
@@ -4492,19 +4501,18 @@ addReferencedFacts extraRoots extraTerms complete = go
         }
       where
         termTyCons = interfaceTermTyCons interface
-        -- A use of a function with a HasCallStack constraint desugars to
-        -- calls of the call-stack helpers, even when the module does not
-        -- import them.
-        callStackModules =
-          Set.fromList
-            [ (tyConPackageId tyCon, tyConModuleName tyCon)
-            | tyCon <- Set.toList termTyCons,
-              tyConName tyCon == "CallStack"
-            ]
-        callStackSupportTerms =
+        -- The evidence for an implicit parameter of type CallStack or
+        -- ExceptionContext desugars to calls of helpers in the module of
+        -- that type, even when the module does not import them.
+        implicitParamModules =
+          [ (tyConPackageId tyCon, tyConModuleName tyCon, helpers)
+          | tyCon <- Set.toList termTyCons,
+            Just helpers <- [lookup (tyConName tyCon) implicitParamHelpers]
+          ]
+        implicitParamSupportTerms =
           [ (key, scheme)
-          | (package', moduleName') <- Set.toList callStackModules,
-            identifier <- ["pushCallStack", "emptyCallStack"],
+          | (package', moduleName', (terms, _)) <- implicitParamModules,
+            identifier <- terms,
             let key = GlobalTerm package' moduleName' identifier,
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
@@ -4514,20 +4522,18 @@ addReferencedFacts extraRoots extraTerms complete = go
                  key `Map.notMember` tcInterfaceTermMap interface,
                  Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
                ]
-        callStackSupportTyCons
-          | Set.null callStackModules = []
-          | otherwise =
-              [ tyCon
-              | info <- Map.elems availableTyCons,
-                let tyCon = tciTyCon info,
-                (tyConPackageId tyCon, tyConModuleName tyCon) `Set.member` callStackModules,
-                tyConName tyCon `elem` ["SrcLoc", "CallStack"]
-              ]
+        implicitParamSupportTyCons =
+          [ tyCon
+          | (package', moduleName', (_, tyConNames)) <- implicitParamModules,
+            tyConName' <- tyConNames,
+            Just info <- [Map.lookup (GlobalName tyConName' package' moduleName' ResolutionNamespaceType) availableTyCons],
+            let tyCon = tciTyCon info
+          ]
         referenced =
           termTyCons
             <> interfaceNonTermRootTyCons interface
-            <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
-            <> Set.fromList callStackSupportTyCons
+            <> Set.unions (map (typeSchemeTyCons . snd) implicitParamSupportTerms)
+            <> Set.fromList implicitParamSupportTyCons
             <> Set.fromList extraRoots
         ordinaryReachable = closeTyCons Set.empty (Set.toList referenced)
         reachable = closeTyCons ordinaryReachable (Set.toList (Set.unions (map (typeSchemeTyCons . snd) typeableSupportTerms)))

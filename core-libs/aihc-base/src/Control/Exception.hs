@@ -6,6 +6,7 @@ module Control.Exception
     someExceptionContext,
     catchNoPropagate,
     rethrowIO,
+    tryWithContext,
     allowInterrupt,
     Handler (..),
     catches,
@@ -17,7 +18,7 @@ import GHC.Base (Applicative (..), Functor (..), (.))
 import GHC.IO (catchException)
 import GHC.Internal.Exception.Type (ExceptionWithContext (..), someExceptionContext)
 import GHC.Prim.IO (IO)
-import Prelude (foldr, maybe)
+import Prelude (Either (..), foldr, maybe)
 
 -- | Preserve the supplied context. This runtime does not add backtraces.
 rethrowIO :: (Exception e) => ExceptionWithContext e -> IO a
@@ -26,6 +27,11 @@ rethrowIO = throwIO
 -- | Supply the context without an annotation for the active handler.
 catchNoPropagate :: (Exception e) => IO a -> (ExceptionWithContext e -> IO a) -> IO a
 catchNoPropagate = catchException
+
+-- | Run the action. If it raises an exception, give the exception with its
+-- context.
+tryWithContext :: (Exception e) => IO a -> IO (Either (ExceptionWithContext e) a)
+tryWithContext action = catchNoPropagate (fmap Right action) (pure . Left)
 
 -- | The runtime has no asynchronous exceptions to deliver.
 allowInterrupt :: IO ()

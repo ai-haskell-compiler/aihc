@@ -253,6 +253,8 @@ zonkEvTerm evTerm =
       EvCallStackPush origin function site <$> zonkEvTerm parent
     EvCallStackEmpty origin ->
       pure (EvCallStackEmpty origin)
+    EvExceptionContextEmpty origin ->
+      pure (EvExceptionContextEmpty origin)
 
 finalizeType :: TcType -> TcM TcType
 finalizeType = zonkType >=> defaultTypeKinds
@@ -476,6 +478,8 @@ firstMetaEvTerm evTerm =
     EvCallStackPush _ _ _ parent ->
       firstMetaEvTerm parent
     EvCallStackEmpty {} ->
+      Nothing
+    EvExceptionContextEmpty {} ->
       Nothing
 
 firstMetaCoercion :: Coercion -> Maybe Unique

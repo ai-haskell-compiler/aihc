@@ -145,7 +145,7 @@ import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
-import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
@@ -846,7 +846,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
       ClassPred _ arguments ->
         null (predMetaVars predicate)
           && all (null . typeTyVars) arguments
-          && not (isCallStackPred predicate)
+          && not (isDefaultedImplicitParam predicate)
       _ -> False
 
     zonkCt ct = do
@@ -3905,8 +3905,9 @@ generalizableResidualPreds inferredType solveResult = do
   defaulted <- defaultAmbiguousMetas keep initialCts
   allResidualCts <- mapM zonkCtPred initialCts
   -- GHC never infers a HasCallStack constraint. An unsolved call-stack
-  -- parameter gets the empty call stack.
-  let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
+  -- parameter gets the empty call stack. An unsolved exception-context
+  -- parameter gets the empty exception context.
+  let (callStackCts, residualCts) = partition (isDefaultedImplicitParam . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
   let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that

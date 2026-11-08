@@ -1,17 +1,21 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ImplicitParams #-}
 
 module GHC.Internal.Exception.Type
   ( Exception (..),
-    SomeException (SomeException),
+    SomeException (..),
+    HasExceptionContext,
     ExceptionWithContext (..),
     someExceptionContext,
+    addExceptionContext,
+    mapExceptionContext,
   )
 where
 
 import Data.Typeable (Typeable, cast)
 import GHC.Base (Maybe (..), String, (++))
-import GHC.Internal.Exception.Context (ExceptionContext, emptyExceptionContext)
+import GHC.Internal.Exception.Context (ExceptionAnnotation, ExceptionContext, addExceptionAnnotation)
 import GHC.Prim.Show (Show (..))
 
 class (Typeable e, Show e) => Exception e where
@@ -24,17 +28,22 @@ class (Typeable e, Show e) => Exception e where
   displayException :: e -> String
   displayException = show
 
-data SomeException = forall e. (Exception e) => SomeExceptionWithContext ExceptionContext e
+-- | The context of the exception that a handler catches. An unsolved
+-- constraint gets the empty context, as in GHC.
+type HasExceptionContext = (?exceptionContext :: ExceptionContext)
 
-pattern SomeException :: () => (Exception e) => e -> SomeException
-pattern SomeException exception <- SomeExceptionWithContext _ exception
-  where
-    SomeException exception = SomeExceptionWithContext emptyExceptionContext exception
-
-{-# COMPLETE SomeException #-}
+data SomeException = forall e. (Exception e, HasExceptionContext) => SomeException e
 
 someExceptionContext :: SomeException -> ExceptionContext
-someExceptionContext (SomeExceptionWithContext context _) = context
+someExceptionContext (SomeException _) = ?exceptionContext
+
+addExceptionContext :: (ExceptionAnnotation a) => a -> SomeException -> SomeException
+addExceptionContext annotation = mapExceptionContext (addExceptionAnnotation annotation)
+
+mapExceptionContext :: (ExceptionContext -> ExceptionContext) -> SomeException -> SomeException
+mapExceptionContext function exception@(SomeException value) =
+  let ?exceptionContext = function (someExceptionContext exception)
+   in SomeException value
 
 data ExceptionWithContext e = ExceptionWithContext ExceptionContext e
 
@@ -45,7 +54,9 @@ instance (Show e) => Show (ExceptionWithContext e) where
 instance (Exception e) => Exception (ExceptionWithContext e) where
   toException (ExceptionWithContext context exception) =
     case toException exception of
-      SomeException value -> SomeExceptionWithContext context value
+      SomeException value ->
+        let ?exceptionContext = context
+         in SomeException value
   fromException exception =
     case fromException exception of
       Just value -> Just (ExceptionWithContext (someExceptionContext exception) value)
