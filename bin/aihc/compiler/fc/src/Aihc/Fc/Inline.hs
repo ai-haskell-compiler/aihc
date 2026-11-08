@@ -175,7 +175,10 @@ data InlineConfig = InlineConfig
     -- | The largest number of walks over the program.
     inlineRounds :: !Int,
     -- | The phase the pass runs in, which decides the rules that fire.
-    inlinePhase :: !Int
+    inlinePhase :: !Int,
+    -- | The values that no visit simplifies. They are candidates and
+    -- known values as any other value is.
+    inlineSettled :: !(Set Name)
   }
   deriving (Eq, Show)
 
@@ -626,8 +629,11 @@ inlineRound config st0 = List.foldl' step st0 sccs
         ]
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config known knownVersions diverging blocked reducing inTemplates st name
-        CyclicSCC names -> List.foldl' (simplifyValue config known knownVersions diverging blocked reducing inTemplates) st names
+        AcyclicSCC name -> visitValue st name
+        CyclicSCC names -> List.foldl' visitValue st names
+    visitValue st name
+      | Set.member name (inlineSettled config) = st
+      | otherwise = simplifyValue config known knownVersions diverging blocked reducing inTemplates st name
 
 -- | Keep enough calls opaque to break every cycle. Prefer a value that
 -- cannot be copied, then a large body without an INLINE request.

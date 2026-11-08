@@ -133,8 +133,8 @@ data SimplifyReport = SimplifyReport
 -- This is the pass that runs after the eta expansion that follows the
 -- inliner, which wraps a value in a lambda that applies the old body to
 -- the new parameter, under the casts of a newtype it unfolded.
-simplifyProgram :: PackageId -> Int -> Int -> Program -> (Program, SimplifyReport)
-simplifyProgram primPackage phase siteLimit program =
+simplifyProgram :: PackageId -> Set Name -> Int -> Int -> Program -> (Program, SimplifyReport)
+simplifyProgram primPackage settled phase siteLimit program =
   let env = typeEnvFromProgram primPackage program
       bodies = Map.fromList [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]
       arities = Map.map functionArity bodies
@@ -174,6 +174,7 @@ simplifyProgram primPackage phase siteLimit program =
       callArities = topCallArities escaping (Map.elems bodies)
       simplifyDecl decl =
         case decl of
+          DeclVal declaration | Set.member (valName declaration) settled -> pure decl
           DeclVal declaration ->
             let credit = Map.findWithDefault 0 (valName declaration) callArities
              in (\body -> DeclVal declaration {valBody = body}) <$> (simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration) >>= shareAlternatives env)
@@ -2460,13 +2461,14 @@ localCandidateEnv env binder rhs body
 -- add little, so each call can take a copy that selects its alternative.
 largeJoinPoint :: Simpl -> Name -> Expr -> Expr -> Bool
 largeJoinPoint env name rhs body =
-  case occurrences name body of
-    Occurrences uses _ ->
-      uses > 1
-        && size > joinSmallSize
-        && joinCopyGrowth env name rhs body > joinCopyLimit
-        && onlyTailCalls name (functionArity rhs) body
+  size > joinSmallSize
+    && usedMoreThanOnce
+    && joinCopyGrowth env name rhs body > joinCopyLimit
+    && onlyTailCalls name (functionArity rhs) body
   where
+    -- The size costs a walk over the right-hand side alone, and the use
+    -- test stops at the second use of the body.
+    usedMoreThanOnce = case occurrencesUnder True 0 False name body of Occurrences uses _ -> uses > 1
     size = exprSize (spEnv env) (lambdaBody rhs)
     lambdaBody expr =
       case expr of
@@ -4179,7 +4181,8 @@ caseOfCase env scrutinee binder alternatives onTaken = do
   case pushed of
     Nothing -> pure Nothing
     Just copied -> do
-      shared <- sharedForm True copied
+      let plans = plansOf copied
+      shared <- sharedForm True copied plans
       case shared of
         Just (pushed', typed) -> Just <$> takePushed pushed' typed
         Nothing -> do
@@ -4187,7 +4190,7 @@ caseOfCase env scrutinee binder alternatives onTaken = do
           -- tails. It copies no large join point: the case of a case
           -- shares its alternatives as it is.
           accepted <-
-            if pushedSelected copied > 0 || Map.null (snd (planJoins False env copied))
+            if pushedSelected copied > 0 || Map.null (snd (planOf False plans))
               then acceptGrowth env (pushedGrowth env (pushedJoins copied) copied)
               else pure False
           if accepted
@@ -4196,23 +4199,28 @@ caseOfCase env scrutinee binder alternatives onTaken = do
               -- The copies are too large. The join points that give a
               -- known result stay as well: the case of a case would
               -- build that result too.
-              lastResort <- sharedForm False copied
+              lastResort <- sharedForm False copied plans
               traverse (uncurry takePushed) lastResort
   where
+    -- The plans of a push, one for each value of the flag of 'planJoins'.
+    -- Each plan walks the pushed expression once for each join point, so
+    -- a plan is made once and read where it is needed.
+    plansOf pushed = (planJoins True env pushed, planJoins False env pushed)
+    planOf copyKnown (withKnown, withoutKnown) = if copyKnown then withKnown else withoutKnown
     -- The push with the join points that stay, and the type of each one,
     -- when it does not grow.
-    sharedForm copyKnown pushed
+    sharedForm copyKnown pushed plans
       | Map.null kept = pure Nothing
       | isNothing binder,
         any ((== 0) . functionArity) (Map.elems kept),
         Just scrutineeType <- exprType (spEnv env) scrutinee = do
           name <- freshLocal (Name "_scrut" SortValue (OriginLocal (Unique 0)))
           repushed <- caseOfCaseRaw env scrutinee (Just (Binder name scrutineeType)) alternatives
-          pure (repushed >>= typedJoins copyKnown)
-      | otherwise = pure (typedJoins copyKnown pushed)
+          pure (repushed >>= \pushed' -> typedJoins copyKnown pushed' (plansOf pushed'))
+      | otherwise = pure (typedJoins copyKnown pushed plans)
       where
-        kept = snd (planJoins copyKnown env pushed)
-    typedJoins copyKnown pushed
+        kept = snd (planOf copyKnown plans)
+    typedJoins copyKnown pushed plans
       | not (Map.null typed),
         pushedSelected pushed > 0,
         pushedGrowth env (Map.difference (pushedJoins pushed) typed) pushed <= 0 =
@@ -4221,7 +4229,7 @@ caseOfCase env scrutinee binder alternatives onTaken = do
       where
         -- A join point that binds nothing, or whose type is not known, is
         -- copied after all.
-        typed = Map.mapMaybe (\rhs -> if functionArity rhs > 0 then exprType (spEnv env) rhs else Nothing) (snd (planJoins copyKnown env pushed))
+        typed = Map.mapMaybe (\rhs -> if functionArity rhs > 0 then exprType (spEnv env) rhs else Nothing) (snd (planOf copyKnown plans))
     takePushed pushed typed = do
       onTaken
       let kept = Map.intersection (pushedJoins pushed) typed
@@ -4321,12 +4329,14 @@ strictFieldVariables env = go
 planJoins :: Bool -> Simpl -> Pushed -> (Map Name Expr, Map Name Expr)
 planJoins copyKnown env pushed = Map.partitionWithKey copied (pushedJoins pushed)
   where
+    -- The size of the body is read first: it costs a walk over the body
+    -- alone, and a small body is copied whatever its uses. The use test
+    -- then stops at the second use.
     copied name rhs =
-      case occurrences name (pushedSmall pushed) of
-        Occurrences uses _ ->
-          let body = snd (lambdaBody rhs)
-              size = expandedSize env body
-           in uses <= 1 || size <= joinSmallSize || joinCopyGrowth env name rhs (pushedSmall pushed) <= joinCopyLimit || (copyKnown && knownResult env body)
+      let body = snd (lambdaBody rhs)
+          size = expandedSize env body
+          usedAtMostOnce = case occurrencesUnder True 0 False name (pushedSmall pushed) of Occurrences uses _ -> uses <= 1
+       in size <= joinSmallSize || usedAtMostOnce || joinCopyGrowth env name rhs (pushedSmall pushed) <= joinCopyLimit || (copyKnown && knownResult env body)
     lambdaBody expr =
       case expr of
         ExLam named body -> first (named :) (lambdaBody body)

@@ -523,6 +523,7 @@ kindName kind =
     TaskParse -> "parse"
     TaskResolve -> "resolve"
     TaskTypeCheck -> "type-check"
+    TaskInterface -> "interface"
     TaskBackend -> "backend"
 
 spinner :: Int -> String

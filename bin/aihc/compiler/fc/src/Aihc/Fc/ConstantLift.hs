@@ -35,22 +35,23 @@ data LiftState = LiftState
 -- | Return the program, the number of new constants, and the number of sites.
 -- The pass preserves lazy fields. It does not evaluate a constant early.
 -- Local term, type, and coercion references prevent a lift.
-liftConstants :: PackageId -> Home -> Program -> (Program, Int, Int)
-liftConstants primPackage home program =
+liftConstants :: PackageId -> Home -> Set Name -> Program -> (Program, Int, Int)
+liftConstants primPackage home settled program =
   let types = typeEnvFromProgram primPackage program
       -- The top-level values that are in weak-head normal form by
       -- their syntax: a strict field of a constant can hold one.
       env = types {teEvaluated = staticTopLevelValues types program}
       initial = LiftState home 0 (Map.keysSet (teHeaders env)) (earlierConstants env program) [] 0
-      (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
+      (decls, final) = runState (mapM (liftDecl env settled) (programDecls program)) initial
    in ( program {programDecls = decls <> reverse (liftDecls final)},
         length (liftDecls final),
         liftSites final
       )
 
-liftDecl :: TypeEnv -> Decl -> State LiftState Decl
-liftDecl env declaration =
+liftDecl :: TypeEnv -> Set Name -> Decl -> State LiftState Decl
+liftDecl env settled declaration =
   case declaration of
+    DeclVal value | Set.member (valName value) settled -> pure declaration
     DeclVal value -> do
       -- The existing declaration already shares its root expression,
       -- also under the casts around it. A lift of the application under

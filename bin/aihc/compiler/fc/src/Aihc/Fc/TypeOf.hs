@@ -246,8 +246,11 @@ applyType function argument =
 unfoldType :: TypeEnv -> Type -> Type
 unfoldType env ty =
   case ty of
+    -- Only a name of the synonym sort can be a key of the synonym table,
+    -- so the sort decides most names without a lookup.
     TyCon name
-      | Just body <- Map.lookup name (teSynonyms env) ->
+      | nameSort name == SortSynonym,
+        Just body <- Map.lookup name (teSynonyms env) ->
           unfoldType env body
       | otherwise -> ty
     _ -> ty
@@ -445,7 +448,7 @@ reduceTypeWith families env ty =
     TyVar {} -> ty
     TyLit {} -> ty
     TyCon name
-      | Map.member name (teSynonyms env) -> reduceTypeWith families env (unfoldType env ty)
+      | nameSort name == SortSynonym, Map.member name (teSynonyms env) -> reduceTypeWith families env (unfoldType env ty)
       | otherwise -> reduceFamily ty
     TyApp function argument ->
       case reduceTypeWith families env function of

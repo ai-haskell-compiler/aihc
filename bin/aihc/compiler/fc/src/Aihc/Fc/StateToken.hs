@@ -49,10 +49,13 @@ data StateTokenReport = StateTokenReport
 
 type Rewrite = State StateTokenReport
 
-stateTokenProgram :: PackageId -> Program -> (Program, StateTokenReport)
-stateTokenProgram primPackage program =
+stateTokenProgram :: PackageId -> Set.Set Name -> Program -> (Program, StateTokenReport)
+stateTokenProgram primPackage settled program =
   let env = typeEnvFromProgram primPackage program
-      (decls, report) = runState (mapM (rewriteDecl env) (programDecls program)) (StateTokenReport 0 0)
+      rewriteUnsettled decl = case decl of
+        DeclVal value | Set.member (valName value) settled -> pure decl
+        _ -> rewriteDecl env decl
+      (decls, report) = runState (mapM rewriteUnsettled (programDecls program)) (StateTokenReport 0 0)
    in (program {programDecls = decls}, report)
 
 rewriteDecl :: TypeEnv -> Decl -> Rewrite Decl

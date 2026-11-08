@@ -24,6 +24,7 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Yaml
@@ -58,7 +59,7 @@ data Command
   | PlayBundle FilePath FilePath
   | PlayRuntime FilePath FilePath
   | FcPrint FilePath
-  | FcPasses PackageId [FilePath] OptimizationLevel [String]
+  | FcPasses PackageId [FilePath] OptimizationLevel [String] (Maybe String)
   | Explore FilePath OptimizationLevel (Maybe NativeTarget) Bool
 
 data ExtractHiOpts = ExtractHiOpts
@@ -169,6 +170,7 @@ fcPassesParser =
       (eitherReader parseOptimizationLevel)
       (short 'O' <> metavar "LEVEL" <> value O2 <> help "The optimization level whose passes run: 0, 1, 2 or s (default: 2)")
     <*> many (strOption (long "show" <> metavar "NAME" <> help "Print the declaration NAME before the passes and after each pass"))
+    <*> optional (strOption (long "settle-foreign" <> metavar "MODULE" <> help "Settle each value of another module than MODULE, and each INLINE value of MODULE, as the build settles the grafted values of a module"))
 
 exploreParser :: Parser Command
 exploreParser =
@@ -334,7 +336,7 @@ runCommand (Explore input level target wrap) = do
       TIO.hPutStrLn stderr "This host is not a supported target; pass --target"
       exitFailure
   runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved, exploreWrap = wrap}
-runCommand (FcPasses primPackage paths level shown) = do
+runCommand (FcPasses primPackage paths level shown settleForeign) = do
   (program, env) <- case paths of
     [path] -> do
       loaded <- Fc.readProgramFile path
@@ -342,7 +344,28 @@ runCommand (FcPasses primPackage paths level shown) = do
         Left message -> TIO.hPutStrLn stderr message >> exitFailure
         -- One module: the passes run as they run in a build that is not
         -- whole-program, so the module is the home of the new values.
-        Right program -> pure (program, Fc.PassEnv primPackage (Fc.declaredHome program) Nothing mempty)
+        Right program ->
+          case settleForeign of
+            Nothing -> pure (program, Fc.PassEnv primPackage (Fc.declaredHome program) Nothing mempty mempty)
+            Just home -> do
+              let homeText = T.pack home
+                  isHome name = case Fc.nameOrigin name of
+                    Fc.OriginTop _ moduleName -> moduleName == homeText
+                    _ -> False
+                  values = [declaration | Fc.DeclVal declaration <- Fc.programDecls program]
+                  settled =
+                    Set.fromList
+                      [ Fc.valName declaration
+                      | declaration <- values,
+                        not (isHome (Fc.valName declaration)) || case Fc.valInline declaration of
+                          Fc.InlineAlways _ -> True
+                          _ -> False
+                      ]
+                  origin = case [Fc.nameOrigin (Fc.valName declaration) | declaration <- values, isHome (Fc.valName declaration)] of
+                    found : _ -> Just found
+                    [] -> Nothing
+              TIO.hPutStrLn stderr ("settled " <> T.pack (show (Set.size settled)) <> " of " <> T.pack (show (length values)) <> " values")
+              pure (program, Fc.PassEnv primPackage origin Nothing mempty settled)
     _ -> do
       programs <- readPrograms paths
       let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))

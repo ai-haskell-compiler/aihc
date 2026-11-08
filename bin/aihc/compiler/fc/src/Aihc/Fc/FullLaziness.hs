@@ -36,15 +36,16 @@ type FloatM = State FloatState
 -- | Move closed lifted computations under lambdas to private lazy thunks.
 -- Captured computations stay local because a new captured thunk can cost more than its saved work.
 -- A move does not insert a let between parameters, including parameters under casts.
-fullLazinessProgram :: PackageId -> Home -> Program -> (Program, Int)
-fullLazinessProgram primPackage home program =
+fullLazinessProgram :: PackageId -> Home -> Set Name -> Program -> (Program, Int)
+fullLazinessProgram primPackage home settled program =
   let env = typeEnvFromProgram primPackage program
       initial = FloatState home (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) Map.empty [] 0
-      (decls, final) = runState (mapM (declaration env) (programDecls program)) initial
+      (decls, final) = runState (mapM (declaration env settled) (programDecls program)) initial
    in (tidyProgram program {programDecls = decls <> reverse (floatDecls final)}, floatCount final)
 
-declaration :: TypeEnv -> Decl -> FloatM Decl
-declaration env decl = case decl of
+declaration :: TypeEnv -> Set Name -> Decl -> FloatM Decl
+declaration env settled decl = case decl of
+  DeclVal value | Set.member (valName value) settled -> pure decl
   DeclVal value -> do
     body <- walk env (valName value) False (valBody value)
     pure (DeclVal value {valBody = body})
@@ -52,12 +53,13 @@ declaration env decl = case decl of
 
 -- | Move the lazy lets at the root of each top-level function to private
 -- top-level values. See 'floatRootLets'.
-floatRootLetsProgram :: PackageId -> Home -> Program -> (Program, Int)
-floatRootLetsProgram primPackage home program =
+floatRootLetsProgram :: PackageId -> Home -> Set Name -> Program -> (Program, Int)
+floatRootLetsProgram primPackage home settled program =
   let env = typeEnvFromProgram primPackage program
       initial = FloatState home (maxLocalUnique program + 1) (Map.keysSet (teHeaders env)) Map.empty [] 0
       (decls, final) = runState (mapM root (programDecls program)) initial
       root decl = case decl of
+        DeclVal value | Set.member (valName value) settled -> pure decl
         DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> floatRootLets env (valName value) (valBody value)
         _ -> pure decl
    in -- A pass that moves nothing leaves each body as it is, so it does

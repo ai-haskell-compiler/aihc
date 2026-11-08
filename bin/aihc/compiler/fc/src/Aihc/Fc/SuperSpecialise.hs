@@ -54,8 +54,8 @@ type SpecM = State Supply
 
 -- | The node budget is half the input size, between 256 and 100000 nodes.
 -- Each original function permits at most sixteen copies across all regions.
-superSpecialiseProgram :: Home -> Program -> (Program, SuperReport)
-superSpecialiseProgram home program =
+superSpecialiseProgram :: Home -> Set Name -> Program -> (Program, SuperReport)
+superSpecialiseProgram home settled program =
   let (supply, declarations) = List.mapAccumL freshDeclaration (maxLocalUnique program + 1) (programDecls program)
       protected = foldMap ruleNames declarations
       definitions = Map.fromList [(valName val, Bind (Binder (valName val) (valType val)) (valBody val)) | DeclVal val <- declarations, eligible protected val]
@@ -74,6 +74,7 @@ superSpecialiseProgram home program =
       -- An INLINE body is a template. A larger body stops the inliner at
       -- its calls, and each copy is specialised where it lands.
       DeclVal val | InlineAlways _ <- valInline val -> pure decl
+      DeclVal val | Set.member (valName val) settled -> pure decl
       DeclVal val -> do
         body <- walk definitions Set.empty (valBody val)
         pure (DeclVal val {valBody = body})

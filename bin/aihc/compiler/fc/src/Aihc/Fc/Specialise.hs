@@ -92,8 +92,8 @@ type Arg = Either Type Expr
 type SpecM = State (Int, SpecialiseReport)
 
 -- | Specialise every local recursive function of the program.
-specialiseProgram :: Program -> (Program, SpecialiseReport)
-specialiseProgram program =
+specialiseProgram :: Set Name -> Program -> (Program, SpecialiseReport)
+specialiseProgram settled program =
   let (decls, (_, report)) = runState (mapM onDecl (programDecls program)) (maxLocalUnique program + 1, mempty)
    in -- A pass that makes no copy leaves each body as it is, so it does
       -- not tidy the program again.
@@ -101,6 +101,7 @@ specialiseProgram program =
   where
     onDecl decl =
       case decl of
+        DeclVal declaration | Set.member (valName declaration) settled -> pure decl
         DeclVal declaration -> do
           body <- specialiseExpr Set.empty (valBody declaration)
           pure (DeclVal declaration {valBody = body})
@@ -117,8 +118,8 @@ specialiseProgram program =
 -- the calls of a function give more distinct prefixes than the copies
 -- that it can still get, its copies are made for the types that the
 -- dictionaries name, see 'dictionaryTypes'.
-specialiseTopProgram :: PackageId -> Home -> Program -> (Program, SpecialiseReport)
-specialiseTopProgram primPackage home program =
+specialiseTopProgram :: PackageId -> Home -> Set Name -> Program -> (Program, SpecialiseReport)
+specialiseTopProgram primPackage home settled program =
   let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty Set.empty allowance mempty
       (decls, final) = runState (rounds 3 (programDecls program)) initial
    in if topReport final == mempty then (program, topReport final) else (tidyProgram program {programDecls = decls}, topReport final)
@@ -133,7 +134,7 @@ specialiseTopProgram primPackage home program =
     rounds 0 decls = pure decls
     rounds remaining decls = do
       current <- get
-      let full = execState (mapM_ (onValue (walkCalls (collect (const False)))) decls) Map.empty
+      let full = execState (mapM_ (onUnsettled settled (walkCalls (collect (const False)))) decls) Map.empty
           -- A function whose new prefixes do not fit its remaining copies
           -- gets copies for the types that its dictionaries name.
           crowded =
@@ -143,7 +144,7 @@ specialiseTopProgram primPackage home program =
                   (Map.fromListWith (+) [(name, 1 :: Int) | (key@(name, _), _) <- Map.toList full, Map.notMember key (topCopies current)])
               )
           reduced = topReduced current <> crowded
-          calls = execState (mapM_ (onValue (walkCalls (collect (`Set.member` reduced)))) decls) Map.empty
+          calls = execState (mapM_ (onUnsettled settled (walkCalls (collect (`Set.member` reduced)))) decls) Map.empty
           requests = List.sortOn (\(key, count) -> (negate count, key)) (Map.toList calls)
           unseen = filter (\(key, _) -> Map.notMember key (topCopies current)) requests
       put current {topReduced = reduced}
@@ -151,7 +152,7 @@ specialiseTopProgram primPackage home program =
       if null copies
         then pure decls
         else do
-          rewritten <- mapM (onValue (walkCalls rewrite)) (decls <> copies)
+          rewritten <- mapM (onUnsettled settled (walkCalls rewrite)) (decls <> copies)
           rounds (remaining - 1) rewritten
     collect :: (Name -> Bool) -> Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
     collect reduced aliases function arguments = do
@@ -293,6 +294,14 @@ freshTopName home used original index =
    in if Set.member candidate used
         then freshTopName home used original (index + 1)
         else candidate
+
+-- | 'onValue' for the values that the pass may rewrite: a settled value
+-- keeps its body, and its calls ask for no copy.
+onUnsettled :: (Monad m) => Set Name -> (Expr -> m Expr) -> Decl -> m Decl
+onUnsettled settled action decl =
+  case decl of
+    DeclVal declaration | Set.member (valName declaration) settled -> pure decl
+    _ -> onValue action decl
 
 onValue :: (Monad m) => (Expr -> m Expr) -> Decl -> m Decl
 onValue action (DeclVal declaration) = do

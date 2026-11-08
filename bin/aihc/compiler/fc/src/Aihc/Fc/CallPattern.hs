@@ -89,17 +89,17 @@ callPatternRounds = 3
 -- at a reducing site within the given site limit: a copy of a loop can
 -- give a constructor to a local function that the loop calls, where the
 -- original gave it an unknown parameter.
-callPatternProgram :: PackageId -> Int -> Int -> Program -> (Program, CallPatternReport)
-callPatternProgram primPackage phase siteLimit = go 0 (CallPatternReport 0 0 0)
+callPatternProgram :: PackageId -> Set.Set Name -> Int -> Int -> Program -> (Program, CallPatternReport)
+callPatternProgram primPackage settled phase siteLimit = go 0 (CallPatternReport 0 0 0)
   where
     go rounds report program
       | rounds >= callPatternRounds = (program, report)
       | otherwise =
-          let (specialised, loops, calls) = specialiseRound primPackage program
+          let (specialised, loops, calls) = specialiseRound primPackage settled program
            in if loops == 0
                 then (program, report)
                 else
-                  let (simplified, _) = simplifyProgram primPackage phase siteLimit specialised
+                  let (simplified, _) = simplifyProgram primPackage settled phase siteLimit specialised
                    in go
                         (rounds + 1)
                         report
@@ -113,11 +113,12 @@ type FreshM = State Int
 
 -- | One walk over every body: the number of loops that got a copy and the
 -- number of calls that name a copy.
-specialiseRound :: PackageId -> Program -> (Program, Int, Int)
-specialiseRound primPackage program =
+specialiseRound :: PackageId -> Set.Set Name -> Program -> (Program, Int, Int)
+specialiseRound primPackage settled program =
   let types = typeEnvFromProgram primPackage program
       step supply decl =
         case decl of
+          DeclVal declaration | Set.member (valName declaration) settled -> (supply, (decl, (0, 0)))
           DeclVal declaration ->
             let ((body, counts), supply') = runState (walk types (valBody declaration)) supply
              in (supply', (DeclVal declaration {valBody = body}, counts))

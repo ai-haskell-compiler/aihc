@@ -354,7 +354,7 @@ renderFcCase tc =
     -- them, and the passes of the fixture run on it in order with every
     -- public value as a root.
     lintAndRenderOptimized programs =
-      let inlined = fst (runPasses (PassEnv (packageId primitivePackage) Nothing Nothing mempty) (casePasses tc) (mergePrograms programs))
+      let inlined = fst (runPasses (PassEnv (packageId primitivePackage) Nothing Nothing mempty mempty) (casePasses tc) (mergePrograms programs))
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->
@@ -373,7 +373,7 @@ renderFcCase tc =
           interfaces = map (moduleInterface primPackage defaultInterfacePolicy) programs
           optimize index program =
             let grafted = graftInterfaces primPackage (take index interfaces) program
-                env = PassEnv primPackage (declaredHome program) Nothing (graftedExported grafted)
+                env = PassEnv primPackage (declaredHome program) Nothing (graftedExported grafted) mempty
                 optimized = fst (runPasses env (casePasses tc) (graftedProgram grafted))
              in stripInterfaces primPackage grafted optimized
           results = zipWith optimize [0 ..] programs

@@ -54,11 +54,14 @@ data CseState = CseState
 
 type Cse = State CseState
 
-cseProgram :: PackageId -> Program -> (Program, CseReport)
-cseProgram primPackage program =
+cseProgram :: PackageId -> Set Name -> Program -> (Program, CseReport)
+cseProgram primPackage settled program =
   let env = typeEnvFromProgram primPackage program
       initial = CseState (maxLocalUnique program + 1) (CseReport 0 0)
-      (decls, final) = runState (mapM (cseDecl env) (programDecls program)) initial
+      cseUnsettled decl = case decl of
+        DeclVal value | Set.member (valName value) settled -> pure decl
+        _ -> cseDecl env decl
+      (decls, final) = runState (mapM cseUnsettled (programDecls program)) initial
    in (program {programDecls = decls}, cseReport final)
 
 cseDecl :: TypeEnv -> Decl -> Cse Decl

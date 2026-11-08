@@ -19,8 +19,8 @@ import Data.Text (Text)
 
 -- | The library functions must already occur in the program.
 -- A module without these definitions retains its original producers.
-listFusionProgram :: PackageId -> Program -> (Program, Int)
-listFusionProgram primPackage program =
+listFusionProgram :: PackageId -> Set.Set Name -> Program -> (Program, Int)
+listFusionProgram primPackage settled program =
   case libraryPair of
     Just (build, foldrName) ->
       let (decls, (_, count)) = runState (mapM (onDecl build foldrName) (programDecls program)) (maxLocalUnique program + 1, 0)
@@ -45,6 +45,7 @@ listFusionProgram primPackage program =
       pure (valName buildValue, valName foldValue)
     onDecl build foldrName declaration@(DeclVal value)
       | valName value == build || valName value == foldrName = pure declaration
+      | Set.member (valName value) settled = pure declaration
       | otherwise = do
           body <- walk env build foldrName (valBody value)
           pure (DeclVal value {valBody = body})

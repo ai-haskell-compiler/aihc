@@ -65,20 +65,25 @@ data PassEnv = PassEnv
     -- modules, from 'Aihc.Fc.Interface.graftInterfaces'. Such a value
     -- keeps the cost of a public value, but the program does not have to
     -- keep it. Thus a pass can remove it when no other value reaches it.
-    envImported :: !(Set Name)
+    envImported :: !(Set Name),
+    -- | The values that no pass rewrites. A pass reads their bodies as it
+    -- reads any body: as a candidate for a copy, as a known value, and
+    -- as the source of a signature or an arity. Their bodies are
+    -- optimized already, by the module that declares them.
+    envSettled :: !(Set Name)
   }
   deriving (Eq, Show)
 
 -- | The environment of the passes that run on one module. Every public
 -- value of the module is a root.
 moduleEnv :: PackageId -> Origin -> PassEnv
-moduleEnv primPackage home = PassEnv {envPrimPackage = primPackage, envHome = Just home, envRoots = Nothing, envImported = Set.empty}
+moduleEnv primPackage home = PassEnv {envPrimPackage = primPackage, envHome = Just home, envRoots = Nothing, envImported = Set.empty, envSettled = Set.empty}
 
 -- | The environment of the passes that run on a whole program. The roots
 -- are the values the program must keep, and no declaration changes the
 -- module it came from.
 programEnv :: PackageId -> [Name] -> PassEnv
-programEnv primPackage roots = PassEnv {envPrimPackage = primPackage, envHome = Nothing, envRoots = Just roots, envImported = Set.empty}
+programEnv primPackage roots = PassEnv {envPrimPackage = primPackage, envHome = Nothing, envRoots = Just roots, envImported = Set.empty, envSettled = Set.empty}
 
 data Pass
   = -- | Arity analysis, then eta expansion of every top-level value to
@@ -192,16 +197,16 @@ runPass :: PassEnv -> Pass -> Program -> (Program, PassReport)
 runPass env pass program =
   case pass of
     PassListFusion ->
-      let (rewritten, sites) = listFusionProgram primPackage program
+      let (rewritten, sites) = listFusionProgram primPackage settled program
        in (rewritten, PassReport (passName pass) (programSize primPackage program) (programSize primPackage rewritten) (count sites "producers"))
     PassFullLaziness ->
-      let (floated, sites) = fullLazinessProgram primPackage home program
+      let (floated, sites) = fullLazinessProgram primPackage home settled program
        in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))
     PassFloatRootLets ->
-      let (floated, sites) = floatRootLetsProgram primPackage home program
+      let (floated, sites) = floatRootLetsProgram primPackage home settled program
        in (floated, PassReport (passName pass) (programSize primPackage program) (programSize primPackage floated) (count sites "floats"))
     PassLiftConstants ->
-      let (lifted, constants, sites) = liftConstants primPackage home program
+      let (lifted, constants, sites) = liftConstants primPackage home settled program
        in ( lifted,
             PassReport
               { reportPass = passName pass,
@@ -211,7 +216,7 @@ runPass env pass program =
               }
           )
     PassUnroll ->
-      let (unrolled, report) = unrollProgram primPackage program
+      let (unrolled, report) = unrollProgram primPackage settled program
        in ( unrolled,
             PassReport
               { reportPass = passName pass,
@@ -221,7 +226,7 @@ runPass env pass program =
               }
           )
     PassStateTokens ->
-      let (rewritten, report) = stateTokenProgram primPackage program
+      let (rewritten, report) = stateTokenProgram primPackage settled program
        in ( rewritten,
             PassReport
               { reportPass = passName pass,
@@ -231,7 +236,7 @@ runPass env pass program =
               }
           )
     PassCse ->
-      let (rewritten, report) = cseProgram primPackage program
+      let (rewritten, report) = cseProgram primPackage settled program
        in ( rewritten,
             PassReport
               { reportPass = passName pass,
@@ -241,7 +246,7 @@ runPass env pass program =
               }
           )
     PassDemand rewrites ->
-      let (rewritten, report) = demandProgram primPackage rewrites program
+      let (rewritten, report) = demandProgram primPackage settled rewrites program
        in ( rewritten,
             PassReport
               { reportPass = passName pass,
@@ -251,7 +256,7 @@ runPass env pass program =
               }
           )
     PassWorkerWrapper scope ->
-      let (split, report) = workerWrapperProgram primPackage home scope program
+      let (split, report) = workerWrapperProgram primPackage home settled scope program
        in ( split,
             PassReport
               { reportPass = passName pass,
@@ -261,7 +266,7 @@ runPass env pass program =
               }
           )
     PassSuperSpecialise ->
-      let (specialised, report) = superSpecialiseProgram home program
+      let (specialised, report) = superSpecialiseProgram home settled program
        in ( specialised,
             PassReport
               (passName pass)
@@ -270,7 +275,7 @@ runPass env pass program =
               (count (superCopies report) "copies" <> ", " <> count (superCalls report) "calls" <> ", " <> count (superLimits report) "limits")
           )
     PassSpecialise ->
-      let (specialised, report) = specialiseProgram program
+      let (specialised, report) = specialiseProgram settled program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
@@ -280,7 +285,7 @@ runPass env pass program =
               }
           )
     PassTopSpecialise ->
-      let (specialised, report) = specialiseTopProgram primPackage home program
+      let (specialised, report) = specialiseTopProgram primPackage home settled program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
@@ -290,7 +295,7 @@ runPass env pass program =
               }
           )
     PassCallPatterns phase siteLimit ->
-      let (specialised, report) = callPatternProgram primPackage phase siteLimit program
+      let (specialised, report) = callPatternProgram primPackage settled phase siteLimit program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
@@ -300,7 +305,7 @@ runPass env pass program =
               }
           )
     PassEtaExpand ->
-      let (expanded, report) = etaExpandProgram primPackage roots program
+      let (expanded, report) = etaExpandProgram primPackage roots settled program
        in ( expanded,
             PassReport
               { reportPass = passName pass,
@@ -310,7 +315,7 @@ runPass env pass program =
               }
           )
     PassInline policy rounds phase ->
-      let config = InlineConfig {inlinePolicy = policy, inlineRoots = roots, inlineImported = envImported env, inlineRounds = rounds, inlinePhase = phase}
+      let config = InlineConfig {inlinePolicy = policy, inlineRoots = roots, inlineImported = envImported env, inlineRounds = rounds, inlinePhase = phase, inlineSettled = settled}
           (inlined, report) = inlineProgram primPackage config program
        in ( inlined,
             PassReport
@@ -321,7 +326,7 @@ runPass env pass program =
               }
           )
     PassSimplify phase ->
-      let (simplified, report) = simplifyProgram primPackage phase 0 program
+      let (simplified, report) = simplifyProgram primPackage settled phase 0 program
        in ( simplified,
             PassReport
               { reportPass = passName pass,
@@ -334,6 +339,7 @@ runPass env pass program =
     primPackage = envPrimPackage env
     roots = envRoots env
     home = envHome env
+    settled = envSettled env
     count n what = T.pack (show n) <> " " <> what
 
 -- | Drop the imports that the program no longer reaches. The passes keep

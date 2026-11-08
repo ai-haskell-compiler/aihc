@@ -7,6 +7,7 @@ module Aihc.Fc.Imports
     exprReferences,
     emptyImports,
     importsForProgramLookup,
+    mergeImports,
     pruneImports,
     referencesFromImports,
     restrictProgram,

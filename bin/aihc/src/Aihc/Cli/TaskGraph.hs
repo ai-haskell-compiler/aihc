@@ -52,6 +52,9 @@ data TaskKind
   | TaskTypeCheck
   | TaskResolve
   | TaskParse
+  | -- | The System FC interface of a unit, optimized once for every module
+    -- that imports it.
+    TaskInterface
   | TaskBackend
   deriving (Eq, Show)
 
@@ -65,7 +68,8 @@ taskKindPriority kind =
     TaskTypeCheck -> 1
     TaskResolve -> 2
     TaskParse -> 3
-    TaskBackend -> 4
+    TaskInterface -> 4
+    TaskBackend -> 5
 
 data Task = Task
   { taskId :: !TaskId,
@@ -257,7 +261,7 @@ renderTaskTimeline useColor phases timings =
         <> [ "Frontend time: " <> renderDuration frontend,
              "Compile time: " <> renderDuration total
            ]
-        <> map renderKindTotal [TaskPackage, TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
+        <> map renderKindTotal [TaskPackage, TaskParse, TaskResolve, TaskTypeCheck, TaskInterface, TaskBackend]
     )
   where
     start = minimum (map timingStart timings)
@@ -295,6 +299,7 @@ renderTaskTimeline useColor phases timings =
           kindSymbol useColor TaskParse <> "=parse",
           kindSymbol useColor TaskResolve <> "=resolve",
           kindSymbol useColor TaskTypeCheck <> "=type-check",
+          kindSymbol useColor TaskInterface <> "=interface",
           kindSymbol useColor TaskBackend <> "=backend",
           ".=idle"
         ]
@@ -324,6 +329,7 @@ kindGlyph kind =
     TaskParse -> '▁'
     TaskResolve -> '▂'
     TaskTypeCheck -> '▄'
+    TaskInterface -> '▅'
     TaskBackend -> '█'
 
 kindColor :: TaskKind -> String
@@ -333,6 +339,7 @@ kindColor kind =
     TaskParse -> "37"
     TaskResolve -> "32"
     TaskTypeCheck -> "34"
+    TaskInterface -> "36"
     TaskBackend -> "35"
 
 colorize :: Bool -> String -> String -> String

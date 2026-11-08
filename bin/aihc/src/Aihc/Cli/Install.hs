@@ -472,6 +472,9 @@ data UnitRuntime = UnitRuntime
   { runtimeUnit :: !SourceUnit,
     runtimeResolveTask :: !TaskId,
     runtimeTypeTask :: !TaskId,
+    -- | The task that optimizes and writes the System FC interfaces of
+    -- the unit, between the type check and the backend.
+    runtimeInterfaceTask :: !TaskId,
     runtimeBackendTask :: !TaskId,
     runtimeResolveResult :: !(TMVar ResolveUnitResult),
     runtimeTypeInput :: !(TMVar TypeInput),
@@ -1925,10 +1928,10 @@ partitionModules graph shared build sourceSlots = do
         ]
           <> [(resolvePackage, Map.keys externalReexports, externalReexports, StorePackage (moduleBuildOutputRoot build)) | not (Map.null externalReexports)]
       )
-  unitBase <- allocateTaskIds graph (3 * length units)
+  unitBase <- allocateTaskIds graph (4 * length units)
   runtimes <-
     forM (zip [0 ..] units) $ \(index, unit) ->
-      UnitRuntime unit (TaskId (unitBase + 3 * index)) (TaskId (unitBase + 3 * index + 1)) (TaskId (unitBase + 3 * index + 2))
+      UnitRuntime unit (TaskId (unitBase + 4 * index)) (TaskId (unitBase + 4 * index + 1)) (TaskId (unitBase + 4 * index + 2)) (TaskId (unitBase + 4 * index + 3))
         <$> newEmptyTMVarIO
         <*> newEmptyTMVarIO
         <*> newEmptyTMVarIO
@@ -1983,10 +1986,21 @@ partitionModules graph shared build sourceSlots = do
                 }
             ]
               <> [ Task
+                     { taskId = runtimeInterfaceTask runtime,
+                       taskKind = TaskInterface,
+                       taskOrder = unitOrder,
+                       -- The interfaces of the units below are optimized
+                       -- first: this unit grafts them into its own.
+                       taskDependencies = Set.fromList (runtimeTypeTask runtime : map runtimeInterfaceTask below),
+                       taskAction = runInterfaceUnit context runtime
+                     }
+                 | not noCode
+                 ]
+              <> [ Task
                      { taskId = runtimeBackendTask runtime,
                        taskKind = TaskBackend,
                        taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources unit))),
-                       taskDependencies = Set.singleton (runtimeTypeTask runtime),
+                       taskDependencies = Set.singleton (runtimeInterfaceTask runtime),
                        taskAction = runBackendUnit context runtime >> reportCompiled unit
                      }
                  | not noCode
@@ -3043,6 +3057,71 @@ writeUnitStamp storePath pending backend = do
         unitStampBackend = backendStamp
       }
 
+-- | Optimize and write the System FC interfaces of a unit. The passes of
+-- the plan run on the offered values of each module, with the interfaces
+-- of the imported modules grafted in. Each module that copies an offered
+-- value then takes the optimized body, and no module optimizes the body
+-- again. The task runs after the type check, so a unit above this one
+-- type-checks while the interfaces are optimized, and before the backend,
+-- which takes the optimized bodies of its own interface.
+runInterfaceUnit :: PackageTaskContext -> UnitRuntime -> IO ()
+runInterfaceUnit context runtime = do
+  result <- atomically (readTMVar (runtimeTypeResult runtime))
+  pending <- atomically (readTMVar (runtimeBackendInput runtime))
+  case pending of
+    Just backend
+      | typeUnitSuccess result,
+        compileModuleInterfaces config -> do
+          let fcModules = pendingFcModules backend
+          index <-
+            if null (compilePasses config)
+              then pure Nothing
+              else do
+                imported <- readUnitInterfaces context runtime (map fcProgram fcModules)
+                pure (Just (Fc.interfaceIndex primIdentity (map snd imported)))
+          writeUnitInterfaces primIdentity config (compileVerbose config) (moduleOutputPaths (taskStorePath context) (compileTarget config)) index fcModules
+    _ -> pure ()
+  where
+    config = taskModuleCompileConfig context
+    primIdentity = taskPrimIdentity context
+
+-- | Write the interface of each module of a unit, optimized against the
+-- index of the imported interfaces when the plan has passes. The modules
+-- of a unit offer nothing to each other, so their interfaces are
+-- optimized at the same time, as many at once as there are capabilities.
+writeUnitInterfaces :: PackageId -> ModuleCompileConfig -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> Maybe Fc.InterfaceIndex -> [FcModule] -> IO ()
+writeUnitInterfaces primIdentity config verbose outputPaths index fcModules = do
+  capabilities <- getNumCapabilities
+  limit <- newQSem (max 1 capabilities)
+  void (mapConcurrently (bracket_ (waitQSem limit) (signalQSem limit) . writeInterface) fcModules)
+  where
+    writeInterface fcModule = do
+      let name = fcModuleName fcModule
+          path = outputInterfacePath (outputPaths name)
+          offered = Fc.moduleInterface primIdentity Fc.defaultInterfacePolicy (fcProgram fcModule)
+      optimized <- optimizeInterface fcModule offered
+      Fc.writeProgramFile path optimized
+      verbose ("Write FC interface: " <> T.unpack name <> ", " <> show (length (Fc.programDecls optimized)) <> " declarations")
+    -- A template keeps the body of the source: the passes of each module
+    -- that copies it simplify the copy there, in the phases its pragma
+    -- names. The private values that the passes make, such as a worker,
+    -- come into the interface with the values that reach them.
+    optimizeInterface fcModule offered =
+      case index of
+        Nothing -> pure offered
+        Just interfaces -> do
+          let grafted = Fc.graftIndexed interfaces offered
+              templates = Set.fromList [Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls offered, Fc.InlineAlways _ <- [Fc.valInline declaration]]
+              env = Fc.PassEnv {Fc.envPrimPackage = primIdentity, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted, Fc.envSettled = Fc.graftedSettled grafted <> templates}
+          optimized <- optimizeFcProgram env config verbose (fcModuleName fcModule <> " interface") (Fc.graftedProgram grafted)
+          -- The interface keeps a copy of each private value of another
+          -- module that an offered body reaches, as the object of the
+          -- module does. A consumer takes each such copy from one
+          -- interface.
+          let stripped = Fc.stripInterfaces primIdentity grafted optimized
+          lintOptimized primIdentity config "strip interfaces" (fcModuleName fcModule <> " interface") stripped
+          pure stripped
+
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
   started <- getMonotonicTimeNSec
@@ -3342,7 +3421,6 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     -- and not from the optimized program: the body that an INLINE pragma
     -- offers is the body of the source, as it is in GHC. The modules
     -- below this one read these files.
-    when interfaces (mapM_ writeInterface fcModules)
     -- The FC is forced here so that no thunk into the checked AST leaves
     -- with it.
     evaluate (force fcModules)
@@ -3351,13 +3429,6 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     lint = compileLint config
     lto = compileLto config
     interfaces = compileModuleInterfaces config
-
-    writeInterface fcModule = do
-      let name = fcModuleName fcModule
-          path = outputInterfacePath (outputPaths name)
-          offered = Fc.moduleInterface primIdentity Fc.defaultInterfacePolicy (fcProgram fcModule)
-      Fc.writeProgramFile path offered
-      verbose ("Write FC interface: " <> T.unpack name <> ", " <> show (length (Fc.programDecls offered)) <> " declarations")
 
     writeFcModule fcModule = do
       let name = fcModuleName fcModule
@@ -3380,8 +3451,19 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
         -- imports. A module of the same unit is in a cycle with this one,
         -- so it offers nothing: its own passes have not run.
         optimized <- forM (pendingFcModules pending) $ \fcModule -> do
-          let grafted = Fc.graftIndexed index (fcProgram fcModule)
-              env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted}
+          -- The interface of the module holds the optimized bodies of the
+          -- values it offers. The module takes them as they are: the
+          -- passes of the interface ran on them already.
+          (own, ownSettled) <-
+            if compileModuleInterfaces config && not (null (compilePasses config))
+              then do
+                loaded <- Fc.readProgramFile (outputInterfacePath (outputPaths (fcModuleName fcModule)))
+                pure $ case loaded of
+                  Right ownInterface -> Fc.settleOwnInterface (fcProgram fcModule) ownInterface
+                  Left _ -> (fcProgram fcModule, Set.empty)
+              else pure (fcProgram fcModule, Set.empty)
+          let grafted = Fc.graftIndexed index own
+              env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted, Fc.envSettled = Fc.graftedSettled grafted <> ownSettled}
           unless (null interfaces) $
             verbose ("Graft FC interfaces: " <> T.unpack (fcModuleName fcModule) <> ", " <> show (Set.size (Fc.graftedExported grafted) + Set.size (Fc.graftedPrivate grafted)) <> " values")
           program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)

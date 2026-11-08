@@ -63,12 +63,15 @@ data UnrollState = UnrollState
     unrollReport :: !UnrollReport
   }
 
-unrollProgram :: PackageId -> Program -> (Program, UnrollReport)
-unrollProgram primPackage program =
+unrollProgram :: PackageId -> Set.Set Name -> Program -> (Program, UnrollReport)
+unrollProgram primPackage settled program =
   let env = typeEnvFromProgram primPackage program
       initial = UnrollState (maxLocalUnique program + 1) (UnrollReport 0 0)
       loops = topLevelLoops (programDecls program)
-      (decls, final) = runState (mapM (unrollDecl env loops) (programDecls program)) initial
+      unrollUnsettled decl = case decl of
+        DeclVal value | Set.member (valName value) settled -> pure decl
+        _ -> unrollDecl env loops decl
+      (decls, final) = runState (mapM unrollUnsettled (programDecls program)) initial
    in (program {programDecls = decls}, unrollReport final)
 
 unrollDecl :: TypeEnv -> Map.Map Name Loop -> Decl -> State UnrollState Decl

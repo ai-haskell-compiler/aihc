@@ -1038,12 +1038,13 @@ data Occ = Occ !Count !Bool !(Set OneShotKey)
 
 -- | Eta expand every top-level value and every local binding of a program
 -- to the arity its body supports.
-etaExpandProgram :: PackageId -> Maybe [Name] -> Program -> (Program, EtaReport)
-etaExpandProgram primPackage roots program =
+etaExpandProgram :: PackageId -> Maybe [Name] -> Set Name -> Program -> (Program, EtaReport)
+etaExpandProgram primPackage roots settled program =
   let types = typeEnvFromProgram primPackage program
       env1 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types, envOneShotResults = Set.empty, envOneShotLocals = Set.empty, envOwner = Nothing, envDiverging = divergingValues types [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]}
       rootSet = maybe (Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub]) Set.fromList roots
-      (versioned, oneShotValues, oneShotLocals, copies) = oneShotResults env1 rootSet (programDecls program)
+      -- A settled value gets no one-shot copy: a copy is a rewritten version.
+      (versioned, oneShotValues, oneShotLocals, copies) = oneShotResults env1 (rootSet <> settled) (programDecls program)
       -- A one-shot copy has the type of its value, and it diverges as its
       -- value does: the two differ only in the versions that they call.
       valueTypes = Map.fromList [(valName declaration, valType declaration) | DeclVal declaration <- programDecls program]
@@ -1052,7 +1053,10 @@ etaExpandProgram primPackage roots program =
       env0 = env1 {envTypes = copyTypes, envDiverging = copyDiverging, envOneShotResults = oneShotValues, envOneShotLocals = oneShotLocals}
       env = valueSignatures env0 versioned
       supply = maxLocalUnique program + 1
-      (expanded, (_, report)) = runState (traverse (expandDecl env) versioned) (supply, EtaReport 0 0 0)
+      expandUnsettled decl = case decl of
+        DeclVal declaration | Set.member (valName declaration) settled -> pure decl
+        _ -> expandDecl env decl
+      (expanded, (_, report)) = runState (traverse expandUnsettled versioned) (supply, EtaReport 0 0 0)
       decls = dropIdleCopies env copies expanded
    in -- An expansion names the axiom of every newtype it unfolded, and
       -- a merged whole program arrives with imports that no longer

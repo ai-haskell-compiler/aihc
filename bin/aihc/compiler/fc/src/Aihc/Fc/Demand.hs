@@ -170,13 +170,16 @@ data DemandReport = DemandReport
 
 -- | Find the signatures of every value.
 -- Evaluate strict lets and selected strict arguments of saturated calls.
-demandProgram :: PackageId -> DemandRewrites -> Program -> (Program, DemandReport)
-demandProgram primPackage rewrites program =
+demandProgram :: PackageId -> Set Name -> DemandRewrites -> Program -> (Program, DemandReport)
+demandProgram primPackage settled rewrites program =
   let types = typeEnvFromProgram primPackage program
       signatures = topLevelSignatures types (programDecls program)
       env = (analysisEnv types signatures) {envRewrites = rewrites, envAnalysisOnly = False}
       supply = maxLocalUnique program + 1
-      (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
+      rewriteUnsettled decl = case decl of
+        DeclVal declaration | Set.member (valName declaration) settled -> pure decl
+        _ -> rewriteDecl env decl
+      (decls, final) = runState (traverse rewriteUnsettled (programDecls program)) (DemandState supply 0 0)
       strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
       report = DemandReport strictValues (dsStrictLets final) (dsStrictArguments final)
    in -- A pass that rewrites nothing leaves each body as it is, so it does

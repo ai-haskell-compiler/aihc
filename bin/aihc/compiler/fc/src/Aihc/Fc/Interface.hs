@@ -46,10 +46,12 @@ module Aihc.Fc.Interface
     interfaceIndex,
     graftIndexed,
     stripInterfaces,
+    graftedSettled,
+    settleOwnInterface,
   )
 where
 
-import Aihc.Fc.Imports (exprReferences, restrictProgram, restrictProgramWith)
+import Aihc.Fc.Imports (exprReferences, mergeImports, pruneImports, restrictProgram, restrictProgramWith)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (ruleHeadName)
@@ -375,6 +377,14 @@ data Offer = Offer
     offerSources :: ![Int]
   }
 
+-- | The interface that gives the declaration of a value: the first one
+-- that declares it.
+offerSource :: Offer -> Int
+offerSource offer =
+  case offerSources offer of
+    number : _ -> number
+    [] -> -1
+
 data IndexedRule = IndexedRule
   { ruleSource :: !Int,
     -- | The values that the right-hand side names.
@@ -449,16 +459,22 @@ graftIndexed index program =
                        in saturate
                             (Set.insert name values)
                             headSet
-                            (foldr IntSet.insert numbers (offerSources found))
+                            (IntSet.insert (offerSource found) numbers)
                             (name : names)
                             (names <> rest)
     -- An interface that gives no declaration is empty after
     -- 'restrictProgramWith', so it does not come in.
     touched = [interface | interface <- indexInterfaces index, IntSet.member (indexedNumber interface) sources]
-    restrict interface = restrictProgramWith (indexedEnv interface) keep (indexedProgram interface)
-    keep decl =
+    restrict interface = restrictProgramWith (indexedEnv interface) (keep (indexedNumber interface)) (indexedProgram interface)
+    -- A value comes from the first interface that declares it, and from
+    -- that interface only. An optimized interface holds a copy of each
+    -- private value of another module that its bodies reach, so several
+    -- interfaces can declare one name.
+    keep number decl =
       case decl of
-        DeclVal declaration -> Set.member (valName declaration) wanted
+        DeclVal declaration ->
+          Set.member (valName declaration) wanted
+            && maybe False ((== number) . offerSource) (Map.lookup (valName declaration) (indexOffered index))
         DeclRule rule -> maybe False (`Set.member` heads) (ruleHeadName rule)
         _ -> False
 
@@ -512,3 +528,60 @@ declValueNames decl =
     DeclVal declaration -> exprValueNames (valBody declaration)
     DeclRule rule -> exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule)
     _ -> Set.empty
+
+-- | The grafted values: no pass of the module rewrites their bodies.
+-- The module that declares a value optimized its body for its interface,
+-- or offers the body of the source when the pragma of the value asks for
+-- a copy at each call. In both cases each copy is simplified where it
+-- lands, as GHC simplifies a copy of an unfolding at its site.
+graftedSettled :: Grafted -> Set Name
+graftedSettled grafted = graftedExported grafted <> graftedPrivate grafted
+
+-- | Whether a value of the source is a template: its pragma asks for a
+-- copy at each call, so its interface offers the body of the source, and
+-- the passes of its own module optimize it as any other value.
+isTemplateValue :: ValDecl -> Bool
+isTemplateValue declaration =
+  case valInline declaration of
+    InlineAlways _ -> True
+    _ -> False
+
+-- | Give a program the optimized bodies of its own interface.
+--
+-- The interface of the module holds the values that the module offers,
+-- with the bodies that the passes of the interface gave them, and the
+-- private values that those passes made, such as a worker. Each offered
+-- value that is not a template gets its interface body in the program,
+-- and each private value of the interface that the program does not
+-- declare comes in. The result names these values: no pass of the
+-- module rewrites them, so the object of the module defines each one as
+-- the interface shows it.
+settleOwnInterface :: Program -> Program -> (Program, Set Name)
+settleOwnInterface program interface =
+  ( pruneImports
+      program
+        { programImports = mergeImports (programImports program) (programImports interface),
+          programDecls = map replace (programDecls program) <> added
+        },
+    Map.keysSet offered
+  )
+  where
+    -- A template of the source keeps the body of the source in the
+    -- interface, and the passes of the module optimize it here. A value
+    -- that a pass of the interface made, such as a wrapper, can carry an
+    -- @INLINE@ pragma too, so the pragma of the source decides.
+    templates = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, isTemplateValue declaration]
+    offered =
+      Map.fromList
+        [ (valName declaration, declaration)
+        | DeclVal declaration <- programDecls interface,
+          Set.notMember (valName declaration) templates
+        ]
+    own = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
+    replace decl =
+      case decl of
+        DeclVal declaration
+          | Just new <- Map.lookup (valName declaration) offered -> DeclVal declaration {valBody = valBody new}
+        _ -> decl
+    added = [DeclVal declaration | declaration <- Map.elems offered, Set.notMember (valName declaration) own]
+
