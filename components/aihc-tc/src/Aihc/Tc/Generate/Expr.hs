@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -461,6 +461,15 @@ annotatePendingExprAt (Just sp) ann =
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
+
+-- | Cast the operator of a section onto the arrow type that the section
+-- uses. The operator is equated as @actual ~ arrow@, so the proof runs
+-- forwards. A given equality can prove it: with the given @v ~ Diff p@,
+-- the operator of @(.-. z)@ has the result type @Diff p@, but the
+-- section can have the result type @v@.
+annotateOperatorCast :: TcType -> EvVar -> Name -> Name
+annotateOperatorCast ty evidence name =
+  name {nameAnns = nameAnns name <> [mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight)]}
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
@@ -1321,9 +1330,11 @@ inferPostfixSection sp inner op = do
   (inner', innerTy, innerCts) <- inferExpr inner
   resultTy <- freshMetaTv
   evidence <- freshEvVar
-  let pending = pendingAnnotation resultTy [] [] []
-      wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy resultTy)) evidence (AppOrigin sp) sp
-  pure (annotatePendingExprAt sp pending (ESectionL inner' op'), resultTy, opCts <> innerCts <> [wanted])
+  let operatorTy = TcFunTy innerTy resultTy
+      pending = pendingAnnotation resultTy [] [] []
+      wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
+      op'' = annotateOperatorCast operatorTy evidence op'
+  pure (annotatePendingExprAt sp pending (ESectionL inner' op''), resultTy, opCts <> innerCts <> [wanted])
 
 -- | A section operand of a polymorphic parameter type, such as a lens
 -- in @(.^ l)@, is checked against that polytype like an application
@@ -1344,9 +1355,11 @@ inferBinarySectionL sp inner op = do
       resultTy <- freshMetaTv
       evidence <- freshEvVar
       let sectionTy = TcFunTy argumentTy resultTy
+          operatorTy = TcFunTy innerTy sectionTy
           pending = pendingAnnotation sectionTy [] [] [argumentTy]
-          wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy sectionTy)) evidence (AppOrigin sp) sp
-      pure (annotatePendingExprAt sp pending (ESectionL inner' op'), sectionTy, opCts <> innerCts <> [wanted])
+          wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
+          op'' = annotateOperatorCast operatorTy evidence op'
+      pure (annotatePendingExprAt sp pending (ESectionL inner' op''), sectionTy, opCts <> innerCts <> [wanted])
 
 inferSectionR :: Maybe SourceSpan -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferSectionR sp op inner = do
@@ -1365,9 +1378,11 @@ inferSectionR sp op inner = do
       resultTy <- freshMetaTv
       evidence <- freshEvVar
       let sectionTy = TcFunTy argumentTy resultTy
+          operatorTy = TcFunTy argumentTy (TcFunTy innerTy resultTy)
           pending = pendingAnnotation sectionTy [] [] [argumentTy]
-          wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
-      pure (annotatePendingExprAt sp pending (ESectionR op' inner'), sectionTy, opCts <> innerCts <> [wanted])
+          wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
+          op'' = annotateOperatorCast operatorTy evidence op'
+      pure (annotatePendingExprAt sp pending (ESectionR op'' inner'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferIf :: Maybe SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferIf sp cond thenE elseE = do
@@ -1383,7 +1398,10 @@ inferIf sp cond thenE elseE = do
   let thenCt = mkWantedCt (EqPred thenTy resultTy) thenEv (AppOrigin sp) sp
       elseCt = mkWantedCt (EqPred elseTy resultTy) elseEv (AppOrigin sp) sp
       pending = pendingAnnotation resultTy [] [] []
-  pure (annotatePendingExprAt sp pending (EIf cond' thenE' elseE'), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
+      cond'' = annotateBranchCast expectedBoolTy condEv cond'
+      thenE'' = annotateBranchCast resultTy thenEv thenE'
+      elseE'' = annotateBranchCast resultTy elseEv elseE'
+  pure (annotatePendingExprAt sp pending (EIf cond'' thenE'' elseE''), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
 
 -- | A multi-way if is a guarded right-hand side without a binding. Each
 -- alternative has the result type.
