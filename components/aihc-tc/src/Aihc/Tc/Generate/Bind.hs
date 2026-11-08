@@ -612,7 +612,7 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
   envMetaVars <- environmentMetaVars binderSet
   restricted <- restrictedBinderKeys groups
-  binderInfos <- traverse (binderMetaInfo placeholders) binders
+  typeBinderInfos <- traverse (binderMetaInfo placeholders) binders
   -- A constraint the group cannot abstract over, such as an equality, is
   -- left to the enclosing scope. Its meta-variables must stay
   -- meta-variables: the enclosing scope solves the constraint by fixing
@@ -629,6 +629,16 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
           )
       fixedMetaVars = envMetaVars ++ monoMetaVars
       generalizableMetas predicate = filter (`notElem` fixedMetaVars) (predMetaVars predicate)
+      -- A binder also owns the type variables that a class constraint
+      -- connects to its own type variables, as GHC grows the quantified
+      -- variables. In @f v = composeFilter addHeader@ with @f :: () -> m
+      -- ()@, the constraint @FilterMonad c m@ connects @c@ to @m@, so @f@
+      -- also abstracts over @HasHeaders c@.
+      classMetaSets = [generalizableMetas (ctPred ct) | ct <- residualCts, isClassPred (ctPred ct)]
+      growMetas metas =
+        let grown = Set.unions (metas : [Set.fromList connected | connected <- classMetaSets, any (`Set.member` metas) connected])
+         in if Set.size grown == Set.size metas then metas else growMetas grown
+      binderInfos = [(key, Set.toList (growMetas (Set.fromList binderMetas))) | (key, binderMetas) <- typeBinderInfos]
       ownersOf metas = [key | (key, binderMetas) <- binderInfos, any (`elem` binderMetas) metas]
       classConstraints = [(generalizable, ownersOf generalizable) | ct <- residualCts, isClassPred (ctPred ct), let generalizable = generalizableMetas (ctPred ct), not (null generalizable)]
       -- Haskell 2010 rule 1 keeps the constrained type variables of a
