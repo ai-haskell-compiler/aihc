@@ -4943,3 +4943,5 @@ int64_t aihc_capability_count(void) {
   return (int64_t)__atomic_load_n(&aihc_machine.capability_count,
                                   __ATOMIC_ACQUIRE);
 }
+
+int64_t aihc_processor_count(void) { return aihc_host_processor_count(); }

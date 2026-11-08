@@ -941,6 +941,9 @@ _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);
 /* A monotonic clock in nanoseconds, or zero on a host without one. */
 uint64_t aihc_host_monotonic_ns(void);
+/* The number of processors that the host has online. The value is one or
+   more. */
+int64_t aihc_host_processor_count(void);
 /* Workers. See "Workers" in docs/multi-threaded-rts-design.md. A host
    without threads has one capability and never starts workers. */
 /* Start one worker on its own OS thread for each capability except the

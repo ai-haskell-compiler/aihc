@@ -27,6 +27,7 @@ module GHC.Conc.Sync
     writeTVar,
     unsafeIOToSTM,
     getNumCapabilities,
+    getNumProcessors,
     numCapabilities,
     par,
     pseq,
@@ -318,6 +319,13 @@ getNumCapabilities = capabilityCount
 
 foreign import ccall unsafe "aihc_capability_count"
   capabilityCount :: IO Int
+
+-- | The number of processors of the machine.
+getNumProcessors :: IO Int
+getNumProcessors = processorCount
+
+foreign import ccall unsafe "aihc_processor_count"
+  processorCount :: IO Int
 
 -- | The number of capabilities when the program starts. See
 -- 'getNumCapabilities'.

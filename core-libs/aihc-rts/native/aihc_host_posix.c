@@ -248,6 +248,11 @@ uint64_t aihc_host_monotonic_ns(void) {
   return (uint64_t)now.tv_sec * UINT64_C(1000000000) + (uint64_t)now.tv_nsec;
 }
 
+int64_t aihc_host_processor_count(void) {
+  long count = sysconf(_SC_NPROCESSORS_ONLN);
+  return count < 1 ? 1 : (int64_t)count;
+}
+
 int aihc_host_write_file(const char *path, const void *bytes, size_t length) {
   int descriptor;
   do {
