@@ -109,7 +109,6 @@ module Data.List
     genericDrop,
     genericSplitAt,
     genericReplicate,
-    genericIndex,
     dropWhileEnd,
     singleton,
     lines,
@@ -460,14 +459,6 @@ genericSplitAt count values = (genericTake count values, genericDrop count value
 
 genericReplicate :: (Integral i) => i -> a -> [a]
 genericReplicate count = replicate (fromIntegral count)
-
--- | The element at the given index. The index can have any integral type.
-genericIndex :: (Integral i) => [a] -> i -> a
-genericIndex (value : rest) index
-  | index > 0 = genericIndex rest (index - 1)
-  | index == 0 = value
-  | otherwise = errorWithoutStackTrace "List.genericIndex: negative argument."
-genericIndex _ _ = errorWithoutStackTrace "List.genericIndex: index too large."
 
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd drops = foldr (\value rest -> if drops value && null rest then [] else value : rest) []
