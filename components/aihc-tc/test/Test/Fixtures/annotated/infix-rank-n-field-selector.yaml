@@ -1,0 +1,30 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Cont r = Cont { runCont :: forall b. (r -> b) -> b }
+          │        └─ type: ∀ r. (∀ b. (r → b) → b) → Cont r
+          └─ type: Type → Type
+  infixOp :: Cont Nat -> Nat
+  infixOp c = c `runCont` S
+  │       │      └─ type: (Nat → Nat) → Nat; type-args: Nat
+  │       │      └─ type: Cont Nat → ∀ b. (Nat → b) → b; type-args: Nat
+  │       └─ type: Cont Nat
+  └─ type: Cont Nat → Nat
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  data Nat = Z | S Nat
+  newtype Cont r = Cont { runCont :: forall b. (r -> b) -> b }
+  infixOp :: Cont Nat -> Nat
+  infixOp c = c `runCont` S
+reason: an infix use of a selector of a higher-rank field instantiates
+  the polymorphic type of the operator applied to its left operand
+status: pass
