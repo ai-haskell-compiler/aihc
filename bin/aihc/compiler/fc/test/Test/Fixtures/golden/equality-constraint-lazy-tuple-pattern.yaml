@@ -1,0 +1,10 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  both :: (a ~ b) => (a -> c) -> (a, b) -> (c, c)
+  both f ~(x, y) = (f x, f y)
+status: pass
+reason: A lazy tuple pattern gives its variables the types of the tuple fields under a given equality.

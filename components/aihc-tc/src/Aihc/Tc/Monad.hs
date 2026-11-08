@@ -160,6 +160,7 @@ import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
 import Control.Applicative ((<|>))
@@ -1032,15 +1033,39 @@ addDataFamilyInstance instanceInfo = do
 getDataFamilyInstances :: TcM [DataFamilyInstanceInfo]
 getDataFamilyInstances = lift $ gets (Map.elems . tcsDataFamilyInstances)
 
+-- | Register a type family equation. A module can repeat an open family
+-- equation, and GHC accepts the copy because it is compatible with the
+-- original. The copy gets the same axiom key, so it is not registered again.
 addTypeFamilyInstance :: TypeFamilyInstanceInfo -> TcM ()
 addTypeFamilyInstance instanceInfo = do
   let key = typeFamilyAxiomKey instanceInfo
   instances <- lift $ gets tcsTypeFamilyInstances
-  when (Map.member key instances) $
-    abortTc ("duplicate type family instance state key: " <> show key)
+  case Map.lookup key instances of
+    Just existing
+      | sameTypeFamilyEquation existing instanceInfo -> pure ()
+      | otherwise -> abortTc ("duplicate type family instance state key: " <> show key)
+    Nothing -> insertTypeFamilyInstance key instanceInfo
+
+-- | Whether two equations are the same up to the names of their variables.
+-- The kind of a binder can be a meta-variable that is not zonked. Each
+-- occurrence of the variable has the zonked kind, so the comparison of the
+-- two sides also compares the kinds, and the binder kinds are not compared.
+sameTypeFamilyEquation :: TypeFamilyInstanceInfo -> TypeFamilyInstanceInfo -> Bool
+sameTypeFamilyEquation left right =
+  tfiiClosed left == tfiiClosed right
+    && equivalentTypeSchemes (equationScheme left) (equationScheme right)
+  where
+    equationScheme info =
+      specifiedScheme
+        [mkTyVarId (tvName tyVar) (tvUnique tyVar) TcArrowTy | tyVar <- tfiiTyVars info]
+        []
+        (TcFunTy (tfiiLeft info) (tfiiRight info))
+
+insertTypeFamilyInstance :: TcAxiomKey -> TypeFamilyInstanceInfo -> TcM ()
+insertTypeFamilyInstance key instanceInfo =
   lift $ modify' $ \state ->
     state
-      { tcsTypeFamilyInstances = Map.insert key instanceInfo instances,
+      { tcsTypeFamilyInstances = Map.insert key instanceInfo (tcsTypeFamilyInstances state),
         tcsFamilyEquations = case equationFamily instanceInfo of
           Just family -> Map.insertWith Map.union family (Map.singleton key instanceInfo) (tcsFamilyEquations state)
           Nothing -> tcsFamilyEquations state
