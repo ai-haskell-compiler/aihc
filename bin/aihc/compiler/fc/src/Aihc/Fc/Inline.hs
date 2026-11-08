@@ -40,7 +40,7 @@ import Aihc.Fc.Demand (Signatures, topLevelSignatures)
 import Aihc.Fc.Diverge (Diverging, divergingValues)
 import Aihc.Fc.Facts (emptyFacts)
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (RuleTable, ruleActiveIn, ruleTable)
 import Aihc.Fc.Simplify
@@ -168,6 +168,10 @@ data InlineConfig = InlineConfig
     -- | The values the program must keep. 'Nothing' keeps every public
     -- value. A root that the program does not declare has no effect.
     inlineRoots :: !(Maybe [Name]),
+    -- | The public values that are copies of the values of other modules.
+    -- They stay public for the decisions of a site, but the pass removes
+    -- one that no kept value reaches.
+    inlineImported :: !(Set Name),
     -- | The largest number of walks over the program.
     inlineRounds :: !Int,
     -- | The phase the pass runs in, which decides the rules that fire.
@@ -195,7 +199,7 @@ inlineProgram primPackage config program =
       decls = rebuildDecls lifted final
       result =
         tidyProgram
-          ( pruneImports
+          ( addTupleImports
               program {programDecls = decls}
           )
       report =
@@ -386,6 +390,9 @@ data Inliner = Inliner
     -- 'topCallArities'. A copy made in the round can only remove a use
     -- or copy one with its arguments, so the arities hold for the round.
     inCallArities :: !(Map Name Int),
+    -- | The uses of the top-level values in each body, for
+    -- 'inCallArities'. A body that changes gets its uses again.
+    inTopUses :: !(Map Name (Map Name Use)),
     -- | The values another scope can use in any way: the roots, the
     -- exported values, and the values a rule names. Their call arity is
     -- zero.
@@ -402,6 +409,9 @@ data Inliner = Inliner
     -- for the next round.
     inChanged :: !Bool,
     inRoots :: !(Set Name),
+    -- | The values the pass must keep: the roots without the imported
+    -- copies, which stay only while a kept value reaches them.
+    inKept :: !(Set Name),
     -- | The rules that fire in this pass, by head.
     inRules :: !RuleTable,
     -- | The values that the left-hand side of a rule names. The rules do
@@ -446,13 +456,15 @@ initialInliner config env decls supply =
       inCounts = fold uses,
       inCalls = fold calls,
       inArities = arities,
-      inCallArities = topCallArities escaping (Map.elems bodies),
+      inCallArities = topCallAritiesFrom escaping (Map.elems topUsesOfBodies),
+      inTopUses = topUsesOfBodies,
       inEscaping = escaping,
       inDead = Set.empty,
       inSupply = supply,
       inSites = 0,
       inChanged = False,
       inRoots = roots,
+      inKept = Set.filter (`Map.member` declarations) ruleReferences <> Set.difference roots (inlineImported config),
       inRules = rules,
       inRuleLhsNames = lhsNames,
       inRuleNames = lhsNames <> Set.unions [exprValueNames (ruleRhs rule) | entries <- Map.elems rules, rule <- entries],
@@ -467,6 +479,7 @@ initialInliner config env decls supply =
     lhsNames = Set.unions [exprValueNames (ruleLhs rule) | entries <- Map.elems rules, rule <- entries]
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
+    topUsesOfBodies = Map.map topUses bodies
     arities = Map.map functionArity bodies
     uses = MonoidMap.fromMapWith countTopUses bodies
     calls = MonoidMap.fromMapWith (countTopCalls arities) bodies
@@ -885,7 +898,8 @@ updateBody st name body =
             inBodyArities = arities,
             inGuidance = Map.insert name (candidateGuidance (inEnv st) arities body) (inGuidance st),
             inRefs = MonoidMap.set name references (inRefs st),
-            inUsers = users
+            inUsers = users,
+            inTopUses = Map.insert name (topUses body) (inTopUses st)
           }
         name
         body
@@ -916,7 +930,7 @@ killDead st names =
     [] -> st
     name : rest
       | name `Set.member` inDead st
-          || name `Set.member` inRoots st
+          || name `Set.member` inKept st
           || MonoidMap.get name (inCounts st) > 0 ->
           killDead st rest
       | Map.member name (inBodies st) ->
@@ -954,11 +968,13 @@ dropUnused st =
       inCounts = fold uses,
       inCalls = fold calls,
       inArities = arities,
-      inCallArities = topCallArities (inEscaping st) (Map.elems live),
+      inCallArities = topCallAritiesFrom (inEscaping st) (Map.elems liveUses),
+      inTopUses = liveUses,
       inDead = Set.empty
     }
   where
     live = Map.restrictKeys (inBodies st) reachable
+    liveUses = Map.restrictKeys (inTopUses st) reachable
     -- No live body references a removed value, so its cached data stays correct.
     arities = Map.restrictKeys (inBodyArities st) reachable
     uses = MonoidMap.nullifyKeysNotIn reachable (inBodyUses st)
@@ -974,7 +990,7 @@ dropUnused st =
         (\cached caller -> MonoidMap.set caller (countTopCalls arities (live Map.! caller)) cached)
         (MonoidMap.nullifyKeysNotIn reachable (inBodyCalls st))
         (Set.toList affected)
-    reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inRoots st)))
+    reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inKept st)))
     close visited pending =
       case pending of
         [] -> visited

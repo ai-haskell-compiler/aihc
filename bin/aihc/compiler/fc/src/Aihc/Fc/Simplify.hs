@@ -73,6 +73,9 @@ module Aihc.Fc.Simplify
     -- * Call arity
     callArityAnalysis,
     topCallArities,
+    topCallAritiesFrom,
+    topUses,
+    Use,
     ruleValueNames,
   )
 where
@@ -82,7 +85,7 @@ import Aihc.Fc.Diverge (Diverging, bottomAt, diverges, divergingValues, exprType
 import Aihc.Fc.Equivalence (alphaCorrespondence, alphaEquivalent)
 import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeCaseAlternatives)
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
@@ -176,7 +179,7 @@ simplifyProgram primPackage phase siteLimit program =
              in (\body -> DeclVal declaration {valBody = body}) <$> (simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration) >>= shareAlternatives env)
           _ -> pure decl
       (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
-      result = tidyProgram (pruneImports (floatBottoms env diverging program {programDecls = decls}))
+      result = tidyProgram (addTupleImports (floatBottoms env diverging program {programDecls = decls}))
    in (result, SimplifyReport size0 (programSize primPackage result) (ssRulesFired final))
   where
     size0 = programSize primPackage program
@@ -5409,17 +5412,26 @@ mergeEqualAlternatives env alternatives =
       null (altTypeBinders alternative)
         && uniformAlternative env alternative
         && all ((`unused` altRhs alternative) . binderName) (altBinders alternative)
-    sameAs rhs alternative = mergeable alternative && alphaEquivalent (altRhs alternative) rhs
+    -- The test of the right-hand side is cheaper, so it comes first.
+    sameAs rhs alternative = alphaEquivalent (altRhs alternative) rhs && mergeable alternative
+    -- The groups of equal mergeable alternatives, in the order of their
+    -- first members. An alternative that is equal to no other cannot be in
+    -- a group of two, so the walks of 'mergeable' skip it.
     largestGroup =
       List.foldl'
         (\best group -> if length group > length best then group else best)
         []
-        (groups (filter mergeable alternatives))
+        (map snd (List.sortOn fst mergeableGroups))
+    mergeableGroups =
+      [ (firstIndex, map snd members)
+      | equal@(_ : _ : _) <- groups (zip [0 :: Int ..] alternatives),
+        members@((firstIndex, _) : _) <- [filter (mergeable . snd) equal]
+      ]
     groups candidates =
       case candidates of
         [] -> []
         leader : rest ->
-          let (same, different) = List.partition (alphaEquivalent (altRhs leader) . altRhs) rest
+          let (same, different) = List.partition (alphaEquivalent (altRhs (snd leader)) . altRhs . snd) rest
            in (leader : same) : groups different
 
 -- | Rewrite a case on a comparison of a value with a literal into a case
@@ -5982,13 +5994,23 @@ isFunctionRhs expr =
 -- escaping ones, which another scope can use in any way: the exported
 -- values of a module and the values a rewrite rule names.
 topCallArities :: Set Name -> [Expr] -> Map Name Int
-topCallArities escaping bodies =
-  Map.filterWithKey (\name _ -> isTop name) (Map.map (\(Use args _) -> args) (List.foldl' (Map.unionWith (<>)) Map.empty [fst (callArityAnalysis 0 False body) | body <- bodies])) `Map.withoutKeys` escaping
+topCallArities escaping bodies = topCallAritiesFrom escaping (map topUses bodies)
+
+-- | The uses of the top-level values in one body. A caller that keeps
+-- the bodies across rounds keeps these too, and computes them again only
+-- for a body that changed.
+topUses :: Expr -> Map Name Use
+topUses body = Map.filterWithKey (\name _ -> isTop name) (fst (callArityAnalysis 0 False body))
   where
     isTop candidate =
       case nameOrigin candidate of
         OriginTop {} -> True
         OriginLocal {} -> False
+
+-- | 'topCallArities' from the 'topUses' of each body.
+topCallAritiesFrom :: Set Name -> [Map Name Use] -> Map Name Int
+topCallAritiesFrom escaping uses =
+  Map.map (\(Use args _) -> args) (List.foldl' (Map.unionWith (<>)) Map.empty uses) `Map.withoutKeys` escaping
 
 -- | The values that the rewrite rules of a program name.
 ruleValueNames :: [Decl] -> Set Name

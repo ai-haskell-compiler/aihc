@@ -864,6 +864,11 @@ kindsEqual env expected actual =
 -- that equates them to another type.
 refineKind :: TypeEnv -> Type -> Type
 refineKind env ty
+  -- The substitution replaces type variables only, so a type without a
+  -- variable stays as it is. Such a type, as @BoxedRep Lifted@, is the
+  -- usual case, and the test does not reduce the type of each binder in
+  -- scope.
+  | not (hasTypeVariable ty) = ty
   | Map.null substitution = ty
   | otherwise = go (Map.size substitution + 1) ty
   where
@@ -895,6 +900,18 @@ refineKind env ty
       | otherwise =
           let next = substTypes substitution current
            in if next == current then current else go (fuel - 1) next
+
+-- | Whether a type names a type variable, free or bound.
+hasTypeVariable :: Type -> Bool
+hasTypeVariable ty =
+  case ty of
+    TyVar {} -> True
+    TyCon {} -> False
+    TyLit {} -> False
+    TyApp function argument -> hasTypeVariable function || hasTypeVariable argument
+    TyFun r1 r2 argument result -> hasTypeVariable r1 || hasTypeVariable r2 || hasTypeVariable argument || hasTypeVariable result
+    TyForAll {} -> True
+    TyEq left right -> hasTypeVariable left || hasTypeVariable right
 
 kindFunctionsEqual :: TypeEnv -> Type -> Type -> Bool
 kindFunctionsEqual env left right =

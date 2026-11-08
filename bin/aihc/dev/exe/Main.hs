@@ -342,7 +342,7 @@ runCommand (FcPasses primPackage paths level shown) = do
         Left message -> TIO.hPutStrLn stderr message >> exitFailure
         -- One module: the passes run as they run in a build that is not
         -- whole-program, so the module is the home of the new values.
-        Right program -> pure (program, Fc.PassEnv primPackage (Fc.declaredHome program) Nothing)
+        Right program -> pure (program, Fc.PassEnv primPackage (Fc.declaredHome program) Nothing mempty)
     _ -> do
       programs <- readPrograms paths
       let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))

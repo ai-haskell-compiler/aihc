@@ -95,7 +95,9 @@ type SpecM = State (Int, SpecialiseReport)
 specialiseProgram :: Program -> (Program, SpecialiseReport)
 specialiseProgram program =
   let (decls, (_, report)) = runState (mapM onDecl (programDecls program)) (maxLocalUnique program + 1, mempty)
-   in (tidyProgram program {programDecls = decls}, report)
+   in -- A pass that makes no copy leaves each body as it is, so it does
+      -- not tidy the program again.
+      if report == mempty then (program, report) else (tidyProgram program {programDecls = decls}, report)
   where
     onDecl decl =
       case decl of
@@ -119,7 +121,7 @@ specialiseTopProgram :: PackageId -> Home -> Program -> (Program, SpecialiseRepo
 specialiseTopProgram primPackage home program =
   let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty Set.empty allowance mempty
       (decls, final) = runState (rounds 3 (programDecls program)) initial
-   in (tidyProgram program {programDecls = decls}, topReport final)
+   in if topReport final == mempty then (program, topReport final) else (tidyProgram program {programDecls = decls}, topReport final)
   where
     names = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
     allowance = max 32 (programSize primPackage program `div` 4)

@@ -1036,14 +1036,28 @@ orderByStart encoded starts hints partners = do
 -- Uses
 
 -- | How many times the function reads each value, unweighted.
+--
+-- Each value gets one counter, and a read adds one to it in place. Thus a
+-- read of a value that the table already holds does not copy a path of
+-- the map. Each Lir pass that removes or rewrites an instruction counts the
+-- reads again, so the count must be cheap.
 readCounts :: Function -> Map Var Int
-readCounts function =
-  Map.fromListWith
-    (+)
-    [ (var, 1)
-    | block <- functionBlocks function,
-      var <- concatMap (operationReads . instructionOperation) (blockInstructions block) <> terminatorReads (blockTerminator block)
-    ]
+readCounts function = runST $ do
+  table <- newSTRef Map.empty
+  let count operand =
+        case operand of
+          OperandVar var -> do
+            counters <- readSTRef table
+            case Map.lookup var counters of
+              Just counter -> modifySTRef' counter (+ 1)
+              Nothing -> do
+                counter <- newSTRef (1 :: Int)
+                writeSTRef table $! Map.insert var counter counters
+          OperandLiteral _ -> pure ()
+  for_ (functionBlocks function) $ \block -> do
+    for_ (blockInstructions block) (forOperationOperands count . instructionOperation)
+    forTerminatorOperands count (blockTerminator block)
+  traverse readSTRef =<< readSTRef table
 
 -- | Every read of a value by one operation, in order and with repeats.
 operationReads :: Operation -> [Var]

@@ -99,7 +99,7 @@ module Aihc.Fc.Demand
   )
 where
 
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Size (isLiftedType, isStrictBinder)
 import Aihc.Fc.Syntax
@@ -178,9 +178,12 @@ demandProgram primPackage rewrites program =
       supply = maxLocalUnique program + 1
       (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
       strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
-   in ( tidyProgram (pruneImports program {programDecls = decls}),
-        DemandReport strictValues (dsStrictLets final) (dsStrictArguments final)
-      )
+      report = DemandReport strictValues (dsStrictLets final) (dsStrictArguments final)
+   in -- A pass that rewrites nothing leaves each body as it is, so it does
+      -- not tidy the program again.
+      if dsStrictLets final == 0 && dsStrictArguments final == 0
+        then (program, report)
+        else (tidyProgram (addTupleImports program {programDecls = decls}), report)
 
 -- * Signatures
 

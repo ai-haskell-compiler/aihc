@@ -169,8 +169,22 @@ isLiftedType env ty = maybe False (isLiftedRepresentation env) (repOf env ty)
 -- families reduce.
 isLiftedRepresentation :: TypeEnv -> Type -> Bool
 isLiftedRepresentation env representation =
-  case reduceType env representation of
-    TyCon name -> nameText name == "LiftedRep"
-    TyApp (TyCon boxed) (TyCon levity) ->
-      nameText boxed == "BoxedRep" && nameText levity == "Lifted"
-    _ -> False
+  case representation of
+    -- @LiftedRep@ of @GHC.Types@ is the lifted representation, and the
+    -- synonym, when the program has it, reduces to @BoxedRep Lifted@.
+    -- Most binders have this representation, so the test does not reduce
+    -- it.
+    TyCon name | nameText name == "LiftedRep", fromGhcTypes name -> True
+    TyApp (TyCon boxed) (TyCon levity)
+      | nameText boxed == "BoxedRep", nameText levity == "Lifted", fromGhcTypes boxed, fromGhcTypes levity -> True
+    _ -> reducedLifted
+  where
+    fromGhcTypes name =
+      case nameOrigin name of
+        OriginTop _ moduleName -> moduleName == "GHC.Types"
+        OriginLocal {} -> False
+    reducedLifted = case reduceType env representation of
+      TyCon name -> nameText name == "LiftedRep"
+      TyApp (TyCon boxed) (TyCon levity) ->
+        nameText boxed == "BoxedRep" && nameText levity == "Lifted"
+      _ -> False

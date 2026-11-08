@@ -47,7 +47,7 @@ module Aihc.Fc.CallPattern
 where
 
 import Aihc.Fc.Demand (buildProduct, hasStrictLiftedField, maxStrictWorkerArguments, productConstructor)
-import Aihc.Fc.Imports (pruneImports)
+import Aihc.Fc.Imports (addTupleImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (collectSpine, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall, simplifyProgram, substExpr)
 import Aihc.Fc.Size (isLiftedBinder, isLiftedType)
@@ -127,7 +127,7 @@ specialiseRound primPackage program =
       calls = sum (map (snd . snd) results)
    in if loops == 0
         then (program, 0, 0)
-        else (tidyProgram (pruneImports program {programDecls = map fst results}), loops, calls)
+        else (tidyProgram (addTupleImports program {programDecls = map fst results}), loops, calls)
 
 -- | Specialise the loops of an expression, inner loops first.
 walk :: TypeEnv -> Expr -> FreshM (Expr, (Int, Int))

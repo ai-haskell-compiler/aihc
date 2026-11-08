@@ -60,7 +60,11 @@ floatRootLetsProgram primPackage home program =
       root decl = case decl of
         DeclVal value -> (\body -> DeclVal value {valBody = body}) <$> floatRootLets env (valName value) (valBody value)
         _ -> pure decl
-   in (tidyProgram program {programDecls = decls <> reverse (floatDecls final)}, floatCount final)
+   in -- A pass that moves nothing leaves each body as it is, so it does
+      -- not tidy the program again.
+      if floatCount final == 0
+        then (program, 0)
+        else (tidyProgram program {programDecls = decls <> reverse (floatDecls final)}, floatCount final)
 
 -- | Move the lazy lets at the root of a top-level value to private
 -- top-level values, when the value under them is a function.

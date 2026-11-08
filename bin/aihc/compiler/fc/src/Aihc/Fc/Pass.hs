@@ -18,6 +18,7 @@ module Aihc.Fc.Pass
     passPhase,
     runPass,
     runPasses,
+    finishPasses,
   )
 where
 
@@ -28,6 +29,7 @@ import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.FullLaziness (floatRootLetsProgram, fullLazinessProgram)
+import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.ListFusion (listFusionProgram)
 import Aihc.Fc.Name (Home, Name, Origin)
@@ -41,6 +43,8 @@ import Aihc.Fc.Unroll (UnrollReport (..), unrollProgram)
 import Aihc.Fc.WorkerWrapper (SplitScope (..), WorkerWrapperReport (..), workerWrapperProgram)
 import Aihc.Resolve (PackageId)
 import Data.List qualified as List
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -56,20 +60,25 @@ data PassEnv = PassEnv
     envHome :: !Home,
     -- | The values the program must keep, or 'Nothing' to keep every
     -- public value.
-    envRoots :: !(Maybe [Name])
+    envRoots :: !(Maybe [Name]),
+    -- | The public values that are copies of the values of other
+    -- modules, from 'Aihc.Fc.Interface.graftInterfaces'. Such a value
+    -- keeps the cost of a public value, but the program does not have to
+    -- keep it. Thus a pass can remove it when no other value reaches it.
+    envImported :: !(Set Name)
   }
   deriving (Eq, Show)
 
 -- | The environment of the passes that run on one module. Every public
 -- value of the module is a root.
 moduleEnv :: PackageId -> Origin -> PassEnv
-moduleEnv primPackage home = PassEnv {envPrimPackage = primPackage, envHome = Just home, envRoots = Nothing}
+moduleEnv primPackage home = PassEnv {envPrimPackage = primPackage, envHome = Just home, envRoots = Nothing, envImported = Set.empty}
 
 -- | The environment of the passes that run on a whole program. The roots
 -- are the values the program must keep, and no declaration changes the
 -- module it came from.
 programEnv :: PackageId -> [Name] -> PassEnv
-programEnv primPackage roots = PassEnv {envPrimPackage = primPackage, envHome = Nothing, envRoots = Just roots}
+programEnv primPackage roots = PassEnv {envPrimPackage = primPackage, envHome = Nothing, envRoots = Just roots, envImported = Set.empty}
 
 data Pass
   = -- | Arity analysis, then eta expansion of every top-level value to
@@ -301,7 +310,7 @@ runPass env pass program =
               }
           )
     PassInline policy rounds phase ->
-      let config = InlineConfig {inlinePolicy = policy, inlineRoots = roots, inlineRounds = rounds, inlinePhase = phase}
+      let config = InlineConfig {inlinePolicy = policy, inlineRoots = roots, inlineImported = envImported env, inlineRounds = rounds, inlinePhase = phase}
           (inlined, report) = inlineProgram primPackage config program
        in ( inlined,
             PassReport
@@ -327,11 +336,20 @@ runPass env pass program =
     home = envHome env
     count n what = T.pack (show n) <> " " <> what
 
+-- | Drop the imports that the program no longer reaches. The passes keep
+-- every import and add the unboxed tuples they make (see
+-- 'Aihc.Fc.Imports.addTupleImports'), so a plan prunes one time, after its
+-- last pass. A plan without passes leaves the program as it is.
+finishPasses :: [Pass] -> Program -> Program
+finishPasses passes program
+  | null passes = program
+  | otherwise = pruneImports program
+
 -- | Run the passes in order, and collect the report of each.
 runPasses :: PassEnv -> [Pass] -> Program -> (Program, [PassReport])
 runPasses env passes program0 =
   let (final, reports) = List.foldl' step (program0, []) passes
-   in (canonicalForeignCalls final, reverse reports)
+   in (canonicalForeignCalls (finishPasses passes final), reverse reports)
   where
     step (program, reports) pass =
       let (program', report) = runPass env pass program
