@@ -1,0 +1,53 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Expr = Lit | Add Expr Expr
+  pattern a :+ b = Add a b
+  build x y = x :+ y
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tExpr :: sType {
+    pub 1.cLit :: tExpr;
+    pub 1.cAdd :: tExpr → tExpr → tExpr
+  }
+
+  pub val 1.v$m:+ :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tExpr → (tExpr → FUN @sLiftedRep @rep tExpr r) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tExpr) (y : tExpr → FUN @sLiftedRep @rep tExpr r)
+    (z : FUN @sLiftedRep @rep tUnit r).
+      case x of {
+        cAdd (a : tExpr) (b : tExpr) →
+          y a b;
+        _ →
+          z c()
+      }
+
+  pub val 1.v$b:+ :: tExpr → tExpr → tExpr
+    = λ(x : tExpr) (y : tExpr).
+      cAdd x y
+
+  pub val 1.vbuild :: tExpr → tExpr → tExpr
+    = λ(x : tExpr) (y : tExpr).
+      v$b:+ x y
+status: pass
+reason: An infix expression use of a bidirectional pattern synonym calls the builder, not the pattern synonym name.

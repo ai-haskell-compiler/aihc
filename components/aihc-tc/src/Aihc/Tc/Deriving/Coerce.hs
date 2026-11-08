@@ -7,7 +7,7 @@
 -- types that are each free to be a newtype of some shared representation,
 -- so the search unwraps on either side and joins the two halves with
 -- transitivity.
-module Aihc.Tc.Deriving.Coerce (coercionBetween) where
+module Aihc.Tc.Deriving.Coerce (coercionBetween, nominalCoercionBetween) where
 
 import Aihc.Tc.Deriving.Context (typeTyVars)
 import Aihc.Tc.Env
@@ -26,7 +26,19 @@ import Data.Maybe (fromMaybe)
 -- when the two types do not share a representation. Coercions lift through
 -- representation parameters, as roles permit.
 coercionBetween :: [TypeFamilyInstanceInfo] -> TcType -> TcType -> TcM (Maybe Coercion)
-coercionBetween equations rawSource rawTarget = go [] (normalize rawSource) (normalize rawTarget)
+coercionBetween = searchCoercion True
+
+-- | A proof of @source ~ target@ at nominal role, or 'Nothing'. The proof
+-- uses only congruence and type family equations, and no newtype axiom.
+-- A dictionary argument of a derived method needs this proof, because a
+-- class parameter has the nominal role.
+nominalCoercionBetween :: [TypeFamilyInstanceInfo] -> TcType -> TcType -> TcM (Maybe Coercion)
+nominalCoercionBetween = searchCoercion False
+
+-- | The search. When @unwrap@ is false, the search does not unwrap a
+-- newtype, and each argument of a type constructor gets a nominal proof.
+searchCoercion :: Bool -> [TypeFamilyInstanceInfo] -> TcType -> TcType -> TcM (Maybe Coercion)
+searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource) (normalize rawTarget)
   where
     -- Unwrapping both sides can cycle through a recursive newtype, which a
     -- one-sided search never could, so the walk remembers the pairs it is
@@ -37,9 +49,10 @@ coercionBetween equations rawSource rawTarget = go [] (normalize rawSource) (nor
       | otherwise =
           firstJustM
             [ congruence seen source target,
-              unwrapTarget seen source target,
-              unwrapSource seen source target,
-              pure (familyProof source target)
+              if unwrap then unwrapTarget seen source target else pure Nothing,
+              if unwrap then unwrapSource seen source target else pure Nothing,
+              familyProof source target,
+              fmap mkSym <$> familyProof target source
             ]
       where
         seen = (source, target) : visited
@@ -82,20 +95,27 @@ coercionBetween equations rawSource rawTarget = go [] (normalize rawSource) (nor
         Nothing -> pure Nothing
         Just (representation, axiom) -> use representation axiom
 
-    familyProof source target =
-      case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
-           | equation <- equations,
-             Just substitution <- [matchTypes [tfiiLeft equation] [target]],
-             normalize (applySubst substitution (tfiiRight equation)) == source,
-             let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
-           ] of
+    -- The equations are the associated types of the instance and the open
+    -- equations of the target's family, such as a top-level
+    -- @type instance Element (NonNull mono) = Element mono@. A closed
+    -- equation is not used, because its match also needs an apartness check.
+    familyProof source target = do
+      openEquations <- case target of
+        TcTyCon family _ -> filter (not . tfiiClosed) . Map.elems <$> getTypeFamilyEquations family
+        _ -> pure []
+      pure $ case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
+                  | equation <- equations <> openEquations,
+                    Just substitution <- [matchTypes [tfiiLeft equation] [target]],
+                    normalize (applySubst substitution (tfiiRight equation)) == source,
+                    let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
+                  ] of
         proof : _ -> Just proof
         [] -> Nothing
 
     -- A representation parameter carries an argument coercion. A nominal one
     -- admits only the argument it already has.
     argumentProof visited constructor index (sourceArgument, targetArgument) = do
-      representational <- isRepresentationParameter constructor index
+      representational <- if unwrap then isRepresentationParameter constructor index else pure True
       if representational
         then go visited sourceArgument targetArgument
         else pure (if sourceArgument == targetArgument then Just (Refl sourceArgument) else Nothing)
@@ -143,6 +163,11 @@ mkTrans :: Coercion -> Coercion -> Coercion
 mkTrans (Refl _) coercion = coercion
 mkTrans coercion (Refl _) = coercion
 mkTrans left right = Trans left right
+
+-- | Symmetry that removes a double symmetry.
+mkSym :: Coercion -> Coercion
+mkSym (Sym coercion) = coercion
+mkSym coercion = Sym coercion
 
 firstJustM :: (Monad m) => [m (Maybe a)] -> m (Maybe a)
 firstJustM [] = pure Nothing

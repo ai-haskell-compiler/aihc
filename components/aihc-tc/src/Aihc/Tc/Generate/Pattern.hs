@@ -418,9 +418,14 @@ checkPatternCore sp pat scrutTy =
       | otherwise -> do
           maybeLiteralTy <- plainLiteralPatternType lit
           case maybeLiteralTy of
+            -- A given equality can make the scrutinee type different from
+            -- the literal type, as @Element t@ and @Char@ are with the given
+            -- @Element t ~ Char@. The cast lets the desugarer match the
+            -- scrutinee at the literal type, as for a constructor pattern.
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
-              pure (checkedOnly (PLit (checkedLiteral scrutTy lit))) {pcWantedCts = [eqCt]}
+              let castPattern = PAnn (mkAnnotation (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit (checkedLiteral literalTy lit))
+              pure (checkedOnly castPattern) {pcWantedCts = [eqCt]}
             Nothing -> pure (checkedOnly (PLit (checkedLiteral scrutTy lit)))
     PNegLit lit
       | isPrimitiveLiteral lit ->
