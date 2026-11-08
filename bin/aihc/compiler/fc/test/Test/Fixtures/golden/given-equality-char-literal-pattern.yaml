@@ -1,0 +1,78 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  import GHC.Types (Char)
+  data Bool = False | True
+  type family Element t
+  class (Element t ~ Char) => Textual t where
+    peek :: t -> Element t
+    isR :: t -> Bool
+    isR t = case peek t of
+      'r' -> True
+      _ -> False
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cC#] 3.tChar :: sType;
+    2.tChar# :: tTYPE cWordRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.cWordRep :: tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tBool :: sType {
+    pub 1.cFalse :: tBool;
+    pub 1.cTrue :: tBool
+  }
+
+  pub type 1.tElement (t : sType) :: sType @N {}
+
+  pub type 1.t$Dict$Textual (t : sType) :: sType {
+    pub 1.c$Dict$Textual :: ∀(t : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tElement t ~ tChar) ((t → tElement t) → (t → tBool) → t$Dict$Textual t)
+  }
+
+  pub val 1.vpeek :: ∀(t : sType). t$Dict$Textual t → t → tElement t
+    = Λ(t : sType). λ($dTextual : t$Dict$Textual t).
+      let! c$Dict$Textual (unused $co : tElement t ~ tChar) ($cpeek : t → tElement t) (unused $cisR : t → tBool) =
+        $dTextual;
+      $cpeek
+
+  pub val 1.visR :: ∀(t : sType). t$Dict$Textual t → t → tBool
+    = Λ(t : sType). λ($dTextual : t$Dict$Textual t).
+      let! c$Dict$Textual (unused $co : tElement t ~ tChar) (unused $cpeek : t → tElement t) ($cisR : t → tBool) =
+        $dTextual;
+      $cisR
+
+  pub val 1.v$dmisR :: ∀(t : sType). t$Dict$Textual t → t → tBool
+    = Λ(t : sType). λ($dTextual : t$Dict$Textual t) (x : t).
+      let $co : tElement t ~ tChar =
+        let! c$Dict$Textual ($co{1} : tElement t ~ tChar) (unused $cpeek : t → tElement t) (unused $cisR : t → tBool) =
+          $dTextual;
+        $co{1};
+      let! cC# (_pat : tChar#) = (vpeek @t $dTextual x) ▷ $co;
+      case _pat of {
+        'r'#cWordRep →
+          cTrue;
+        _ →
+          cFalse
+      }
+status: pass
+reason: A given equality makes the scrutinee type Element t different from the type Char of a literal pattern. The match casts the scrutinee to Char.

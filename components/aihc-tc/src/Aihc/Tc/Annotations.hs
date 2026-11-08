@@ -434,6 +434,10 @@ data TcCoercedMethod = TcCoercedMethod
     tcCoercedMethodIndex :: !Int,
     tcCoercedMethodTyVars :: ![TyVarId],
     tcCoercedMethodPredicates :: ![Pred],
+    -- | For each predicate, the cast from the dictionary of the derived
+    -- method to the dictionary that the reused method needs, if the two
+    -- types are different.
+    tcCoercedMethodPredicateCasts :: ![Maybe Coercion],
     tcCoercedMethodCoercion :: !Coercion
   }
   deriving (Eq, Show)

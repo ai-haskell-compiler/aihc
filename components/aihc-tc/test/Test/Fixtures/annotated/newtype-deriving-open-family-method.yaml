@@ -1,0 +1,41 @@
+extensions:
+- FlexibleContexts
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, StandaloneDeriving, TypeFamilies #-}
+  module Test where
+  type family Element mono
+  class Eq a where
+    eq :: a -> a -> a
+  class MonoFoldable mono where
+    headEx :: mono -> Element mono
+    oelem :: Eq (Element mono) => Element mono -> mono -> mono
+  newtype NonNull mono = NonNull mono
+  type instance Element (NonNull mono) = Element mono
+  deriving instance MonoFoldable mono => MonoFoldable (NonNull mono)
+status: pass
+reason: Newtype deriving proves a method coercion and a dictionary cast through a top-level open type family instance.
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, StandaloneDeriving, TypeFamilies #-}
+  module Test where
+  type family Element mono
+              └─ type: Type → Type
+  class Eq a where
+  └─ class methods: eq ∷ ∀ a. (Eq a) ⇒ a → a → a
+    eq :: a -> a -> a
+  class MonoFoldable mono where
+  └─ class methods: headEx ∷ ∀ mono. (MonoFoldable mono) ⇒ mono → Element mono, oelem ∷ ∀ mono. (MonoFoldable mono, Eq (Element mono)) ⇒ Element mono → mono → mono
+    headEx :: mono -> Element mono
+    oelem :: Eq (Element mono) => Element mono -> mono -> mono
+  newtype NonNull mono = NonNull mono
+          │              └─ type: ∀ mono. mono → NonNull mono
+          └─ type: Type → Type
+  type instance Element (NonNull mono) = Element mono
+  deriving instance MonoFoldable mono => MonoFoldable (NonNull mono)
+  │                                      └─ $fMonoFoldableNonNullmono ∷ ∀ mono. (MonoFoldable mono) ⇒ MonoFoldable (NonNull mono)
+  └─ deriving plans: newtype MonoFoldable (NonNull mono) [context: MonoFoldable mono] [methods: headEx, oelem]
+

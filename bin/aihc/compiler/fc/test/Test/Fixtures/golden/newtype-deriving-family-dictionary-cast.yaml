@@ -1,0 +1,82 @@
+extensions:
+- FlexibleContexts
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, StandaloneDeriving, TypeFamilies #-}
+  module Test where
+  type family Element mono
+  class Eq a where
+    eq :: a -> a -> a
+  class Base mono
+  class Base mono => MonoFoldable mono where
+    oelem :: Eq (Element mono) => Element mono -> mono -> mono
+  newtype NonNull mono = NonNull mono
+  type instance Element (NonNull mono) = Element mono
+  instance Base (NonNull mono)
+  deriving instance MonoFoldable mono => MonoFoldable (NonNull mono)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tElement (mono : sType) :: sType @N {}
+
+  pub type 1.t$Dict$Eq (a : sType) :: sType {
+    pub 1.c$Dict$Eq :: ∀(a : sType). (a → a → a) → t$Dict$Eq a
+  }
+
+  pub type 1.t$Dict$Base (mono : sType) :: sType {
+    pub 1.c$Dict$Base :: ∀(mono : sType). t$Dict$Base mono
+  }
+
+  pub type 1.t$Dict$MonoFoldable (mono : sType) :: sType {
+    pub 1.c$Dict$MonoFoldable :: ∀(mono : sType). t$Dict$Base mono → (t$Dict$Eq (tElement mono) → tElement mono → mono → mono) → t$Dict$MonoFoldable mono
+  }
+
+  pub type 1.tNonNull (mono : sType) :: sType {}
+
+  axiom 1.$ax$NonNull (mono : sType) : tNonNull mono ~R mono
+
+  axiom 1.$ax$Element$NonNull$mono (mono : sType) : tElement (tNonNull mono) ~N tElement mono
+
+  pub val 1.veq :: ∀(a : sType). t$Dict$Eq a → a → a → a
+    = Λ(a : sType). λ($dEq : t$Dict$Eq a).
+      let! c$Dict$Eq ($ceq : a → a → a) = $dEq;
+      $ceq
+
+  pub val 1.voelem :: ∀(mono : sType). t$Dict$MonoFoldable mono → t$Dict$Eq (tElement mono) → tElement mono → mono → mono
+    = Λ(mono : sType). λ($dMonoFoldable : t$Dict$MonoFoldable mono) ($dEq : t$Dict$Eq (tElement mono)).
+      let! c$Dict$MonoFoldable (unused $dBase : t$Dict$Base mono) ($coelem : t$Dict$Eq (tElement mono) → tElement mono → mono → mono) =
+        $dMonoFoldable;
+      $coelem $dEq
+
+  pub val 1.v$fBaseNonNullmono :: ∀(mono : sType). t$Dict$Base (tNonNull mono)
+    = Λ(mono : sType).
+      c$Dict$Base @(tNonNull mono)
+
+  pub val 1.v$fMonoFoldableNonNullmono :: ∀(mono : sType). t$Dict$MonoFoldable mono → t$Dict$MonoFoldable (tNonNull mono)
+    = Λ(mono : sType). λ($dMonoFoldable : t$Dict$MonoFoldable mono).
+      c$Dict$MonoFoldable @(tNonNull mono) (v$fBaseNonNullmono @mono) (v$fMonoFoldableNonNullmono$coelem @mono $dMonoFoldable)
+
+  val 1.v$fMonoFoldableNonNullmono$coelem :: ∀(mono : sType). t$Dict$MonoFoldable mono → t$Dict$Eq (tElement (tNonNull mono)) → tElement (tNonNull mono) → tNonNull mono → tNonNull mono
+    = Λ(mono : sType). λ($dMonoFoldable : t$Dict$MonoFoldable mono) ($dEq : t$Dict$Eq (tElement (tNonNull mono))).
+      ((let! c$Dict$MonoFoldable (unused $dBase : t$Dict$Base mono) ($coelem : t$Dict$Eq (tElement mono) → tElement mono → mono → mono) =
+        $dMonoFoldable;
+      $coelem) ($dEq ▷ tycon-co t$Dict$Eq (axiom-co $ax$Element$NonNull$mono @mono))) ▷ fun-co (sym (axiom-co $ax$Element$NonNull$mono @mono)) (fun-co (sym (axiom-co $ax$NonNull @mono)) (sym (axiom-co $ax$NonNull @mono)))
+status: pass
+reason: The superclass prevents one cast of the full dictionary. Thus, a derived method casts its dictionary argument of type Eq (Element (NonNull mono)) to Eq (Element mono) through the open type family instance.

@@ -7,7 +7,7 @@ modules:
     import Data.IORef (atomicModifyIORef', mkWeakIORef, newIORef, readIORef)
     import Foreign.C.Error (throwErrnoIfMinus1RetryMayBlock)
     import Foreign.C.Types (CInt)
-    import GHC.Conc (atomically, closeFdWith, newTVarIO, readTVar, threadDelay, writeTVar)
+    import GHC.Conc (atomically, closeFdWith, newTVarIO, readTVar, retry, threadDelay, writeTVar)
     import qualified GHC.Event as Ev
     import GHC.Weak (finalize)
     import System.Posix.Types (Fd (..))
@@ -48,6 +48,12 @@ modules:
       Ev.unregisterTimeout timers key
       threadDelay 5000
       atomically (readTVar cancelledFired) >>= print
+      updatedFired <- newTVarIO False
+      updated <- Ev.registerTimeout timers 600000000 (atomically (writeTVar updatedFired True))
+      Ev.updateTimeout timers updated 0
+      atomically (readTVar updatedFired >>= \fired -> if fired then return () else retry)
+      putStrLn "updated timeout fired"
+      print (key == key, key == updated)
 expression: main
 stdout: |
   False
@@ -62,6 +68,8 @@ stdout: |
   writable
   no event manager
   False
+  updated timeout fired
+  (True,False)
 output: |
   ()
 status: pass

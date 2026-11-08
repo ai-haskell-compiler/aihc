@@ -131,7 +131,7 @@ import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, 
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
@@ -2201,24 +2201,54 @@ classMethodFromInfo info index (methodName, scheme) =
 -- the equalities first gives the dictionaries that variable; without it
 -- @f@ in @(RandomGen f, FrozenGen f m, g ~ MutableGen f m)@ would stay a
 -- meta variable that no predicate on its own can solve.
+-- | Solve the constraints of a default signature at an instance.
 --
--- The equalities are also solved before the other predicates, as
--- @s ~ g a@ in @(Traversable g, s ~ g a)@ gives @g@ to the dictionary. The
--- evidence keeps the order of the predicates.
+-- A constraint can be stuck only until a different constraint solves a
+-- meta variable. In @(Functor f, Element (f a) ~ a, f a ~ mono)@, the last
+-- equality chooses @f@ and @a@. Thus, the solver tries the stuck constraints
+-- again while one round solves a constraint or a meta variable.
 solveInstanceDefaultSignature :: Text -> [Pred] -> [Pred] -> TcM [EvTerm]
 solveInstanceDefaultSignature className givens predicates = do
   _ <- improveInjectivity givens [predicate | predicate@EqPred {} <- predicates]
-  let indexed = zip [0 :: Int ..] predicates
-      (equalities, others) = partition (isEquality . snd) indexed
-  solved <- mapM (traverse (solveInstanceSuperClass className givens)) (equalities <> others)
-  pure [evidence | index <- map fst indexed, Just evidence <- [lookup index solved]]
+  solved <- go Map.empty (zip [0 :: Int ..] predicates)
+  pure (Map.elems solved)
   where
-    isEquality predicate = case predicate of
-      EqPred {} -> True
-      _ -> False
+    go solved pending = do
+      before <- mapM (zonkPred . snd) pending
+      attempts <- mapM (\(index, predicate) -> (index,predicate,) <$> attemptInstanceConstraint className givens predicate) pending
+      after <- mapM (zonkPred . snd) pending
+      let newlySolved = Map.fromList [(index, term) | (index, _, Right term) <- attempts]
+          stuck = [(index, predicate, failure) | (index, predicate, Left failure) <- attempts]
+          solved' = Map.union solved newlySolved
+          progress = not (Map.null newlySolved) || before /= after
+      if null stuck
+        then pure solved'
+        else
+          if progress
+            then go solved' [(index, predicate) | (index, predicate, _) <- stuck]
+            else do
+              reported <-
+                mapM
+                  ( \(index, _, (constraint, evidenceVariable)) -> do
+                      emitError (ctLoc constraint) (UnsolvedWanted (ctPred constraint) (ctOrigin constraint))
+                      pure (index, EvVarTerm evidenceVariable)
+                  )
+                  stuck
+              pure (Map.union solved' (Map.fromList reported))
 
 solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do
+  result <- attemptInstanceConstraint className givens predicate
+  case result of
+    Right term -> pure term
+    Left (stuck, evidenceVariable) -> do
+      emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+      pure (EvVarTerm evidenceVariable)
+
+-- | Try to solve one instance constraint. A stuck constraint gives no error.
+-- The stuck result keeps the evidence variable of the attempt.
+attemptInstanceConstraint :: Text -> [Pred] -> Pred -> TcM (Either (Ct, EvVar) EvTerm)
+attemptInstanceConstraint className givens predicate = do
   evidenceVariable <- freshEvVar
   let constraint = mkWantedCt predicate evidenceVariable (InstOrigin className) Nothing
   result <- case predicate of
@@ -2232,11 +2262,9 @@ solveInstanceSuperClass className givens predicate = do
     DictSolved -> do
       evidence <- lookupEvidence evidenceVariable
       case evidence of
-        Just term -> pure term
+        Just term -> pure (Right term)
         Nothing -> missingTypeInfo ("superclass evidence for " <> T.unpack className)
-    DictStuck stuck -> do
-      emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
-      pure (EvVarTerm evidenceVariable)
+    DictStuck stuck -> pure (Left (stuck, evidenceVariable))
 
 tcClassDeclBodies :: Decl -> TcM Decl
 tcClassDeclBodies (DeclAnn ann inner) =

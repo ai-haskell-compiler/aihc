@@ -1,6 +1,6 @@
 {-# LANGUAGE PolyKinds #-}
 
-module Data.Proxy (Proxy (..)) where
+module Data.Proxy (Proxy (..), asProxyTypeOf) where
 
 import GHC.Base (Functor (..))
 import GHC.Classes (Eq (..), Ord (..))
@@ -10,6 +10,10 @@ import GHC.Types (Bool (..), Ordering (..))
 -- kind variable is then an inferred binder of the constructor, so
 -- @Proxy \@a@ applies to @t@ rather than to its kind.
 data Proxy t = Proxy
+
+-- | Give the first argument the type of the proxy argument.
+asProxyTypeOf :: a -> proxy a -> a
+asProxyTypeOf x _ = x
 
 -- | Every 'Proxy' carries the same (absent) information, so any two of one
 -- type are equal.

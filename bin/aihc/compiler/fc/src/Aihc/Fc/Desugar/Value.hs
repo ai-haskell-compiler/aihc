@@ -1291,7 +1291,18 @@ desugarCoercedMethod annotation derived method = withTypeVariables (tcCoercedMet
     [] -> failValue "newtype method index is outside the dictionary layout"
   let projection = caseFromList evidence (Just sourceBinder) (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
       instantiated = foldl ExTyApp projection extraTypes
-      applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
+  -- A dictionary of the derived method can have a different type from the
+  -- dictionary that the reused method needs. Then the type checker gives a
+  -- cast between the two types.
+  arguments <-
+    zipWithM
+      ( \dictionary maybeProof -> case maybeProof of
+          Nothing -> pure (ExVar (binderName dictionary))
+          Just proof -> withCoercion proof (pure . ExCast (ExVar (binderName dictionary)))
+      )
+      dictionaries
+      (tcCoercedMethodPredicateCasts method <> repeat Nothing)
+  let applied = foldl ExApp instantiated arguments
   -- The coercion's evidence bindings may mention the method's own dictionary
   -- binders, so they belong inside the lambdas.
   cast <- withCoercion (tcCoercedMethodCoercion method) (pure . ExCast applied)
@@ -3471,12 +3482,12 @@ desugarInfixOperator operator = do
     (True, Nothing, _) ->
       failValue ("constructor " <> T.unpack (Syn.nameText operator) <> " has no constructor information")
     (False, _, Just annotation) -> do
-      variable <- resolvedTermName operator
+      variable <- patSynBuilderName =<< resolvedTermName operator
       types <- convertOccurrenceTypeArguments operator (tcAnnTypeArgs annotation)
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
     (False, _, Nothing) -> do
-      variable <- resolvedTermName operator
+      variable <- patSynBuilderName =<< resolvedTermName operator
       desugarTermReference variable [] [] []
 
 -- | The type checker records no argument type for a PostfixOperators
