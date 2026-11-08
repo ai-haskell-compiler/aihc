@@ -26,8 +26,12 @@ isCoercibleClass constructor = do
 --
 -- A @Coercible@ given solves the pair it names at any representational
 -- position, so @Coercible b c@ also solves @Coercible (a -> b) (a -> c)@.
-solveCoercible :: TyCon -> [Pred] -> TcType -> TcType -> TcM Bool
-solveCoercible coercibleClass givens wantedLeft wantedRight = do
+--
+-- The callback solves an inner pair whose head is a rigid type variable.
+-- Only a given can relate such a pair, and a quantified given needs the
+-- full given machinery.
+solveCoercible :: TyCon -> [Pred] -> (TcType -> TcType -> TcM Bool) -> TcType -> TcType -> TcM Bool
+solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
   edges <- mapM normalizeEdge [(left, right) | ClassPred className [left, right] <- givens, className == coercibleClass]
   go edges [] False wantedLeft wantedRight
   where
@@ -100,6 +104,12 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
             leftArgument == rightArgument -> do
               functions <- go edges visited True leftFunction rightFunction
               if functions then pure True else fallback nested left right
+        -- The wanted that the caller solves is in its visited list, so
+        -- the callback does not loop on it.
+        _
+          | hasRigidHead left || hasRigidHead right -> do
+              solved <- solveNested left right
+              if solved then pure True else fallback nested left right
         _ -> fallback nested left right
     -- A meta variable can become a newtype of a type constructor later, so
     -- its pair with a type constructor must wait. A unification here can
@@ -113,6 +123,10 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
         TcAppTy function argument -> Just (function, argument)
         TcTyCon constructor arguments@(_ : _) -> Just (TcTyCon constructor (init arguments), last arguments)
         _ -> Nothing
+    hasRigidHead ty = case ty of
+      TcAppTy function _ -> hasRigidHead function
+      TcTyVar {} -> True
+      _ -> False
     isMeta TcMetaTv {} = True
     isMeta _ = False
     hasTyConHead ty = case ty of
