@@ -10,6 +10,7 @@ module Aihc.Fc.Syntax
     Expr (..),
     exprFreeNames,
     exprMentionsFree,
+    exprHasFreeName,
     sameObject,
     caseFromList,
     Bind (..),
@@ -44,6 +45,7 @@ where
 import Aihc.Fc.Name
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Set (Set)
@@ -82,6 +84,33 @@ exprMentionsFree name = go
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> any go arguments
     alternative alt = all ((/= name) . binderName) (altBinders alt) && go (altRhs alt)
+
+-- | Whether a name that the test accepts occurs free in an expression.
+-- The walk stops at the first such occurrence, and keeps the binders in
+-- scope so that a bound name does not count. This is
+-- @any test (exprFreeNames expr)@ without the set.
+exprHasFreeName :: (Name -> Bool) -> Expr -> Bool
+exprHasFreeName test = go Set.empty
+  where
+    go bound expr =
+      case expr of
+        ExVar var -> test var && Set.notMember var bound
+        ExLit {} -> False
+        ExCoercion {} -> False
+        ExApp function argument -> go bound function || go bound argument
+        ExTyApp function _ -> go bound function
+        ExLam binder body -> go (Set.insert (binderName binder) bound) body
+        ExTyLam _ body -> go bound body
+        ExLet bind body -> go bound (bindRhs bind) || go (Set.insert (binderName (bindBinder bind)) bound) body
+        ExRec binds body ->
+          let inner = List.foldl' (\scope bind -> Set.insert (binderName (bindBinder bind)) scope) bound binds
+           in any (go inner . bindRhs) binds || go inner body
+        ExCase scrutinee binder alternatives ->
+          let inner = maybe bound (\named -> Set.insert (binderName named) bound) binder
+           in go bound scrutinee || any (\alt -> go (List.foldl' (\scope field -> Set.insert (binderName field) scope) inner (altBinders alt)) (altRhs alt)) alternatives
+        ExAbsurd scrutinee _ -> go bound scrutinee
+        ExCast body _ -> go bound body
+        ExForeignCall _ _ arguments -> any (go bound) arguments
 
 -- | A type. Kinds are types.
 data Type

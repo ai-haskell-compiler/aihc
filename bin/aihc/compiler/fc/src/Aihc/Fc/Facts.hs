@@ -348,13 +348,18 @@ finiteValues facts name = do
 forgetNames :: Set Name -> Facts -> Facts
 forgetNames names facts
   | Set.null names = facts
+  -- The facts keep their object when they name none of the names.
+  | sameObject ranges (factRanges facts) && sameObject orders (factOrders facts) && sameObject definitions (factDefinitions facts) = facts
   | otherwise =
       Facts
-        { factRanges = Map.withoutKeys (factRanges facts) names,
-          factOrders = Map.filterWithKey (\(first, second) _ -> Set.notMember first names && Set.notMember second names) (factOrders facts),
-          factDefinitions = Map.filterWithKey (\name (_, left, right) -> Set.notMember name names && kept left && kept right) (factDefinitions facts)
+        { factRanges = ranges,
+          factOrders = orders,
+          factDefinitions = definitions
         }
   where
+    !ranges = if any (`Map.member` factRanges facts) (Set.toList names) then Map.withoutKeys (factRanges facts) names else factRanges facts
+    !orders = Map.filterWithKey (\(first, second) _ -> Set.notMember first names && Set.notMember second names) (factOrders facts)
+    !definitions = Map.filterWithKey (\name (_, left, right) -> Set.notMember name names && kept left && kept right) (factDefinitions facts)
     kept value =
       case value of
         OperandVar name -> Set.notMember name names

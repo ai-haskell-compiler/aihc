@@ -129,6 +129,8 @@ module Aihc.Tc.Monad
     getDataFamilyInstances,
     addTypeFamilyInstance,
     getTypeFamilyInstances,
+    getTypeFamilyEquations,
+    setTypeFamilyInstances,
     addClass,
     lookupClass,
     lookupClassByName,
@@ -537,6 +539,10 @@ data TcState = TcState
     tcsDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
     -- | Type-family equations in scope.
     tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
+    -- | The same equations by the family of their left-hand side, so that
+    -- a reduction reads the equations of one family without a walk over
+    -- every equation. 'setTypeFamilyInstances' keeps the two in step.
+    tcsFamilyEquations :: !(Map TyCon (Map TcAxiomKey TypeFamilyInstanceInfo)),
     -- | Pattern synonyms in scope, keyed like their builder term.
     tcsPatSyns :: !(Map Entity PatSynInfo),
     -- | Record heads of the record pattern synonyms declared in the
@@ -580,6 +586,7 @@ initTcState =
       tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
       tcsTypeFamilyInstances = Map.empty,
+      tcsFamilyEquations = Map.empty,
       tcsForeignImports = Map.empty,
       tcsDeferredKindMetas = IntSet.empty
     }
@@ -1031,10 +1038,43 @@ addTypeFamilyInstance instanceInfo = do
   instances <- lift $ gets tcsTypeFamilyInstances
   when (Map.member key instances) $
     abortTc ("duplicate type family instance state key: " <> show key)
-  lift $ modify' $ \state -> state {tcsTypeFamilyInstances = Map.insert key instanceInfo instances}
+  lift $ modify' $ \state ->
+    state
+      { tcsTypeFamilyInstances = Map.insert key instanceInfo instances,
+        tcsFamilyEquations = case equationFamily instanceInfo of
+          Just family -> Map.insertWith Map.union family (Map.singleton key instanceInfo) (tcsFamilyEquations state)
+          Nothing -> tcsFamilyEquations state
+      }
 
 getTypeFamilyInstances :: TcM [TypeFamilyInstanceInfo]
 getTypeFamilyInstances = lift $ gets (Map.elems . tcsTypeFamilyInstances)
+
+-- | The equations of one type family, by axiom key.
+getTypeFamilyEquations :: TyCon -> TcM (Map TcAxiomKey TypeFamilyInstanceInfo)
+getTypeFamilyEquations tyCon = lift $ gets (Map.findWithDefault Map.empty tyCon . tcsFamilyEquations)
+
+-- | Replace the type-family equations in scope, and index them by family.
+setTypeFamilyInstances :: Map TcAxiomKey TypeFamilyInstanceInfo -> TcState -> TcState
+setTypeFamilyInstances instances state =
+  state
+    { tcsTypeFamilyInstances = instances,
+      tcsFamilyEquations =
+        Map.foldrWithKey
+          ( \key info index -> case equationFamily info of
+              Just family -> Map.insertWith Map.union family (Map.singleton key info) index
+              Nothing -> index
+          )
+          Map.empty
+          instances
+    }
+
+-- | The family that an equation belongs to: the head of its left-hand side.
+equationFamily :: TypeFamilyInstanceInfo -> Maybe TyCon
+equationFamily info =
+  case tfiiLeft info of
+    TcTyCon family _ -> Just family
+    TcKindedTyCon family _ -> Just family
+    _ -> Nothing
 
 addClass :: ClassInfo -> TcM ()
 addClass classInfo = do

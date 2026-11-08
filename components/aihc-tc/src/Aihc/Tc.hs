@@ -203,6 +203,7 @@ initialTcState imported =
       tcsInstances = instanceEnvFromList (tcInterfaceInstances imported),
       tcsDataFamilyInstances = tcInterfaceDataFamilyInstanceMap imported,
       tcsTypeFamilyInstances = tcInterfaceTypeFamilyInstanceMap imported,
+      tcsFamilyEquations = tcsFamilyEquations (setTypeFamilyInstances (tcInterfaceTypeFamilyInstanceMap imported) initTcState),
       tcsPatSyns = tcInterfacePatSynMap imported,
       tcsForeignImports = tcInterfaceForeignImportMap imported
     }

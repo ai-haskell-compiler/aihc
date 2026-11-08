@@ -104,7 +104,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Size (isLiftedType, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, extendBinders, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Views (castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
@@ -238,7 +238,10 @@ extendType :: Env -> Binder -> Env
 extendType env binder = env {envTypes = extendBinder (envTypes env) binder}
 
 extendTypes :: Env -> [Binder] -> Env
-extendTypes = List.foldl' extendType
+extendTypes env binders =
+  case binders of
+    [] -> env
+    _ -> env {envTypes = extendBinders (envTypes env) binders}
 
 -- | The signature of every top-level value, in dependency order, so that
 -- a value sees the signatures of the values it calls.

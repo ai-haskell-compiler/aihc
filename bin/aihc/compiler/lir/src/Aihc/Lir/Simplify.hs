@@ -12,6 +12,7 @@ module Aihc.Lir.Simplify
     simplifyMultiplications,
     eliminateCommonSubexpressions,
     eliminateRedundantBlockParameters,
+    simplifyFunction,
   )
 where
 
@@ -22,9 +23,31 @@ import Data.Bits (popCount)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+
+-- | The Lir passes that run on each function after the lowering, in order.
+-- Most passes read the counts of the reads of each value. The counts of
+-- a function hold until a pass changes it, so a pass that gives the
+-- function back as it is leaves the counts for the next pass.
+simplifyFunction :: Function -> Function
+simplifyFunction function0 =
+  let function1 = narrowExtendedCompares (eliminateCommonSubexpressions (simplifyMultiplications function0))
+      (function2, counts2) = step eliminateDeadInstructions (function1, readCounts function1)
+      (function3, counts3) = step duplicateInvariantLoads (function2, counts2)
+      (function4, counts4) = step eliminateDeadInstructions (function3, counts3)
+      (function5, counts5) = step splitConditionBranches (function4, counts4)
+      (function6, counts6) = step simplifyBooleanBranches (function5, counts5)
+      (function7, counts7) = step (const simplifyRotations) (function6, counts6)
+   in simplifyWidths counts7 function7
+  where
+    -- The counts of the result are the counts in hand when the pass gives
+    -- the function back, and are counted again otherwise, when a later
+    -- pass reads them.
+    step pass (function, counts) =
+      let !function' = pass counts function
+       in (function', if sameObject function function' then counts else readCounts function')
 
 -- | Drop each instruction whose results nothing reads and whose operation
 -- has no effect. A drop can make another instruction dead. Thus the pass
@@ -33,8 +56,8 @@ import Data.Text qualified as T
 -- instruction that makes it is tested again. A load is pure here: the
 -- lowering reads a field only from an object it knows. A division and a
 -- conversion stay, because they can trap.
-eliminateDeadInstructions :: Function -> Function
-eliminateDeadInstructions function
+eliminateDeadInstructions :: Map.Map Var Int -> Function -> Function
+eliminateDeadInstructions uses0 function
   | null initial = function
   | otherwise = function {functionBlocks = zipWith dropDead [0 ..] (functionBlocks function)}
   where
@@ -44,7 +67,6 @@ eliminateDeadInstructions function
     makers = Map.fromListWith (<>) [(result, [key]) | (key, instruction) <- numbered, result <- instructionResults instruction]
     unread uses instruction = all (\result -> Map.findWithDefault 0 result uses == 0) (instructionResults instruction)
     removable uses instruction = pure' (instructionOperation instruction) && unread uses instruction
-    uses0 = readCounts function
     initial = [key | (key, instruction) <- numbered, removable uses0 instruction]
     dead = sweep uses0 (Set.fromList initial) initial
     sweep _ found [] = found
@@ -127,12 +149,11 @@ narrowExtendedCompares function
 -- so the copy reads the same value, and the base of the address dominates
 -- each compare because the load does. A backend can then compare each copy
 -- in memory. The original load dies.
-duplicateInvariantLoads :: Function -> Function
-duplicateInvariantLoads function
+duplicateInvariantLoads :: Map.Map Var Int -> Function -> Function
+duplicateInvariantLoads uses function
   | Map.null candidates = function
   | otherwise = function {functionBlocks = snd (List.mapAccumL copyBlock (0 :: Int) (functionBlocks function))}
   where
-    uses = readCounts function
     definitions =
       Map.fromList
         [ (var, operation)
@@ -183,12 +204,11 @@ duplicateInvariantLoads function
 -- so does a load that only that compare reads, when nothing after the load
 -- in the block writes memory. The compare of the first Boolean moves to the
 -- end of the block. Thus each compare is next to its branch.
-splitConditionBranches :: Function -> Function
-splitConditionBranches function
+splitConditionBranches :: Map.Map Var Int -> Function -> Function
+splitConditionBranches uses function
   | not (any splittable (functionBlocks function)) = function
   | otherwise = function {functionBlocks = concatMap (split (0 :: Int)) (functionBlocks function)}
   where
-    uses = readCounts function
     useOnce var = Map.lookup var uses == Just 1
     labels = Set.fromList (map blockLabel (functionBlocks function))
     splittable block = case combination block of
@@ -271,11 +291,12 @@ splitConditionBranches function
 -- | A zero extension from i1 can only produce zero or one.
 -- Keep the extension if another instruction or an edge argument reads it.
 -- Keep switches without both destinations, because their other path traps.
-simplifyBooleanBranches :: Function -> Function
-simplifyBooleanBranches function =
-  function {functionBlocks = map simplifyBlock (functionBlocks function)}
+simplifyBooleanBranches :: Map.Map Var Int -> Function -> Function
+simplifyBooleanBranches uses function
+  | all isNothing simplified = function
+  | otherwise = function {functionBlocks = zipWith fromMaybe (functionBlocks function) simplified}
   where
-    uses = readCounts function
+    simplified = map simplifyBlock (functionBlocks function)
     simplifyBlock block =
       case (reverse (blockInstructions block), blockTerminator block) of
         (Instruction [wide] (Convert ZExt I1 condition wideType) : before, Switch ty (OperandVar scrutinee) cases fallback)
@@ -284,14 +305,15 @@ simplifyBooleanBranches function =
             Just targets <- traverse literalCase cases,
             Just whenTrue <- lookup 1 targets <|> fallback,
             Just whenFalse <- lookup 0 targets <|> fallback ->
-              block
-                { blockInstructions =
-                    if Map.lookup wide uses == Just 1
-                      then reverse before
-                      else blockInstructions block,
-                  blockTerminator = Branch condition whenTrue whenFalse
-                }
-        _ -> block
+              Just
+                block
+                  { blockInstructions =
+                      if Map.lookup wide uses == Just 1
+                        then reverse before
+                        else blockInstructions block,
+                    blockTerminator = Branch condition whenTrue whenFalse
+                  }
+        _ -> Nothing
     literalCase (SwitchCase value target) = Just (value, target)
     literalCase (SwitchCaseConstant _ _) = Nothing
 
@@ -335,7 +357,10 @@ threadConstantBranches function
 -- | Replace complementary constant shifts with a rotate before register allocation.
 -- A wide expression can use a narrow rotate only when its source has zero high bits.
 simplifyRotations :: Function -> Function
-simplifyRotations function = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
+simplifyRotations function
+  -- No match: every block is as it was, and no instruction is a candidate.
+  | Set.null candidates = function
+  | otherwise = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
   where
     selected = map simplify (functionBlocks function)
     rewritten = function {functionBlocks = map fst selected}
@@ -397,10 +422,12 @@ simplifyRotations function = rewritten {functionBlocks = map clean (functionBloc
 -- The definition table holds only the instructions that a rewrite reads: a
 -- modular wide operation and a zero extension from 32 bits. When no block
 -- changes, the reads of the rewritten function are the reads of the input.
-simplifyWidths :: Function -> Function
-simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
+simplifyWidths :: Map.Map Var Int -> Function -> Function
+simplifyWidths uses function
+  -- No block changes and no candidate is dead: the function is as it was.
+  | not changed && not (any (\v -> Map.findWithDefault 0 v remaining == 0) (Set.toList candidates)) = function
+  | otherwise = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
   where
-    uses = readCounts function
     occupied = Set.fromList (map fst (functionParameters function) <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- functionBlocks function])
     (blocks, changed) = mapAccumLBlocks occupied (functionBlocks function)
     rewritten = function {functionBlocks = blocks}

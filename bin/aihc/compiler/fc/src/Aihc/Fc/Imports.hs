@@ -356,7 +356,14 @@ walksWith insert = Walks axiomRefs binderRefs typeRefs exprRefs
 
 -- | Every name: the top-level names and the local ones.
 allWalks :: Walks
-allWalks = walksWith Set.insert
+allWalks = walksWith insertNew
+
+-- | Add a name to a set. A name that the set holds stays: an insert of an
+-- equal name would copy the path to it.
+insertNew :: Name -> References -> References
+insertNew name refs
+  | Set.member name refs = refs
+  | otherwise = Set.insert name refs
 
 -- | The top-level names only. A local name is never an import, so a walk
 -- that looks for imports does not put the local names in its set.
@@ -366,7 +373,7 @@ topWalks = walksWith insertTop
     insertTop name refs =
       case nameOrigin name of
         OriginLocal {} -> refs
-        OriginTop {} -> Set.insert name refs
+        OriginTop {} -> insertNew name refs
 
 -- | Add the imports of each unboxed tuple that the declarations name and
 -- that the program neither imports nor declares. A pass can make an

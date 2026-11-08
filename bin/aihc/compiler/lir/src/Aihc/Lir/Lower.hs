@@ -77,7 +77,7 @@ import Aihc.Grin.Primitive (uncheckedByteArrayPrimitive, uncheckedByteArrayWords
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Inline (mergeTailCallees)
-import Aihc.Lir.Simplify (duplicateInvariantLoads, eliminateCommonSubexpressions, eliminateDeadInstructions, eliminateRedundantBlockParameters, narrowExtendedCompares, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, splitConditionBranches)
+import Aihc.Lir.Simplify (eliminateRedundantBlockParameters, simplifyFunction)
 import Aihc.Lir.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
@@ -872,18 +872,16 @@ globalSymbol = Symbol . renderLinkedGlobalSymbol
 -- State helpers
 
 fresh :: Text -> LowerM Var
-fresh base = Var <$> freshName base
+fresh base = do
+  state <- get
+  put state {stateNext = stateNext state + 1}
+  pure (Var (base <> "_" <> T.pack (show (stateNext state))))
 
 freshLabel :: Text -> LowerM Label
-freshLabel base = Label <$> freshName base
-
--- | The base with the next number. One concatenation makes the text.
-freshName :: Text -> LowerM Text
-freshName base = do
+freshLabel base = do
   state <- get
-  let !next = stateNext state
-  put state {stateNext = next + 1}
-  pure (T.concat [base, "_", T.pack (show next)])
+  put state {stateNext = stateNext state + 1}
+  pure (Label (base <> "_" <> T.pack (show (stateNext state))))
 
 requireExtern :: Symbol -> [Type] -> [Type] -> LowerM ()
 requireExtern symbol parameters results =
@@ -1022,24 +1020,15 @@ finishFunction symbol linkage parameters results convention = do
   put state {stateBlocksRev = []}
   emitItem
     ( ItemFunction $
-        simplifyWidths $
-          simplifyRotations $
-            simplifyBooleanBranches $
-              splitConditionBranches $
-                eliminateDeadInstructions $
-                  duplicateInvariantLoads $
-                    eliminateDeadInstructions $
-                      narrowExtendedCompares $
-                        eliminateCommonSubexpressions $
-                          simplifyMultiplications
-                            Function
-                              { functionName = symbol,
-                                functionLinkage = linkage,
-                                functionParameters = parameters,
-                                functionResults = results,
-                                functionConvention = convention,
-                                functionBlocks = reverse (stateBlocksRev state)
-                              }
+        simplifyFunction
+          Function
+            { functionName = symbol,
+              functionLinkage = linkage,
+              functionParameters = parameters,
+              functionResults = results,
+              functionConvention = convention,
+              functionBlocks = reverse (stateBlocksRev state)
+            }
     )
 
 -- Target layout
