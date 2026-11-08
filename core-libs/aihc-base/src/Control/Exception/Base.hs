@@ -19,6 +19,14 @@ module Control.Exception.Base
     BlockedIndefinitelyOnSTM (..),
     Deadlock (..),
     AllocationLimitExceeded (..),
+    NestedAtomically (..),
+    NoMethodError (..),
+    NonTermination (..),
+    PatternMatchFail (..),
+    RecConError (..),
+    RecSelError (..),
+    RecUpdError (..),
+    TypeError (..),
     catch,
     catchJust,
     evaluate,
@@ -64,7 +72,8 @@ import GHC.IO.Exception
     asyncExceptionToException,
     ioError,
   )
-import Prelude (Either (..), IO, Maybe (..), const, pure, (.), (>>=))
+import GHC.Show (Show (..), showString)
+import Prelude (Either (..), IO, Maybe (..), String, const, pure, (.), (>>=))
 
 handle :: (Exception e) => (e -> IO a) -> IO a -> IO a
 handle handler action = catch action handler
@@ -102,3 +111,67 @@ bracketOnError :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
 bracketOnError acquire release use = do
   resource <- acquire
   use resource `onException` release resource
+
+-- | A pattern match failed. The text gives the source location.
+newtype PatternMatchFail = PatternMatchFail String
+
+instance Show PatternMatchFail where
+  showsPrec _ (PatternMatchFail message) = showString message
+
+instance Exception PatternMatchFail
+
+-- | A record selector got a constructor that does not have the field.
+newtype RecSelError = RecSelError String
+
+instance Show RecSelError where
+  showsPrec _ (RecSelError message) = showString message
+
+instance Exception RecSelError
+
+-- | A record construction did not give a value to a strict field.
+newtype RecConError = RecConError String
+
+instance Show RecConError where
+  showsPrec _ (RecConError message) = showString message
+
+instance Exception RecConError
+
+-- | A record update got a constructor that does not have the field.
+newtype RecUpdError = RecUpdError String
+
+instance Show RecUpdError where
+  showsPrec _ (RecUpdError message) = showString message
+
+instance Exception RecUpdError
+
+-- | A class method has no definition and no default.
+newtype NoMethodError = NoMethodError String
+
+instance Show NoMethodError where
+  showsPrec _ (NoMethodError message) = showString message
+
+instance Exception NoMethodError
+
+-- | A deferred type error.
+newtype TypeError = TypeError String
+
+instance Show TypeError where
+  showsPrec _ (TypeError message) = showString message
+
+instance Exception TypeError
+
+-- | The program cannot terminate.
+data NonTermination = NonTermination
+
+instance Show NonTermination where
+  showsPrec _ NonTermination = showString "<<loop>>"
+
+instance Exception NonTermination
+
+-- | A call of @atomically@ is inside a different call of @atomically@.
+data NestedAtomically = NestedAtomically
+
+instance Show NestedAtomically where
+  showsPrec _ NestedAtomically = showString "Control.Concurrent.STM.atomically was nested"
+
+instance Exception NestedAtomically

@@ -28,6 +28,7 @@ module Data.Char
     isUpper,
     isUpperCase,
     lexLitChar,
+    showLitChar,
     ord,
     readLitChar,
     toLower,
@@ -39,7 +40,7 @@ where
 import GHC.Base (ord)
 import GHC.Char (chr)
 import GHC.Read (lexLitChar, readLitChar)
-import GHC.Show (intToDigit)
+import GHC.Show (intToDigit, showLitChar)
 import GHC.Unicode
 import Prelude (Bool (..), Char, Int, Num (..), Ord (..), errorWithoutStackTrace, (&&))
 
