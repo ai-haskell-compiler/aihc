@@ -30,11 +30,14 @@ module GHC.Conc.Sync
     numCapabilities,
     par,
     pseq,
+    withMVar,
+    modifyMVar_,
   )
 where
 
 import Aihc.Prim.IO (stmWait#)
 import Control.Applicative (Alternative (..))
+import Control.Concurrent.MVar (modifyMVar_, withMVar)
 import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.Exception (ErrorCall (..), Exception (..), SomeException)
 import GHC.IO (IO (..), catch, mask, throwIO)

@@ -1,0 +1,3 @@
+status: pass
+reason: HsFFI.h defines the Haskell 2010 limit symbols, as GHC's header does, so the cbits of vty compile.
+no-code: false

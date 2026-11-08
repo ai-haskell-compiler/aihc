@@ -1,0 +1,33 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  data Pair k a = Pair k a
+  type family Value t
+  type instance Value (Pair k a) = a
+  type instance Value (Pair k a) = a
+  second :: Pair k a -> Value (Pair k a)
+  second (Pair _ a) = a
+status: pass
+reason: A module can repeat an open type family equation. The copy is compatible
+  with the original, so the type checker accepts it.
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  data Pair k a = Pair k a
+       │          └─ type: ∀ k a. k → a → Pair k a
+       └─ type: Type → Type → Type
+  type family Value t
+              └─ type: Type → Type
+  type instance Value (Pair k a) = a
+  type instance Value (Pair k a) = a
+  second :: Pair k a -> Value (Pair k a)
+  second (Pair _ a) = a
+  │       │    │ └─ type: a
+  │       │    └─ type: k
+  │       └─ type: Pair k a
+  └─ type: ∀ k a. Pair k a → Value (Pair k a)
+
