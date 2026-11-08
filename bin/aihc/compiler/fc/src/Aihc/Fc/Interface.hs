@@ -396,6 +396,23 @@ interfaceIndex primPackage interfaces =
     -- The first interface gives the declaration.
     joinOffers first later = first {offerSources = offerSources first <> offerSources later}
 
+-- | How far a graft follows the references of a program into the imported
+-- interfaces: a value that the program names, and the values that its
+-- body names. The inliner decides a site from the body of the callee and
+-- the bodies of the callees of that body, so these are the bodies a copy
+-- can use. A value further away stays a call of the value that its module
+-- defines. Without a limit, a graft brings in the whole closure of the
+-- references, and every pass of every module walks bodies that no site of
+-- the module can use.
+--
+-- A value whose definition no object exports comes in at any depth: a
+-- private value, an @INLINE@ value such as a dictionary application that
+-- the inliner expands and removes, and a constructor wrapper. Such a
+-- value is a copy in this module, so the values its body names are as
+-- near as the value itself.
+graftDepth :: Int
+graftDepth = 1
+
 -- | 'graftInterfaces' with an index of the interfaces.
 graftIndexed :: InterfaceIndex -> Program -> Grafted
 graftIndexed index program =
@@ -425,10 +442,12 @@ graftIndexed index program =
     -- These values can make more rules applicable, so the sets grow until
     -- they do not change.
     (wanted, heads, sources) = saturate Set.empty Set.empty IntSet.empty reached (map (0 :: Int,) reached)
-    -- EXPERIMENT: a body comes in only within this many steps from a
-    -- reference of the program. The names that a rule brings in start a
-    -- new walk.
-    depthLimit = 2
+    -- A value comes in when a reference of the program reaches it within
+    -- 'graftDepth' steps. The names that a rule brings in start at depth
+    -- zero, because the rewrite puts calls of them into the program.
+    depthLimit = graftDepth
+    -- Whether an object exports the definition of a value, so that a call
+    -- of it from this module links without a copy.
     callable declaration =
       valVis declaration == Pub
         && not (isConstructorWrapperName (valName declaration))
@@ -467,12 +486,15 @@ graftIndexed index program =
                           saturate values headSet numbers [] rest
                     Just found ->
                       let names = Set.toList (offerNames found)
+                          -- A value that is a copy in this module brings
+                          -- the values its body names as near as itself.
+                          next = if callable (offerDecl found) then depth + 1 else depth
                        in saturate
                             (Set.insert name values)
                             headSet
                             (foldr IntSet.insert numbers (offerSources found))
                             (name : names)
-                            (map (depth + 1,) names <> rest)
+                            (map (next,) names <> rest)
     -- An interface that gives no declaration is empty after
     -- 'restrictProgramWith', so it does not come in.
     touched = [interface | interface <- indexInterfaces index, IntSet.member (indexedNumber interface) sources]
