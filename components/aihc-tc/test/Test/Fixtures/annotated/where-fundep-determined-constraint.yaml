@@ -1,0 +1,56 @@
+annotated:
+- |-
+  module Main where
+  class Monad m where
+  └─ class methods: return ∷ ∀ m a. (Monad m) ⇒ a → m a
+    return :: a -> m a
+  class Monad m => FilterMonad a m | m -> a where
+  └─ class methods: composeFilter ∷ ∀ a m. (FilterMonad a m) ⇒ (a → a) → m (); fundeps: m → a
+    composeFilter :: (a -> a) -> m ()
+  class HasHeaders a where
+  └─ class methods: addHeader ∷ ∀ a. (HasHeaders a) ⇒ a → a
+    addHeader :: a -> a
+  data Response = Response
+       │          └─ type: Response
+       └─ type: Type
+  instance HasHeaders Response where
+  └─ $fHasHeadersResponse ∷ () ⇒ HasHeaders Response
+    addHeader r = r
+    │         └─ type: Response
+    └─ addHeader ∷ Response → Response
+  addCookie :: FilterMonad Response m => m ()
+  addCookie = addHeaderM ()
+  │           │          └─ type: ()
+  │           └─ type: () → m (); type-args: (), m, Response; evidence: $fHasHeadersResponse, given FilterMonad Response m
+  └─ type: ∀ m. (FilterMonad Response m) ⇒ m ()
+    where
+      addHeaderM v = composeFilter (\res -> addHeader res)
+      │          │   │              ││      └─ type: c → c; type-args: c; evidence: given HasHeaders c
+      │          │   │              │└─ type: c
+      │          │   │              └─ type: c → c
+      │          │   └─ type: (c → c) → b (); type-args: c, b; evidence: given FilterMonad c b
+      │          └─ type: a
+      └─ type: ∀ a b c. (HasHeaders c, FilterMonad c b) ⇒ a → b ()
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+- FlexibleContexts
+- FlexibleInstances
+modules:
+- |
+  module Main where
+  class Monad m where
+    return :: a -> m a
+  class Monad m => FilterMonad a m | m -> a where
+    composeFilter :: (a -> a) -> m ()
+  class HasHeaders a where
+    addHeader :: a -> a
+  data Response = Response
+  instance HasHeaders Response where
+    addHeader r = r
+  addCookie :: FilterMonad Response m => m ()
+  addCookie = addHeaderM ()
+    where
+      addHeaderM v = composeFilter (\res -> addHeader res)
+reason: a local binding quantifies a constraint whose type variable a functional dependency determines
+status: pass
