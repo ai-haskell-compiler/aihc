@@ -1,4 +1,4 @@
-import { cachedFetch, manifest } from "../cache.js";
+import { cachedFetch, helperUrl, manifest } from "../cache.js";
 
 // The browser tools fetch their files with the global fetch. With this
 // fetch, the browser keeps the files for the next visit.
@@ -11,7 +11,7 @@ const report = (type, text) => postMessage({ id: requestId, type, text });
 let compilePromise, toolsPromise, runtimePromise;
 
 async function inflated(path) {
-  const response = await fetch(new URL(path, import.meta.url));
+  const response = await fetch(await helperUrl(path));
   if (!response.ok) throw new Error("Cannot load " + path + ": " + response.status);
   return new Response(response.body.pipeThrough(new DecompressionStream("gzip")));
 }

@@ -16,6 +16,8 @@ people who read manuals. This guide is for the others.
 - `src/play/helper/`: the WebAssembly helper and the bundle of the core
   libraries, `core.bundle.gz`. A build writes them here. They are not in
   git.
+  The documentation preview keeps the compressed files on R2 and not on
+  the preview branch. `helper/tools.json` names their URL.
 
 ## The helper
 

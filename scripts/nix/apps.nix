@@ -239,6 +239,12 @@ in {
     exec bash ./scripts/publish-play-tools.sh "$@"
   '';
 
+  # The documentation preview publishes the compressed helper files to R2
+  # and keeps only the small files on the preview branch.
+  publish-play-helper = mkAppWithInputs "publish-play-helper" [pkgs.bash pkgs.curl pkgs.coreutils pkgs.jq pkgs.wrangler] ''
+    exec bash ./scripts/publish-play-helper.sh "$@"
+  '';
+
   self-hosting-packages =
     mkAppWithInputs "self-hosting-packages" [
       pkgs.bash

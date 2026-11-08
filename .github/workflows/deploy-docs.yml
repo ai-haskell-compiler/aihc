@@ -16,6 +16,7 @@ on:
       - scripts/transpile-play.mjs
       - scripts/package-play-runtime.mjs
       - scripts/publish-play-tools.sh
+      - scripts/write-play-manifest.mjs
       - scripts/nix/play-tools.nix
       - editors/grammars/**
       - flake.lock

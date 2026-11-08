@@ -14,10 +14,24 @@ export function manifest() {
     if (!response.ok) throw new Error("Cannot load the tool configuration: " + response.status);
     const config = await response.json();
     const files = new Map((config.files ?? []).map((file) => [new URL(file.url, MANIFEST).href, file]));
-    return { url: new URL(config.url, MANIFEST).href, version: config.version, files };
+    const helper = new URL(config.helper ?? "./", MANIFEST).href;
+    return { url: new URL(config.url, MANIFEST).href, version: config.version, helper, files };
   })();
   manifestPromise.catch(() => { manifestPromise = null; });
   return manifestPromise;
+}
+
+// The URL of a compressed helper file. A preview build keeps these files on
+// another host, and tools.json names it. Without tools.json, the files are
+// beside it.
+export async function helperUrl(name) {
+  let base;
+  try {
+    base = (await manifest()).helper;
+  } catch {
+    base = new URL("helper/", import.meta.url).href;
+  }
+  return new URL(name, base);
 }
 
 // Cache Storage is not available in all contexts, for example in some
