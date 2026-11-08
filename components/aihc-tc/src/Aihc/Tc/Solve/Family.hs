@@ -1,4 +1,5 @@
 {-# LANGUAGE MagicHash #-}
+
 -- | Type family reduction.
 --
 -- A saturated application of a type family rewrites to the right-hand
@@ -32,8 +33,8 @@ import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 import Data.Text qualified as T
+import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 import Text.Read (readMaybe)
 
 -- | Rewrite every type family application in a type that an equation
