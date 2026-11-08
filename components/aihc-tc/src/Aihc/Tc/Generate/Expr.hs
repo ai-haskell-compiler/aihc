@@ -68,7 +68,7 @@ import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -1016,9 +1016,11 @@ planSpine = go
       zonkedFunTy <- zonkType funTy
       -- A function with a polymorphic type, for example a record field
       -- with a higher-rank type, is instantiated at its application. Its
-      -- fresh meta-variables are instantiation variables too.
+      -- fresh meta-variables are instantiation variables too. This also
+      -- applies to the right operand of an operator such as
+      -- @c `unC` rest@, where the type after the left operand is a polytype.
       (instantiation, instantiatedFunTy, instantiationVariables') <-
-        if isPolyType zonkedFunTy && not isInfixRhs
+        if isPolyType zonkedFunTy
           then do
             (instantiated, typeArgs, predicates) <- instantiateSigmaType zonkedFunTy
             cts <- mapM (predToCt sp "<application>") predicates
@@ -1100,12 +1102,21 @@ checkSpineSteps = go Nothing
           pure (expr', cts <> moreCts)
         StepArg plan -> do
           let sp = argPlanSpan plan
-              instantiated = maybe fun (\(pending, _) -> annotatePendingExprAt sp pending fun) (argPlanInstantiation plan)
+              -- An infix application can have no span of its own. Then the
+              -- instantiation between its operands is shown at the operator.
+              instantiationSpan
+                | argPlanIsInfixRhs plan = sp <|> (sourceSpanFromAnns . nameAnns . fst =<< operand)
+                | otherwise = sp
+              instantiated = maybe fun (\(pending, _) -> annotatePendingExprAt instantiationSpan pending fun) (argPlanInstantiation plan)
+              -- An instantiation between the two operands needs a node for
+              -- the operator with its left operand. The infix node has no
+              -- such node, so the application is rebuilt in prefix form.
+              keepsInfix = argPlanIsInfixRhs plan && isNothing (argPlanInstantiation plan)
               -- An infix node is rebuilt by matching on the function, so
               -- an annotation there would hide the operator. An infix
               -- operator's type is its own, never refined by a given.
               fun' = case argPlanArrowCast plan of
-                Just (arrowTy, ev) | not (argPlanIsInfixRhs plan) -> annotateFunCast arrowTy ev instantiated
+                Just (arrowTy, ev) | not keepsInfix -> annotateFunCast arrowTy ev instantiated
                 _ -> instantiated
               instantiationCts = maybe [] snd (argPlanInstantiation plan)
           expectedArgTy <- zonkType (argPlanExpected plan)
@@ -1126,16 +1137,31 @@ checkSpineSteps = go Nothing
                 -- is dropped again when the proof is reflexivity.
                 pure (annotateExprCast expectedArgTy ev arg', cts <> [eqCt])
           node <-
-            if argPlanIsInfixRhs plan
+            if keepsInfix
               then case operand of
                 Just (op', lhs') -> pure (EInfix lhs' op' arg')
                 Nothing -> abortTc ("infix operator application lost its operator node at " <> show sp)
-              else pure (EApp fun' arg')
+              else pure (EApp (if argPlanIsInfixRhs plan then prefixOperatorHead fun' else fun') arg')
           let operand' = case fun of
                 EVar op' -> Just (op', arg')
                 _ -> Nothing
           (expr', moreCts) <- go operand' node steps
           pure (expr', instantiationCts <> argPlanArrowCts plan <> argCts <> moreCts)
+
+-- | Move the instantiation of an infix operator from its name to the
+-- expression at the head of the application. An infix node keeps the
+-- instantiation on the operator name, but a variable at the head of a
+-- prefix application keeps it on the expression.
+prefixOperatorHead :: Expr -> Expr
+prefixOperatorHead expr =
+  case expr of
+    EApp function argument -> EApp (prefixOperatorHead function) argument
+    EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
+    EVar op
+      | pending : _ <- mapMaybe (fromAnnotation @PendingTcAnnotation) (nameAnns op) ->
+          let plain = op {nameAnns = filter (isNothing . fromAnnotation @PendingTcAnnotation) (nameAnns op)}
+           in annotatePendingExprAt (sourceSpanFromAnns (nameAnns op)) pending (EVar plain)
+    _ -> expr
 
 -- | Check an argument against a polytype. The argument is inferred and
 -- its type unified with the skolemized polytype.
