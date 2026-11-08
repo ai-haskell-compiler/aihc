@@ -25,11 +25,17 @@ module Foreign.C.String
     withCAStringLen,
     CWString,
     CWStringLen,
+    peekCWString,
+    peekCWStringLen,
+    newCWString,
+    newCWStringLen,
+    withCWString,
+    withCWStringLen,
   )
 where
 
 import Data.Word (Word8)
-import Foreign.C.Types (CChar (..), CSChar (..), CUChar (..), CWchar)
+import Foreign.C.Types (CChar (..), CSChar (..), CUChar (..), CWchar (..))
 import Foreign.Marshal.Alloc (allocaBytes, mallocBytes)
 import Foreign.Marshal.Array (peekArray, peekArray0, pokeArray, pokeArray0)
 import Foreign.Ptr (Ptr, castPtr)
@@ -121,6 +127,60 @@ withCAString string = withBytes0 (map charToByte string)
 -- character, and its length.
 withCAStringLen :: String -> (CStringLen -> IO a) -> IO a
 withCAStringLen string = withBytes (map charToByte string)
+
+-- | Read a NUL-terminated wide string. Each @wchar_t@ is one UTF-32
+-- code point.
+peekCWString :: CWString -> IO String
+peekCWString pointer = fmap (map wcharToChar) (peekArray0 0 pointer)
+
+-- | Read a wide string of the given length in @wchar_t@ units.
+peekCWStringLen :: CWStringLen -> IO String
+peekCWStringLen (pointer, count) = fmap (map wcharToChar) (peekArray count pointer)
+
+-- | Allocate a NUL-terminated wide copy of the string with 'mallocBytes'.
+newCWString :: String -> IO CWString
+newCWString string = do
+  let wchars = map charToWchar string
+  pointer <- mallocBytes ((length wchars + 1) * wcharSize)
+  pokeArray0 0 pointer wchars
+  return pointer
+
+-- | Allocate a wide copy of the string with 'mallocBytes' and return its
+-- length in @wchar_t@ units.
+newCWStringLen :: String -> IO CWStringLen
+newCWStringLen string = do
+  let wchars = map charToWchar string
+      count = length wchars
+  pointer <- mallocBytes (count * wcharSize)
+  pokeArray pointer wchars
+  return (pointer, count)
+
+-- | Run an action on a temporary NUL-terminated wide copy of the string.
+withCWString :: String -> (CWString -> IO a) -> IO a
+withCWString string action =
+  let wchars = map charToWchar string
+   in allocaBytes ((length wchars + 1) * wcharSize) $ \pointer -> do
+        pokeArray0 0 pointer wchars
+        action pointer
+
+-- | Run an action on a temporary wide copy of the string and its length
+-- in @wchar_t@ units.
+withCWStringLen :: String -> (CWStringLen -> IO a) -> IO a
+withCWStringLen string action =
+  let wchars = map charToWchar string
+      count = length wchars
+   in allocaBytes (count * wcharSize) $ \pointer -> do
+        pokeArray pointer wchars
+        action (pointer, count)
+
+wcharSize :: Int
+wcharSize = 4
+
+wcharToChar :: CWchar -> Char
+wcharToChar (CWchar value) = chr (fromIntegral value)
+
+charToWchar :: Char -> CWchar
+charToWchar character = CWchar (fromIntegral (ord character))
 
 encodeBytes :: String -> [Word8]
 encodeBytes string = map fromIntegral (encodeUtf8 string)

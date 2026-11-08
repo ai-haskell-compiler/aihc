@@ -1,0 +1,30 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.String
+    import Foreign.C.Types (CSize)
+
+    foreign import ccall unsafe "wchar.h wcslen" c_wcslen :: CWString -> IO CSize
+
+    main :: IO ()
+    main = do
+      wide <- withCWString "héllo, λ" $ \pointer -> do
+        count <- c_wcslen pointer
+        string <- peekCWString pointer
+        return (count, string)
+      print wide
+      withCWStringLen "añb" $ \(pointer, count) -> do
+        print count
+        peekCWStringLen (pointer, count) >>= print
+expression: main
+stdout: |
+  (8,"h\233llo, \955")
+  3
+  "a\241b"
+output: |
+  ()
+status: pass
+reason: Foreign.C.String marshals NUL-terminated and counted wide C strings, as in base
