@@ -92,7 +92,7 @@ import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, extendBinders, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, extendBinders, freshTypeVariableName, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typeVariableNames, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprMentionsAny, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (liftedRepName, wiredGhcTypes)
 import Aihc.Resolve (PackageId)
@@ -6249,46 +6249,74 @@ sameNonEmpty f list@(x NE.:| rest) =
       !rest' = sameList f rest
    in if sameObject x x' && sameObject rest rest' then list else x' NE.:| rest'
 
--- | Replace type variables in every type of an expression.
+-- | Replace type variables in every type of an expression. A type binder
+-- hides its own name under it. A type binder whose name a replacement
+-- mentions gets a fresh name first, so that the replacement keeps its
+-- meaning under the binder. The bodies of two modules can bind the same
+-- names, so a body that a call of another module's value instantiates
+-- needs this.
 substTypeExpr :: Map Name Type -> Expr -> Expr
-substTypeExpr subst = go
+substTypeExpr = go
   where
-    onType = substTypes subst
-    onBinder binder = binder {binderType = onType (binderType binder)}
-    go expr =
-      case expr of
-        ExVar {} -> expr
-        ExLit literal ty -> ExLit (onLiteral literal) (onType ty)
-        ExApp function argument -> ExApp (go function) (go argument)
-        ExTyApp function ty -> ExTyApp (go function) (onType ty)
-        ExLam binder body -> ExLam (onBinder binder) (go body)
-        ExTyLam binder body -> ExTyLam (onBinder binder) (go body)
-        ExLet bind body -> ExLet (onBind bind) (go body)
-        ExRec binds body -> ExRec (map onBind binds) (go body)
-        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) (onType resultType)
-        ExCase scrutinee binder alternatives ->
-          ExCase (go scrutinee) (onBinder <$> binder) (fmap onAlt alternatives)
-        ExCast body coercion -> ExCast (go body) (onCoercion coercion)
-        ExCoercion coercion -> ExCoercion (onCoercion coercion)
-        ExForeignCall call types arguments -> ExForeignCall call (map onType types) (map go arguments)
-    onBind bind = Bind (onBinder (bindBinder bind)) (go (bindRhs bind))
-    onAlt alternative =
-      alternative
-        { altCon = onAltCon (altCon alternative),
-          altTypeBinders = map onBinder (altTypeBinders alternative),
-          altBinders = map onBinder (altBinders alternative),
-          altRhs = go (altRhs alternative)
-        }
-    onAltCon con =
+    go subst expr
+      | Map.null subst = expr
+      | otherwise =
+          case expr of
+            ExVar {} -> expr
+            ExLit literal ty -> ExLit (onLiteral subst literal) (substTypes subst ty)
+            ExApp function argument -> ExApp (go subst function) (go subst argument)
+            ExTyApp function ty -> ExTyApp (go subst function) (substTypes subst ty)
+            ExLam binder body -> ExLam (onBinder subst binder) (go subst body)
+            ExTyLam binder body ->
+              let (binder', rename, inner) = bindTypeVariable subst (Set.toList (exprTypeVariables body)) binder
+               in ExTyLam binder' (go inner (go rename body))
+            ExLet bind body -> ExLet (onBind subst bind) (go subst body)
+            ExRec binds body -> ExRec (map (onBind subst) binds) (go subst body)
+            ExAbsurd scrutinee resultType -> ExAbsurd (go subst scrutinee) (substTypes subst resultType)
+            ExCase scrutinee binder alternatives ->
+              ExCase (go subst scrutinee) (onBinder subst <$> binder) (fmap (onAlt subst) alternatives)
+            ExCast body coercion -> ExCast (go subst body) (substCoercionTypes subst coercion)
+            ExCoercion coercion -> ExCoercion (substCoercionTypes subst coercion)
+            ExForeignCall call types arguments -> ExForeignCall call (map (substTypes subst) types) (map (go subst) arguments)
+    onBinder subst binder = binder {binderType = substTypes subst (binderType binder)}
+    onBind subst bind = Bind (onBinder subst (bindBinder bind)) (go subst (bindRhs bind))
+    onAlt subst alternative =
+      let used = concatMap (typeVariableNames . binderType) (altBinders alternative) <> Set.toList (exprTypeVariables (altRhs alternative))
+          (typeBinders, rename, inner) = bindTypeVariables subst used (altTypeBinders alternative)
+       in alternative
+            { altCon = onAltCon subst (altCon alternative),
+              altTypeBinders = typeBinders,
+              altBinders = map (onBinder inner . onBinder rename) (altBinders alternative),
+              altRhs = go inner (go rename (altRhs alternative))
+            }
+    -- The binder with the substitution applied to its kind, the renaming
+    -- of the binder when a replacement mentions its name, and the
+    -- substitution under the binder. The used names are forced only when
+    -- a fresh name is needed.
+    bindTypeVariable subst used binder =
+      let name = binderName binder
+          inner = Map.delete name subst
+          free = concatMap typeVariableNames (Map.elems inner)
+          binder' = onBinder subst binder
+       in if name `elem` free
+            then
+              let fresh = freshTypeVariableName name (Map.keys inner <> free <> used)
+               in (binder' {binderName = fresh}, Map.singleton name (TyVar fresh), inner)
+            else (binder', Map.empty, inner)
+    bindTypeVariables subst used = foldr step ([], Map.empty, subst)
+      where
+        step binder (done, rename, inner) =
+          let (binder', rename', inner') = bindTypeVariable inner used (onBinder rename binder)
+           in (binder' : done, Map.union rename' rename, inner')
+    onAltCon subst con =
       case con of
-        AltLit literal -> AltLit (onLiteral literal)
+        AltLit literal -> AltLit (onLiteral subst literal)
         _ -> con
-    onLiteral literal =
+    onLiteral subst literal =
       case literal of
-        LitInt ty value -> LitInt (onType ty) value
-        LitChar ty value -> LitChar (onType ty) value
-        LitAddr ty value -> LitAddr (onType ty) value
-    onCoercion = substCoercionTypes subst
+        LitInt ty value -> LitInt (substTypes subst ty) value
+        LitChar ty value -> LitChar (substTypes subst ty) value
+        LitAddr ty value -> LitAddr (substTypes subst ty) value
 
 -- | Replace type variables in every type of a coercion. A quantifier of the
 -- coercion hides the substitution of its own variable.

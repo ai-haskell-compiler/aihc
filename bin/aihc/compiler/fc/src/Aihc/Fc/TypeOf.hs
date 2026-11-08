@@ -27,6 +27,7 @@ module Aihc.Fc.TypeOf
     extendBinders,
     substType,
     substTypes,
+    freshTypeVariableName,
     reduceType,
     typesEqual,
     kindsEqual,

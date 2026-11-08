@@ -409,6 +409,39 @@ takeApart variable con fieldNames = go
         ExCast body coercion -> ExCast (go body) coercion
         ExForeignCall call tys arguments -> ExForeignCall call tys (map go arguments)
 
+-- | The given variables that an expression gives to a constructor as a
+-- lifted strict field. A constructor must get a value there, and a
+-- variable that no binder of the expression marks as a value needs an
+-- evaluation first.
+strictFieldUses :: TypeEnv -> Set Name -> Expr -> Set Name
+strictFieldUses env names = go
+  where
+    go expr =
+      case expr of
+        ExApp {} -> application expr
+        ExTyApp {} -> application expr
+        ExVar {} -> Set.empty
+        ExLit {} -> Set.empty
+        ExCoercion {} -> Set.empty
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) <> go body
+        ExRec binds body -> foldMap (go . bindRhs) binds <> go body
+        ExCase scrutinee _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> foldMap go arguments
+    application expr =
+      case collectSpine expr of
+        (function, arguments) ->
+          let values = rights arguments
+              taken = case function of
+                ExVar con
+                  | Just strict <- Map.lookup con (teConStrictFields env) ->
+                      Set.fromList [name | (position, ExVar name) <- zip [0 ..] values, position `elem` strict, Set.member name names]
+                _ -> Set.empty
+           in taken <> go function <> foldMap go values
+
 -- | The number of fields of a binder of a one-constructor type, or one.
 productWidth :: TypeEnv -> Binder -> Int
 productWidth env binder =
@@ -773,8 +806,19 @@ splitFunction takesApart types self declaredType workerName demands function =
     -- the front of the body, where the body only needed the fields.
     takeStrictParameterApart env (Prepared (Unbox binder con _ fields) children) body
       | hasStrictLiftedField env con (map fst fields) =
-          takeApart (binderName binder) con (map (binderName . preparedBinder) children) body
+          let names = map (binderName . preparedBinder) children
+              strict = Map.findWithDefault [] con (teConStrictFields env)
+              -- The fields that hold a value: the constructor evaluated
+              -- each lifted strict field when it was built. The body does
+              -- not say so where it builds a constructor from such a
+              -- field again, so the worker evaluates each field that a
+              -- construction takes as a lifted strict field one time, at
+              -- its front. See 'buildProduct'.
+              values = Set.fromList [name | (position, (ty, _), name) <- zip3 [0 ..] fields names, position `elem` strict, isLiftedType env ty]
+              apart = takeApart (binderName binder) con names body
+           in foldr evaluateFirst apart (Set.toList (strictFieldUses env values apart))
     takeStrictParameterApart _ _ body = body
+    evaluateFirst name inner = ExCase (ExVar name) Nothing (Alt AltDefault [] [] inner NE.:| [])
     reboxBindings _ (Prepared (Keep _) _) = []
     reboxBindings env (Prepared (Unbox binder con arguments _) fields) =
       concatMap (reboxBindings env) fields <> [Bind binder (buildProduct env con arguments [(binderType field, ExVar (binderName field)) | field <- map preparedBinder fields])]
