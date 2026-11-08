@@ -5977,6 +5977,10 @@ typeableTypeView ty =
     (TcFunTy argument result, []) -> do
       package <- gets (cePrimPackage . vsConvertEnv)
       pure (packageIdText package, "GHC.Types", "(->)", [argument, result])
+    -- The bare arrow, or the arrow applied to its argument type only.
+    (TcArrowTy, arguments) -> do
+      package <- gets (cePrimPackage . vsConvertEnv)
+      pure (packageIdText package, "GHC.Types", "(->)", arguments)
     _ -> failValue ("cannot construct Typeable evidence for " <> show ty)
 
 desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr

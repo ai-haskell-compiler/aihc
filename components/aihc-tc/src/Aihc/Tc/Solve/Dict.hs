@@ -705,13 +705,15 @@ typeableArguments ty =
     TcFunTy argument result -> Just [argument, result]
     TcTyVar {} -> Nothing
     TcMetaTv {} -> Nothing
-    TcArrowTy -> Nothing
+    -- The bare function arrow, as in @Typeable (->)@, is a type constructor.
+    TcArrowTy -> Just []
     TcTyLit {} -> Nothing
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
     TcAppTy {} ->
       case collectTypeApplications ty of
         (TcKindedTyCon {}, arguments) -> Just arguments
+        (TcArrowTy, arguments) -> Just arguments
         _ -> Nothing
 
 -- | The rewrite rule sets that the given equalities permit, most
@@ -1030,12 +1032,15 @@ typeableConstructor ty = do
       metadata <- typeableTyConMetadata constructor
       pure (metadata, zonked)
     TcAppTy function _ -> typeableConstructor function
-    TcFunTy {} -> do
-      let lifted = TypeableKindType (liftedRep kinds)
-      constructor <- wiredTyCon tcWiringArrowTyCon (TcFunTy (typeKind kinds) (TcFunTy (typeKind kinds) (typeKind kinds)))
-      pure (TypeableTyCon constructor 0 (TypeableKindFun lifted (TypeableKindFun lifted lifted)), [])
+    TcFunTy {} -> arrowConstructor kinds
+    TcArrowTy -> arrowConstructor kinds
     _ -> abortTc "Typeable evidence has no constructor"
   where
+    arrowConstructor kinds' = do
+      let lifted = TypeableKindType (liftedRep kinds')
+          liftedKind = typeKind kinds'
+      constructor <- wiredTyCon tcWiringArrowTyCon (TcFunTy liftedKind (TcFunTy liftedKind liftedKind))
+      pure (TypeableTyCon constructor 0 (TypeableKindFun lifted (TypeableKindFun lifted lifted)), [])
     applyArgument kind argument = do
       kind' <- zonkKind kind
       case kind' of

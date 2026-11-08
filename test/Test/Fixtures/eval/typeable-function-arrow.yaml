@@ -1,0 +1,45 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE RankNTypes #-}
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Data
+
+    -- A Data instance for functions, as the syb package defines it. Its
+    -- dataCast2 needs Typeable evidence for the bare arrow.
+    newtype Fun a b = Fun (a -> b)
+
+    newtype Q r a = Q {unQ :: a -> r}
+
+    ext2Q :: (Data d, Typeable t) => (d -> r) -> (forall e f. (Data e, Data f) => t e f -> r) -> d -> r
+    ext2Q fallback special = unQ (maybe (Q fallback) id (dataCast2 (Q special)))
+
+    instance (Data a, Data b) => Data (a -> b) where
+      toConstr _ = error "toConstr"
+      gunfold _ _ = error "gunfold"
+      dataTypeOf _ = mkNoRepType "Prelude.(->)"
+      dataCast2 f = gcast2 f
+
+    anyFunction :: (a -> b) -> Bool
+    anyFunction _ = True
+
+    isFunction :: (Data d) => d -> Bool
+    isFunction = ext2Q (const False) anyFunction
+
+    arrowRep :: TypeRep
+    arrowRep = typeRep (Proxy :: Proxy (->))
+
+    results :: [Bool]
+    results =
+      [ isFunction not,
+        not (isFunction True),
+        typeRepTyCon (typeRep (Proxy :: Proxy (Int -> Bool))) == typeRepTyCon arrowRep,
+        typeRep (Proxy :: Proxy ((->) Int)) == typeRep (Proxy :: Proxy ((->) Int)),
+        not (arrowRep == typeRep (Proxy :: Proxy Either))
+      ]
+expression: results
+output: ": True (: True (: True (: True (: True []))))"
+status: pass
+reason: the solver gives Typeable evidence for the bare function arrow and for the arrow with only its argument type
