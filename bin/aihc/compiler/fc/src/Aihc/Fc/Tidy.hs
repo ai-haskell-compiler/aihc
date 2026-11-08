@@ -15,11 +15,11 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..))
 import Aihc.Tc.Types (Unique (..))
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.IntSet (IntSet)
-import Data.IntSet qualified as IntSet
 import Data.Text (Text)
 
 data TidyEnv = TidyEnv
