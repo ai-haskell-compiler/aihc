@@ -872,18 +872,16 @@ globalSymbol = Symbol . renderLinkedGlobalSymbol
 -- State helpers
 
 fresh :: Text -> LowerM Var
-fresh base = Var <$> freshName base
+fresh base = do
+  state <- get
+  put state {stateNext = stateNext state + 1}
+  pure (Var (base <> "_" <> T.pack (show (stateNext state))))
 
 freshLabel :: Text -> LowerM Label
-freshLabel base = Label <$> freshName base
-
--- | The base with the next number. One concatenation makes the text.
-freshName :: Text -> LowerM Text
-freshName base = do
+freshLabel base = do
   state <- get
-  let !next = stateNext state
-  put state {stateNext = next + 1}
-  pure (T.concat [base, "_", T.pack (show next)])
+  put state {stateNext = stateNext state + 1}
+  pure (Label (base <> "_" <> T.pack (show (stateNext state))))
 
 requireExtern :: Symbol -> [Type] -> [Type] -> LowerM ()
 requireExtern symbol parameters results =
