@@ -3467,8 +3467,19 @@ convertCheckedTypeArguments declaredType arguments = do
       (converted :) <$> convertArguments env (applySubst substitution body) rest
     convertArguments env _ remaining = mapM (convertNestedType env) remaining
 
+-- | A section operator can carry the cast that a given equality proves.
+-- The type checker puts the cast on the operator name, because the
+-- section has no expression node for the operator.
 desugarInfixOperator :: Syn.Name -> ValueM Expr
-desugarInfixOperator operator = do
+desugarInfixOperator operator =
+  case [proof | TcCastAnnotation (Just proof) _ <- mapMaybe Syn.fromAnnotation (Syn.nameAnns operator)] of
+    proof : _ -> do
+      operator' <- desugarUncastInfixOperator operator
+      withCoercion proof (pure . ExCast operator')
+    [] -> desugarUncastInfixOperator operator
+
+desugarUncastInfixOperator :: Syn.Name -> ValueM Expr
+desugarUncastInfixOperator operator = do
   let maybeAnnotation = listToMaybe (mapMaybe Syn.fromAnnotation (Syn.nameAnns operator))
   maybeInfo <- constructorForName operator
   needsWrapper <- maybe (pure False) constructorNeedsWrapper maybeInfo
