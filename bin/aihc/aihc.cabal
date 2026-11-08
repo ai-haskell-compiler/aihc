@@ -277,6 +277,7 @@ library
     Aihc.Native.Move
     Aihc.Native.Object
     Aihc.Native.ObjectWriter
+    Aihc.Util.Occurrences
     Paths_aihc
 
   autogen-modules:
