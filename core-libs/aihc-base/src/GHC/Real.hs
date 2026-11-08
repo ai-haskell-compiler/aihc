@@ -11,11 +11,15 @@ module GHC.Real
     Real (..),
     RealFrac (..),
     Rational,
-    Ratio,
+    Ratio (..),
     denominator,
     even,
     fromIntegral,
     gcd,
+    integralEnumFrom,
+    integralEnumFromThen,
+    integralEnumFromThenTo,
+    integralEnumFromTo,
     lcm,
     numerator,
     numericEnumFrom,
@@ -31,7 +35,7 @@ module GHC.Real
 where
 
 import Data.Bool (Bool (..), not, (&&))
-import GHC.Enum (Enum (..))
+import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
@@ -97,10 +101,10 @@ class (Real a, Fractional a) => RealFrac a where
   floor :: (Integral b) => a -> b
 
 instance Real Int where
-  toRational (I# value) = Ratio (IS value) (IS 1#)
+  toRational (I# value) = IS value :% IS 1#
 
 instance Real Integer where
-  toRational value = Ratio value 1
+  toRational value = value :% 1
 
 instance Integral Int where
   quot numerator denominator = firstOfPair (intQuotRem numerator denominator)
@@ -123,7 +127,7 @@ instance Integral Integer where
   toInteger value = value
 
 instance Real Word8 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Word8 where
   quot (W8# left) (W8# right) = W8# (wordToWord8# (quotWord# (word8ToWord# left) (word8ToWord# right)))
@@ -135,7 +139,7 @@ instance Integral Word8 where
   toInteger (W8# value) = IS (word2Int# (word8ToWord# value))
 
 instance Real Word16 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Word16 where
   quot (W16# left) (W16# right) = W16# (wordToWord16# (quotWord# (word16ToWord# left) (word16ToWord# right)))
@@ -147,7 +151,7 @@ instance Integral Word16 where
   toInteger (W16# value) = IS (word2Int# (word16ToWord# value))
 
 instance Real Word32 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Word32 where
   quot (W32# left) (W32# right) = W32# (wordToWord32# (quotWord# (word32ToWord# left) (word32ToWord# right)))
@@ -159,7 +163,7 @@ instance Integral Word32 where
   toInteger (W32# value) = IS (word2Int# (word32ToWord# value))
 
 instance Real Word64 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Word64 where
   quot (W64# left) (W64# right) = W64# (wordToWord64# (quotWord# (word64ToWord# left) (word64ToWord# right)))
@@ -171,7 +175,7 @@ instance Integral Word64 where
   toInteger (W64# value) = wordToInteger (word64ToWord# value)
 
 instance Real Word where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Word where
   quot (W# left) (W# right) = W# (quotWord# left right)
@@ -183,7 +187,7 @@ instance Integral Word where
   toInteger (W# value) = wordToInteger value
 
 instance Real Int8 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Int8 where
   quot left right = int8FromInt (quot (int8ToInt left) (int8ToInt right))
@@ -201,7 +205,7 @@ int8FromInt :: Int -> Int8
 int8FromInt (I# value) = I8# (intToInt8# value)
 
 instance Real Int16 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Int16 where
   quot left right = int16FromInt (quot (int16ToInt left) (int16ToInt right))
@@ -219,7 +223,7 @@ int16FromInt :: Int -> Int16
 int16FromInt (I# value) = I16# (intToInt16# value)
 
 instance Real Int32 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Int32 where
   quot left right = int32FromInt (quot (int32ToInt left) (int32ToInt right))
@@ -237,7 +241,7 @@ int32FromInt :: Int -> Int32
 int32FromInt (I# value) = I32# (intToInt32# value)
 
 instance Real Int64 where
-  toRational value = Ratio (toInteger value) 1
+  toRational value = toInteger value :% 1
 
 instance Integral Int64 where
   quot left right = int64FromInt (quot (int64ToInt left) (int64ToInt right))
@@ -464,7 +468,7 @@ instance (Eq a) => Eq (Ratio a) where
   left /= right = not (left == right)
 
 equalRatio :: (Eq a) => Ratio a -> Ratio a -> Bool
-equalRatio (Ratio leftNumerator leftDenominator) (Ratio rightNumerator rightDenominator) =
+equalRatio (leftNumerator :% leftDenominator) (rightNumerator :% rightDenominator) =
   leftNumerator == rightNumerator && leftDenominator == rightDenominator
 
 instance (Integral a) => Ord (Ratio a) where
@@ -477,7 +481,7 @@ instance (Integral a) => Ord (Ratio a) where
   min = ratioMinBy compare
 
 compareRatio :: (Integral a) => Ratio a -> Ratio a -> Ordering
-compareRatio (Ratio leftNumerator leftDenominator) (Ratio rightNumerator rightDenominator) =
+compareRatio (leftNumerator :% leftDenominator) (rightNumerator :% rightDenominator) =
   compare (leftNumerator * rightDenominator) (rightNumerator * leftDenominator)
 
 ratioLessBy :: (a -> a -> Ordering) -> a -> a -> Bool
@@ -523,32 +527,32 @@ instance (Integral a) => Num (Ratio a) where
   negate = negateRatio
   abs = absRatio
   signum = signumRatio
-  fromInteger value = Ratio (fromInteger value) 1
+  fromInteger value = fromInteger value :% 1
 
 addRatio :: (Integral a) => Ratio a -> Ratio a -> Ratio a
-addRatio (Ratio leftNumerator leftDenominator) (Ratio rightNumerator rightDenominator) =
+addRatio (leftNumerator :% leftDenominator) (rightNumerator :% rightDenominator) =
   reduce
     (leftNumerator * rightDenominator + rightNumerator * leftDenominator)
     (leftDenominator * rightDenominator)
 
 subtractRatio :: (Integral a) => Ratio a -> Ratio a -> Ratio a
-subtractRatio (Ratio leftNumerator leftDenominator) (Ratio rightNumerator rightDenominator) =
+subtractRatio (leftNumerator :% leftDenominator) (rightNumerator :% rightDenominator) =
   reduce
     (leftNumerator * rightDenominator - rightNumerator * leftDenominator)
     (leftDenominator * rightDenominator)
 
 multiplyRatio :: (Integral a) => Ratio a -> Ratio a -> Ratio a
-multiplyRatio (Ratio leftNumerator leftDenominator) (Ratio rightNumerator rightDenominator) =
+multiplyRatio (leftNumerator :% leftDenominator) (rightNumerator :% rightDenominator) =
   reduce (leftNumerator * rightNumerator) (leftDenominator * rightDenominator)
 
 negateRatio :: (Num a) => Ratio a -> Ratio a
-negateRatio (Ratio valueNumerator valueDenominator) = Ratio (negate valueNumerator) valueDenominator
+negateRatio (valueNumerator :% valueDenominator) = negate valueNumerator :% valueDenominator
 
 absRatio :: (Num a) => Ratio a -> Ratio a
-absRatio (Ratio valueNumerator valueDenominator) = Ratio (abs valueNumerator) valueDenominator
+absRatio (valueNumerator :% valueDenominator) = abs valueNumerator :% valueDenominator
 
 signumRatio :: (Num a) => Ratio a -> Ratio a
-signumRatio (Ratio valueNumerator _) = Ratio (signum valueNumerator) 1
+signumRatio (valueNumerator :% _) = signum valueNumerator :% 1
 
 instance (Integral a) => Fractional (Ratio a) where
   (/) = divideRatio
@@ -556,26 +560,26 @@ instance (Integral a) => Fractional (Ratio a) where
   fromRational = ratioFromRational
 
 divideRatio :: (Integral a) => Ratio a -> Ratio a -> Ratio a
-divideRatio (Ratio leftNumerator leftDenominator) (Ratio rightNumerator rightDenominator) =
+divideRatio (leftNumerator :% leftDenominator) (rightNumerator :% rightDenominator) =
   (leftNumerator * rightDenominator) % (leftDenominator * rightNumerator)
 
 reciprocalRatio :: (Integral a) => Ratio a -> Ratio a
-reciprocalRatio (Ratio valueNumerator valueDenominator) =
+reciprocalRatio (valueNumerator :% valueDenominator) =
   case valueNumerator == 0 of
     True -> ratioZeroDenominatorError
     False ->
       case valueNumerator < 0 of
-        True -> Ratio (negate valueDenominator) (negate valueNumerator)
-        False -> Ratio valueDenominator valueNumerator
+        True -> negate valueDenominator :% negate valueNumerator
+        False -> valueDenominator :% valueNumerator
 
 ratioFromRational :: (Integral a) => Rational -> Ratio a
-ratioFromRational (Ratio valueNumerator valueDenominator) = fromInteger valueNumerator % fromInteger valueDenominator
+ratioFromRational (valueNumerator :% valueDenominator) = fromInteger valueNumerator % fromInteger valueDenominator
 
 instance (Integral a) => Real (Ratio a) where
   toRational = ratioToRational
 
 ratioToRational :: (Integral a) => Ratio a -> Rational
-ratioToRational (Ratio valueNumerator valueDenominator) = Ratio (toInteger valueNumerator) (toInteger valueDenominator)
+ratioToRational (valueNumerator :% valueDenominator) = toInteger valueNumerator :% toInteger valueDenominator
 
 instance (Integral a) => RealFrac (Ratio a) where
   properFraction = ratioProperFraction
@@ -585,9 +589,9 @@ instance (Integral a) => RealFrac (Ratio a) where
   floor = ratioFloor
 
 ratioProperFraction :: (Integral a, Integral b) => Ratio a -> (b, Ratio a)
-ratioProperFraction (Ratio valueNumerator valueDenominator) =
+ratioProperFraction (valueNumerator :% valueDenominator) =
   case quotRem valueNumerator valueDenominator of
-    (quotient, fractionRemainder) -> (fromInteger (toInteger quotient), Ratio fractionRemainder valueDenominator)
+    (quotient, fractionRemainder) -> (fromInteger (toInteger quotient), fractionRemainder :% valueDenominator)
 
 ratioRound :: (Integral a, Integral b) => Ratio a -> b
 ratioRound value =
@@ -626,7 +630,7 @@ ratioDirection value =
 instance (Integral a) => Enum (Ratio a) where
   succ value = value + 1
   pred value = value - 1
-  toEnum value = Ratio (fromIntegral value) 1
+  toEnum value = fromIntegral value :% 1
   fromEnum value = fromInteger (truncate value)
   enumFrom value = numericEnumFromThen value (value + 1)
   enumFromThen = numericEnumFromThen
@@ -642,13 +646,13 @@ reduce :: (Integral a) => a -> a -> Ratio a
 reduce _ 0 = ratioZeroDenominatorError
 reduce valueNumerator valueDenominator =
   case gcd valueNumerator valueDenominator of
-    divisor -> Ratio (quot valueNumerator divisor) (quot valueDenominator divisor)
+    divisor -> quot valueNumerator divisor :% quot valueDenominator divisor
 
 numerator :: Ratio a -> a
-numerator (Ratio value _) = value
+numerator (value :% _) = value
 
 denominator :: Ratio a -> a
-denominator (Ratio _ value) = value
+denominator (_ :% value) = value
 
 ratioZeroDenominatorError :: a
 ratioZeroDenominatorError = raise# ratioZeroDenomException
@@ -708,6 +712,25 @@ negativeExponentError :: a
 negativeExponentError = errorWithoutStackTrace "Negative exponent"
 
 -- | The list of every value from the given value, in steps of one.
+-- | The 'enumFrom' method of an 'Integral' type, through 'Integer'.
+integralEnumFrom :: (Integral a, Bounded a) => a -> [a]
+integralEnumFrom first = integralEnumFromTo first maxBound
+
+-- | The 'enumFromThen' method of an 'Integral' type, through 'Integer'. The
+-- list stops at the bound in the direction of the step.
+integralEnumFromThen :: (Integral a, Bounded a) => a -> a -> [a]
+integralEnumFromThen first second =
+  integralEnumFromThenTo first second (if second >= first then maxBound else minBound)
+
+-- | The 'enumFromTo' method of an 'Integral' type, through 'Integer'.
+integralEnumFromTo :: (Integral a) => a -> a -> [a]
+integralEnumFromTo first last = [fromInteger value | value <- enumFromTo (toInteger first) (toInteger last)]
+
+-- | The 'enumFromThenTo' method of an 'Integral' type, through 'Integer'.
+integralEnumFromThenTo :: (Integral a) => a -> a -> a -> [a]
+integralEnumFromThenTo first second last =
+  [fromInteger value | value <- enumFromThenTo (toInteger first) (toInteger second) (toInteger last)]
+
 numericEnumFrom :: (Fractional a) => a -> [a]
 numericEnumFrom first = first : numericEnumFrom (first + 1)
 

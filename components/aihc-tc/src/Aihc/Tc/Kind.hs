@@ -52,6 +52,7 @@ import Aihc.Parser.Syntax
     Name (..),
     SourceSpan,
     TupleFlavor (..),
+    TyVarBSpecificity (..),
     TyVarBinder (..),
     Type (..),
     TypeLiteral (..),
@@ -117,6 +118,10 @@ signatureScheme floatResult ty = do
   let implicitEnv = scoped <> Map.fromList (zip freeVars (zip implicitTvs kinds))
   explicitParams <- makeParamEnvWith implicitEnv explicitBinders
   let explicitTvs = map paramTyVar explicitParams
+      -- A binder written as @forall {k}@ is inferred, as in GHC: a visible
+      -- type application skips it.
+      inferredTvs = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBInferred]
+      specifiedTvs = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBSpecified]
       tvEnv =
         implicitEnv
           <> Map.fromList
@@ -128,7 +133,7 @@ signatureScheme floatResult ty = do
   let (floatedTvs, floatedPreds, tcTy)
         | floatResult = floatResultQuantifiers checkedBody
         | otherwise = ([], [], checkedBody)
-  pure (specifiedScheme (implicitTvs <> explicitTvs <> floatedTvs) (preds <> floatedPreds) tcTy)
+  pure (Scheme inferredTvs (implicitTvs <> specifiedTvs <> floatedTvs) (preds <> floatedPreds) tcTy)
 
 -- | Move the quantifiers and contexts of a function result to the front of
 -- the type. A type synonym can put them there: with @type Action a =

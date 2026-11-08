@@ -5865,7 +5865,7 @@ desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = d
 desugarTypeableArgument :: Maybe (Text, Text) -> TcType -> Ev.EvTerm -> ValueM Expr
 desugarTypeableArgument origin ty evidence = do
   dictionary <- desugarEvidence evidence
-  selector <- typeableName origin "Type.Reflection" "typeRep" SortValue
+  selector <- typeableName origin "Type.Reflection" "typeRep#" SortValue
   className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
   someTypeRepConstructor <- typeableName origin "Type.Reflection" "SomeTypeRep" SortDataConstructor
   typeArguments <- typeableTypeArguments className ty
@@ -6049,7 +6049,7 @@ desugarOverloadedRational annotation resolution value = do
 
 desugarRationalLiteral :: Rational -> ValueM Expr
 desugarRationalLiteral value = do
-  constructor <- primitiveName "GHC.Prim.Real" "Ratio" SortDataConstructor
+  constructor <- primitiveName "GHC.Prim.Real" ":%" SortDataConstructor
   package <- gets (cePrimPackage . vsConvertEnv)
   integerType <- convertCheckedType (TcTyCon (mkTyConWithOrigin package "GHC.Prim.Integer" "Integer" 0) [])
   numeratorExpression <- desugarIntegerLiteral (numerator value)

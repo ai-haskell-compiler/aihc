@@ -11,19 +11,24 @@ module Numeric
     readDec,
     readHex,
     readSigned,
+    readFloat,
     lexDigits,
+    fromRat,
     floatToDigits,
     showEFloat,
     showFFloat,
     showGFloat,
     showFloat,
+    showHFloat,
   )
 where
 
 import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit, isSpace)
 import GHC.Float (FFFormat (..), floatToDigits, formatRealFloat, showFloat)
+import GHC.Read.Lex (Lexeme (..), lexP, numberToRational)
 import GHC.Show (intToDigit)
-import Prelude (Bool (..), Char, Eq (..), Int, Integral (..), Maybe, Num (..), Ord (..), ReadS, Real (..), RealFloat, Show (..), ShowS, String, dropWhile, errorWithoutStackTrace, fromIntegral, negate, readParen, showChar, showParen, showString, span, (.), (||))
+import Text.ParserCombinators.ReadPrec (readPrec_to_S)
+import Prelude (Bool (..), Char, Eq (..), Fractional (..), Int, Integral (..), Maybe, Num (..), Ord (..), Rational, ReadS, Real (..), RealFloat (..), RealFrac, Show (..), ShowS, String, dropWhile, errorWithoutStackTrace, fromIntegral, id, negate, otherwise, readParen, showChar, showParen, showString, span, (&&), (++), (.), (||))
 
 showSigned :: (Real a) => (a -> ShowS) -> Int -> a -> ShowS
 showSigned showPositive precedence value =
@@ -125,3 +130,57 @@ showFFloat decimals value = showString (formatRealFloat FFFixed decimals value)
 -- scientific notation for other numbers.
 showGFloat :: (RealFloat a) => Maybe Int -> a -> ShowS
 showGFloat decimals value = showString (formatRealFloat FFGeneric decimals value)
+
+-- | Read an unsigned decimal number. The number can have a fraction and an
+-- exponent. The reader skips the space before the number.
+readFloat :: (RealFrac a) => ReadS a
+readFloat input =
+  [(fromRational (numberToRational token), rest) | (Number token, rest) <- readPrec_to_S lexP 0 input]
+
+-- | Convert a rational number to a floating-point number.
+fromRat :: (RealFloat a) => Rational -> a
+fromRat = fromRational
+
+-- | Show a floating-point number in hexadecimal notation, as in C99.
+-- For example, @showHFloat (212.21 :: Double) ""@ gives
+-- @"0x1.a86b851eb851fp7"@.
+showHFloat :: (RealFloat a) => a -> ShowS
+showHFloat value = showString (hexFloat value)
+
+hexFloat :: (RealFloat a) => a -> String
+hexFloat value
+  | isNaN value = "NaN"
+  | isInfinite value = (if value < 0 then "-" else "") ++ "Infinity"
+  | value < 0 || isNegativeZero value = '-' : hexMagnitude (negate value)
+  | otherwise = hexMagnitude value
+
+hexMagnitude :: (RealFloat a) => a -> String
+hexMagnitude value
+  | value == 0 = "0x0p+0"
+  | otherwise =
+      case floatToDigits 2 value of
+        (leading : bits, exponent') -> "0x" ++ show leading ++ hexFraction bits ++ "p" ++ show (exponent' - 1)
+        ([], _) -> errorWithoutStackTrace "Numeric.showHFloat: no digits"
+
+-- | Group the binary digits of the fraction into hexadecimal digits. A
+-- fraction with only zero digits shows as nothing.
+hexFraction :: [Int] -> String
+hexFraction bits
+  | allZero bits = ""
+  | otherwise = '.' : hexDigits bits ""
+  where
+    allZero remaining =
+      case remaining of
+        [] -> True
+        bit : more -> bit == 0 && allZero more
+
+hexDigits :: [Int] -> ShowS
+hexDigits bits =
+  case bits of
+    [] -> id
+    [a] -> hexDigit a 0 0 0
+    [a, b] -> hexDigit a b 0 0
+    [a, b, c] -> hexDigit a b c 0
+    a : b : c : d : more -> hexDigit a b c d . hexDigits more
+  where
+    hexDigit a b c d = showHex (8 * a + 4 * b + 2 * c + d)

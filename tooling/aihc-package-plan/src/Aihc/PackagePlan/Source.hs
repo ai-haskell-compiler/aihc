@@ -18,10 +18,12 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
+    ImportDecl (..),
     LanguageEdition (..),
     Module (..),
     effectiveExtensions,
@@ -133,7 +135,8 @@ parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
   -- and so is the set.
   let extensions = if cppEnabled then extensionsOf source else normalizedExtensions
       cfg = defaultConfig {parserSourceName = path, parserExtensions = extensions}
-      (parseErrs, modu) = parseModule cfg source
+      (parseErrs, parsedModu) = parseModule cfg source
+      modu = standinImportPackages parsedModu
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
       sourceLines = diagnosticSourceMap path source
       dependencies = HackageCabal.fileInfoDependencies fileInfo
@@ -282,3 +285,16 @@ unlitBird =
     case T.uncons line of
       Just ('>', rest) -> rest
       _ -> ""
+
+-- | Change the package of each package-qualified import of a boot library
+-- to the standin of that library. A @build-depends@ entry on a boot
+-- library names its standin in the plan, and an import such as
+-- @import "template-haskell" Language.Haskell.TH@ must do the same.
+standinImportPackages :: Module -> Module
+standinImportPackages modu =
+  modu {moduleImports = map standinImport (moduleImports modu)}
+  where
+    standinImport importDecl =
+      importDecl {importDeclPackage = standinPackage <$> importDeclPackage importDecl}
+    standinPackage name =
+      maybe name (T.pack . bootLibraryStandin) (lookupBootLibrary (T.unpack name) emulatedGhc)

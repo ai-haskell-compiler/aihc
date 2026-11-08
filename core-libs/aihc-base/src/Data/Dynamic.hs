@@ -30,7 +30,7 @@ import GHC.Err (errorWithoutStackTrace)
 import GHC.Internal.Exception.Type (Exception)
 import GHC.Show (Show (..), showString, shows)
 import GHC.Types (Type)
-import Type.Reflection (SomeTypeRep (..), TypeRep, Typeable (..), eqTypeRep, typeRepKind, pattern Fun)
+import Type.Reflection (SomeTypeRep (..), TypeRep, Typeable, eqTypeRep, typeRep, typeRepKind, pattern Fun)
 
 -- | A value of arbitrary type, carrying the representation of that type.
 data Dynamic where

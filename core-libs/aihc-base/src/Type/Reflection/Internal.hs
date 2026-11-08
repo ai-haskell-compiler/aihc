@@ -13,6 +13,7 @@
 
 module Type.Reflection.Internal
   ( Typeable (..),
+    typeRep,
     TypeRep (..),
     withTypeable,
     (:~~:) (..),
@@ -66,8 +67,15 @@ data TypeRep (a :: k) = TypeRep TyCon [SomeTypeRep] [SomeTypeRep]
 data SomeTypeRep where
   SomeTypeRep :: forall k (a :: k). TypeRep a -> SomeTypeRep
 
+-- | As in @base@, the method is @typeRep#@ and 'typeRep' is a function.
+-- The kind of the class variable is a specified variable of the method,
+-- but it is an inferred variable of 'typeRep'. Thus @typeRep \@a@ applies
+-- 'typeRep' to @a@ and not to its kind.
 class Typeable (a :: k) where
-  typeRep :: TypeRep a
+  typeRep# :: TypeRep a
+
+typeRep :: forall {k} (a :: k). (Typeable a) => TypeRep a
+typeRep = typeRep#
 
 typeOf :: (Typeable a) => a -> TypeRep a
 typeOf _ = typeRep
