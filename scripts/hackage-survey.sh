@@ -127,12 +127,23 @@ no_ghc_rows="$work_directory/no-ghc.tsv"
 : >"$no_ghc_rows"
 
 # Read the rows of each table of the survey. The heading before a table tells
-# which table it is. The header row and its separator are not rows.
+# which table it is. The header row and its separator are not rows. An
+# escaped "\|" in an error is not a column separator.
 if [ -f "$output" ]; then
-	awk -F'|' -v ghc="$ghc_rows" -v no_ghc="$no_ghc_rows" '
+	awk -v ghc="$ghc_rows" -v no_ghc="$no_ghc_rows" '
 		function trim(s) {
 			gsub(/^[ \t]+|[ \t]+$/, "", s)
 			return s
+		}
+		# Split a table row at its "|" separators into column, and give the
+		# number of fields. Column 2 is the first cell, as with -F.
+		function split_row(row, column,    i, n) {
+			gsub(/\\\|/, "\001", row)
+			n = split(row, column, "|")
+			for (i = 1; i <= n; i++) {
+				gsub(/\001/, "\\|", column[i])
+			}
+			return n
 		}
 		/^## / {
 			table = ""
@@ -144,14 +155,15 @@ if [ -f "$output" ]; then
 			next
 		}
 		/^\|/ && table != "" {
-			name = trim($2)
+			split_row($0, cell)
+			name = trim(cell[2])
 			if (name == "Package" || name ~ /^-+$/) {
 				next
 			}
 			if (table == ghc) {
-				print name "\t" trim($3) "\t" trim($4) "\t" trim($5) >>table
+				print name "\t" trim(cell[3]) "\t" trim(cell[4]) "\t" trim(cell[5]) >>table
 			} else {
-				print name "\t" trim($3) "\t" trim($4) >>table
+				print name "\t" trim(cell[3]) "\t" trim(cell[4]) >>table
 			}
 		}
 	' "$output"
