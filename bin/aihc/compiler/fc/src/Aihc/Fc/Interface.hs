@@ -584,4 +584,3 @@ settleOwnInterface program interface =
           | Just new <- Map.lookup (valName declaration) offered -> DeclVal declaration {valBody = valBody new}
         _ -> decl
     added = [DeclVal declaration | declaration <- Map.elems offered, Set.notMember (valName declaration) own]
-
