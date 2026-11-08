@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, RoleAnnotations, MagicHash, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data G t b where
+       └─ type: Type → Type → Type
+    G :: G b b
+    └─ type: ∀ b b. (b ~ b) ⇒ G b b
+  type role G nominal nominal
+  newtype N b t = N (G t b)
+          │       └─ type: ∀ b t. G t b → N b t
+          └─ type: Type → Type → Type
+  f :: G t c -> N c t -> G t t
+  f G n = coerce n
+  │ │ │   └─ type: N c t → G t t; type-args: N c t, G t t; evidence: coercible @N c t @G t t
+  │ │ └─ type: N c t
+  │ └─ type: G t c; type-args: t, c; evidence: given c ~ t
+  └─ type: ∀ t c. G t c → N c t → G t t
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, RoleAnnotations, MagicHash, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data G t b where
+    G :: G b b
+  type role G nominal nominal
+  newtype N b t = N (G t b)
+  f :: G t c -> N c t -> G t t
+  f G n = coerce n
+reason: A given equality of a GADT match makes two types equal at a nominal position of a Coercible wanted.
+status: pass

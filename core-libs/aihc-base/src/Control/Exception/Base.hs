@@ -27,6 +27,7 @@ module Control.Exception.Base
     RecSelError (..),
     RecUpdError (..),
     TypeError (..),
+    CompactionFailed (..),
     catch,
     catchJust,
     evaluate,
@@ -37,6 +38,7 @@ module Control.Exception.Base
     throwTo,
     try,
     tryJust,
+    mapException,
     onException,
     finally,
     bracket,
@@ -64,6 +66,7 @@ import GHC.IO.Exception
     AsyncException (..),
     BlockedIndefinitelyOnMVar (..),
     BlockedIndefinitelyOnSTM (..),
+    CompactionFailed (..),
     Deadlock (..),
     IOError,
     IOException,
@@ -72,6 +75,7 @@ import GHC.IO.Exception
     asyncExceptionToException,
     ioError,
   )
+import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Show (Show (..), showString)
 import Prelude (Either (..), IO, Maybe (..), String, const, pure, (.), (>>=))
 
@@ -103,6 +107,10 @@ tryJust predicate action =
     predicate
     (action >>= \value -> pure (Right value))
     (pure . Left)
+
+-- | Map one exception that a lazy value throws to another exception.
+mapException :: (Exception e1, Exception e2) => (e1 -> e2) -> a -> a
+mapException f value = unsafePerformIO (catch (evaluate value) (throwIO . f))
 
 bracket_ :: IO a -> IO b -> IO c -> IO c
 bracket_ before after use = bracket before (const after) (const use)

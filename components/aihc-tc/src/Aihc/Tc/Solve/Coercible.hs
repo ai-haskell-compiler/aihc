@@ -124,11 +124,17 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
     phantomPair left right
       | isMeta left || isMeta right = True <$ unifyTypes left right
       | otherwise = pure True
+    -- A given equality, as the @b ~ t@ of a GADT match, makes two
+    -- different types equal at a nominal position.
     nominal left right = do
       result <- unifyTypes left right
-      pure $ case result of
-        Right () -> True
-        _ -> False
+      case result of
+        Right () -> pure True
+        _ -> do
+          equalities <- mapM normalizeEdge [(givenLeft, givenRight) | EqPred givenLeft givenRight <- givens]
+          left' <- normalize left
+          right' <- normalize right
+          pure (connected equalities [left'] [left'] right')
     representation (TcTyCon constructor arguments) = do
       info <- lookupDataType constructor
       case info of
@@ -216,23 +222,27 @@ solveCoercibleFromGivens coercibleClass givens rawLeft rawRight = do
   edges <- mapM normalizeEdge [(left, right) | ClassPred className [left, right] <- givens, className == coercibleClass]
   start <- normalize rawLeft
   goal <- normalize rawRight
-  pure (search edges [start] [start] goal)
+  pure (connected edges [start] [start] goal)
   where
     normalize = reduceTypeFamilies <=< zonkType
     normalizeEdge (left, right) = (,) <$> normalize left <*> normalize right
-    search edges seen frontier goal
-      | goal `elem` frontier = True
-      | null next = False
-      | otherwise = search edges (seen <> next) next goal
-      where
-        next =
-          nub
-            [ neighbour
-            | node <- frontier,
-              (left, right) <- edges,
-              neighbour <- [right | left == node] <> [left | right == node],
-              neighbour `notElem` seen
-            ]
+
+-- | Whether a chain of edges, in either direction, goes from the frontier
+-- to the goal. The first list holds the types that the search has seen.
+connected :: [(TcType, TcType)] -> [TcType] -> [TcType] -> TcType -> Bool
+connected edges seen frontier goal
+  | goal `elem` frontier = True
+  | null next = False
+  | otherwise = connected edges (seen <> next) next goal
+  where
+    next =
+      nub
+        [ neighbour
+        | node <- frontier,
+          (left, right) <- edges,
+          neighbour <- [right | left == node] <> [left | right == node],
+          neighbour `notElem` seen
+        ]
 
 -- | Whether one parameter of a type constructor holds its representation role.
 -- Newtype deriving lifts coercions through such parameters.

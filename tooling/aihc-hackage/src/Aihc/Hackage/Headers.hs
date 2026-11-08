@@ -80,8 +80,7 @@ compilerHeaderTexts target =
   [ ("ghcautoconf.h", ghcautoconfHeader target),
     -- GHC uses this header to include both target configuration headers.
     ("ghcconfig.h", header "GHCCONFIG_H" ["#include \"ghcautoconf.h\"", "#include \"ghcplatform.h\""] []),
-    -- Modern GHC's base package reduces this legacy header to a redirect.
-    ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] []),
+    ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] (baseTypeMacros target)),
     ("ghcplatform.h", ghcplatformHeader target),
     ("MachDeps.h", machDepsHeader target),
     ("HsFFI.h", hsFfiHeader),
@@ -308,6 +307,47 @@ rtsHeader =
       "void unblockUserSignals(void);",
       "HsBool rtsSupportsBoundThreads(void);"
     ]
+
+-- | The @HTYPE_@ macros of GHC's @HsBaseConfig.h@.
+--
+-- Each macro names the Haskell type that a newtype of @Foreign.C.Types@
+-- wraps.  A package such as @lens@ uses the macro as the type that the
+-- newtype unwraps to.  Thus each value must agree with the representation
+-- that @aihc-base@ gives the newtype for the target.
+baseTypeMacros :: HeaderTarget -> [(Text, Text)]
+baseTypeMacros target =
+  [ ("HTYPE_CHAR", "Int8"),
+    ("HTYPE_SIGNED_CHAR", "Int8"),
+    ("HTYPE_UNSIGNED_CHAR", "Word8"),
+    ("HTYPE_SHORT", "Int16"),
+    ("HTYPE_UNSIGNED_SHORT", "Word16"),
+    ("HTYPE_INT", "Int32"),
+    ("HTYPE_UNSIGNED_INT", "Word32"),
+    ("HTYPE_LONG", signed long),
+    ("HTYPE_UNSIGNED_LONG", unsigned long),
+    ("HTYPE_LONG_LONG", "Int64"),
+    ("HTYPE_UNSIGNED_LONG_LONG", "Word64"),
+    ("HTYPE_FLOAT", "Float"),
+    ("HTYPE_DOUBLE", "Double"),
+    ("HTYPE_PTRDIFF_T", signed pointer),
+    ("HTYPE_SIZE_T", unsigned pointer),
+    ("HTYPE_WCHAR_T", "Int32"),
+    ("HTYPE_SIG_ATOMIC_T", "Int32"),
+    ("HTYPE_CLOCK_T", "Word64"),
+    ("HTYPE_TIME_T", "Int64"),
+    ("HTYPE_USECONDS_T", "Word32"),
+    ("HTYPE_SUSECONDS_T", "Int32"),
+    ("HTYPE_INTPTR_T", signed pointer),
+    ("HTYPE_UINTPTR_T", unsigned pointer),
+    ("HTYPE_INTMAX_T", "Int64"),
+    ("HTYPE_UINTMAX_T", "Word64"),
+    ("HTYPE_BOOL", "Word8")
+  ]
+  where
+    long = headerLongBytes target
+    pointer = headerPointerBytes target
+    signed bytes = "Int" <> tshow (bytes * 8)
+    unsigned bytes = "Word" <> tshow (bytes * 8)
 
 sizeAndAlignment :: (Text, Int) -> [(Text, Text)]
 sizeAndAlignment (name, bytes) =

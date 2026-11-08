@@ -1,0 +1,65 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  data Answer b a = b ~ a => Hit a | Miss
+       │            │                └─ type: ∀ b a. Answer b a
+       │            └─ type: ∀ b a. (b ~ a) ⇒ a → Answer b a
+       └─ type: Type → Type → Type
+  data Same a b where
+       └─ type: Type → Type → Type
+    Same :: Same a a
+    └─ type: ∀ a b. (b ~ a) ⇒ Same a b
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  newtype Oracle a = Oracle (forall t. t -> Answer t a)
+          │          └─ type: ∀ a. (∀ t. t → Answer t a) → Oracle a
+          └─ type: Type → Type
+  same :: Maybe (Same c b)
+  same = Nothing
+  │      └─ type: Maybe (Same c b); type-args: Same c b
+  └─ type: ∀ c b. Maybe (Same c b)
+  ($) :: (a -> b) -> a -> b
+  f $ x = f x
+  ││   └─ type: a
+  └─ type: ∀ a b. (a → b) → a → b
+  └─ type: a → b
+  hit :: forall b. b -> Oracle b
+  hit _ = Oracle $ \(c :: c) -> case same :: Maybe (Same c b) of
+  │   │   │      │ ││ └─ type: t │    └─ type: Maybe (Same t b); type-args: t, b
+  │   │   │      │ ││            └─ type: Answer t b
+  │   │   │      │ └─ type: t → Answer t b
+  │   │   │      │ └─ type: ∀ t. t → Answer t b
+  │   │   │      └─ type: ((∀ t. t → Answer t b) → Oracle b) → (∀ t. t → Answer t b) → Oracle b; type-args: ∀ t. t → Answer t b, Oracle b
+  │   │   └─ type: (∀ t. t → Answer t b) → Oracle b; type-args: b
+  │   └─ type: b
+  └─ type: ∀ b. b → Oracle b
+    Just Same -> Hit c
+    │    │       └─ type: t → Answer t t; type-args: t, t; evidence: refl t
+    │    └─ type: Same t b; type-args: t, b; evidence: given b ~ t
+    └─ type: Maybe (Same t b)
+    Nothing -> Miss
+    │          └─ type: Answer t b; type-args: t, b
+    └─ type: Maybe (Same t b)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  data Answer b a = b ~ a => Hit a | Miss
+  data Same a b where
+    Same :: Same a a
+  data Maybe a = Nothing | Just a
+  newtype Oracle a = Oracle (forall t. t -> Answer t a)
+  same :: Maybe (Same c b)
+  same = Nothing
+  ($) :: (a -> b) -> a -> b
+  f $ x = f x
+  hit :: forall b. b -> Oracle b
+  hit _ = Oracle $ \(c :: c) -> case same :: Maybe (Same c b) of
+    Just Same -> Hit c
+    Nothing -> Miss
+reason: The instantiation variable of a guarded argument, as a of Oracle, is an instantiation variable of the application. Thus the expected result type fixes it before the lambda is checked under the givens of its case branches.
+status: pass

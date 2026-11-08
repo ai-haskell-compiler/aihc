@@ -32,6 +32,7 @@ main =
       testCase "writes the same macros into a cabal_macros.h header" test_cabalMacrosHeader,
       testCase "reports source lines unshifted by the synthetic macro header" test_diagnosticsUseSourceLineNumbers,
       testCase "uses target byte order through ghcconfig.h" test_ghcconfigByteOrder,
+      testCase "names the C type representations of the target in HsBaseConfig.h" test_hsBaseConfigTypes,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
@@ -203,6 +204,29 @@ test_ghcconfigByteOrder = mapM_ check [False, True]
       assertEqual
         "target byte order"
         [BSC.pack (if bigEndian then "big" else "little")]
+        (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
+
+-- lens uses the HTYPE_ macros as the types that the newtypes of
+-- Foreign.C.Types unwrap to. A long and a size_t are narrower on wasm32.
+test_hsBaseConfigTypes :: Assertion
+test_hsBaseConfigTypes = do
+  check (HeaderTarget 8 8 False (T.pack "linux") (T.pack "x86_64")) "Int64 Word64 Int32"
+  check (HeaderTarget 4 4 False (T.pack "wasi") (T.pack "wasm32")) "Int32 Word32 Int32"
+  where
+    check target expected = do
+      let headers = compilerHeaderTexts target
+          source = BSC.pack "#include \"HsBaseConfig.h\"\nHTYPE_LONG HTYPE_SIZE_T HTYPE_INT\n"
+          drive step = case step of
+            Cpp.Done result -> pure result
+            Cpp.NeedInclude request resume ->
+              case lookup (Cpp.includePath request) headers of
+                Just content -> drive (resume (Just (TE.encodeUtf8 content)))
+                Nothing -> assertFailure ("missing include: " <> Cpp.includePath request)
+      result <- drive (Cpp.preprocess Cpp.defaultConfig source)
+      assertEqual "CPP diagnostics" [] (Cpp.resultDiagnostics result)
+      assertEqual
+        "type macros"
+        (BSC.words (BSC.pack expected))
         (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
 
 test_extractsBuildToolDependencyNames :: Assertion

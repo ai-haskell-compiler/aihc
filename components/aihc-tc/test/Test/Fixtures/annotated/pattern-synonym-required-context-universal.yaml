@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms, ViewPatterns, FunctionalDependencies #-}
+  module Test where
+  import GHC.Types (Bool (..), Int)
+  class Conv a b | a -> b where
+  └─ class methods: to ∷ ∀ a b. (Conv a b) ⇒ a → b; fundeps: a → b
+    to :: a -> b
+  instance Conv Bool Int where
+  └─ $fConvBoolInt ∷ () ⇒ Conv Bool Int
+    to _ = to True
+    │  │   └─ type: GHC.Types.Bool → GHC.Types.Int; type-args: Bool, Int; evidence: $fConvBoolInt
+    │  └─ type: GHC.Types.Bool
+    └─ to ∷ Bool → Int
+  pattern Conv :: Conv s t => t -> s
+  pattern Conv a <- (to -> a)
+  │                  ││     └─ type: t
+  │                  └─ type: s → t; type-args: s, t; evidence: given Conv s t
+  │                  └─ type: s
+  └─ type: ∀ s t. (Conv s t) ⇒ t → s
+  use :: Bool -> Int
+  use (Conv n) = n
+  │    │    └─ type: GHC.Types.Int
+  │    └─ type: GHC.Types.Int → GHC.Types.Bool; type-args: Bool, Int; evidence: $fConvBoolInt
+  └─ type: GHC.Types.Bool → GHC.Types.Int
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms, ViewPatterns, FunctionalDependencies #-}
+  module Test where
+  import GHC.Types (Bool (..), Int)
+  class Conv a b | a -> b where
+    to :: a -> b
+  instance Conv Bool Int where
+    to _ = to True
+  pattern Conv :: Conv s t => t -> s
+  pattern Conv a <- (to -> a)
+  use :: Bool -> Int
+  use (Conv n) = n
+reason: A variable of the required context of a pattern synonym is universal, also when the result type does not mention it. Thus a use instantiates it and the functional dependency solves it.
+status: pass

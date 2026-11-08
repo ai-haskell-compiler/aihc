@@ -1855,24 +1855,28 @@ emptyMatch rhs =
       Syn.matchRhs = rhs
     }
 
+-- | Desugar function equations. No equation is a lambda-case with no
+-- alternative, @\\case {}@: a function of one argument that matches it with
+-- an empty case.
 desugarMatches :: TcType -> [Syn.Match] -> ValueM Expr
-desugarMatches ty matches =
-  case matches of
-    [] -> failValue "value binding has no match"
-    first : _ -> do
-      let (typeVariables, afterForAlls) = peelForAlls ty
-          (predicates, bodyType) = peelConstraints afterForAlls
-          argumentCount = length (Syn.matchPats first)
-          (argumentTypes, resultType) = peelFunctions argumentCount bodyType
-      typeBinders <- convertTypeBinders typeVariables
-      (dictionaries, arguments, body) <-
-        withTypeVariables typeVariables $ do
-          dictionaries <- mapM freshDictionaryBinder predicates
-          arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-          body <-
-            withDictionaryScope (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches))
-          pure (dictionaries, arguments, body)
-      pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
+desugarMatches ty matches = do
+  let (typeVariables, afterForAlls) = peelForAlls ty
+      (predicates, bodyType) = peelConstraints afterForAlls
+      argumentCount = maybe 1 (length . Syn.matchPats) (listToMaybe matches)
+      (argumentTypes, resultType) = peelFunctions argumentCount bodyType
+  typeBinders <- convertTypeBinders typeVariables
+  (dictionaries, arguments, body) <-
+    withTypeVariables typeVariables $ do
+      dictionaries <- mapM freshDictionaryBinder predicates
+      arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
+      body <-
+        withDictionaryScope (zipWith Dictionary predicates dictionaries) $
+          case (matches, arguments) of
+            ([], [argument]) -> emptyCaseFailure resultType argument
+            ([], _) -> failValue "lambda-case with no alternative does not have a function type"
+            _ -> desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches)
+      pure (dictionaries, arguments, body)
+  pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
 withTypeVariables :: [TyVarId] -> ValueM a -> ValueM a
 withTypeVariables variables action = do
@@ -5040,6 +5044,15 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
             -- application, and its arguments are not the arguments of a
             -- newtype axiom.
             Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
+    -- The type checker can cast the scrutinee before a constructor match,
+    -- as a given equality of an instance context makes @(a, a')@ the type
+    -- @(a', a')@. The inner pattern matches the cast value.
+    Syn.PAnn annotation inner
+      | Just (TcCastAnnotation (Just _) target) <- Syn.fromAnnotation annotation -> do
+          castBinder <- freshBinder "_cast" target
+          scrutinee <- castPatternScrutinee pattern' (ExVar (binderName binder))
+          body <- desugarPatternWithFailure resultType castBinder target inner success failure
+          pure (ExLet (Bind castBinder scrutinee) body)
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do

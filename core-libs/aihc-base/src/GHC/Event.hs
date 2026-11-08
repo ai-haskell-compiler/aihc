@@ -9,6 +9,9 @@
 -- waits for a delay from 'registerDelay' or for the cancellation.
 module GHC.Event
   ( EventManager,
+    Event,
+    evtRead,
+    evtWrite,
     getSystemEventManager,
     TimerManager,
     TimeoutCallback,
@@ -20,9 +23,28 @@ module GHC.Event
 where
 
 import Control.Monad (when)
+import Data.Bits ((.|.))
 import GHC.Conc.IO (registerDelay)
 import GHC.Conc.Sync (TVar, atomically, forkIO, newTVarIO, readTVar, retry, writeTVar)
-import Prelude (Bool (..), IO, Int, Maybe (..), return, (>>=))
+import Prelude (Bool (..), Eq, IO, Int, Maybe (..), Monoid (..), Semigroup (..), return, (>>=))
+
+-- | A set of I/O events. Each bit is one event.
+newtype Event = Event Int
+  deriving (Eq)
+
+instance Semigroup Event where
+  Event left <> Event right = Event (left .|. right)
+
+instance Monoid Event where
+  mempty = Event 0
+
+-- | The descriptor is ready to read.
+evtRead :: Event
+evtRead = Event 1
+
+-- | The descriptor is ready to write.
+evtWrite :: Event
+evtWrite = Event 2
 
 -- | An event manager. The aihc runtime has none.
 data EventManager

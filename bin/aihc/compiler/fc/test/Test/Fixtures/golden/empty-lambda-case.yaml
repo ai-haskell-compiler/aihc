@@ -1,0 +1,10 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE LambdaCase, EmptyCase #-}
+  module Test where
+  data Void
+  absurd :: Void -> a
+  absurd = \case
+status: pass
+reason: A lambda-case with no alternative gets its function type from the annotation of the type checker.

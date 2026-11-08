@@ -503,7 +503,10 @@ inferLambdaCase sp alts = do
   argTy <- freshMetaTv
   resTy <- freshMetaTv
   (alts', cts) <- inferCaseAlts sp argTy resTy alts
-  pure (ELambdaCase alts', TcFunTy argTy resTy, cts)
+  -- The desugarer reads the type of the function from this annotation. A
+  -- lambda-case with no alternative has no other source of it.
+  let funTy = TcFunTy argTy resTy
+  pure (annotatePendingExprAt sp (pendingAnnotation funTy [] [] []) (ELambdaCase alts'), funTy, cts)
 
 -- | Pass the expected result into case branches before equality refinement.
 checkExpr :: TcType -> Expr -> TcM (Expr, TcType, [Ct])
@@ -926,6 +929,16 @@ spineResultType ty (frame : rest) = case frame of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
 
+-- | Whether a polytype is part of a type.
+mentionsPolyType :: TcType -> Bool
+mentionsPolyType ty = case ty of
+  TcForAllTy {} -> True
+  TcQualTy {} -> True
+  TcFunTy argument result -> mentionsPolyType argument || mentionsPolyType result
+  TcAppTy function argument -> mentionsPolyType function || mentionsPolyType argument
+  TcTyCon _ arguments -> any mentionsPolyType arguments
+  _ -> False
+
 -- | Whether a step is an argument whose expected type has givens.
 qualifiedArgument :: SpineStep -> TcM Bool
 qualifiedArgument step =
@@ -1026,7 +1039,7 @@ planSpine = go
             -- type, and then FC needs the cast the proof carries. The
             -- annotation is dropped again when the proof is reflexivity.
             pure (argTy, resTy, [mkWantedCt (EqPred instantiatedFunTy arrowTy) ev (AppOrigin sp) sp], Just (arrowTy, ev))
-      argState <-
+      (argState, instantiationVariables'') <-
         if isGuardedArgument arg
           then do
             boundary <- getUniqueBoundary
@@ -1034,9 +1047,23 @@ planSpine = go
             -- type is still inferred, and the quick look below and the
             -- equality of the second pass relate the two.
             (arg', argTy, argCts) <- checkExpr expectedArgTy arg
-            quickLookUnify instantiationVariables' expectedArgTy argTy
-            pure (ArgInferred boundary arg' argTy argCts)
-          else pure (ArgDeferred arg)
+            -- The instantiation of the argument's own head, as @a@ of
+            -- @Oracle :: (forall t. t -> Answer t a) -> Oracle a@ in
+            -- @Oracle $ \c -> ...@, gives instantiation variables of this
+            -- spine too, as in GHC's quick look. The result type can then
+            -- fix them before a later argument is checked under givens.
+            -- Only an argument with a polytype in its type needs this. Any
+            -- other argument leaves its variables to the solver, which
+            -- reduces a type family before it binds one.
+            zonkedArgTy <- zonkType argTy
+            let Unique boundaryKey = boundary
+                argumentVariables
+                  | mentionsPolyType zonkedArgTy = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
+                  | otherwise = IntSet.empty
+                extended = IntSet.union instantiationVariables' argumentVariables
+            quickLookUnify extended expectedArgTy argTy
+            pure (ArgInferred boundary arg' argTy argCts, extended)
+          else pure (ArgDeferred arg, instantiationVariables')
       let plan =
             ArgPlan
               { argPlanSpan = sp,
@@ -1047,7 +1074,7 @@ planSpine = go
                 argPlanArgument = argState,
                 argPlanIsInfixRhs = isInfixRhs
               }
-      continue (StepArg plan) instantiationVariables' [] resultTy frames
+      continue (StepArg plan) instantiationVariables'' [] resultTy frames
 
 -- | The second pass: check each argument and rebuild the nodes.
 --
@@ -1148,7 +1175,7 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   deferred <-
     if null predicates
       then unifyDeferring sp (AppOrigin sp) actualTy expectedBody
-      else unifyDeferringUnderGivens sp (AppOrigin sp) actualTy expectedBody
+      else unifyDeferringUnderGivens sp actualTy expectedBody
   -- Under givens, a deferred equality can need them, as @StM m a ~ a@
   -- needs the given @Pure m a@. Then the argument gets a cast to the
   -- expected type, and the proof of the cast can use the givens.
