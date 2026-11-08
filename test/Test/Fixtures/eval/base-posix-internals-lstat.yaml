@@ -1,0 +1,34 @@
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.String (withCString)
+    import Foreign.Marshal.Alloc (allocaBytes)
+    import System.Posix.Internals (lstat, s_isdir, s_isreg, sizeof_stat, st_mode)
+    import Prelude
+
+    isDirectory :: FilePath -> IO (Maybe Bool)
+    isDirectory path =
+      allocaBytes sizeof_stat $ \stat ->
+        withCString path $ \cPath -> do
+          status <- lstat cPath stat
+          if status == 0
+            then do
+              mode <- st_mode stat
+              return (Just (s_isdir mode && not (s_isreg mode)))
+            else return Nothing
+
+    main :: IO ()
+    main = do
+      print (sizeof_stat > 0)
+      isDirectory "." >>= print
+      isDirectory "./aihc-no-such-file" >>= print
+expression: main
+stdout: |
+  True
+  Just True
+  Nothing
+output: |
+  ()
+status: pass
+reason: System.Posix.Internals reads the file type of a path with lstat and st_mode, as in base

@@ -1,3 +1,7 @@
+{-# LANGUAGE CApiFFI #-}
+
+{- HLINT ignore "Use camelCase" -}
+
 -- | The POSIX layer the boot libraries are built on: the C types a POSIX
 -- call takes a pointer to, the marshalling of a 'FilePath' into the string a
 -- POSIX call wants, and the calls themselves.
@@ -28,6 +32,21 @@ module System.Posix.Internals
     setNonBlockingFD,
     setCloseOnExec,
 
+    -- * File metadata
+    sizeof_stat,
+    lstat,
+    st_mode,
+    st_size,
+    st_mtime,
+    st_dev,
+    st_ino,
+    s_isreg,
+    s_isdir,
+    s_ischr,
+    s_isblk,
+    s_isfifo,
+    s_issock,
+
     -- * The calls and their constants
     module System.Posix.Internals.Syscalls,
   )
@@ -40,12 +59,16 @@ import Data.Foldable (elem)
 import Data.Maybe (Maybe (..))
 import Foreign.C.Error (Errno (..), eINVAL, errnoToIOError, throwErrnoIfMinus1Retry, throwErrnoIfMinus1Retry_, throwErrnoIfMinus1_)
 import Foreign.C.String (CString, CStringLen, newCString, peekCString, peekCStringLen, withCString)
+import Foreign.C.Types (CInt (..), CTime (..))
+import Foreign.Ptr (Ptr)
 import GHC.Base (Monad (..), (>>))
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Runtime (decodeError, descriptorMode)
+import GHC.Int (Int64 (..))
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..), ioError)
 import System.Posix.Internals.Syscalls
 import System.Posix.Internals.Types
+import System.Posix.Types (CDev (..), CIno (..), CMode (..))
 import Prelude (FilePath, IO, Int, fromIntegral, (/=), (<), (==))
 
 -- | Run an action on the encoded form of a file path.
@@ -153,3 +176,72 @@ setNonBlockingFD descriptor enabled = do
 setCloseOnExec :: FD -> IO ()
 setCloseOnExec descriptor =
   throwErrnoIfMinus1_ "setCloseOnExec" (c_fcntl_write descriptor const_f_setfd (fromIntegral const_fd_cloexec))
+
+-- | The size of a @struct stat@, for the caller that allocates one.
+sizeof_stat :: Int
+sizeof_stat = fromIntegral c_sizeof_stat
+
+foreign import capi unsafe "aihc_stat.h value AIHC_SIZEOF_STAT"
+  c_sizeof_stat :: CInt
+
+-- | Read the metadata of a file into a @struct stat@. If the path names a
+-- symbolic link, the call reads the metadata of the link and not of its
+-- target.
+foreign import capi unsafe "sys/stat.h lstat"
+  lstat :: CFilePath -> Ptr CStat -> IO CInt
+
+-- | The file type and permission bits of a @struct stat@.
+foreign import capi unsafe "aihc_stat.h aihc_st_mode"
+  st_mode :: Ptr CStat -> IO CMode
+
+-- | The size in bytes of a @struct stat@ file.
+foreign import capi unsafe "aihc_stat.h aihc_st_size"
+  st_size :: Ptr CStat -> IO Int64
+
+-- | The time of the last change to the contents of a @struct stat@ file.
+foreign import capi unsafe "aihc_stat.h aihc_st_mtime"
+  st_mtime :: Ptr CStat -> IO CTime
+
+-- | The device that holds a @struct stat@ file.
+foreign import capi unsafe "aihc_stat.h aihc_st_dev"
+  st_dev :: Ptr CStat -> IO CDev
+
+-- | The inode number of a @struct stat@ file.
+foreign import capi unsafe "aihc_stat.h aihc_st_ino"
+  st_ino :: Ptr CStat -> IO CIno
+
+-- | Whether a file mode is that of a regular file.
+s_isreg :: CMode -> Bool
+s_isreg mode = c_s_isreg mode /= 0
+
+-- | Whether a file mode is that of a directory.
+s_isdir :: CMode -> Bool
+s_isdir mode = c_s_isdir mode /= 0
+
+-- | Whether a file mode is that of a character device.
+s_ischr :: CMode -> Bool
+s_ischr mode = c_s_ischr mode /= 0
+
+-- | Whether a file mode is that of a block device.
+s_isblk :: CMode -> Bool
+s_isblk mode = c_s_isblk mode /= 0
+
+-- | Whether a file mode is that of a FIFO.
+s_isfifo :: CMode -> Bool
+s_isfifo mode = c_s_isfifo mode /= 0
+
+-- | Whether a file mode is that of a socket.
+s_issock :: CMode -> Bool
+s_issock mode = c_s_issock mode /= 0
+
+foreign import capi unsafe "aihc_stat.h aihc_s_isreg" c_s_isreg :: CMode -> CInt
+
+foreign import capi unsafe "aihc_stat.h aihc_s_isdir" c_s_isdir :: CMode -> CInt
+
+foreign import capi unsafe "aihc_stat.h aihc_s_ischr" c_s_ischr :: CMode -> CInt
+
+foreign import capi unsafe "aihc_stat.h aihc_s_isblk" c_s_isblk :: CMode -> CInt
+
+foreign import capi unsafe "aihc_stat.h aihc_s_isfifo" c_s_isfifo :: CMode -> CInt
+
+foreign import capi unsafe "aihc_stat.h aihc_s_issock" c_s_issock :: CMode -> CInt
