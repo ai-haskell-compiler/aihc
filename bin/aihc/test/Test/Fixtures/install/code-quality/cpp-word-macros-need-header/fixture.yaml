@@ -1,0 +1,2 @@
+status: pass
+reason: As in GHC, a module sees the word macros only when it includes MachDeps.h.

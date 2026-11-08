@@ -19,7 +19,6 @@ module Aihc.Hackage.Cpp
   )
 where
 
-import Aihc.Hackage.Headers (haskellWordCppMacros)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, releaseVersionText)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
@@ -32,11 +31,13 @@ import Data.Text qualified as T
 
 -- | GHC version macros that every preprocessed file sees.
 -- Mirrors what GHC itself defines when invoking @cpp@.
+--
+-- The word macros, for example @WORD_SIZE_IN_BITS@, are not in this map. As
+-- in GHC, a module gets them only when it includes @MachDeps.h@. Some
+-- packages use this: bytestring-strict-builder reads @WORD_SIZE_IN_BITS@
+-- without the header, and only its branch for an undefined macro compiles.
 builtinCppMacros :: Map Text Text
-builtinCppMacros =
-  compilerVersionCppMacros
-    -- The word macros a module reads without including @MachDeps.h@ first.
-    `M.union` M.restrictKeys haskellWordCppMacros (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
+builtinCppMacros = compilerVersionCppMacros
 
 -- | The @__GLASGOW_HASKELL__@ family alone. The word macros are left out
 -- because a C compiler learns those from the runtime's own headers, and a
