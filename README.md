@@ -161,21 +161,24 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 ### Self-compile performance
 
 <!-- AUTO-GENERATED: START self-compile-perf -->
-The [Self-Compile Performance workflow](https://github.com/ai-haskell-compiler/aihc/actions/workflows/self-compile-perf.yml) compiles aihc three times.
+The [Self-Compile Performance workflow](https://github.com/ai-haskell-compiler/aihc/actions/workflows/self-compile-perf.yml) compiles aihc 5 times.
 Each build starts with an empty package store.
 Before the time starts, the build installs all dependencies of aihc.
 Thus, each time is for the local packages of this repository and the `aihc` executable.
 GHC compiles at its default level `-O1`.
-Each aihc build uses the native backend at `-O2` for `linux-amd64`.
+Each aihc build uses the native backend for `linux-amd64`.
+The `-O2` stage1 compiles both stage2 builds.
 Lower is better.
 
-| Stage | Compiler | Build time | Relative to stage0 | Executable size |
-| --- | --- | ---: | ---: | ---: |
-| stage0 | GHC 9.12.4 | 2m 47s | 1.00× | 66.5 MB |
-| stage1 | aihc stage0 | 7m 31s | 2.70× | 129.2 MB |
-| stage2 | aihc stage1 | 17m 30s | 6.29× | 129.2 MB |
+| Stage | Compiler | Level | Build time | Relative to stage0 | Executable size |
+| --- | --- | --- | ---: | ---: | ---: |
+| stage0 | GHC 9.12.4 | `-O1` | 3m 04s | 1.00× | 91.5 MB |
+| stage1 | aihc stage0 | `-O2` | 8m 48s | 2.87× | 143.2 MB |
+| stage2 | aihc stage1 | `-O2` | 28m 10s | 9.18× | 143.2 MB |
+| stage1 | aihc stage0 | `-O1` | 1m 21s | 0.44× | 236.6 MB |
+| stage2 | aihc stage1 | `-O1` | 11m 40s | 3.80× | 236.6 MB |
 
-Machine `ubuntu24 (8 cores)`, commit [`0fe0489d3`](https://github.com/ai-haskell-compiler/aihc/commit/0fe0489d3269da3804f3ce593bd42ee20677f6cb) (2026-11-01).
+Machine `ubuntu24 (8 cores)`, commit [`eb4ea411b`](https://github.com/ai-haskell-compiler/aihc/commit/eb4ea411bbb432c0e916992dc5b187eb9c304ddd) (2026-11-08).
 <!-- AUTO-GENERATED: END self-compile-perf -->
 
 ## FAQ
