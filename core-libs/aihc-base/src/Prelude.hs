@@ -218,8 +218,8 @@ import GHC.Real
     (^^),
   )
 import GHC.ST (ST (..))
-import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
+import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
