@@ -800,7 +800,7 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
         results <-
           withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
             withGivenPredicates sigPredicates $
-              mapM (tcMatchEquation inferExpr argTys resTy) matches
+              mapM (tcMatchEquation argTys resTy) matches
         let matches' = map fst results
             matchCts = concatMap snd results
         residualCts <- solveWithSigGivens scheme matchCts
@@ -900,7 +900,7 @@ tcMatches inferExpr matches@(m0 : _) = do
     else do
       argTys <- mapM (const freshMetaTv) [1 .. nArgs]
       resTy <- freshMetaTv
-      results <- mapM (tcMatchEquation inferExpr argTys resTy) matches
+      results <- mapM (tcMatchEquation argTys resTy) matches
       let matches' = map fst results
           allCts = concatMap snd results
       pure (matches', foldr TcFunTy resTy argTys, allCts)
@@ -910,8 +910,8 @@ inferZeroArgMatch inferExpr match = do
   (rhs', ty, cts) <- inferRhsWithLocals inferExpr (matchRhs match)
   pure (match {matchRhs = rhs'}, ty, cts)
 
-tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
-tcMatchEquation inferExpr argTys resTy match = do
+tcMatchEquation :: [TcType] -> TcType -> Match -> TcM (Match, [Ct])
+tcMatchEquation argTys resTy match = do
   let pats = matchPats match
       matchSpan = sourceSpanFromAnnotations (matchAnns match)
   when (length pats > length argTys) $
