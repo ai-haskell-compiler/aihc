@@ -13,6 +13,7 @@
 
 module Type.Reflection.Internal
   ( Typeable (..),
+    typeRep,
     TypeRep (..),
     withTypeable,
     (:~~:) (..),
@@ -66,8 +67,14 @@ data TypeRep (a :: k) = TypeRep TyCon [SomeTypeRep] [SomeTypeRep]
 data SomeTypeRep where
   SomeTypeRep :: forall k (a :: k). TypeRep a -> SomeTypeRep
 
+-- The class method takes the class kind @k@ as a specified type argument.
+-- Thus, @typeRep# \@Int@ gives a type argument to @k@ and not to @a@.
+-- The function 'typeRep' makes @k@ inferred, as GHC does.
 class Typeable (a :: k) where
-  typeRep :: TypeRep a
+  typeRep# :: TypeRep a
+
+typeRep :: forall {k} (a :: k). (Typeable a) => TypeRep a
+typeRep = typeRep#
 
 typeOf :: (Typeable a) => a -> TypeRep a
 typeOf _ = typeRep

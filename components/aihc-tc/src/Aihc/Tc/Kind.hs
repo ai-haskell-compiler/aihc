@@ -52,6 +52,7 @@ import Aihc.Parser.Syntax
     Name (..),
     SourceSpan,
     TupleFlavor (..),
+    TyVarBSpecificity (..),
     TyVarBinder (..),
     Type (..),
     TypeLiteral (..),
@@ -128,7 +129,12 @@ signatureScheme floatResult ty = do
   let (floatedTvs, floatedPreds, tcTy)
         | floatResult = floatResultQuantifiers checkedBody
         | otherwise = ([], [], checkedBody)
-  pure (specifiedScheme (implicitTvs <> explicitTvs <> floatedTvs) (preds <> floatedPreds) tcTy)
+  -- An explicit binder in braces, as @k@ in @forall {k} (a :: k).@, is
+  -- inferred. A type application does not give it a type argument.
+  let explicitInferred = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBInferred]
+      isExplicitInferred tyVar = tvUnique tyVar `elem` map tvUnique explicitInferred
+      specified = filter (not . isExplicitInferred) (implicitTvs <> explicitTvs <> floatedTvs)
+  pure (Scheme explicitInferred specified (preds <> floatedPreds) tcTy)
 
 -- | Move the quantifiers and contexts of a function result to the front of
 -- the type. A type synonym can put them there: with @type Action a =

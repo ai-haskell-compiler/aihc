@@ -1,0 +1,21 @@
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- RankNTypes
+- ScopedTypeVariables
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  import GHC.Types (Int)
+  data Proxy t = Proxy
+  -- The signature writes k in braces: k is an inferred binder.
+  -- The application reaches a and not k.
+  same :: forall {k} (a :: k). Proxy a -> Proxy a
+  same p = p
+  value :: Proxy Int
+  value = same @Int Proxy
+status: pass
+reason: a binder in braces in a signature is an inferred binder, so a visible type application reaches the next specified binder
