@@ -748,7 +748,7 @@ isLocalCandidate env bind =
 occurrenceViolations :: Env -> Map Name Int -> Set Name -> Set OneShotKey -> Body -> Maybe (Int, Int) -> Expr -> (Set OneShotKey, Set OneShotKey)
 occurrenceViolations env arities candidates rejected self parameter body =
   case parameter of
-    Nothing -> walk Map.empty (Tail (BodyResult self)) (afterManifest body)
+    Nothing -> found (walk Map.empty (Tail (BodyResult self)) (afterManifest body) none)
     Just (position, needed) ->
       case drop position (valueBinders body) of
         binder : _
@@ -757,10 +757,17 @@ occurrenceViolations env arities candidates rejected self parameter body =
               let (once, asked) = appliedOnce 1 (Tail (BodyResult self)) (binderName binder) (afterManifest body)
                in (if once then Set.empty else Set.singleton (Parameter self position needed), asked)
           | otherwise ->
-              let (violations, asked) = walk (Map.singleton (binderName binder) (Parameter self position needed, needed)) (Tail (BodyResult self)) (afterManifest body)
+              let Found violations asked = walk (Map.singleton (binderName binder) (Parameter self position needed, needed)) (Tail (BodyResult self)) (afterManifest body) none
                in (Set.filter isParameter violations, asked)
         [] -> (Set.singleton (Parameter self position needed), Set.empty)
   where
+    -- The walk threads the violations and the parameters it asks about
+    -- through the expression, and adds to them as it finds them.
+    none = Found Set.empty Set.empty
+    found (Found violations asked) = (violations, asked)
+    violate key (Found violations asked) = Found (Set.insert key violations) asked
+    ask key (Found violations asked) = Found violations (Set.insert key asked)
+    askAll keys (Found violations asked) = Found violations (Set.union asked keys)
     isParameter key = case key of
       Parameter {} -> True
       _ -> False
@@ -781,7 +788,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
     -- application of one of them, with its key and the number of
     -- arguments that the manifest lambdas still need.
     candidate aliases name
-      | Just found <- Map.lookup name aliases = Just found
+      | Just found' <- Map.lookup name aliases = Just found'
       | Set.member name candidates,
         accepted (UsesOnce self name) =
           Just (UsesOnce self name, arity name)
@@ -791,98 +798,99 @@ occurrenceViolations env arities candidates rejected self parameter body =
       | Set.member function candidates && accepted (UsesOnce self function) = (function, OnceVersion)
       | otherwise = (function, SharedVersion)
     accepted key = Set.notMember key rejected
-    violation key = (Set.singleton key, Set.empty)
-    walk aliases position expr =
+    walkAll aliases position exprs acc = List.foldl' (flip (walk aliases position)) acc exprs
+    walk aliases position expr acc =
       case spine expr of
         (ExVar name, arguments)
           | Just (key, needed) <- candidate aliases name ->
               let ok =
                     valueCount arguments > needed
                       || (valueCount arguments <= needed && isResultTail position)
-               in (if ok then mempty else violation key) <> walkArguments aliases name arguments
-        (ExVar name, arguments) -> walkArguments aliases name arguments
-        (function, arguments@(_ : _)) -> walk aliases Inner function <> foldMap (walk aliases Inner) (rights arguments)
+               in walkArguments aliases name arguments (if ok then acc else violate key acc)
+        (ExVar name, arguments) -> walkArguments aliases name arguments acc
+        (function, arguments@(_ : _)) -> walkAll aliases Inner (rights arguments) (walk aliases Inner function acc)
         _ -> case expr of
           ExLet bind inner ->
             let binder = binderName (bindBinder bind)
                 rhs = bindRhs bind
-                (rhsResult, aliases') = case spine (uncast rhs) of
+                (acc', aliases') = case spine (uncast rhs) of
                   -- A partial application that the manifest lambdas still
                   -- need arguments for does no work. Each use of its
                   -- binder is a use of the value with those arguments.
                   (ExVar name, arguments)
                     | Just (key, needed) <- candidate aliases name,
                       valueCount arguments < needed ->
-                        (walkArguments aliases name arguments, Map.insert binder (key, needed - valueCount arguments) aliases)
+                        (walkArguments aliases name arguments acc, Map.insert binder (key, needed - valueCount arguments) aliases)
                   (ExVar name, arguments)
                     | Just (key, needed) <- candidate aliases name,
                       valueCount arguments == needed ->
                         let (once, asked) = appliedOnce 1 position binder inner
-                         in ((if once then (Set.empty, asked) else violation key) <> walkArguments aliases name arguments, aliases)
+                         in (walkArguments aliases name arguments (if once then askAll asked acc else violate key acc), aliases)
                   _
                     | Just (joinBody', over) <- joinBody binder rhs inner ->
                         let joinPosition = if over then Applied else position
                             -- A join point returns what the let returns.
                             -- Its results are one-shot only where the
                             -- result of the let is.
-                            shared = if isLocalCandidate env bind && not (isResultTail joinPosition) then violation (localKey bind) else mempty
-                         in (shared <> walk aliases joinPosition joinBody', aliases)
-                    | isLocalCandidate env bind -> local aliases bind
+                            shared = if isLocalCandidate env bind && not (isResultTail joinPosition) then violate (localKey bind) acc else acc
+                         in (walk aliases joinPosition joinBody' shared, aliases)
+                    | isLocalCandidate env bind -> local aliases bind acc
                     -- A value that the body applies at most once: each
                     -- closure that a tail of the right side gives is
                     -- applied at most once.
-                    | (True, asked) <- appliedOnce 1 position binder inner -> ((Set.empty, asked) <> walk aliases Applied rhs, aliases)
-                    | otherwise -> (walk aliases Inner rhs, aliases)
-             in rhsResult <> walk aliases' position inner
+                    | (True, asked) <- appliedOnce 1 position binder inner -> (walk aliases Applied rhs (askAll asked acc), aliases)
+                    | otherwise -> (walk aliases Inner rhs acc, aliases)
+             in walk aliases' position inner acc'
           ExRec binds inner ->
             let members = [bind | bind <- binds, isLocalCandidate env bind, accepted (localKey bind)]
                 aliases' = List.foldl' (\current bind -> Map.insert (binderName (bindBinder bind)) (localKey bind, manifestArity env (bindRhs bind)) current) aliases members
-                rhsResult bind
-                  | bind `elem` members = walk aliases' (Tail (localKey bind)) (afterManifest (bindRhs bind))
-                  | otherwise = walk aliases' Inner (bindRhs bind)
-             in foldMap rhsResult binds <> walk aliases' position inner
+                rhsResult current bind
+                  | bind `elem` members = walk aliases' (Tail (localKey bind)) (afterManifest (bindRhs bind)) current
+                  | otherwise = walk aliases' Inner (bindRhs bind) current
+             in walk aliases' position inner (List.foldl' rhsResult acc binds)
           -- A strict let of a value that the body applies at most once:
           -- each closure that a tail of the scrutinee gives is applied at
           -- most once.
           ExCase scrutinee (Just binder) (Alt AltDefault [] [] rhs NE.:| [])
             | (True, asked) <- appliedOnce 1 position (binderName binder) rhs ->
-                (Set.empty, asked) <> walk aliases Applied scrutinee <> walk aliases position rhs
-          ExCase scrutinee _ alternatives -> walk aliases Inner scrutinee <> foldMap (walk aliases position . altRhs) alternatives
-          ExCast inner _ -> walk aliases position inner
-          ExTyLam _ inner -> walk aliases position inner
+                walk aliases position rhs (walk aliases Applied scrutinee (askAll asked acc))
+          ExCase scrutinee _ alternatives -> walkAll aliases position (map altRhs (NE.toList alternatives)) (walk aliases Inner scrutinee acc)
+          ExCast inner _ -> walk aliases position inner acc
+          ExTyLam _ inner -> walk aliases position inner acc
           -- A result lambda of a value of the set is entered at most once,
           -- and its body is in the tail of the value too.
-          ExLam _ inner -> walk aliases (if isResultTail position then position else Inner) inner
-          ExAbsurd scrutinee _ -> walk aliases Inner scrutinee
-          ExForeignCall _ _ arguments -> foldMap (walk aliases Inner) arguments
-          _ -> mempty
+          ExLam _ inner -> walk aliases (if isResultTail position then position else Inner) inner acc
+          ExAbsurd scrutinee _ -> walk aliases Inner scrutinee acc
+          ExForeignCall _ _ arguments -> walkAll aliases Inner arguments acc
+          _ -> acc
     -- A local function of the set: its body is in the tail of the
     -- function, and each use of its binder is a use of the function.
-    local aliases bind
-      | accepted key = (walk aliases (Tail key) (afterManifest (bindRhs bind)), Map.insert (binderName (bindBinder bind)) (key, manifestArity env (bindRhs bind)) aliases)
-      | otherwise = (walk aliases Inner (bindRhs bind), aliases)
+    local aliases bind acc
+      | accepted key = (walk aliases (Tail key) (afterManifest (bindRhs bind)) acc, Map.insert (binderName (bindBinder bind)) (key, manifestArity env (bindRhs bind)) aliases)
+      | otherwise = (walk aliases Inner (bindRhs bind) acc, aliases)
       where
         key = localKey bind
     localKey bind = LocalValue self (binderName (bindBinder bind))
     -- An argument of a top-level function that is a partial application of
     -- a candidate is accepted when the parameter at its position is in the
     -- set for the missing arguments.
-    walkArguments aliases function arguments =
-      mconcat
-        [ case spine (uncast argument) of
+    walkArguments aliases function arguments acc0 = List.foldl' step acc0 (zip [0 ..] (rights arguments))
+      where
+        step acc (index, argument) =
+          case spine (uncast argument) of
             (ExVar name, inner)
               | Just (key, needed) <- candidate aliases name,
                 valueCount inner < needed,
                 index < Map.findWithDefault 0 function arities ->
                   let asked = Parameter (calledBody function) index (needed - valueCount inner)
-                   in (if accepted asked then (Set.empty, Set.singleton asked) else violation key) <> foldMap (walk aliases Inner) (rights inner)
+                   in walkAll aliases Inner (rights inner) (if accepted asked then ask asked acc else violate key acc)
               -- A closure that a call of a top-level function with its
               -- manifest arguments gets is applied as that function
               -- applies the parameter.
               | Just (key, needed) <- candidate aliases name,
                 valueCount inner == needed,
                 Just asked <- closureParameter function (valueCount arguments) index ->
-                  (if accepted asked then (Set.empty, Set.singleton asked) else violation key) <> foldMap (walk aliases Inner) (rights inner)
+                  walkAll aliases Inner (rights inner) (if accepted asked then ask asked acc else violate key acc)
             -- A lambda that a top-level function gets is applied as that
             -- function applies the parameter. Its body is in the tail of
             -- the parameter when the parameter is in the set for the
@@ -892,10 +900,8 @@ occurrenceViolations env arities candidates rejected self parameter body =
                 index < manifest,
                 let asked = Parameter (calledBody function) index (manifestArity env argument),
                 accepted asked ->
-                  (Set.empty, Set.singleton asked) <> walk aliases (Tail asked) (afterManifest argument)
-            _ -> walk aliases Inner argument
-        | (index, argument) <- zip [0 ..] (rights arguments)
-        ]
+                  walk aliases (Tail asked) (afterManifest argument) (ask asked acc)
+            _ -> walk aliases Inner argument acc
     arity name = Map.findWithDefault 0 name arities
     isResultTail position = case position of
       Tail key -> case key of
@@ -906,53 +912,61 @@ occurrenceViolations env arities candidates rejected self parameter body =
     -- Whether each path applies the binder at most once, and every use
     -- applies it, with the parameters that such a use gives the binder to.
     appliedOnce needed position binder inner =
-      let (count, applied, asked) = occurrences needed position binder inner
+      let Occ count applied asked = occurrences needed position binder inner (Occ Zero True Set.empty)
        in (count <= One && applied, asked)
-    occurrences needed position binder expr =
+    -- The occurrences of the binder, added to the count, the flag and the
+    -- parameters in hand. The count of a part that a case alternative or a
+    -- lambda bounds starts from zero, so that the part can set it.
+    occurrences needed position binder expr acc@(Occ countIn appliedIn askedIn) =
       case spine expr of
         (ExVar name, arguments)
           | name == binder ->
-              let (count, applied, asked) = combine (map (occurrences needed Inner binder) (rights arguments))
-               in (addCount One count, applied && valueCount arguments >= needed, asked)
-        (ExVar name, arguments) -> combine (zipWith (given name (valueCount arguments)) [0 ..] (rights arguments))
-        (function, arguments@(_ : _)) -> combine (occurrences needed Inner binder function : map (occurrences needed Inner binder) (rights arguments))
+              let Occ count applied asked = occurrencesAll needed binder (rights arguments) acc
+               in Occ (addCount One count) (applied && valueCount arguments >= needed) asked
+        (ExVar name, arguments) -> List.foldl' (\current (index, argument) -> given name (valueCount arguments) index argument current) acc (zip [0 ..] (rights arguments))
+        (function, arguments@(_ : _)) -> occurrencesAll needed binder (rights arguments) (occurrences needed Inner binder function acc)
         _ -> case expr of
           ExLet bind inner
-            | binderName (bindBinder bind) == binder -> occurrences needed Inner binder (bindRhs bind)
+            | binderName (bindBinder bind) == binder -> occurrences needed Inner binder (bindRhs bind) acc
             | Just (joinBody', over) <- joinBody (binderName (bindBinder bind)) (bindRhs bind) inner ->
-                combine [occurrences needed (if over then Applied else position) binder joinBody', occurrences needed position binder inner]
-            | otherwise -> combine [occurrences needed Inner binder (bindRhs bind), occurrences needed position binder inner]
+                occurrences needed position binder inner (occurrences needed (if over then Applied else position) binder joinBody' acc)
+            | otherwise -> occurrences needed position binder inner (occurrences needed Inner binder (bindRhs bind) acc)
           ExRec binds inner
-            | any ((== binder) . binderName . bindBinder) binds -> (Zero, True, Set.empty)
+            | any ((== binder) . binderName . bindBinder) binds -> acc
             | otherwise ->
-                let (count, applied, asked) = combine (map (occurrences needed Inner binder . bindRhs) binds)
-                 in combine [(if count == Zero then Zero else Many, applied, asked), occurrences needed position binder inner]
+                let Occ count applied asked = occurrencesAll needed binder (map bindRhs binds) (Occ Zero True askedIn)
+                 in occurrences needed position binder inner (Occ (addCount countIn (if count == Zero then Zero else Many)) (appliedIn && applied) asked)
           ExCase scrutinee caseBinder alternatives
-            | any ((== binder) . binderName) caseBinder -> occurrences needed Inner binder scrutinee
+            | any ((== binder) . binderName) caseBinder -> occurrences needed Inner binder scrutinee acc
             | otherwise ->
-                let branches = [occurrences needed position binder (altRhs alternative) | alternative <- NE.toList alternatives, binder `notElem` map binderName (altBinders alternative)]
-                 in combine [occurrences needed Inner binder scrutinee, (maximum (Zero : [count | (count, _, _) <- branches]), and [applied | (_, applied, _) <- branches], foldMap (\(_, _, asked) -> asked) branches)]
-          ExCast inner _ -> occurrences needed position binder inner
-          ExTyLam _ inner -> occurrences needed position binder inner
+                let Occ count0 applied0 asked0 = occurrences needed Inner binder scrutinee acc
+                    branch (Occ best appliedAll asked) alternative =
+                      let Occ count applied asked' = occurrences needed position binder (altRhs alternative) (Occ Zero True asked)
+                       in Occ (max best count) (appliedAll && applied) asked'
+                    Occ count1 applied1 asked1 = List.foldl' branch (Occ Zero True asked0) [alternative | alternative <- NE.toList alternatives, binder `notElem` map binderName (altBinders alternative)]
+                 in Occ (addCount count0 count1) (applied0 && applied1) asked1
+          ExCast inner _ -> occurrences needed position binder inner acc
+          ExTyLam _ inner -> occurrences needed position binder inner acc
           ExLam lambda inner
-            | binderName lambda == binder -> (Zero, True, Set.empty)
+            | binderName lambda == binder -> acc
             | otherwise ->
-                let (count, applied, asked) = occurrences needed Inner binder inner
-                 in (if isResultTail position || count == Zero then count else Many, applied, asked)
-          ExAbsurd scrutinee _ -> occurrences needed Inner binder scrutinee
-          ExForeignCall _ _ arguments -> combine (map (occurrences needed Inner binder) arguments)
-          _ -> (Zero, True, Set.empty)
+                let Occ count applied asked = occurrences needed Inner binder inner (Occ Zero True askedIn)
+                 in Occ (addCount countIn (if isResultTail position || count == Zero then count else Many)) (appliedIn && applied) asked
+          ExAbsurd scrutinee _ -> occurrences needed Inner binder scrutinee acc
+          ExForeignCall _ _ arguments -> occurrencesAll needed binder arguments acc
+          _ -> acc
       where
         -- The binder itself as an argument of a call of a top-level
         -- function with its manifest arguments is one use, when the
         -- function applies its parameter at most once.
-        given function count index argument
+        given function count index argument current@(Occ countNow appliedNow askedNow)
           | needed == 1,
             ExVar name <- uncast argument,
             name == binder,
             Just asked <- closureParameter function count index =
-              (One, accepted asked, Set.singleton asked)
-          | otherwise = occurrences needed Inner binder argument
+              Occ (addCount countNow One) (appliedNow && accepted asked) (Set.insert asked askedNow)
+          | otherwise = occurrences needed Inner binder argument current
+    occurrencesAll needed binder exprs acc = List.foldl' (flip (occurrences needed Inner binder)) acc exprs
     -- The parameter that a call of a top-level function with its manifest
     -- arguments gives a closure to.
     closureParameter function count index
@@ -965,7 +979,6 @@ occurrenceViolations env arities candidates rejected self parameter body =
     uncast expr = case expr of
       ExCast inner _ -> uncast inner
       _ -> expr
-    combine results = (List.foldl' addCount Zero [count | (count, _, _) <- results], and [applied | (_, applied, _) <- results], foldMap (\(_, _, asked) -> asked) results)
     -- The body of a join point: a let of lambdas whose binder the body
     -- only calls in its tail, with all the arguments of the lambdas.
     joinBody binder rhs inner =
@@ -1012,6 +1025,14 @@ occurrenceViolations env arities candidates rejected self parameter body =
             ExTyApp function argument -> go (Left argument : arguments) function
             ExCast function _ | not (null arguments) -> go arguments function
             _ -> (expr, arguments)
+
+-- | What 'occurrenceViolations' found so far: the keys with an occurrence
+-- that the set does not accept, and the parameters the walk asks about.
+data Found = Found !(Set OneShotKey) !(Set OneShotKey)
+
+-- | The occurrences of one binder so far: the count, whether every use
+-- applies it, and the parameters the walk asks about.
+data Occ = Occ !Count !Bool !(Set OneShotKey)
 
 -- * The pass
 

@@ -5896,11 +5896,13 @@ occurrencesUnder bounded credit0 inside0 name expr0 = go credit0 inside0 False e
 -- * Call arity
 
 -- | How an expression uses a name: the fewest value arguments any use
--- gives it, and its occurrences.
-data Use = Use !Int !Occurrences
+-- gives it, the number of its occurrences, and the largest number of
+-- repeated lambdas above an occurrence. 'callArityAnalysis' reads the
+-- last two at the binder of the name; a caller reads the arguments.
+data Use = Use !Int !Int !Int
 
 instance Semigroup Use where
-  Use args1 occurrences1 <> Use args2 occurrences2 = Use (min args1 args2) (occurrences1 <> occurrences2)
+  Use args1 count1 deepest1 <> Use args2 count2 deepest2 = Use (min args1 args2) (count1 + count2) (max deepest1 deepest2)
 
 -- | The call arity of every name an expression uses, and the credit of
 -- every binder the expression binds, when the result of the expression
@@ -5927,58 +5929,85 @@ instance Semigroup Use where
 -- body and in the group, from the body down; a thunk in a group gets
 -- none.
 callArityAnalysis :: Int -> Bool -> Expr -> (Map Name Use, Map Name Int)
-callArityAnalysis = go
+callArityAnalysis credit0 inside0 expr0 =
+  let Acc uses credits = go credit0 inside0 0 expr0 (Acc Map.empty Map.empty)
+   in (uses, credits)
   where
-    go credit inside expr =
+    -- The walk threads one accumulator of the uses and one of the
+    -- credits through the expression, and adds each occurrence to it as
+    -- it finds it. An occurrence records the number of repeated lambdas
+    -- above it. A consumer at a depth then sees the occurrence as
+    -- repeated when a repeated lambda stands between them. This gives
+    -- the same answers as a map over the uses of each lambda body.
+    go !credit !inside !depth expr acc@(Acc uses credits) =
       case expr of
-        ExVar name -> (Map.singleton name (Use credit (Occurrences 1 False)), Map.empty)
-        ExLit {} -> (Map.empty, Map.empty)
-        ExCoercion coercion -> (coercionUses coercion, Map.empty)
-        ExApp function argument -> go (credit + 1) inside function `both` go 0 False argument
-        ExTyApp function _ -> go credit inside function
+        ExVar name -> Acc (addUse name (Use credit 1 depth) uses) credits
+        ExLit {} -> acc
+        ExCoercion coercion -> coercionUses depth coercion acc
+        ExApp function argument -> go 0 False depth argument (go (credit + 1) inside depth function acc)
+        ExTyApp function _ -> go credit inside depth function acc
         ExLam _ body
-          | inside && credit > 0 -> go (credit - 1) True body
-          | otherwise -> repeated (go (max 0 (credit - 1)) True body)
-        ExTyLam _ body -> go credit inside body
+          | inside && credit > 0 -> go (credit - 1) True depth body acc
+          | otherwise -> go (max 0 (credit - 1)) True (depth + 1) body acc
+        ExTyLam _ body -> go credit inside depth body acc
         ExLet bind body ->
           let name = binderName (bindBinder bind)
-              (inBody, bodyCredits) = go credit inside body
-              rhsCredit = letCredit (isFunctionRhs (bindRhs bind)) (Map.lookup name inBody)
-              (inRhs, rhsCredits) = go rhsCredit False (bindRhs bind)
-           in (Map.unionWith (<>) (Map.delete name inBody) inRhs, Map.insert name rhsCredit (Map.union bodyCredits rhsCredits))
+              -- An earlier binder of the same name keeps its credit.
+              present = Map.member name credits
+              keep rhsCredit rhsCredits = if present then rhsCredits else Map.insert name rhsCredit rhsCredits
+           in case Map.lookup name uses of
+                -- The name is free around the let, so the uses of the body
+                -- are kept apart from the uses in hand.
+                Just _ ->
+                  let Acc inBody bodyCredits = go credit inside depth body (Acc Map.empty Map.empty)
+                      rhsCredit = letCredit depth (isFunctionRhs (bindRhs bind)) (Map.lookup name inBody)
+                      Acc inRhs rhsCredits = go rhsCredit False depth (bindRhs bind) (Acc Map.empty Map.empty)
+                   in Acc
+                        (Map.unionWith (<>) (Map.unionWith (<>) uses (Map.delete name inBody)) inRhs)
+                        (Map.union credits (Map.insert name rhsCredit (Map.union bodyCredits rhsCredits)))
+                Nothing ->
+                  let Acc inBody bodyCredits = go credit inside depth body acc
+                      rhsCredit = letCredit depth (isFunctionRhs (bindRhs bind)) (Map.lookup name inBody)
+                      Acc inRhs rhsCredits = go rhsCredit False depth (bindRhs bind) (Acc (Map.delete name inBody) bodyCredits)
+                   in Acc inRhs (keep rhsCredit rhsCredits)
         ExRec binds body ->
           let names = map (binderName . bindBinder) binds
-              (inBody, bodyCredits) = go credit inside body
+              Acc inBody bodyCredits = go credit inside depth body (Acc Map.empty Map.empty)
               functions = Set.fromList [name | (name, bind) <- zip names binds, isFunctionRhs (bindRhs bind)]
               initial = Map.fromSet (\name -> maybe 0 useArgs (Map.lookup name inBody)) functions
-              (credits, analysed) = settle initial
-              inGroup = List.foldl' (\acc (inRhs, _) -> Map.unionWith (<>) acc inRhs) Map.empty analysed
-              groupCredits = Map.unions (map snd analysed)
-           in ( Map.withoutKeys (Map.unionWith (<>) inBody (fst (repeated (inGroup, Map.empty)))) (Set.fromList names),
-                Map.unions [credits, bodyCredits, groupCredits]
-              )
+              (groupCredits, Acc inGroup innerCredits) = settle initial
+           in Acc
+                (Map.unionWith (<>) uses (Map.withoutKeys (Map.unionWith (<>) inBody inGroup) (Set.fromList names)))
+                (Map.union credits (Map.unions [groupCredits, bodyCredits, innerCredits]))
           where
             -- The group lowers each credit until the uses in the group
-            -- agree with it. A credit only goes down, so this ends.
+            -- agree with it. A credit only goes down, so this ends. Every
+            -- occurrence in the group is repeated: the group runs its
+            -- right-hand sides once per call of a member.
             settle current =
-              let analysed = [go (Map.findWithDefault 0 (binderName (bindBinder bind)) current) False (bindRhs bind) | bind <- binds]
-                  next = Map.mapWithKey (\name assumed -> minimum (assumed : [useArgs use | (inRhs, _) <- analysed, Just use <- [Map.lookup name inRhs]])) current
+              let analysed = List.foldl' (\acc' bind -> go (Map.findWithDefault 0 (binderName (bindBinder bind)) current) False (depth + 1) (bindRhs bind) acc') (Acc Map.empty Map.empty) binds
+                  Acc inGroup _ = analysed
+                  next = Map.mapWithKey (\name assumed -> maybe assumed (min assumed . useArgs) (Map.lookup name inGroup)) current
                in if next == current then (current, analysed) else settle next
-        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' both (go 0 False scrutinee) (map (go credit inside . altRhs) alternatives)
-        ExAbsurd scrutinee _ -> go 0 False scrutinee
-        ExCast body coercion -> go credit inside body `both` (coercionUses coercion, Map.empty)
-        ExForeignCall _ _ arguments -> List.foldl' both (Map.empty, Map.empty) (map (go 0 False) arguments)
-    both (uses1, credits1) (uses2, credits2) = (Map.unionWith (<>) uses1 uses2, Map.union credits1 credits2)
-    repeated (uses, credits) = (Map.map (\(Use args (Occurrences count _)) -> Use args (Occurrences count (count > 0))) uses, credits)
-    coercionUses coercion = Map.fromListWith (<>) [(name, Use 0 (Occurrences 1 False)) | name <- coercionVariables coercion]
-    useArgs (Use args _) = args
-    letCredit function use =
+        ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (\current alternative -> go credit inside depth (altRhs alternative) current) (go 0 False depth scrutinee acc) alternatives
+        ExAbsurd scrutinee _ -> go 0 False depth scrutinee acc
+        ExCast body coercion -> coercionUses depth coercion (go credit inside depth body acc)
+        ExForeignCall _ _ arguments -> List.foldl' (flip (go 0 False depth)) acc arguments
+    addUse = Map.insertWith (<>)
+    coercionUses depth coercion (Acc uses credits) =
+      Acc (List.foldl' (\current name -> addUse name (Use 0 1 depth) current) uses (coercionVariables coercion)) credits
+    useArgs (Use args _ _) = args
+    letCredit depth function use =
       case use of
         Nothing -> 0
-        Just (Use args uses)
+        Just (Use args count deepest)
           | function -> args
-          | Occurrences 1 False <- uses -> args
+          | count == 1, deepest <= depth -> args
           | otherwise -> 0
+
+-- | The accumulator of 'callArityAnalysis': the uses and the credits
+-- found so far.
+data Acc = Acc !(Map Name Use) !(Map Name Int)
 
 -- | Whether a right-hand side is a function: a lambda under type
 -- lambdas and casts, so that each call runs it afresh.
@@ -6010,7 +6039,7 @@ topUses body = Map.filterWithKey (\name _ -> isTop name) (fst (callArityAnalysis
 -- | 'topCallArities' from the 'topUses' of each body.
 topCallAritiesFrom :: Set Name -> [Map Name Use] -> Map Name Int
 topCallAritiesFrom escaping uses =
-  Map.map (\(Use args _) -> args) (List.foldl' (Map.unionWith (<>)) Map.empty uses) `Map.withoutKeys` escaping
+  Map.map (\(Use args _ _) -> args) (List.foldl' (Map.unionWith (<>)) Map.empty uses) `Map.withoutKeys` escaping
 
 -- | The values that the rewrite rules of a program name.
 ruleValueNames :: [Decl] -> Set Name
@@ -6041,27 +6070,54 @@ coercionVariables coercion =
 substExpr :: Map Name Expr -> Expr -> Expr
 substExpr = go
   where
+    -- A part without an occurrence of a name stays the same object, so
+    -- the result shares every part of the input that does not change.
     go subst expr
       | Map.null subst = expr
       | otherwise =
           case expr of
             ExVar name -> Map.findWithDefault expr name subst
             ExLit {} -> expr
-            ExApp function argument -> ExApp (go subst function) (go subst argument)
-            ExTyApp function ty -> ExTyApp (go subst function) ty
-            ExLam binder body -> ExLam binder (go (hide [binder] subst) body)
-            ExTyLam binder body -> ExTyLam binder (go (hide [binder] subst) body)
-            ExLet bind body -> ExLet bind {bindRhs = go subst (bindRhs bind)} (go (hide [bindBinder bind] subst) body)
+            ExApp function argument ->
+              let !function' = go subst function
+                  !argument' = go subst argument
+               in if sameObject function function' && sameObject argument argument' then expr else ExApp function' argument'
+            ExTyApp function ty ->
+              let !function' = go subst function
+               in if sameObject function function' then expr else ExTyApp function' ty
+            ExLam binder body ->
+              let !body' = go (hide [binder] subst) body
+               in if sameObject body body' then expr else ExLam binder body'
+            ExTyLam binder body ->
+              let !body' = go (hide [binder] subst) body
+               in if sameObject body body' then expr else ExTyLam binder body'
+            ExLet bind body ->
+              let !rhs' = go subst (bindRhs bind)
+                  !body' = go (hide [bindBinder bind] subst) body
+               in if sameObject (bindRhs bind) rhs' && sameObject body body' then expr else ExLet bind {bindRhs = rhs'} body'
             ExRec binds body ->
               let inner = hide (map bindBinder binds) subst
-               in ExRec [bind {bindRhs = go inner (bindRhs bind)} | bind <- binds] (go inner body)
+                  !binds' = sameList (\bind -> let !rhs' = go inner (bindRhs bind) in if sameObject (bindRhs bind) rhs' then bind else bind {bindRhs = rhs'}) binds
+                  !body' = go inner body
+               in if sameObject binds binds' && sameObject body body' then expr else ExRec binds' body'
             ExCase scrutinee binder alternatives ->
               let caseSubst = hide (foldr (:) [] binder) subst
-               in ExCase (go subst scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (hide (altTypeBinders alternative <> altBinders alternative) caseSubst) (altRhs alternative)}) alternatives)
-            ExAbsurd scrutinee resultType -> ExAbsurd (go subst scrutinee) resultType
-            ExCast body coercion -> ExCast (go subst body) (substCoercion subst coercion)
-            ExCoercion coercion -> ExCoercion (substCoercion subst coercion)
-            ExForeignCall call types arguments -> ExForeignCall call types (map (go subst) arguments)
+                  !scrutinee' = go subst scrutinee
+                  !alternatives' = sameNonEmpty (\alternative -> let !rhs' = go (hide (altTypeBinders alternative <> altBinders alternative) caseSubst) (altRhs alternative) in if sameObject (altRhs alternative) rhs' then alternative else alternative {altRhs = rhs'}) alternatives
+               in if sameObject scrutinee scrutinee' && sameObject alternatives alternatives' then expr else ExCase scrutinee' binder alternatives'
+            ExAbsurd scrutinee resultType ->
+              let !scrutinee' = go subst scrutinee
+               in if sameObject scrutinee scrutinee' then expr else ExAbsurd scrutinee' resultType
+            ExCast body coercion ->
+              let !body' = go subst body
+                  !coercion' = substCoercion subst coercion
+               in if sameObject body body' && sameObject coercion coercion' then expr else ExCast body' coercion'
+            ExCoercion coercion ->
+              let !coercion' = substCoercion subst coercion
+               in if sameObject coercion coercion' then expr else ExCoercion coercion'
+            ExForeignCall call types arguments ->
+              let !arguments' = sameList (go subst) arguments
+               in if sameObject arguments arguments' then expr else ExForeignCall call types arguments'
     hide binders subst = List.foldl' (flip (Map.delete . binderName)) subst binders
     substCoercion subst coercion =
       case coercion of
@@ -6071,14 +6127,52 @@ substExpr = go
             Just (ExVar replacement) -> CoVar replacement
             _ -> coercion
         CoRefl {} -> coercion
-        CoSym inner -> CoSym (substCoercion subst inner)
-        CoTrans left right -> CoTrans (substCoercion subst left) (substCoercion subst right)
-        CoApp left right -> CoApp (substCoercion subst left) (substCoercion subst right)
-        CoFun left right -> CoFun (substCoercion subst left) (substCoercion subst right)
-        CoForAll binder body -> CoForAll binder (substCoercion (hide [binder] subst) body)
-        CoNth index inner -> CoNth index (substCoercion subst inner)
-        CoTyConApp name inners -> CoTyConApp name (map (substCoercion subst) inners)
+        CoSym inner ->
+          let !inner' = substCoercion subst inner
+           in if sameObject inner inner' then coercion else CoSym inner'
+        CoTrans left right ->
+          let !left' = substCoercion subst left
+              !right' = substCoercion subst right
+           in if sameObject left left' && sameObject right right' then coercion else CoTrans left' right'
+        CoApp left right ->
+          let !left' = substCoercion subst left
+              !right' = substCoercion subst right
+           in if sameObject left left' && sameObject right right' then coercion else CoApp left' right'
+        CoFun left right ->
+          let !left' = substCoercion subst left
+              !right' = substCoercion subst right
+           in if sameObject left left' && sameObject right right' then coercion else CoFun left' right'
+        CoForAll binder body ->
+          let !body' = substCoercion (hide [binder] subst) body
+           in if sameObject body body' then coercion else CoForAll binder body'
+        CoNth index inner ->
+          let !inner' = substCoercion subst inner
+           in if sameObject inner inner' then coercion else CoNth index inner'
+        CoTyConApp name inners ->
+          let !inners' = sameList (substCoercion subst) inners
+           in if sameObject inners inners' then coercion else CoTyConApp name inners'
         CoAxiom {} -> coercion
+
+-- | Map a function over a list, and keep the list itself when the
+-- function keeps every element. The function must give the same object
+-- for an element that does not change.
+sameList :: (a -> a) -> [a] -> [a]
+sameList f = go
+  where
+    go list =
+      case list of
+        [] -> list
+        x : rest ->
+          let !x' = f x
+              !rest' = go rest
+           in if sameObject x x' && sameObject rest rest' then list else x' : rest'
+
+-- | 'sameList' for a non-empty list.
+sameNonEmpty :: (a -> a) -> NE.NonEmpty a -> NE.NonEmpty a
+sameNonEmpty f list@(x NE.:| rest) =
+  let !x' = f x
+      !rest' = sameList f rest
+   in if sameObject x x' && sameObject rest rest' then list else x' NE.:| rest'
 
 -- | Replace type variables in every type of an expression.
 substTypeExpr :: Map Name Type -> Expr -> Expr

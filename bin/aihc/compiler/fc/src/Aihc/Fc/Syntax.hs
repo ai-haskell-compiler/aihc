@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE MagicHash #-}
 
 -- | System FC abstract syntax.
 module Aihc.Fc.Syntax
@@ -8,6 +9,8 @@ module Aihc.Fc.Syntax
     Binder (..),
     Expr (..),
     exprFreeNames,
+    exprMentionsFree,
+    sameObject,
     caseFromList,
     Bind (..),
     Alt (..),
@@ -46,7 +49,39 @@ import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 import GHC.Generics (Generic)
+
+-- | Whether two values are the same heap object. A walk that rebuilds an
+-- expression uses this to keep a part that did not change, so that the
+-- result shares the parts of its input. Two different objects can be
+-- equal, so a 'False' only means that the walk makes a new object.
+sameObject :: a -> a -> Bool
+sameObject left right = isTrue# (reallyUnsafePtrEquality# left right)
+{-# INLINE sameObject #-}
+
+-- | Whether a name occurs free in an expression. The walk stops at the
+-- first free occurrence, and under a binder of the same name it finds
+-- none. This is @Set.member name (exprFreeNames expr)@ without the set.
+exprMentionsFree :: Name -> Expr -> Bool
+exprMentionsFree name = go
+  where
+    go expr =
+      case expr of
+        ExVar var -> var == name
+        ExLit {} -> False
+        ExCoercion {} -> False
+        ExApp function argument -> go function || go argument
+        ExTyApp function _ -> go function
+        ExLam binder body -> binderName binder /= name && go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) || (binderName (bindBinder bind) /= name && go body)
+        ExRec binds body -> all ((/= name) . binderName . bindBinder) binds && (any (go . bindRhs) binds || go body)
+        ExCase scrutinee binder alternatives -> go scrutinee || (all ((/= name) . binderName) binder && any alternative alternatives)
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> any go arguments
+    alternative alt = all ((/= name) . binderName) (altBinders alt) && go (altRhs alt)
 
 -- | A type. Kinds are types.
 data Type

@@ -748,9 +748,9 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                 visitCandidates previous == candidateVersions
                   && visitCredit previous == credit
                   && visitAllowance previous == allowance
-                  && visitKnown previous == Map.restrictKeys knownVersions (visitReferences previous)
-                  && visitArities previous == Map.restrictKeys arities (visitReferences previous)
-                  && visitDiverging previous == Map.restrictKeys diverging (visitReferences previous)
+                  && restrictedEquals (visitReferences previous) (visitKnown previous) knownVersions
+                  && restrictedEquals (visitReferences previous) (visitArities previous) arities
+                  && restrictedEquals (visitReferences previous) (visitDiverging previous) diverging
               cached = Map.lookup name (inVisits st) >>= \previous -> if sameVisit previous then Just previous else Nothing
               -- Follow only bodies that the simplifier can expose at this visit.
               -- Ordinary callees outside the candidate map remain opaque.
@@ -872,6 +872,13 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                calls = MonoidMap.get callee (inCalls st)
             in calls >= uses && uses * (size - 1) - (size + 1) <= 0
     removable callee = callee `Set.notMember` inRoots st
+
+-- | Whether a map that was the restriction of a map to a set of keys
+-- equals the restriction of the given map to the same keys. The check
+-- looks each key up in both maps, and makes no restricted map.
+restrictedEquals :: (Eq value) => Set Name -> Map Name value -> Map Name value -> Bool
+restrictedEquals keys stored current =
+  all (\key -> Map.lookup key stored == Map.lookup key current) keys
 
 -- | Update a changed body and its data before the next value.
 updateBody :: Inliner -> Name -> Expr -> Inliner
