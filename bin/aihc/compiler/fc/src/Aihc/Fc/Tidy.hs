@@ -18,13 +18,13 @@ import Aihc.Tc.Types (Unique (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set (Set)
-import Data.Set qualified as Set
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.Text (Text)
 
 data TidyEnv = TidyEnv
   { tidyNames :: !(Map Name Name),
-    tidyUsed :: !(Map Text (Set Int))
+    tidyUsed :: !(Map Text IntSet)
   }
 
 emptyTidyEnv :: TidyEnv
@@ -289,7 +289,7 @@ tidyExpr env expr =
       let (binder', caseEnv) = case binder of
             Nothing -> (Same, env)
             Just named
-              | all (\alternative -> binderName named `Set.notMember` (exprFreeNames (altRhs alternative) `Set.difference` Set.fromList (map binderName (altBinders alternative)))) alternatives -> (Changed Nothing, env)
+              | all (\alternative -> binderName named `elem` map binderName (altBinders alternative) || not (exprMentionsFree (binderName named) (altRhs alternative))) alternatives -> (Changed Nothing, env)
               | otherwise -> let (named', inner) = tidyBinder env named in (rebuild1 Just named named', inner)
           -- The binders of the case print after its scrutinee, as the binders
           -- of a let print after their right-hand side. Thus the scrutinee
@@ -335,7 +335,7 @@ reserveNames = foldl' reserve
     reserve env name =
       case nameOrigin name of
         OriginLocal (Unique unique) ->
-          env {tidyUsed = Map.insertWith Set.union (nameText name) (Set.singleton unique) (tidyUsed env)}
+          env {tidyUsed = Map.insertWith IntSet.union (nameText name) (IntSet.singleton unique) (tidyUsed env)}
         OriginTop {} -> env
 
 tidyRecBind :: TidyEnv -> Tidied Binder -> Bind -> Tidied Bind
@@ -419,9 +419,13 @@ tidyBinder env binder =
 tidyBinderName :: TidyEnv -> Name -> Name
 tidyBinderName env name =
   case nameOrigin name of
-    OriginLocal {} -> name {nameOrigin = OriginLocal (Unique (lowestUnused used))}
+    -- A name that keeps its number stays the same object.
+    OriginLocal (Unique unique)
+      | lowest == unique -> name
+      | otherwise -> name {nameOrigin = OriginLocal (Unique lowest)}
       where
-        used = Map.findWithDefault Set.empty (nameText name) (tidyUsed env)
+        used = Map.findWithDefault IntSet.empty (nameText name) (tidyUsed env)
+        lowest = lowestUnused used
     OriginTop {} -> name
 
 bindName :: TidyEnv -> Name -> Name -> TidyEnv
@@ -429,8 +433,14 @@ bindName env oldName newName =
   case nameOrigin newName of
     OriginLocal (Unique unique) ->
       env
-        { tidyNames = Map.insert oldName newName (tidyNames env),
-          tidyUsed = Map.insertWith Set.union (nameText newName) (Set.singleton unique) (tidyUsed env)
+        { -- A name that keeps its number needs no entry: a use finds
+          -- none and stays as it is. An entry of an outer binder with the
+          -- same name must still be hidden.
+          tidyNames =
+            if nameOrigin oldName == nameOrigin newName && Map.notMember oldName (tidyNames env)
+              then tidyNames env
+              else Map.insert oldName newName (tidyNames env),
+          tidyUsed = Map.insertWith IntSet.union (nameText newName) (IntSet.singleton unique) (tidyUsed env)
         }
     OriginTop {} -> env
 
@@ -445,9 +455,9 @@ tidyUse env name =
         _ -> Same
     OriginTop {} -> Same
 
-lowestUnused :: Set Int -> Int
+lowestUnused :: IntSet -> Int
 lowestUnused used = go 0
   where
     go candidate
-      | candidate `Set.member` used = go (candidate + 1)
+      | candidate `IntSet.member` used = go (candidate + 1)
       | otherwise = candidate
