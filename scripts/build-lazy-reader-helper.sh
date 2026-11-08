@@ -8,6 +8,10 @@
 # Usage: scripts/build-lazy-reader-helper.sh --output DIR [--store DIR]
 #        [--optimization LEVEL]
 #
+# With AIHC_PLAY_HELPER_URL, tools.json puts the compressed files at
+# AIHC_PLAY_HELPER_URL/VERSION/. Then scripts/publish-play-helper.sh uploads
+# them there and removes them from DIR. The preview workflow uses this.
+#
 # AIHC names the compiler and AIHC_DEV the developer tool. The defaults
 # are the cabal builds of exe:aihc and exe:aihc-dev. The output directory
 # gets the helper, browser tools, and compressed core library assets.
@@ -159,7 +163,7 @@ for core in "$work/out/"*.wasm; do
 done
 # tools.json lists the downloads of the program playground. Write it after
 # all the files are in the output directory.
-node "$root/scripts/write-play-manifest.mjs" "$output" "$tools_url" "$tools/assets"
+node "$root/scripts/write-play-manifest.mjs" "$output" "$tools_url" "$tools/assets" ${AIHC_PLAY_HELPER_URL:+"$AIHC_PLAY_HELPER_URL"}
 for asset in "$output/"*; do
   [[ -f "$asset" ]] || continue
   if [[ $(wc -c < "$asset") -gt 26214400 ]]; then

@@ -129,8 +129,8 @@ async function fetchText(path) {
 // aihc-prim and aihc-base, written by the helper build. The file is gzip,
 // inflated here, so the size on the wire does not depend on the server.
 async function loadBundle() {
-  const { cachedFetch } = await import(new URL("cache.js", PLAY_ROOT));
-  const response = await cachedFetch(new URL("helper/core.bundle.gz", PLAY_ROOT));
+  const { cachedFetch, helperUrl } = await import(new URL("cache.js", PLAY_ROOT));
+  const response = await cachedFetch(await helperUrl("core.bundle.gz"));
   if (!response.ok) throw new Error("cannot fetch the bundle of the core libraries: " + response.status);
   const inflated = response.body.pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(inflated).arrayBuffer());

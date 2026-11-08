@@ -17,6 +17,8 @@ on:
       - scripts/transpile-play.mjs
       - scripts/package-play-runtime.mjs
       - scripts/publish-play-tools.sh
+      - scripts/publish-play-helper.sh
+      - scripts/write-play-manifest.mjs
       - scripts/nix/play-tools.nix
       - editors/grammars/**
       - flake.lock
@@ -73,6 +75,7 @@ jobs:
       - name: Build The Lazy Reader
         env:
           AIHC_PLAY_TOOLS_URL: https://assets.aihc.app/play
+          AIHC_PLAY_HELPER_URL: https://assets.aihc.app/play/helper
         if: github.event.action != 'closed'
         run: |
           nix build .#guide --out-link guide-result
@@ -80,6 +83,16 @@ jobs:
           chmod -R u+w manual-preview/lazy-reader
           nix run .#build-lazy-reader-helper -- --output manual-preview/lazy-reader/play/helper
           rm -f manual-preview/lazy-reader/play/aihc-play.wasm
+
+      # Each build makes new compressed helper files of about 19 MiB. A
+      # commit of each build made the gh-pages history grow to 680 MiB.
+      # The files go to R2, and the preview branch keeps only the small files.
+      - name: Publish the helper files to R2
+        if: github.event.action != 'closed'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: nix run .#publish-play-helper -- manual-preview/lazy-reader/play/helper
 
       - name: Publish preview
         uses: rossjrw/pr-preview-action@873417d2df72380da1f3978378fb58560bcde976 # v1.8.2
