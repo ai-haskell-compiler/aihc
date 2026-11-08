@@ -62,6 +62,7 @@ import Aihc.Fc.Views (exprValueNames)
 import Aihc.Resolve (PackageId)
 import Data.IntSet qualified as IntSet
 import Data.List (sortOn)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -413,6 +414,36 @@ interfaceIndex primPackage interfaces =
 graftDepth :: Int
 graftDepth = 1
 
+-- | The largest body that comes in past 'graftDepth'. A small body is
+-- cheap to bring in and is what a site copies; a large body past the
+-- depth costs every pass a walk and gives no site a copy.
+graftBodyLimit :: Int
+graftBodyLimit = 256
+
+-- | Whether an expression has at most a number of nodes. The count stops
+-- at the limit, so a large body costs no more than a small one.
+withinNodes :: Int -> Expr -> Bool
+withinNodes limit expr = go limit [expr] >= 0
+  where
+    go budget pending
+      | budget < 0 = budget
+      | otherwise = case pending of
+          [] -> budget
+          current : rest -> go (budget - 1) (children current <> rest)
+    children current =
+      case current of
+        ExApp function argument -> [function, argument]
+        ExTyApp function _ -> [function]
+        ExLam _ inner -> [inner]
+        ExTyLam _ inner -> [inner]
+        ExLet bind inner -> [bindRhs bind, inner]
+        ExRec binds inner -> inner : map bindRhs binds
+        ExCase scrutinee _ alternatives -> scrutinee : map altRhs (NE.toList alternatives)
+        ExAbsurd scrutinee _ -> [scrutinee]
+        ExCast inner _ -> [inner]
+        ExForeignCall _ _ arguments -> arguments
+        _ -> []
+
 -- | 'graftInterfaces' with an index of the interfaces.
 graftIndexed :: InterfaceIndex -> Program -> Grafted
 graftIndexed index program =
@@ -482,7 +513,8 @@ graftIndexed index program =
                     -- removes, and a constructor wrapper.
                     Just found
                       | depth > depthLimit,
-                        callable (offerDecl found) ->
+                        callable (offerDecl found),
+                        not (withinNodes graftBodyLimit (valBody (offerDecl found))) ->
                           saturate values headSet numbers [] rest
                     Just found ->
                       let names = Set.toList (offerNames found)
