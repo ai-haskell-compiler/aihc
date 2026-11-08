@@ -798,7 +798,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
       | Set.member function candidates && accepted (UsesOnce self function) = (function, OnceVersion)
       | otherwise = (function, SharedVersion)
     accepted key = Set.notMember key rejected
-    walkAll aliases position exprs acc = List.foldl' (\current expr -> walk aliases position expr current) acc exprs
+    walkAll aliases position exprs acc = List.foldl' (flip (walk aliases position)) acc exprs
     walk aliases position expr acc =
       case spine expr of
         (ExVar name, arguments)
@@ -966,7 +966,7 @@ occurrenceViolations env arities candidates rejected self parameter body =
             Just asked <- closureParameter function count index =
               Occ (addCount countNow One) (appliedNow && accepted asked) (Set.insert asked askedNow)
           | otherwise = occurrences needed Inner binder argument current
-    occurrencesAll needed binder exprs acc = List.foldl' (\current expr -> occurrences needed Inner binder expr current) acc exprs
+    occurrencesAll needed binder exprs acc = List.foldl' (flip (occurrences needed Inner binder)) acc exprs
     -- The parameter that a call of a top-level function with its manifest
     -- arguments gives a closure to.
     closureParameter function count index

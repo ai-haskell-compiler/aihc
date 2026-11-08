@@ -5992,8 +5992,8 @@ callArityAnalysis credit0 inside0 expr0 =
         ExCase scrutinee _ (NE.toList -> alternatives) -> List.foldl' (\current alternative -> go credit inside depth (altRhs alternative) current) (go 0 False depth scrutinee acc) alternatives
         ExAbsurd scrutinee _ -> go 0 False depth scrutinee acc
         ExCast body coercion -> coercionUses depth coercion (go credit inside depth body acc)
-        ExForeignCall _ _ arguments -> List.foldl' (\current argument -> go 0 False depth argument current) acc arguments
-    addUse name use uses = Map.insertWith (<>) name use uses
+        ExForeignCall _ _ arguments -> List.foldl' (flip (go 0 False depth)) acc arguments
+    addUse = Map.insertWith (<>)
     coercionUses depth coercion (Acc uses credits) =
       Acc (List.foldl' (\current name -> addUse name (Use 0 1 depth) current) uses (coercionVariables coercion)) credits
     useArgs (Use args _ _) = args
