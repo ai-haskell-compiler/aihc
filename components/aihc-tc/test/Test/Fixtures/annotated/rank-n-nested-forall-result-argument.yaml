@@ -1,0 +1,94 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  class C a where
+  └─ class methods: test ∷ ∀ a. (C a) ⇒ a → Bool
+    test :: a -> Bool
+  type Q r = forall a. C a => a -> r
+       └─ type: Type → Type
+  twin :: Q (Q Bool) -> Q (Q Bool)
+  twin f x y = f y x
+  │    │ │ │   └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  │    │ │ └─ type: a
+  │    │ └─ type: a
+  │    └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+  └─ type: ∀ a a. (C a, C a) ⇒ (∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool) → a → a → GHC.Types.Bool
+  same :: Q (Q Bool)
+  same x _ = test x
+  │    │ │   └─ type: a → GHC.Types.Bool; type-args: a; evidence: given C a
+  │    │ └─ type: a
+  │    └─ type: a
+  └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+  byName :: Q (Q Bool)
+  byName = twin same
+  │        └─ type: (∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool) → a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  │        └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+  │        └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+  byLambda :: Q (Q Bool)
+  byLambda = twin (\a -> same a)
+  │          ││     ││    └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  │          ││     │└─ type: a
+  │          ││     └─ type: a → a → GHC.Types.Bool
+  │          └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+  │          └─ type: (∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool) → a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+  pair :: (C a, C b) => a -> b -> Bool
+  pair x _ = test x
+  │    │ │   └─ type: a → GHC.Types.Bool; type-args: a; evidence: given C a
+  │    │ └─ type: b
+  │    └─ type: a
+  └─ type: ∀ a b. (C a, C b) ⇒ a → b → GHC.Types.Bool
+  narrow :: C a => a -> a -> Bool
+  narrow = pair
+  │        └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  └─ type: ∀ a. (C a) ⇒ a → a → GHC.Types.Bool
+  local :: C a => a -> a -> Bool
+  local x0 y0 = go x0 y0
+  │     │  │    └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+  │     │  └─ type: a
+  │     └─ type: a
+  └─ type: ∀ a. (C a) ⇒ a → a → GHC.Types.Bool
+    where
+      go :: Q (Q Bool)
+      go x y = twin go x y
+      │  │ │   └─ type: (∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool) → a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+      │  │ │   └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+      │  │ │   └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+      │  │ │   └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
+      │  │ └─ type: a
+      │  └─ type: a
+      └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  class C a where
+    test :: a -> Bool
+  type Q r = forall a. C a => a -> r
+  twin :: Q (Q Bool) -> Q (Q Bool)
+  twin f x y = f y x
+  same :: Q (Q Bool)
+  same x _ = test x
+  byName :: Q (Q Bool)
+  byName = twin same
+  byLambda :: Q (Q Bool)
+  byLambda = twin (\a -> same a)
+  pair :: (C a, C b) => a -> b -> Bool
+  pair x _ = test x
+  narrow :: C a => a -> a -> Bool
+  narrow = pair
+  local :: C a => a -> a -> Bool
+  local x0 y0 = go x0 y0
+    where
+      go :: Q (Q Bool)
+      go x y = twin go x y
+reason: A polytype argument with a quantified result has the prenex form of a
+  signature, thus a binding with that signature, a lambda and a recursive local
+  binding can be the argument.
+status: pass

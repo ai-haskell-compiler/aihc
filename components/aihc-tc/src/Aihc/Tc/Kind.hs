@@ -149,6 +149,28 @@ floatResultQuantifiers ty =
        in (tyVars, predicates, TcFunTy argument body)
     _ -> ([], [], ty)
 
+-- | Put a polytype in prenex form, as 'floatResultQuantifiers' does for a
+-- signature. A function argument of type @forall a. C a => a -> forall b.
+-- C b => b -> r@ then has the type @forall a b. (C a, C b) => a -> b -> r@.
+-- A binding with this signature has the same type, thus it can be the
+-- argument. The polytype arguments of the type get the same form.
+prenexPolytype :: TcType -> TcType
+prenexPolytype ty =
+  let (tyVars, predicates, body) = floatResultQuantifiers (prenexArguments ty)
+      qualified
+        | null predicates = body
+        | otherwise = TcQualTy predicates body
+   in foldr TcForAllTy qualified tyVars
+
+-- | Put each polytype argument of a function type in prenex form.
+prenexArguments :: TcType -> TcType
+prenexArguments ty =
+  case ty of
+    TcFunTy argument result -> TcFunTy (prenexPolytype argument) (prenexArguments result)
+    TcForAllTy tyVar body -> TcForAllTy tyVar (prenexArguments body)
+    TcQualTy predicates body -> TcQualTy predicates (prenexArguments body)
+    _ -> ty
+
 -- | Whether a signature contains a partial-signature wildcard.
 hasWildcardType :: Type -> Bool
 hasWildcardType ty =
@@ -300,7 +322,10 @@ convertSurfaceTypeWithKinds tvEnv ty =
     _ -> do
       expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
       case expanded of
-        Just result -> pure result
+        -- The expansion substitutes the arguments into the checked body
+        -- of the synonym. Thus an argument can put a polytype in an
+        -- argument position that the conversion did not see.
+        Just (expandedType, expandedKind) -> pure (prenexArguments expandedType, expandedKind)
         Nothing -> convertNonSynonymTypeWithKinds tvEnv (peelTypeHead ty)
 
 convertNonSynonymTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
@@ -333,7 +358,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TFun _ a b -> do
       aTy <- checkRuntimeType tvEnv a
       bTy <- checkRuntimeType tvEnv b
-      pure (TcFunTy aTy bTy, typeKind kinds)
+      pure (TcFunTy (prenexPolytype aTy) bTy, typeKind kinds)
     TTuple flavor _ args ->
       convertTupleType tvEnv flavor args
     TUnboxedSum args -> do

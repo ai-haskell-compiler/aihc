@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Data
+
+    results :: [Bool]
+    results =
+      [ constrRep (toConstr (42 :: Int)) == IntConstr 42,
+        constrRep (toConstr 'x') == CharConstr 'x',
+        constrRep (toConstr (1.5 :: Double)) == FloatConstr 1.5,
+        constrRep (toConstr (Just 'x')) == AlgConstr 2,
+        (fromConstr (toConstr (42 :: Int)) :: Int) == 42,
+        (fromConstr (toConstr 'q') :: Char) == 'q',
+        (fromConstr (toConstr (2.5 :: Double)) :: Double) == 2.5,
+        (fromConstrB (fromConstr (toConstr 'z')) (toConstr (Just 'a')) :: Maybe Char) == Just 'z',
+        (fromConstrM (Just (fromConstr (toConstr (7 :: Int)))) (toConstr (Just (1 :: Int))) :: Maybe (Maybe Int)) == Just (Just 7),
+        fmap showConstr (readConstr (dataTypeOf (Just 'x')) "Just") == Just "Just",
+        fmap constrRep (readConstr (dataTypeOf (0 :: Int)) "123") == Just (IntConstr 123),
+        readConstr (dataTypeOf (0 :: Int)) "abc" == Nothing,
+        toConstr (3 :: Int) /= toConstr (4 :: Int),
+        dataTypeName (constrType (toConstr [()])) == "Prelude.[]",
+        map constrIndex (dataTypeConstrs (dataTypeOf [()])) == [1, 2],
+        maxConstrIndex (dataTypeOf True) == 2,
+        isAlgType (dataTypeOf True) && not (isAlgType (dataTypeOf 'c')),
+        tyconUQname "Data.Map.Map" == "Map",
+        tyconModule "Data.Map.Map" == "Data.Map"
+      ]
+expression: results
+output: ": True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True []))))))))))))))))))"
+status: pass
+reason: the constructors of primitive values carry their value, as in GHC, so syb can compare, rebuild and read them

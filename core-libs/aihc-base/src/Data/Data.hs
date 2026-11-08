@@ -4,19 +4,42 @@
 module Data.Data
   ( module Data.Typeable,
     Data (..),
-    Constr,
     DataType,
+    mkDataType,
+    mkIntType,
+    mkFloatType,
+    mkCharType,
+    mkNoRepType,
+    dataTypeName,
+    DataRep (..),
+    dataTypeRep,
+    repConstr,
+    isAlgType,
+    dataTypeConstrs,
+    indexConstr,
+    maxConstrIndex,
+    isNorepType,
+    Constr,
+    ConIndex,
     Fixity (..),
+    mkConstr,
+    mkConstrTag,
+    mkIntegralConstr,
+    mkRealConstr,
+    mkCharConstr,
+    constrType,
+    ConstrRep (..),
+    constrRep,
     constrFields,
     constrFixity,
     constrIndex,
-    dataTypeConstrs,
-    dataTypeName,
-    indexConstr,
-    mkConstr,
-    mkDataType,
-    mkNoRepType,
     showConstr,
+    readConstr,
+    tyconUQname,
+    tyconModule,
+    fromConstr,
+    fromConstrB,
+    fromConstrM,
   )
 where
 
@@ -29,17 +52,19 @@ import GHC.Err (errorWithoutStackTrace)
 import GHC.Float ()
 import GHC.ForeignPtr (ForeignPtr)
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
-import GHC.Internal.Classes (Eq (..))
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import GHC.Num ((+))
+import GHC.Num (Num (..))
 import GHC.Num.Integer (Integer)
 import GHC.Num.Natural (Natural)
 import GHC.Prim.Real (Ratio (..))
 import GHC.Ptr (Ptr)
-import GHC.Real (Integral, (%))
+import GHC.Read (Read)
+import GHC.Real (Integral (..), Rational, Real (..), fromIntegral, (%))
 import GHC.Show (Show (..))
 import GHC.Types (Bool (..), Char, Double, Float, Ordering (..))
 import GHC.Word (Word, Word16, Word32, Word64, Word8)
+import Prelude (Fractional (..), break, dropWhile, length, reads, showParen, showString, shows, tail, (++), (.))
 
 -- | Generic operations on a data type.
 class (Typeable a) => Data a where
@@ -136,40 +161,128 @@ newtype Mp m x = Mp {unMp :: m (x, Bool)}
 -- | The fixity of a data constructor.
 data Fixity = Prefix | Infix
 
--- | The description of a data type.
-data DataType = DataType String [Constr]
+instance Eq Fixity where
+  Prefix == Prefix = True
+  Infix == Infix = True
+  _ == _ = False
 
--- | The description of one data constructor.
-data Constr = Constr String [String] Fixity Int
+instance Show Fixity where
+  showsPrec _ Prefix = showString "Prefix"
+  showsPrec _ Infix = showString "Infix"
 
+-- | The description of a data type: its name and its representation.
+data DataType = DataType String DataRep
+
+instance Show DataType where
+  showsPrec d (DataType name representation) =
+    showParen (d >= 11) (showString "DataType {tycon = " . shows name . showString ", datarep = " . shows representation . showString "}")
+
+-- | The representation of a data type.
+data DataRep
+  = AlgRep [Constr]
+  | IntRep
+  | FloatRep
+  | CharRep
+  | NoRep
+
+instance Eq DataRep where
+  AlgRep left == AlgRep right = left == right
+  IntRep == IntRep = True
+  FloatRep == FloatRep = True
+  CharRep == CharRep = True
+  NoRep == NoRep = True
+  _ == _ = False
+
+instance Show DataRep where
+  showsPrec d (AlgRep constrs) = showParen (d >= 11) (showString "AlgRep " . showsPrec 11 constrs)
+  showsPrec _ IntRep = showString "IntRep"
+  showsPrec _ FloatRep = showString "FloatRep"
+  showsPrec _ CharRep = showString "CharRep"
+  showsPrec _ NoRep = showString "NoRep"
+
+-- | The index of an algebraic constructor. The first constructor has index 1.
+type ConIndex = Int
+
+-- | The representation of a constructor.
+data ConstrRep
+  = AlgConstr ConIndex
+  | IntConstr Integer
+  | FloatConstr Rational
+  | CharConstr Char
+
+instance Eq ConstrRep where
+  AlgConstr left == AlgConstr right = left == right
+  IntConstr left == IntConstr right = left == right
+  FloatConstr left == FloatConstr right = left == right
+  CharConstr left == CharConstr right = left == right
+  _ == _ = False
+
+instance Show ConstrRep where
+  showsPrec d (AlgConstr index) = showParen (d >= 11) (showString "AlgConstr " . showsPrec 11 index)
+  showsPrec d (IntConstr value) = showParen (d >= 11) (showString "IntConstr " . showsPrec 11 value)
+  showsPrec d (FloatConstr value) = showParen (d >= 11) (showString "FloatConstr " . showsPrec 11 value)
+  showsPrec d (CharConstr value) = showParen (d >= 11) (showString "CharConstr " . showsPrec 11 value)
+
+-- | The description of one data constructor: its representation, its name,
+-- its field names, its fixity, and its data type.
+data Constr = Constr ConstrRep String [String] Fixity DataType
+
+-- | As in GHC, two constructors are equal when their representations are
+-- equal.
 instance Eq Constr where
-  left == right = constrIndex left == constrIndex right
+  left == right = constrRep left == constrRep right
+
+instance Show Constr where
+  showsPrec _ constr = showString (showConstr constr)
 
 -- | Make a data type that lists its constructors.
 mkDataType :: String -> [Constr] -> DataType
-mkDataType = DataType
+mkDataType name constrs = DataType name (AlgRep constrs)
+
+-- | Make the data type of a primitive integral type.
+mkIntType :: String -> DataType
+mkIntType name = DataType name IntRep
+
+-- | Make the data type of a primitive floating-point type.
+mkFloatType :: String -> DataType
+mkFloatType name = DataType name FloatRep
+
+-- | Make the data type of a character type.
+mkCharType :: String -> DataType
+mkCharType name = DataType name CharRep
 
 -- | Make a data type that has no generic representation.
 mkNoRepType :: String -> DataType
-mkNoRepType name = DataType name []
+mkNoRepType name = DataType name NoRep
 
--- | Make a constructor description.
--- As in GHC, the index is the position of the constructor name in the list
--- of the data type. Thus a constructor can name the data type that lists
--- it. If the list does not have the name, the standin gives the index that
--- comes after the listed constructors. A no-rep data type lists no
--- constructors, thus its first constructor gets index 1.
-mkConstr :: DataType -> String -> [String] -> Fixity -> Constr
-mkConstr dataType name fields fixity =
-  Constr name fields fixity (constrPosition 1 (dataTypeConstrs dataType))
-  where
-    constrPosition index [] = index
-    constrPosition index (constr : rest)
-      | showConstr constr == name = index
-      | otherwise = constrPosition (index + 1) rest
+-- | Give the name of a data type.
+dataTypeName :: DataType -> String
+dataTypeName (DataType name _) = name
 
--- | Give the constructor that has an index in a data type.
-indexConstr :: DataType -> Int -> Constr
+-- | Give the representation of a data type.
+dataTypeRep :: DataType -> DataRep
+dataTypeRep (DataType _ representation) = representation
+
+-- | Tell if a data type is algebraic.
+isAlgType :: DataType -> Bool
+isAlgType dataType = case dataTypeRep dataType of
+  AlgRep _ -> True
+  _ -> False
+
+-- | Tell if a data type has no generic representation.
+isNorepType :: DataType -> Bool
+isNorepType dataType = case dataTypeRep dataType of
+  NoRep -> True
+  _ -> False
+
+-- | Give the constructors of an algebraic data type.
+dataTypeConstrs :: DataType -> [Constr]
+dataTypeConstrs dataType = case dataTypeRep dataType of
+  AlgRep constrs -> constrs
+  _ -> errorWithoutStackTrace ("Data.Data.dataTypeConstrs is not supported for " ++ dataTypeName dataType ++ ", as it is not an algebraic data type.")
+
+-- | Give the constructor that has an index in an algebraic data type.
+indexConstr :: DataType -> ConIndex -> Constr
 indexConstr dataType index = select 1 (dataTypeConstrs dataType)
   where
     select _ [] = errorWithoutStackTrace "Data.Data.indexConstr: index out of range"
@@ -177,29 +290,154 @@ indexConstr dataType index = select 1 (dataTypeConstrs dataType)
       | position == index = constr
       | otherwise = select (position + 1) rest
 
--- | Give the name of a data type.
-dataTypeName :: DataType -> String
-dataTypeName (DataType name _) = name
+-- | Give the largest constructor index of an algebraic data type.
+maxConstrIndex :: DataType -> ConIndex
+maxConstrIndex dataType = length (dataTypeConstrs dataType)
 
--- | Give the constructors that a data type lists.
-dataTypeConstrs :: DataType -> [Constr]
-dataTypeConstrs (DataType _ constrs) = constrs
+-- | Make a constructor description.
+-- As in GHC, the index is the position of the constructor name in the list
+-- of the data type. Thus a constructor can name the data type that lists
+-- it. If the list does not have the name, the standin gives the index that
+-- comes after the listed constructors. A data type that is not algebraic
+-- lists no constructors, thus its first constructor gets index 1.
+mkConstr :: DataType -> String -> [String] -> Fixity -> Constr
+mkConstr dataType name fields fixity =
+  Constr (AlgConstr (constrPosition 1 listed)) name fields fixity dataType
+  where
+    listed = case dataTypeRep dataType of
+      AlgRep constrs -> constrs
+      _ -> []
+    constrPosition index [] = index
+    constrPosition index (constr : rest)
+      | showConstr constr == name = index
+      | otherwise = constrPosition (index + 1) rest
+
+-- | Make a constructor description with a known index.
+mkConstrTag :: DataType -> String -> ConIndex -> [String] -> Fixity -> Constr
+mkConstrTag dataType name index fields fixity =
+  Constr (AlgConstr index) name fields fixity dataType
+
+-- | Make the constructor of a value of a primitive type. The constructor has
+-- no fields and has the prefix fixity.
+mkPrimCon :: DataType -> String -> ConstrRep -> Constr
+mkPrimCon dataType name representation = Constr representation name [] Prefix dataType
+
+-- | Make the constructor of an integral value.
+mkIntegralConstr :: (Integral a, Show a) => DataType -> a -> Constr
+mkIntegralConstr dataType value = case dataTypeRep dataType of
+  IntRep -> mkPrimCon dataType (show value) (IntConstr (toInteger value))
+  _ -> errorWithoutStackTrace ("Data.Data.mkIntegralConstr is not supported for " ++ dataTypeName dataType ++ ", as it is not an Integral data type.")
+
+-- | Make the constructor of a real value.
+mkRealConstr :: (Real a, Show a) => DataType -> a -> Constr
+mkRealConstr dataType value = case dataTypeRep dataType of
+  FloatRep -> mkPrimCon dataType (show value) (FloatConstr (toRational value))
+  _ -> errorWithoutStackTrace ("Data.Data.mkRealConstr is not supported for " ++ dataTypeName dataType ++ ", as it is not a Real data type.")
+
+-- | Make the constructor of a character.
+mkCharConstr :: DataType -> Char -> Constr
+mkCharConstr dataType value = case dataTypeRep dataType of
+  CharRep -> mkPrimCon dataType (show value) (CharConstr value)
+  _ -> errorWithoutStackTrace ("Data.Data.mkCharConstr is not supported for " ++ dataTypeName dataType ++ ", as it is not a Char data type.")
+
+-- | Give the constructor of a data type that has a representation.
+repConstr :: DataType -> ConstrRep -> Constr
+repConstr dataType representation = case (dataTypeRep dataType, representation) of
+  (AlgRep _, AlgConstr index) -> indexConstr dataType index
+  (IntRep, IntConstr value) -> mkIntegralConstr dataType value
+  (FloatRep, FloatConstr value) -> mkRealConstr dataType value
+  (CharRep, CharConstr value) -> mkCharConstr dataType value
+  _ -> errorWithoutStackTrace "Data.Data.repConstr: The given ConstrRep does not fit to the given DataType."
+
+-- | Give the constructor that has a name in a data type. For a primitive
+-- data type, read the value from the name.
+readConstr :: DataType -> String -> Maybe Constr
+readConstr dataType name = case dataTypeRep dataType of
+  AlgRep constrs -> find constrs
+  IntRep -> readValue (\value -> mkPrimCon dataType name (IntConstr (value :: Integer)))
+  FloatRep -> readValue (\value -> mkPrimCon dataType name (FloatConstr (toRational (value :: Double))))
+  CharRep -> readValue (mkPrimCon dataType name . CharConstr)
+  NoRep -> Nothing
+  where
+    find [] = Nothing
+    find (constr : rest)
+      | showConstr constr == name = Just constr
+      | otherwise = find rest
+    readValue :: (Read t) => (t -> Constr) -> Maybe Constr
+    readValue make = case reads name of
+      [(value, "")] -> Just (make value)
+      _ -> Nothing
+
+-- | Give the data type of a constructor.
+constrType :: Constr -> DataType
+constrType (Constr _ _ _ _ dataType) = dataType
+
+-- | Give the representation of a constructor.
+constrRep :: Constr -> ConstrRep
+constrRep (Constr representation _ _ _ _) = representation
 
 -- | Give the name of a constructor.
 showConstr :: Constr -> String
-showConstr (Constr name _ _ _) = name
+showConstr (Constr _ name _ _ _) = name
 
 -- | Give the field names of a constructor.
 constrFields :: Constr -> [String]
-constrFields (Constr _ fields _ _) = fields
+constrFields (Constr _ _ fields _ _) = fields
 
 -- | Give the fixity of a constructor.
 constrFixity :: Constr -> Fixity
-constrFixity (Constr _ _ fixity _) = fixity
+constrFixity (Constr _ _ _ fixity _) = fixity
 
--- | Give the index of a constructor in its data type.
-constrIndex :: Constr -> Int
-constrIndex (Constr _ _ _ index) = index
+-- | Give the index of an algebraic constructor in its data type.
+constrIndex :: Constr -> ConIndex
+constrIndex constr = case constrRep constr of
+  AlgConstr index -> index
+  _ -> errorWithoutStackTrace ("Data.Data.constrIndex is not supported for " ++ dataTypeName (constrType constr) ++ ", as it is not an algebraic data type.")
+
+-- | Remove the module qualifier from a type constructor name.
+tyconUQname :: String -> String
+tyconUQname name = case dropWhile (/= '.') name of
+  [] -> name
+  rest -> tyconUQname (tail rest)
+
+-- | Give the module qualifier of a type constructor name.
+tyconModule :: String -> String
+tyconModule name = case break (== '.') name of
+  (_, []) -> []
+  (prefix, rest) -> prefix ++ qualifier (tail rest)
+  where
+    qualifier remaining = case tyconModule remaining of
+      [] -> []
+      found -> '.' : found
+
+-- | Build a value from a constructor without fields.
+fromConstr :: (Data a) => Constr -> a
+fromConstr = fromConstrB (errorWithoutStackTrace "Data.Data.fromConstr")
+
+-- | Build a value from a constructor. Give the same value to each field.
+fromConstrB :: (Data a) => (forall d. (Data d) => d) -> Constr -> a
+fromConstrB field constr = unID (gunfold k ID constr)
+  where
+    k :: (Data b) => ID (b -> r) -> ID r
+    k (ID function) = ID (function field)
+
+-- | Build a value from a constructor. Run the same action for each field.
+fromConstrM :: forall m a. (Monad m, Data a) => (forall d. (Data d) => m d) -> Constr -> m a
+fromConstrM field = gunfold k return
+  where
+    k :: (Data b) => m (b -> r) -> m r
+    k function = function >>= \function' -> field >>= \value -> return (function' value)
+
+-- The constructor of a primitive value gives the value back.
+integralFromConstr :: (Num a) => String -> Constr -> a
+integralFromConstr typeName constr = case constrRep constr of
+  IntConstr value -> fromInteger value
+  _ -> errorWithoutStackTrace ("Data.Data.gunfold: Constructor " ++ showConstr constr ++ " is not of type " ++ typeName ++ ".")
+
+fractionalFromConstr :: (Fractional a) => String -> Constr -> a
+fractionalFromConstr typeName constr = case constrRep constr of
+  FloatConstr value -> fromRational value
+  _ -> errorWithoutStackTrace ("Data.Data.gunfold: Constructor " ++ showConstr constr ++ " is not of type " ++ typeName ++ ".")
 
 instance (Data a) => Data [a] where
   gfoldl _ z [] = z []
@@ -217,7 +455,7 @@ nilConstr :: Constr
 nilConstr = mkConstr listDataType "[]" [] Prefix
 
 consConstr :: Constr
-consConstr = mkConstr (DataType "Prelude.[]" [nilConstr]) "(:)" [] Infix
+consConstr = mkConstr listDataType "(:)" [] Infix
 
 listDataType :: DataType
 listDataType = mkDataType "Prelude.[]" [nilConstr, consConstr]
@@ -235,44 +473,46 @@ falseConstr :: Constr
 falseConstr = mkConstr boolDataType "False" [] Prefix
 
 trueConstr :: Constr
-trueConstr = mkConstr (DataType "Prelude.Bool" [falseConstr]) "True" [] Prefix
+trueConstr = mkConstr boolDataType "True" [] Prefix
 
 boolDataType :: DataType
 boolDataType = mkDataType "Prelude.Bool" [falseConstr, trueConstr]
 
--- The primitive types show their value as the constructor name. The
--- standin cannot rebuild a value from a constructor, so gunfold fails.
+-- As in GHC, the constructor of a primitive value has the value as its
+-- representation and shows the value as its name.
 instance Data Char where
-  toConstr x = mkConstr charType ['\'', x, '\''] [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Char)"
+  toConstr = mkCharConstr charType
+  gunfold _ z c = case constrRep c of
+    CharConstr x -> z x
+    _ -> errorWithoutStackTrace ("Data.Data.gunfold: Constructor " ++ showConstr c ++ " is not of type Char.")
   dataTypeOf _ = charType
 
 charType :: DataType
-charType = mkNoRepType "Prelude.Char"
+charType = mkCharType "Prelude.Char"
 
 instance Data Int where
-  toConstr x = mkConstr intType (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int)"
+  toConstr = mkIntegralConstr intType
+  gunfold _ z c = z (integralFromConstr "Int" c)
   dataTypeOf _ = intType
 
 intType :: DataType
-intType = mkNoRepType "Prelude.Int"
+intType = mkIntType "Prelude.Int"
 
 instance Data Word where
-  toConstr x = mkConstr wordType (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word)"
+  toConstr = mkIntegralConstr wordType
+  gunfold _ z c = z (integralFromConstr "Word" c)
   dataTypeOf _ = wordType
 
 wordType :: DataType
-wordType = mkNoRepType "Prelude.Word"
+wordType = mkIntType "Prelude.Word"
 
 instance Data Word8 where
-  toConstr x = mkConstr word8Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word8)"
+  toConstr = mkIntegralConstr word8Type
+  gunfold _ z c = z (integralFromConstr "Word8" c)
   dataTypeOf _ = word8Type
 
 word8Type :: DataType
-word8Type = mkNoRepType "Data.Word.Word8"
+word8Type = mkIntType "Data.Word.Word8"
 
 instance (Data a, Data b) => Data (a, b) where
   gfoldl f z (a, b) = z (,) `f` a `f` b
@@ -284,99 +524,98 @@ instance (Data a, Data b) => Data (a, b) where
   dataCast2 f = gcast2 f
 
 pairConstr :: Constr
-pairConstr = mkConstr (mkNoRepType "Prelude.(,)") "(,)" [] Infix
+pairConstr = mkConstr pairDataType "(,)" [] Infix
 
 pairDataType :: DataType
 pairDataType = mkDataType "Prelude.(,)" [pairConstr]
 
--- The standin describes the other primitive number types in the same way.
 instance Data Int8 where
-  toConstr x = mkConstr int8Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int8)"
+  toConstr = mkIntegralConstr int8Type
+  gunfold _ z c = z (integralFromConstr "Int8" c)
   dataTypeOf _ = int8Type
 
 int8Type :: DataType
-int8Type = mkNoRepType "Data.Int.Int8"
+int8Type = mkIntType "Data.Int.Int8"
 
 instance Data Int16 where
-  toConstr x = mkConstr int16Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int16)"
+  toConstr = mkIntegralConstr int16Type
+  gunfold _ z c = z (integralFromConstr "Int16" c)
   dataTypeOf _ = int16Type
 
 int16Type :: DataType
-int16Type = mkNoRepType "Data.Int.Int16"
+int16Type = mkIntType "Data.Int.Int16"
 
 instance Data Int32 where
-  toConstr x = mkConstr int32Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int32)"
+  toConstr = mkIntegralConstr int32Type
+  gunfold _ z c = z (integralFromConstr "Int32" c)
   dataTypeOf _ = int32Type
 
 int32Type :: DataType
-int32Type = mkNoRepType "Data.Int.Int32"
+int32Type = mkIntType "Data.Int.Int32"
 
 instance Data Int64 where
-  toConstr x = mkConstr int64Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int64)"
+  toConstr = mkIntegralConstr int64Type
+  gunfold _ z c = z (integralFromConstr "Int64" c)
   dataTypeOf _ = int64Type
 
 int64Type :: DataType
-int64Type = mkNoRepType "Data.Int.Int64"
+int64Type = mkIntType "Data.Int.Int64"
 
 instance Data Word16 where
-  toConstr x = mkConstr word16Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word16)"
+  toConstr = mkIntegralConstr word16Type
+  gunfold _ z c = z (integralFromConstr "Word16" c)
   dataTypeOf _ = word16Type
 
 word16Type :: DataType
-word16Type = mkNoRepType "Data.Word.Word16"
+word16Type = mkIntType "Data.Word.Word16"
 
 instance Data Word32 where
-  toConstr x = mkConstr word32Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word32)"
+  toConstr = mkIntegralConstr word32Type
+  gunfold _ z c = z (integralFromConstr "Word32" c)
   dataTypeOf _ = word32Type
 
 word32Type :: DataType
-word32Type = mkNoRepType "Data.Word.Word32"
+word32Type = mkIntType "Data.Word.Word32"
 
 instance Data Word64 where
-  toConstr x = mkConstr word64Type (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word64)"
+  toConstr = mkIntegralConstr word64Type
+  gunfold _ z c = z (integralFromConstr "Word64" c)
   dataTypeOf _ = word64Type
 
 word64Type :: DataType
-word64Type = mkNoRepType "Data.Word.Word64"
+word64Type = mkIntType "Data.Word.Word64"
 
 instance Data Integer where
-  toConstr x = mkConstr integerType (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Integer)"
+  toConstr = mkIntegralConstr integerType
+  gunfold _ z c = z (integralFromConstr "Integer" c)
   dataTypeOf _ = integerType
 
 integerType :: DataType
-integerType = mkNoRepType "Prelude.Integer"
+integerType = mkIntType "Prelude.Integer"
 
 instance Data Natural where
-  toConstr x = mkConstr naturalType (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Natural)"
+  toConstr = mkIntegralConstr naturalType
+  gunfold _ z c = z (integralFromConstr "Natural" c)
   dataTypeOf _ = naturalType
 
 naturalType :: DataType
-naturalType = mkNoRepType "Numeric.Natural.Natural"
+naturalType = mkIntType "Numeric.Natural.Natural"
 
 instance Data Float where
-  toConstr x = mkConstr floatType (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Float)"
+  toConstr = mkRealConstr floatType
+  gunfold _ z c = z (fractionalFromConstr "Float" c)
   dataTypeOf _ = floatType
 
 floatType :: DataType
-floatType = mkNoRepType "Prelude.Float"
+floatType = mkFloatType "Prelude.Float"
 
 instance Data Double where
-  toConstr x = mkConstr doubleType (show x) [] Prefix
-  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Double)"
+  toConstr = mkRealConstr doubleType
+  gunfold _ z c = z (fractionalFromConstr "Double" c)
   dataTypeOf _ = doubleType
 
 doubleType :: DataType
-doubleType = mkNoRepType "Prelude.Double"
+doubleType = mkFloatType "Prelude.Double"
 
 -- GHC derives the instances of these algebraic types. Stock deriving
 -- cannot write them here, because the generated code names the
