@@ -123,7 +123,7 @@ duplicateInvariantLoads function
           (OperandVar var, OperandLiteral _) <- [(left, right), (right, left)]
         ]
     candidates =
-      Map.filterWithKey (\var _ -> Map.findWithDefault 0 var uses > 1 && Map.lookup var compareReads == Map.lookup var uses) definitions
+      Map.filterWithKey (\var _ -> Map.findWithDefault 0 var uses > 1 && Map.findWithDefault 0 var compareReads == Map.findWithDefault 0 var uses) definitions
     names = Set.fromList (map (unVar . fst) (functionParameters function) <> [unVar name | block <- functionBlocks function, name <- map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block)])
     fresh count (Var base) =
       let candidate n = base <> "$load" <> tshow n
