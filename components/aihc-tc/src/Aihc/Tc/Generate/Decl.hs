@@ -479,7 +479,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   mapM_ (atDecl predeclareTypeLevelDataConstructors) declarations
   mapM_ (atDecl registerDeclaredRecordPatSyn) declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
-  mapM_ (atDecl (registerTypeDeclHeader standaloneKindSchemes)) declarations
+  mapM_ (atDecl (registerTypeDeclHeader associatedFamilyClasses standaloneKindSchemes)) declarations
   let structuralDeclarations =
         [ (resolvedModuleOrigin modu, declaration)
         | modu <- modules,
@@ -531,6 +531,9 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   where
     units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
+    associatedFamilyClasses =
+      associatedDataFamilyClasses
+        [declaration | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules', declaration <- moduleDecls (moduleUnitAst unit)]
 
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration
 
@@ -571,6 +574,19 @@ hoistAssociatedDataFamilies modu = modu {moduleDecls = concatMap hoistDecl (modu
         InstanceItemAnn ann inner -> either (Left . InstanceItemAnn ann) (Right . DeclAnn ann) (instanceItem inner)
         InstanceItemDataFamilyInst familyInst -> Right (DeclDataFamilyInst familyInst)
         _ -> Left item
+
+-- | The class head of each associated data family, by the family name. The
+-- family parameters that the class also binds share the class parameter
+-- kinds, but 'hoistAssociatedDataFamilies' moves the family out of its
+-- class, so the header registration finds the class here.
+associatedDataFamilyClasses :: [Decl] -> Map GlobalName (BinderHead UnqualifiedName)
+associatedDataFamilyClasses declarations =
+  Map.fromList
+    [ (key, classDeclHead classDecl)
+    | DeclClass classDecl <- map peelDeclAnn declarations,
+      ClassItemDataFamilyDecl familyDecl <- map peelClassDeclItemAnn (classDeclItems classDecl),
+      Just key <- [resolvedTypeKey (binderHeadName (dataFamilyDeclHead familyDecl))]
+    ]
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -3987,18 +4003,22 @@ resolvedTypeKey name = do
 
 -- | Register the head of a type-level declaration. A type constructor is
 -- not a term binding, so this reports nothing: it only stores the kind.
-registerTypeDeclHeader :: Map GlobalName TypeScheme -> Decl -> TcM ()
-registerTypeDeclHeader kindSchemes (DeclData dataDecl) =
+registerTypeDeclHeader :: Map GlobalName (BinderHead UnqualifiedName) -> Map GlobalName TypeScheme -> Decl -> TcM ()
+registerTypeDeclHeader _ kindSchemes (DeclData dataDecl) =
   registerDataDeclHeader (resolvedTypeKey (binderHeadName (dataDeclHead dataDecl)) >>= (`Map.lookup` kindSchemes)) dataDecl
-registerTypeDeclHeader kindSchemes (DeclNewtype newtypeDecl) =
+registerTypeDeclHeader _ kindSchemes (DeclNewtype newtypeDecl) =
   registerNewtypeDeclHeader (resolvedTypeKey (binderHeadName (newtypeDeclHead newtypeDecl)) >>= (`Map.lookup` kindSchemes)) newtypeDecl
-registerTypeDeclHeader kindSchemes (DeclDataFamilyDecl familyDecl) =
-  registerDataFamilyDeclHeader (resolvedTypeKey (binderHeadName (dataFamilyDeclHead familyDecl)) >>= (`Map.lookup` kindSchemes)) familyDecl
-registerTypeDeclHeader kindSchemes (DeclTypeFamilyDecl familyDecl) =
+registerTypeDeclHeader associatedClasses kindSchemes (DeclDataFamilyDecl familyDecl) = do
+  let familyKey = resolvedTypeKey (binderHeadName (dataFamilyDeclHead familyDecl))
+  -- The class header was registered first: the hoisted family follows its
+  -- class in the declaration list.
+  sharedKinds <- maybe (pure Map.empty) classParamKinds (familyKey >>= (`Map.lookup` associatedClasses))
+  registerDataFamilyDeclHeaderWith sharedKinds (familyKey >>= (`Map.lookup` kindSchemes)) familyDecl
+registerTypeDeclHeader _ kindSchemes (DeclTypeFamilyDecl familyDecl) =
   registerTypeFamilyDeclHeader (typeFamilyHeadName (typeFamilyDeclHead familyDecl) >>= resolvedTypeKey >>= (`Map.lookup` kindSchemes)) familyDecl
-registerTypeDeclHeader kindSchemes (DeclTypeSyn typeSynDecl) =
+registerTypeDeclHeader _ kindSchemes (DeclTypeSyn typeSynDecl) =
   registerTypeSynonymHeader (resolvedTypeKey (binderHeadName (typeSynHead typeSynDecl)) >>= (`Map.lookup` kindSchemes)) typeSynDecl
-registerTypeDeclHeader kindSchemes (DeclClass classDecl) = do
+registerTypeDeclHeader _ kindSchemes (DeclClass classDecl) = do
   -- An associated family shares the class parameters' kinds: the class
   -- head was predeclared with one kind meta per parameter, and the class
   -- registration unifies those metas with what its methods fix. Registering
@@ -4007,10 +4027,8 @@ registerTypeDeclHeader kindSchemes (DeclClass classDecl) = do
   let classHead = classDeclHead classDecl
       classBinder = binderHeadName classHead
       classParamNames = map tyVarBinderName (binderHeadParams classHead)
-  classTyCon <- mkDeclaredTyCon classBinder (unqualifiedNameText classBinder) (length classParamNames)
-  predeclared <- lookupTyConByIdentity classTyCon
-  let classParamKinds = maybe [] (takeVisibleArgumentKinds (length classParamNames) . typeSchemeBody . tciKindScheme) predeclared
-      sharedKinds = Map.fromList (zip classParamNames classParamKinds)
+  sharedKinds <- classParamKinds classHead
+  let predeclaredKinds = map (sharedKinds Map.!) classParamNames
   -- A class head is predeclared with one kind meta per parameter, before
   -- the standalone kind signatures are read. A signature says what those
   -- kinds are -- @type KnownNat :: Natural -> Constraint@ -- so it is
@@ -4023,7 +4041,7 @@ registerTypeDeclHeader kindSchemes (DeclClass classDecl) = do
       (declaredKind, _) <- instantiate scheme
       zipWithM_
         unifyKinds
-        classParamKinds
+        predeclaredKinds
         (takeVisibleArgumentKinds (length classParamNames) declaredKind)
     Nothing -> pure ()
   mapM_
@@ -4034,8 +4052,19 @@ registerTypeDeclHeader kindSchemes (DeclClass classDecl) = do
           familyDecl
     )
     (classDeclTypeFamilies classDecl)
-registerTypeDeclHeader kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader kindSchemes inner
-registerTypeDeclHeader _ _ = pure ()
+registerTypeDeclHeader associatedClasses kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader associatedClasses kindSchemes inner
+registerTypeDeclHeader _ _ _ = pure ()
+
+-- | The kind of each class parameter, by its name, from the predeclared
+-- class head.
+classParamKinds :: BinderHead UnqualifiedName -> TcM (Map Text TcType)
+classParamKinds classHead = do
+  let classBinder = binderHeadName classHead
+      classParamNames = map tyVarBinderName (binderHeadParams classHead)
+  classTyCon <- mkDeclaredTyCon classBinder (unqualifiedNameText classBinder) (length classParamNames)
+  predeclared <- lookupTyConByIdentity classTyCon
+  let kinds = maybe [] (takeVisibleArgumentKinds (length classParamNames) . typeSchemeBody . tciKindScheme) predeclared
+  pure (Map.fromList (zip classParamNames kinds))
 
 predeclareTypeConstructor :: Decl -> TcM ()
 predeclareTypeConstructor declaration =
@@ -4579,13 +4608,18 @@ typeConstructorModule ty =
     TcKindedTyCon tyCon _ -> Just (tyConModuleName tyCon)
     _ -> Nothing
 
-registerDataFamilyDeclHeader :: Maybe TypeScheme -> DataFamilyDecl -> TcM ()
-registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
+-- | Register a data family header. As for an associated type family, the
+-- parameters named in the map are class parameters: they take the class
+-- parameter kinds and stay open until the class registration settles them.
+registerDataFamilyDeclHeaderWith :: Map Text TcType -> Maybe TypeScheme -> DataFamilyDecl -> TcM ()
+registerDataFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl = do
   let familyBinder = binderHeadName (dataFamilyDeclHead familyDecl)
       familyName = unqualifiedNameText familyBinder
       params = binderHeadParams (dataFamilyDeclHead familyDecl)
       arity = length params
   (kindParams, paramInfos) <- familyParamInfos maybeKindScheme params (dataFamilyDeclKind familyDecl)
+  forM_ paramInfos $ \param ->
+    forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
   inferredKind <- tyConKindFromParamsWith (paramKindEnv kindParams) paramInfos (dataFamilyDeclKind familyDecl)
   familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
@@ -4599,7 +4633,12 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
       }
-  void (defaultKindMetas declaredKind)
+  if Map.null sharedKinds
+    then void (defaultKindMetas declaredKind)
+    else do
+      forM_ paramInfos $ \param ->
+        unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
+      void (defaultKindMetas (typeResultKind arity declaredKind))
 
 registerDataFamilyInstance :: (Text, Text) -> DataFamilyInst -> TcM [TcBindingResult]
 registerDataFamilyInstance (packageName, moduleName') familyInst = do

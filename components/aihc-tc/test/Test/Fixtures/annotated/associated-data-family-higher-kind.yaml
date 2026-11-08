@@ -1,0 +1,18 @@
+annotated:
+- |-
+  module Test where
+  class C m where
+  └─ class methods: f ∷ ∀ m a. (C m) ⇒ D m a → m a
+    data D m a
+         └─ type: (Type → Type) → Type → Type
+    f :: D m a -> m a
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  class C m where
+    data D m a
+    f :: D m a -> m a
+reason: an associated data family parameter takes the kind of the class parameter, here Type → Type, and does not default to Type
+status: pass
