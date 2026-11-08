@@ -1,0 +1,15 @@
+cabal-version: 3.0
+name: package-import-same-name
+version: 0.1.0.0
+build-type: Simple
+
+executable same-name
+  main-is: Main.hs
+  hs-source-dirs: app
+  other-modules: Shared.Types
+  build-depends:
+    base,
+    same-a,
+
+  default-language: Haskell2010
+  default-extensions: PackageImports

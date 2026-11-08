@@ -118,13 +118,13 @@ providerModuleOrigin provider key@(ModuleKey package name) =
   Map.findWithDefault (packageId package, name) key (providerReexports provider)
 
 -- | Where the optimizer interface of a module can be, one path for each
--- dependency package that exposes a module of the name. A package that
+-- selected dependency package that exposes a module of the name. A package that
 -- compiles in the graph writes it under its own output root, as an
 -- installed package holds it under its store directory.
-providerInterfacePaths :: ModuleProvider -> Text -> [FilePath]
-providerInterfacePaths provider name =
+providerInterfacePaths :: ModuleProvider -> (Package -> Bool) -> Text -> [FilePath]
+providerInterfacePaths provider selected name =
   [ root </> moduleNameDirectory original </> interfaceFileName
-  | package <- providerPackagesOf provider name,
+  | package <- filter selected (providerPackagesOf provider name),
     let (identity, original) = providerModuleOrigin provider (ModuleKey package name),
     Just root <- [Map.lookup identity (providerRoots provider)]
   ]

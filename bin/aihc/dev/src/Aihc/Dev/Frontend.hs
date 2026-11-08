@@ -286,7 +286,7 @@ runPackage config jobs headerDirectory dependencies root = do
     stopOnFailure loader (concatMap sourceModuleParseDiagnostics sources) [] []
     -- Resolve: every unit, in dependency order, against the exports of
     -- the units below it and of the packages before this one.
-    let units = sourceModuleUnits sources
+    let units = sourceModuleUnits (packageName resolvePackage) sources
         dependencyExports = mconcat (map checkedExports dependencies)
     (resolved, resolveTime) <- timed (resolveUnits jobs resolvePackage dependencyExports units)
     reportPhase "resolve" resolveTime (show (length units) <> " " <> plural (length units) "unit")
