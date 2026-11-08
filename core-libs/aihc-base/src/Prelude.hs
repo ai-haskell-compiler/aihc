@@ -218,7 +218,7 @@ import GHC.Real
     (^^),
   )
 import GHC.ST (ST (..))
-import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
+import GHC.Show (Show (..), ShowS, showChar, showLitChar, showLitString, showParen, showString, shows)
 import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
@@ -892,107 +892,6 @@ instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h) => Sho
       . showChar ','
       . shows eighth
       . showChar ')'
-
-showLitString :: String -> ShowS
-showLitString [] = id
-showLitString ('"' : chars) = showString "\\\"" . showLitString chars
-showLitString ('\'' : chars) = showChar '\'' . showLitString chars
-showLitString (char : chars) = showLitChar char . showLitString chars
-
-showLitChar :: Char -> ShowS
-showLitChar '\a' = showString "\\a"
-showLitChar '\b' = showString "\\b"
-showLitChar '\f' = showString "\\f"
-showLitChar '\n' = showString "\\n"
-showLitChar '\r' = showString "\\r"
-showLitChar '\t' = showString "\\t"
-showLitChar '\v' = showString "\\v"
-showLitChar '\\' = showString "\\\\"
-showLitChar '\'' = showString "\\'"
-showLitChar char@(C# value) =
-  case ord# value of
-    code -> showLitCode char code
-
-showLitCode :: Char -> Int# -> ShowS
-showLitCode char code =
-  case (>#) code 127# of
-    1# -> showNumericEscape code
-    _ ->
-      case (==#) code 127# of
-        1# -> showString "\\DEL"
-        _ ->
-          case (<#) code 32# of
-            1# -> showControlEscape code
-            _ -> showChar char
-
-showControlEscape :: Int# -> ShowS
-showControlEscape code =
-  case (==#) code 14# of
-    1# -> showShiftOutEscape
-    _ -> showChar '\\' . showString (asciiControlName code)
-
--- A literal @H@ directly after @\\SO@ would read back as @\\SOH@, so an empty
--- escape separates them.
-showShiftOutEscape :: ShowS
-showShiftOutEscape suffix = showString "\\SO" (protectShiftOutEscape suffix)
-
-protectShiftOutEscape :: String -> String
-protectShiftOutEscape chars@('H' : _) = '\\' : '&' : chars
-protectShiftOutEscape chars = chars
-
-asciiControlName :: Int# -> String
-asciiControlName code =
-  case code of
-    0# -> "NUL"
-    1# -> "SOH"
-    2# -> "STX"
-    3# -> "ETX"
-    4# -> "EOT"
-    5# -> "ENQ"
-    6# -> "ACK"
-    7# -> "BEL"
-    8# -> "BS"
-    9# -> "HT"
-    10# -> "LF"
-    11# -> "VT"
-    12# -> "FF"
-    13# -> "CR"
-    14# -> "SO"
-    15# -> "SI"
-    16# -> "DLE"
-    17# -> "DC1"
-    18# -> "DC2"
-    19# -> "DC3"
-    20# -> "DC4"
-    21# -> "NAK"
-    22# -> "SYN"
-    23# -> "ETB"
-    24# -> "CAN"
-    25# -> "EM"
-    26# -> "SUB"
-    27# -> "ESC"
-    28# -> "FS"
-    29# -> "GS"
-    30# -> "RS"
-    _ -> "US"
-
-showNumericEscape :: Int# -> ShowS
-showNumericEscape value suffix =
-  showChar '\\' (shows (IS value) (protectNumericEscape suffix))
-
-protectNumericEscape :: String -> String
-protectNumericEscape [] = []
-protectNumericEscape chars@('0' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('1' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('2' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('3' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('4' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('5' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('6' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('7' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('8' : _) = '\\' : '&' : chars
-protectNumericEscape chars@('9' : _) = '\\' : '&' : chars
-protectNumericEscape chars = chars
 
 putChar :: Char -> IO ()
 putChar character = putStr [character]
