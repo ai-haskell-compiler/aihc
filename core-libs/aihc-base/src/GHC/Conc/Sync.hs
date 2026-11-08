@@ -8,6 +8,7 @@ module GHC.Conc.Sync
     forkIO,
     fromThreadId,
     killThread,
+    labelThread,
     myThreadId,
     showThreadId,
     throwTo,
@@ -134,6 +135,15 @@ forkIOWithoutHandler (IO action) =
 throwTo :: (Exception e) => ThreadId -> e -> IO ()
 throwTo (ThreadId target) exception =
   IO (\state -> case killThread# target (toException exception) state of next -> (# next, () #))
+
+-- | Give a label to a green thread.
+--
+-- GHC keeps the label in its runtime for debug tools and 'threadLabel'.
+-- The aihc runtime has no storage for thread labels. Thus this operation
+-- does nothing. A program cannot see the difference, because aihc has no
+-- 'threadLabel' and no debug tool that shows labels.
+labelThread :: ThreadId -> String -> IO ()
+labelThread _ _ = return ()
 
 -- | Raise 'ThreadKilled' in a thread.
 killThread :: ThreadId -> IO ()
