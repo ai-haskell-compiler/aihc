@@ -256,7 +256,11 @@ failure_reason() {
 echo "Updating the cabal package index..."
 cabal update -v0
 
-for package in "${packages[@]}"; do
+# Compile one package with GHC and then with aihc, and add its row to the
+# table that gives its result.
+survey_package() {
+	local package="$1"
+	local name version status source_directory ghc_log aihc_log
 	name="$(sed -E 's/-[0-9]+(\.[0-9]+)*$//' <<<"$package")"
 	ghc_log="$log_dir/$name.ghc.log"
 	aihc_log="$log_dir/$name.aihc.log"
@@ -267,13 +271,13 @@ for package in "${packages[@]}"; do
 		echo "  failed to fetch:"
 		tail -n 5 "$ghc_log" | sed 's/^/  /'
 		printf '%s\t%s\t%s\n' "$name" "-" "$(failure_reason 1 "$ghc_log")" >>"$no_ghc_rows"
-		continue
+		return
 	fi
 	source_directory="$(find "$sources" -mindepth 1 -maxdepth 1 -type d -name "$name-[0-9]*" | head -n 1)"
 	if [ -z "$source_directory" ]; then
 		echo "  failed to fetch: no $name directory after cabal get"
 		printf '%s\t%s\t%s\n' "$name" "-" "no $name directory after cabal get" >>"$no_ghc_rows"
-		continue
+		return
 	fi
 	version="${source_directory##*/"$name"-}"
 
@@ -287,7 +291,7 @@ for package in "${packages[@]}"; do
 		tail -n 10 "$ghc_log" | sed 's/^/  /'
 		printf '%s\t%s\t%s\n' "$name" "$version" "$(failure_reason "$status" "$ghc_log")" >>"$no_ghc_rows"
 		rm -rf "$source_directory"
-		continue
+		return
 	fi
 	echo "  ok"
 	rm -rf "$source_directory"
@@ -308,54 +312,64 @@ for package in "${packages[@]}"; do
 		tail -n 10 "$aihc_log" | sed 's/^/  /'
 		printf '%s\t%s\tfail\t%s\n' "$name" "$version" "$(failure_reason "$status" "$aihc_log")" >>"$ghc_rows"
 	fi
+}
+
+# Sort the rows of each table by package name and write the survey file.
+write_survey() {
+	local name version aihc_status error
+	sort -t$'\t' -k1,1 -o "$ghc_rows" "$ghc_rows"
+	sort -t$'\t' -k1,1 -o "$no_ghc_rows" "$no_ghc_rows"
+
+	ghc_count="$(wc -l <"$ghc_rows" | tr -d ' ')"
+	aihc_count="$(awk -F'\t' '$3 == "pass"' "$ghc_rows" | wc -l | tr -d ' ')"
+	no_ghc_count="$(wc -l <"$no_ghc_rows" | tr -d ' ')"
+
+	mkdir -p "$(dirname "$output")"
+	{
+		cat <<-'HEADER'
+	# Hackage survey
+
+	This file tells which Hackage packages compile with GHC and with aihc.
+	`scripts/hackage-survey.sh` adds packages to the two tables below.
+	On each run, the script takes the most downloaded Hackage packages that are
+	not in the tables. For each new package, the script compiles the latest
+	release with `cabal build` and GHC. If GHC compiles it, the script compiles
+	the same release with `aihc install NAME-VERSION --lint`.
+
+	Run the script with `nix run .#hackage-survey`. Give the names of packages
+	as arguments to survey those packages instead of the download list.
+	The script does not compile a package that is in a table again. To compile
+	a package again, remove its row.
+
+	HEADER
+		echo "## Summary"
+		echo
+		echo "- Packages that compile with GHC: $ghc_count"
+		echo "- Packages that compile with aihc: $aihc_count"
+		echo "- Packages that do not compile with GHC: $no_ghc_count"
+		echo
+		echo "## Packages that compile with GHC"
+		echo
+		echo "| Package | Version | AIHC | Error |"
+		echo "| ------- | ------- | ---- | ----- |"
+		while IFS=$'\t' read -r name version aihc_status error; do
+			echo "| $name | $version | $aihc_status | $error |"
+		done <"$ghc_rows"
+		echo
+		echo "## Packages that do not compile with GHC"
+		echo
+		echo "| Package | Version | Error |"
+		echo "| ------- | ------- | ----- |"
+		while IFS=$'\t' read -r name version error; do
+			echo "| $name | $version | $error |"
+		done <"$no_ghc_rows"
+	} >"$output"
+}
+
+# The file is written after each package, so a stopped run keeps its results.
+for package in "${packages[@]}"; do
+	survey_package "$package"
+	write_survey
 done
-
-sort -t$'\t' -k1,1 -o "$ghc_rows" "$ghc_rows"
-sort -t$'\t' -k1,1 -o "$no_ghc_rows" "$no_ghc_rows"
-
-ghc_count="$(wc -l <"$ghc_rows" | tr -d ' ')"
-aihc_count="$(awk -F'\t' '$3 == "pass"' "$ghc_rows" | wc -l | tr -d ' ')"
-no_ghc_count="$(wc -l <"$no_ghc_rows" | tr -d ' ')"
-
-mkdir -p "$(dirname "$output")"
-{
-	cat <<'HEADER'
-# Hackage survey
-
-This file tells which Hackage packages compile with GHC and with aihc.
-`scripts/hackage-survey.sh` adds packages to the two tables below.
-On each run, the script takes the most downloaded Hackage packages that are
-not in the tables. For each new package, the script compiles the latest
-release with `cabal build` and GHC. If GHC compiles it, the script compiles
-the same release with `aihc install NAME-VERSION --lint`.
-
-Run the script with `nix run .#hackage-survey`. Give the names of packages
-as arguments to survey those packages instead of the download list.
-The script does not compile a package that is in a table again. To compile
-a package again, remove its row.
-
-HEADER
-	echo "## Summary"
-	echo
-	echo "- Packages that compile with GHC: $ghc_count"
-	echo "- Packages that compile with aihc: $aihc_count"
-	echo "- Packages that do not compile with GHC: $no_ghc_count"
-	echo
-	echo "## Packages that compile with GHC"
-	echo
-	echo "| Package | Version | AIHC | Error |"
-	echo "| ------- | ------- | ---- | ----- |"
-	while IFS=$'\t' read -r name version aihc_status error; do
-		echo "| $name | $version | $aihc_status | $error |"
-	done <"$ghc_rows"
-	echo
-	echo "## Packages that do not compile with GHC"
-	echo
-	echo "| Package | Version | Error |"
-	echo "| ------- | ------- | ----- |"
-	while IFS=$'\t' read -r name version error; do
-		echo "| $name | $version | $error |"
-	done <"$no_ghc_rows"
-} >"$output"
 
 echo "Wrote $output. GHC pass: $ghc_count. aihc pass: $aihc_count. GHC fail: $no_ghc_count."
