@@ -39,7 +39,7 @@ eliminateDeadInstructions function
   | otherwise = eliminateDeadInstructions function {functionBlocks = map dropDead (functionBlocks function)}
   where
     uses = readCounts function
-    unread instruction = all (\result -> MonoidMap.get result uses == 0) (instructionResults instruction)
+    unread instruction = all (`MonoidMap.nullKey` uses) (instructionResults instruction)
     removable instruction = unread instruction && pure' (instructionOperation instruction)
     dead = [() | block <- functionBlocks function, instruction <- blockInstructions block, removable instruction]
     dropDead block = block {blockInstructions = filter (not . removable) (blockInstructions block)}
@@ -324,7 +324,7 @@ simplifyRotations function = rewritten {functionBlocks = map clean (functionBloc
     clean block = block {blockInstructions = fst (foldr remove ([], uses) (blockInstructions block))}
     remove instruction@(Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
-        MonoidMap.get v counts == 0 =
+        MonoidMap.nullKey v counts =
           (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
       | otherwise = (instruction : rest, counts)
     remove instruction (rest, counts) = (instruction : rest, counts)
@@ -384,7 +384,7 @@ simplifyWidths function = rewritten {functionBlocks = map clean (functionBlocks 
     clean block = block {blockInstructions = fst (foldr remove ([], remaining) (blockInstructions block))}
     remove (Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
-        MonoidMap.get v counts == 0 =
+        MonoidMap.nullKey v counts =
           (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
     remove instruction (rest, counts) = (instruction : rest, counts)
     modular op = op `elem` [Add, Sub, Mul, And, Or, Xor]

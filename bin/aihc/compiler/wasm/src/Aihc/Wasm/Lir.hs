@@ -1109,7 +1109,7 @@ setVar fn var = do
 -- instruction reads it from there or from its local.
 define :: Fn -> Var -> M ()
 define fn var
-  | MonoidMap.get var (fnUses fn) == 0 = emit "drop"
+  | MonoidMap.nullKey var (fnUses fn) = emit "drop"
   | Set.member var (fnCandidates fn) = do
       addLine (LineDef var)
       modify' $ \state -> state {functionPending = var : functionPending state}
