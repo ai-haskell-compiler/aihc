@@ -783,8 +783,8 @@ givenRewriteRuleSets givens = do
       leftIsFamily <- isTypeFamilyApplication left
       rightIsFamily <- isTypeFamilyApplication right
       pure $ case (leftIsFamily, rightIsFamily) of
-        (True, False) -> ([(left, right, proof)], [])
-        (False, True) -> ([(right, left, Sym proof)], [])
+        (True, False) -> ([(left, right, proof)], skolemRule right left (Sym proof))
+        (False, True) -> ([(right, left, Sym proof)], skolemRule left right proof)
         (False, False) -> ([], variableRule left right proof)
         -- Two family applications have no preferred side. Each direction
         -- is an alternative: the given @AllB c b ~ GAll 0 c (Rep b)@
@@ -809,6 +809,15 @@ givenRewriteRuleSets givens = do
           TcFunTy domain range -> containsType from domain || containsType from range
           TcForAllTy _ body -> containsType from body
           _ -> False
+    -- A rigid variable equal to a family application also rewrites to
+    -- that application, as an alternative. The given @bool ~ BooleanOf
+    -- a@ turns the wanted @Boolean bool@ into @Boolean (BooleanOf a)@,
+    -- which the superclass of a given @EqB a@ solves.
+    skolemRule variable application proof =
+      case variable of
+        TcTyVar _
+          | not (containsType variable application) -> [(variable, application, proof)]
+        _ -> []
     variableRule left right proof =
       case (left, right) of
         (TcTyVar leftVar, TcTyVar rightVar)

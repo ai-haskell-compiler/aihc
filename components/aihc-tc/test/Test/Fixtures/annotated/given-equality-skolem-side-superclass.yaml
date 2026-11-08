@@ -1,0 +1,74 @@
+extensions: [TypeFamilies, FlexibleContexts]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, FlexibleContexts #-}
+    module Test where
+    class Boolean b where
+      notB :: b -> b
+    type family BooleanOf a
+    -- The wanted @Boolean bool@ names the rigid @bool@. The given
+    -- @bool ~ BooleanOf a@ rewrites it to the superclass of @EqB a@.
+    class Boolean (BooleanOf a) => EqB a where
+      eqB, neB :: (bool ~ BooleanOf a) => a -> a -> bool
+      neB u v = notB (eqB u v)
+    class Boolean (BooleanOf a) => IfB a where
+      ifB :: (bool ~ BooleanOf a) => bool -> a -> a -> a
+    instance Boolean b => Boolean (z -> b) where
+      notB f z = notB (f z)
+    type instance BooleanOf (z -> a) = z -> BooleanOf a
+    cond :: (IfB a, bool ~ BooleanOf a) => (z -> bool) -> (z -> a) -> (z -> a) -> z -> a
+    cond p t e z = ifB (p z) (t z) (e z)
+    -- The method type is @(bool ~ BooleanOf (z -> a)) => bool -> ...@.
+    -- The given reduces to @bool ~ (z -> BooleanOf a)@, and only this
+    -- given lets @bool@ match the argument type @z -> bool0@ of @cond@.
+    instance IfB a => IfB (z -> a) where
+      ifB = cond
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, FlexibleContexts #-}
+  module Test where
+  class Boolean b where
+  └─ class methods: notB ∷ ∀ b. (Boolean b) ⇒ b → b
+    notB :: b -> b
+  type family BooleanOf a
+              └─ type: Type → Type
+  -- The wanted @Boolean bool@ names the rigid @bool@. The given
+  -- @bool ~ BooleanOf a@ rewrites it to the superclass of @EqB a@.
+  class Boolean (BooleanOf a) => EqB a where
+  └─ class methods: eqB ∷ ∀ a bool. (EqB a, bool ~ (BooleanOf a)) ⇒ a → a → bool, neB ∷ ∀ a bool. (EqB a, bool ~ (BooleanOf a)) ⇒ a → a → bool
+    eqB, neB :: (bool ~ BooleanOf a) => a -> a -> bool
+    neB u v = notB (eqB u v)
+    │   │ │   │     └─ type: a → a → bool; type-args: a, bool; evidence: given EqB a, given bool ~ BooleanOf a
+    │   │ │   └─ type: bool → bool; type-args: bool; evidence: cast(super[0](given EqB a), sym (Boolean given bool ~ BooleanOf a))
+    │   │ └─ type: a
+    │   └─ type: a
+    └─ neB ∷ ∀ a bool. (EqB a, bool ~ (BooleanOf a)) ⇒ a → a → bool
+  class Boolean (BooleanOf a) => IfB a where
+  └─ class methods: ifB ∷ ∀ a bool. (IfB a, bool ~ (BooleanOf a)) ⇒ bool → a → a → a
+    ifB :: (bool ~ BooleanOf a) => bool -> a -> a -> a
+  instance Boolean b => Boolean (z -> b) where
+  └─ $fBoolean(->)zb ∷ ∀ b z. (Boolean b) ⇒ Boolean (z → b)
+    notB f z = notB (f z)
+    │    │ │   └─ type: b → b; type-args: b; evidence: given Boolean b
+    │    │ └─ type: z
+    │    └─ type: z → b
+    └─ notB ∷ (z → b) → z → b
+  type instance BooleanOf (z -> a) = z -> BooleanOf a
+  cond :: (IfB a, bool ~ BooleanOf a) => (z -> bool) -> (z -> a) -> (z -> a) -> z -> a
+  cond p t e z = ifB (p z) (t z) (e z)
+  │    │ │ │ │   └─ type: bool → a → a → a; type-args: a, bool; evidence: given IfB a, given bool ~ BooleanOf a
+  │    │ │ │ └─ type: z
+  │    │ │ └─ type: z → a
+  │    │ └─ type: z → a
+  │    └─ type: z → bool
+  └─ type: ∀ a bool z. (IfB a, bool ~ (BooleanOf a)) ⇒ (z → bool) → (z → a) → (z → a) → z → a
+  -- The method type is @(bool ~ BooleanOf (z -> a)) => bool -> ...@.
+  -- The given reduces to @bool ~ (z -> BooleanOf a)@, and only this
+  -- given lets @bool@ match the argument type @z -> bool0@ of @cond@.
+  instance IfB a => IfB (z -> a) where
+  └─ $fIfB(->)za ∷ ∀ a z. (IfB a) ⇒ IfB (z → a) [superclasses: $fBoolean(->)zb @BooleanOf a @z (super[0](given IfB a))]
+    ifB = cond
+    │     └─ type: (z → BooleanOf a) → (z → a) → (z → a) → z → a; type-args: a, BooleanOf a, z; evidence: given IfB a, refl BooleanOf a
+    └─ ifB ∷ ∀ bool. (bool ~ (BooleanOf (z → a))) ⇒ bool → (z → a) → (z → a) → z → a
+status: pass
+reason: a given equality rewrites a rigid variable in a wanted to a family application

@@ -102,7 +102,12 @@ solveRewrittenByGivens givens ct = case ctPred ct of
 givenRewrites :: [Pred] -> TcM [(TcType, TcType)]
 givenRewrites givens = do
   equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
-  concat <$> mapM orient equalities
+  -- A given is oriented in its reduced form. The given @bool ~ BooleanOf
+  -- (z -> a)@ reduces to @bool ~ (z -> BooleanOf a)@. As written it only
+  -- rewrites the family application, but the wanted @(z -> t0) ~ bool@
+  -- needs the rewrite of @bool@ to bind @t0@.
+  reduced <- traverse (\(left, right, proof) -> (,,proof) <$> reduceTypeFamilies left <*> reduceTypeFamilies right) equalities
+  concat <$> mapM orient reduced
   where
     -- A rigid variable equal to a family application names that
     -- application: with the given @Sub n m ~ d@ the wanted @Proxy t0 ~
