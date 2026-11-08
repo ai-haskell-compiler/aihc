@@ -41,6 +41,10 @@ module GHC.Word
     geWord64,
     ltWord64,
     leWord64,
+
+    -- * Shifts
+    uncheckedShiftL64#,
+    uncheckedShiftRL64#,
   )
 where
 
@@ -101,6 +105,8 @@ import GHC.Prim
     timesWord32#,
     timesWord64#,
     timesWord8#,
+    uncheckedShiftL64#,
+    uncheckedShiftRL64#,
     word16ToWord#,
     word32ToWord#,
     word64ToWord#,

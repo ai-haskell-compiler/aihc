@@ -119,13 +119,18 @@ module GHC.Exts
     writeWord64Array#,
     writeWordArray#,
     xor#,
+    the,
+    sortWith,
+    groupWith,
   )
 where
 
 import Data.Coerce (coerce)
+import Data.List (all, groupBy, sortBy)
 import Data.Ord (Down (..))
 import Data.String (IsString (..))
-import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
+import GHC.Base (Eq (..), Ord (..), augment, build, iShiftL#, iShiftRA#, iShiftRL#, otherwise, shiftL#, shiftRL#)
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
@@ -181,3 +186,21 @@ atomicModifyMutVar# reference modify state =
 dataToTag# :: forall a. a -> Int#
 dataToTag# = dataToTagLarge#
 {-# INLINE dataToTag# #-}
+
+-- | Give the element of a list where all elements are equal. Fail on an
+-- empty list and on a list with two different elements.
+the :: (Eq a) => [a] -> a
+the (x : xs)
+  | all (x ==) xs = x
+  | otherwise = errorWithoutStackTrace "GHC.Exts.the: non-identical list"
+the [] = errorWithoutStackTrace "GHC.Exts.the: empty list"
+
+-- | Sort a list by the result of the function on each element. The sort
+-- keeps the order of elements with equal results.
+sortWith :: (Ord b) => (a -> b) -> [a] -> [a]
+sortWith f = sortBy (\x y -> compare (f x) (f y))
+
+-- | Sort a list by the result of the function on each element. Then put
+-- adjacent elements with equal results into one group.
+groupWith :: (Ord b) => (a -> b) -> [a] -> [[a]]
+groupWith f xs = groupBy (\x y -> f x == f y) (sortWith f xs)

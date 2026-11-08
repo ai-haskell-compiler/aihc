@@ -1,0 +1,22 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (groupWith, sortWith, the)
+
+    main :: IO ()
+    main = do
+      print (sortWith negate [2, 3, 1 :: Int])
+      print (sortWith fst [(2, 'a'), (1, 'b'), (2, 'c') :: (Int, Char)])
+      print (groupWith (`mod` 3) [1 .. 7 :: Int])
+      print (the "aaa")
+expression: main
+stdout: |
+  [3,2,1]
+  [(1,'b'),(2,'a'),(2,'c')]
+  [[3,6],[1,4,7],[2,5]]
+  'a'
+output: |
+  ()
+status: pass
+reason: GHC.Exts exports the, sortWith, and groupWith of base, and sortWith keeps the order of equal keys

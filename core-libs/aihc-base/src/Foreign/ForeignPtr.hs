@@ -4,7 +4,9 @@ module Foreign.ForeignPtr
     FinalizerEnvPtr,
     newForeignPtr,
     newForeignPtr_,
+    newForeignPtrEnv,
     addForeignPtrFinalizer,
+    addForeignPtrFinalizerEnv,
     withForeignPtr,
     finalizeForeignPtr,
     touchForeignPtr,
@@ -23,6 +25,7 @@ import GHC.ForeignPtr
     FinalizerPtr,
     ForeignPtr,
     addForeignPtrFinalizer,
+    addForeignPtrFinalizerEnv,
     castForeignPtr,
     finalizeForeignPtr,
     mallocForeignPtr,
@@ -39,6 +42,14 @@ newForeignPtr :: FinalizerPtr a -> Ptr a -> IO (ForeignPtr a)
 newForeignPtr finalizer pointer = do
   foreignPointer <- newForeignPtr_ pointer
   addForeignPtrFinalizer finalizer foreignPointer
+  return foreignPointer
+
+-- | Make a foreign pointer with a finalizer that also gets the environment
+-- pointer.
+newForeignPtrEnv :: FinalizerEnvPtr env a -> Ptr env -> Ptr a -> IO (ForeignPtr a)
+newForeignPtrEnv finalizer environment pointer = do
+  foreignPointer <- newForeignPtr_ pointer
+  addForeignPtrFinalizerEnv finalizer environment foreignPointer
   return foreignPointer
 
 mallocForeignPtrArray :: (Storable a) => Int -> IO (ForeignPtr a)

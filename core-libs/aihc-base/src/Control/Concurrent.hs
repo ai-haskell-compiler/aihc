@@ -14,6 +14,7 @@ module Control.Concurrent
     forkOn,
     forkOnWithUnmask,
     forkOS,
+    forkOSWithUnmask,
     getNumCapabilities,
     setNumCapabilities,
     threadCapability,
@@ -70,6 +71,10 @@ forkOnWithUnmask _ = forkIOWithUnmask
 -- | Bound threads are not supported. The stub does not run the action.
 forkOS :: IO () -> IO ThreadId
 forkOS _ = throwIO (ErrorCallWithLocation "forkOS: bound threads are not supported" "")
+
+-- | Bound threads are not supported. See 'forkOS' and 'forkIOWithUnmask'.
+forkOSWithUnmask :: ((forall a. IO a -> IO a) -> IO ()) -> IO ThreadId
+forkOSWithUnmask action = forkOS (action unsafeUnmask)
 
 -- | Set the number of capabilities. The runtime has one capability, and it
 -- cannot add more. Thus this function does nothing, as in the

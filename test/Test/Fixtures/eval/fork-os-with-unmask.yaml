@@ -1,0 +1,18 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (forkOSWithUnmask)
+    import Control.Exception (ErrorCall, try)
+
+    main :: IO ()
+    main = do
+      result <- try (forkOSWithUnmask (\unmask -> unmask (putStrLn "child")))
+      putStrLn (either (\e -> "no bound threads: " ++ show (e :: ErrorCall)) (const "forked") result)
+expression: main
+stdout: |
+  no bound threads: forkOS: bound threads are not supported
+output: |
+  ()
+status: pass
+reason: Control.Concurrent exports forkOSWithUnmask of base, and it fails as forkOS does because the runtime has no bound threads

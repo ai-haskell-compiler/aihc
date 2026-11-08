@@ -1,0 +1,25 @@
+modules:
+  - |
+    module Test where
+
+    import Text.ParserCombinators.ReadP (readP_to_S)
+    import Text.Read.Lex (lexChar)
+
+    main :: IO ()
+    main = do
+      print (readP_to_S lexChar "ab")
+      print (readP_to_S lexChar "\\nx")
+      print (readP_to_S lexChar "\\1234\\&5")
+      print (readP_to_S lexChar "\\SOH")
+      print (readP_to_S lexChar "")
+expression: main
+stdout: |
+  [('a',"b")]
+  [('\n',"x")]
+  [('\1234',"5")]
+  [('\SOH',"")]
+  []
+output: |
+  ()
+status: pass
+reason: Text.Read.Lex exports lexChar of base, which reads one character literal body and skips each empty escape after it

@@ -1,0 +1,27 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (Int (..))
+    import GHC.Word (Word64 (..), uncheckedShiftL64#, uncheckedShiftRL64#)
+
+    shiftRight :: Word64 -> Int -> Word64
+    shiftRight (W64# w) (I# i) = W64# (w `uncheckedShiftRL64#` i)
+
+    shiftLeft :: Word64 -> Int -> Word64
+    shiftLeft (W64# w) (I# i) = W64# (w `uncheckedShiftL64#` i)
+
+    main :: IO ()
+    main = do
+      print (shiftRight 0xff00 8)
+      print (shiftLeft 3 62)
+expression: main
+stdout: |
+  255
+  13835058055282163712
+output: |
+  ()
+status: pass
+reason: GHC.Word exports the Word64# shifts of base
