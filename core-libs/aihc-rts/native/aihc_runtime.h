@@ -961,6 +961,8 @@ int64_t aihc_io_handle_size(void *handle);
 uint64_t aihc_clock_monotonic_ns(void);
 /* The number of capabilities of the machine, for getNumCapabilities. */
 int64_t aihc_capability_count(void);
+/* The number of processors of the machine, for getNumProcessors. */
+int64_t aihc_processor_count(void);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_errno_get(void);
