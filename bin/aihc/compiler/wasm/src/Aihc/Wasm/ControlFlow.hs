@@ -83,7 +83,7 @@ analyzeControlFlow blocks =
           MonoidMap.nonNullKeys
             ( MonoidMap.filter
                 (>= (2 :: Sum Int))
-                (MonoidMap.fromListWith (<>) [(target, 1) | (source, target) <- edges, number Map.! target > number Map.! source])
+                (MonoidMap.fromList [(target, 1) | (source, target) <- edges, number Map.! target > number Map.! source])
             )
 
 -- | The blocks that the entry reaches, in reverse postorder.

@@ -1041,8 +1041,7 @@ orderByStart encoded starts hints partners = do
 -- | How many times the function reads each value, unweighted.
 readCounts :: Function -> MonoidMap Var (Sum Int)
 readCounts function =
-  MonoidMap.fromListWith
-    (<>)
+  MonoidMap.fromList
     [ (var, 1)
     | block <- functionBlocks function,
       var <- concatMap (operationReads . instructionOperation) (blockInstructions block) <> terminatorReads (blockTerminator block)
