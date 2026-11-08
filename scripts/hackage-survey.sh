@@ -200,6 +200,9 @@ if [ "${#packages[@]}" -eq 0 ]; then
 	exit 0
 fi
 
+# The directory where aihc keeps the Hackage sources it downloads.
+hackage_cache="${XDG_CACHE_HOME:-$HOME/.cache}/aihc/hackage"
+
 run_with_timeout() {
 	if command -v timeout >/dev/null 2>&1; then
 		timeout "$compile_timeout" "$@"
@@ -209,8 +212,10 @@ run_with_timeout() {
 }
 
 # One short line that tells why a compile failed: the first error line of the
-# log and the line after it, or else the last line of the log. The line goes
-# in a Markdown table, so a "|" is escaped and a tab becomes a space.
+# log, or else the last line of the log. GHC puts the message on the line
+# after "error:", so that line is added when the error line has no message.
+# The line goes in a Markdown table, so a "|" is escaped and a tab becomes a
+# space. A path into the Hackage cache of aihc loses its prefix.
 failure_reason() {
 	local status="$1"
 	local log="$2"
@@ -221,7 +226,7 @@ failure_reason() {
 	fi
 	reason="$(
 		awk '
-			found && /[^[:space:]]/ {
+			more && /[^[:space:]]/ {
 				line = $0
 				gsub(/^[ \t]+|[ \t]+$/, "", line)
 				print " " line
@@ -232,8 +237,16 @@ failure_reason() {
 				line = $0
 				gsub(/^[ \t]+|[ \t]+$/, "", line)
 				printf "%s", line
+				# The message is on the next line when nothing but an
+				# error code follows "error:".
+				rest = line
+				sub(/^.*[Ee]rror:/, "", rest)
+				gsub(/^[ \t]+|[ \t]+$/, "", rest)
+				if (rest == "" || rest ~ /^\[[^]]*\]$/) {
+					more = 1
+				}
 			}
-			END { if (found) print "" }
+			END { if (found && !more) print "" }
 		' "$log"
 	)"
 	# A cabal solver failure names the conflict some lines after the error.
@@ -249,7 +262,7 @@ failure_reason() {
 	if [ -z "$reason" ]; then
 		reason="$(grep -v '^[[:space:]]*$' "$log" | tail -n 1 || true)"
 	fi
-	reason="$(printf '%s' "$reason" | sed -e "s#$work_directory/##g" | tr '\t' ' ' | cut -c1-160 | sed 's/|/\\|/g')"
+	reason="$(printf '%s' "$reason" | sed -e "s#$work_directory/##g" -e "s#$hackage_cache/##g" | tr '\t' ' ' | cut -c1-160 | sed 's/|/\\|/g')"
 	echo "${reason:--}"
 }
 
