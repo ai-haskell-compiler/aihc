@@ -3112,7 +3112,10 @@ writeUnitInterfaces primIdentity config verbose outputPaths index fcModules = do
         Just interfaces -> do
           let grafted = Fc.graftIndexed interfaces offered
               templates = Set.fromList [Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls offered, Fc.InlineAlways _ <- [Fc.valInline declaration]]
-              env = Fc.PassEnv {Fc.envPrimPackage = primIdentity, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted, Fc.envSettled = Fc.graftedSettled grafted <> templates}
+              -- A grafted value is not removable here: a copy of it would
+              -- land in an offered body, which every importer grafts in
+              -- turn, and the interfaces would grow with each other.
+              env = Fc.PassEnv {Fc.envPrimPackage = primIdentity, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Set.empty, Fc.envSettled = Fc.graftedSettled grafted <> templates}
           optimized <- optimizeFcProgram env config verbose (fcModuleName fcModule <> " interface") (Fc.graftedProgram grafted)
           -- The interface declares the values of this module only. A
           -- consumer reads a value of another module from the interface
