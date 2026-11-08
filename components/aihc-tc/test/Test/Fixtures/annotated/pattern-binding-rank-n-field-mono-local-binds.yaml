@@ -1,0 +1,44 @@
+extensions:
+- RankNTypes
+- MonoLocalBinds
+modules:
+- |
+  {-# LANGUAGE RankNTypes, MonoLocalBinds #-}
+  module Test where
+  data Flag = Off | On
+  data Mark = Mark
+  newtype Box = Box (forall a. a -> a)
+  use :: Box -> (Flag, Mark)
+  use box = (f On, f Mark)
+    where
+      Box f = box
+status: pass
+reason: With MonoLocalBinds, a local pattern binding is not generalized. A binder
+  of a polymorphic constructor field still keeps the field type in the body.
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, MonoLocalBinds #-}
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Mark = Mark
+       │      └─ type: Mark
+       └─ type: Type
+  newtype Box = Box (forall a. a -> a)
+          │     └─ type: (∀ a. a → a) → Box
+          └─ type: Type
+  use :: Box -> (Flag, Mark)
+  use box = (f On, f Mark)
+  │   │     ││     └─ type: Mark → Mark; type-args: Mark
+  │   │     │└─ type: Flag → Flag; type-args: Flag
+  │   │     └─ type: (Flag, Mark); type-args: Flag, Mark
+  │   └─ type: Box
+  └─ type: Box → (Flag, Mark)
+    where
+      Box f = box
+      ││   └─ type: ∀ a. a → a
+      └─ type: Box
+      └─ type: Box
+

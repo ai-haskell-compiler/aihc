@@ -104,6 +104,7 @@ module Data.List
     maximumBy,
     minimumBy,
     genericLength,
+    genericIndex,
     genericTake,
     genericDrop,
     genericSplitAt,
@@ -428,6 +429,15 @@ insertBy order value (next : rest) =
 genericLength :: (Num i) => [a] -> i
 genericLength [] = 0
 genericLength (_ : values) = 1 + genericLength values
+
+-- | The element at an index of any integral type. GHC gives the same
+-- error messages.
+genericIndex :: (Integral i) => [a] -> i -> a
+genericIndex (value : rest) count
+  | count > 0 = genericIndex rest (count - 1)
+  | count == 0 = value
+  | otherwise = errorWithoutStackTrace "List.genericIndex: negative argument."
+genericIndex _ _ = errorWithoutStackTrace "List.genericIndex: index too large."
 
 genericTake :: (Integral i) => i -> [a] -> [a]
 genericTake count values =
