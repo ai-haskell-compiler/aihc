@@ -15,13 +15,14 @@ import Aihc.Fc.Fold (depositBits, extractBits, reverseBits)
 import Aihc.Grin.Syntax
 import Control.Concurrent qualified as Host
 import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
-import Control.Monad (foldM, void, when, zipWithM, zipWithM_)
+import Control.Monad (foldM, unless, void, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
+import Data.Foldable qualified as Foldable
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int16, Int32, Int64, Int8)
 import Data.IntMap.Strict (IntMap)
@@ -178,6 +179,10 @@ data GrinIOOperation
   | GrinWrite !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinOpen !Text !Integer
   | GrinWaitUntil !Word64
+  | -- | A transaction wait while other threads can run. Another thread can
+    -- commit, so the waiting thread yields and then runs its transaction
+    -- again. The native runtime parks the thread until a commit or a timer.
+    GrinWaitYield
   deriving (Eq, Show)
 
 data GrinIOResult
@@ -230,6 +235,9 @@ data Machine = Machine
     machineTimers :: ![(Word64, GrinMutVar, RuntimeValue)],
     machineTransactions :: ![[(GrinMutVar, RuntimeValue)]],
     machineRunQueue :: !(Seq ThreadAction),
+    -- | The threads that yielded in a transaction wait after the last commit
+    -- or timer. Only another thread can then wake them. See 'GrinWaitYield'.
+    machineWaitingThreads :: ![RuntimeValue],
     -- | The thread that runs now. The value is the location of its cell.
     machineCurrentThread :: !RuntimeValue,
     machineNextThreadId :: !Word64,
@@ -393,6 +401,7 @@ initialMachine streams program allocations =
       machineTransactions = [],
       machineTimers = [],
       machineRunQueue = Seq.empty,
+      machineWaitingThreads = [],
       -- The program starts on the main thread, which has the first number.
       machineCurrentThread = RuntimeLocation mainThreadLocation,
       machineNextThreadId = mainThreadId + 1
@@ -546,9 +555,16 @@ evalScheduledPrimitive "fork#" [action] continue = do
 evalScheduledPrimitive "yield#" [] continue = do
   enqueueThread (continue [])
   scheduleNextThread
-evalScheduledPrimitive "awaitIO#" [RuntimeIORequest request] continue = do
-  completeIORequest request
-  continue []
+evalScheduledPrimitive "awaitIO#" [RuntimeIORequest request@(GrinIORequest reference)] continue = do
+  state <- liftEvalIO (readIORef reference)
+  case state of
+    GrinIOSubmitted GrinWaitYield -> do
+      liftEvalIO (writeIORef reference (GrinIOCompleted (GrinIOInt 1)))
+      enqueueThread (continue [])
+      scheduleNextThread
+    _ -> do
+      completeIORequest request
+      continue []
 evalScheduledPrimitive "newMVar#" [] continue = do
   identifier <- getsMachine machineNextMVar
   let mvar =
@@ -1509,9 +1525,18 @@ evalPrimitive "submitIOWrite#" [handleValue, bufferValue, offsetValue, lengthVal
   (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWrite handle buffer checkedOffset checkedLength)))
 evalPrimitive "stmWaitRequest#" [] = do
   timers <- lift (gets machineTimers)
-  let state = case timers of
-        [] -> GrinIOCompleted (GrinIOInt 0)
-        _ -> GrinIOSubmitted (GrinWaitUntil (minimum [time | (time, _, _) <- timers]))
+  runnable <- lift (gets machineRunQueue)
+  current <- lift (gets machineCurrentThread)
+  waiting <- lift (gets machineWaitingThreads)
+  let canWake = any (`notElem` (current : waiting)) [thread | ThreadAction thread _ _ <- Foldable.toList runnable]
+  when canWake $
+    lift $
+      modify' (\machine -> machine {machineWaitingThreads = current : waiting})
+  let state
+        | canWake = GrinIOSubmitted GrinWaitYield
+        | otherwise = case timers of
+            [] -> GrinIOCompleted (GrinIOInt 0)
+            _ -> GrinIOSubmitted (GrinWaitUntil (minimum [time | (time, _, _) <- timers]))
   (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef state)
 evalPrimitive "stmWaitResult#" [request] = do
   result <- takeIOResult "stmWaitResult#" request
@@ -1536,8 +1561,9 @@ evalPrimitive "stmCommit#" [] = do
     writes : parent : parents -> do
       lift $ modify' (\machine -> machine {machineTransactions = (writes <> parent) : parents})
       pure [intRuntimeValue 1]
-    [_] -> do
+    [writes] -> do
       lift $ modify' (\machine -> machine {machineTransactions = []})
+      unless (null writes) (lift $ modify' (\machine -> machine {machineWaitingThreads = []}))
       pure [intRuntimeValue 1]
     [] -> throwInterpret (InterpretPrimitiveArity "stmCommit#" 0)
 evalPrimitive "writeTVar#" [variable, value] = do
@@ -2969,6 +2995,7 @@ performIOOperation operation =
       now <- liftEvalIO Host.getMonotonicTimeNSec
       when (deadline > now) (liftEvalIO (Host.threadDelay (fromIntegral ((deadline - now) `div` 1000 + 1))))
       pure (GrinIOInt 1)
+    GrinWaitYield -> pure (GrinIOInt 1)
     GrinRead (GrinIOHandle _ handle) buffer offset byteCount -> do
       result <- liftEvalIO (tryForeign (BS.hGet handle byteCount))
       case result of
@@ -3209,7 +3236,9 @@ expireTransactionTimers = do
   now <- liftEvalIO Host.getMonotonicTimeNSec
   timers <- lift (gets machineTimers)
   mapM_ (expire now) timers
-  lift $ modify' (\machine -> machine {machineTimers = filter (\(deadline, _, _) -> deadline > now) timers})
+  let pending = filter (\(deadline, _, _) -> deadline > now) timers
+  lift $ modify' (\machine -> machine {machineTimers = pending})
+  unless (length pending == length timers) (lift $ modify' (\machine -> machine {machineWaitingThreads = []}))
   where
     expire now (deadline, GrinMutVar reference, value) =
       when (deadline <= now) (liftEvalIO (writeIORef reference value))

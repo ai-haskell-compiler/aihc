@@ -1,0 +1,85 @@
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, RankNTypes, TypeOperators, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, FunctionalDependencies #-}
+    module Test where
+    import GHC.Types (TYPE, Type, type (~~))
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    class Rd r (m :: Type -> Type) | m -> r where
+      rd :: m r
+      loc :: (r -> r) -> m a -> m a
+      bnd :: m x -> (x -> m y) -> m y
+    instance (m ~~ m', Rd r m') => Rd r (Codensity (m :: k -> TYPE rep)) where
+      rd = Codensity (\c -> bnd rd c)
+      loc f (Codensity g) = Codensity (\c -> bnd rd (\r -> loc f (g (\a -> loc (\_ -> r) (c a)))))
+      bnd (Codensity g) h = Codensity (\c -> g (\a -> runCodensity (h a) c))
+annotated:
+  - |-
+    {-# LANGUAGE PolyKinds, RankNTypes, TypeOperators, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, FunctionalDependencies #-}
+    module Test where
+    import GHC.Types (TYPE, Type, type (~~))
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+            │                                  └─ type: ∀ k rep m a. (∀ b. (a → m b) → m b) → Codensity m a
+            └─ type: (k → GHC.Types.TYPE rep) → Type → Type
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    class Rd r (m :: Type -> Type) | m -> r where
+    └─ class methods: rd ∷ ∀ r m. (Rd r m) ⇒ m r, loc ∷ ∀ r m a. (Rd r m) ⇒ (r → r) → m a → m a, bnd ∷ ∀ r m x y. (Rd r m) ⇒ m x → (x → m y) → m y; fundeps: m → r
+      rd :: m r
+      loc :: (r -> r) -> m a -> m a
+      bnd :: m x -> (x -> m y) -> m y
+    instance (m ~~ m', Rd r m') => Rd r (Codensity (m :: k -> TYPE rep)) where
+    └─ $fRdrCodensitym ∷ ∀ k rep m' r m. (m ~ m', Rd r m') ⇒ Rd r (Codensity m)
+      rd = Codensity (\c -> bnd rd c)
+      │    ││          ││    │   └─ type: m r; type-args: r, m; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │    ││          ││    └─ type: m r → (r → m b) → m b; type-args: r, m, r, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │    ││          │└─ type: r → m b
+      │    ││          └─ type: (r → m b) → m b
+      │    └─ type: (∀ b. (r → m b) → m b) → Codensity m r; type-args: Type, 'BoxedRep 'Lifted, m, r
+      │    └─ type: ∀ b. (r → m b) → m b
+      └─ rd ∷ Codensity m r
+      loc f (Codensity g) = Codensity (\c -> bnd rd (\r -> loc f (g (\a -> loc (\_ -> r) (c a)))))
+      │   │  │         │    ││          ││    │   │   ││    │      │  ││    │    │└─ type: r
+      │   │  │         │    ││          ││    │   │   ││    │      │  ││    │    │└─ type: r
+      │   │  │         │    ││          ││    │   │   ││    │      │  ││    │    └─ type: r → r
+      │   │  │         │    ││          ││    │   │   ││    │      │  ││    └─ type: (r → r) → m b → m b; type-args: r, m, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │   │  │         │    ││          ││    │   │   ││    │      │  │└─ type: a
+      │   │  │         │    ││          ││    │   │   ││    │      │  └─ type: a → m b
+      │   │  │         │    ││          ││    │   │   ││    │      └─ type: (a → m b) → m b; type-args: b
+      │   │  │         │    ││          ││    │   │   ││    └─ type: (r → r) → m b → m b; type-args: r, m, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │   │  │         │    ││          ││    │   │   │└─ type: r
+      │   │  │         │    ││          ││    │   │   └─ type: r → m b
+      │   │  │         │    ││          ││    │   └─ type: m r; type-args: r, m; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │   │  │         │    ││          ││    └─ type: m r → (r → m b) → m b; type-args: r, m, r, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │   │  │         │    ││          │└─ type: a → m b
+      │   │  │         │    ││          └─ type: (a → m b) → m b
+      │   │  │         │    └─ type: (∀ b. (a → m b) → m b) → Codensity m a; type-args: Type, 'BoxedRep 'Lifted, m, a
+      │   │  │         │    └─ type: ∀ b. (a → m b) → m b
+      │   │  │         └─ type: ∀ b. (a → m b) → m b
+      │   │  └─ type: Codensity m a
+      │   └─ type: r → r
+      └─ loc ∷ ∀ a. (r → r) → Codensity m a → Codensity m a
+      bnd (Codensity g) h = Codensity (\c -> g (\a -> runCodensity (h a) c))
+      │    │         │  │   ││          ││    │  ││    └─ type: (y → m b) → m b; type-args: b
+      │    │         │  │   ││          ││    │  ││    └─ type: Codensity m y → ∀ b. (y → m b) → m b; type-args: Type, 'BoxedRep 'Lifted, m, y
+      │    │         │  │   ││          ││    │  │└─ type: x
+      │    │         │  │   ││          ││    │  └─ type: x → m b
+      │    │         │  │   ││          ││    └─ type: (x → m b) → m b; type-args: b
+      │    │         │  │   ││          │└─ type: y → m b
+      │    │         │  │   ││          └─ type: (y → m b) → m b
+      │    │         │  │   └─ type: ∀ b. (y → m b) → m b
+      │    │         │  │   └─ type: (∀ b. (y → m b) → m b) → Codensity m y; type-args: Type, 'BoxedRep 'Lifted, m, y
+      │    │         │  └─ type: x → Codensity m y
+      │    │         └─ type: ∀ b. (x → m b) → m b
+      │    └─ type: Codensity m x
+      └─ bnd ∷ ∀ x y. Codensity m x → (x → Codensity m y) → Codensity m y
+
+extensions:
+  - PolyKinds
+  - RankNTypes
+  - TypeOperators
+  - FlexibleInstances
+  - UndecidableInstances
+  - MultiParamTypeClasses
+  - FunctionalDependencies
+status: pass
+reason: the given class constraint at m' and the given m ~~ m' improve a wanted at m through the functional dependency of the class

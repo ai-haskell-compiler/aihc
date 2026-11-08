@@ -92,13 +92,21 @@ finalizeInstanceAnnotation annotation = do
   headTypes <- mapM finalizeType (tcInstanceHeadTypes annotation)
   classVariables <- mapM defaultTyVarKinds (tcInstanceClassTyVars annotation)
   methods <- mapM finalizeMethod (tcInstanceClassMethods annotation)
+  -- An instance variable that the head does not bind, as @v'@ in
+  -- @instance (v ~~ v', Zero v') => Zero (Codensity v)@, is a meta
+  -- variable in the evidence of a dictionary of that instance. The solver
+  -- binds it after the evidence is built.
+  superClasses <- mapM (traverse zonkEvTerm) (tcInstanceSuperClasses annotation)
+  defaultMethodEvidence <- mapM (traverse (mapM zonkEvTerm)) (tcInstanceDefaultMethodEvidence annotation)
   let finalized =
         annotation
           { tcInstanceDictType = dictionaryType,
             tcInstanceTyVars = variables,
             tcInstanceHeadTypes = headTypes,
             tcInstanceClassTyVars = classVariables,
-            tcInstanceClassMethods = methods
+            tcInstanceClassMethods = methods,
+            tcInstanceSuperClasses = superClasses,
+            tcInstanceDefaultMethodEvidence = defaultMethodEvidence
           }
   rejectMetaFinalAnnotation (mkAnnotation finalized)
   pure finalized
@@ -387,6 +395,7 @@ firstMetaCoerced body =
         ++ [ firstMetaCoercion (tcCoercedMethodCoercion method)
                <|> firstJusts (map (firstMetaType . tvKind) (tcCoercedMethodTyVars method))
                <|> firstJusts (map firstMetaPred (tcCoercedMethodPredicates method))
+               <|> firstJusts [firstMetaCoercion proof | Just proof <- tcCoercedMethodPredicateCasts method]
            | method <- tcCoercedMethods body
            ]
     )

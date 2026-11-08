@@ -1,0 +1,54 @@
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, RankNTypes, TypeOperators, FlexibleInstances, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (TYPE, Type, type (~~))
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    class Zero (f :: Type -> Type) where
+      zero :: f a
+    instance (v ~~ v', Zero v') => Zero (Codensity (v :: k -> TYPE rep)) where
+      zero = Codensity (\_ -> zero)
+    class Zero f => Plus (f :: Type -> Type) where
+      plus :: f a
+      plus = zero
+    instance (v ~~ v', Zero v') => Plus (Codensity (v :: k -> TYPE rep))
+annotated:
+  - |-
+    {-# LANGUAGE PolyKinds, RankNTypes, TypeOperators, FlexibleInstances, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (TYPE, Type, type (~~))
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+            │                                  └─ type: ∀ k rep m a. (∀ b. (a → m b) → m b) → Codensity m a
+            └─ type: (k → GHC.Types.TYPE rep) → Type → Type
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    class Zero (f :: Type -> Type) where
+    └─ class methods: zero ∷ ∀ f a. (Zero f) ⇒ f a
+      zero :: f a
+    instance (v ~~ v', Zero v') => Zero (Codensity (v :: k -> TYPE rep)) where
+    └─ $fZeroCodensityv ∷ ∀ k rep v' v. (v ~ v', Zero v') ⇒ Zero (Codensity v)
+      zero = Codensity (\_ -> zero)
+      │      ││          │││    └─ type: v b; type-args: v, b; evidence: cast(given Zero v', sym (Zero given v ~ v'))
+      │      ││          │└─ type: a → v b
+      │      ││          │└─ type: a → v b
+      │      ││          └─ type: (a → v b) → v b
+      │      └─ type: (∀ b. (a → v b) → v b) → Codensity v a; type-args: Type, 'BoxedRep 'Lifted, v, a
+      │      └─ type: ∀ b. (a → v b) → v b
+      └─ zero ∷ ∀ a. Codensity v a
+    class Zero f => Plus (f :: Type -> Type) where
+    └─ class methods: plus ∷ ∀ f a. (Plus f) ⇒ f a
+      plus :: f a
+      plus = zero
+      │      └─ type: f a; type-args: f, a; evidence: super[0](given Plus f)
+      └─ plus ∷ ∀ f a. (Plus f) ⇒ f a
+    instance (v ~~ v', Zero v') => Plus (Codensity (v :: k -> TYPE rep))
+    └─ $fPlusCodensityv ∷ ∀ k rep v' v. (v ~ v', Zero v') ⇒ Plus (Codensity v) [superclasses: $fZeroCodensityv @k @rep @v' @v (given v ~ v', given Zero v')]
+
+extensions:
+  - PolyKinds
+  - RankNTypes
+  - TypeOperators
+  - FlexibleInstances
+  - UndecidableInstances
+status: pass
+reason: the given v ~~ v' equates the kinds of v and v', and the superclass evidence of an instance keeps no meta variable for v'

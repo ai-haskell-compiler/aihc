@@ -131,7 +131,7 @@ import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, 
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
@@ -2178,33 +2178,54 @@ classMethodFromInfo info index (methodName, scheme) =
 -- the equalities first gives the dictionaries that variable; without it
 -- @f@ in @(RandomGen f, FrozenGen f m, g ~ MutableGen f m)@ would stay a
 -- meta variable that no predicate on its own can solve.
+-- | Solve the constraints of a default signature at an instance.
 --
--- For the same reason the equalities are solved before the dictionaries:
--- @m ~ t n@ in @(MonadTrans t, C n, m ~ t n)@ gives @t@ and @n@ to the two
--- dictionary predicates before them. The evidence keeps the order of the
--- predicates.
+-- A constraint can be stuck only until a different constraint solves a
+-- meta variable. In @(Functor f, Element (f a) ~ a, f a ~ mono)@, the last
+-- equality chooses @f@ and @a@. Thus, the solver tries the stuck constraints
+-- again while one round solves a constraint or a meta variable.
 solveInstanceDefaultSignature :: Text -> [Pred] -> [Pred] -> TcM [EvTerm]
 solveInstanceDefaultSignature className givens predicates = do
   _ <- improveInjectivity givens [predicate | predicate@EqPred {} <- predicates]
-  equalityEvidence <- mapM (solveInstanceSuperClass className givens) [predicate | (_, predicate@EqPred {}) <- numbered]
-  dictionaryEvidence <-
-    mapM
-      (solveInstanceSuperClass className givens <=< zonkPred)
-      [predicate | (_, predicate) <- numbered, not (isEqPred predicate)]
-  let evidence =
-        Map.fromList
-          ( zip [index | (index, EqPred {}) <- numbered] equalityEvidence
-              <> zip [index | (index, predicate) <- numbered, not (isEqPred predicate)] dictionaryEvidence
-          )
-  pure (Map.elems evidence)
+  solved <- go Map.empty (zip [0 :: Int ..] predicates)
+  pure (Map.elems solved)
   where
-    numbered = zip [0 :: Int ..] predicates
-    isEqPred predicate = case predicate of
-      EqPred {} -> True
-      _ -> False
+    go solved pending = do
+      before <- mapM (zonkPred . snd) pending
+      attempts <- mapM (\(index, predicate) -> (index,predicate,) <$> attemptInstanceConstraint className givens predicate) pending
+      after <- mapM (zonkPred . snd) pending
+      let newlySolved = Map.fromList [(index, term) | (index, _, Right term) <- attempts]
+          stuck = [(index, predicate, failure) | (index, predicate, Left failure) <- attempts]
+          solved' = Map.union solved newlySolved
+          progress = not (Map.null newlySolved) || before /= after
+      if null stuck
+        then pure solved'
+        else
+          if progress
+            then go solved' [(index, predicate) | (index, predicate, _) <- stuck]
+            else do
+              reported <-
+                mapM
+                  ( \(index, _, (constraint, evidenceVariable)) -> do
+                      emitError (ctLoc constraint) (UnsolvedWanted (ctPred constraint) (ctOrigin constraint))
+                      pure (index, EvVarTerm evidenceVariable)
+                  )
+                  stuck
+              pure (Map.union solved' (Map.fromList reported))
 
 solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do
+  result <- attemptInstanceConstraint className givens predicate
+  case result of
+    Right term -> pure term
+    Left (stuck, evidenceVariable) -> do
+      emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+      pure (EvVarTerm evidenceVariable)
+
+-- | Try to solve one instance constraint. A stuck constraint gives no error.
+-- The stuck result keeps the evidence variable of the attempt.
+attemptInstanceConstraint :: Text -> [Pred] -> Pred -> TcM (Either (Ct, EvVar) EvTerm)
+attemptInstanceConstraint className givens predicate = do
   evidenceVariable <- freshEvVar
   let constraint = mkWantedCt predicate evidenceVariable (InstOrigin className) Nothing
   result <- case predicate of
@@ -2218,11 +2239,9 @@ solveInstanceSuperClass className givens predicate = do
     DictSolved -> do
       evidence <- lookupEvidence evidenceVariable
       case evidence of
-        Just term -> pure term
+        Just term -> pure (Right term)
         Nothing -> missingTypeInfo ("superclass evidence for " <> T.unpack className)
-    DictStuck stuck -> do
-      emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
-      pure (EvVarTerm evidenceVariable)
+    DictStuck stuck -> pure (Left (stuck, evidenceVariable))
 
 tcClassDeclBodies :: Decl -> TcM Decl
 tcClassDeclBodies (DeclAnn ann inner) =
@@ -5063,15 +5082,20 @@ implicitKindParams binders extraNames = mapM makeImplicitParam implicitNames
 
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
+  dataHeadParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
+
+-- | The parameters of a data or newtype head. Without a standalone kind
+-- signature, a kind variable that only a binder annotation mentions, as
+-- @rep@ in @newtype Codensity (m :: k -> TYPE rep) a@, is a kind parameter
+-- of the type constructor.
+dataHeadParamInfos :: Maybe TypeScheme -> [TyVarBinder] -> TcM ([ParamInfo], [ParamInfo])
+dataHeadParamInfos maybeKindScheme binders =
   case maybeKindScheme of
     Just {} -> typeDeclParamInfos maybeKindScheme binders
     Nothing -> do
       kindParams <- implicitBinderKindParams binders
-      let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
-      params <- makeParamEnvWith kindEnv binders
+      params <- makeParamEnvWith (paramKindEnv kindParams) binders
       pure (kindParams, params)
-  where
-    binders = binderHeadParams (dataDeclHead declaration)
 
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM ()
 registerDataDeclHeader maybeKindScheme dd = do
@@ -5147,7 +5171,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- dataHeadParamInfos maybeKindScheme params
   -- Without a kind signature, the result kind is the kind of the field.
   -- An UnliftedNewtypes field gives an unlifted result kind.
   -- 'registerNewtypeConstructor' unifies this meta with the field kind.
@@ -5155,7 +5179,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
     Nothing -> do
       resultKind <- freshKindMeta
       pure (foldr (KFun . paramKind) resultKind paramInfos)
-    Just _ -> tyConKindFromParams paramInfos (newtypeDeclKind nd)
+    Just _ -> tyConKindFromParamsWith (paramKindEnv kindParams) paramInfos (newtypeDeclKind nd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo

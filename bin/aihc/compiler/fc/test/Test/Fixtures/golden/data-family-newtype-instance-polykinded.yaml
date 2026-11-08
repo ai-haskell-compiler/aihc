@@ -37,9 +37,9 @@ expected: |-
     pub 1.cUnit :: tUnit
   }
 
-  pub type 1.tConst (k0 : sType) (a : sType) (b : k0) :: sType {}
+  pub type 1.tConst (k : sType) (a : sType) (b : k) :: sType {}
 
-  axiom 1.$ax$Const (k0 : sType) (a : sType) (b : k0) : tConst k0 a b ~R a
+  axiom 1.$ax$Const (k : sType) (a : sType) (b : k) : tConst k a b ~R a
 
   pub type 1.tPayload (a : sType) :: sType @N {}
 

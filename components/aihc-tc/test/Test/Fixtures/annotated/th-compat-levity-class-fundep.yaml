@@ -4,11 +4,11 @@ annotated:
   module Test where
   import GHC.Types (RuntimeRep, TYPE, Type, Int)
   newtype TExp (a :: TYPE r) = TExp Int
-          │                    └─ type: ∀ k0 a. GHC.Types.Int → TExp a
-          └─ type: GHC.Types.TYPE k0 → Type
+          │                    └─ type: ∀ r a. GHC.Types.Int → TExp a
+          └─ type: GHC.Types.TYPE r → Type
   newtype Code m (a :: TYPE r) = Code (m (TExp a))
-          │                      └─ type: ∀ k0 m a. m (TExp a) → Code m a
-          └─ type: (Type → Type) → GHC.Types.TYPE k0 → Type
+          │                      └─ type: ∀ r m a. m (TExp a) → Code m a
+          └─ type: (Type → Type) → GHC.Types.TYPE r → Type
   data Q a = Q a
        │     └─ type: ∀ a. a → Q a
        └─ type: Type → Type

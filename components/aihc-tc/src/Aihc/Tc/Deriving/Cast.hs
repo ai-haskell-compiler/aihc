@@ -5,7 +5,7 @@
 module Aihc.Tc.Deriving.Cast (checkCoercedInstance) where
 
 import Aihc.Tc.Annotations
-import Aihc.Tc.Deriving.Coerce (coercionBetween)
+import Aihc.Tc.Deriving.Coerce (coercionBetween, nominalCoercionBetween)
 import Aihc.Tc.Deriving.Context (newtypeRepresentation)
 import Aihc.Tc.Env
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -61,13 +61,34 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
           ForAll _ targetPredicates target = targetScheme
       -- The coercion search finds the newtypes it needs itself, so a plan
       -- needs no datatype metadata of its own to prove a method cast.
-      proof <-
-        if sourcePredicates == targetPredicates
-          then coercionBetween (tcInstanceAssociatedTypes annotation) source target
-          else pure Nothing
-      case proof of
-        Nothing -> reject (mechanism <> " cannot prove a safe coercion for method " <> T.unpack name) >> pure Nothing
-        Just coercion -> pure (Just (TcCoercedMethod name index variables targetPredicates coercion))
+      -- A context can mention the head, as @Eq (Element mono)@ does. Then the
+      -- derived method gets a dictionary of the target predicate, and the
+      -- reused method needs a dictionary of the source predicate. A nominal
+      -- proof between the two lets the derived method cast the dictionary.
+      dictionaryProofs <- predicateProofs targetPredicates sourcePredicates
+      proof <- case dictionaryProofs of
+        Just _ -> coercionBetween (tcInstanceAssociatedTypes annotation) source target
+        Nothing -> pure Nothing
+      case (proof, dictionaryProofs) of
+        (Just coercion, Just dictionaryCasts) -> pure (Just (TcCoercedMethod name index variables targetPredicates dictionaryCasts coercion))
+        _ -> reject (mechanism <> " cannot prove a safe coercion for method " <> T.unpack name) >> pure Nothing
+    -- One cast for each predicate, from the target dictionary to the source
+    -- dictionary. An equal predicate needs no cast.
+    predicateProofs targetPredicates sourcePredicates
+      | length targetPredicates /= length sourcePredicates = pure Nothing
+      | otherwise = sequence <$> zipWithM predicateProof targetPredicates sourcePredicates
+    predicateProof targetPredicate sourcePredicate
+      | targetPredicate == sourcePredicate = pure (Just Nothing)
+      | otherwise =
+          case (targetPredicate, sourcePredicate) of
+            (ClassPred targetClass targetArguments, ClassPred sourceClass sourceArguments)
+              | targetClass == sourceClass ->
+                  fmap Just
+                    <$> nominalCoercionBetween
+                      (tcInstanceAssociatedTypes annotation)
+                      (TcTyCon targetClass targetArguments)
+                      (TcTyCon sourceClass sourceArguments)
+            _ -> pure Nothing
     mentionsSelf term = case term of
       EvDict dictionaryOrigin name _ arguments -> (dictionaryOrigin == origin && name == tcInstanceDictName annotation) || any mentionsSelf arguments
       EvSuperClass inner _ _ _ _ -> mentionsSelf inner

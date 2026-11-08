@@ -48,7 +48,7 @@ improveFunDeps givens constraints = do
   if null improvable
     then pure False
     else do
-      expandedGivens <- superClassClosure givens
+      expandedGivens <- givenEqualityCopies <$> superClassClosure givens
       let siblings = map fst improvable
       before <- mapM (zonkPred . ctPred) constraints
       forM_ improvable (uncurry (improveConstraint expandedGivens siblings 0))
@@ -70,6 +70,31 @@ superClassClosure givens = reverse <$> foldM add [] givens
       | otherwise = do
           parents <- superClassesOf predicate
           foldM add (predicate : seen) parents
+
+-- | The givens, together with a copy of each class given for each given
+-- equality that names a type variable, with that variable replaced by the
+-- other side.
+--
+-- The givens @(m ~~ m', MonadReader r m')@ hold the class given at @m'@,
+-- and a wanted @MonadReader t0 m@ names @m@. The copy @MonadReader r m@
+-- lets the dependency @m -> r@ improve @t0@ to @r@. The copies are for
+-- improvement only and carry no evidence.
+givenEqualityCopies :: [Pred] -> [Pred]
+givenEqualityCopies givens =
+  givens
+    <> [ copy
+       | (variable, replacement) <- rewrites,
+         predicate@ClassPred {} <- givens,
+         let copy = applySubstPred (Map.singleton (tvUnique variable) replacement) predicate,
+         copy /= predicate,
+         copy `notElem` givens
+       ]
+  where
+    rewrites =
+      concat
+        [ [(variable, right) | TcTyVar variable <- [left]] <> [(variable, left) | TcTyVar variable <- [right]]
+        | EqPred left right <- givens
+        ]
 
 -- | The equality constraints that the class constraints entail through
 -- their superclasses, transitively.
@@ -166,10 +191,15 @@ improveFromPredicate info dependency constraint other =
               -- The determining parameters must be equal now. If only a
               -- later solution of their meta variables made them equal,
               -- the two constraints could still be about different types.
-              when (determiners arguments' == determiners otherArguments') $
+              -- An occurrence whose kind a given equality refined is still
+              -- the same variable.
+              when (sameTypes (determiners arguments') (determiners otherArguments')) $
                 improveEqualities (determined dependency arguments') (determined dependency otherArguments')
             _ -> pure ()
     _ -> pure ()
+
+sameTypes :: [TcType] -> [TcType] -> Bool
+sameTypes left right = length left == length right && and (zipWith sameType left right)
 
 -- | Improve a wanted from the head of every instance whose determining
 -- parameters it matches.

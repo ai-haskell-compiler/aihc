@@ -1,0 +1,69 @@
+extensions:
+  - PolyKinds
+  - RankNTypes
+  - TypeOperators
+  - FlexibleInstances
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, RankNTypes, TypeOperators, FlexibleInstances, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (TYPE, Type, type (~~))
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    class Pl (f :: Type -> Type) where
+      pl :: f a -> f a -> f a
+    instance (v ~~ v', Pl v') => Pl (Codensity (v :: k -> TYPE rep)) where
+      pl (Codensity m) (Codensity n) = Codensity (\k -> pl (m k) (n k))
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tCodensity (k : sType) (rep : tRuntimeRep) (m : k → tTYPE rep) (a : sType) :: sType {}
+
+  axiom 1.$ax$Codensity (k : sType) (rep : tRuntimeRep) (m : k → tTYPE rep) (a : sType) : tCodensity k rep m a ~R ∀(b : k). FUN @sLiftedRep @rep (FUN @sLiftedRep @rep a (m b)) (m b)
+
+  pub type 1.t$Dict$Pl (f : sType → sType) :: sType {
+    pub 1.c$Dict$Pl :: ∀(f : sType → sType). (∀(a : sType). f a → f a → f a) → t$Dict$Pl f
+  }
+
+  pub val 1.vrunCodensity :: ∀(k : sType) (rep : tRuntimeRep) (m : k → tTYPE rep) (a : sType). tCodensity k rep m a → (∀(b : k). FUN @sLiftedRep @rep (FUN @sLiftedRep @rep a (m b)) (m b))
+    = Λ(k : sType) (rep : tRuntimeRep) (m : k → tTYPE rep) (a : sType). λ($record : tCodensity k rep m a).
+      $record ▷ axiom-co $ax$Codensity @k @rep @m @a
+
+  pub val 1.vpl :: ∀(f : sType → sType) (a : sType). t$Dict$Pl f → f a → f a → f a
+    = Λ(f : sType → sType) (a : sType). λ($dPl : t$Dict$Pl f).
+      let! c$Dict$Pl ($cpl : ∀(a{1} : sType). f a{1} → f a{1} → f a{1}) = $dPl;
+      $cpl @a
+
+  pub val 1.v$fPlCodensityv :: ∀(k : sType) (rep : tRuntimeRep) (v' : sType → sType) (v : k → tTYPE rep). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (v ~ v') (t$Dict$Pl v' → t$Dict$Pl (tCodensity k rep v))
+    = Λ(k : sType) (rep : tRuntimeRep) (v' : sType → sType) (v : k → tTYPE rep). λ($co : v ~ v') ($dPl : t$Dict$Pl v').
+      c$Dict$Pl @(tCodensity k rep v) (v$fPlCodensityv$cpl @k @rep @v' @v $co $dPl)
+
+  val 1.v$fPlCodensityv$cpl :: ∀(k : sType) (rep : tRuntimeRep) (v' : sType → sType) (v : k → tTYPE rep). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (v ~ v') (t$Dict$Pl v' → (∀(a : sType). tCodensity k rep v a → tCodensity k rep v a → tCodensity k rep v a))
+    = Λ(k : sType) (rep : tRuntimeRep) (v' : sType → sType) (v : k → tTYPE rep). λ($co : v ~ v') ($dPl : t$Dict$Pl v').
+    Λ(a : sType). λ(x : tCodensity k rep v a) (y : tCodensity k rep v a).
+      let m : ∀(b : k). FUN @sLiftedRep @rep (FUN @sLiftedRep @rep a (v b)) (v b) =
+        x ▷ axiom-co $ax$Codensity @k @rep @v @a;
+      let n : ∀(b : k). FUN @sLiftedRep @rep (FUN @sLiftedRep @rep a (v b)) (v b) =
+        y ▷ axiom-co $ax$Codensity @k @rep @v @a;
+      (Λ(b : sType). λ(k{1} : a → v b).
+        vpl @v @b ($dPl ▷ sym (tycon-co t$Dict$Pl ($co))) (m @b k{1}) (n @b k{1})) ▷ sym (axiom-co $ax$Codensity @sType @sLiftedRep @v @a)
+status: pass
+reason: the given v ~~ v' equates the kinds of v and v', so the System FC lint accepts the newtype axiom and the function representations at the refined kinds
