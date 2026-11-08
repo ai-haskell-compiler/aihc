@@ -59,11 +59,11 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
-import Aihc.Tc.TypeScheme (schemeToType)
+import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, forM_, when)
+import Control.Monad (filterM, foldM, forM_, when)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
 import Data.List qualified as List
@@ -278,8 +278,13 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
   withLocalPlaceholders sigs [placeholder | placeholder@(_, key, _) <- placeholders, not (Set.member key boundSignatureKeys)] $ do
-    groupResults <- mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups
-    let bindingCts = concatMap snd groupResults
+    groupInferences <- mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups
+    let groupResults = [(group, cts) | (group, cts, _) <- groupInferences]
+        bindingCts = concatMap snd groupResults
+        -- A binder that a pattern binds to a polymorphic field keeps the
+        -- field type, as a binder with a signature keeps its signature.
+        patternSchemes = Map.unions [schemes | (_, _, schemes) <- groupInferences]
+        binderSchemes = Map.union sigs patternSchemes
     if shouldGen
       then do
         solveResult <- solveConstraints bindingCts
@@ -291,16 +296,19 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
         let quantification
               | length (filter (not . null . groupBinders) groups) > 1 = QuantifyGroupVariables
               | otherwise = QuantifyOwnVariables
-        polyBinders <- generalizedBinders quantification sigs binderSet placeholderMap residuals binders
-        decls' <- annotateLocalBindingDecls (Set.difference binderSet (Map.keysSet sigs)) polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
+        polyBinders <- generalizedBinders quantification binderSchemes binderSet placeholderMap residuals binders
+        decls' <- annotateLocalBindingDecls (Set.difference binderSet (Map.keysSet binderSchemes)) polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
           pure (decls', bodyResult, bodyTy, localResidualOuterCts residuals ++ bodyCts)
       else do
-        monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
+        monoBinders <- traverse (monomorphicBinder binderSchemes placeholderMap) binders
         decls' <- annotateLocalBindingDecls Set.empty monoBinders (concatMap (renderGroup . fst) groupResults)
-        (bodyResult, bodyTy, bodyCts) <- body
-        pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
+        -- The body sees the placeholders of the other binders.
+        polymorphicPatternBinders <- filterM (fmap (`Map.member` patternSchemes) . resolvedLocalTermKey . fst) monoBinders
+        withReboundLocalBinders polymorphicPatternBinders $ do
+          (bodyResult, bodyTy, bodyCts) <- body
+          pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
 
 isImplicitParamDecl :: Decl -> Bool
 isImplicitParamDecl decl =
@@ -698,52 +706,72 @@ typeMetaVars ty =
 -- their bindings, by binder.
 type ScopedSigs = Map Entity (Map Text (TyVarId, TcType))
 
-inferLocalGroup :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
+-- | Infer one group of local declarations. The result also gives the
+-- binders that a pattern binds to a polymorphic constructor field, with the
+-- field type.
+inferLocalGroup :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> DeclGroup -> TcM (DeclGroup, [Ct], Map Entity TypeScheme)
 inferLocalGroup inferExpr sigs scopedSigs placeholders group =
   case group of
     MergedFunctionBind name decls matches -> do
       (matches', _ty, cts) <- inferLocalFunction inferExpr sigs scopedSigs placeholders name matches
-      pure (MergedFunctionBind name (replaceFunctionDeclMatches matches' decls) matches', cts)
+      pure (MergedFunctionBind name (replaceFunctionDeclMatches matches' decls) matches', cts, Map.empty)
     SingleDecl decl -> do
-      (decl', cts) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl
-      pure (SingleDecl decl', cts)
+      (decl', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl
+      pure (SingleDecl decl', cts, schemes)
 
-inferLocalSingleDecl :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> Decl -> TcM (Decl, [Ct])
+inferLocalSingleDecl :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> Decl -> TcM (Decl, [Ct], Map Entity TypeScheme)
 inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
   case decl of
     DeclAnn ann inner -> do
-      (inner', cts) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
-      pure (DeclAnn ann inner', cts)
+      (inner', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
+      pure (DeclAnn ann inner', cts, schemes)
     DeclValue valueDecl ->
       case valueDecl of
         PatternBind mult pat rhs ->
           case patternBinderName pat of
             Just name -> do
               (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs
-              pure (DeclValue (PatternBind mult pat rhs'), cts)
+              pure (DeclValue (PatternBind mult pat rhs'), cts, Map.empty)
             Nothing -> do
               signature <- strictBinderSignature sigs pat
               case signature of
-                Just (name, scheme) -> inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name scheme rhs
+                Just (name, scheme) -> do
+                  (decl', cts) <- inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name scheme rhs
+                  pure (decl', cts, Map.empty)
                 Nothing -> inferLocalPatternDecl inferExpr placeholders mult pat rhs
         FunctionBind name matches -> do
           (matches', _ty, cts) <- inferLocalFunction inferExpr sigs scopedSigs placeholders name matches
-          pure (DeclValue (FunctionBind name matches'), cts)
-    _ -> pure (decl, [])
+          pure (DeclValue (FunctionBind name matches'), cts, Map.empty)
+    _ -> pure (decl, [], Map.empty)
 
 -- | Infer a local pattern binding that binds more than one name, or that
 -- has a bang on a binder without a signature.
-inferLocalPatternDecl :: InferExpr -> Map Entity TcType -> MultiplicityTag -> Pattern -> Rhs Expr -> TcM (Decl, [Ct])
+--
+-- A constructor field can have a polymorphic type, such as the field of
+-- @newtype Box = Box (forall a. a -> a)@. A binder of that field keeps the
+-- polymorphic type, as in GHC. A placeholder is a monotype, so such a
+-- binder is not tied to its placeholder. The result gives the binder with
+-- its type, and the group binds it with this type.
+inferLocalPatternDecl :: InferExpr -> Map Entity TcType -> MultiplicityTag -> Pattern -> Rhs Expr -> TcM (Decl, [Ct], Map Entity TypeScheme)
 inferLocalPatternDecl inferExpr placeholders mult pat rhs = do
   (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
   let sourceSpan = Nothing
   patCheck <- checkPatterns sourceSpan [(pat, rhsTy)]
   patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
-  cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
+  bindings <- mapM (\(name, ty) -> (name,) <$> zonkType ty) (pcBindings patCheck)
+  let (polymorphic, monomorphic) = partition (isPolymorphicType . snd) bindings
+  cts <- foldM (tiePatternPlaceholder placeholders) patternCts monomorphic
+  schemes <- Map.fromList <$> mapM (\(name, ty) -> (,typeSchemeFromType ty) <$> resolvedLocalTermKey name) polymorphic
   let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
   -- The declaration records the type of the right-hand side.
   -- 'annotateLocalBindingDecl' generalizes it with the group.
-  pure (DeclAnn (mkAnnotation (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts)
+  pure (DeclAnn (mkAnnotation (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts, schemes)
+  where
+    isPolymorphicType ty =
+      case ty of
+        TcForAllTy {} -> True
+        TcQualTy {} -> True
+        _ -> False
 
 -- | The binder of a pattern @!x@ and its signature, when @x@ has one.
 strictBinderSignature :: Map Entity TypeScheme -> Pattern -> TcM (Maybe (UnqualifiedName, TypeScheme))

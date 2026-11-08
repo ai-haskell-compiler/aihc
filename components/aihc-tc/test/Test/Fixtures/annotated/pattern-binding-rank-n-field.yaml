@@ -1,0 +1,43 @@
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  data Flag = Off | On
+  data Mark = Mark
+  newtype Box = Box (forall a. a -> a)
+  use :: Box -> (Flag, Mark)
+  use box = (f On, f Mark)
+    where
+      Box f = box
+status: pass
+reason: A local pattern binding gives a binder the polymorphic type of its
+  constructor field, and each use of the binder instantiates that type.
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Mark = Mark
+       │      └─ type: Mark
+       └─ type: Type
+  newtype Box = Box (forall a. a -> a)
+          │     └─ type: (∀ a. a → a) → Box
+          └─ type: Type
+  use :: Box -> (Flag, Mark)
+  use box = (f On, f Mark)
+  │   │     ││     └─ type: Mark → Mark; type-args: Mark
+  │   │     │└─ type: Flag → Flag; type-args: Flag
+  │   │     └─ type: (Flag, Mark); type-args: Flag, Mark
+  │   └─ type: Box
+  └─ type: Box → (Flag, Mark)
+    where
+      Box f = box
+      ││   └─ type: ∀ a. a → a
+      └─ type: Box
+      └─ type: Box
+

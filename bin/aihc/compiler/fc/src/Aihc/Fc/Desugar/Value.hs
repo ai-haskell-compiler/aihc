@@ -5055,15 +5055,14 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
             -- application, and its arguments are not the arguments of a
             -- newtype axiom.
             Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
-    -- The type checker can cast the scrutinee before a constructor match,
-    -- as a given equality of an instance context makes @(a, a')@ the type
-    -- @(a', a')@. The inner pattern matches the cast value.
+    -- The type checker can put a cast before a constructor pattern, for
+    -- example when a given equality changes the scrutinee type. The match
+    -- uses the cast target, as 'desugarDataPatterns' does.
     Syn.PAnn annotation inner
-      | Just (TcCastAnnotation (Just _) target) <- Syn.fromAnnotation annotation -> do
-          castBinder <- freshBinder "_cast" target
-          scrutinee <- castPatternScrutinee pattern' (ExVar (binderName binder))
-          body <- desugarPatternWithFailure resultType castBinder target inner success failure
-          pure (ExLet (Bind castBinder scrutinee) body)
+      | Just (TcCastAnnotation (Just proof) target) <- Syn.fromAnnotation annotation -> do
+          casted <- freshBinder "_cast_scrut" target
+          body <- desugarPatternWithFailure resultType casted target inner success failure
+          withCoercion proof (\coercion -> pure (ExLet (Bind casted (ExCast (ExVar (binderName binder)) coercion)) body))
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do

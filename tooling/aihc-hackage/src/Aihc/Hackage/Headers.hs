@@ -194,7 +194,7 @@ machDepsHeader target =
 -- width a foreign import of @Int#@ passes.
 hsFfiHeader :: Text
 hsFfiHeader =
-  T.unlines
+  T.unlines $
     [ "#ifndef HSFFI_H",
       "#define HSFFI_H",
       "",
@@ -220,11 +220,45 @@ hsFfiHeader =
       "typedef void *HsPtr;",
       "typedef void (*HsFunPtr)(void);",
       "typedef void *HsStablePtr;",
-      "",
-      "#endif"
+      ""
     ]
+      <> limitMacros
+      <> ["", "#endif"]
   where
     wordBits = tshow (haskellWordBytes * 8)
+    -- The Haskell 2010 report gives these symbols for the bounds of the
+    -- types. GHC's header gives them too, and C code such as the cbits of
+    -- vty uses them.
+    limitMacros =
+      [ "#include <float.h>",
+        "",
+        "#define HS_CHAR_MIN 0",
+        "#define HS_CHAR_MAX 0x10FFFF",
+        "#define HS_BOOL_FALSE 0",
+        "#define HS_BOOL_TRUE 1",
+        "#define HS_BOOL_MIN HS_BOOL_FALSE",
+        "#define HS_BOOL_MAX HS_BOOL_TRUE",
+        "#define HS_INT_MIN INT" <> wordBits <> "_MIN",
+        "#define HS_INT_MAX INT" <> wordBits <> "_MAX",
+        "#define HS_WORD_MAX UINT" <> wordBits <> "_MAX"
+      ]
+        <> concat
+          [ [ "#define HS_INT" <> bits <> "_MIN INT" <> bits <> "_MIN",
+              "#define HS_INT" <> bits <> "_MAX INT" <> bits <> "_MAX",
+              "#define HS_WORD" <> bits <> "_MAX UINT" <> bits <> "_MAX"
+            ]
+          | bits <- ["8", "16", "32", "64"]
+          ]
+        <> [ "#define HS_FLOAT_RADIX FLT_RADIX",
+             "#define HS_FLOAT_ROUNDS FLT_ROUNDS",
+             "#define HS_FLOAT_ROUND FLT_ROUNDS"
+           ]
+        <> concat
+          [ [ "#define HS_" <> haskell <> "_" <> suffix <> " " <> c <> "_" <> suffix
+            | suffix <- ["EPSILON", "DIG", "MANT_DIG", "MIN", "MIN_EXP", "MIN_10_EXP", "MAX", "MAX_EXP", "MAX_10_EXP"]
+            ]
+          | (haskell, c) <- [("FLOAT", "FLT"), ("DOUBLE", "DBL")]
+          ]
 
 -- | The action codes @stg_sig_install@ takes, which is all GHC's own
 -- @rts/Signals.h@ holds: the header carries no prototypes, because Haskell
