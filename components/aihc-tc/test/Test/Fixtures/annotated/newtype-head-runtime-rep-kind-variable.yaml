@@ -1,0 +1,36 @@
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (TYPE)
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    mapCodensity :: forall j rep (m :: j -> TYPE rep) a b. (a -> b) -> Codensity m a -> Codensity m b
+    mapCodensity f (Codensity m) = Codensity (\k -> m (\x -> k (f x)))
+annotated:
+  - |-
+    {-# LANGUAGE PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (TYPE)
+    newtype Codensity (m :: k -> TYPE rep) a = Codensity
+            │                                  └─ type: ∀ k rep m a. (∀ b. (a → m b) → m b) → Codensity m a
+            └─ type: (k → GHC.Types.TYPE rep) → Type → Type
+      { runCodensity :: forall b. (a -> m b) -> m b }
+    mapCodensity :: forall j rep (m :: j -> TYPE rep) a b. (a -> b) -> Codensity m a -> Codensity m b
+    mapCodensity f (Codensity m) = Codensity (\k -> m (\x -> k (f x)))
+    │            │  │         │    ││          ││    │  │└─ type: a
+    │            │  │         │    ││          ││    │  └─ type: a → m b
+    │            │  │         │    ││          ││    └─ type: (a → m b) → m b; type-args: b
+    │            │  │         │    ││          │└─ type: b → m b
+    │            │  │         │    ││          └─ type: (b → m b) → m b
+    │            │  │         │    └─ type: ∀ b. (b → m b) → m b
+    │            │  │         │    └─ type: (∀ b. (b → m b) → m b) → Codensity m b; type-args: j, rep, m, b
+    │            │  │         └─ type: ∀ b. (a → m b) → m b
+    │            │  └─ type: Codensity m a
+    │            └─ type: a → b
+    └─ type: ∀ j rep m a b. (a → b) → Codensity m a → Codensity m b
+extensions:
+  - PolyKinds
+  - RankNTypes
+status: pass
+reason: a kind variable that only a newtype binder annotation mentions is a kind parameter of the newtype and takes its kind from that annotation

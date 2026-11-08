@@ -870,8 +870,7 @@ runtimeRepresentationsEqual env left right =
       fmap (reduceType env) (typeOf env ty) == Just (TyCon (runtimeRepConstructor (tePrimPackage env)))
     equalities =
       [ (reduceType env first, reduceType env second)
-      | binderType <- Map.elems (teBinders env),
-        TyEq first second <- [reduceType env binderType],
+      | (first, second) <- localEqualities env,
         isRuntimeRepresentation first,
         isRuntimeRepresentation second
       ]
@@ -885,6 +884,32 @@ runtimeRepresentationsEqual env left right =
             | (first, second) <- equalities,
               next <- [second | current == first] <> [first | current == second]
             ]
+
+-- | The equalities that the local nominal evidence in scope gives.
+--
+-- Evidence that two type variables are equal also equates their kinds.
+-- The heterogeneous given @v ~~ v'@ with @v : k -> TYPE rep@ and
+-- @v' : Type -> Type@ gives @k ~ Type@ and @rep ~ LiftedRep@.
+localEqualities :: TypeEnv -> [(Type, Type)]
+localEqualities env =
+  concat
+    [ (left, right) : variableKindEqualities left right
+    | binderType <- Map.elems (teBinders env),
+      TyEq left right <- [reduceType env binderType]
+    ]
+  where
+    variableKindEqualities left@TyVar {} right@TyVar {} =
+      case (typeOf env left, typeOf env right) of
+        (Just leftKind, Just rightKind) -> splitKinds (reduceType env leftKind) (reduceType env rightKind)
+        _ -> []
+    variableKindEqualities _ _ = []
+    splitKinds first second
+      | first == second = []
+    splitKinds (TyFun r1 r2 argument1 result1) (TyFun r1' r2' argument2 result2) =
+      concat (zipWith splitKinds [r1, r2, argument1, result1] [r1', r2', argument2, result2])
+    splitKinds (TyApp function1 argument1) (TyApp function2 argument2) =
+      splitKinds function1 function2 <> splitKinds argument1 argument2
+    splitKinds first second = [(first, second)]
 
 -- | Which of the first @count@ parameters of a type constructor header
 -- are dependent: a later binder's kind or the result kind mentions them.
@@ -931,8 +956,7 @@ refineKind env ty
       Map.fromListWith
         preferConstructor
         [ (name, other)
-        | binderType <- Map.elems (teBinders env),
-          TyEq left right <- [reduceType env binderType],
+        | (left, right) <- localEqualities env,
           (name, other) <- orient left right,
           not (typeUsesName name other)
         ]

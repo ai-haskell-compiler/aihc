@@ -4,13 +4,12 @@ annotated:
   module Test where
   import GHC.Types (Bool (..), Type)
   newtype Const a (b :: k) = Const a
-          │                  └─ type: ∀ k0 a b. a → Const a b
-          └─ type: Type → k0 → Type
+          │                  └─ type: ∀ k a b. a → Const a b
+          └─ type: Type → k → Type
   newtype Alt (f :: k -> Type) (a :: k) = Alt (f a)
-          │                               └─ type: ∀ k0 f a. f a → Alt f a
-          └─ type: (k0 → Type) → k0 → Type
+          └─ type: (k → Type) → k → Type  └─ type: ∀ k f a. f a → Alt f a
   newtype Compose (f :: k -> Type) (g :: k1 -> k) (a :: k1) = Compose (f (g a))
-          └─ type: (k0 → Type) → (k1 → k0) → k1 → Type        └─ type: ∀ k0 k1 f g a. f (g a) → Compose f g a
+          └─ type: (k → Type) → (k1 → k) → k1 → Type          └─ type: ∀ k k1 f g a. f (g a) → Compose f g a
   data family Vector a
               └─ type: Type → Type
   data instance Vector Bool = VBool Bool

@@ -1103,6 +1103,11 @@ unifyKindsAt sp expected actual = do
 -- With no equality in scope there is nothing to rewrite with, and the walk
 -- would only rebuild the kind as it already is. Most scopes are like that
 -- and every kind unification asks.
+--
+-- A heterogeneous equality also equates the kinds of its two sides. The
+-- given @v ~~ v'@ with @v :: k -> TYPE rep@ and @v' :: Type -> Type@ gives
+-- @k ~ Type@ and @rep ~ LiftedRep@, as in the instances of
+-- @Control.Monad.Codensity@.
 refineGivenKind :: TcType -> TcM TcType
 refineGivenKind kind = do
   predicates <- getGivenPredicates
@@ -1110,7 +1115,8 @@ refineGivenKind kind = do
     [] -> pure kind
     givenEqualities -> do
       equalities <- mapM zonkEquality givenEqualities
-      pure (rewrite equalities Set.empty kind)
+      kindEqualities <- concat <$> mapM givenKindEqualities givenEqualities
+      pure (rewrite (equalities <> kindEqualities) Set.empty kind)
   where
     zonkEquality (left, right) = (,) <$> zonkKind left <*> zonkKind right
     rewrite equalities visited ty
@@ -1132,6 +1138,28 @@ refineGivenKind kind = do
     replace ty left@TcTyVar {} right | sameType ty left, not (sameType left right) = Just right
     replace ty left right@TcTyVar {} | sameType ty right, not (sameType left right) = Just left
     replace _ _ _ = Nothing
+
+-- | The kind equalities that a given equality between two type variables
+-- implies, split into the equalities of their parts. Only variables are
+-- read here: their kinds are at hand, and computing the kind of another
+-- type would unify kinds and so ask for the given equalities again.
+givenKindEqualities :: (TcType, TcType) -> TcM [(TcType, TcType)]
+givenKindEqualities (TcTyVar left, TcTyVar right) = do
+  leftKind <- zonkKind (tvKind left)
+  rightKind <- zonkKind (tvKind right)
+  pure (splitKindEquality leftKind rightKind)
+givenKindEqualities _ = pure []
+
+splitKindEquality :: TcType -> TcType -> [(TcType, TcType)]
+splitKindEquality left right
+  | sameType left right = []
+splitKindEquality (TcFunTy leftArgument leftResult) (TcFunTy rightArgument rightResult) =
+  splitKindEquality leftArgument rightArgument <> splitKindEquality leftResult rightResult
+splitKindEquality (TcTyCon left leftArguments) (TcTyCon right rightArguments)
+  | left == right,
+    length leftArguments == length rightArguments =
+      concat (zipWith splitKindEquality leftArguments rightArguments)
+splitKindEquality left right = [(left, right)]
 
 -- | Rewrite the kind of every type variable in a type with the equality
 -- evidence that is in scope, the way 'refineGivenKind' rewrites one kind.

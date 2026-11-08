@@ -5043,15 +5043,20 @@ implicitKindParams binders extraNames = mapM makeImplicitParam implicitNames
 
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
+  dataHeadParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
+
+-- | The parameters of a data or newtype head. Without a standalone kind
+-- signature, a kind variable that only a binder annotation mentions, as
+-- @rep@ in @newtype Codensity (m :: k -> TYPE rep) a@, is a kind parameter
+-- of the type constructor.
+dataHeadParamInfos :: Maybe TypeScheme -> [TyVarBinder] -> TcM ([ParamInfo], [ParamInfo])
+dataHeadParamInfos maybeKindScheme binders =
   case maybeKindScheme of
     Just {} -> typeDeclParamInfos maybeKindScheme binders
     Nothing -> do
       kindParams <- implicitBinderKindParams binders
-      let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
-      params <- makeParamEnvWith kindEnv binders
+      params <- makeParamEnvWith (paramKindEnv kindParams) binders
       pure (kindParams, params)
-  where
-    binders = binderHeadParams (dataDeclHead declaration)
 
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM ()
 registerDataDeclHeader maybeKindScheme dd = do
@@ -5127,7 +5132,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- dataHeadParamInfos maybeKindScheme params
   -- Without a kind signature, the result kind is the kind of the field.
   -- An UnliftedNewtypes field gives an unlifted result kind.
   -- 'registerNewtypeConstructor' unifies this meta with the field kind.
@@ -5135,7 +5140,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
     Nothing -> do
       resultKind <- freshKindMeta
       pure (foldr (KFun . paramKind) resultKind paramInfos)
-    Just _ -> tyConKindFromParams paramInfos (newtypeDeclKind nd)
+    Just _ -> tyConKindFromParamsWith (paramKindEnv kindParams) paramInfos (newtypeDeclKind nd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
