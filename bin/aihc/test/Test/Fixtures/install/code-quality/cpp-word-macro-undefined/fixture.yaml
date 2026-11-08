@@ -1,0 +1,2 @@
+status: pass
+reason: As in GHC, the word macros are undefined when a module does not include MachDeps.h.
