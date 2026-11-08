@@ -1030,7 +1030,7 @@ defaultGlobalKindMetas initialKeys = do
   let instances = foldr addInstanceEnv previousInstances newInstances
   lift (modify' (\state -> state {tcsInstances = instances}))
   defaultMap globalDataFamilyInstances tcsDataFamilyInstances (\table state -> state {tcsDataFamilyInstances = table}) defaultDataFamilyInstanceKinds
-  defaultMap globalTypeFamilyInstances tcsTypeFamilyInstances (\table state -> state {tcsTypeFamilyInstances = table}) defaultTypeFamilyInstanceKinds
+  defaultMap globalTypeFamilyInstances tcsTypeFamilyInstances setTypeFamilyInstances defaultTypeFamilyInstanceKinds
   defaultMap globalPatSyns tcsPatSyns (\table state -> state {tcsPatSyns = table}) defaultPatSynKinds
   where
     defaultMap selectPrevious selectCurrent store transform = do

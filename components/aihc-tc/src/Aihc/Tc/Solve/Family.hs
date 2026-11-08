@@ -1,3 +1,4 @@
+{-# LANGUAGE MagicHash #-}
 -- | Type family reduction.
 --
 -- A saturated application of a type family rewrites to the right-hand
@@ -21,7 +22,7 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, getWiring, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
@@ -31,6 +32,7 @@ import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 import Data.Text qualified as T
 import Text.Read (readMaybe)
 
@@ -38,29 +40,84 @@ import Text.Read (readMaybe)
 -- matches. The type must be zonked.
 reduceTypeFamilies :: TcType -> TcM TcType
 reduceTypeFamilies ty =
+  -- A part that no equation rewrites stays the same object, so the result
+  -- shares every such part of the input.
   case ty of
     TcTyCon tyCon arguments -> do
-      arguments' <- mapM reduceTypeFamilies arguments
-      reduceHead (TcTyCon tyCon arguments')
-    TcFunTy argument result -> TcFunTy <$> reduceTypeFamilies argument <*> reduceTypeFamilies result
+      arguments' <- mapMSame reduceTypeFamilies arguments
+      reduceHead (if sameObject arguments arguments' then ty else TcTyCon tyCon arguments')
+    TcFunTy argument result -> do
+      argument' <- reduceTypeFamilies argument
+      result' <- reduceTypeFamilies result
+      pure (if sameObject argument argument' && sameObject result result' then ty else TcFunTy argument' result')
     TcAppTy function argument -> do
       function' <- reduceTypeFamilies function
       argument' <- reduceTypeFamilies argument
-      reduceHead (mkAppTy function' argument')
-    TcForAllTy tyVar body -> TcForAllTy tyVar <$> reduceTypeFamilies body
-    TcQualTy predicates body -> TcQualTy <$> mapM (reducePredFamilies >=> reclassifyIrreduciblePred) predicates <*> reduceTypeFamilies body
+      if sameObject function function' && sameObject argument argument' && plainApplication function
+        then pure ty
+        else reduceHead (mkAppTy function' argument')
+    TcForAllTy tyVar body -> do
+      body' <- reduceTypeFamilies body
+      pure (if sameObject body body' then ty else TcForAllTy tyVar body')
+    TcQualTy predicates body -> do
+      predicates' <- mapMSame (reducePredFamilies >=> reclassifyIrreduciblePred) predicates
+      body' <- reduceTypeFamilies body
+      pure (if sameObject predicates predicates' && sameObject body body' then ty else TcQualTy predicates' body')
     _ -> pure ty
+
+-- | Whether 'mkAppTy' of the function and an argument is the plain
+-- application, so that a 'TcAppTy' of them stays as it is.
+plainApplication :: TcType -> Bool
+plainApplication function =
+  case collectTypeApplications function of
+    (TcKindedTyCon tyCon _, arguments)
+      | not (isAnyTyCon tyCon),
+        length arguments + 1 >= tyConArity tyCon ->
+          False
+    _ ->
+      case function of
+        TcTyCon {} -> False
+        TcAppTy TcArrowTy _ -> False
+        _ -> True
+
+-- | Map an action over a list, and keep the list when the action gives
+-- each element back as it is.
+mapMSame :: (Monad m) => (a -> m a) -> [a] -> m [a]
+mapMSame f list =
+  case list of
+    [] -> pure list
+    x : rest -> do
+      x' <- f x
+      rest' <- mapMSame f rest
+      pure (if sameObject x x' && sameObject rest rest' then list else x' : rest')
+
+-- | Whether two values are the same heap object. Two different objects
+-- can be equal, so a 'False' only means that a walk makes a new object.
+sameObject :: a -> a -> Bool
+sameObject left right = isTrue# (reallyUnsafePtrEquality# left right)
+{-# INLINE sameObject #-}
 
 -- | Rewrite the type family applications in a predicate.
 reducePredFamilies :: Pred -> TcM Pred
 reducePredFamilies predicate =
   case predicate of
-    ClassPred className arguments -> ClassPred className <$> mapM reduceTypeFamilies arguments
-    EqPred left right -> EqPred <$> reduceTypeFamilies left <*> reduceTypeFamilies right
-    IParamPred name payload -> IParamPred name <$> reduceTypeFamilies payload
-    IrredPred constraint -> IrredPred <$> reduceTypeFamilies constraint
-    QuantifiedPred variables antecedents consequent ->
-      QuantifiedPred variables <$> mapM reducePredFamilies antecedents <*> reducePredFamilies consequent
+    ClassPred className arguments -> do
+      arguments' <- mapMSame reduceTypeFamilies arguments
+      pure (if sameObject arguments arguments' then predicate else ClassPred className arguments')
+    EqPred left right -> do
+      left' <- reduceTypeFamilies left
+      right' <- reduceTypeFamilies right
+      pure (if sameObject left left' && sameObject right right' then predicate else EqPred left' right')
+    IParamPred name payload -> do
+      payload' <- reduceTypeFamilies payload
+      pure (if sameObject payload payload' then predicate else IParamPred name payload')
+    IrredPred constraint -> do
+      constraint' <- reduceTypeFamilies constraint
+      pure (if sameObject constraint constraint' then predicate else IrredPred constraint')
+    QuantifiedPred variables antecedents consequent -> do
+      antecedents' <- mapMSame reducePredFamilies antecedents
+      consequent' <- reducePredFamilies consequent
+      pure (if sameObject antecedents antecedents' && sameObject consequent consequent' then predicate else QuantifiedPred variables antecedents' consequent')
 
 -- | Reclassify a predicate whose head is a type family as irreducible.
 --
@@ -254,14 +311,7 @@ builtinTypeLitFamily wiring kinds tyCon arguments
 
 -- | The equations of a type family, in declaration order.
 familyEquations :: TyCon -> TcM [TypeFamilyInstanceInfo]
-familyEquations tyCon =
-  sortOn axiomIndex . filter isEquationOf <$> getTypeFamilyInstances
-  where
-    isEquationOf info =
-      case tfiiLeft info of
-        TcTyCon familyTyCon _ -> familyTyCon == tyCon
-        TcKindedTyCon familyTyCon _ -> familyTyCon == tyCon
-        _ -> False
+familyEquations tyCon = sortOn axiomIndex . Map.elems <$> getTypeFamilyEquations tyCon
 
 -- | The index of an equation in its family. The axiom name ends with it.
 axiomIndex :: TypeFamilyInstanceInfo -> Int

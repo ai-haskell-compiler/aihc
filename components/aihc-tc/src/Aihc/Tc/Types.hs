@@ -33,6 +33,7 @@ module Aihc.Tc.Types
     TcKinds (..),
     isEqualityTyCon,
     mkAppTy,
+    isAnyTyCon,
     kindedTyCon,
     bareTyCon,
     tyConNamespace,
