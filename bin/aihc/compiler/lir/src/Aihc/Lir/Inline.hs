@@ -29,11 +29,13 @@ import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants)
 import Aihc.Lir.Simplify (eliminateCommonSubexpressions, eliminateRedundantBlockParameters, simplifyBooleanBranches, simplifyMultiplications, simplifyRotations, simplifyWidths, threadConstantBranches)
 import Aihc.Lir.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Functor.Const (Const (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -372,8 +374,9 @@ mergeBlocks blocks =
     byLabel = Map.fromList [(blockLabel block, block) | block <- blocks]
     -- Every block a terminator can continue at, with repeats: a block that a
     -- switch names twice has two predecessors and stays where it is.
+    predecessors :: MonoidMap Label (Sum Int)
     predecessors =
-      MonoidMap.fromList [(targetLabel target, 1 :: Sum Int) | block <- blocks, target <- terminatorTargets (blockTerminator block)]
+      Occurrences.count [targetLabel target | block <- blocks, target <- terminatorTargets (blockTerminator block)]
     absorbable block =
       case blockTerminator block of
         Jump target

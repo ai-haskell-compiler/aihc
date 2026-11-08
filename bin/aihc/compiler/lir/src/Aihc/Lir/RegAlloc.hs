@@ -64,6 +64,7 @@ where
 
 import Aihc.Lir.Flat
 import Aihc.Lir.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative (Const (..))
 import Control.Monad (unless, when, (>=>))
 import Control.Monad.ST (ST, runST)
@@ -80,7 +81,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Monoid (Sum)
 import Data.MonoidMap (MonoidMap)
-import Data.MonoidMap qualified as MonoidMap
 import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 -- | Where every value of one function lives.
@@ -1041,8 +1041,8 @@ orderByStart encoded starts hints partners = do
 -- | How many times the function reads each value, unweighted.
 readCounts :: Function -> MonoidMap Var (Sum Int)
 readCounts function =
-  MonoidMap.fromList
-    [ (var, 1)
+  Occurrences.count
+    [ var
     | block <- functionBlocks function,
       var <- concatMap (operationReads . instructionOperation) (blockInstructions block) <> terminatorReads (blockTerminator block)
     ]
