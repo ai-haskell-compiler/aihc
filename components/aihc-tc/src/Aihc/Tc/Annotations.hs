@@ -16,6 +16,7 @@ module Aihc.Tc.Annotations
     annotateExprCast,
     annotateFunCast,
     annotateSigCast,
+    annotateBranchCast,
     annotateDoStmtCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
@@ -133,6 +134,15 @@ annotateFunCast ty evidence =
 -- stands, and FC needs the cast onto @Proxy d@.
 annotateSigCast :: TcType -> EvVar -> Expr -> Expr
 annotateSigCast ty evidence =
+  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | Cast a part of an @if@ expression onto the type that the expression
+-- needs there. The part is equated as @actual ~ needed@, so the proof
+-- runs forwards. A given equality can prove it: with the given
+-- @N t ~ n@, the branches of @if c then lower s else param s@ can have
+-- the types @N t@ and @n@.
+annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
+annotateBranchCast ty evidence =
   EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Cast the sequencing method of a @do@ statement onto the type the

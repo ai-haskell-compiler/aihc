@@ -1,0 +1,21 @@
+extensions: [RankNTypes]
+modules:
+  - |
+    {-# LANGUAGE RankNTypes #-}
+    module Test where
+
+    import Prelude
+
+    newtype Cont r = Cont { runCont :: forall b. (r -> b) -> b }
+
+    three :: Cont Int
+    three = Cont (\k -> k 3)
+
+    result :: Bool
+    result = (three `runCont` even) == False && (three `runCont` (+ 1)) == 4
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: an infix use of a selector of a higher-rank field instantiates the type of the operator applied to its left operand, and FC gets that instantiation

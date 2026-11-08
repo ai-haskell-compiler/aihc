@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -461,6 +461,15 @@ annotatePendingExprAt (Just sp) ann =
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
+
+-- | Cast the operator of a section onto the arrow type that the section
+-- uses. The operator is equated as @actual ~ arrow@, so the proof runs
+-- forwards. A given equality can prove it: with the given @v ~ Diff p@,
+-- the operator of @(.-. z)@ has the result type @Diff p@, but the
+-- section can have the result type @v@.
+annotateOperatorCast :: TcType -> EvVar -> Name -> Name
+annotateOperatorCast ty evidence name =
+  name {nameAnns = nameAnns name <> [mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight)]}
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
@@ -1017,8 +1026,8 @@ planSpine = go
       -- A function with a polymorphic type, for example a record field
       -- with a higher-rank type, is instantiated at its application. Its
       -- fresh meta-variables are instantiation variables too. This also
-      -- applies to the right operand of an operator such as
-      -- @c `unC` rest@, where the type after the left operand is a polytype.
+      -- applies to the right operand of an infix node, as in
+      -- @c `unC` k@ when @unC@ selects a higher-rank field.
       (instantiation, instantiatedFunTy, instantiationVariables') <-
         if isPolyType zonkedFunTy
           then do
@@ -1101,22 +1110,26 @@ checkSpineSteps = go Nothing
           (expr', moreCts) <- go operand (ETypeApp fun tyArg) steps
           pure (expr', cts <> moreCts)
         StepArg plan -> do
-          let sp = argPlanSpan plan
-              -- An infix application can have no span of its own. Then the
-              -- instantiation between its operands is shown at the operator.
-              instantiationSpan
-                | argPlanIsInfixRhs plan = sp <|> (sourceSpanFromAnns . nameAnns . fst =<< operand)
-                | otherwise = sp
-              instantiated = maybe fun (\(pending, _) -> annotatePendingExprAt instantiationSpan pending fun) (argPlanInstantiation plan)
-              -- An instantiation between the two operands needs a node for
-              -- the operator with its left operand. The infix node has no
-              -- such node, so the application is rebuilt in prefix form.
-              keepsInfix = argPlanIsInfixRhs plan && isNothing (argPlanInstantiation plan)
+          let -- The parser gives an infix node no span of its own. An
+              -- instantiation of the right operand's function then gets
+              -- the span of the operator.
+              sp = argPlanSpan plan
+              operatorSpan = operand >>= sourceSpanFromAnns . nameAnns . fst
+              instantiationSpan = sp <|> (if argPlanIsInfixRhs plan then operatorSpan else Nothing)
+              -- A prefix application reads the instantiation of a
+              -- variable from an expression annotation, not from the name.
+              prefixFun = if argPlanIsInfixRhs plan then prefixOperatorHead fun else fun
+              instantiated = maybe prefixFun (\(pending, _) -> annotatePendingExprAt instantiationSpan pending prefixFun) (argPlanInstantiation plan)
               -- An infix node is rebuilt by matching on the function, so
               -- an annotation there would hide the operator. An infix
               -- operator's type is its own, never refined by a given.
+              -- But the application of the operator to its left operand
+              -- can have a polymorphic type. The instantiation of that
+              -- type needs an annotation, thus the node becomes two
+              -- prefix applications.
+              rebuildsInfix = argPlanIsInfixRhs plan && isNothing (argPlanInstantiation plan)
               fun' = case argPlanArrowCast plan of
-                Just (arrowTy, ev) | not keepsInfix -> annotateFunCast arrowTy ev instantiated
+                Just (arrowTy, ev) | not rebuildsInfix -> annotateFunCast arrowTy ev instantiated
                 _ -> instantiated
               instantiationCts = maybe [] snd (argPlanInstantiation plan)
           expectedArgTy <- zonkType (argPlanExpected plan)
@@ -1137,30 +1150,31 @@ checkSpineSteps = go Nothing
                 -- is dropped again when the proof is reflexivity.
                 pure (annotateExprCast expectedArgTy ev arg', cts <> [eqCt])
           node <-
-            if keepsInfix
+            if rebuildsInfix
               then case operand of
                 Just (op', lhs') -> pure (EInfix lhs' op' arg')
                 Nothing -> abortTc ("infix operator application lost its operator node at " <> show sp)
-              else pure (EApp (if argPlanIsInfixRhs plan then prefixOperatorHead fun' else fun') arg')
+              else pure (EApp fun' arg')
           let operand' = case fun of
                 EVar op' -> Just (op', arg')
                 _ -> Nothing
           (expr', moreCts) <- go operand' node steps
           pure (expr', instantiationCts <> argPlanArrowCts plan <> argCts <> moreCts)
 
--- | Move the instantiation of an infix operator from its name to the
--- expression at the head of the application. An infix node keeps the
--- instantiation on the operator name, but a variable at the head of a
--- prefix application keeps it on the expression.
+-- | Give the operator at the head of an application the form of a prefix
+-- variable. The instantiation annotation of the operator name moves to an
+-- expression annotation on the variable.
 prefixOperatorHead :: Expr -> Expr
 prefixOperatorHead expr =
   case expr of
-    EApp function argument -> EApp (prefixOperatorHead function) argument
+    EApp fun arg -> EApp (prefixOperatorHead fun) arg
     EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
-    EVar op
-      | pending : _ <- mapMaybe (fromAnnotation @PendingTcAnnotation) (nameAnns op) ->
-          let plain = op {nameAnns = filter (isNothing . fromAnnotation @PendingTcAnnotation) (nameAnns op)}
-           in annotatePendingExprAt (sourceSpanFromAnns (nameAnns op)) pending (EVar plain)
+    EVar name ->
+      case mapMaybe (fromAnnotation @PendingTcAnnotation) (nameAnns name) of
+        pending : _ ->
+          let plainName = name {nameAnns = filter (isNothing . fromAnnotation @PendingTcAnnotation) (nameAnns name)}
+           in annotatePendingExprAt (sourceSpanFromAnns (nameAnns name)) pending (EVar plainName)
+        [] -> expr
     _ -> expr
 
 -- | Check an argument against a polytype. The argument is inferred and
@@ -1347,9 +1361,11 @@ inferPostfixSection sp inner op = do
   (inner', innerTy, innerCts) <- inferExpr inner
   resultTy <- freshMetaTv
   evidence <- freshEvVar
-  let pending = pendingAnnotation resultTy [] [] []
-      wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy resultTy)) evidence (AppOrigin sp) sp
-  pure (annotatePendingExprAt sp pending (ESectionL inner' op'), resultTy, opCts <> innerCts <> [wanted])
+  let operatorTy = TcFunTy innerTy resultTy
+      pending = pendingAnnotation resultTy [] [] []
+      wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
+      op'' = annotateOperatorCast operatorTy evidence op'
+  pure (annotatePendingExprAt sp pending (ESectionL inner' op''), resultTy, opCts <> innerCts <> [wanted])
 
 -- | A section operand of a polymorphic parameter type, such as a lens
 -- in @(.^ l)@, is checked against that polytype like an application
@@ -1370,9 +1386,11 @@ inferBinarySectionL sp inner op = do
       resultTy <- freshMetaTv
       evidence <- freshEvVar
       let sectionTy = TcFunTy argumentTy resultTy
+          operatorTy = TcFunTy innerTy sectionTy
           pending = pendingAnnotation sectionTy [] [] [argumentTy]
-          wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy sectionTy)) evidence (AppOrigin sp) sp
-      pure (annotatePendingExprAt sp pending (ESectionL inner' op'), sectionTy, opCts <> innerCts <> [wanted])
+          wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
+          op'' = annotateOperatorCast operatorTy evidence op'
+      pure (annotatePendingExprAt sp pending (ESectionL inner' op''), sectionTy, opCts <> innerCts <> [wanted])
 
 inferSectionR :: Maybe SourceSpan -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferSectionR sp op inner = do
@@ -1391,9 +1409,11 @@ inferSectionR sp op inner = do
       resultTy <- freshMetaTv
       evidence <- freshEvVar
       let sectionTy = TcFunTy argumentTy resultTy
+          operatorTy = TcFunTy argumentTy (TcFunTy innerTy resultTy)
           pending = pendingAnnotation sectionTy [] [] [argumentTy]
-          wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
-      pure (annotatePendingExprAt sp pending (ESectionR op' inner'), sectionTy, opCts <> innerCts <> [wanted])
+          wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
+          op'' = annotateOperatorCast operatorTy evidence op'
+      pure (annotatePendingExprAt sp pending (ESectionR op'' inner'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferIf :: Maybe SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferIf sp cond thenE elseE = do
@@ -1409,7 +1429,10 @@ inferIf sp cond thenE elseE = do
   let thenCt = mkWantedCt (EqPred thenTy resultTy) thenEv (AppOrigin sp) sp
       elseCt = mkWantedCt (EqPred elseTy resultTy) elseEv (AppOrigin sp) sp
       pending = pendingAnnotation resultTy [] [] []
-  pure (annotatePendingExprAt sp pending (EIf cond' thenE' elseE'), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
+      cond'' = annotateBranchCast expectedBoolTy condEv cond'
+      thenE'' = annotateBranchCast resultTy thenEv thenE'
+      elseE'' = annotateBranchCast resultTy elseEv elseE'
+  pure (annotatePendingExprAt sp pending (EIf cond'' thenE'' elseE''), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
 
 -- | A multi-way if is a guarded right-hand side without a binding. Each
 -- alternative has the result type.

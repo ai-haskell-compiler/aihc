@@ -1,0 +1,13 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    import GHC.Types (Bool)
+    type family N t
+    class Domain t where
+      lower :: t -> N t
+    adjust :: (N t ~ n, Domain t) => Bool -> t -> n -> N t
+    adjust c s p = if c then lower s else p
+status: pass
+reason: A given equality casts each branch of an if expression, so the FC lint accepts the branches.

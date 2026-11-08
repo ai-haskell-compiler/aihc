@@ -67,5 +67,5 @@ expression: |
   failures
 output: |
   []
-status: xfail
+status: pass
 reason: dependencies improve the constraints of local binders that carry no signature

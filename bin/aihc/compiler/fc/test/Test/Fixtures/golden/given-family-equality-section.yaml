@@ -1,0 +1,20 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    class Space p where
+      type Diff p
+      minus :: p -> p -> Diff p
+    class Vec v where
+      type Scalar v
+      combo :: [(v, Scalar v)] -> v
+    first :: (a -> b) -> (a, c) -> (b, c)
+    first f (a, c) = (f a, c)
+    map :: (a -> b) -> [a] -> [b]
+    map _ [] = []
+    map f (x : xs) = f x : map f xs
+    affine :: (Space p, v ~ Diff p, Vec v) => p -> [(p, Scalar v)] -> v
+    affine z l = combo (map (first (`minus` z)) l)
+status: pass
+reason: A given equality casts the operator of a section, so the FC lint accepts the section body.

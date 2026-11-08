@@ -97,6 +97,7 @@ tests =
               testCase "builds and runs the test suites of a Cabal package" (test_testSuites coreStore),
               testCase "parses the test command" test_testCommandOptions,
               testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
+              testCase "builds a module that imports a dependency module of its own name" (test_buildPackageImportSameName coreStore),
               testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
@@ -1175,6 +1176,22 @@ test_buildSharedModuleName getStore =
     assertEqual "shared exit status" ExitSuccess status
     assertEqual "shared stdout" "2\n21\n" stdout
     assertEqual "shared stderr" "" stderr
+
+-- | A module can import a module of its own name from a dependency with a
+-- package qualifier, as @base-compat-batteries@ imports @base-compat@.
+-- The local module does not hide the module of the dependency.
+test_buildPackageImportSameName :: IO SeedStore -> Assertion
+test_buildPackageImportSameName getStore =
+  withBuildPackageSandbox getStore "aihc-build-package-import-same-name" $ \_ buildRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/package-import-same-name"
+    workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
+    let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
+    outputs <- build options {buildInput = fixtureRoot, buildWorkspace = Just workspace, buildLint = True}
+    assertEqual "built executables" [binDirectory </> "same-name"] outputs
+    (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> "same-name") [] ""
+    assertEqual "same-name exit status" ExitSuccess status
+    assertEqual "same-name stdout" "41\n" stdout
+    assertEqual "same-name stderr" "" stderr
 
 -- | The main module of an executable is the module that its @main-is@
 -- file declares, and the entry calls its function @main@. One main module
