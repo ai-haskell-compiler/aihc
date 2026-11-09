@@ -1,0 +1,30 @@
+extensions:
+  - FlexibleContexts
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts #-}
+    module Test where
+
+    import qualified Data.Monoid as Monoid
+    import qualified Data.Semigroup as Semigroup
+    import GHC.Generics
+
+    constructorName :: (Generic a, Rep a ~ D1 d (C1 c f), Constructor c) => a -> String
+    constructorName value = case from value of
+      M1 inner -> conName inner
+
+    result :: Bool
+    result =
+      [ constructorName (Monoid.Last (Just 'x')),
+        constructorName (Monoid.First (Just 'x')),
+        constructorName (Semigroup.Last 'x'),
+        constructorName (Semigroup.Max 'x'),
+        constructorName (Monoid.Sum (1 :: Int)),
+        constructorName (Monoid.All True)
+      ]
+        == ["Last", "First", "Last", "Max", "Sum", "All"]
+expression: result
+output: |
+  True
+status: pass
+reason: The Data.Monoid and Data.Semigroup newtypes have Generic instances, as in GHC base.

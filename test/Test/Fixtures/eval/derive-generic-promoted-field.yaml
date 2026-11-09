@@ -1,0 +1,29 @@
+extensions:
+  - DataKinds
+  - DeriveGeneric
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE KindSignatures #-}
+    module Test where
+
+    import GHC.Generics
+
+    data Tagged (b :: Bool) = Tagged Int
+
+    data Holder = Holder (Tagged 'True)
+      deriving (Generic)
+
+    roundTrip :: Holder -> Int
+    roundTrip value = case to (from value) of
+      Holder (Tagged n) -> n
+
+    result :: Bool
+    result = roundTrip (Holder (Tagged 7)) == 7
+expression: result
+output: |
+  True
+status: pass
+reason: Stock Generic deriving accepts a field type that contains a promoted data constructor.

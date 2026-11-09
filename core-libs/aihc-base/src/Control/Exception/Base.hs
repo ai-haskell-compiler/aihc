@@ -1,11 +1,15 @@
 {-# LANGUAGE PatternSynonyms #-}
 
+-- The export list bundles the ErrorCall pattern with its type. The GHC
+-- parser needs PatternSynonyms for that export form, but HLint does not
+-- see it as a use.
+{-# HLINT ignore "Unused LANGUAGE pragma" #-}
+
 module Control.Exception.Base
   ( Exception (..),
     SomeException (..),
     ArithException (..),
-    ErrorCall (..),
-    pattern ErrorCall,
+    ErrorCall (.., ErrorCall),
     IOException,
     IOError,
     ioError,
@@ -57,7 +61,7 @@ where
 
 import GHC.Base (assert)
 import GHC.Conc.Sync (throwTo)
-import GHC.Exception (ArithException (..), ErrorCall (..), Exception (..), SomeException (..), throw, pattern ErrorCall)
+import GHC.Exception (ArithException (..), ErrorCall (..), Exception (..), SomeException (..), throw)
 import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
 import GHC.IO.Exception
   ( AllocationLimitExceeded (..),
