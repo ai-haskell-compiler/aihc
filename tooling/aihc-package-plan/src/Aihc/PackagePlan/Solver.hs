@@ -7,28 +7,33 @@
 -- package the build needs. It is a function of its inputs alone: the
 -- candidates of each package and their cabal files arrive through
 -- 'SolverInputs', which a test instantiates with pure maps and the compiler
--- with the Hackage index.
+-- with the Hackage queries.
 --
--- The search is conflict-directed backjumping over goals. A goal is a
--- package name with the range its dependents demand; the goal with the
--- fewest candidates is decided first, its candidates are tried newest
--- first with deprecated versions last, and within a version the flag
--- assignments are tried default first and then in increasing number of
--- flips. A candidate whose dependency list contradicts a package already
--- assigned is rejected, and a goal with no candidates left returns to the
--- previous choice.
+-- The search is PubGrub, the version solving algorithm of Dart's @pub@. A
+-- search variable is a package, an automatic flag of a package, or the
+-- root that stands for the roots and goals. A term says that a variable
+-- is in a set of versions, or that it is not. An incompatibility is a set
+-- of terms that cannot all hold. Every dependency is one: @tls-2.4.14@
+-- needs @serialise >=0.2 && <0.3@ is the incompatibility
+-- @{tls == 2.4.14, not serialise >=0.2 && <0.3}@. A dependency under a
+-- flag carries the flag as a term: @{pandoc == 3.13, pandoc +http, not
+-- tls >=2.0.1 && <2.5}@.
 --
--- Every failure carries the conflict set that caused it: the packages
--- whose assignment the failure depends on. A rejected dependency blames
--- the package it wanted and the candidate's own package; an exhausted
--- goal blames everything its candidates blamed together with the
--- dependents that fixed its range, and drops itself. When the search
--- under a candidate of @p@ fails without blaming @p@, no other version or
--- flag assignment of @p@ can help, so the remaining ones are skipped and
--- the failure travels on to the package that is to blame. Without this a
--- single doomed goal deep in the order is re-derived once per combination
--- of the irrelevant choices above it, which is how @process@ and its
--- @os-string@ flag used to exhaust the backtrack limit.
+-- The partial solution is a list of assignments, each a decision or a
+-- derivation at a decision level. Unit propagation derives the negation
+-- of the one unsatisfied term of an incompatibility whose other terms
+-- hold. A decision picks the undecided variable with the fewest versions
+-- left and its preferred version, newest first with deprecated versions
+-- last. When every term of an incompatibility holds, conflict resolution
+-- combines it with the cause of its most recent satisfier until one term
+-- is at the most recent decision level, then returns to the level that
+-- makes that term the only open one, and keeps the combined
+-- incompatibility. A conflict is thus derived once. Without this the
+-- @time-1.15@ conflict of @pandoc@ was derived again under each of the
+-- thousands of combinations of its dependents.
+--
+-- A failed solve returns the derivation of the final incompatibility,
+-- which the renderer writes as an explanation.
 --
 -- The search is deterministic, so the same inputs give the same plan.
 --
@@ -50,8 +55,6 @@ module Aihc.PackagePlan.Solver
     Solution,
     Assignment (..),
     SolveFailure (..),
-    CandidateFailure (..),
-    Rejection (..),
     Dependent (..),
     renderSolveFailure,
     renderDependents,
@@ -105,17 +108,23 @@ import Aihc.Hackage.Package
     unFlagAssignment,
     unFlagName,
     unPackageName,
+    versionFromList,
     withinRange,
   )
 import Aihc.Hackage.Preprocessor (Preprocessor, preprocessorToolName)
-import Control.Monad (foldM)
+import Control.Monad (foldM, forM, forM_, unless, void, when)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, gets, modify', put)
-import Data.List (intercalate, sortBy, sortOn, subsequences)
+import Control.Monad.Trans.State.Strict (StateT, evalStateT, execState, get, gets, modify', put, runStateT)
+import Data.Char (toUpper)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
+import Data.List (intercalate, nub, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
-import Data.Ord (Down (..), comparing)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -218,8 +227,10 @@ data SolverConfig = SolverConfig
     -- | Further packages to plan, with the range each must satisfy. A main
     -- module built against a set of packages has these and no root.
     configGoals :: ![(PackageName, VersionRange)],
-    -- | Give up after this many goals ran out of candidates.
-    configMaxBacktracks :: !Int
+    -- | Give up after this many conflicts. A normal solve resolves a few
+    -- conflicts at most, so the limit is a guard against a search that
+    -- does not end.
+    configMaxConflicts :: !Int
   }
 
 -- | What the solver decided for one package.
@@ -245,70 +256,121 @@ data Dependent
   | DependentPackage !PackageName !Version !FlagAssignment
   deriving (Eq, Show)
 
--- | Why a candidate was not chosen.
-data Rejection
-  = -- | The candidate needs a package in a range that the version already
-    -- assigned to it does not satisfy.
-    RejectedDependency !PackageName !VersionRange !Version
-  | -- | The candidate was assigned, and the search under it failed.
-    RejectedSubtree !SolveFailure
+-- | A search variable.
+data Var
+  = -- | Stands for the roots and the goals. It has the single version
+    -- 'rootVersion', and its dependencies are the roots and goals.
+    VarRoot
+  | VarPackage !PackageName
+  | -- | An automatic flag of a package that guards a dependency. Its
+    -- versions are 'flagOff' and 'flagOn'.
+    VarFlag !PackageName !FlagName
+  deriving (Eq, Ord, Show)
+
+rootVersion, flagOff, flagOn :: Version
+rootVersion = versionFromList [0]
+flagOff = versionFromList [0]
+flagOn = versionFromList [1]
+
+flagVersions :: Set Version
+flagVersions = Set.fromList [flagOff, flagOn]
+
+flagVersion :: Bool -> Version
+flagVersion on = if on then flagOn else flagOff
+
+-- | A statement about one variable. A positive term says the variable
+-- takes a version in the set; a negative term says it does not, which a
+-- variable outside the plan also satisfies.
+data Term
+  = Positive !(Set Version)
+  | Negative !(Set Version)
+  deriving (Eq, Ord, Show)
+
+negateTerm :: Term -> Term
+negateTerm (Positive versions) = Negative versions
+negateTerm (Negative versions) = Positive versions
+
+intersectTerms :: Term -> Term -> Term
+intersectTerms (Positive a) (Positive b) = Positive (Set.intersection a b)
+intersectTerms (Positive a) (Negative b) = Positive (Set.difference a b)
+intersectTerms (Negative a) (Positive b) = Positive (Set.difference b a)
+intersectTerms (Negative a) (Negative b) = Negative (Set.union a b)
+
+-- | Every value that satisfies the first term satisfies the second.
+subsetOf :: Term -> Term -> Bool
+subsetOf (Positive a) (Positive b) = Set.isSubsetOf a b
+subsetOf (Positive a) (Negative b) = Set.disjoint a b
+subsetOf (Negative _) (Positive _) = False
+subsetOf (Negative a) (Negative b) = Set.isSubsetOf b a
+
+-- | No value satisfies both terms.
+disjointTerms :: Term -> Term -> Bool
+disjointTerms (Positive a) (Positive b) = Set.disjoint a b
+disjointTerms (Positive a) (Negative b) = Set.isSubsetOf a b
+disjointTerms (Negative a) (Positive b) = Set.isSubsetOf b a
+disjointTerms (Negative _) (Negative _) = False
+
+-- | A positive term with no version: nothing satisfies it.
+isEmptyTerm :: Term -> Bool
+isEmptyTerm (Positive versions) = Set.null versions
+isEmptyTerm (Negative _) = False
+
+type IncompatId = Int
+
+-- | A set of terms that cannot all hold.
+data Incompat = Incompat
+  { incTerms :: !(Map Var Term),
+    incKind :: !Kind
+  }
   deriving (Eq, Show)
 
-data CandidateFailure = CandidateFailure
-  { failedCandidate :: !Candidate,
-    failedFlags :: !FlagAssignment,
-    failedRejection :: !Rejection
+-- | Where an incompatibility comes from. The root and the dependencies
+-- are the external facts; a derived incompatibility names the two it was
+-- combined from.
+data Kind
+  = -- | The root must be in the plan.
+    KindRoot
+  | -- | The root needs a package in a range. The flag says that the
+    -- package has no candidate at all.
+    KindRootNeeds !PackageName !VersionRange !Bool
+  | -- | A constraint forbids the versions of a package outside a range.
+    KindConstraint !PackageName !VersionRange
+  | -- | The positive terms, a package with its flags, need a package in a
+    -- range. The flag says that the package has no candidate at all.
+    KindDependency !PackageName !VersionRange !Bool
+  | -- | A version of a package has a searchable flag.
+    KindFlag !PackageName !FlagName
+  | KindDerived !IncompatId !IncompatId
+  deriving (Eq, Show)
+
+-- | The incompatibilities a failed solve derived, and the one that shows
+-- that no plan exists.
+data Proof = Proof
+  { proofIncompatibilities :: !(IntMap Incompat),
+    proofRoot :: !IncompatId,
+    -- | The versions of every package the proof mentions, in increasing
+    -- order, so that a set of versions renders as a range.
+    proofUniverses :: !(Map PackageName [Version])
   }
   deriving (Eq, Show)
 
 data SolveFailure
-  = -- | No candidate of the goal is known at all.
-    UnknownPackage !PackageName ![(Dependent, VersionRange)]
-  | -- | Every candidate of the goal was rejected. The versions outside the
-    -- goal's range are listed newest first; the candidates inside it each
-    -- carry their rejection.
-    NoCandidates !PackageName !VersionRange ![(Dependent, VersionRange)] ![Version] ![CandidateFailure]
-  | -- | The search stopped at the backtrack limit; the failure is the last
-    -- one seen.
-    BacktrackLimit !Int !SolveFailure
+  = -- | The derivation of an incompatibility that no plan satisfies.
+    NoSolution !Proof
+  | -- | The search stopped at the conflict limit; the proof is of the
+    -- last conflict it saw.
+    ConflictLimit !Int !Proof
   deriving (Eq, Show)
 
--- | The failure as a flat log a user can act on: the package that ran out
--- of candidates, who demanded what of it, and what was wrong with each
--- candidate.
+-- | The failure as an explanation a user can act on: the chain of facts
+-- from the cabal files to the incompatibility that no plan satisfies.
 renderSolveFailure :: SolveFailure -> String
-renderSolveFailure = intercalate "\n" . render
-  where
-    render failure =
-      case failure of
-        BacktrackLimit limit inner ->
-          ("Gave up after " <> show limit <> " backtracks; the last failure was:") : render inner
-        -- A goal with one candidate that was assigned and failed below it
-        -- adds nothing the inner failure does not say, so the log starts
-        -- where the choice was.
-        NoCandidates _ _ _ _ [CandidateFailure _ _ (RejectedSubtree inner)] -> render inner
-        UnknownPackage name dependents ->
-          ["Unknown package " <> unPackageName name <> ", needed by " <> renderDependents dependents]
-        NoCandidates name range dependents outside failures ->
-          ( if range == anyVersion
-              then "Every version of " <> unPackageName name <> " was rejected; it is needed by " <> renderDependents dependents
-              else "No version of " <> unPackageName name <> " satisfies " <> showVersionRange range <> ", needed by " <> renderDependents dependents
-          )
-            : [ "  versions outside the range: " <> intercalate ", " (map showVersion (take listedVersions outside)) <> more
-              | not (null outside),
-                let more = if length outside > listedVersions then ", and " <> show (length outside - listedVersions) <> " more" else ""
-              ]
-              <> concatMap renderCandidate failures
-
-    renderCandidate (CandidateFailure candidate flags rejection) =
-      let label = "  " <> renderCandidateName candidate flags
-       in case rejection of
-            RejectedDependency dependency range assigned ->
-              [label <> " needs " <> unPackageName dependency <> " " <> showVersionRange range <> ", but " <> unPackageName dependency <> "-" <> showVersion assigned <> " is chosen"]
-            RejectedSubtree inner ->
-              (label <> " was tried, and then:") : map ("    " <>) (render inner)
-
-    listedVersions = 8 :: Int
+renderSolveFailure failure =
+  intercalate "\n" $
+    case failure of
+      NoSolution proof -> explain proof
+      ConflictLimit limit proof ->
+        ("Gave up after " <> show limit <> " conflicts; the last conflict was:") : explain proof
 
 -- | The packages that demanded a range of a goal, each with its range.
 renderDependents :: [(Dependent, VersionRange)] -> String
@@ -322,25 +384,25 @@ renderDependents dependents =
       case dependent of
         DependentRoot -> "the root"
         DependentConstraint -> "a constraint"
-        DependentPackage name version flags -> renderCandidateName (Candidate name version Nothing False CandidateHackage) flags
+        DependentPackage name version flags -> renderCandidateName name version flags
 
-renderCandidateName :: Candidate -> FlagAssignment -> String
-renderCandidateName candidate flags =
-  unPackageName (candidateName candidate)
+renderCandidateName :: PackageName -> Version -> FlagAssignment -> String
+renderCandidateName name version flags =
+  unPackageName name
     <> "-"
-    <> showVersion (candidateVersion candidate)
+    <> showVersion version
     <> concat [" " <> (if value then "+" else "-") <> unFlagName flag | (flag, value) <- unFlagAssignment flags]
 
 -- | Every package that the roots and goals reach and that has no
 -- candidate, with the packages that need it. The walk follows each
--- candidate of a known package under its first flag assignment, which is
--- the default one. It ignores the version ranges, so the result names
--- only the packages that are absent, not the ones in the wrong version.
--- A caller uses it to explain a failed solve when the candidates come
--- from a restricted source.
+-- candidate of a known package under its default flag assignment. It
+-- ignores the version ranges, so the result names only the packages that
+-- are absent, not the ones in the wrong version. A caller uses it to
+-- explain a failed solve when the candidates come from a restricted
+-- source.
 unavailablePackages :: (Monad m) => SolverInputs m -> SolverConfig -> m [(PackageName, [(Dependent, VersionRange)])]
 unavailablePackages inputs config =
-  evalStateT (walk Set.empty Map.empty start) (Memo Map.empty Map.empty 0)
+  evalStateT (walk Set.empty Map.empty start) (Memo Map.empty Map.empty)
   where
     start =
       [(alias config name, DependentRoot, anyVersion) | name <- Map.keys (configRoots config)]
@@ -348,7 +410,7 @@ unavailablePackages inputs config =
 
     walk _ missing [] = pure (Map.toAscList (Map.map reverse missing))
     walk seen missing ((name, dependent, range) : rest) = do
-      candidates <- candidatesOf inputs config name
+      candidates <- memoCandidatesOf inputs config name
       if null candidates
         then walk (Set.insert name seen) (Map.insertWith (<>) name [(dependent, range)] missing) rest
         else
@@ -359,105 +421,24 @@ unavailablePackages inputs config =
               walk (Set.insert name seen) missing (rest <> next)
 
     dependenciesOf name candidate = do
-      (_, gpd) <- descriptionOf inputs candidate
+      (_, gpd) <- memoDescriptionOf inputs candidate
       let root = Map.lookup name (configRoots config)
-          flags = case flagAssignments config name gpd root of
-            first : _ -> first
-            [] -> mkFlagAssignment []
+          setup = flagSetup config name root gpd
+          flags = completeFlags setup [(flag, setupDefaults setup Map.! flag) | flag <- setupSearched setup]
           dependent = DependentPackage name (candidateVersion candidate) flags
       pure
         [ (dependency, dependent, dependencyRange)
         | (dependency, dependencyRange) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) flags root gpd)
         ]
 
--- | A pending goal: the range its dependents agree on, and who they are.
-data Goal = Goal
-  { goalRange :: !VersionRange,
-    goalDependents :: ![(Dependent, VersionRange)]
-  }
-
-data Search = Search
-  { searchAssigned :: !(Map PackageName Assignment),
-    searchGoals :: !(Map PackageName Goal)
-  }
-
--- | The packages a failure blames: those whose assignment the search must
--- change for the failure to go away. A package outside the set can be
--- reassigned freely without affecting it, so its remaining candidates are
--- skipped.
-type ConflictSet = Set.Set PackageName
-
--- | A failure and the packages it blames. Only the failure leaves the
--- solver; the conflict set steers the search.
-data Failure = Failure
-  { failureConflict :: !ConflictSet,
-    failureReason :: !SolveFailure
-  }
-
--- | The assigned packages that demanded something of a goal. They fixed
--- its range, so they are to blame when nothing satisfies it.
-dependentNames :: Goal -> ConflictSet
-dependentNames goal = Set.fromList [name | (DependentPackage name _ _, _) <- goalDependents goal]
-
--- | What the search remembers across backtracking: the candidates and
--- cabal files it already fetched, and how often it backtracked.
+-- | The candidates and cabal files already fetched.
 data Memo = Memo
   { memoCandidates :: !(Map PackageName [Candidate]),
-    memoDescriptions :: !(Map (PackageName, Version, Maybe Int, CandidateSource) (Int, Package)),
-    memoBacktracks :: !Int
+    memoDescriptions :: !(Map (PackageName, Version, Maybe Int, CandidateSource) (Int, Package))
   }
 
-type Solve m = StateT Memo m
-
--- | Solve the roots and goals of the configuration.
-solve :: (Monad m) => SolverInputs m -> SolverConfig -> m (Either SolveFailure Solution)
-solve inputs config =
-  either (Left . failureReason) Right <$> evalStateT (search inputs config initial) (Memo Map.empty Map.empty 0)
-  where
-    initial =
-      Search
-        { searchAssigned = Map.empty,
-          searchGoals =
-            foldr
-              (\(name, range) -> addGoal config name DependentRoot range)
-              Map.empty
-              ([(alias config name, anyVersion) | name <- Map.keys (configRoots config)] <> [(alias config name, range) | (name, range) <- configGoals config])
-        }
-
-alias :: SolverConfig -> PackageName -> PackageName
-alias config name = fromMaybe name (Map.lookup name (configAliases config))
-
--- | The range the constraints put on a package.
-constraintRange :: SolverConfig -> PackageName -> VersionRange
-constraintRange config name =
-  simplifyVersionRange (foldr intersectVersionRanges anyVersion [range | ConstraintVersion constrained range <- configConstraints config, alias config constrained == name])
-
--- | The flags the constraints fix for a package.
-constrainedFlags :: SolverConfig -> PackageName -> Map FlagName Bool
-constrainedFlags config name =
-  Map.fromList [(flag, value) | ConstraintFlag constrained flag value <- configConstraints config, alias config constrained == name]
-
--- | Narrow a goal by one more dependent, or start it. A new goal starts
--- from the range the constraints allow.
-addGoal :: SolverConfig -> PackageName -> Dependent -> VersionRange -> Map PackageName Goal -> Map PackageName Goal
-addGoal config name dependent range goals =
-  Map.insert name narrowed goals
-  where
-    narrowed =
-      case Map.lookup name goals of
-        Nothing ->
-          Goal
-            { goalRange = simplifyVersionRange (intersectVersionRanges (constraintRange config name) range),
-              goalDependents = [(dependent, range)] <> [(DependentConstraint, constraintRange config name) | constraintRange config name /= anyVersion]
-            }
-        Just goal ->
-          Goal
-            { goalRange = simplifyVersionRange (intersectVersionRanges (goalRange goal) range),
-              goalDependents = goalDependents goal <> [(dependent, range)]
-            }
-
-candidatesOf :: (Monad m) => SolverInputs m -> SolverConfig -> PackageName -> Solve m [Candidate]
-candidatesOf inputs config name = do
+memoCandidatesOf :: (Monad m) => SolverInputs m -> SolverConfig -> PackageName -> StateT Memo m [Candidate]
+memoCandidatesOf inputs config name = do
   known <- gets (Map.lookup name . memoCandidates)
   case known of
     Just candidates -> pure candidates
@@ -466,8 +447,8 @@ candidatesOf inputs config name = do
       modify' (\memo -> memo {memoCandidates = Map.insert name candidates (memoCandidates memo)})
       pure candidates
 
-descriptionOf :: (Monad m) => SolverInputs m -> Candidate -> Solve m (Int, Package)
-descriptionOf inputs candidate = do
+memoDescriptionOf :: (Monad m) => SolverInputs m -> Candidate -> StateT Memo m (Int, Package)
+memoDescriptionOf inputs candidate = do
   let key = (candidateName candidate, candidateVersion candidate, candidateRevision candidate, candidateSource candidate)
   known <- gets (Map.lookup key . memoDescriptions)
   case known of
@@ -477,162 +458,713 @@ descriptionOf inputs candidate = do
       modify' (\memo -> memo {memoDescriptions = Map.insert key described (memoDescriptions memo)})
       pure described
 
--- | The candidates of a goal in the order they are tried: the preferred
--- version first, then newest first with deprecated versions last.
-orderedCandidates :: SolverConfig -> PackageName -> [Candidate] -> [Candidate]
-orderedCandidates config name =
-  sortBy (comparing preferredFirst <> comparing candidateDeprecated <> comparing (Down . candidateVersion))
-  where
-    preferredFirst candidate =
-      case Map.lookup name (configPreferences config) of
-        Just preference | preferredVersion preference == candidateVersion candidate -> False
-        _ -> True
+alias :: SolverConfig -> PackageName -> PackageName
+alias config name = fromMaybe name (Map.lookup name (configAliases config))
 
-search :: (Monad m) => SolverInputs m -> SolverConfig -> Search -> Solve m (Either Failure Solution)
-search inputs config state = do
-  goals <- mapM (\(name, goal) -> (,) (name, goal) <$> goalCandidates name goal) (Map.toAscList (searchGoals state))
-  case sortOn (length . snd) goals of
-    [] -> pure (Right (searchAssigned state))
-    ((name, goal), candidates) : _ -> do
-      allCandidates <- candidatesOf inputs config name
-      if null allCandidates
-        then failWith (dependentNames goal) (UnknownPackage name (goalDependents goal))
-        else do
-          let outside = sortOn Down [candidateVersion candidate | candidate <- allCandidates, not (withinRange (candidateVersion candidate) (goalRange goal))]
-          tryCandidates name goal outside candidates [] Set.empty
-  where
-    goalCandidates name goal = do
-      candidates <- candidatesOf inputs config name
-      pure (orderedCandidates config name [candidate | candidate <- candidates, withinRange (candidateVersion candidate) (goalRange goal)])
+-- | The flags the constraints fix for a package.
+constrainedFlags :: SolverConfig -> PackageName -> Map FlagName Bool
+constrainedFlags config name =
+  Map.fromList [(flag, value) | ConstraintFlag constrained flag value <- configConstraints config, alias config constrained == name]
 
-    failWith conflict failure = do
-      memo <- get
-      let backtracks = memoBacktracks memo + 1
-      put memo {memoBacktracks = backtracks}
-      pure
-        ( Left
-            ( Failure
-                conflict
-                ( if backtracks > configMaxBacktracks config
-                    then BacktrackLimit (configMaxBacktracks config) failure
-                    else failure
-                )
-            )
-        )
+-- | The flags of one version of a package: the ones a constraint or the
+-- target fixes, the automatic ones the search decides, and the defaults.
+data FlagSetup = FlagSetup
+  { setupFixed :: !(Map FlagName Bool),
+    setupSearched :: ![FlagName],
+    setupDefaults :: !(Map FlagName Bool)
+  }
 
-    -- The goal is exhausted: it blames whatever its candidates blamed and
-    -- the dependents that fixed its range, but not itself, since the
-    -- search above cannot reassign a package it has just given up on.
-    tryCandidates name goal outside [] failures conflicts =
-      failWith
-        (Set.delete name (Set.union conflicts (dependentNames goal)))
-        (NoCandidates name (goalRange goal) (goalDependents goal) outside (reverse failures))
-    tryCandidates name goal outside (candidate : rest) failures conflicts = do
-      (revision, gpd) <- descriptionOf inputs candidate
-      let root = Map.lookup name (configRoots config)
-          flagChoices = flagAssignments config name gpd root
-      tryFlags name goal outside candidate revision gpd root flagChoices rest failures conflicts
+-- | More searchable flags than this leave the rest at their defaults, so
+-- that the dependency clauses of a version are evaluated under at most
+-- @2 ^ maxSearchedFlags@ assignments.
+maxSearchedFlags :: Int
+maxSearchedFlags = 8
 
-    tryFlags name goal outside _ _ _ _ [] rest failures conflicts =
-      tryCandidates name goal outside rest failures conflicts
-    tryFlags name goal outside candidate revision gpd root (flags : moreFlags) rest failures conflicts = do
-      let dependencies = candidateDependencies (configPlatform config) (configAliases config) flags root gpd
-          conflicting =
-            [ (dependency, RejectedDependency dependency range (assignmentVersion assigned))
-            | (dependency, range) <- Map.toAscList dependencies,
-              Just assigned <- [Map.lookup dependency (searchAssigned state)],
-              not (withinRange (assignmentVersion assigned) range)
-            ]
-      case conflicting of
-        (dependency, rejection) : _ ->
-          -- The rejection stands or falls with this candidate and with the
-          -- version already assigned to the package it wanted.
-          tryFlags
-            name
-            goal
-            outside
-            candidate
-            revision
-            gpd
-            root
-            moreFlags
-            rest
-            (CandidateFailure candidate flags rejection : failures)
-            (Set.insert name (Set.insert dependency conflicts))
-        [] -> do
-          let assignment =
-                Assignment
-                  { assignmentVersion = candidateVersion candidate,
-                    assignmentRevision = revision,
-                    assignmentFlags = flags,
-                    assignmentSource = candidateSource candidate,
-                    assignmentDependencies = dependencies
-                  }
-              dependent = DependentPackage name (candidateVersion candidate) flags
-              goals' =
-                foldr
-                  (\(dependency, range) -> addGoal config dependency dependent range)
-                  (Map.delete name (searchGoals state))
-                  [(dependency, range) | (dependency, range) <- Map.toAscList dependencies, not (Map.member dependency (searchAssigned state))]
-              state' = Search {searchAssigned = Map.insert name assignment (searchAssigned state), searchGoals = goals'}
-          result <- search inputs config state'
-          case result of
-            Right solution -> pure (Right solution)
-            Left failure | BacktrackLimit _ _ <- failureReason failure -> pure (Left failure)
-            -- The subtree failed without blaming this package, so no other
-            -- version or flag assignment of it can help: skip them and hand
-            -- the failure to the choice that is to blame.
-            Left failure
-              | not (Set.member name (failureConflict failure)) -> pure (Left failure)
-            Left failure ->
-              tryFlags
-                name
-                goal
-                outside
-                candidate
-                revision
-                gpd
-                root
-                moreFlags
-                rest
-                (CandidateFailure candidate flags (RejectedSubtree (failureReason failure)) : failures)
-                (Set.union conflicts (failureConflict failure))
-
--- | The flag assignments of a candidate in the order they are tried: the
--- preferred one first when the lock has one for this version, then the
--- default, then every assignment in increasing number of flips. Each
--- assignment covers the searched flags and the constrained ones, so it is
--- exactly what the plan decided.
-flagAssignments :: SolverConfig -> PackageName -> Package -> Maybe Stanzas -> [FlagAssignment]
-flagAssignments config name gpd root =
-  dedupe (preferred <> [mkFlagAssignment (Map.toAscList (Map.union fixed (Map.fromList flips))) | flips <- flipOrders])
+flagSetup :: SolverConfig -> PackageName -> Maybe Stanzas -> Package -> FlagSetup
+flagSetup config name root gpd =
+  FlagSetup
+    { setupFixed = fixed,
+      setupSearched = take maxSearchedFlags [flag | flag <- searchableFlags (configPlatform config) root gpd, not (Map.member flag fixed)],
+      setupDefaults = Map.fromList [(flagName flag, flagDefault flag) | flag <- packageFlags gpd]
+    }
   where
     fixed = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
-    searched = [flag | flag <- searchableFlags (configPlatform config) root gpd, not (Map.member flag fixed)]
-    defaults = Map.fromList [(flagName flag, flagDefault flag) | flag <- packageFlags gpd]
-    flipOrders =
-      [ [(flag, if flag `elem` flipped then not (defaults Map.! flag) else defaults Map.! flag) | flag <- searched]
-      | flipped <- sortOn length (subsequences searched)
-      ]
-    preferred =
-      case Map.lookup name (configPreferences config) of
-        Just preference
-          | any ((`elem` searched) . fst) (unFlagAssignment (preferredFlags preference)) ->
-              [ mkFlagAssignment
-                  ( Map.toAscList
-                      ( Map.union
-                          fixed
-                          (Map.fromList [(flag, fromMaybe (defaults Map.! flag) (lookupFlagAssignment flag (preferredFlags preference))) | flag <- searched])
-                      )
+
+-- | The flag assignment a plan records: the fixed flags and the searched
+-- ones at the given values.
+completeFlags :: FlagSetup -> [(FlagName, Bool)] -> FlagAssignment
+completeFlags setup searched = mkFlagAssignment (Map.toAscList (Map.union (setupFixed setup) (Map.fromList searched)))
+
+-- | One assignment of the partial solution: a decision when it has no
+-- cause, else the derivation from the incompatibility it names.
+data Assigned = Assigned
+  { asgVar :: !Var,
+    asgTerm :: !Term,
+    asgLevel :: !Int,
+    asgCause :: !(Maybe IncompatId)
+  }
+
+data Partial = Partial
+  { -- | Newest first.
+    partialHistory :: ![Assigned],
+    -- | The intersection of the terms of each variable.
+    partialTerms :: !(Map Var Term),
+    partialDecisions :: !(Map Var Version),
+    partialLevel :: !Int
+  }
+
+emptyPartial :: Partial
+emptyPartial = Partial [] Map.empty Map.empty 0
+
+assign :: Assigned -> Partial -> Partial
+assign assigned partial =
+  partial
+    { partialHistory = assigned : partialHistory partial,
+      partialTerms = Map.insertWith intersectTerms (asgVar assigned) (asgTerm assigned) (partialTerms partial),
+      partialDecisions =
+        case (asgCause assigned, asgTerm assigned) of
+          (Nothing, Positive versions) | [version] <- Set.toList versions -> Map.insert (asgVar assigned) version (partialDecisions partial)
+          _ -> partialDecisions partial
+    }
+
+decideIn :: Var -> Version -> Partial -> Partial
+decideIn var version partial =
+  (assign (Assigned var (Positive (Set.singleton version)) level Nothing) partial) {partialLevel = level}
+  where
+    level = partialLevel partial + 1
+
+-- | Drop every assignment above a decision level.
+backtrackTo :: Int -> Partial -> Partial
+backtrackTo level partial =
+  (foldl (flip assign) emptyPartial (reverse (filter ((<= level) . asgLevel) (partialHistory partial)))) {partialLevel = level}
+
+-- | How the partial solution stands to an incompatibility.
+data Relation
+  = -- | Every term holds: a conflict.
+    Satisfied
+  | -- | Every term but one holds, so the negation of that one follows.
+    AlmostSatisfied !Var !Term
+  | Inconclusive
+  | Contradicted
+  deriving (Eq, Show)
+
+relationOf :: Partial -> Incompat -> Relation
+relationOf partial inc = go Satisfied (Map.toAscList (incTerms inc))
+  where
+    go relation [] = relation
+    go relation ((var, term) : rest) =
+      case Map.lookup var (partialTerms partial) of
+        Just assigned
+          | subsetOf assigned term -> go relation rest
+          | disjointTerms assigned term -> Contradicted
+        _ -> case relation of
+          Satisfied -> go (AlmostSatisfied var term) rest
+          _ -> go Inconclusive rest
+
+-- | The key under which the dependency incompatibilities of the versions
+-- of one package merge: the package, its flag terms, the dependency and
+-- its term, and the range as written, for the explanation.
+type MergeKey = (PackageName, Map Var Term, PackageName, Maybe Term, String)
+
+data St = St
+  { stIncompats :: !(IntMap Incompat),
+    stNextId :: !IncompatId,
+    -- | The live incompatibilities that mention each variable. A merged
+    -- incompatibility leaves the index and stays in the store, since a
+    -- derivation can name it.
+    stIndex :: !(Map Var IntSet),
+    stMerge :: !(Map MergeKey IncompatId),
+    stPartial :: !Partial,
+    stMemo :: !Memo,
+    -- | The versions whose incompatibilities are in the store.
+    stExpanded :: !(Set (Var, Version)),
+    stConflicts :: !Int
+  }
+
+type Solve m = StateT St m
+
+-- | Solve the roots and goals of the configuration.
+solve :: (Monad m) => SolverInputs m -> SolverConfig -> m (Either SolveFailure Solution)
+solve inputs config =
+  evalStateT start (St IntMap.empty 0 Map.empty Map.empty emptyPartial (Memo Map.empty Map.empty) Set.empty 0)
+  where
+    start = do
+      _ <- addIncompat (Incompat (Map.singleton VarRoot (Negative (Set.singleton rootVersion))) KindRoot)
+      forM_ [(alias config constrained, range) | ConstraintVersion constrained range <- configConstraints config] $ \(name, range) -> do
+        universe <- universeOf inputs config (VarPackage name)
+        let outside = Set.filter (\version -> not (withinRange version range)) universe
+        unless (Set.null outside) $
+          void (addIncompat (Incompat (Map.singleton (VarPackage name) (Positive outside)) (KindConstraint name range)))
+      loop VarRoot
+
+    loop var = do
+      propagated <- propagate config var
+      case propagated of
+        Left failure -> pure (Left failure)
+        Right () -> do
+          next <- decide inputs config
+          case next of
+            Nothing -> Right <$> extractSolution inputs config
+            Just var' -> loop var'
+
+lookupIncompat :: (Monad m) => IncompatId -> Solve m Incompat
+lookupIncompat incId = gets (\st -> stIncompats st IntMap.! incId)
+
+-- | Put an incompatibility in the store without indexing it.
+store :: (Monad m) => Incompat -> Solve m IncompatId
+store inc = do
+  st <- get
+  let incId = stNextId st
+  put st {stIncompats = IntMap.insert incId inc (stIncompats st), stNextId = incId + 1}
+  pure incId
+
+indexIncompat :: (Monad m) => IncompatId -> Solve m ()
+indexIncompat incId = do
+  inc <- lookupIncompat incId
+  modify' (\st -> st {stIndex = foldr (\var -> Map.insertWith IntSet.union var (IntSet.singleton incId)) (stIndex st) (Map.keys (incTerms inc))})
+
+unindexIncompat :: (Monad m) => IncompatId -> Solve m ()
+unindexIncompat incId = do
+  inc <- lookupIncompat incId
+  modify' (\st -> st {stIndex = foldr (Map.adjust (IntSet.delete incId)) (stIndex st) (Map.keys (incTerms inc))})
+
+addIncompat :: (Monad m) => Incompat -> Solve m IncompatId
+addIncompat inc = do
+  incId <- store inc
+  indexIncompat incId
+  pure incId
+
+candidatesOf :: (Monad m) => SolverInputs m -> SolverConfig -> PackageName -> Solve m [Candidate]
+candidatesOf inputs config name = withMemo (memoCandidatesOf inputs config name)
+
+descriptionOf :: (Monad m) => SolverInputs m -> Candidate -> Solve m (Int, Package)
+descriptionOf inputs candidate = withMemo (memoDescriptionOf inputs candidate)
+
+-- | Run a fetch against the memo of the search.
+withMemo :: (Monad m) => StateT Memo m a -> Solve m a
+withMemo action = do
+  memo <- gets stMemo
+  (result, memo') <- lift (runStateT action memo)
+  modify' (\st -> st {stMemo = memo'})
+  pure result
+
+-- | The versions a variable can take: one for the root, two for a flag,
+-- the candidates of a package.
+universeOf :: (Monad m) => SolverInputs m -> SolverConfig -> Var -> Solve m (Set Version)
+universeOf inputs config var =
+  case var of
+    VarRoot -> pure (Set.singleton rootVersion)
+    VarFlag _ _ -> pure flagVersions
+    VarPackage name -> Set.fromList . map candidateVersion <$> candidatesOf inputs config name
+
+-- | The candidate of a package at a version. The first one when a
+-- version is listed twice, as a local package before a Hackage release.
+candidateAt :: (Monad m) => SolverInputs m -> SolverConfig -> PackageName -> Version -> Solve m Candidate
+candidateAt inputs config name version = do
+  candidates <- candidatesOf inputs config name
+  case [candidate | candidate <- candidates, candidateVersion candidate == version] of
+    candidate : _ -> pure candidate
+    [] -> error ("solver: no candidate " <> unPackageName name <> "-" <> showVersion version)
+
+-- | Unit propagation from a variable whose terms changed. A conflict goes
+-- through resolution, and propagation continues from the variable the
+-- learned incompatibility decides.
+propagate :: (Monad m) => SolverConfig -> Var -> Solve m (Either SolveFailure ())
+propagate config start = go (Set.singleton start)
+  where
+    go changed =
+      case Set.minView changed of
+        Nothing -> pure (Right ())
+        Just (var, rest) -> do
+          ids <- gets (maybe [] IntSet.toDescList . Map.lookup var . stIndex)
+          step rest ids
+
+    step changed [] = go changed
+    step changed (incId : ids) = do
+      inc <- lookupIncompat incId
+      partial <- gets stPartial
+      case relationOf partial inc of
+        Satisfied -> do
+          resolved <- resolveConflict config incId
+          case resolved of
+            Left failure -> pure (Left failure)
+            Right rootCause -> do
+              cause <- lookupIncompat rootCause
+              partial' <- gets stPartial
+              case relationOf partial' cause of
+                AlmostSatisfied var term -> do
+                  derive var term rootCause
+                  go (Set.singleton var)
+                relation -> error ("solver: the learned incompatibility is " <> show relation)
+        AlmostSatisfied var term -> do
+          derive var term incId
+          step (Set.insert var changed) ids
+        _ -> step changed ids
+
+derive :: (Monad m) => Var -> Term -> IncompatId -> Solve m ()
+derive var term cause =
+  modify' (\st -> st {stPartial = assign (Assigned var (negateTerm term) (partialLevel (stPartial st)) (Just cause)) (stPartial st)})
+
+-- | An incompatibility that no plan satisfies: no term, or the root alone.
+isFailure :: Incompat -> Bool
+isFailure inc =
+  case Map.toList (incTerms inc) of
+    [] -> True
+    [(VarRoot, Positive _)] -> True
+    _ -> False
+
+-- | Combine the conflict with the causes of its satisfiers until it has one
+-- term at the current decision level, go back to the level that leaves
+-- that term open, and keep the result.
+resolveConflict :: (Monad m) => SolverConfig -> IncompatId -> Solve m (Either SolveFailure IncompatId)
+resolveConflict config conflictId = do
+  conflicts <- gets ((+ 1) . stConflicts)
+  modify' (\st -> st {stConflicts = conflicts})
+  if conflicts > configMaxConflicts config
+    then Left . ConflictLimit (configMaxConflicts config) <$> proofOf conflictId
+    else go False conflictId
+  where
+    go isNew incId = do
+      inc <- lookupIncompat incId
+      if isFailure inc
+        then Left . NoSolution <$> proofOf incId
+        else do
+          history <- gets (zip [0 :: Int ..] . reverse . partialHistory . stPartial)
+          let satisfiedAt = firstSatisfying history
+              satisfiers = [(each, eachTerm, fromMaybe (error "solver: a conflict with an open term") (satisfiedAt each eachTerm)) | (each, eachTerm) <- Map.toAscList (incTerms inc)]
+              (var, term, (_, satisfier)) = last (sortOn (\(_, _, (index, _)) -> index) satisfiers)
+              difference = intersectTerms (asgTerm satisfier) (negateTerm term)
+              previousLevel =
+                maximum
+                  ( 1
+                      : [asgLevel other | (otherVar, _, (_, other)) <- satisfiers, otherVar /= var]
+                        <> [asgLevel earlier | not (isEmptyTerm difference), Just (_, earlier) <- [satisfiedAt var (negateTerm difference)]]
                   )
-              ]
-        _ -> []
-    dedupe = go Set.empty
-      where
-        go _ [] = []
-        go seen (assignment : rest)
-          | Set.member (unFlagAssignment assignment) seen = go seen rest
-          | otherwise = assignment : go (Set.insert (unFlagAssignment assignment) seen) rest
+          case asgCause satisfier of
+            Just causeId | previousLevel == asgLevel satisfier -> do
+              cause <- lookupIncompat causeId
+              let others = Map.unionWith intersectTerms (Map.delete var (incTerms inc)) (Map.delete var (incTerms cause))
+                  terms = if isEmptyTerm difference then others else Map.insert var (negateTerm difference) others
+              newId <- store (Incompat (dropRoot terms) (KindDerived incId causeId))
+              go True newId
+            _ -> do
+              modify' (\st -> st {stPartial = backtrackTo previousLevel (stPartial st)})
+              when isNew (indexIncompat incId)
+              pure (Right incId)
+
+    -- The root is always in the plan, so a positive root term adds
+    -- nothing to an incompatibility with other terms.
+    dropRoot terms
+      | Map.size terms > 1, Just (Positive _) <- Map.lookup VarRoot terms = Map.delete VarRoot terms
+      | otherwise = terms
+
+-- | The first assignment at which the terms of a variable so far satisfy
+-- a term, with its position in the history.
+firstSatisfying :: [(Int, Assigned)] -> Var -> Term -> Maybe (Int, Assigned)
+firstSatisfying history var term = go Nothing history
+  where
+    go _ [] = Nothing
+    go acc ((index, assigned) : rest)
+      | asgVar assigned /= var = go acc rest
+      | otherwise =
+          let acc' = maybe (asgTerm assigned) (intersectTerms (asgTerm assigned)) acc
+           in if subsetOf acc' term then Just (index, assigned) else go (Just acc') rest
+
+-- | Pick the undecided variable with the fewest versions left and a version
+-- for it, add the incompatibilities of that version, and decide it unless
+-- one of them already rules it out. The result is the variable to
+-- propagate from, or 'Nothing' when every variable in the plan is decided.
+--
+-- The flags of a package are decided before any other package, as part
+-- of the choice of the package. A conflict between a flag at its default
+-- and a package decided later then changes the package, and the flag only
+-- when no version of the later packages helps.
+decide :: (Monad m) => SolverInputs m -> SolverConfig -> Solve m (Maybe Var)
+decide inputs config = do
+  partial <- gets stPartial
+  let pending =
+        [ ((isPackage var, Set.size allowed, var), var, allowed)
+        | (var, Positive allowed) <- Map.toAscList (partialTerms partial),
+          not (Map.member var (partialDecisions partial))
+        ]
+      isPackage var = case var of
+        VarPackage _ -> True
+        _ -> False
+  case sortOn (\(key, _, _) -> key) pending of
+    [] -> pure Nothing
+    (_, var, allowed) : _ -> do
+      version <- chooseVersion inputs config var allowed
+      expand inputs config var version
+      ids <- gets (maybe [] IntSet.toDescList . Map.lookup var . stIndex)
+      partial' <- gets stPartial
+      let trial = decideIn var version partial'
+      satisfied <- or <$> mapM (fmap ((== Satisfied) . relationOf trial) . lookupIncompat) ids
+      unless satisfied $
+        modify' (\st -> st {stPartial = decideIn var version (stPartial st)})
+      pure (Just var)
+
+-- | The version to try first: the preferred one when the lock has one,
+-- else the newest that is not deprecated, else the newest.
+chooseVersion :: (Monad m) => SolverInputs m -> SolverConfig -> Var -> Set Version -> Solve m Version
+chooseVersion inputs config var allowed =
+  case var of
+    VarRoot -> pure rootVersion
+    VarFlag name flag -> do
+      decisions <- gets (partialDecisions . stPartial)
+      preferred <- case Map.lookup name (configPreferences config) >>= lookupFlagAssignment flag . preferredFlags of
+        Just value -> pure value
+        Nothing -> do
+          -- The default of the flag in the decided version of the package.
+          case Map.lookup (VarPackage name) decisions of
+            Just version -> do
+              candidate <- candidateAt inputs config name version
+              (_, gpd) <- descriptionOf inputs candidate
+              pure (fromMaybe True (lookup flag [(flagName f, flagDefault f) | f <- packageFlags gpd]))
+            Nothing -> pure True
+      pure (if Set.member (flagVersion preferred) allowed then flagVersion preferred else flagVersion (not preferred))
+    VarPackage name -> do
+      candidates <- candidatesOf inputs config name
+      let deprecated = Set.fromList [candidateVersion candidate | candidate <- candidates, candidateDeprecated candidate]
+          fresh = Set.difference allowed deprecated
+          preferred = [version | Just preference <- [Map.lookup name (configPreferences config)], let version = preferredVersion preference, Set.member version allowed]
+      pure $ case preferred of
+        version : _ -> version
+        []
+          | not (Set.null fresh) -> Set.findMax fresh
+          | not (Set.null allowed) -> Set.findMax allowed
+          | otherwise -> error ("solver: no version left for " <> unPackageName name)
+
+-- | Put the incompatibilities of one version of a variable in the store,
+-- once.
+expand :: (Monad m) => SolverInputs m -> SolverConfig -> Var -> Version -> Solve m ()
+expand inputs config var version = do
+  done <- gets (Set.member (var, version) . stExpanded)
+  unless done $ do
+    modify' (\st -> st {stExpanded = Set.insert (var, version) (stExpanded st)})
+    case var of
+      VarFlag _ _ -> pure ()
+      VarRoot ->
+        forM_ ([(alias config name, anyVersion) | name <- Map.keys (configRoots config)] <> [(alias config name, range) | (name, range) <- configGoals config]) $ \(name, range) -> do
+          universe <- universeOf inputs config (VarPackage name)
+          let wanted = Set.filter (`withinRange` range) universe
+          addIncompat
+            ( Incompat
+                (Map.fromList ((VarRoot, Positive (Set.singleton rootVersion)) : [(VarPackage name, Negative wanted) | not (Set.null wanted)]))
+                (KindRootNeeds name range (Set.null universe))
+            )
+      VarPackage name -> expandPackage inputs config name version
+
+expandPackage :: (Monad m) => SolverInputs m -> SolverConfig -> PackageName -> Version -> Solve m ()
+expandPackage inputs config name version = do
+  candidate <- candidateAt inputs config name version
+  (_, gpd) <- descriptionOf inputs candidate
+  let root = Map.lookup name (configRoots config)
+      setup = flagSetup config name root gpd
+      self = (VarPackage name, Positive (Set.singleton version))
+  forM_ (setupSearched setup) $ \flag ->
+    addIncompat (Incompat (Map.fromList [self, (VarFlag name flag, Negative flagVersions)]) (KindFlag name flag))
+  -- The dependencies under every assignment of the searched flags, grouped
+  -- by dependency and range. A flag that no assignment of the group
+  -- depends on is left out of its terms.
+  let assignments = sequence [[(flag, False), (flag, True)] | flag <- setupSearched setup]
+      grouped =
+        Map.fromListWith
+          (\(range, new) (_, old) -> (range, old <> new))
+          [ ((dependency, showVersionRange range), (range, [Map.fromList flags]))
+          | flags <- assignments,
+            (dependency, range) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) (completeFlags setup flags) root gpd)
+          ]
+  forM_ (Map.toAscList grouped) $ \((dependency, _), (range, under)) -> do
+    universe <- universeOf inputs config (VarPackage dependency)
+    let wanted = Set.filter (`withinRange` range) universe
+        relevant = [flag | flag <- setupSearched setup, not (all (\flags -> Map.adjust not flag flags `elem` under) under)]
+        conditions = nub [Map.restrictKeys flags (Set.fromList relevant) | flags <- under]
+    forM_ conditions $ \condition ->
+      addDependency
+        name
+        version
+        (Map.fromList [(VarFlag name flag, Positive (Set.singleton (flagVersion value))) | (flag, value) <- Map.toAscList condition])
+        dependency
+        range
+        wanted
+        (Set.null universe)
+
+-- | Add a dependency incompatibility, or widen the versions of the one
+-- that the other versions of the package added for the same dependency.
+addDependency :: (Monad m) => PackageName -> Version -> Map Var Term -> PackageName -> VersionRange -> Set Version -> Bool -> Solve m ()
+addDependency name version flagTerms dependency range wanted unknown = do
+  let dependencyTerm = if Set.null wanted then Nothing else Just (Negative wanted)
+      key = (name, flagTerms, dependency, dependencyTerm, showVersionRange range)
+  existing <- gets (Map.lookup key . stMerge)
+  newId <- case existing of
+    Just oldId -> do
+      old <- lookupIncompat oldId
+      let versions = case Map.lookup (VarPackage name) (incTerms old) of
+            Just (Positive known) -> known
+            _ -> Set.empty
+      unindexIncompat oldId
+      addIncompat old {incTerms = Map.insert (VarPackage name) (Positive (Set.insert version versions)) (incTerms old)}
+    Nothing ->
+      addIncompat
+        ( Incompat
+            (Map.unions [Map.singleton (VarPackage name) (Positive (Set.singleton version)), flagTerms, maybe Map.empty (Map.singleton (VarPackage dependency)) dependencyTerm])
+            (KindDependency dependency range unknown)
+        )
+  modify' (\st -> st {stMerge = Map.insert key newId (stMerge st)})
+
+-- | The assignments of the decided packages.
+extractSolution :: (Monad m) => SolverInputs m -> SolverConfig -> Solve m Solution
+extractSolution inputs config = do
+  decisions <- gets (partialDecisions . stPartial)
+  assignments <- forM [(name, version) | (VarPackage name, version) <- Map.toAscList decisions] $ \(name, version) -> do
+    candidate <- candidateAt inputs config name version
+    (revision, gpd) <- descriptionOf inputs candidate
+    let root = Map.lookup name (configRoots config)
+        setup = flagSetup config name root gpd
+        flags =
+          completeFlags
+            setup
+            [ (flag, maybe (setupDefaults setup Map.! flag) (== flagOn) (Map.lookup (VarFlag name flag) decisions))
+            | flag <- setupSearched setup
+            ]
+    pure
+      ( name,
+        Assignment
+          { assignmentVersion = version,
+            assignmentRevision = revision,
+            assignmentFlags = flags,
+            assignmentSource = candidateSource candidate,
+            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) flags root gpd
+          }
+      )
+  pure (Map.fromList assignments)
+
+proofOf :: (Monad m) => IncompatId -> Solve m Proof
+proofOf incId = do
+  st <- get
+  pure
+    Proof
+      { proofIncompatibilities = stIncompats st,
+        proofRoot = incId,
+        proofUniverses = Map.map (Set.toAscList . Set.fromList . map candidateVersion) (memoCandidates (stMemo st))
+      }
+
+-- | Write the derivation of the proof's incompatibility, as Dart's @pub@
+-- does: one line per derived incompatibility, with the external facts
+-- inline, and a number for a derived incompatibility that two derivations
+-- share.
+explain :: Proof -> [String]
+explain proof =
+  case incKind rootInc of
+    KindDerived _ _ -> reverse (writerLines (execState (visit (proofRoot proof) False) (Writer [] IntMap.empty 1)))
+    _ -> [capitalise (external rootInc) <> "."]
+  where
+    rootInc = incompat (proofRoot proof)
+    incompat incId = proofIncompatibilities proof IntMap.! incId
+
+    -- How many derivations use each derived incompatibility.
+    uses = countUses IntMap.empty (proofRoot proof)
+    countUses counts incId =
+      case IntMap.lookup incId counts of
+        Just count -> IntMap.insert incId (count + 1) counts
+        Nothing ->
+          case incKind (incompat incId) of
+            KindDerived left right -> countUses (countUses (IntMap.insert incId (1 :: Int) counts) left) right
+            _ -> counts
+
+    isDerived incId = case incKind (incompat incId) of
+      KindDerived _ _ -> True
+      _ -> False
+
+    -- A derived incompatibility whose two causes are external.
+    isSingleLine incId = case incKind (incompat incId) of
+      KindDerived left right -> not (isDerived left) && not (isDerived right)
+      _ -> False
+
+    conclusionOf incId =
+      let inc = incompat incId
+       in if isFailure inc then "no plan exists" else describe proof inc
+
+    numberOf incId = gets (IntMap.lookup incId . writerNumbers)
+
+    visit incId isConclusion =
+      case incKind (incompat incId) of
+        KindDerived left right -> visitDerived incId isConclusion left right (conclusionOf incId)
+        _ -> write incId isConclusion (capitalise (external (incompat incId)) <> ".")
+
+    visitDerived incId isConclusion left right conclusion =
+      case (isDerived left, isDerived right) of
+        (False, False) ->
+          write incId isConclusion ("Because " <> external (incompat left) <> " and " <> external (incompat right) <> ", " <> conclusion <> ".")
+        (True, True) -> do
+          leftNumber <- numberOf left
+          rightNumber <- numberOf right
+          case (leftNumber, rightNumber) of
+            (Just a, Just b) ->
+              write incId isConclusion ("Because " <> describe proof (incompat left) <> " (" <> show a <> ") and " <> describe proof (incompat right) <> " (" <> show b <> "), " <> conclusion <> ".")
+            (Just a, Nothing) -> do
+              visit right False
+              write incId isConclusion ("And because " <> describe proof (incompat left) <> " (" <> show a <> "), " <> conclusion <> ".")
+            (Nothing, Just b) -> do
+              visit left False
+              write incId isConclusion ("And because " <> describe proof (incompat right) <> " (" <> show b <> "), " <> conclusion <> ".")
+            (Nothing, Nothing)
+              | isSingleLine left -> do
+                  visit right False
+                  visit left False
+                  write incId isConclusion ("Thus, " <> conclusion <> ".")
+              | isSingleLine right -> do
+                  visit left False
+                  visit right False
+                  write incId isConclusion ("Thus, " <> conclusion <> ".")
+              | otherwise -> do
+                  visit left True
+                  visit right False
+                  number <- numberOf left
+                  write incId isConclusion ("And because " <> describe proof (incompat left) <> maybe "" (\n -> " (" <> show n <> ")") number <> ", " <> conclusion <> ".")
+        (True, False) -> derivedAndExternal incId isConclusion left right conclusion
+        (False, True) -> derivedAndExternal incId isConclusion right left conclusion
+
+    derivedAndExternal incId isConclusion derived ext conclusion = do
+      number <- numberOf derived
+      case number of
+        Just n ->
+          write incId isConclusion ("Because " <> external (incompat ext) <> " and " <> describe proof (incompat derived) <> " (" <> show n <> "), " <> conclusion <> ".")
+        Nothing ->
+          -- A chain of one derived and one external cause reads as one
+          -- line per step; the step before is folded into this line when
+          -- it has no number of its own.
+          case incKind (incompat derived) of
+            KindDerived a b
+              | isDerived a,
+                not (isDerived b),
+                IntMap.findWithDefault 0 derived uses < 2 -> do
+                  visit a False
+                  write incId isConclusion ("And because " <> external (incompat b) <> " and " <> external (incompat ext) <> ", " <> conclusion <> ".")
+              | isDerived b,
+                not (isDerived a),
+                IntMap.findWithDefault 0 derived uses < 2 -> do
+                  visit b False
+                  write incId isConclusion ("And because " <> external (incompat a) <> " and " <> external (incompat ext) <> ", " <> conclusion <> ".")
+            _ -> do
+              visit derived False
+              write incId isConclusion ("And because " <> external (incompat ext) <> ", " <> conclusion <> ".")
+
+    write incId isConclusion line = do
+      writer <- get
+      let numbered = isConclusion || IntMap.findWithDefault 0 incId uses > 1
+          number = writerNext writer
+      put
+        writer
+          { writerLines = (if numbered then line <> " (" <> show number <> ")" else line) : writerLines writer,
+            writerNumbers = if numbered then IntMap.insert incId number (writerNumbers writer) else writerNumbers writer,
+            writerNext = if numbered then number + 1 else number
+          }
+
+    external inc =
+      case incKind inc of
+        KindRoot -> "the root must be in the plan"
+        KindRootNeeds dependency range unknown -> "the root needs " <> dependencyText dependency range <> noneSuffix inc dependency unknown
+        KindConstraint dependency range -> "a constraint needs " <> dependencyText dependency range
+        KindDependency dependency range unknown -> dependentsText inc <> " needs " <> dependencyText dependency range <> noneSuffix inc dependency unknown
+        KindFlag _ flag -> dependentsText inc <> " has the automatic flag " <> unFlagName flag
+        KindDerived _ _ -> describe proof inc
+
+    dependencyText dependency range
+      | range == anyVersion = unPackageName dependency
+      | otherwise = unPackageName dependency <> " " <> showVersionRange range
+
+    noneSuffix inc dependency unknown
+      | unknown = ", which is an unknown package"
+      | Map.member (VarPackage dependency) (incTerms inc) = ""
+      | otherwise = ", which no version of " <> unPackageName dependency <> " satisfies"
+
+    -- The package and the flags of a dependency incompatibility.
+    dependentsText inc =
+      unwords
+        ( [renderPositive proof var versions | (var@(VarPackage _), Positive versions) <- Map.toAscList (incTerms inc)]
+            <> [(if versions == Set.singleton flagOn then "+" else "-") <> unFlagName flag | (VarFlag _ flag, Positive versions) <- Map.toAscList (incTerms inc)]
+        )
+
+data Writer = Writer
+  { writerLines :: ![String],
+    writerNumbers :: !(IntMap Int),
+    writerNext :: !Int
+  }
+
+capitalise :: String -> String
+capitalise [] = []
+capitalise (c : rest) = toUpper c : rest
+
+-- | A derived incompatibility as a sentence about its terms.
+describe :: Proof -> Incompat -> String
+describe proof inc =
+  case (positives, negatives) of
+    ([], []) -> "no plan exists"
+    ([(VarRoot, _)], []) -> "no plan exists"
+    ([positive], []) -> renderPos positive <> " is forbidden"
+    ([], [negative]) -> renderNeg negative <> " is required"
+    ([positive], [negative]) -> renderPos positive <> " requires " <> renderNeg negative
+    ([first, second], []) -> renderPos first <> " is incompatible with " <> renderPos second
+    (_, []) -> "one of " <> intercalate ", " (map renderPos positives) <> " must be false"
+    ([], _) -> "one of " <> intercalate ", " (map renderNeg negatives) <> " must be true"
+    _ -> "if " <> intercalate " and " (map renderPos positives) <> " then " <> intercalate " or " (map renderNeg negatives)
+  where
+    positives = [(var, versions) | (var, Positive versions) <- Map.toAscList (incTerms inc)]
+    negatives = [(var, versions) | (var, Negative versions) <- Map.toAscList (incTerms inc)]
+    renderPos = uncurry (renderPositive proof)
+    renderNeg = uncurry (renderNegative proof)
+
+-- | A positive term: the variable takes one of the versions.
+renderPositive :: Proof -> Var -> Set Version -> String
+renderPositive proof var versions =
+  case var of
+    VarRoot -> "the root"
+    VarFlag name flag -> renderFlag name flag versions
+    VarPackage name
+      | Set.size versions > 1, Just universe <- Map.lookup name (proofUniverses proof), Set.fromList universe == versions -> "every version of " <> unPackageName name
+      | otherwise -> renderPackageSet proof name versions
+
+-- | A negative term as the thing it requires when negated.
+renderNegative :: Proof -> Var -> Set Version -> String
+renderNegative proof var versions =
+  case var of
+    VarRoot -> "the root"
+    VarFlag name flag -> renderFlag name flag versions
+    VarPackage name
+      | Set.size versions > 1, Just universe <- Map.lookup name (proofUniverses proof), Set.fromList universe == versions -> unPackageName name
+      | otherwise -> renderPackageSet proof name versions
+
+renderFlag :: PackageName -> FlagName -> Set Version -> String
+renderFlag name flag versions
+  | versions == Set.singleton flagOn = unPackageName name <> " +" <> unFlagName flag
+  | versions == Set.singleton flagOff = unPackageName name <> " -" <> unFlagName flag
+  | otherwise = "the flag " <> unFlagName flag <> " of " <> unPackageName name
+
+-- | A package at one version, or with a range over its known versions.
+renderPackageSet :: Proof -> PackageName -> Set Version -> String
+renderPackageSet proof name versions =
+  case Set.toAscList versions of
+    [version] -> unPackageName name <> "-" <> showVersion version
+    _ -> unPackageName name <> " " <> renderVersionSet (Map.findWithDefault (Set.toAscList versions) name (proofUniverses proof)) versions
+
+-- | A set of versions as a union of ranges over the known versions, so
+-- that consecutive known versions join into one range.
+renderVersionSet :: [Version] -> Set Version -> String
+renderVersionSet universe versions =
+  intercalate " || " (map run (runs universe) <> ["==" <> showVersion version | version <- Set.toAscList versions, version `notElem` universe])
+  where
+    runs [] = []
+    runs (version : rest)
+      | Set.member version versions =
+          let (inside, outside) = span (`Set.member` versions) rest
+           in (version : inside) : runs outside
+      | otherwise = runs rest
+    run inside =
+      case (inside, reverse inside) of
+        ([version], _) -> "==" <> showVersion version
+        (first : _, final : _) -> ">=" <> showVersion first <> " && <=" <> showVersion final
+        _ -> ""
 
 -- | The automatic flags of a package that guard a @build-depends@ clause
 -- in a component that contributes dependencies. Only these can change the
