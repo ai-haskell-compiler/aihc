@@ -10,7 +10,8 @@ keep it small, and the lock file that makes a plan reproducible.
 Implemented (September 2026). The solver is `Aihc.PackagePlan.Solver`, the
 lock file is `Aihc.PackagePlan.Lock`, and `Aihc.PackagePlan.planPackages`
 ties them to the Hackage index and the source directories for `aihc install`,
-`aihc build`, and `aihc-haddock`. The design below is what was built; the
+`aihc build`, and `aihc-haddock`. The search became PubGrub in November
+2026, see [Search](#search). The design below is what was built; the
 places where the implementation refines it are marked *as built*.
 
 Before this, the planner mapped every dependency name to the version Hackage
@@ -145,60 +146,113 @@ over partial assignments.
 
 ## Search
 
-Conflict-directed backjumping:
+The search is PubGrub, the version solving algorithm of Dart's `pub`, which
+the Rust crate `pubgrub` and the `uv` resolver also use. PubGrub applies
+conflict-driven clause learning to version solving: a conflict is derived
+once and then kept, so the search never derives it again under another
+combination of unrelated choices.
 
-1. Start with the roots as pending goals, each carrying the union of the ranges
-   its dependents demand.
-2. Pick the pending goal with the fewest remaining candidates.
-3. Try its candidates in order: versions newest first with deprecated versions
-   last, and within a version the flag assignments as above. A candidate's
-   dependency list is checked against the packages already assigned; a range
-   that an assigned version violates rejects the candidate. Dependencies not
-   yet assigned become pending goals or narrow existing ones.
-4. On a goal with no candidates left, return to the choice the failure blames.
-5. Stop after a fixed number of backtracks and fail with the log.
+A search variable is a package, an automatic flag of a package, or the
+root, which stands for the roots and goals. A *term* is a statement about
+one variable: `tls` is in `>=2.3 && <2.5`, or `time` is not `1.15`. A
+positive term says the variable takes a version in a set; a negative term
+says it does not, which a variable outside the plan also satisfies. An
+*incompatibility* is a set of terms that cannot all hold.
 
-Every failure carries a conflict set: the packages whose assignment it depends
-on.
+Every input is an incompatibility:
 
-- A candidate rejected by an assigned version blames that package and the
-  candidate's own package.
-- An exhausted goal blames everything its candidates blamed, together with the
-  assigned dependents that fixed its range, and drops itself: the search above
-  cannot reassign a package it has just given up on.
+- The root must be in the plan: `{not root}`.
+- The root needs each root package and each goal in its range:
+  `{root, not pandoc}`.
+- A constraint forbids the versions outside its range: `{time ==1.15}` for
+  `--constraint "time <1.15"`.
+- A version of a package needs each of its dependencies in a range:
+  `{tls ==2.4.14, not serialise >=0.2 && <0.3}`. Versions of one package
+  that state the same dependency share one incompatibility, so the
+  versions `2.4.0` to `2.4.14` of `tls` give
+  `{tls >=2.4.0 && <=2.4.14, not serialise >=0.2 && <0.3}`.
+- A dependency under a flag carries the flag as a term:
+  `{pandoc ==3.13, pandoc +http, not tls >=2.0.1 && <2.5}`. A dependency
+  under `flag(a) && !flag(b)` carries both flags; one under
+  `flag(a) || flag(b)` gives one incompatibility per flag. A flag that no
+  clause of the group depends on is left out.
+- A version of a package has each of its searchable flags:
+  `{pandoc ==3.13, not (pandoc:http in {off, on})}`, so that the flag is
+  decided as soon as the package is.
 
-When the search under a candidate of `p` fails without blaming `p`, no other
-version or flag assignment of `p` can make that failure go away, so the
-remaining ones are skipped and the failure travels on to the choice that is to
-blame. The order is deterministic, so the same inputs give the same plan.
+The *partial solution* is a list of assignments, each a decision or a
+derivation, at a decision level. The search repeats two steps:
 
-Chronological backtracking was the original design, on the reasoning that at
-the scale aihc plans, tens of packages, thrashing would not appear. It did.
-`process-1.6.30.0` has its own automatic `os-string` flag whose default branch
-pins `filepath` below 1.5, which no `directory` in `process`'s range accepts.
-`directory` has the most candidates, so it is decided last, below `exceptions`,
-`stm`, and `array`, none of which have anything to do with the conflict. The
-same doomed `directory` goal was re-derived once per combination of those
-versions, and the backtrack limit ran out before the search ever reached
-`process +os-string`. Blaming `filepath` and `process` instead skips straight
-back to the flag.
+1. **Unit propagation.** For every incompatibility that mentions a
+   variable whose terms changed: when every term but one holds, the
+   negation of that term is derived, with the incompatibility as its
+   cause. When every term holds, the incompatibility is a conflict.
+2. **Decision.** Among the variables with a positive derivation and no
+   decision, take the flags of decided packages first, then the variable
+   with the fewest versions left. A package takes its preferred version
+   when the lock has one, else the newest version that is not deprecated,
+   else the newest. A flag takes the value the lock has, else its default.
+   The incompatibilities of the chosen version are added, and the decision
+   is made unless one of them already rules the version out, in which
+   case propagation excludes it instead.
 
-The result is an assignment from package name to version, flag assignment, and
-source (Hackage, local, or core). The plan builder then follows the
-assignment instead of choosing versions on its own; the per-name version
-callback in `DependencyResolver` is gone. The cabal file a Hackage release is
-built with is the one the solver read from the index, at the recorded
-revision, rather than the one in the downloaded source tree.
+A *conflict* goes through resolution: the conflict is combined with the
+cause of its most recent satisfier, which removes the satisfier's variable
+and adds the other terms of the cause, until the result has one term at
+the most recent decision level. The search then returns to the level that
+leaves that term the only open one and keeps the result as a new
+incompatibility. Propagation derives the term at once, so the choice that
+caused the conflict is excluded, and the kept incompatibility excludes it
+again under every later combination of the other choices.
+
+Flags are decided before other packages so that a conflict between a flag
+at its default and a package decided later changes the package. The flag
+changes only when no version of the later packages helps. The reduced
+`pandoc` case of the test suite shows this: the leaf `l` has two versions,
+the newest `2` and the plan with the flag on needs `1`; the search picks
+`l` at `1` and keeps the flag, as Cabal does with its installed `time`.
+
+The search stops after `configMaxConflicts` conflicts, as a guard against
+a search that does not end. A normal solve resolves a few conflicts at
+most.
+
+The order is deterministic, so the same inputs give the same plan.
+
+### History
+
+The first solver was chronological backtracking over goals, on the
+reasoning that at the scale aihc plans, tens of packages, thrashing would
+not appear. It did, and conflict-directed backjumping replaced it: every
+failure blamed a set of packages, and the search skipped the remaining
+candidates of a package the failure did not blame. That was not enough
+either. `pandoc` picked `time-1.15` early, `tls-2.4.*` needed `serialise`,
+which needs `time <1.15`, and the blamed dependents of `tls` each had many
+versions with their own subtrees. The same conflict was derived more than
+a thousand times before the backtrack limit stopped the search. PubGrub
+derives it once.
 
 ## Failures
 
-A failed solve reports the goal that ran out of candidates and, for each of its
-candidates, the dependent whose range rejected it or the dependency that could
-not be satisfied under it. That is a flat log rather than a proof, but it names
-the package and the range to relax, which is what a user acts on. The
-`unix`/`filepath` case reads as: `unix-2.8.8.0 -os-string` needs
-`filepath <1.5.0.0`, the root needs `filepath >=1.5`, and `unix-2.8.8.0
-+os-string` needs `os-string`, which is then found.
+A failed solve returns the derivation of the final incompatibility, which
+is written as an explanation: each line combines two facts into a new one,
+and the last line concludes that no plan exists. A fact that two
+derivations share gets a number and is referred to by it. The input facts
+read as the cabal files state them: `a-2.0 needs c >=1 && <2`, `root-0.1
+needs a`, `pandoc-3.13 +http needs tls >=2.0.1 && <2.5`. A dependency that
+no version satisfies says so: `a-1.0 needs c <1, which no version of c
+satisfies`, or `root-0.1 needs nowhere, which is an unknown package`.
+
+For a root that needs `a` and `c ==2.*`, where `a-2.0` needs `c ==1.*` and
+`a-1.0` needs `c <1`, the explanation is:
+
+```text
+Because a-2.0 needs c >=1 && <2 and a-1.0 needs c <1, which no version of c satisfies, every version of a requires c-1.0.
+And because root-0.1 needs a, root-0.1 requires c-1.0.
+And because root-0.1 needs c >=2 && <3 and the root needs root, no plan exists.
+```
+
+When the search stops at the conflict limit, the explanation is of the
+last conflict it saw.
 
 ## Lock file
 
