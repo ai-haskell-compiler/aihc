@@ -1,0 +1,64 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, FlexibleInstances #-}
+    module Test where
+    import GHC.Types (Type)
+    data Proxy (a :: k) = Proxy
+    type family Products (as :: [Type]) :: Type where
+      Products '[] = ()
+    class Currying as where
+      uncurrys :: Proxy as -> Products as -> ()
+    instance Currying '[] where
+      uncurrys _ _ = ()
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tProxy (k : sType) (a : k) :: sType {
+    pub 1.cProxy :: ∀(k : sType) (a : k). tProxy k a
+  }
+
+  pub type 1.tProducts (as{0} : t[] sType) :: sType @N {}
+
+  axiom 1.$ax$Products$0 : tProducts (c[] sType) ~N tUnit
+
+  pub type 1.t$Dict$Currying (as{0} : t[] sType) :: sType {
+    pub 1.c$Dict$Currying :: ∀(as{0} : t[] sType). (tProxy (t[] sType) as{0} → tProducts as{0} → tUnit) → t$Dict$Currying as{0}
+  }
+
+  pub val 1.vuncurrys :: ∀(as{0} : t[] sType). t$Dict$Currying as{0} → tProxy (t[] sType) as{0} → tProducts as{0} → tUnit
+    = Λ(as{0} : t[] sType). λ($dCurrying : t$Dict$Currying as{0}).
+      let! c$Dict$Currying ($cuncurrys : tProxy (t[] sType) as{0} → tProducts as{0} → tUnit) = $dCurrying;
+      $cuncurrys
+
+  pub val 1.v$fCurrying[] :: t$Dict$Currying (c[] sType)
+    = c$Dict$Currying @(c[] sType) v$fCurrying[]$cuncurrys
+
+  val 1.v$fCurrying[]$cuncurrys :: tProxy (t[] sType) (c[] sType) → tProducts (c[] sType) → tUnit
+    = λ(unused x : tProxy (t[] sType) (c[] sType)) (unused y : tProducts (c[] sType)).
+      c()
+status: pass
+reason: The instance head is the empty list, and the class method type applies a poly-kinded type to the class parameter. The empty list keeps its element kind as a kind argument. Before the fix, the empty list lost its kind, and the desugarer could not find the kind argument of Proxy.
