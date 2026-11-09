@@ -1,0 +1,17 @@
+extensions:
+  - MultiParamTypeClasses
+  - FunctionalDependencies
+  - FlexibleContexts
+modules:
+  - |
+    module Test where
+
+    class Fold full item | full -> item where
+      foldIt :: (item -> b -> b) -> b -> full -> b
+
+    class Fold full item => Like full item | full -> item where
+      cons :: item -> full -> full
+      concatIt :: Like full' full => full' -> full
+      concatIt xs = foldIt (\x acc -> x) (concatIt xs) xs
+status: pass
+reason: A default method selects a superclass from a given of its own class, and the field types of that dictionary must not capture the method's own type variables.

@@ -1,0 +1,60 @@
+extensions: [TypeFamilies, MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, FlexibleContexts]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, FlexibleContexts #-}
+    module Test where
+    type family Item l
+    type instance Item [a] = a
+    class Like full item | full -> item where
+      isp :: item -> full -> full
+    instance Like [a] a where
+      isp _ xs = xs
+    data Bool = False | True
+    data Box a = Box a
+    class Sing v where
+      sing :: a -> v a
+    instance Sing Box where
+      sing = Box
+    f :: (Item full ~ Box Bool) => full -> [Item full] -> [Item full]
+    f _ xs = let sp = sing True in isp sp xs
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, FlexibleContexts #-}
+  module Test where
+  type family Item l
+              └─ type: Type → Type
+  type instance Item [a] = a
+  class Like full item | full -> item where
+  └─ class methods: isp ∷ ∀ full item. (Like full item) ⇒ item → full → full; fundeps: full → item
+    isp :: item -> full -> full
+  instance Like [a] a where
+  └─ $fLikeLista ∷ ∀ a. () ⇒ Like [a] a
+    isp _ xs = xs
+    │   │ └─ type: [a]
+    │   └─ type: a
+    └─ isp ∷ a → [a] → [a]
+  data Bool = False | True
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  class Sing v where
+  └─ class methods: sing ∷ ∀ v a. (Sing v) ⇒ a → v a
+    sing :: a -> v a
+  instance Sing Box where
+  └─ $fSingBox ∷ () ⇒ Sing Box
+    sing = Box
+    │      └─ type: a → Box a; type-args: a
+    └─ sing ∷ ∀ a. a → Box a
+  f :: (Item full ~ Box Bool) => full -> [Item full] -> [Item full]
+  f _ xs = let sp = sing True in isp sp xs
+  │ │ │        │    │            └─ type: Box Bool → [Item full] → [Item full]; type-args: [Item full], Box Bool; evidence: cast($fLikeLista @Box Bool, sym (Like [] given Item full ~ Box Bool refl Box Bool))
+  │ │ │        │    └─ type: Bool → Box Bool; type-args: Box, Bool; evidence: $fSingBox
+  │ │ │        └─ type: Box Bool
+  │ │ └─ type: [Item full]
+  │ └─ type: full
+  └─ type: ∀ full. ((Item full) ~ (Box Bool)) ⇒ full → [Item full] → [Item full]
+status: pass
+reason: an instance improves a wanted to a family application, and a given equality names that application

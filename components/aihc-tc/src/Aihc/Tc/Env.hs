@@ -71,6 +71,8 @@ import Aihc.Tc.Types
 import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -390,10 +392,30 @@ classFieldTypes classInfo substitution =
 methodFieldType :: ClassInfo -> Map Unique TcType -> TypeScheme -> TcType
 methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
   applySubst substitution $
-    foldr TcForAllTy qualifiedBody extraTypeVariables
+    foldr TcForAllTy (applySubst renaming qualifiedBody) renamedVariables
   where
     classVariables = ciKindTyVars classInfo <> ciTyVars classInfo
     extraTypeVariables = filter (`notElem` classVariables) typeVariables
+    -- 'applySubst' does not rename a binder. A class argument can mention
+    -- a variable with the same unique as a method variable: a default
+    -- method uses the variables of the method signature, and a given of
+    -- its own class can supply them. Give each such method variable a new
+    -- unique, or the class argument goes under its binder.
+    capturable = Set.unions (map typeUniques (Map.elems substitution))
+    firstFresh =
+      1 + maximum (0 : [unique | Unique unique <- Set.toList (capturable <> typeUniques (foldr TcForAllTy qualifiedBody extraTypeVariables))])
+    (renamedVariables, renaming) = renameVariables firstFresh Map.empty extraTypeVariables
+    renameVariables _ current [] = ([], current)
+    renameVariables next current (variable : rest)
+      | tvUnique variable `Set.member` capturable =
+          let renamed = mkTyVarId (tvName variable) (Unique next) kind
+              (others, final) = renameVariables (next + 1) (Map.insert (tvUnique variable) (TcTyVar renamed) current) rest
+           in (renamed : others, final)
+      | otherwise =
+          let (others, final) = renameVariables next current rest
+           in (setTyVarKind kind variable : others, final)
+      where
+        kind = applySubst current (tvKind variable)
     -- Only the first predicate on the class is the class itself. A method
     -- can repeat it, as @tembed :: MonadT t => ...@ in @class MonadT t@
     -- does, and the dictionary field keeps that repetition, as the System
@@ -412,6 +434,31 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
         QuantifiedPred {} -> False
         IParamPred {} -> False
         IrredPred {} -> False
+
+-- | Each unique that a type mentions, free or bound, in kinds also.
+typeUniques :: TcType -> Set Unique
+typeUniques ty =
+  case ty of
+    TcTyVar tyVar -> tyVarUniques tyVar
+    TcMetaTv {} -> Set.empty
+    TcArrowTy -> Set.empty
+    TcTyLit {} -> Set.empty
+    TcTyCon _ arguments -> Set.unions (map typeUniques arguments)
+    TcKindedTyCon _ kindArguments -> Set.unions (map typeUniques kindArguments)
+    TcFunTy argument result -> typeUniques argument <> typeUniques result
+    TcForAllTy tyVar body -> tyVarUniques tyVar <> typeUniques body
+    TcQualTy predicates body -> Set.unions (typeUniques body : map predUniques predicates)
+    TcAppTy function argument -> typeUniques function <> typeUniques argument
+  where
+    tyVarUniques tyVar = Set.insert (tvUnique tyVar) (typeUniques (tvKind tyVar))
+    predUniques predicate =
+      case predicate of
+        ClassPred _ arguments -> Set.unions (map typeUniques arguments)
+        EqPred left right -> typeUniques left <> typeUniques right
+        IParamPred _ payload -> typeUniques payload
+        IrredPred constraint -> typeUniques constraint
+        QuantifiedPred variables antecedents consequent ->
+          Set.unions (map tyVarUniques variables <> map predUniques (consequent : antecedents))
 
 -- | A functional dependency of a class. Both sides are positions into
 -- 'ciTyVars', so the dependency survives the renaming that an interface
