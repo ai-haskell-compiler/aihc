@@ -45,14 +45,14 @@ module GHC.TypeNats
 where
 
 import Data.Proxy (Proxy (..))
-import Data.Type.Equality ((:~:) (..))
+import Data.Type.Equality (TestEquality (..), (:~:) (..))
 import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
 import GHC.Types (Any, Constraint, Ordering, Type)
 import Unsafe.Coerce (unsafeCoerce)
-import Prelude (Bool (..), Eq (..), Maybe (..))
+import Prelude (Bool (..), Eq (..), Maybe (..), Ord (..), Show (..), showParen, showString, (.))
 
 -- | The kind of type-level natural literals. GHC makes this a synonym for
 -- the value type, so that @natVal@ can return one.
@@ -117,6 +117,24 @@ newtype SNat n = UnsafeSNat Natural
 -- | The value a singleton stands for.
 fromSNat :: SNat n -> Natural
 fromSNat (UnsafeSNat value) = value
+
+instance Eq (SNat a) where
+  left == right = fromSNat left == fromSNat right
+
+instance Ord (SNat a) where
+  compare left right = compare (fromSNat left) (fromSNat right)
+
+-- | GHC shows a singleton with a visible type application.
+instance Show (SNat a) where
+  showsPrec precedence singleton =
+    showParen (precedence > 10) (showString "SNat @" . showsPrec 11 (fromSNat singleton))
+
+-- | Equal values give equal type indices.
+instance TestEquality SNat where
+  testEquality left right =
+    case fromSNat left == fromSNat right of
+      True -> Just (unsafeCoerce Refl)
+      False -> Nothing
 
 -- | Supply a singleton for a runtime natural number.
 -- Keep the type index private to each call.

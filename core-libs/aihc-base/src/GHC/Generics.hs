@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
@@ -771,6 +772,68 @@ instance Generic ((f :.: g) p) where
   type Rep ((f :.: g) p) = D1 (MetaGenerics ":.:" 'True) (C1 ('MetaCons "Comp1" 'PrefixI 'True :: Meta) (S1 (MetaField "unComp1") (Rec0 (f (g p)))))
   from (Comp1 a) = M1 (M1 (M1 (K1 a)))
   to r = Comp1 (unK1 (unM1 (unM1 (unM1 r))))
+
+-- * Eq and Ord instances
+
+instance Eq (U1 p) where
+  _ == _ = True
+
+instance Ord (U1 p) where
+  compare _ _ = EQ
+
+instance (Eq p) => Eq (Par1 p) where
+  Par1 left == Par1 right = left == right
+
+instance (Ord p) => Ord (Par1 p) where
+  compare (Par1 left) (Par1 right) = compare left right
+
+instance (Eq (f p)) => Eq (Rec1 f p) where
+  Rec1 left == Rec1 right = left == right
+
+instance (Ord (f p)) => Ord (Rec1 f p) where
+  compare (Rec1 left) (Rec1 right) = compare left right
+
+instance (Eq c) => Eq (K1 i c p) where
+  K1 left == K1 right = left == right
+
+instance (Ord c) => Ord (K1 i c p) where
+  compare (K1 left) (K1 right) = compare left right
+
+instance (Eq (f p)) => Eq (M1 i c f p) where
+  M1 left == M1 right = left == right
+
+instance (Ord (f p)) => Ord (M1 i c f p) where
+  compare (M1 left) (M1 right) = compare left right
+
+instance (Eq (f p), Eq (g p)) => Eq ((f :+: g) p) where
+  L1 left == L1 right = left == right
+  R1 left == R1 right = left == right
+  _ == _ = False
+
+-- | As the derived instance does, order 'L1' before 'R1'.
+instance (Ord (f p), Ord (g p)) => Ord ((f :+: g) p) where
+  compare (L1 left) (L1 right) = compare left right
+  compare (L1 _) (R1 _) = LT
+  compare (R1 _) (L1 _) = GT
+  compare (R1 left) (R1 right) = compare left right
+
+instance (Eq (f p), Eq (g p)) => Eq ((f :*: g) p) where
+  (leftFirst :*: leftSecond) == (rightFirst :*: rightSecond) =
+    case leftFirst == rightFirst of
+      True -> leftSecond == rightSecond
+      False -> False
+
+instance (Ord (f p), Ord (g p)) => Ord ((f :*: g) p) where
+  compare (leftFirst :*: leftSecond) (rightFirst :*: rightSecond) =
+    case compare leftFirst rightFirst of
+      EQ -> compare leftSecond rightSecond
+      order -> order
+
+instance (Eq (f (g p))) => Eq ((f :.: g) p) where
+  Comp1 left == Comp1 right = left == right
+
+instance (Ord (f (g p))) => Ord ((f :.: g) p) where
+  compare (Comp1 left) (Comp1 right) = compare left right
 
 -- * Functor instances
 

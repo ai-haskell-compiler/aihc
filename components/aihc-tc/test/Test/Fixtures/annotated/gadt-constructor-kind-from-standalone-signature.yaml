@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  import GHC.Types (Bool(..), Type)
+  type GOrdering :: k -> k -> Type
+  data GOrdering a b where
+       └─ type: k → k → Type
+    GLT :: GOrdering a b
+    └─ type: ∀ k a b. GOrdering a b
+    GEQ :: GOrdering t t
+    └─ type: ∀ k0 t b. (b ~ t) ⇒ GOrdering t b
+  same :: GOrdering 'True 'True
+  same = GEQ
+  │      └─ type: GOrdering 'GHC.Types.True 'GHC.Types.True; type-args: Bool, 'True, 'True; evidence: refl 'True
+  └─ type: GOrdering 'GHC.Types.True 'GHC.Types.True
+extensions:
+- DataKinds
+- GADTs
+- PolyKinds
+- StandaloneKindSignatures
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  import GHC.Types (Bool(..), Type)
+  type GOrdering :: k -> k -> Type
+  data GOrdering a b where
+    GLT :: GOrdering a b
+    GEQ :: GOrdering t t
+  same :: GOrdering 'True 'True
+  same = GEQ
+reason: a GADT constructor quantifies the kind that the standalone kind signature leaves open
+status: pass

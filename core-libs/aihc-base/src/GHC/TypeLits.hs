@@ -65,7 +65,7 @@ module GHC.TypeLits
   )
 where
 
-import Data.Type.Equality ((:~:) (..))
+import Data.Type.Equality (TestEquality (..), (:~:) (..))
 import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Integer (Integer)
@@ -77,7 +77,7 @@ import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natS
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Any, Char, Constraint, Ordering, Symbol, Type)
 import Unsafe.Coerce (unsafeCoerce)
-import Prelude (Bool (..), Eq (..), Maybe (..))
+import Prelude (Bool (..), Eq (..), Maybe (..), Ord (..), Show (..), showParen, showString, (.))
 
 -- | The value of a known type-level natural, as an 'Integer'.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Integer
@@ -122,6 +122,24 @@ newtype SSymbol s = UnsafeSSymbol [Char]
 -- | The value a singleton stands for.
 fromSSymbol :: SSymbol s -> [Char]
 fromSSymbol (UnsafeSSymbol value) = value
+
+instance Eq (SSymbol a) where
+  left == right = fromSSymbol left == fromSSymbol right
+
+instance Ord (SSymbol a) where
+  compare left right = compare (fromSSymbol left) (fromSSymbol right)
+
+-- | GHC shows a singleton with a visible type application.
+instance Show (SSymbol a) where
+  showsPrec precedence singleton =
+    showParen (precedence > 10) (showString "SSymbol @" . showsPrec 11 (fromSSymbol singleton))
+
+-- | Equal values give equal type indices.
+instance TestEquality SSymbol where
+  testEquality left right =
+    case fromSSymbol left == fromSSymbol right of
+      True -> Just (unsafeCoerce Refl)
+      False -> Nothing
 
 -- | Supply a singleton for a runtime symbol.
 -- Keep the type index private to each call.
@@ -168,6 +186,24 @@ newtype SChar c = UnsafeSChar Char
 -- | The value a singleton stands for.
 fromSChar :: SChar c -> Char
 fromSChar (UnsafeSChar value) = value
+
+instance Eq (SChar a) where
+  left == right = fromSChar left == fromSChar right
+
+instance Ord (SChar a) where
+  compare left right = compare (fromSChar left) (fromSChar right)
+
+-- | GHC shows a singleton with a visible type application.
+instance Show (SChar a) where
+  showsPrec precedence singleton =
+    showParen (precedence > 10) (showString "SChar @" . showsPrec 11 (fromSChar singleton))
+
+-- | Equal values give equal type indices.
+instance TestEquality SChar where
+  testEquality left right =
+    case fromSChar left == fromSChar right of
+      True -> Just (unsafeCoerce Refl)
+      False -> Nothing
 
 -- | Supply the dictionary for a singleton character.
 withKnownChar :: forall c r. SChar c -> ((KnownChar c) => r) -> r
