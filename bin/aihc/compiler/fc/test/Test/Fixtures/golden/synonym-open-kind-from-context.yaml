@@ -1,0 +1,51 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    type family Second (p :: (a, b)) (q :: (a, b)) :: (a, b) where
+      Second '(x1, y1) '(x2, y2) = '(x1, y2)
+    data Unit = Unit
+    type Empty = '( '[ 'Unit ], '[])
+    type Nested = Second '( '[ 'Unit ], '[]) '( '[ 'Unit ], '[ 'Unit ])
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tSecond (a : sType) (b : sType) (p : tTuple2 a b) (q : tTuple2 a b) :: tTuple2 a b @N @N @N @N {}
+
+  axiom 1.$ax$Second$0 (k0 : sType) (k1 : sType) (x1 : k0) (y1 : k1) (x2 : k0) (y2 : k1) : tSecond k0 k1 (c(,) k0 k1 x1 y1) (c(,) k0 k1 x2 y2) ~N c(,) k0 k1 x1 y2
+
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
+  }
+
+  pub type 1.sEmpty (k0 : sType) :: tTuple2 (t[] tUnit) (t[] k0) =
+    c(,) (t[] tUnit) (t[] k0) (c: tUnit cUnit (c[] tUnit)) (c[] k0)
+
+  pub type 1.sNested :: tTuple2 (t[] tUnit) (t[] tUnit) =
+    tSecond (t[] tUnit) (t[] tUnit) (c(,) (t[] tUnit) (t[] tUnit) (c: tUnit cUnit (c[] tUnit)) (c[] tUnit)) (c(,) (t[] tUnit) (t[] tUnit) (c: tUnit cUnit (c[] tUnit)) (c: tUnit cUnit (c[] tUnit)))
+status: pass
+reason: The empty list '[] does not determine its own kind. In Empty, the kind of the synonym determines it. In Nested, the second argument of Second determines it, although the '[] is inside a tuple. Before the fix, the desugarer used the variable of '[] itself, and stopped with an unbound runtime-representation variable.
