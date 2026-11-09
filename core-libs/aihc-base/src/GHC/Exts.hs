@@ -122,6 +122,14 @@ module GHC.Exts
     writeWord64Array#,
     writeWordArray#,
     xor#,
+    unpackCString#,
+    unpackAppendCString#,
+    unpackFoldrCString#,
+    unpackCStringUtf8#,
+    unpackAppendCStringUtf8#,
+    unpackFoldrCStringUtf8#,
+    unpackNBytes#,
+    cstringLength#,
   )
 where
 
@@ -130,6 +138,7 @@ import Data.List (groupBy, sortBy)
 import Data.Ord (Down (..), comparing)
 import Data.String (IsString (..))
 import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, oneShot, shiftL#, shiftRL#)
+import GHC.CString (cstringLength#, unpackAppendCString#, unpackAppendCStringUtf8#, unpackCString#, unpackCStringUtf8#, unpackFoldrCString#, unpackFoldrCStringUtf8#, unpackNBytes#)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
