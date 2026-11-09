@@ -35,7 +35,6 @@ module Prelude
     Int,
     Integral (..),
     Integer,
-    List (..),
     Maybe (..),
     Monad (..),
     MonadFail (..),

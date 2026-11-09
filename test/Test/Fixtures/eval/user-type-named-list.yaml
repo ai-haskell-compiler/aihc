@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module MyPrelude (module BasePrelude) where
+
+    import Prelude as BasePrelude
+  - |
+    module Wrapper (List, wrap, size) where
+
+    newtype List sep a = List [a]
+
+    wrap :: sep -> [a] -> List sep a
+    wrap _ = List
+
+    size :: List sep a -> Int
+    size (List xs) = length xs
+  - |
+    module Test where
+
+    import MyPrelude
+    import Prelude ()
+    import Wrapper
+
+    wrapped :: List () Int
+    wrapped = wrap () [1, 2, 3]
+
+    result :: Bool
+    result = size wrapped == 3
+expression: result
+output: |
+  True
+status: pass
+reason: The Prelude does not export List, so a module that re-exports the Prelude and an imported user type named List are not ambiguous.

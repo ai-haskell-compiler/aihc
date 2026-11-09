@@ -71,8 +71,10 @@ where
 import Data.Functor.Identity (Identity (..))
 import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Monoid qualified as Monoid
 import Data.Proxy (Proxy (..))
 import Data.Semigroup (Arg (..))
+import Data.Semigroup qualified as Semigroup
 import Data.Tuple (Solo (..))
 import Data.Void (Void)
 import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, Word#)
@@ -602,6 +604,114 @@ instance Generic (Arg a b) where
   from (Arg a b) = M1 (M1 (M1 (K1 a) :*: M1 (K1 b)))
   to r = case unM1 (unM1 r) of
     a :*: b -> Arg (unK1 (unM1 a)) (unK1 (unM1 b))
+
+instance Generic (Semigroup.Min a) where
+  type
+    Rep (Semigroup.Min a) =
+      D1
+        ('MetaData "Min" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "Min" 'PrefixI 'True :: Meta) (S1 (MetaField "getMin") (Rec0 a)))
+  from (Semigroup.Min x) = M1 (M1 (M1 (K1 x)))
+  to r = Semigroup.Min (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Semigroup.Max a) where
+  type
+    Rep (Semigroup.Max a) =
+      D1
+        ('MetaData "Max" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "Max" 'PrefixI 'True :: Meta) (S1 (MetaField "getMax") (Rec0 a)))
+  from (Semigroup.Max x) = M1 (M1 (M1 (K1 x)))
+  to r = Semigroup.Max (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Semigroup.First a) where
+  type
+    Rep (Semigroup.First a) =
+      D1
+        ('MetaData "First" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "First" 'PrefixI 'True :: Meta) (S1 (MetaField "getFirst") (Rec0 a)))
+  from (Semigroup.First x) = M1 (M1 (M1 (K1 x)))
+  to r = Semigroup.First (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Semigroup.Last a) where
+  type
+    Rep (Semigroup.Last a) =
+      D1
+        ('MetaData "Last" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "Last" 'PrefixI 'True :: Meta) (S1 (MetaField "getLast") (Rec0 a)))
+  from (Semigroup.Last x) = M1 (M1 (M1 (K1 x)))
+  to r = Semigroup.Last (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Semigroup.WrappedMonoid m) where
+  type
+    Rep (Semigroup.WrappedMonoid m) =
+      D1
+        ('MetaData "WrappedMonoid" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "WrapMonoid" 'PrefixI 'True :: Meta) (S1 (MetaField "unwrapMonoid") (Rec0 m)))
+  from (Semigroup.WrapMonoid x) = M1 (M1 (M1 (K1 x)))
+  to r = Semigroup.WrapMonoid (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Monoid.First a) where
+  type
+    Rep (Monoid.First a) =
+      D1
+        ('MetaData "First" "GHC.Internal.Data.Monoid" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "First" 'PrefixI 'True :: Meta) (S1 (MetaField "getFirst") (Rec0 (Maybe a))))
+  from (Monoid.First x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.First (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Monoid.Last a) where
+  type
+    Rep (Monoid.Last a) =
+      D1
+        ('MetaData "Last" "GHC.Internal.Data.Monoid" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Last" 'PrefixI 'True :: Meta) (S1 (MetaField "getLast") (Rec0 (Maybe a))))
+  from (Monoid.Last x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.Last (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Monoid.Dual a) where
+  type
+    Rep (Monoid.Dual a) =
+      D1
+        ('MetaData "Dual" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Dual" 'PrefixI 'True :: Meta) (S1 (MetaField "getDual") (Rec0 a)))
+  from (Monoid.Dual x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.Dual (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Monoid.Sum a) where
+  type
+    Rep (Monoid.Sum a) =
+      D1
+        ('MetaData "Sum" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Sum" 'PrefixI 'True :: Meta) (S1 (MetaField "getSum") (Rec0 a)))
+  from (Monoid.Sum x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.Sum (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Monoid.Product a) where
+  type
+    Rep (Monoid.Product a) =
+      D1
+        ('MetaData "Product" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Product" 'PrefixI 'True :: Meta) (S1 (MetaField "getProduct") (Rec0 a)))
+  from (Monoid.Product x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.Product (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic Monoid.All where
+  type
+    Rep Monoid.All =
+      D1
+        ('MetaData "All" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "All" 'PrefixI 'True :: Meta) (S1 (MetaField "getAll") (Rec0 Bool)))
+  from (Monoid.All x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.All (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic Monoid.Any where
+  type
+    Rep Monoid.Any =
+      D1
+        ('MetaData "Any" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Any" 'PrefixI 'True :: Meta) (S1 (MetaField "getAny") (Rec0 Bool)))
+  from (Monoid.Any x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.Any (unK1 (unM1 (unM1 (unM1 r))))
 
 -- * Generic instances for the representation types
 

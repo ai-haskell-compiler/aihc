@@ -1,0 +1,24 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import Control.Exception (ErrorCall (..), catch, evaluate)
+    import GHC.IO (IO (..))
+    import GHC.Prim (State#, RealWorld, realWorld#)
+
+    message :: IO String
+    message = evaluate (error "boom") `catch` handler
+      where
+        handler (ErrorCall str) = pure str
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+expression: |
+  case runIO message realWorld# of
+    (# _, result #) -> result == "boom"
+output: |
+  True
+status: pass
+reason: An import of ErrorCall (..) also imports the ErrorCall pattern, as in GHC 9.12.

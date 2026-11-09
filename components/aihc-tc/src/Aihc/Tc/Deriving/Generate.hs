@@ -1802,12 +1802,18 @@ surfaceType sp ty =
     TcTyCon tyCon arguments
       | tyConNamespace tyCon == ResolutionNamespaceType ->
           foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
+      -- A promoted data constructor, such as the @'File@ of
+      -- @SymbolicPathX 'OnlyRelative from 'File@.
+      | tyConNamespace tyCon == ResolutionNamespaceTerm ->
+          foldl TApp (TCon (tyConNameSyntax sp tyCon) Promoted) <$> mapM (surfaceType sp) arguments
     -- A poly-kinded constructor that a use site applied to its kinds, such
     -- as the @Const@ of @b (Const a)@. Source syntax does not spell the
     -- kinds, and the check of the generated declaration infers them again.
     TcKindedTyCon tyCon _
       | tyConNamespace tyCon == ResolutionNamespaceType ->
           Just (TCon (tyConNameSyntax sp tyCon) Unpromoted)
+      | tyConNamespace tyCon == ResolutionNamespaceTerm ->
+          Just (TCon (tyConNameSyntax sp tyCon) Promoted)
     _ -> Nothing
 
 surfacePred :: Maybe SourceSpan -> Pred -> Maybe Type
