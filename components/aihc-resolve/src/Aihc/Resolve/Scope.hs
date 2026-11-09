@@ -970,11 +970,22 @@ filterImportSpec maybeSpec scope =
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
       let allowedTypes = Set.fromList (allowedTypeNames scope importSpecItems)
           allowedTerms = Set.fromList (allowedTermNames scope importSpecItems)
+          allowedConstructors = Map.restrictKeys (scopeConstructors scope) allowedTypes
+          -- An item such as @T(f)@ imports the field @f@ but not the
+          -- constructor of @T@. The field stays a field of the constructor,
+          -- so that a separate export item @f@ keeps it a member of @T@.
+          importedFields =
+            Map.filter
+              (not . null)
+              ( Map.map
+                  (filter (`Set.member` allowedTerms))
+                  (Map.restrictKeys (scopeRecordFields scope) (Set.fromList (concat (Map.elems allowedConstructors))))
+              )
        in Scope
             { scopeTerms = Map.restrictKeys (scopeTerms scope) allowedTerms,
               scopeTypes = Map.restrictKeys (scopeTypes scope) allowedTypes,
-              scopeConstructors = Map.restrictKeys (scopeConstructors scope) allowedTypes,
-              scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) allowedTerms,
+              scopeConstructors = allowedConstructors,
+              scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) allowedTerms `Map.union` importedFields,
               scopeMethods = Map.restrictKeys (scopeMethods scope) allowedTypes,
               scopeAssociatedTypes =
                 Map.map (filter (`Set.member` allowedTypes)) (Map.restrictKeys (scopeAssociatedTypes scope) allowedTypes),
