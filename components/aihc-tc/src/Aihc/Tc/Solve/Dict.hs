@@ -41,7 +41,7 @@ import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, guard, when, (<=<), (>=>))
+import Control.Monad (foldM, foldM_, guard, when, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, put)
@@ -447,7 +447,8 @@ solveNormalizedDict visited givens ct
               (\tyVar -> (,) (tvUnique tyVar) <$> freshMetaTvOfKind (applySubst headSubst (tvKind tyVar)))
               (filter (\tyVar -> not (Map.member (tvUnique tyVar) headSubst)) (iiTyVars instanceInfo))
           let subst = headSubst <> Map.fromList unboundMetas
-              context = map (applySubstPred subst) (iiContext instanceInfo)
+          settleHeadKinds subst [unique | (_, TcMetaTv unique) <- unboundMetas] (iiHead instanceInfo)
+          let context = map (applySubstPred subst) (iiContext instanceInfo)
               typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
           (contextEvidence, failed) <- withErrorTracking (withRecursiveDictionary (ctPred ct) (improveContext context >> solveContext visited' context))
           case contextEvidence of
@@ -463,6 +464,37 @@ solveNormalizedDict visited givens ct
               -- A failed candidate must not change another candidate's types or evidence.
               lift (put saved)
               tryInstances visited' className args rest
+
+    -- A kind variable of an instance can occur only in the kind arguments
+    -- of its head: @k2@ in @instance C ((:~~:) \@k1 \@k2 a)@. A partial
+    -- application such as @(:~~:) Int@ in the wanted does not keep that
+    -- kind argument, so the head match leaves @k2@ open. The wanted
+    -- argument as it was written can still be a meta variable whose kind
+    -- tells the kind, so match the kind of the head against it. Only the
+    -- open variables of the instance get a binding here.
+    --
+    -- The solver can zonk the wanted before it gets here, so use the
+    -- predicate as it was made. A constraint that the solver made from
+    -- another one keeps the written predicate of the other one, so use
+    -- it only when it zonks to the wanted.
+    settleHeadKinds subst openMetas heads
+      | null openMetas = pure ()
+      | otherwise = do
+          written <- zonkPred (ctWrittenPred ct)
+          current <- zonkPred (ctPred ct)
+          case ctWrittenPred ct of
+            ClassPred _ writtenArgs
+              | written == current,
+                length writtenArgs == length heads ->
+                  zipWithM_ settleHeadKind heads writtenArgs
+            _ -> pure ()
+      where
+        settleHeadKind headType writtenArg = do
+          headKind <- tcTypeKind (applySubst subst headType) >>= zonkKind
+          writtenKind <- tcTypeKind writtenArg >>= zonkKind
+          case matchKinds headKind writtenKind of
+            Just (_, metas) -> mapM_ (uncurry bindKindMeta) [binding | binding@(unique, _) <- metas, unique `elem` openMetas]
+            Nothing -> pure ()
 
     -- Let the constraints of an instance context improve each other before
     -- any of them is solved. One constraint can fix a meta variable that

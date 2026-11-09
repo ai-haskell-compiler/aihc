@@ -1193,12 +1193,25 @@ splitKindEquality left right = [(left, right)]
 -- with no evidence to hand -- the FC converter -- cannot apply @f@ to
 -- anything. Applying the refinement before the type is recorded keeps
 -- those passes working from a type whose kinds already agree.
-refineGivenTyVarKinds :: TcType -> TcM TcType
-refineGivenTyVarKinds ty = do
+--
+-- The type is the solution of a meta variable of the given kind. Only a
+-- solution whose kind does not fit that kind needs the refinement. A
+-- solution that fits keeps the kinds of its variables. Otherwise a
+-- variable occurrence gets a kind that its binder does not have: under
+-- the given @k1 ~ k0@, the pattern signature variable @c@ in @(HRefl ::
+-- a :~~: c)@ stands for a variable of kind @k1@, and must not change it
+-- to @k0@.
+refineGivenTyVarKinds :: TcType -> TcType -> TcM TcType
+refineGivenTyVarKinds declaredKind ty = do
   predicates <- getGivenPredicates
   if null [() | EqPred _ _ <- predicates]
     then pure ty
-    else go ty
+    else do
+      declared <- zonkKind declaredKind
+      actual <- tcTypeKind ty >>= zonkKind
+      if kindFits declared actual
+        then pure ty
+        else go ty
   where
     go t =
       case t of
@@ -1209,6 +1222,24 @@ refineGivenTyVarKinds ty = do
         TcFunTy argument result -> TcFunTy <$> go argument <*> go result
         TcAppTy function argument -> TcAppTy <$> go function <*> go argument
         _ -> pure t
+
+-- | Whether one kind can take the place of another without equality
+-- evidence: the two have the same form, and a meta variable on either
+-- side can take the part of the other side that is in its place.
+kindFits :: TcType -> TcType -> Bool
+kindFits expected actual =
+  case (expected, actual) of
+    (TcMetaTv {}, _) -> True
+    (_, TcMetaTv {}) -> True
+    (TcTyCon expectedTyCon expectedArguments, TcTyCon actualTyCon actualArguments) ->
+      expectedTyCon == actualTyCon
+        && length expectedArguments == length actualArguments
+        && and (zipWith kindFits expectedArguments actualArguments)
+    (TcFunTy expectedArgument expectedResult, TcFunTy actualArgument actualResult) ->
+      kindFits expectedArgument actualArgument && kindFits expectedResult actualResult
+    (TcAppTy expectedFunction expectedArgument, TcAppTy actualFunction actualArgument) ->
+      kindFits expectedFunction actualFunction && kindFits expectedArgument actualArgument
+    _ -> expected == actual
 
 -- | Whether a kind is a runtime representation with no variables left in
 -- it, so that a representation-polymorphic variable may take it.
