@@ -31,6 +31,7 @@ import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNames
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), RecordHead (..), TyConFlavor (..), dataConRecordHead, patSynRecordHead)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Control.Monad (zipWithM)
 import Data.List (nub)
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
@@ -69,8 +70,8 @@ lookupRecordHead conSyntax = do
 
 -- | Put the record fields of one occurrence in declaration order. A field
 -- that the occurrence does not name gets the default value, which is told
--- the label it stands for.
-orderRecordFields :: Maybe SourceSpan -> RecordHead -> [RecordField a] -> (Maybe Text -> TcM a) -> TcM [a]
+-- the label it stands for and whether the field is strict.
+orderRecordFields :: Maybe SourceSpan -> RecordHead -> [RecordField a] -> (Maybe Text -> Bool -> TcM a) -> TcM [a]
 orderRecordFields sp head' fields defaultValue = do
   let declared = rhFields head'
       labels = catMaybes declared
@@ -84,12 +85,12 @@ orderRecordFields sp head' fields defaultValue = do
     label : _ ->
       abortTc ("record field " <> show label <> " occurs more than once at " <> show sp)
     [] -> pure ()
-  mapM pick declared
+  zipWithM pick declared (rhStrictFields head' <> repeat False)
   where
-    pick label =
+    pick label strict =
       case [recordFieldValue occurrence | occurrence <- fields, Just (recordFieldLabel occurrence) == label] of
         value : _ -> pure value
-        [] -> defaultValue label
+        [] -> defaultValue label strict
 
 duplicateLabels :: [Text] -> [Text]
 duplicateLabels labels = nub [label | (index, label) <- zip [0 :: Int ..] labels, label `elem` take index labels]

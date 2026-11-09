@@ -665,8 +665,15 @@ inferRecordCon sp name fields wildcard = do
   args <- orderRecordFields sp head' fields missingField
   inferExprAt sp (foldl EApp (EVar name) args)
   where
-    missingField label =
-      abortTc ("record construction of " <> T.unpack (nameText name) <> " does not give the field " <> show (fromMaybe "<positional>" label) <> " at " <> show sp)
+    -- GHC rejects a construction that leaves out a strict field. A lazy
+    -- field that the construction leaves out is bottom. An empty case
+    -- expression is bottom of each type, and the FC modules give it a
+    -- runtime failure.
+    missingField label strict
+      | strict =
+          abortTc ("record construction of " <> T.unpack (nameText name) <> " does not give the strict field " <> show (fromMaybe "<positional>" label) <> " at " <> show sp)
+      | otherwise =
+          pure (ECase (EChar 'x' "'x'") [])
 
 -- | A record update is a case expression. Each alternative matches one
 -- head that has every updated field and rebuilds it with the new field

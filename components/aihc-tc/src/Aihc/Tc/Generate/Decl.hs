@@ -3562,7 +3562,8 @@ registerDeclaredRecordPatSyn decl =
                 RecordHead
                   { rhName = globalNameText global,
                     rhOrigin = (globalNamePackage global, globalNameModule global),
-                    rhFields = map Just fields
+                    rhFields = map Just fields,
+                    rhStrictFields = map (const False) fields
                   }
             _ -> pure ()
     _ -> pure ()
