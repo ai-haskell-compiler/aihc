@@ -1,0 +1,30 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, ScopedTypeVariables, TypeApplications, GADTs #-}
+  module Main where
+  data HEq (a :: k1) (b :: k2) where
+       └─ type: k1 → k2 → Type
+    HRefl :: HEq a a
+    └─ type: ∀ k1 a k2 b. (k2 ~ k1, b ~ a) ⇒ HEq a b
+  newtype Key (a :: k) = MkKey ()
+          │              └─ type: ∀ k a. () → Key a
+          └─ type: k → Type
+  same :: forall a b. Key a -> Key b -> HEq a a
+  same _ _ = HRefl @a
+  │    │ │   └─ type: HEq a a; type-args: k0, a, k0, a; evidence: refl k0, refl a
+  │    │ └─ type: Key b
+  │    └─ type: Key a
+  └─ type: ∀ k0 k1 a b. Key a → Key b → HEq a a
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, ScopedTypeVariables, TypeApplications, GADTs #-}
+  module Main where
+  data HEq (a :: k1) (b :: k2) where
+    HRefl :: HEq a a
+  newtype Key (a :: k) = MkKey ()
+  same :: forall a b. Key a -> Key b -> HEq a a
+  same _ _ = HRefl @a
+reason: a data-head kind variable that a GADT constructor signature does not name
+  is inferred, so a visible type application skips it
+status: pass

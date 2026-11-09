@@ -28,11 +28,11 @@ infix 4 :~:, :~~:, ==
 
 -- | Propositional equality. A value of type a :~: b proves that a and b are the same type.
 data (a :: k) :~: (b :: k) where
-  Refl :: forall k (a :: k). a :~: a
+  Refl :: a :~: a
 
 -- | Kind-heterogeneous propositional equality.
 data (a :: k1) :~~: (b :: k2) where
-  HRefl :: forall k (a :: k). a :~~: a
+  HRefl :: a :~~: a
 
 -- | Propositional equality is symmetric.
 sym :: (a :~: b) -> (b :~: a)

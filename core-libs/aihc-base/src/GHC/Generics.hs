@@ -603,6 +603,65 @@ instance Generic (Arg a b) where
   to r = case unM1 (unM1 r) of
     a :*: b -> Arg (unK1 (unM1 a)) (unK1 (unM1 b))
 
+-- * Generic instances for the representation types
+
+--
+-- GHC derives these instances, so a generic function can also work on a
+-- representation (for example on @Rec1 h e@).
+
+type MetaGenerics (n :: Symbol) (newtype_ :: Bool) = ('MetaData n "GHC.Internal.Generics" "ghc-internal" newtype_ :: Meta)
+
+type MetaField (n :: Symbol) = ('MetaSel ('Just n) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy :: Meta)
+
+instance Generic (V1 p) where
+  type Rep (V1 p) = D1 (MetaGenerics "V1" 'False) V1
+  from x = case x of {}
+  to r = case unM1 r of {}
+
+instance Generic (U1 p) where
+  type Rep (U1 p) = D1 (MetaGenerics "U1" 'False) (C1 (MetaC "U1") U1)
+  from U1 = M1 (M1 U1)
+  to _ = U1
+
+instance Generic (Par1 p) where
+  type Rep (Par1 p) = D1 (MetaGenerics "Par1" 'True) (C1 ('MetaCons "Par1" 'PrefixI 'True :: Meta) (S1 (MetaField "unPar1") (Rec0 p)))
+  from (Par1 a) = M1 (M1 (M1 (K1 a)))
+  to r = Par1 (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Rec1 f p) where
+  type Rep (Rec1 f p) = D1 (MetaGenerics "Rec1" 'True) (C1 ('MetaCons "Rec1" 'PrefixI 'True :: Meta) (S1 (MetaField "unRec1") (Rec0 (f p))))
+  from (Rec1 a) = M1 (M1 (M1 (K1 a)))
+  to r = Rec1 (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (K1 i c p) where
+  type Rep (K1 i c p) = D1 (MetaGenerics "K1" 'True) (C1 ('MetaCons "K1" 'PrefixI 'True :: Meta) (S1 (MetaField "unK1") (Rec0 c)))
+  from (K1 a) = M1 (M1 (M1 (K1 a)))
+  to r = K1 (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (M1 i c f p) where
+  type Rep (M1 i c f p) = D1 (MetaGenerics "M1" 'True) (C1 ('MetaCons "M1" 'PrefixI 'True :: Meta) (S1 (MetaField "unM1") (Rec0 (f p))))
+  from (M1 a) = M1 (M1 (M1 (K1 a)))
+  to r = M1 (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic ((f :+: g) p) where
+  type Rep ((f :+: g) p) = D1 (MetaGenerics ":+:" 'False) (C1 (MetaC "L1") (S1 MetaS (Rec0 (f p))) :+: C1 (MetaC "R1") (S1 MetaS (Rec0 (g p))))
+  from (L1 a) = M1 (L1 (M1 (M1 (K1 a))))
+  from (R1 b) = M1 (R1 (M1 (M1 (K1 b))))
+  to r = case unM1 r of
+    L1 left -> L1 (unK1 (unM1 (unM1 left)))
+    R1 right -> R1 (unK1 (unM1 (unM1 right)))
+
+instance Generic ((f :*: g) p) where
+  type Rep ((f :*: g) p) = D1 (MetaGenerics ":*:" 'False) (C1 ('MetaCons ":*:" ('InfixI 'RightAssociative 6) 'False :: Meta) (S1 MetaS (Rec0 (f p)) :*: S1 MetaS (Rec0 (g p))))
+  from (a :*: b) = M1 (M1 (M1 (K1 a) :*: M1 (K1 b)))
+  to r = case unM1 (unM1 r) of
+    a :*: b -> unK1 (unM1 a) :*: unK1 (unM1 b)
+
+instance Generic ((f :.: g) p) where
+  type Rep ((f :.: g) p) = D1 (MetaGenerics ":.:" 'True) (C1 ('MetaCons "Comp1" 'PrefixI 'True :: Meta) (S1 (MetaField "unComp1") (Rec0 (f (g p)))))
+  from (Comp1 a) = M1 (M1 (M1 (K1 a)))
+  to r = Comp1 (unK1 (unM1 (unM1 (unM1 r))))
+
 -- * Functor instances
 
 instance Functor V1 where

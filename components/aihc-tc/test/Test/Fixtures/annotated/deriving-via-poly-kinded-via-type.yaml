@@ -1,0 +1,35 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, DerivingVia, DataKinds, KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  data Effects = Union Effects Effects
+       │         └─ type: Effects → Effects → Effects
+       └─ type: Type
+  class Handle (h :: Effects -> Type)
+  └─ class methods:
+  newtype Wrap a es = MkWrap (a es)
+          │           └─ type: ∀ k0 a es. a es → Wrap a es
+          └─ type: (k0 → Type) → k0 → Type
+  instance Handle (Wrap h)
+  └─ $fHandleWraph ∷ ∀ h. () ⇒ Handle (Wrap h)
+  newtype Modify s (e :: Effects) = UnsafeMkState s
+  │       │                         └─ type: ∀ s e. s → Modify s e
+  │       └─ type: Type → Effects → Type
+  └─ deriving plans: via Wrap (Modify s) Handle (Modify s) [context: ()]
+    deriving (Handle) via Wrap (Modify s)
+              └─ $fHandleModifys ∷ ∀ s. () ⇒ Handle (Modify s)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, DerivingVia, DataKinds, KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  data Effects = Union Effects Effects
+  class Handle (h :: Effects -> Type)
+  newtype Wrap a es = MkWrap (a es)
+  instance Handle (Wrap h)
+  newtype Modify s (e :: Effects) = UnsafeMkState s
+    deriving (Handle) via Wrap (Modify s)
+reason: an attached deriving clause settles the kind metas of a poly-kinded via type
+status: pass

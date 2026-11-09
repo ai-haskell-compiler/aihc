@@ -175,7 +175,11 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                 argumentParams <- mapM defaultArgumentParam extraParams
                 targetKind <- defaultKindMetas (tvKind targetClassVar)
                 targetType <- attachedTargetType classSpan targetInfo params targetKind
-                checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
+                -- A poly-kinded via type, as @Wrap (Modify s)@ for
+                -- @newtype Wrap (a :: k -> Type) (es :: k)@, leaves kind
+                -- metas that the target kind has fixed. Settle them, as a
+                -- standalone declaration does.
+                checkedStrategy <- defaultDerivingStrategyKinds =<< checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
                 fallback <- defaultStockFallback className (ciOrigin classInfo) strategy checkedStrategy
                 kinds <- getKinds
                 methods <- derivingClassMethods classInfo

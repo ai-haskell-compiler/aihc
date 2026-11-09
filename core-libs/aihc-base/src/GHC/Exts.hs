@@ -129,7 +129,7 @@ import Data.Coerce (coerce)
 import Data.List (groupBy, sortBy)
 import Data.Ord (Down (..), comparing)
 import Data.String (IsString (..))
-import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
+import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, oneShot, shiftL#, shiftRL#)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
@@ -173,13 +173,6 @@ groupWith key values = groupBy (\left right -> key left == key right) (sortWith 
 -- | The value is returned unchanged. Inlining hints do not apply.
 inline :: a -> a
 inline value = value
-
--- | The function is returned unchanged. Arity hints do not apply.
---
--- The argument and the result may have any runtime representation: a
--- worker that takes an @Int#@ index is the common caller.
-oneShot :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). (a -> b) -> a -> b
-oneShot function = function
 
 -- | Replace the contents of a mutable variable with the first component of
 -- what the function gives, and return the second. GHC compiles this to an
