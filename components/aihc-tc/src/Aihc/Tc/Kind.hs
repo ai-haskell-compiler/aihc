@@ -918,6 +918,8 @@ kindedTyConUse info = do
   pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
 
 -- | Give a partial type constructor application the kind arguments of its use.
+-- A bare promoted data constructor without visible parameters, as @'[]@,
+-- also gets them. No argument gives its kind arguments later.
 kindedTyConAt :: TcType -> TcType -> TcM TcType
 kindedTyConAt useKind ty =
   case ty of
@@ -926,7 +928,7 @@ kindedTyConAt useKind ty =
       case maybeInfo of
         Just info
           | ForAll (_ : _) _ _ <- tciKindScheme info,
-            length arguments < tciArity info -> do
+            length arguments < tciArity info || (null arguments && tyConNamespace tyCon == ResolutionNamespaceTerm) -> do
               (kinded, kind) <- kindedTyConUse info
               let applied = foldl mkAppTy kinded arguments
               resultKind <- if null arguments then pure kind else tcTypeKind applied

@@ -1,0 +1,47 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, KindSignatures #-}
+    module Test where
+    import GHC.Types (Type)
+    data HList :: [Type] -> Type where
+      HNil :: HList '[]
+    data Some where
+      Some :: HList as -> Some
+    made :: Some
+    made = Some HNil
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tHList ($parameter : t[] sType) :: sType {
+    pub 1.cHNil :: ∀($parameter : t[] sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep ($parameter ~ c[] sType) (tHList $parameter)
+  }
+
+  pub type 1.tSome :: sType {
+    pub 1.cSome :: ∀(as{0} : t[] sType). tHList as{0} → tSome
+  }
+
+  pub val 1.vmade :: tSome
+    = cSome @(c[] sType) (cHNil @(c[] sType) (coercion (refl (c[] sType))))
+status: pass
+reason: The constructor HNil needs the evidence that its index is the empty list. The evidence keeps the kind of the empty list as a kind argument. Before the fix, the empty list in the evidence lost its kind, and the desugarer could not infer the kind argument.
