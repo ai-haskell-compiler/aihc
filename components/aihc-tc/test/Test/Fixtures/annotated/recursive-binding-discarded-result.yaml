@@ -1,0 +1,24 @@
+annotated:
+- |-
+  module Test where
+  k :: a -> b -> b
+  k _ y = y
+  │ │ └─ type: b
+  │ └─ type: a
+  └─ type: ∀ a b. a → b → b
+  f n = if n then "" else k (f n) "x"
+  │ │      │      │       │  │    └─ type: [GHC.Types.Char]
+  │ │      │      │       │  └─ type: GHC.Types.Bool → [GHC.Types.Char]
+  │ │      │      │       └─ type: [GHC.Types.Char] → [GHC.Types.Char] → [GHC.Types.Char]; type-args: [Char], [Char]
+  │ │      │      └─ type: [GHC.Types.Char]
+  │ │      └─ type: [GHC.Types.Char]
+  │ └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → [GHC.Types.Char]
+extensions: []
+modules:
+- |
+  module Test where
+  k :: a -> b -> b
+  k _ y = y
+  f n = if n then "" else k (f n) "x"
+status: pass
