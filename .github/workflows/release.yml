@@ -215,10 +215,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          {
+            echo "Binaries of aihc $VERSION, compiled with aihc at -O$OPTIMIZATION."
+            echo "The core libraries are embedded in each binary."
+            echo
+            echo "| Archive | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r sum name; do
+              echo "| $name | $sum |"
+            done <archives/SHA256SUMS
+          } >notes.md
           gh release create "v$VERSION" \
             --draft \
             --verify-tag \
             --title "aihc $VERSION" \
-            --generate-notes \
+            --notes-file notes.md \
             archives/aihc-*.tar.gz archives/SHA256SUMS
           echo "Draft release v$VERSION is ready for review." >>"$GITHUB_STEP_SUMMARY"
