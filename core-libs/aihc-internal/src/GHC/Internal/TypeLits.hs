@@ -12,6 +12,7 @@ module GHC.Internal.TypeLits
     natSing,
     natVal,
     natVal',
+    sameNat,
     SNat,
     fromSNat,
     withSomeSNat,
@@ -20,6 +21,7 @@ module GHC.Internal.TypeLits
     symbolSing,
     symbolVal,
     symbolVal',
+    sameSymbol,
     SSymbol,
     fromSSymbol,
     withSomeSSymbol,
@@ -28,6 +30,7 @@ module GHC.Internal.TypeLits
     charSing,
     charVal,
     charVal',
+    sameChar,
     SChar,
     fromSChar,
     withKnownChar,
@@ -49,4 +52,4 @@ module GHC.Internal.TypeLits
   )
 where
 
-import GHC.TypeLits (AppendSymbol, CharToNat, CmpNat, Div, ErrorMessage (..), KnownChar, KnownNat, KnownSymbol, Log2, Mod, Nat, NatToChar, SChar, SNat, SSymbol, Symbol, TypeError, charSing, charVal, charVal', fromSChar, fromSNat, fromSSymbol, natSing, natVal, natVal', symbolSing, symbolVal, symbolVal', withKnownChar, withKnownNat, withKnownSymbol, withSomeSNat, withSomeSSymbol, type (*), type (+), type (-), type (<=), type (<=?), type (^))
+import GHC.TypeLits (AppendSymbol, CharToNat, CmpNat, Div, ErrorMessage (..), KnownChar, KnownNat, KnownSymbol, Log2, Mod, Nat, NatToChar, SChar, SNat, SSymbol, Symbol, TypeError, charSing, charVal, charVal', fromSChar, fromSNat, fromSSymbol, natSing, natVal, natVal', sameChar, sameNat, sameSymbol, symbolSing, symbolVal, symbolVal', withKnownChar, withKnownNat, withKnownSymbol, withSomeSNat, withSomeSSymbol, type (*), type (+), type (-), type (<=), type (<=?), type (^))
