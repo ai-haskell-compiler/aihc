@@ -885,7 +885,7 @@ constructorFieldType ty =
 
 convertTypeFamilyEquation :: ConvertEnv -> TypeFamilyInstanceInfo -> Either String Decl
 convertTypeFamilyEquation env info = do
-  let bindersEnv = withTyVars (tfiiTyVars info) env
+  let bindersEnv = withUnresolvedKindVars [tfiiLeft info, tfiiRight info] (withTyVars (tfiiTyVars info) env)
       TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
   left <- convertType bindersEnv (tfiiLeft info)
@@ -894,12 +894,14 @@ convertTypeFamilyEquation env info = do
   -- @type Rep (Forget r) = Const r@ at the kind @Type -> Type@.
   let rightKind = either (const Nothing) Just (typeKindInEnv bindersEnv (tfiiLeft info))
   right <- convertNestedTypeWithExpectedKind bindersEnv rightKind (tfiiRight info)
+  -- The equation also binds the kind variables that no argument determines.
+  unresolved <- unresolvedKindVarBinders bindersEnv binders (left : right : map binderType binders)
   pure
     ( DeclAxiom
         AxiomDecl
           { axiomVis = Private,
             axiomName = Name axiomName SortAxiom (OriginTop package moduleName'),
-            axiomBinders = binders,
+            axiomBinders = unresolved <> binders,
             axiomRole = Nominal,
             axiomLeft = left,
             axiomRight = right

@@ -677,27 +677,22 @@ typeKindInEnv kinds kindEnv = go
 
     applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) body
 
+    -- An argument can leave a kind variable of its own constructor
+    -- undetermined, as the @a@ of @'Right x :: Either a k@. A later
+    -- argument can then determine it, so the variables of each argument
+    -- stay open for the arguments after it.
     applyMany _ kind [] = Right kind
     applyMany quantified kind (argument : rest) = do
       kind' <- applyKindWith quantified kind argument
-      applyMany quantified kind' rest
+      applyMany (quantified <> argumentKindVariables kindEnv argument) kind' rest
 
     applyKind = applyKindWith []
 
     applyKindWith quantified (TcFunTy formal result) argument = do
       actual <- go argument
-      substitution <- matchKinds quantified (argumentKindVariables argument) formal actual
+      substitution <- matchKinds quantified (argumentKindVariables kindEnv argument) formal actual
       Right (applySubst substitution result)
     applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
-
-    argumentKindVariables argument =
-      case argument of
-        TcTyCon tyCon _ ->
-          case Map.lookup (tyConKey tyCon) kindEnv of
-            Just (ForAll variables _ _) -> map tvUnique variables
-            Nothing -> []
-        TcAppTy function _ -> argumentKindVariables function
-        _ -> []
 
     matchKinds quantified argumentQuantified formal actual =
       case (formal, actual) of
@@ -717,6 +712,19 @@ typeKindInEnv kinds kindEnv = go
           | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
       where
         recur = matchKinds quantified argumentQuantified
+
+-- | The quantified kind variables of the constructor at the head of a
+-- type. When the arguments of the type do not determine one of them, the
+-- kind of the type contains the variable itself.
+argumentKindVariables :: TcKindEnv -> TcType -> [Unique]
+argumentKindVariables kindEnv argument =
+  case argument of
+    TcTyCon tyCon _ ->
+      case Map.lookup (tyConKey tyCon) kindEnv of
+        Just (ForAll variables _ _) -> map tvUnique variables
+        Nothing -> []
+    TcAppTy function _ -> argumentKindVariables kindEnv function
+    _ -> []
 
 runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
 runtimeRepOfTypeInEnv kinds kindEnv ty = typeKindInEnv kinds kindEnv ty >>= runtimeRepFromKind
@@ -1119,7 +1127,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
   scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
   let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
-      (argumentSubstitution, remainingKind, skipped, leftover) = go quantifiedUniques 0 Map.empty resultKind arguments
+      (argumentSubstitution, remainingKind, skipped, leftover) = go quantifiedUniques [] 0 Map.empty resultKind arguments
       -- A kind variable in the place of an arrow, as in @Any :: forall k.
       -- k@, stands for the arrow from the kinds of the arguments that are
       -- left over to the kind of the whole application.
@@ -1132,15 +1140,19 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
   where
     argumentKinds (KFun argument result) = argument : argumentKinds result
     argumentKinds _ = []
-    go quantifiedUniques position substitution (KFun formal result) (argument : rest) =
+    -- An earlier argument can leave a kind variable of its own constructor
+    -- undetermined (see 'argumentKindVariables'). A later argument can
+    -- determine it, and the substitution then uses what it determines.
+    go quantifiedUniques open position substitution (KFun formal result) (argument : rest) =
       case typeKindInEnv kinds kindEnv argument of
         Right argumentKind ->
-          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
-           in go quantifiedUniques (position + 1) (substitution <> found) (applySubst found result) rest
+          let found = matchKind (quantifiedUniques <> open) (applySubst substitution formal) argumentKind
+              substitution' = Map.map (applySubst found) substitution <> found
+           in go quantifiedUniques (open <> argumentKindVariables kindEnv argument) (position + 1) substitution' (applySubst found result) rest
         Left reason ->
-          let (substitution', kind, skipped, leftover) = go quantifiedUniques (position + 1) substitution result rest
+          let (substitution', kind, skipped, leftover) = go quantifiedUniques open (position + 1) substitution result rest
            in (substitution', kind, skippedArgument position reason : skipped, leftover)
-    go _ _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover)
+    go _ _ _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover)
 
     -- The caller prints the arguments themselves, so name the one that
     -- failed by position rather than repeating it.
