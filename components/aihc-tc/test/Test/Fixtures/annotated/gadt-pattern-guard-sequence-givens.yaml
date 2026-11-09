@@ -1,0 +1,73 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  data a :~: b where
+         └─ type: Type → Type → Type
+    Refl :: a :~: a
+    └─ type: ∀ a b. (b ~ a) ⇒ :~: a b
+  data T a where
+       └─ type: Type → Type
+    TB :: T Bool
+    └─ type: ∀ a. (a ~ Bool) ⇒ T a
+  same :: T a -> T b -> Maybe (a :~: b)
+  same TB TB = Just Refl
+  │    │  │    │    └─ type: :~: Bool Bool; type-args: Bool, Bool; evidence: refl Bool
+  │    │  │    └─ type: :~: Bool Bool → Maybe (:~: Bool Bool); type-args: :~: Bool Bool
+  │    │  └─ type: T b; type-args: b; evidence: given b ~ Bool
+  │    └─ type: T a; type-args: a; evidence: given a ~ Bool
+  └─ type: ∀ a b. T a → T b → Maybe (:~: a b)
+  two :: T a -> T b -> T c -> T d -> Maybe ((a, c) :~: (b, d))
+  two x y z w
+  │   │ │ │ └─ type: T d
+  │   │ │ └─ type: T c
+  │   │ └─ type: T b
+  │   └─ type: T a
+  └─ type: ∀ a b c d. T a → T b → T c → T d → Maybe (:~: (a, c) (b, d))
+    | Just Refl <- same x y
+      │    │       └─ type: T a → T b → Maybe (:~: a b); type-args: a, b
+      │    └─ type: :~: a b; type-args: a, b; evidence: given b ~ a
+      └─ type: Maybe (:~: a b)
+    , Just Refl <- same z w
+      │    │       └─ type: T c → T d → Maybe (:~: c d); type-args: c, d
+      │    └─ type: :~: c d; type-args: c, d; evidence: given d ~ c
+      └─ type: Maybe (:~: c d)
+    = Just Refl
+      │    └─ type: :~: (a, c) (a, c); type-args: (a, c), (a, c); evidence: refl (a, c)
+      └─ type: :~: (a, c) (a, c) → Maybe (:~: (a, c) (a, c)); type-args: :~: (a, c) (a, c)
+  two _ _ _ _ = Nothing
+  │   │ │ │ │   └─ type: Maybe (:~: (a, c) (b, d)); type-args: :~: (a, c) (b, d)
+  │   │ │ │ └─ type: T d
+  │   │ │ └─ type: T c
+  │   │ └─ type: T b
+  │   └─ type: T a
+  └─ type: ∀ a b c d. T a → T b → T c → T d → Maybe (:~: (a, c) (b, d))
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Bool = True | False
+  data Maybe a = Nothing | Just a
+  data a :~: b where
+    Refl :: a :~: a
+  data T a where
+    TB :: T Bool
+  same :: T a -> T b -> Maybe (a :~: b)
+  same TB TB = Just Refl
+  two :: T a -> T b -> T c -> T d -> Maybe ((a, c) :~: (b, d))
+  two x y z w
+    | Just Refl <- same x y
+    , Just Refl <- same z w
+    = Just Refl
+  two _ _ _ _ = Nothing
+status: pass
+reason: a body after two pattern guards uses the GADT givens of both guards

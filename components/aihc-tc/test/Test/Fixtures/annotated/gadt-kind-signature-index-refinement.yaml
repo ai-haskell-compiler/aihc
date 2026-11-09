@@ -1,0 +1,42 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, KindSignatures #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  data a :~: b where
+         └─ type: Type → Type → Type
+    Refl :: a :~: a
+    └─ type: ∀ a b. (b ~ a) ⇒ :~: a b
+  data T :: * -> * where
+       └─ type: Type → Type
+    TB :: T Bool
+    └─ type: ∀ $parameter. ($parameter ~ Bool) ⇒ T $parameter
+  eqT :: T a -> T b -> Maybe (a :~: b)
+  eqT TB TB = Just Refl
+  │   │  │    │    └─ type: :~: Bool Bool; type-args: Bool, Bool; evidence: refl Bool
+  │   │  │    └─ type: :~: Bool Bool → Maybe (:~: Bool Bool); type-args: :~: Bool Bool
+  │   │  └─ type: T b; type-args: b; evidence: given b ~ Bool
+  │   └─ type: T a; type-args: a; evidence: given a ~ Bool
+  └─ type: ∀ a b. T a → T b → Maybe (:~: a b)
+extensions: [StarIsType]
+modules:
+- |
+  {-# LANGUAGE GADTs, KindSignatures #-}
+  module Test where
+  data Bool = True | False
+  data Maybe a = Nothing | Just a
+  data a :~: b where
+    Refl :: a :~: a
+  data T :: * -> * where
+    TB :: T Bool
+  eqT :: T a -> T b -> Maybe (a :~: b)
+  eqT TB TB = Just Refl
+status: pass
+reason: a GADT match refines an index that only the kind signature of the data head gives
