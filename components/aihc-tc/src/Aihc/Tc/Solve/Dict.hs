@@ -35,7 +35,7 @@ import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies)
-import Aihc.Tc.Solve.FunDep (improveFunDeps)
+import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassClosure)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
@@ -119,10 +119,14 @@ solveNormalizedDict visited givens ct
                     Just classInfo
                       | null (ciMethods classInfo),
                         null (ciSuperClassTypes classInfo) -> do
-                          direct <- solveCoercible className givens' (nestedCoercible className givens') left right
+                          -- A Coercible superclass of a given is a given
+                          -- too: @class Coercible a (Old a) => Newtype a@
+                          -- gives @Coercible (Old a) a@ by symmetry.
+                          closure <- superClassClosure givens'
+                          direct <- solveCoercible className closure (nestedCoercible className givens') left right
                           if direct
                             then pure True
-                            else solveCoercibleFromGivens className givens' left right
+                            else solveCoercibleFromGivens className closure left right
                     _ -> pure False
                   if solved
                     then do
@@ -507,6 +511,19 @@ solveNormalizedDict visited givens ct
 
     tryStructuralTypeable typeableTyCon ty =
       case typeableArguments ty of
+        -- An application whose head is not a type constructor, as @f a@
+        -- with the givens @Typeable f@ and @Typeable a@, is the application
+        -- of the two representations.
+        Nothing
+          | TcAppTy function argument <- ty -> do
+              classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
+              functionEvidence <- solveSubPred [ctPred ct] (ClassPred typeableTyCon [function])
+              argumentEvidence <- solveSubPred [ctPred ct] (ClassPred typeableTyCon [argument])
+              case (functionEvidence, argumentEvidence) of
+                (Just functionTerm, Just argumentTerm) -> do
+                  bindEvidence (ctEvVar ct) (EvTypeableApp classOrigin function argument functionTerm argumentTerm)
+                  pure DictSolved
+                _ -> pure (DictStuck ct)
         Nothing -> pure (DictStuck ct)
         Just arguments -> do
           classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
@@ -683,6 +700,7 @@ mentionsGiven predicate evidence =
     EvCast inner _ -> mentionsGiven predicate inner
     EvTypeable _ _ _ kindArguments arguments -> any (mentionsGiven predicate . snd) kindArguments || any (mentionsGiven predicate) arguments
     EvTypeableLiteral _ _ _ inner -> mentionsGiven predicate inner
+    EvTypeableApp _ _ _ functionEvidence argumentEvidence -> mentionsGiven predicate functionEvidence || mentionsGiven predicate argumentEvidence
     EvTypeLam _ body -> mentionsGiven predicate body
     EvDictLam _ _ body -> mentionsGiven predicate body
     EvTypeApp function _ -> mentionsGiven predicate function

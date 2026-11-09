@@ -93,6 +93,8 @@ alphaCorrespondence leftHoles rightHoles left right =
         (CoFun a b, CoFun c d) -> coercion scope a c >> coercion scope b d
         (CoForAll a body, CoForAll b body') -> binder scope a b >>= \inner -> coercion inner body body'
         (CoNth i a, CoNth j b) -> check (i == j) >> coercion scope a b
+        (CoLeft a, CoLeft b) -> coercion scope a b
+        (CoRight a, CoRight b) -> coercion scope a b
         (CoTyConApp a as, CoTyConApp b bs) -> check (a == b && length as == length bs) >> zipWithM_ (coercion scope) as bs
         (CoAxiom a as, CoAxiom b bs) -> check (a == b && length as == length bs) >> zipWithM_ (ty scope) as bs
         _ -> lift Nothing

@@ -237,6 +237,8 @@ zonkEvTerm evTerm =
       EvTypeable origin <$> finalizeType ty <*> pure constructor <*> mapM (\(kind, evidence) -> (,) <$> finalizeType kind <*> zonkEvTerm evidence) kindArguments <*> mapM zonkEvTerm arguments
     EvTypeableLiteral origin ty helper evidence ->
       EvTypeableLiteral origin <$> finalizeType ty <*> pure helper <*> zonkEvTerm evidence
+    EvTypeableApp origin function argument functionEvidence argumentEvidence ->
+      EvTypeableApp origin <$> finalizeType function <*> finalizeType argument <*> zonkEvTerm functionEvidence <*> zonkEvTerm argumentEvidence
     EvTypeLit origin ty literal ->
       EvTypeLit origin <$> finalizeType ty <*> pure literal
     EvTypeLam variable body ->
@@ -275,6 +277,8 @@ zonkCoercion coercion =
     Trans left right ->
       Trans <$> zonkCoercion left <*> zonkCoercion right
     NthCo index proof -> NthCo index <$> zonkCoercion proof
+    LeftCo proof -> LeftCo <$> zonkCoercion proof
+    RightCo proof -> RightCo <$> zonkCoercion proof
     EvidenceCo predicate evidence -> EvidenceCo <$> finalizePred predicate <*> zonkEvTerm evidence
     AppCo function argument -> AppCo <$> zonkCoercion function <*> zonkCoercion argument
     FunCo domain range -> FunCo <$> zonkCoercion domain <*> zonkCoercion range
@@ -463,6 +467,8 @@ firstMetaEvTerm evTerm =
       firstMetaType ty <|> firstJusts [firstMetaType kind <|> firstMetaEvTerm evidence | (kind, evidence) <- kindArguments] <|> firstJusts (map firstMetaEvTerm arguments)
     EvTypeableLiteral _ ty _ evidence ->
       firstMetaType ty <|> firstMetaEvTerm evidence
+    EvTypeableApp _ function argument functionEvidence argumentEvidence ->
+      firstMetaType function <|> firstMetaType argument <|> firstMetaEvTerm functionEvidence <|> firstMetaEvTerm argumentEvidence
     EvTypeLit _ ty _ ->
       firstMetaType ty
     EvTypeLam variable body ->
@@ -495,6 +501,8 @@ firstMetaCoercion coercion =
     Trans left right ->
       firstMetaCoercion left <|> firstMetaCoercion right
     NthCo _ proof -> firstMetaCoercion proof
+    LeftCo proof -> firstMetaCoercion proof
+    RightCo proof -> firstMetaCoercion proof
     EvidenceCo predicate evidence -> firstMetaPred predicate <|> firstMetaEvTerm evidence
     AppCo function argument -> firstMetaCoercion function <|> firstMetaCoercion argument
     FunCo domain range -> firstMetaCoercion domain <|> firstMetaCoercion range

@@ -17,6 +17,13 @@ module Data.Typeable
     gcast1,
     gcast2,
     typeOf,
+    typeOf1,
+    typeOf2,
+    typeOf3,
+    typeOf4,
+    typeOf5,
+    typeOf6,
+    typeOf7,
     typeRep,
     showsTypeRep,
     typeRepArgs,
@@ -50,6 +57,29 @@ showsTypeRep = showsPrec (I# 0#)
 
 typeOf :: (Typeable a) => a -> TypeRep
 typeOf value = SomeTypeRep (Reflection.typeOf value)
+
+-- | The representation of the type constructor of a value, applied to all
+-- arguments but the last ones.
+typeOf1 :: forall t (a :: Type). (Typeable t) => t a -> TypeRep
+typeOf1 _ = typeRep (Proxy :: Proxy t)
+
+typeOf2 :: forall t (a :: Type) (b :: Type). (Typeable t) => t a b -> TypeRep
+typeOf2 _ = typeRep (Proxy :: Proxy t)
+
+typeOf3 :: forall t (a :: Type) (b :: Type) (c :: Type). (Typeable t) => t a b c -> TypeRep
+typeOf3 _ = typeRep (Proxy :: Proxy t)
+
+typeOf4 :: forall t (a :: Type) (b :: Type) (c :: Type) (d :: Type). (Typeable t) => t a b c d -> TypeRep
+typeOf4 _ = typeRep (Proxy :: Proxy t)
+
+typeOf5 :: forall t (a :: Type) (b :: Type) (c :: Type) (d :: Type) (e :: Type). (Typeable t) => t a b c d e -> TypeRep
+typeOf5 _ = typeRep (Proxy :: Proxy t)
+
+typeOf6 :: forall t (a :: Type) (b :: Type) (c :: Type) (d :: Type) (e :: Type) (f :: Type). (Typeable t) => t a b c d e f -> TypeRep
+typeOf6 _ = typeRep (Proxy :: Proxy t)
+
+typeOf7 :: forall t (a :: Type) (b :: Type) (c :: Type) (d :: Type) (e :: Type) (f :: Type) (g :: Type). (Typeable t) => t a b c d e f g -> TypeRep
+typeOf7 _ = typeRep (Proxy :: Proxy t)
 
 typeRepTyCon :: TypeRep -> TyCon
 typeRepTyCon (SomeTypeRep rep) = Reflection.typeRepTyCon rep

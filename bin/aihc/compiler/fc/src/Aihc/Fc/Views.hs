@@ -155,5 +155,7 @@ maxLocalUnique = largest declaration . programDecls
       CoFun domain range -> max (coercion domain) (coercion range)
       CoForAll bound body -> max (ty False (binderType bound)) (coercion body)
       CoNth _ inner -> coercion inner
+      CoLeft inner -> coercion inner
+      CoRight inner -> coercion inner
       CoTyConApp name arguments -> max (nameUnique name) (largest coercion arguments)
       CoAxiom name arguments -> max (nameUnique name) (largest (ty False) arguments)

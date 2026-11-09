@@ -263,6 +263,8 @@ renderEvTerm ev =
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
     EvTypeableLiteral _ ty _ evidence ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs [evidence]
+    EvTypeableApp _ function argument functionEvidence argumentEvidence ->
+      "typeable @(" <> renderTcType function <> " " <> renderTcType argument <> ")" <> renderEvidenceArgs [functionEvidence, argumentEvidence]
     EvWithDict _ arguments _ target _ _ ->
       "withdict " <> T.unpack (tyConName target) <> renderTypeArgs arguments
     EvTypeLit _ ty literal ->
@@ -302,6 +304,8 @@ renderCoercion coercion =
     FunCo domain range -> "fun (" <> renderCoercion domain <> ") (" <> renderCoercion range <> ")"
     ForAllCo tyVar body -> "forall " <> T.unpack (tvName tyVar) <> ". (" <> renderCoercion body <> ")"
     NthCo index proof -> "nth[" <> show index <> "](" <> renderCoercion proof <> ")"
+    LeftCo proof -> "left(" <> renderCoercion proof <> ")"
+    RightCo proof -> "right(" <> renderCoercion proof <> ")"
     EvidenceCo _ evidence -> renderEvTerm evidence
     TyConAppCo tyCon _ args _ -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
     AxiomInstCo key tys -> show key <> renderTypeArgs tys

@@ -3607,6 +3607,8 @@ isReflexiveCoercion coercion =
     CoFun argument result -> isReflexiveCoercion argument && isReflexiveCoercion result
     CoForAll _ body -> isReflexiveCoercion body
     CoNth _ inner -> isReflexiveCoercion inner
+    CoLeft inner -> isReflexiveCoercion inner
+    CoRight inner -> isReflexiveCoercion inner
     CoTyConApp _ arguments -> all isReflexiveCoercion arguments
     CoVar _ -> False
     CoAxiom _ _ -> False
@@ -5114,6 +5116,8 @@ isNominalCoercion env coercion =
     CoTrans left right -> isNominalCoercion env left && isNominalCoercion env right
     CoApp function argument -> isNominalCoercion env function && isNominalCoercion env argument
     CoNth _ inner -> isNominalCoercion env inner
+    CoLeft inner -> isNominalCoercion env inner
+    CoRight inner -> isNominalCoercion env inner
     CoFun domain range -> isNominalCoercion env domain && isNominalCoercion env range
     CoForAll _ body -> isNominalCoercion env body
     CoTyConApp _ arguments -> all (isNominalCoercion env) arguments
@@ -6131,6 +6135,8 @@ coercionVariables coercion =
     CoFun left right -> coercionVariables left <> coercionVariables right
     CoForAll _ body -> coercionVariables body
     CoNth _ inner -> coercionVariables inner
+    CoLeft inner -> coercionVariables inner
+    CoRight inner -> coercionVariables inner
     CoTyConApp _ inners -> concatMap coercionVariables inners
     CoAxiom {} -> []
 
@@ -6223,6 +6229,12 @@ substExpr = go
         CoNth index inner ->
           let !inner' = substCoercion subst inner
            in if sameObject inner inner' then coercion else CoNth index inner'
+        CoLeft inner ->
+          let !inner' = substCoercion subst inner
+           in if sameObject inner inner' then coercion else CoLeft inner'
+        CoRight inner ->
+          let !inner' = substCoercion subst inner
+           in if sameObject inner inner' then coercion else CoRight inner'
         CoTyConApp name inners ->
           let !inners' = sameList (substCoercion subst) inners
            in if sameObject inners inners' then coercion else CoTyConApp name inners'
@@ -6332,6 +6344,8 @@ substCoercionTypes subst coercion =
     CoForAll binder body ->
       CoForAll binder {binderType = onType (binderType binder)} (substCoercionTypes (Map.delete (binderName binder) subst) body)
     CoNth index inner -> CoNth index (again inner)
+    CoLeft inner -> CoLeft (again inner)
+    CoRight inner -> CoRight (again inner)
     CoTyConApp name inners -> CoTyConApp name (map again inners)
     CoAxiom name types -> CoAxiom name (map onType types)
   where
@@ -6411,6 +6425,8 @@ renameCoercion renaming coercion =
       (binder', bodyRenaming) <- renameBinder renaming binder
       CoForAll binder' <$> renameCoercion bodyRenaming body
     CoNth index inner -> CoNth index <$> renameCoercion renaming inner
+    CoLeft inner -> CoLeft <$> renameCoercion renaming inner
+    CoRight inner -> CoRight <$> renameCoercion renaming inner
     CoTyConApp name inners -> CoTyConApp name <$> mapM (renameCoercion renaming) inners
     CoAxiom name types -> CoAxiom name <$> mapM (renameType renaming) types
 

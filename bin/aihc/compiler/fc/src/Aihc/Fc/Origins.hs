@@ -144,6 +144,8 @@ coercionOrigins coercion =
     CoTrans left right -> coercionOrigins left <> coercionOrigins right
     CoApp function argument -> coercionOrigins function <> coercionOrigins argument
     CoNth _ proof -> coercionOrigins proof
+    CoLeft proof -> coercionOrigins proof
+    CoRight proof -> coercionOrigins proof
     CoFun domain range -> coercionOrigins domain <> coercionOrigins range
     CoForAll binder body -> binderOrigins binder <> coercionOrigins body
     CoTyConApp name arguments -> nameOriginPair name <> foldMap coercionOrigins arguments

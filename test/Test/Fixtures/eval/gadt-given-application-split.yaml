@@ -1,0 +1,37 @@
+extensions:
+  - GADTs
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE GADTs, KindSignatures #-}
+    module Test where
+
+    import Data.Kind (Type)
+
+    data P f g a = P (f a) (g a)
+
+    data Tree a where
+      Leaf :: Tree a
+      Branch :: Tree (f a) -> Tree (g a) -> Tree (P f g a)
+
+    newtype Box (f :: Type -> Type) = Box Int
+
+    pairBox :: Tree (h c) -> Tree (k c) -> Box (P h k)
+    pairBox _ _ = Box 2
+
+    -- The match gives f a ~ P f1 g1 a1. The result needs f ~ P f1 g1, the
+    -- function part of that given.
+    boxOf :: Tree (f a) -> Box f
+    boxOf t = case t of
+      Branch l r -> pairBox l r
+      Leaf -> Box 1
+
+    unBox :: Box f -> Int
+    unBox (Box n) = n
+
+    result :: Int
+    result = unBox (boxOf (Branch (Leaf :: Tree (Maybe Int)) (Leaf :: Tree [Int])))
+expression: result
+output: 'I# 2'
+status: pass
+reason: a given equality between an application and a constructor application proves the equality of the function parts

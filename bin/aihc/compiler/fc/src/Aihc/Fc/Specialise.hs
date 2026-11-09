@@ -574,6 +574,8 @@ staticKey scope = all static
         CoFun left right -> coercionStatic left && coercionStatic right
         CoForAll binder body -> typeStatic (binderType binder) && coercionStatic body
         CoNth _ inner -> coercionStatic inner
+        CoLeft inner -> coercionStatic inner
+        CoRight inner -> coercionStatic inner
         CoTyConApp _ inners -> all coercionStatic inners
         CoAxiom _ types -> all typeStatic types
 

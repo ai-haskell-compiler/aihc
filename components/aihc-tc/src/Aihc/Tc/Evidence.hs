@@ -54,6 +54,10 @@ data EvTerm
     EvTypeable !(Maybe (Text, Text)) !TcType !TypeableTyCon ![(TcType, EvTerm)] ![EvTerm]
   | -- | A runtime type literal representation from its checked singleton dictionary.
     EvTypeableLiteral !(Maybe (Text, Text)) !TcType !Text !EvTerm
+  | -- | The representation of an application @f x@ whose head is not a
+    -- type constructor: the class origin, @f@, @x@, and the evidence for
+    -- @Typeable f@ and @Typeable x@.
+    EvTypeableApp !(Maybe (Text, Text)) !TcType !TcType !EvTerm !EvTerm
   | -- | Compiler-synthesized evidence that a type-level literal is known:
     -- the class origin, the literal type, and the literal itself. The
     -- dictionary carries the literal's value, so the solver supplies the
@@ -136,6 +140,12 @@ data Coercion
     ForAllCo !TyVarId !Coercion
   | -- | Project a nominal argument. Zero selects the last argument.
     NthCo !Int !Coercion
+  | -- | The function part of an application: if @co : f a ~ g b@, then
+    -- @LeftCo co : f ~ g@.
+    LeftCo !Coercion
+  | -- | The argument part of an application: if @co : f a ~ g b@, then
+    -- @RightCo co : a ~ b@.
+    RightCo !Coercion
   | -- | Equality evidence from a dictionary field.
     EvidenceCo !Pred !EvTerm
   | -- | Type family / newtype axiom instantiation (future).
