@@ -1,0 +1,22 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Monoid (All (..), Any (..))
+    import Data.Void (Void)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (null (reads "x" :: [(Void, String)]))
+      print (getAll (read "All {getAll = True}"), getAny (read " ( Any {getAny = False} ) "))
+      print (All False, Any True)
+expression: main
+stdout: |
+  True
+  (True,False)
+  (All {getAll = False},Any {getAny = True})
+output: |
+  ()
+status: pass
+reason: Void, All, and Any have Read instances, and All and Any have Show instances, as in base, and the optparse-generic package needs Read of each

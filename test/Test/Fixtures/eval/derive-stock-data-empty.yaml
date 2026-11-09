@@ -1,0 +1,24 @@
+extensions:
+  - DeriveDataTypeable
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    module Test where
+
+    import Data.Data
+
+    -- An empty datatype has no constructor. Its Data instance describes a
+    -- datatype with an empty list of constructors, as in GHC.
+    data Empty
+      deriving (Data)
+
+    results :: [Bool]
+    results =
+      [ dataTypeName (dataTypeOf (undefined :: Empty)) == "Test.Empty",
+        isAlgType (dataTypeOf (undefined :: Empty)),
+        null (dataTypeConstrs (dataTypeOf (undefined :: Empty)))
+      ]
+output: ": True (: True (: True []))"
+expression: results
+status: pass
+reason: stock Data deriving accepts an empty datatype, as in GHC, and the optparse-generic package derives Data for an empty datatype

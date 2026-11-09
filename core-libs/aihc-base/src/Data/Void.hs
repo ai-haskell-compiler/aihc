@@ -7,7 +7,7 @@ module Data.Void
   )
 where
 
-import Prelude (Bool (..), Eq (..), Functor (..), Ord (..), Ordering (..), Semigroup (..), Show (..), seq)
+import Prelude (Bool (..), Eq (..), Functor (..), Ord (..), Ordering (..), Read (..), Semigroup (..), Show (..), seq)
 
 data Void
 
@@ -30,6 +30,10 @@ instance Ord Void where
   _ >= _ = True
   max left _ = left
   min left _ = left
+
+-- | No text gives a 'Void' value, so each parse fails.
+instance Read Void where
+  readsPrec _ _ = []
 
 instance Show Void where
   showsPrec _ = absurd

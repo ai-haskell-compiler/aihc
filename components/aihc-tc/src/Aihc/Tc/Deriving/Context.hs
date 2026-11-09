@@ -463,8 +463,9 @@ stockFieldTypes plan = do
       Right
       (tcDerivingDataType plan)
   targetArguments <- targetTypeArguments mechanism dataType plan
-  -- An empty datatype has a Generic representation, @V1@, as in GHC.
-  unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods) $
+  -- An empty datatype has a Generic representation, @V1@, and a Data
+  -- instance with no constructors, as in GHC.
+  unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockGenericMethods, Just StockDataMethods]) $
     validateStockDataType plan dataType
   let substitution =
         Map.fromList
