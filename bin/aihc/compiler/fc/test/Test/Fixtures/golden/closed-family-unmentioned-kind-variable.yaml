@@ -1,0 +1,49 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Either a b = Left a | Right b
+    type family FromRight (def :: b) (e :: Either a b) :: b where
+      FromRight _ ('Right b) = b
+      FromRight def ('Left _) = def
+    type family FirstRight (m1 :: Either e a) (m2 :: Either e a) :: Either e a where
+      FirstRight ('Right a) _ = 'Right a
+      FirstRight _ b = b
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tEither (a : sType) (b : sType) :: sType {
+    pub 1.cLeft :: ∀(a : sType) (b : sType). a → tEither a b;
+    pub 1.cRight :: ∀(a : sType) (b : sType). b → tEither a b
+  }
+
+  pub type 1.tFromRight (b : sType) (a : sType) (def : b) (e : tEither a b) :: b @N @N @N @N {}
+
+  axiom 1.$ax$FromRight$0 (a : sType) (k0 : sType) (b : k0) (_ : k0) : tFromRight k0 a _ (cRight a k0 b) ~N b
+
+  axiom 1.$ax$FromRight$1 (k0 : sType) (k1 : sType) (def : k0) (_ : k1) : tFromRight k0 k1 def (cLeft k1 k0 _) ~N def
+
+  pub type 1.tFirstRight (e : sType) (a : sType) (m1 : tEither e a) (m2 : tEither e a) :: tEither e a @N @N @N @N {}
+
+  axiom 1.$ax$FirstRight$2 (k0 : sType) (k1 : sType) (a : k0) (_ : tEither k1 k0) : tFirstRight k1 k0 (cRight k1 k0 a) _ ~N cRight k1 k0 a
+
+  axiom 1.$ax$FirstRight$3 (k0 : sType) (k1 : sType) (b : tEither k0 k1) (_ : tEither k0 k1) : tFirstRight k0 k1 _ b ~N b
+status: pass
+reason: The first equation of FromRight does not determine the kind a of 'Right. The axiom binds a as an extra kind variable, as GHC does. In the first equation of FirstRight, the second argument determines the kind that 'Right leaves open. Before the fix, the desugarer stopped with an unbound runtime-representation variable and a kind mismatch.

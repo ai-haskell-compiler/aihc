@@ -7,6 +7,8 @@ module Aihc.Fc.Convert
     emptyConvertEnv,
     withTyVar,
     withTyVars,
+    withUnresolvedKindVars,
+    unresolvedKindVarBinders,
     withKindEnv,
     withClassTyCons,
     convertNestedType,
@@ -100,6 +102,13 @@ data ConvertEnv = ConvertEnv
     -- | The kind vocabulary of the compiler that produced these types.
     ceKinds :: TcKinds,
     ceTyVars :: Map Unique TyVarId,
+    -- | The quantified kind variables of the type constructors in a type
+    -- family equation. The visible arguments of an application can leave
+    -- such a variable undetermined, as the @a@ of @'Right x :: Either a k@.
+    -- 'Aihc.Tc.Types.typeKindInEnv' then gives the variable itself as the
+    -- kind argument. The equation binds each of these variables that its
+    -- types use, as GHC does.
+    ceUnresolvedKindVars :: Map Unique TyVarId,
     ceKindEnv :: TcKindEnv,
     ceClassTyCons :: Set GlobalName,
     -- | The type synonyms. A reference to one is a synonym name, which the
@@ -117,6 +126,7 @@ emptyConvertEnv kinds package =
     { cePrimPackage = package,
       ceKinds = kinds,
       ceTyVars = Map.empty,
+      ceUnresolvedKindVars = Map.empty,
       ceKindEnv = Map.empty,
       ceClassTyCons = Set.empty,
       ceSynonymTyCons = Set.empty,
@@ -161,6 +171,61 @@ withTyVar tyVar env =
 
 withTyVars :: [TyVarId] -> ConvertEnv -> ConvertEnv
 withTyVars tyVars env = foldr withTyVar env tyVars
+
+-- | Let the conversion use the quantified kind variables of the type
+-- constructors in these types, when an application leaves one of them
+-- undetermined. Use 'unresolvedKindVarBinders' to bind the variables
+-- that the converted types then use.
+withUnresolvedKindVars :: [TcType] -> ConvertEnv -> ConvertEnv
+withUnresolvedKindVars types env =
+  env {ceUnresolvedKindVars = foldMap typeConstructorKindVars types}
+  where
+    typeConstructorKindVars ty =
+      case ty of
+        TcTyCon tyCon arguments -> schemeVars tyCon <> foldMap typeConstructorKindVars arguments
+        TcKindedTyCon _ kindArguments -> foldMap typeConstructorKindVars kindArguments
+        TcAppTy function argument -> typeConstructorKindVars function <> typeConstructorKindVars argument
+        TcFunTy argument result -> typeConstructorKindVars argument <> typeConstructorKindVars result
+        TcForAllTy _ body -> typeConstructorKindVars body
+        TcQualTy _ body -> typeConstructorKindVars body
+        _ -> Map.empty
+    schemeVars tyCon =
+      case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
+        Just (ForAll variables _ _) -> Map.fromList [(tvUnique tyVar, tyVar) | tyVar <- variables]
+        Nothing -> Map.empty
+
+-- | The binders of the unresolved kind variables (see
+-- 'withUnresolvedKindVars') that these converted types use, and that are
+-- not in the given binders. A variable comes after the variables of its
+-- kind.
+unresolvedKindVarBinders :: ConvertEnv -> [Binder] -> [Type] -> Either String [Binder]
+unresolvedKindVarBinders env bound types =
+  go [] (foldMap freeTypeVariables types)
+  where
+    boundNames = Set.fromList (map binderName bound)
+    candidates = Map.fromList [(tyVarName tyVar, tyVar) | tyVar <- Map.elems (ceUnresolvedKindVars env)]
+    -- Add the binders for the used names that have none, then the binders
+    -- that their kinds use. Each pass puts the new binders in front.
+    go found used = do
+      let known = boundNames <> Set.fromList (map binderName found)
+          missing = [tyVar | (name, tyVar) <- Map.toList candidates, Set.member name used, Set.notMember name known]
+      if null missing
+        then Right found
+        else do
+          new <- mapM (tyVarBinder env) missing
+          go (new <> found) (foldMap (freeTypeVariables . binderType) new)
+
+freeTypeVariables :: Type -> Set Name
+freeTypeVariables ty =
+  case ty of
+    TyVar name -> Set.singleton name
+    TyCon _ -> Set.empty
+    TyApp function argument -> freeTypeVariables function <> freeTypeVariables argument
+    TyFun r1 r2 argument result -> foldMap freeTypeVariables [r1, r2, argument, result]
+    TyForAll binder body ->
+      Set.delete (binderName binder) (freeTypeVariables body) <> freeTypeVariables (binderType binder)
+    TyEq left right -> freeTypeVariables left <> freeTypeVariables right
+    TyLit _ _ -> Set.empty
 
 withKindEnv :: TcKindEnv -> ConvertEnv -> ConvertEnv
 withKindEnv kindEnv env = env {ceKindEnv = kindEnv <> ceKindEnv env}
@@ -222,6 +287,10 @@ convertRep env runtimeRep =
       let unique@(Unique uniqueValue) = tvUnique tyVar
        in case Map.lookup unique (ceTyVars env) of
             Just found -> Right (tyVarType found)
+            Nothing
+              | Just unresolved <- Map.lookup unique (ceUnresolvedKindVars env),
+                tvName unresolved == tvName tyVar ->
+                  Right (tyVarType unresolved)
             Nothing -> Left ("unbound runtime-representation variable: rep" <> show uniqueValue)
     TcMetaTv {} -> Left "runtime representation still has a meta variable"
     _ -> convertType env runtimeRep
