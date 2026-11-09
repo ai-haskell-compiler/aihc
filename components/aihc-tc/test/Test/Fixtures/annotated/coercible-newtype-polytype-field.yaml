@@ -1,0 +1,42 @@
+annotated:
+- |-
+  {-# LANGUAGE MagicHash, RankNTypes, RoleAnnotations, KindSignatures, DataKinds #-}
+  module Main where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data Effects = Union Effects Effects
+       │         └─ type: Effects → Effects → Effects
+       └─ type: Type
+  newtype Eff (es :: Effects) a = MkEff (() -> a)
+          │                       └─ type: ∀ es a. (() → a) → Eff es a
+          └─ type: Effects → Type → Type
+  type role Eff nominal representational
+  newtype Throw exn (e :: Effects) = MkThrow (forall a. exn -> Eff e a)
+          │                          └─ type: ∀ exn e. (∀ a. exn → Eff e a) → Throw exn e
+          └─ type: Type → Effects → Type
+  castThrow :: Throw exn e -> Throw exn es
+  castThrow = coerce
+  │           └─ type: Throw exn e → Throw exn es; type-args: Throw exn e, Throw exn es; evidence: coercible @Throw exn e @Throw exn es
+  └─ type: ∀ exn e es. Throw exn e → Throw exn es
+extensions: []
+modules:
+- |
+  {-# LANGUAGE MagicHash, RankNTypes, RoleAnnotations, KindSignatures, DataKinds #-}
+  module Main where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data Effects = Union Effects Effects
+  newtype Eff (es :: Effects) a = MkEff (() -> a)
+  type role Eff nominal representational
+  newtype Throw exn (e :: Effects) = MkThrow (forall a. exn -> Eff e a)
+  castThrow :: Throw exn e -> Throw exn es
+  castThrow = coerce
+reason: Coercible relates two newtypes whose fields are polytypes, because the solver relates
+  the bodies of the two foralls under one binder
+status: pass

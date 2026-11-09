@@ -46,6 +46,12 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
           if length visited >= 100 || (left, right) `elem` visited
             then pure False
             else shapes edges ((left, right) : visited) nested left right
+    -- Two polytypes, as the fields of @newtype Throw e = MkThrow (forall
+    -- a. Eff e a)@ at two types, have the same representation when their
+    -- bodies have it under one binder, as in GHC.
+    shapes edges visited nested (TcForAllTy leftBinder leftBody) (TcForAllTy rightBinder rightBody)
+      | tvKind leftBinder == tvKind rightBinder =
+          go edges visited nested leftBody (applySubst (Map.singleton (tvUnique rightBinder) (TcTyVar leftBinder)) rightBody)
     shapes edges visited _ (TcFunTy a b) (TcFunTy c d) = do
       argument <- go edges visited True a c
       result <- go edges visited True b d
