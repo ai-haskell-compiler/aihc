@@ -1,0 +1,84 @@
+extensions:
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, TypeFamilies, KindSignatures #-}
+    module Test where
+    import GHC.Types (Type)
+    newtype M1 (f :: k -> Type) (p :: k) = M1 (f p)
+    newtype K1 c (p :: k) = K1 c
+    type family Rep a :: Type -> Type
+    from :: a -> Rep a x
+    from = from
+    to :: Rep a x -> a
+    to = to
+    data Iso s t a b = Iso (s -> a) (b -> t)
+    compose :: Iso s t a b -> Iso a b c d -> Iso s t c d
+    compose (Iso f g) (Iso h k) = Iso (\x -> h (f x)) (\y -> g (k y))
+    wrapped :: (M1 (K1 a) ~ Rep s) => Iso s s a a
+    wrapped = compose (Iso from to) (Iso remitter reviewer)
+      where
+        remitter (M1 (K1 x)) = x
+        reviewer x = M1 (K1 x)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tM1 (k : sType) (f : k → sType) (p : k) :: sType {}
+
+  axiom 1.$ax$M1 (k : sType) (f : k → sType) (p : k) : tM1 k f p ~R f p
+
+  pub type 1.tK1 (k : sType) (c : sType) (p : k) :: sType {}
+
+  axiom 1.$ax$K1 (k : sType) (c : sType) (p : k) : tK1 k c p ~R c
+
+  pub type 1.tRep (a : sType) :: sType → sType @N {}
+
+  pub type 1.tIso (s : sType) (t : sType) (a : sType) (b : sType) :: sType {
+    pub 1.cIso :: ∀(s : sType) (t : sType) (a : sType) (b : sType). (s → a) → (b → t) → tIso s t a b
+  }
+
+  pub val 1.vfrom :: ∀(a : sType) (x : sType). a → tRep a x
+    = Λ(a : sType) (x : sType).
+      vfrom @a @x
+
+  pub val 1.vto :: ∀(a : sType) (x : sType). tRep a x → a
+    = Λ(a : sType) (x : sType).
+      vto @a @x
+
+  pub val 1.vcompose :: ∀(s : sType) (t : sType) (a : sType) (b : sType) (c : sType) (d : sType). tIso s t a b → tIso a b c d → tIso s t c d
+    = Λ(s : sType) (t : sType) (a : sType) (b : sType) (c : sType) (d : sType). λ(x : tIso s t a b) (y : tIso a b c d).
+      let! cIso (f : s → a) (g : b → t) = x;
+      let! cIso (h : a → c) (k : d → b) = y;
+      cIso @s @t @c @d (λ(x{1} : s).
+        h (f x{1})) (λ(y{1} : d).
+        g (k y{1}))
+
+  pub val 1.vwrapped :: ∀(a : sType) (s : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tM1 sType (tK1 sType a) ~ tRep s) (tIso s s a a)
+    = Λ(a : sType) (s : sType). λ($co : tM1 sType (tK1 sType a) ~ tRep s).
+      vcompose @s @s @(tRep s tUnit) @(tRep s tUnit) @a @a (cIso @s @s @(tRep s tUnit) @(tRep s tUnit) (vfrom @s @tUnit) (vto @s @tUnit)) ((cIso @(tM1 sType (tK1 sType a) tUnit) @(tM1 sType (tK1 sType a) tUnit) @a @a ((Λ(k0 : sType)
+      (a{1} : sType) (b : k0). λ(x : tM1 k0 (tK1 k0 a{1}) b).
+        (x ▷ axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b) ▷ axiom-co $ax$K1 @k0 @a{1} @b) @sType @a @tUnit) ((Λ(k0 : sType)
+      (a{1} : sType) (b : k0). λ(x : a{1}).
+        (x ▷ sym (axiom-co $ax$K1 @k0 @a{1} @b)) ▷ sym (axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b)) @sType @a @tUnit)) ▷ tycon-co tIso (app-co (trans (trans (sym (app-co (app-co (refl tM1) (refl sType)) (app-co (refl (tK1 sType)) (refl a)))) (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a)))) ($co)) (refl tUnit)) (app-co (trans (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a))) ($co)) (refl tUnit)) (refl a) (refl a))
+status: pass
+reason: A given equality relates the partial application M1 (K1 a) to Rep s. The arguments of M1 do not determine its kind argument. Before the fix, the type checker gave a kind proof with the kind variable of K1, and the desugarer gave the function of an application the kind of the application. The desugarer then stopped with an unbound runtime-representation variable.

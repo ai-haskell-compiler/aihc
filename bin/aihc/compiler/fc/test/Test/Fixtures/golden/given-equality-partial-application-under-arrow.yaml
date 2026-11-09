@@ -1,0 +1,93 @@
+extensions:
+  - PolyKinds
+  - RankNTypes
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, RankNTypes, TypeFamilies, KindSignatures #-}
+    module Test where
+    import GHC.Types (Type)
+    newtype M1 (f :: k -> Type) (p :: k) = M1 (f p)
+    newtype K1 c (p :: k) = K1 c
+    type family Rep a :: Type -> Type
+    from :: a -> Rep a x
+    from = from
+    to :: Rep a x -> a
+    to = to
+    class Functor f where
+      fmap :: (a -> b) -> f a -> f b
+    type Iso s t a b = forall f. Functor f => (a -> f b) -> s -> f t
+    iso :: (s -> a) -> (b -> t) -> Iso s t a b
+    iso sa bt h s = fmap bt (h (sa s))
+    wrapped :: (M1 (K1 a) ~ Rep s) => Iso s s a a
+    wrapped h = iso from to (iso remitter reviewer h)
+      where
+        remitter (M1 (K1 x)) = x
+        reviewer x = M1 (K1 x)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tM1 (k : sType) (f : k → sType) (p : k) :: sType {}
+
+  axiom 1.$ax$M1 (k : sType) (f : k → sType) (p : k) : tM1 k f p ~R f p
+
+  pub type 1.tK1 (k : sType) (c : sType) (p : k) :: sType {}
+
+  axiom 1.$ax$K1 (k : sType) (c : sType) (p : k) : tK1 k c p ~R c
+
+  pub type 1.tRep (a : sType) :: sType → sType @N {}
+
+  pub type 1.t$Dict$Functor (f : sType → sType) :: sType {
+    pub 1.c$Dict$Functor :: ∀(f : sType → sType). (∀(a : sType) (b : sType). (a → b) → f a → f b) → t$Dict$Functor f
+  }
+
+  pub type 1.sIso (s : sType) (t : sType) (a : sType) (b : sType) :: sType =
+    ∀(f : sType → sType). t$Dict$Functor f → (a → f b) → s → f t
+
+  pub val 1.vfmap :: ∀(f : sType → sType) (a : sType) (b : sType). t$Dict$Functor f → (a → b) → f a → f b
+    = Λ(f : sType → sType) (a : sType) (b : sType). λ($dFunctor : t$Dict$Functor f).
+      let! c$Dict$Functor ($cfmap : ∀(a{1} : sType) (b{1} : sType). (a{1} → b{1}) → f a{1} → f b{1}) = $dFunctor;
+      $cfmap @a @b
+
+  pub val 1.vfrom :: ∀(a : sType) (x : sType). a → tRep a x
+    = Λ(a : sType) (x : sType).
+      vfrom @a @x
+
+  pub val 1.vto :: ∀(a : sType) (x : sType). tRep a x → a
+    = Λ(a : sType) (x : sType).
+      vto @a @x
+
+  pub val 1.viso :: ∀(s : sType) (a : sType) (b : sType) (t : sType) (f : sType → sType). t$Dict$Functor f → (s → a) → (b → t) → (a → f b) → s → f t
+    = Λ(s : sType) (a : sType) (b : sType) (t : sType) (f : sType → sType). λ($dFunctor : t$Dict$Functor f) (x : s → a)
+    (y : b → t) (z : a → f b) (x1 : s).
+      vfmap @f @b @t $dFunctor y (z (x x1))
+
+  pub val 1.vwrapped :: ∀(a : sType) (s : sType) (f : sType → sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tM1 sType (tK1 sType a) ~ tRep s) (t$Dict$Functor f → (a → f a) → s → f s)
+    = Λ(a : sType) (s : sType) (f : sType → sType). λ($co : tM1 sType (tK1 sType a) ~ tRep s)
+    ($dFunctor : t$Dict$Functor f) (x : a → f a).
+      viso @s @(tRep s tUnit) @(tRep s tUnit) @s @f $dFunctor (vfrom @s @tUnit) (vto @s @tUnit) ((viso @(tM1 sType (tK1 sType a) tUnit) @a @a @(tM1 sType (tK1 sType a) tUnit) @f $dFunctor ((Λ(k0 : sType)
+      (a{1} : sType) (b : k0). λ(x{1} : tM1 k0 (tK1 k0 a{1}) b).
+        (x{1} ▷ axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b) ▷ axiom-co $ax$K1 @k0 @a{1} @b) @sType @a @tUnit) ((Λ(k0 : sType)
+      (a{1} : sType) (b : k0). λ(x{1} : a{1}).
+        (x{1} ▷ sym (axiom-co $ax$K1 @k0 @a{1} @b)) ▷ sym (axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b)) @sType @a @tUnit) x) ▷ fun-co (app-co (trans (trans (sym (app-co (app-co (refl tM1) (refl sType)) (app-co (refl (tK1 sType)) (refl a)))) (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a)))) ($co)) (refl tUnit)) (app-co (refl f) (app-co (trans (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a))) ($co)) (refl tUnit))))
+status: pass
+reason: The coercion for the given equality M1 (K1 a) ~ Rep s is under an arrow, thus the place of the coercion gives no kind. The kind arguments of M1 come from a side of the coercion. Before the fix, the desugarer stopped with an unbound runtime-representation variable.

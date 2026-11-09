@@ -5,6 +5,7 @@
 -- | Core type representation for the type checker.
 module Aihc.Tc.Types
   ( Entity (..),
+    argumentKindVariables,
     tyConTermKey,
     tyConMemberTermKey,
     termKeyName,

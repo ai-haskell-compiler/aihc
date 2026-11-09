@@ -74,6 +74,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Generate.Pattern (compStmtBinderNames, recStmtBinderNames)
+import Aihc.Tc.Kind (typeVariableUniques)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -6192,8 +6193,29 @@ withCoercion proof use = do
 convertCoercion :: Ev.Coercion -> ValueM (Coercion, [Bind])
 convertCoercion = convertCoercionWithExpectedKind Nothing
 
+-- | Convert a coercion at the kind of its two sides. When the place of the
+-- coercion does not give the kind, a side of the coercion gives it. The
+-- kind arguments of a partial application such as @M1 (K1 a)@ need it:
+-- the arguments alone do not determine them.
 convertCoercionWithExpectedKind :: Maybe TcType -> Ev.Coercion -> ValueM (Coercion, [Bind])
-convertCoercionWithExpectedKind expectedKind coercion =
+convertCoercionWithExpectedKind expectedKind coercion = do
+  sideKind <- coercionKind coercion
+  convertCoercionAtKind (expectedKind <|> sideKind) coercion
+
+-- | The kind of the two sides of a coercion, when a side gives it. A kind
+-- that contains a kind variable of a constructor in the side is not
+-- determined, and it is no kind.
+coercionKind :: Ev.Coercion -> ValueM (Maybe TcType)
+coercionKind coercion = do
+  env <- gets vsConvertEnv
+  pure $ do
+    side <- coercionSideType coercion
+    kind <- either (const Nothing) Just (typeKindInEnv env side)
+    let open = Tc.argumentKindVariables (ceKindEnv env) side
+    if any (`elem` open) (typeVariableUniques kind) then Nothing else Just kind
+
+convertCoercionAtKind :: Maybe TcType -> Ev.Coercion -> ValueM (Coercion, [Bind])
+convertCoercionAtKind expectedKind coercion =
   case coercion of
     Ev.EvidenceCo predicate evidence -> do
       expression <- desugarEvidence evidence
@@ -6210,11 +6232,23 @@ convertCoercionWithExpectedKind expectedKind coercion =
       (,[]) . CoRefl <$> liftEither (convertTypeWithExpectedKind env expectedKind ty)
     Ev.Sym inner -> unary CoSym inner
     Ev.Trans left right -> binary CoTrans left right
-    Ev.NthCo index proof -> unary (CoNth index) proof
-    Ev.LeftCo proof -> unary CoLeft proof
-    Ev.RightCo proof -> unary CoRight proof
-    Ev.AppCo function argument -> binary CoApp function argument
-    Ev.FunCo domain range -> binary CoFun domain range
+    -- A projection, an application, and an arrow have parts whose kinds
+    -- are not the kind of the whole. Each part gets its own kind.
+    Ev.NthCo index proof -> part (CoNth index) proof
+    Ev.LeftCo proof -> part CoLeft proof
+    Ev.RightCo proof -> part CoRight proof
+    -- The function of an application has an arrow kind from the kind of
+    -- the argument to the kind of the application.
+    Ev.AppCo function argument -> do
+      argumentKind <- coercionKind argument
+      let functionKind = Tc.KFun <$> argumentKind <*> expectedKind
+      (functionProof, functionBindings) <- convertCoercionWithExpectedKind functionKind function
+      (argumentProof, argumentBindings) <- convertCoercionWithExpectedKind argumentKind argument
+      pure (CoApp functionProof argumentProof, functionBindings <> argumentBindings)
+    Ev.FunCo domain range -> do
+      (domainProof, domainBindings) <- convertCoercion domain
+      (rangeProof, rangeBindings) <- convertCoercion range
+      pure (CoFun domainProof rangeProof, domainBindings <> rangeBindings)
     Ev.ForAllCo tyVar body ->
       withTypeVariables [tyVar] $ do
         binder <- convertTypeBinder tyVar
@@ -6263,6 +6297,9 @@ convertCoercionWithExpectedKind expectedKind coercion =
         [] -> mapM convertCheckedType arguments
       pure (CoAxiom name converted, [])
   where
+    part constructor proof = do
+      (converted, bindings) <- convertCoercion proof
+      pure (constructor converted, bindings)
     unary constructor proof = do
       (converted, bindings) <- convertCoercionWithExpectedKind expectedKind proof
       pure (constructor converted, bindings)
@@ -6270,6 +6307,29 @@ convertCoercionWithExpectedKind expectedKind coercion =
       (leftProof, leftBindings) <- convertCoercionWithExpectedKind expectedKind left
       (rightProof, rightBindings) <- convertCoercionWithExpectedKind expectedKind right
       pure (constructor leftProof rightProof, leftBindings <> rightBindings)
+
+-- | The type on one side of a coercion, when the coercion tells it
+-- without a solver. The two sides of a coercion have the same kind, thus
+-- either side gives the kind of the coercion.
+coercionSideType :: Ev.Coercion -> Maybe TcType
+coercionSideType coercion =
+  case coercion of
+    Ev.Refl ty -> Just ty
+    Ev.GivenCo (EqPred left _) -> Just left
+    Ev.EvidenceCo (EqPred left _) _ -> Just left
+    Ev.Sym inner -> coercionSideType inner
+    Ev.Trans left right -> coercionSideType left <|> coercionSideType right
+    Ev.TyConAppCo tyCon types _ _ -> Just (TcTyCon tyCon types)
+    -- An application of a type constructor stays one application, because
+    -- a later argument can determine the kind of an earlier one.
+    Ev.AppCo function argument -> applyType <$> coercionSideType function <*> coercionSideType argument
+    Ev.FunCo domain range -> TcFunTy <$> coercionSideType domain <*> coercionSideType range
+    _ -> Nothing
+  where
+    applyType function argument =
+      case function of
+        TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
+        _ -> TcAppTy function argument
 
 resolvedTermName :: Syn.Name -> ValueM Name
 resolvedTermName sourceName =

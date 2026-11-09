@@ -9,7 +9,7 @@ where
 
 import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes)
 import Aihc.Tc.Evidence
-import Aihc.Tc.Kind (tcTypeKind)
+import Aihc.Tc.Kind (tcTypeKind, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
@@ -250,8 +250,15 @@ kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
           map (proof leftKinds rightKinds) quantified
     _ -> []
   where
-    kindArguments arguments =
-      tcInvisibleKindSubstitution <$> typeApplicationKinds kinds kindEnv tyCon arguments Nothing
+    -- The arguments alone do not always determine a kind argument. In
+    -- the partial application @M1 (K1 a)@, the kind of @K1 a@ contains
+    -- the kind variable of 'K1' itself. A kind that contains such a
+    -- variable is not a kind argument, and it gets no proof.
+    kindArguments arguments = do
+      checked <- typeApplicationKinds kinds kindEnv tyCon arguments Nothing
+      let open = Set.fromList (concatMap (argumentKindVariables kindEnv) arguments)
+          determined kind = not (any (`Set.member` open) (typeVariableUniques kind))
+      pure (Map.filter determined (tcInvisibleKindSubstitution checked))
     differs leftKinds rightKinds tyVar =
       case (Map.lookup (tvUnique tyVar) leftKinds, Map.lookup (tvUnique tyVar) rightKinds) of
         (Just leftKind, Just rightKind) -> not (sameType leftKind rightKind)
@@ -262,6 +269,7 @@ kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
       case (Map.lookup (tvUnique tyVar) leftKinds, Map.lookup (tvUnique tyVar) rightKinds) of
         (Just leftKind, Just rightKind) -> fromMaybe (Refl leftKind) (findProof graph leftKind rightKind)
         (Just leftKind, Nothing) -> Refl leftKind
+        (Nothing, Just rightKind) -> Refl rightKind
         _ -> Refl (TcTyVar tyVar)
 
 application :: TcType -> Maybe (TcType, TcType)
