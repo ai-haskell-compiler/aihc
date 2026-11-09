@@ -1,0 +1,21 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Ix (Ix (..))
+    import Numeric.Natural (Natural)
+
+    -- The algebra package uses Ix.range for its LocallyFiniteOrder Natural instance.
+    results :: (Bool, Int, Bool, Int)
+    results =
+      ( range (3 :: Natural, 6) == [3, 4, 5, 6],
+        index (10 :: Natural, 20) 15,
+        inRange (1 :: Natural, 2) 0,
+        rangeSize (5 :: Natural, 4)
+      )
+output: |
+  (True,(I# 5),False,(I# 0))
+expression: results
+status: pass
+reason: the Ix class has an instance for Natural, so algebra can use Ix.range on Natural
