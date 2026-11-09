@@ -1,0 +1,23 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (mulIntMayOflo# 3# (0# -# 5#)))
+        (I# (mulIntMayOflo# 4294967296# 4294967296#))
+        (I# (mulIntMayOflo# 4611686018427387904# (0# -# 2#)))
+output: |
+  Results (I# 0) (I# 1) (I# 0)
+expression: |
+  results
+status: pass
+reason: mulIntMayOflo# gives 1 only when the signed product does not fit in one word

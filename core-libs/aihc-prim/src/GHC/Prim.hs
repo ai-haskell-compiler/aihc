@@ -520,6 +520,7 @@ module GHC.Prim
     timesWord#,
     timesWord2#,
     timesInt2#,
+    mulIntMayOflo#,
     byteSwap#,
     byteSwap16#,
     byteSwap32#,
@@ -751,6 +752,12 @@ foreign import prim subWordC# :: Word# -> Word# -> (# Word#, Int# #)
 foreign import prim timesWord2# :: Word# -> Word# -> (# Word#, Word# #)
 
 foreign import prim timesInt2# :: Int# -> Int# -> (# Int#, Int#, Int# #)
+
+-- | Give 1 when the signed product does not fit in one word, else 0.
+-- GHC permits a nonzero result on a product that fits. This result is exact.
+mulIntMayOflo# :: Int# -> Int# -> Int#
+mulIntMayOflo# left right = case timesInt2# left right of
+  (# needed, _, _ #) -> needed
 
 foreign import prim byteSwap# :: Word# -> Word#
 
