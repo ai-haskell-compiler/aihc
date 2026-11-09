@@ -8,14 +8,16 @@ module GHC.Natural
   ( BigNat (..),
     Natural (NatS#, NatJ#),
     powModNatural,
+    isValidNatural,
   )
 where
 
 import GHC.Exception (ArithException (..), throw)
 import GHC.Num.BigNat (BigNat (..))
 import GHC.Num.Integer (integerFromNatural, integerPowMod#)
-import GHC.Num.Natural (Natural (..))
+import GHC.Num.Natural (Natural (..), naturalCheck)
 import GHC.Prim (Word#)
+import GHC.Types (Bool)
 
 pattern NatS# :: Word# -> Natural
 pattern NatS# word = NS word
@@ -33,3 +35,7 @@ powModNatural base exponent modulus =
   case integerPowMod# (integerFromNatural base) (integerFromNatural exponent) modulus of
     (# result | #) -> result
     (# | () #) -> throw DivideByZero
+
+-- | Whether a natural number has the canonical representation.
+isValidNatural :: Natural -> Bool
+isValidNatural = naturalCheck
