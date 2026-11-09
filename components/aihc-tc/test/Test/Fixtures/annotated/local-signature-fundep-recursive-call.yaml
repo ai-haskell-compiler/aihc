@@ -1,0 +1,38 @@
+modules:
+  - |
+    {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
+    module Test where
+    class C p s | p -> s where
+      m :: p s
+    data U = U
+    outer :: U -> U
+    outer x =
+      let go :: C p s => p a -> U
+          go y = go y
+      in x
+extensions:
+  - MultiParamTypeClasses
+  - FunctionalDependencies
+status: pass
+annotated:
+  - |-
+    {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
+    module Test where
+    class C p s | p -> s where
+    └─ class methods: m ∷ ∀ p s. (C p s) ⇒ p s; fundeps: p → s
+      m :: p s
+    data U = U
+         │   └─ type: U
+         └─ type: Type
+    outer :: U -> U
+    outer x =
+    │     └─ type: U
+    └─ type: U → U
+      let go :: C p s => p a -> U
+          go y = go y
+          │  │   └─ type: p a → U; type-args: p, s, a; evidence: given C p s
+          │  │   └─ type: p a → U; type-args: p, s, a; evidence: given C p s
+          │  └─ type: p a
+          └─ type: ∀ p s a. (C p s) ⇒ p a → U
+      in x
+reason: the context of a local signature improves a wanted of a recursive call through the functional dependency of the class

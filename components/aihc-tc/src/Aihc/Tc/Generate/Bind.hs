@@ -58,6 +58,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
@@ -862,6 +863,9 @@ solveWithSigGivens (ForAll _ predicates _) cts
   | otherwise = do
       let (equalityCts, dictionaryCts) = partition isEqualityCt cts
       residualEqualities <- concat <$> mapM solveEqualityCt equalityCts
+      -- A functional dependency of the context can fix a meta variable of
+      -- a wanted. The enclosing scope does not improve against these givens.
+      improveWithSignature dictionaryCts
       residualDictionaries <- concat <$> mapM solveDictionaryCt dictionaryCts
       givenCts <- mapM makeGiven predicates
       -- A deferred constraint must retain the context of its signature.
@@ -869,6 +873,10 @@ solveWithSigGivens (ForAll _ predicates _) cts
       let withSignatureGivens ct = ct {ctBranchGivens = givenCts <> ctBranchGivens ct}
       pure (map withSignatureGivens (residualEqualities <> residualDictionaries))
   where
+    improveWithSignature dictionaryCts = do
+      improved <- improveFunDeps predicates dictionaryCts
+      when improved (improveWithSignature dictionaryCts)
+
     makeGiven predicate = do
       evidence <- freshEvVar
       bindEvidence evidence (EvGiven predicate)
