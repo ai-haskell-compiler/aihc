@@ -218,14 +218,6 @@ packageAliases =
       bootLibraryName library /= bootLibraryStandin library
     ]
 
--- | Each boot library of the emulated release that comes from Hackage must
--- have the version of that release.
-hackageBootLibraryConstraints :: [Constraint]
-hackageBootLibraryConstraints =
-  [ ConstraintVersion (mkPackageName name) (thisVersion (versionFromList version))
-  | (name, version) <- releaseHackageBootLibraries emulatedGhc
-  ]
-
 -- | Parse a @--constraint@ argument: @NAME RANGE@, or @NAME@ followed by
 -- @+flag@ and @-flag@ words.
 parseConstraint :: String -> Either String [Constraint]
@@ -265,8 +257,7 @@ planPackages request = do
             configAliases = packageAliases,
             configConstraints =
               requestConstraints request
-                <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots]
-                <> hackageBootLibraryConstraints,
+                <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots],
             configPreferences = Map.empty,
             configRoots = Map.fromList [(name, rootStanzas) | (name, _) <- roots],
             -- Every package depends on aihc-prim, so the plan needs it even
@@ -483,11 +474,19 @@ solverInputs request descriptions localRoots localDirectories =
     -- Hackage lists the versions of a package without their cabal file
     -- revisions, so a candidate reads the newest revision there is. Only a
     -- lock file names one, for the version it pinned.
+    --
+    -- A boot library of the emulated release that comes from Hackage has
+    -- only the version of that release. This is not a solver constraint:
+    -- the solver reads the versions of each constrained package before it
+    -- starts, and a plan that does not need the library must not ask
+    -- Hackage for it.
     hackageCandidates name preference source = do
       releases <- hackageReleases source (unPackageName name)
+      let releaseVersion = versionFromList <$> lookup (unPackageName name) (releaseHackageBootLibraries emulatedGhc)
       pure
         [ Candidate name (hackageReleaseVersion release) revision (hackageReleaseDeprecated release) CandidateHackage
         | release <- fromMaybe [] releases,
+          maybe True (== hackageReleaseVersion release) releaseVersion,
           let revision =
                 case preference of
                   Just chosen
