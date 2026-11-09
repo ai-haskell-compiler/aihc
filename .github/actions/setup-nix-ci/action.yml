@@ -36,7 +36,7 @@ runs:
 
     - name: Configure Cloudflare R2 cache
       if: inputs.nix-preinstalled != 'true' && inputs.r2-secret-access-key != ''
-      uses: lemmih/nix-s3-cache-action@1f2ffc8b285edc2e86487dc37679220ba33dbff3 # v1.0.3
+      uses: lemmih/nix-s3-cache-action@22f88358e2469d46847772dc4ec5787be21eb3b4 # fix/macos-support, v1.0.4
       with:
         s3-endpoint: ${{ inputs.r2-account-id }}.r2.cloudflarestorage.com
         bucket: nix-cache
