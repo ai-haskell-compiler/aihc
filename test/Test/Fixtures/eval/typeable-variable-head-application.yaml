@@ -1,0 +1,24 @@
+extensions:
+  - GADTs
+modules:
+  - |
+    {-# LANGUAGE GADTs #-}
+    module Test where
+
+    import Data.Typeable (Typeable, typeOf)
+
+    data AnyState st where
+      AnyState :: Typeable sub => sub st -> AnyState st
+
+    -- The wanted Typeable (sub st) has a variable head. The givens are
+    -- Typeable sub and Typeable st.
+    describe :: Typeable st => AnyState st -> String
+    describe (AnyState state) = show (typeOf state)
+
+    result :: Bool
+    result = describe (AnyState (Just 'x')) ++ ", " ++ describe (AnyState (Left True :: Either Bool Int)) == "Maybe Char, Either Bool Int"
+expression: result
+output: |
+  True
+status: pass
+reason: Typeable evidence for an application with a variable head is the application of the two representations

@@ -36,6 +36,7 @@ module Aihc.Fc.TypeOf
     typeVariableNames,
     coercionEndpoints,
     projectNominalArgument,
+    projectApplication,
     applyRepresentationalAxiom,
     matchRepresentationalAxiom,
   )
@@ -667,6 +668,8 @@ coercionEndpoints env coercion =
     CoNth index proof -> do
       endpoints <- coercionEndpoints env proof
       projectNominalArgument env index endpoints
+    CoLeft proof -> fst <$> (projectApplication env =<< coercionEndpoints env proof)
+    CoRight proof -> snd <$> (projectApplication env =<< coercionEndpoints env proof)
     CoFun domain range -> do
       (leftDomain, rightDomain) <- coercionEndpoints env domain
       (leftRange, rightRange) <- coercionEndpoints env range
@@ -688,6 +691,24 @@ coercionEndpoints env coercion =
            in Just (substTypes substitution (axiomLeft declaration), substTypes substitution (axiomRight declaration))
   where
     swap (left, right) = (right, left)
+
+-- | Split both sides of an application equality into the function parts
+-- and the argument parts. An application of a family is not injective, so
+-- it does not split.
+projectApplication :: TypeEnv -> (Type, Type) -> Maybe ((Type, Type), (Type, Type))
+projectApplication env (left, right) =
+  case (left, right) of
+    (TyApp leftFunction leftArgument, TyApp rightFunction rightArgument)
+      | not (familyHead left),
+        not (familyHead right) ->
+          Just ((leftFunction, rightFunction), (leftArgument, rightArgument))
+    _ -> Nothing
+  where
+    familyHead ty = case spineHead ty of
+      TyCon name -> name `Map.member` teFamilyAxioms env
+      _ -> False
+    spineHead (TyApp function _) = spineHead function
+    spineHead ty = ty
 
 -- | Project equal nominal arguments from the same outer constructor.
 -- Zero selects the last argument, after any implicit kind arguments.

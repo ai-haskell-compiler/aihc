@@ -382,6 +382,8 @@ tidyCoercion env coercion =
     CoApp function argument ->
       rebuild2 CoApp function (tidyCoercion env function) argument (tidyCoercion env argument)
     CoNth index proof -> rebuild1 (CoNth index) proof (tidyCoercion env proof)
+    CoLeft proof -> rebuild1 CoLeft proof (tidyCoercion env proof)
+    CoRight proof -> rebuild1 CoRight proof (tidyCoercion env proof)
     CoFun domain range ->
       rebuild2 CoFun domain (tidyCoercion env domain) range (tidyCoercion env range)
     CoForAll binder body ->

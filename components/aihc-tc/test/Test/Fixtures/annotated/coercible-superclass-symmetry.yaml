@@ -1,0 +1,18 @@
+extensions: [FlexibleContexts, FlexibleInstances, MagicHash, TypeFamilies, UndecidableInstances, UndecidableSuperClasses]
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts, FlexibleInstances, MagicHash, TypeFamilies, UndecidableInstances, UndecidableSuperClasses #-}
+    module Test where
+    import GHC.Types (Coercible)
+    import GHC.Prim (unsafeCoerce#)
+    coerce :: Coercible a b => a -> b
+    coerce = unsafeCoerce#
+    type family Old a
+    class Coercible a (Old a) => Newtype a
+    instance Coercible a (Old a) => Newtype a
+    -- The superclass gives Coercible a (Old a). The wanted is the other
+    -- direction.
+    pack :: Newtype a => Old a -> a
+    pack = coerce
+status: pass
+reason: a Coercible superclass of a given solves a Coercible wanted in each direction

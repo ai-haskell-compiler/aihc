@@ -516,6 +516,9 @@ canonicalApplications ty =
       | otherwise -> TcAppTy (canonicalApplications function) (canonicalApplications argument)
     TcTyCon tyCon arguments -> TcTyCon tyCon (map canonicalApplications arguments)
     TcFunTy argument result -> TcFunTy (canonicalApplications argument) (canonicalApplications result)
+    -- A bare constructor with its kinds, such as the @Proxy \@Type@ that a
+    -- given got from its use site, is the same constructor without them.
+    TcKindedTyCon tyCon _ -> TcTyCon tyCon []
     _ -> ty
 
 -- | The kind vocabulary, resolved to the module that declares it.

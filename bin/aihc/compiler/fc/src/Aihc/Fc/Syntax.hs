@@ -237,6 +237,12 @@ data Coercion
     -- coercion, and it quantifies both sides.
     CoForAll Binder Coercion
   | CoNth Int Coercion
+  | -- | The function part of an application: if @co : f a ~ g b@, then
+    -- @CoLeft co : f ~ g@.
+    CoLeft Coercion
+  | -- | The argument part of an application: if @co : f a ~ g b@, then
+    -- @CoRight co : a ~ b@.
+    CoRight Coercion
   | CoTyConApp Name [Coercion]
   | CoAxiom Name [Type]
   deriving stock (Eq, Ord, Show, Read, Generic)

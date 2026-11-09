@@ -554,6 +554,8 @@ coercionTypeVariables coercion =
     CoFun left right -> coercionTypeVariables left <> coercionTypeVariables right
     CoForAll binder body -> typeVariables (binderType binder) <> coercionTypeVariables body
     CoNth _ inner -> coercionTypeVariables inner
+    CoLeft inner -> coercionTypeVariables inner
+    CoRight inner -> coercionTypeVariables inner
     CoTyConApp _ inners -> foldMap coercionTypeVariables inners
     CoAxiom _ types -> foldMap typeVariables types
 
@@ -599,5 +601,7 @@ mentionsCoercionVariable expr =
         CoFun left right -> coercionHasVariable left || coercionHasVariable right
         CoForAll _ body -> coercionHasVariable body
         CoNth _ inner -> coercionHasVariable inner
+        CoLeft inner -> coercionHasVariable inner
+        CoRight inner -> coercionHasVariable inner
         CoTyConApp _ inners -> any coercionHasVariable inners
         CoAxiom _ _ -> False

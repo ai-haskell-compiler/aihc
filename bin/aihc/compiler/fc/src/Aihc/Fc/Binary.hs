@@ -410,6 +410,8 @@ encodeCoercion coercion =
     CoFun left right -> tagged 5 [encodeCoercion left, encodeCoercion right]
     CoForAll binder body -> tagged 6 [encodeBinder binder, encodeCoercion body]
     CoNth index inner -> tagged 7 [pure (cborInt index), encodeCoercion inner]
+    CoLeft inner -> tagged 10 [encodeCoercion inner]
+    CoRight inner -> tagged 11 [encodeCoercion inner]
     CoTyConApp name arguments -> tagged 8 [encodeName name, encodeList encodeCoercion arguments]
     CoAxiom name types -> tagged 9 [encodeName name, encodeList encodeType types]
 
@@ -816,6 +818,8 @@ getCoercion tables = do
     5 -> CoFun <$!> getCoercion tables <*!> getCoercion tables
     6 -> CoForAll <$!> getBinder tables <*!> getCoercion tables
     7 -> CoNth <$!> getInt <*!> getCoercion tables
+    10 -> CoLeft <$!> getCoercion tables
+    11 -> CoRight <$!> getCoercion tables
     8 -> CoTyConApp <$!> getName tables <*!> getList (getCoercion tables)
     9 -> CoAxiom <$!> getName tables <*!> getList (getType tables)
     _ -> fail "unknown coercion"
