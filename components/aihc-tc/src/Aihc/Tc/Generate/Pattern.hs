@@ -505,12 +505,14 @@ checkPatternCore sp pat scrutTy =
 -- and the equality then fails outside that match.
 checkTypeSigPattern :: Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
 checkTypeSigPattern sp inner tyAnn scrutTy = do
-  kinds <- getKinds
   scoped <- getScopedTyVars
   boundTyVars <- mapM bindPatternTyVar (filter (`Map.notMember` scoped) (freeTypeVars tyAnn))
   withPatternTyVars boundTyVars $ do
     scoped' <- getScopedTyVars
-    sigTy <- checkSurfaceType scoped' tyAnn (typeKind kinds)
+    -- The signature has the kind of the scrutinee. An unlifted field, as
+    -- the @Proxy# s@ of @P (_ :: Proxy# t) x@, is not of kind 'Type'.
+    scrutKind <- tcTypeKind =<< zonkType scrutTy
+    sigTy <- checkSurfaceType scoped' tyAnn scrutKind
     eqCt <- wantedEq sp scrutTy sigTy
     solved <-
       if null boundTyVars
