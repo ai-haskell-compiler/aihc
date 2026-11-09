@@ -203,6 +203,12 @@ table =
               ("word16ToWord#", word16Rep, wordRep),
               ("word32ToWord#", word32Rep, wordRep),
               ("word64ToWord#", word64Rep, wordRep),
+              ("word8ToInt8#", word8Rep, int8Rep),
+              ("int8ToWord8#", int8Rep, word8Rep),
+              ("word16ToInt16#", word16Rep, int16Rep),
+              ("int16ToWord16#", int16Rep, word16Rep),
+              ("word32ToInt32#", word32Rep, int32Rep),
+              ("int32ToWord32#", int32Rep, word32Rep),
               ("word64ToInt64#", word64Rep, int64Rep),
               ("int64ToWord64#", int64Rep, word64Rep)
             ]
@@ -637,6 +643,12 @@ inverseConversions =
   Map.fromList
     [ ("int2Word#", "word2Int#"),
       ("word2Int#", "int2Word#"),
+      ("word8ToInt8#", "int8ToWord8#"),
+      ("int8ToWord8#", "word8ToInt8#"),
+      ("word16ToInt16#", "int16ToWord16#"),
+      ("int16ToWord16#", "word16ToInt16#"),
+      ("word32ToInt32#", "int32ToWord32#"),
+      ("int32ToWord32#", "word32ToInt32#"),
       ("word64ToInt64#", "int64ToWord64#"),
       ("int64ToWord64#", "word64ToInt64#"),
       ("wordToWord64#", "word64ToWord#"),

@@ -1227,6 +1227,12 @@ evalPrimitive "timesInt16#" [left, right] = evalSizedIntArithmetic "timesInt16#"
 evalPrimitive "plusInt32#" [left, right] = evalSizedIntArithmetic "plusInt32#" Int32Rep 32 (+) left right
 evalPrimitive "subInt32#" [left, right] = evalSizedIntArithmetic "subInt32#" Int32Rep 32 (-) left right
 evalPrimitive "timesInt32#" [left, right] = evalSizedIntArithmetic "timesInt32#" Int32Rep 32 (*) left right
+evalPrimitive "word8ToInt8#" [value] = evalSizedSignCast "word8ToInt8#" Word8Rep Int8Rep 8 True value
+evalPrimitive "int8ToWord8#" [value] = evalSizedSignCast "int8ToWord8#" Int8Rep Word8Rep 8 False value
+evalPrimitive "word16ToInt16#" [value] = evalSizedSignCast "word16ToInt16#" Word16Rep Int16Rep 16 True value
+evalPrimitive "int16ToWord16#" [value] = evalSizedSignCast "int16ToWord16#" Int16Rep Word16Rep 16 False value
+evalPrimitive "word32ToInt32#" [value] = evalSizedSignCast "word32ToInt32#" Word32Rep Int32Rep 32 True value
+evalPrimitive "int32ToWord32#" [value] = evalSizedSignCast "int32ToWord32#" Int32Rep Word32Rep 32 False value
 evalPrimitive "word64ToInt64#" [value] = do
   word <- expectRuntimeRepPrimitiveArgument "word64ToInt64#" Word64Rep value
   pure [RuntimeLit (GrinLitInt Int64Rep (normalizeInt word))]
@@ -2941,6 +2947,16 @@ evalWord64Comparison name comparison left right = do
   leftWord <- expectRuntimeRepPrimitiveArgument name Word64Rep left
   rightWord <- expectRuntimeRepPrimitiveArgument name Word64Rep right
   pure [intRuntimeValue (if comparison leftWord rightWord then 1 else 0)]
+
+-- | Give the bits of a narrow value a new sign. The result is signed when
+-- the flag is 'True'.
+evalSizedSignCast :: Text -> GrinRep -> GrinRep -> Int -> Bool -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedSignCast name fromRep toRep bits toSigned value = do
+  input <- expectRuntimeRepPrimitiveArgument name fromRep value
+  let modulus = shiftL 1 bits
+      low = input .&. (modulus - 1)
+      result = if toSigned && low >= shiftL 1 (bits - 1) then low - modulus else low
+  pure [RuntimeLit (GrinLitInt toRep result)]
 
 evalWordNarrow :: Text -> GrinRep -> Integer -> RuntimeValue -> EvalM [RuntimeValue]
 evalWordNarrow name resultRep mask value = do
