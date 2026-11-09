@@ -2346,9 +2346,10 @@ tcInstanceDeclBodies (DeclAnn ann inner)
       let givens = map tcDictBinderPred (tcInstanceContextDicts annotation)
       classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       schemes <- freshMethodSchemes classInfo headTys
+      let instanceScope = tyVarScope (tcInstanceTyVars annotation)
       items <-
-        withScopedTyVars (tyVarScope (tcInstanceTyVars annotation)) $
-          mapM (tcInstanceItemBody schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
+        withScopedTyVars instanceScope $
+          mapM (tcInstanceItemBody instanceScope schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
       pure (DeclAnn ann (DeclInstance (instanceDecl {instanceDeclItems = items})))
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
@@ -2368,7 +2369,7 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       schemes <- freshMethodSchemes classInfo headTys
       items <-
         withScopedTyVars tvEnv $
-          mapM (tcInstanceItemBody schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
+          mapM (tcInstanceItemBody tvEnv schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies decl =
   pure decl
@@ -2387,12 +2388,16 @@ instanceMethodSignatures = Map.fromList . concatMap collect
 
 -- | Check the instance signature against the class method type.
 -- Explicit type variables keep their source names in the method body.
-instanceMethodScope :: Map Text Type -> Text -> [Pred] -> TypeScheme -> [Match] -> TcM TvKindEnv
-instanceMethodScope signatures name givens (ForAll _ predicates expected) matches =
+-- The type variables of the instance head scope over the signature also
+-- without ScopedTypeVariables, as in GHC. Thus the @m@ of
+-- @left :: MSF m a b -> ...@ in @instance Monad m => ArrowChoice (MSF m)@
+-- is the @m@ of the instance context.
+instanceMethodScope :: Map Text (TyVarId, TcType) -> Map Text Type -> Text -> [Pred] -> TypeScheme -> [Match] -> TcM TvKindEnv
+instanceMethodScope instanceScope signatures name givens (ForAll _ predicates expected) matches =
   case Map.lookup name signatures of
     Nothing -> pure Map.empty
     Just signature -> do
-      scheme <- sigToScheme signature
+      scheme <- withImpliedScopedTyVars instanceScope (sigToScheme signature)
       let ForAll variables signaturePredicates signatureType = scheme
       withScopedTyVars (scopedSigTyVars (explicitForallNames signature) variables) $ do
         let (arguments, result) = splitFunTy signatureType (matchArity matches)
@@ -2424,15 +2429,15 @@ instanceMethodScope signatures name givens (ForAll _ predicates expected) matche
 -- | Check one method binding of an instance. The expected types come from
 -- 'freshMethodSchemes', so the equations of one method that the source
 -- splits over several items share one type.
-tcInstanceItemBody :: Map Text TypeScheme -> [Pred] -> Map Text Type -> InstanceDeclItem -> TcM InstanceDeclItem
-tcInstanceItemBody schemes givens signatures item =
+tcInstanceItemBody :: Map Text (TyVarId, TcType) -> Map Text TypeScheme -> [Pred] -> Map Text Type -> InstanceDeclItem -> TcM InstanceDeclItem
+tcInstanceItemBody instanceScope schemes givens signatures item =
   case item of
     InstanceItemAnn ann inner ->
-      InstanceItemAnn ann <$> tcInstanceItemBody schemes givens signatures inner
+      InstanceItemAnn ann <$> tcInstanceItemBody instanceScope schemes givens signatures inner
     InstanceItemBind (FunctionBind name matches) -> do
       scheme <- instanceMethodScheme schemes (unqualifiedNameText name)
       let ForAll methodTyVars methodGivens methodTy = scheme
-      scope <- instanceMethodScope signatures (unqualifiedNameText name) givens scheme matches
+      scope <- instanceMethodScope instanceScope signatures (unqualifiedNameText name) givens scheme matches
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       (results, failed) <-
         withErrorTracking $ withScopedTyVars scope $ do
@@ -2456,7 +2461,7 @@ tcInstanceItemBody schemes givens signatures item =
         Just (methodName, _) -> do
           scheme <- instanceMethodScheme schemes methodName
           let ForAll methodTyVars methodGivens methodTy = scheme
-          scope <- instanceMethodScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
+          scope <- instanceMethodScope instanceScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
           (results, failed) <-
             withErrorTracking $ withScopedTyVars scope $ do
               results <- withGivenPredicates (givens <> methodGivens) (mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs])

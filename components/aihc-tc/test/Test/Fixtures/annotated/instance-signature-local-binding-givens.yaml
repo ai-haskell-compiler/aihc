@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE InstanceSigs #-}
+  module Main where
+  import GHC.Prim.Base (Functor (..), Monad, Maybe (..))
+  class C f where
+  └─ class methods: left ∷ ∀ f a. (C f) ⇒ f a → f (Maybe a)
+    left :: f a -> f (Maybe a)
+  newtype W m a = W (m a)
+          │       └─ type: ∀ m a. m a → W m a
+          └─ type: (Type → Type) → Type → Type
+  instance Monad m => C (W m) where
+  └─ $fCWm ∷ ∀ m. (Monad m) ⇒ C (W m)
+    left :: W m a -> W m (Maybe a)
+    left (W x) = W (go x)
+    │     │ │    │  └─ type: m a → m (GHC.Prim.Base.Maybe a); type-args: m, a; evidence: super[0](super[0](given Monad m))
+    │     │ │    └─ type: m (GHC.Prim.Base.Maybe a) → W m (GHC.Prim.Base.Maybe a); type-args: m, Maybe a
+    │     │ └─ type: m a
+    │     └─ type: W m a
+    └─ left ∷ ∀ a. W m a → W m (Maybe a)
+      where
+        go y = fmap Just y
+        │  │   │    └─ type: b → GHC.Prim.Base.Maybe b; type-args: b
+        │  │   └─ type: (b → GHC.Prim.Base.Maybe b) → a b → a (GHC.Prim.Base.Maybe b); type-args: a, b, Maybe b; evidence: given Functor a
+        │  └─ type: a b
+        └─ type: ∀ a b. (GHC.Prim.Base.Functor a) ⇒ a b → a (GHC.Prim.Base.Maybe b)
+extensions:
+- InstanceSigs
+modules:
+- |
+  {-# LANGUAGE InstanceSigs #-}
+  module Main where
+  import GHC.Prim.Base (Functor (..), Monad, Maybe (..))
+  class C f where
+    left :: f a -> f (Maybe a)
+  newtype W m a = W (m a)
+  instance Monad m => C (W m) where
+    left :: W m a -> W m (Maybe a)
+    left (W x) = W (go x)
+      where
+        go y = fmap Just y
+reason: a local binding without a signature in an instance method with an
+  instance signature can use the instance context
+status: pass
