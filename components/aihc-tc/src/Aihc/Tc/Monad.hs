@@ -105,6 +105,7 @@ module Aihc.Tc.Monad
     tcPostfixOperators,
     localDefaultTypes,
     getDefaultTypes,
+    getOverloadedStrings,
     getUndecidableInstances,
     deferKindMeta,
     takeDeferredKindMetas,
@@ -226,6 +227,10 @@ data TcEnv = TcEnv
     -- uses the Haskell 2010 standard list. @default ()@ gives @Just []@ and
     -- turns defaulting off.
     tcEnvDefaultTypes :: !(Maybe [TcType]),
+    -- | Whether OverloadedStrings is on in the current module. It extends
+    -- defaulting as GHC does: IsString counts as a numeric class, and
+    -- String follows the standard default list.
+    tcEnvOverloadedStrings :: !Bool,
     -- | Whether ScopedTypeVariables is on. Without it, no binding scopes
     -- its type variables over its body.
     tcEnvScopedTypeVariables :: !Bool,
@@ -484,6 +489,7 @@ emptyTcEnv config =
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
       tcEnvDefaultTypes = Nothing,
+      tcEnvOverloadedStrings = False,
       tcEnvScopedTypeVariables = False,
       tcEnvUndecidableInstances = False,
       tcEnvPostfixOperators = False,
@@ -1141,13 +1147,19 @@ replaceMapEntry label key value entries
   | otherwise = abortTc ("missing " <> label <> " key for replacement: " <> show key)
 
 -- | Run a computation with adjusted local type-checker options.
--- | Run an action with the candidate types of a module @default@ declaration.
-localDefaultTypes :: Maybe [TcType] -> TcM a -> TcM a
-localDefaultTypes types = local $ \env -> env {tcEnvDefaultTypes = types}
+-- | Run an action with the candidate types of a module @default@ declaration
+-- and with the OverloadedStrings setting of that module.
+localDefaultTypes :: Bool -> Maybe [TcType] -> TcM a -> TcM a
+localDefaultTypes overloadedStrings types =
+  local $ \env -> env {tcEnvDefaultTypes = types, tcEnvOverloadedStrings = overloadedStrings}
 
 -- | The candidate types of the module @default@ declaration, if it has one.
 getDefaultTypes :: TcM (Maybe [TcType])
 getDefaultTypes = asks tcEnvDefaultTypes
+
+-- | Whether OverloadedStrings is on in the current module.
+getOverloadedStrings :: TcM Bool
+getOverloadedStrings = asks tcEnvOverloadedStrings
 
 -- | Whether UndecidableInstances is on.
 getUndecidableInstances :: TcM Bool

@@ -164,7 +164,7 @@ import Data.Either (partitionEithers)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, (\\))
+import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, zipWith4, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
@@ -521,7 +521,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- sequence (zipWith3 tcModuleBody (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized)
+  pending <- sequence (zipWith4 tcModuleBody moduleExtensions (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized)
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
@@ -680,10 +680,10 @@ data PendingModule = PendingModule
     pendingValueResults :: ![TcBindingResult]
   }
 
-tcModuleBody :: [GlobalName] -> Map Entity CheckedSig -> Module -> TcM PendingModule
-tcModuleBody visibleTerms schemes m = withVisibleTerms (map EntityGlobal visibleTerms) $ do
+tcModuleBody :: [Extension] -> [GlobalName] -> Map Entity CheckedSig -> Module -> TcM PendingModule
+tcModuleBody extensions visibleTerms schemes m = withVisibleTerms (map EntityGlobal visibleTerms) $ do
   declaredDefaults <- moduleDefaultTypes (moduleDecls m)
-  localDefaultTypes declaredDefaults (tcModuleBodyWithDefaults schemes m)
+  localDefaultTypes (OverloadedStrings `elem` extensions) declaredDefaults (tcModuleBodyWithDefaults schemes m)
 
 -- | The candidate types of the module @default@ declaration.
 --

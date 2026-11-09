@@ -18,6 +18,11 @@
 --
 -- The default list comes from the module @default@ declaration. A module
 -- without one uses @(Integer, Double)@.
+--
+-- OverloadedStrings extends these rules as GHC does. @IsString@ counts as a
+-- numeric class in the group test, and a module without a @default@
+-- declaration uses @(Integer, Double, String)@. Thus @const "x"@ with an
+-- otherwise unconstrained literal type gets the type @String@.
 module Aihc.Tc.Solve.Defaulting
   ( defaultAmbiguousMetas,
     isNumericClassName,
@@ -30,7 +35,7 @@ import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Generalize (predMetaVars)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, freshEvVar, getClassInstances, getDefaultTypes, lookupTyCon, tcSpeculate, writeMetaTv)
+import Aihc.Tc.Monad (TcM, freshEvVar, getClassInstances, getDefaultTypes, getOverloadedStrings, lookupTyCon, stringType, tcSpeculate, writeMetaTv)
 import Aihc.Tc.Solve.Dict (DictResult (..), mostSpecificInstances, solveDict)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), Unique, applySubstPred)
 import Aihc.Tc.Zonk (zonkPred)
@@ -52,12 +57,13 @@ defaultAmbiguousMetas :: [Unique] -> [Ct] -> TcM Bool
 defaultAmbiguousMetas keep constraints = do
   zonked <- mapM (zonkPred . ctPred) constraints
   reduced <- concat <$> mapM (reduceToHeadNormalForm reductionDepthLimit) zonked
-  candidates <- defaultCandidateTypes
+  overloadedStrings <- getOverloadedStrings
+  candidates <- defaultCandidateTypes overloadedStrings
   if null candidates
     then pure False
     else do
       let ambiguous = filter (`notElem` keep) (nub (concatMap predMetaVars reduced))
-      results <- mapM (defaultOneMeta candidates reduced) ambiguous
+      results <- mapM (defaultOneMeta overloadedStrings candidates reduced) ambiguous
       pure (or results)
 
 -- | Reduce a class constraint to head normal form through the instance that
@@ -91,9 +97,9 @@ reductionDepthLimit :: Int
 reductionDepthLimit = 32
 
 -- | Default one meta-variable, if its constraint group permits it.
-defaultOneMeta :: [TcType] -> [Pred] -> Unique -> TcM Bool
-defaultOneMeta candidates constraints unique =
-  case defaultableGroup unique constraints of
+defaultOneMeta :: Bool -> [TcType] -> [Pred] -> Unique -> TcM Bool
+defaultOneMeta overloadedStrings candidates constraints unique =
+  case defaultableGroup overloadedStrings unique constraints of
     Nothing -> pure False
     Just classes -> do
       solution <- firstSatisfying candidates classes
@@ -111,16 +117,19 @@ defaultOneMeta candidates constraints unique =
 -- head normal form, so @C [v]@ reaches here only when no instance reduces
 -- it. Such a constraint, @C v w@, or an unsolved equality blocks
 -- defaulting, as does a non-standard class or a group without a numeric
--- class.
-defaultableGroup :: Unique -> [Pred] -> Maybe [TyCon]
-defaultableGroup unique constraints = do
+-- class. Under OverloadedStrings, @IsString@ counts as a numeric class.
+defaultableGroup :: Bool -> Unique -> [Pred] -> Maybe [TyCon]
+defaultableGroup overloadedStrings unique constraints = do
   classes <- traverse classOfConstraint mentioning
   let names = map tyConName classes
-  if any isNumericClassName names && all isStandardClassName names
+  if any isNumericLike names && all isStandardClassName names
     then Just (nub classes)
     else Nothing
   where
     mentioning = [predicate | predicate <- constraints, unique `elem` predMetaVars predicate]
+
+    isNumericLike name =
+      isNumericClassName name || (overloadedStrings && name == "IsString")
 
     classOfConstraint predicate =
       case predicate of
@@ -151,12 +160,19 @@ hasInstance ty className = tcSpeculate $ do
     DictStuck _ -> pure False
 
 -- | The candidate types that defaulting may choose from.
-defaultCandidateTypes :: TcM [TcType]
-defaultCandidateTypes = do
+--
+-- Under OverloadedStrings, a module without a @default@ declaration also
+-- has @String@ after the standard list.
+defaultCandidateTypes :: Bool -> TcM [TcType]
+defaultCandidateTypes overloadedStrings = do
   declared <- getDefaultTypes
   case declared of
     Just types -> pure types
-    Nothing -> mapMaybe (fmap standardType) <$> mapM lookupTyCon standardDefaultTypeNames
+    Nothing -> do
+      standard <- mapMaybe (fmap standardType) <$> mapM lookupTyCon standardDefaultTypeNames
+      if overloadedStrings
+        then (\string -> standard <> [string]) <$> stringType
+        else pure standard
   where
     standardType info = TcTyCon (tciTyCon info) []
 

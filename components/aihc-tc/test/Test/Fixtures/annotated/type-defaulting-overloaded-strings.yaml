@@ -1,0 +1,48 @@
+annotated:
+- |-
+  module GHC.Prim.String where
+  import GHC.Types (Char)
+  class IsString a where
+  └─ class methods: fromString ∷ ∀ a. (IsString a) ⇒ [Char] → a
+    fromString :: [Char] -> a
+  instance IsString [Char] where
+  └─ $fIsStringList ∷ () ⇒ IsString [Char]
+    fromString s = s
+    │          └─ type: [GHC.Types.Char]
+    └─ fromString ∷ [Char] → [Char]
+- |-
+  {-# LANGUAGE OverloadedStrings #-}
+  module Main where
+  import GHC.Prim.String (IsString (..))
+  import GHC.Types (Bool (..))
+  ignore :: a -> Bool
+  ignore _ = True
+  │      └─ type: a
+  └─ type: ∀ a. a → GHC.Types.Bool
+  result :: Bool
+  result = ignore "text"
+  │        │      └─ type: [GHC.Types.Char]; type-args: [Char]; evidence: $fIsStringList
+  │        └─ type: [GHC.Types.Char] → GHC.Types.Bool; type-args: [Char]
+  └─ type: GHC.Types.Bool
+extensions:
+- OverloadedStrings
+modules:
+- |
+  module GHC.Prim.String where
+  import GHC.Types (Char)
+  class IsString a where
+    fromString :: [Char] -> a
+  instance IsString [Char] where
+    fromString s = s
+- |
+  {-# LANGUAGE OverloadedStrings #-}
+  module Main where
+  import GHC.Prim.String (IsString (..))
+  import GHC.Types (Bool (..))
+  ignore :: a -> Bool
+  ignore _ = True
+  result :: Bool
+  result = ignore "text"
+reason: under OverloadedStrings, a literal type that only IsString constrains
+  defaults to String, as GHC does
+status: pass
