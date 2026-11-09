@@ -33,12 +33,16 @@ import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_)
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy.Char8 qualified as BLC
+import Data.Either (fromLeft, isRight)
 import Data.Functor.Identity (Identity (..))
-import Data.List (isInfixOf)
+import Data.List (intercalate, isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.String (fromString)
 import Data.Text qualified as T
-import Hedgehog (Property, property, success)
+import Hedgehog (Gen, Property, annotate, assert, cover, forAll, property, success, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
@@ -53,11 +57,12 @@ main =
     [ testCase "flips an automatic flag when its default branch cannot be satisfied" test_flipsFlagUnderConflict,
       testCase "backtracks to an older version when the newest conflicts" test_backtracksOnVersionConflict,
       testCase "backjumps past choices a failure does not blame" test_backjumpsPastIrrelevantChoices,
+      testCase "learns a conflict once under a chain of dependents" test_learnsConflictUnderDependentChain,
       testCase "tries deprecated versions last" test_deprecatedLast,
       testCase "keeps the preferred version of a lock" test_prefersLockedVersion,
       testCase "maps boot library names to their standins" test_aliasesBootLibraries,
       testCase "maps the package of a boot library import to its standin" test_aliasesImportPackages,
-      testCase "reports the goal that ran out of candidates" test_reportsExhaustedGoal,
+      testCase "explains a failed solve" test_explainsFailure,
       testCase "reports an unknown package" test_reportsUnknownPackage,
       testCase "applies version and flag constraints" test_appliesConstraints,
       testCase "only searches flags that guard build-depends" test_searchableFlags,
@@ -69,12 +74,115 @@ main =
       testCase "uses the release version of a Hackage boot library" test_hackageBootLibraryVersion,
       testCase "parses a project file" test_parsesProjectFile,
       testCase "plans the packages and targets of a project" test_plansProject,
-      testProperty "Hedgehog options" prop_dummy
+      testProperty "finds a plan exactly when one exists" prop_solvesExactlyWhenPlanExists
     ]
 
--- | Keep the repository Hedgehog options accepted by this test suite.
-prop_dummy :: Property
-prop_dummy = property success
+-- | One version of a package in a generated universe. The flag, when
+-- there is one, is automatic and guards the dependencies of its two
+-- branches.
+data SmallVersion = SmallVersion
+  { smallName :: String,
+    smallVersion :: Int,
+    smallDeprecated :: Bool,
+    smallDependencies :: [(String, [Int])],
+    smallFlag :: Maybe (Bool, [(String, [Int])], [(String, [Int])])
+  }
+  deriving (Show)
+
+smallVersionNumbers :: [Int]
+smallVersionNumbers = [1, 2, 3]
+
+-- | A universe of at most four packages beside the root, each with some
+-- of three versions. Every version depends on any of the other packages
+-- in any set of versions, the empty set included, and may have a flag
+-- with dependencies in each branch. The generator leaves out a dependency
+-- of a package on itself, which the solver drops, and a package with no
+-- version, which the solver treats as unknown; both are tested on their
+-- own.
+genUniverse :: Gen [SmallVersion]
+genUniverse = do
+  names <- flip take ["a", "b", "c", "d"] <$> Gen.int (Range.linear 1 4)
+  root <- genVersion names "root" 0
+  others <- concat <$> mapM (\name -> Gen.subsequence smallVersionNumbers >>= \versions -> mapM (genVersion names name) (if null versions then [1] else versions)) names
+  pure (root : others)
+  where
+    genVersion names name number = do
+      deprecated <- Gen.bool
+      always <- genDependencies names name
+      flag <- Gen.frequency [(2, pure Nothing), (1, Just <$> ((,,) <$> Gen.bool <*> genDependencies names name <*> genDependencies names name))]
+      pure (SmallVersion name number deprecated always flag)
+    genDependencies names name =
+      concat <$> mapM (\other -> Gen.frequency [(1, pure []), (1, (\versions -> [(other, versions)]) <$> Gen.subsequence smallVersionNumbers)]) (filter (/= name) names)
+
+smallUniverse :: [SmallVersion] -> Universe
+smallUniverse versions =
+  universe
+    [ (smallName small, smallVersionText (smallVersion small), smallDeprecated small, if smallName small == "root" then local else hackage, smallCabal small)
+    | small <- versions
+    ]
+
+smallVersionText :: Int -> String
+smallVersionText 0 = "0.1"
+smallVersionText number = show number <> ".0"
+
+smallCabal :: SmallVersion -> String
+smallCabal small =
+  cabalFile
+    (smallName small)
+    (smallVersionText (smallVersion small))
+    (maybe [] (\(def, _, _) -> ["flag f", "  default: " <> show def, "  manual: False"]) (smallFlag small))
+    ( dependsLine (smallDependencies small)
+        <> case smallFlag small of
+          Nothing -> []
+          Just (_, whenOn, whenOff) ->
+            [line | not (null whenOn), line <- "if flag(f)" : map ("  " <>) (dependsLine whenOn)]
+              <> [line | not (null whenOff), line <- "if !flag(f)" : map ("  " <>) (dependsLine whenOff)]
+    )
+  where
+    dependsLine deps = ["build-depends: " <> intercalate ", " [name <> " " <> smallRange versions | (name, versions) <- deps] | not (null deps)]
+    smallRange [] = "<1"
+    smallRange versions = intercalate " || " ["==" <> smallVersionText number | number <- versions]
+
+-- | Whether some choice of a version and a flag value for each package,
+-- or of leaving it out, satisfies every dependency.
+smallPlanExists :: [SmallVersion] -> Bool
+smallPlanExists versions = any consistent choices
+  where
+    names = Map.keys (Map.fromList [(smallName small, ()) | small <- versions, smallName small /= "root"])
+    choices =
+      sequence
+        ( [Just ("root", number, flag) | SmallVersion "root" number _ _ _ <- versions, flag <- [False, True]]
+            : [Nothing : [Just (name, smallVersion small, flag) | small <- versions, smallName small == name, flag <- [False, True]] | name <- names]
+        )
+    consistent choice = all (satisfied (Map.fromList [(name, number) | Just (name, number, _) <- choice])) choice
+    satisfied present (Just (name, number, flag)) =
+      case [small | small <- versions, smallName small == name, smallVersion small == number] of
+        small : _ -> all (\(dependency, allowed) -> maybe False (`elem` allowed) (Map.lookup dependency present)) (dependenciesUnder small flag)
+        [] -> False
+    satisfied _ Nothing = True
+    dependenciesUnder small flag =
+      smallDependencies small <> maybe [] (\(_, whenOn, whenOff) -> if flag then whenOn else whenOff) (smallFlag small)
+
+-- | The solver finds a plan exactly when a search over every combination
+-- finds one, and a plan it finds passes 'verifySolution'.
+prop_solvesExactlyWhenPlanExists :: Property
+prop_solvesExactlyWhenPlanExists = property $ do
+  small <- forAll genUniverse
+  let packages = smallUniverse small
+      config = configFor ["root"]
+      solved = solveWith packages config
+  annotate (either renderSolveFailure (show . chosen) solved)
+  cover 20 (fromString "a plan exists") (smallPlanExists small)
+  cover 20 (fromString "no plan exists") (not (smallPlanExists small))
+  cover 20 (fromString "a flag is searched") (any (maybe False (\(_, whenOn, whenOff) -> not (null whenOn && null whenOff)) . smallFlag) small)
+  isRight solved === smallPlanExists small
+  case solved of
+    Left _ -> success
+    Right solution -> do
+      let recorded = Map.map (\assignment -> (assignmentVersion assignment, Nothing, assignmentFlags assignment)) solution
+          verified = runIdentity (verifySolution (inputsFor packages) config recorded)
+      annotate (fromLeft "verified" verified)
+      assert (isRight verified)
 
 -- | Ask nothing of Hackage: the tests answer from a cache they write
 -- themselves, so they neither reach the network nor read the cache of the
@@ -142,7 +250,7 @@ configFor roots =
       configPreferences = Map.empty,
       configRoots = Map.fromList [(mkPackageName root, noStanzas) | root <- roots],
       configGoals = [],
-      configMaxBacktracks = 100
+      configMaxConflicts = 100
     }
 
 solveWith :: Universe -> SolverConfig -> Either SolveFailure Solution
@@ -225,9 +333,9 @@ test_flipsFlagUnderConflict = do
 -- newer, so the whole default branch is doomed. directory has the most
 -- candidates, so it is decided last, below two packages that have nothing
 -- to do with the conflict. Chronological backtracking re-derives the same
--- directory failure once per pair of those irrelevant versions and runs
--- out of backtracks; blaming filepath and the root instead skips straight
--- back to the flag. The 100-backtrack budget of "configFor" is the test.
+-- directory failure once per pair of those irrelevant versions. The
+-- conflict must go straight back to the flag; the 100-conflict budget of
+-- "configFor" is the test.
 test_backjumpsPastIrrelevantChoices :: Assertion
 test_backjumpsPastIrrelevantChoices = do
   let noise name index =
@@ -271,6 +379,65 @@ test_backjumpsPastIrrelevantChoices = do
     ]
     (chosen solution)
   assertEqual "the root flips os-string" [("os-string", True)] (flagsOf solution "root")
+
+-- The pandoc case, reduced. The root has an automatic flag f, on by
+-- default, that pulls in the chain c3 -> c2 -> c1 -> t, and the root also
+-- needs the leaf l. Every version of t needs s, and every version of s
+-- needs l at 1, but l has two versions and the newest is 2. Each package
+-- of the chain has ten versions, and each of them is a dependent of the
+-- next, so a search that returns to the most recent blamed choice tries
+-- the chain combinations one by one before it reaches l. The 100-conflict
+-- budget of "configFor" is the test. A solver that keeps what it learns
+-- finds the plan with l at 1 directly.
+test_learnsConflictUnderDependentChain :: Assertion
+test_learnsConflictUnderDependentChain = do
+  let chain name next =
+        [ (name, show index <> ".0", False, hackage, cabalFile name (show index <> ".0") [] ["build-depends: base, " <> next])
+        | index <- [1 .. 10 :: Int]
+        ]
+      packages =
+        universe
+          ( [ baseEntry,
+              ( "root",
+                "0.1",
+                False,
+                local,
+                cabalFile
+                  "root"
+                  "0.1"
+                  ["flag f", "  default: True", "  manual: False"]
+                  [ "build-depends: base, l",
+                    "if flag(f)",
+                    "  build-depends: c3"
+                  ]
+              ),
+              ("l", "2.0", False, hackage, cabalFile "l" "2.0" [] ["build-depends: base"]),
+              ("l", "1.0", False, hackage, cabalFile "l" "1.0" [] ["build-depends: base"]),
+              ("s", "1.0", False, hackage, cabalFile "s" "1.0" [] ["build-depends: base, l ==1.0"])
+            ]
+              <> chain "c3" "c2"
+              <> chain "c2" "c1"
+              <> chain "c1" "t"
+              <> [("t", show index <> ".0", False, hackage, cabalFile "t" (show index <> ".0") [] ["build-depends: base, s"]) | index <- [1 .. 3 :: Int]]
+          )
+  solution <- expectSolution (solveWith packages (configFor ["root"]))
+  assertEqual
+    "chosen versions"
+    [ ("aihc-base", "4.21.2.0"),
+      ("c1", "10.0"),
+      ("c2", "10.0"),
+      ("c3", "10.0"),
+      ("l", "1.0"),
+      ("root", "0.1"),
+      ("s", "1.0"),
+      ("t", "3.0")
+    ]
+    (chosen solution)
+  assertEqual "the flag keeps its default" [("f", True)] (flagsOf solution "root")
+  -- With l pinned at 2 the only way out is the flag.
+  pinned <- expectSolution (solveWith packages (configFor ["root"]) {configConstraints = [ConstraintVersion (mkPackageName "l") (range "==2.0")]})
+  assertEqual "the chain is dropped" [("aihc-base", "4.21.2.0"), ("l", "2.0"), ("root", "0.1")] (chosen pinned)
+  assertEqual "the flag is turned off" [("f", False)] (flagsOf pinned "root")
 
 -- The newest a needs c at 1, but b needs c at 2, so a goes back a version.
 test_backtracksOnVersionConflict :: Assertion
@@ -329,7 +496,7 @@ test_aliasesBootLibraries = do
   let tooOld = universe [baseEntry, ("root", "0.1", False, local, cabalFile "root" "0.1" [] ["build-depends: base <4.20"])]
   case solveWith tooOld (configFor ["root"]) of
     Right _ -> assertFailure "a range that excludes the standin must fail"
-    Left failure -> assertBool ("names the standin: " <> renderSolveFailure failure) ("No version of aihc-base satisfies <4.20" `isInfixOf` renderSolveFailure failure)
+    Left failure -> assertBool ("names the standin: " <> renderSolveFailure failure) ("root-0.1 needs aihc-base <4.20, which no version of aihc-base satisfies" `isInfixOf` renderSolveFailure failure)
 
 -- | A package-qualified import names a boot library as the source spells
 -- it. The plan builds the standin, so the import must name the standin.
@@ -360,8 +527,11 @@ test_aliasesImportPackages = do
     [Just "aihc-template-haskell", Just "containers"]
     (map (fmap T.unpack . importDeclPackage) (moduleImports (parsedFileModule parsed)))
 
-test_reportsExhaustedGoal :: Assertion
-test_reportsExhaustedGoal = do
+-- The explanation of a failed solve is the derivation of the final
+-- incompatibility: each line combines two facts into a new one, and the
+-- last line concludes that no plan exists.
+test_explainsFailure :: Assertion
+test_explainsFailure = do
   let packages =
         universe
           [ ("root", "0.1", False, local, cabalFile "root" "0.1" [] ["build-depends: a, c ==2.*"]),
@@ -372,19 +542,21 @@ test_reportsExhaustedGoal = do
           ]
   case solveWith packages (configFor ["root"]) of
     Right solution -> assertFailure ("expected a failure, got " <> show (chosen solution))
-    Left failure -> do
-      let rendered = renderSolveFailure failure
-      assertBool ("names the exhausted goal:\n" <> rendered) ("Every version of a was rejected; it is needed by root-0.1" `isInfixOf` rendered)
-      assertBool ("names the rejected candidate:\n" <> rendered) ("a-2.0 needs c >=1 && <2, but c-2.0 is chosen" `isInfixOf` rendered)
-      assertBool ("starts where the choice was:\n" <> rendered) (take 18 rendered == "Every version of a")
-      assertBool ("names the other candidate:\n" <> rendered) ("a-1.0 needs c <1, but c-2.0 is chosen" `isInfixOf` rendered)
+    Left failure ->
+      assertEqual
+        "the explanation"
+        [ "Because a-2.0 needs c >=1 && <2 and a-1.0 needs c <1, which no version of c satisfies, every version of a requires c-1.0.",
+          "And because root-0.1 needs a, root-0.1 requires c-1.0.",
+          "And because root-0.1 needs c >=2 && <3 and the root needs root, no plan exists."
+        ]
+        (lines (renderSolveFailure failure))
 
 test_reportsUnknownPackage :: Assertion
 test_reportsUnknownPackage = do
   let packages = universe [("root", "0.1", False, local, cabalFile "root" "0.1" [] ["build-depends: nowhere"])]
   case solveWith packages (configFor ["root"]) of
     Right _ -> assertFailure "an unknown package must fail"
-    Left failure -> assertBool (renderSolveFailure failure) ("Unknown package nowhere, needed by root-0.1" `isInfixOf` renderSolveFailure failure)
+    Left failure -> assertBool (renderSolveFailure failure) ("root-0.1 needs nowhere, which is an unknown package" `isInfixOf` renderSolveFailure failure)
 
 test_appliesConstraints :: Assertion
 test_appliesConstraints = do
