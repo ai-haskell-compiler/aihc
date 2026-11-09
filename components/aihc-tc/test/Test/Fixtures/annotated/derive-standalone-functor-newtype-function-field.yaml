@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  import GHC.Types (Bool)
+  newtype Matcher a = Matcher (Bool -> a)
+          │           └─ type: ∀ a. (GHC.Types.Bool → a) → Matcher a
+          └─ type: Type → Type
+  deriving instance Functor Matcher
+  │                 └─ $fFunctorMatcher ∷ () ⇒ Functor Matcher
+  │                 └─ type: a → b
+  │                 └─ fmap ∷ ∀ a b. (a → b) → Matcher a → Matcher b
+  │                 └─ type: Matcher a
+  │                 └─ type: (GHC.Types.Bool → b) → Matcher b; type-args: b
+  │                 └─ type: GHC.Types.Bool → b
+  │                 └─ type: GHC.Types.Bool
+  │                 └─ type: GHC.Types.Bool → a
+  └─ deriving plans: stock Functor Matcher [context: ()] [methods: fmap, <$]
+extensions:
+- DeriveFunctor
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+modules:
+- |
+  {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  import GHC.Types (Bool)
+  newtype Matcher a = Matcher (Bool -> a)
+  deriving instance Functor Matcher
+reason: Standalone Functor deriving for a newtype uses stock deriving when the
+  representation type does not eta-reduce to the instance head, as in GHC
+status: pass
