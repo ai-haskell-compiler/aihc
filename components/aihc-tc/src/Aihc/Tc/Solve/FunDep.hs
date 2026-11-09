@@ -30,10 +30,13 @@ import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions, classDependencyArguments, dependencyDeterminers)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass)
+import Aihc.Tc.Solve.Congruence (applyGivenSubst)
+import Aihc.Tc.Solve.Equality (givenRewrites)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
-import Aihc.Tc.Zonk (zonkPred)
-import Control.Monad (foldM, forM, forM_, void, when, zipWithM_)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Control.Monad (filterM, foldM, forM, forM_, void, when, zipWithM_)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
 
@@ -172,12 +175,12 @@ improveConstraint givens siblings depth constraint info = do
   siblingPredicates <- mapM zonkPred siblings
   forM_ (ciFunDeps info) $ \dependency -> do
     forM_ (givens <> siblingPredicates) $ \other ->
-      improveFromPredicate info dependency constraint other
+      improveFromPredicate givens info dependency constraint other
     improveFromInstances givens siblings depth info dependency constraint
 
 -- | Improve a wanted from another class constraint of the same class.
-improveFromPredicate :: ClassInfo -> FunDep -> Pred -> Pred -> TcM ()
-improveFromPredicate info dependency constraint other =
+improveFromPredicate :: [Pred] -> ClassInfo -> FunDep -> Pred -> Pred -> TcM ()
+improveFromPredicate givens info dependency constraint other =
   case other of
     ClassPred otherClass otherArguments
       | tyConKey otherClass == tyConKey (ciTyCon info) -> do
@@ -194,7 +197,7 @@ improveFromPredicate info dependency constraint other =
               -- An occurrence whose kind a given equality refined is still
               -- the same variable.
               when (sameTypes (determiners arguments') (determiners otherArguments')) $
-                improveEqualities (determined dependency arguments') (determined dependency otherArguments')
+                improveEqualities givens (determined dependency arguments') (determined dependency otherArguments')
             _ -> pure ()
     _ -> pure ()
 
@@ -234,7 +237,7 @@ improveFromInstances givens siblings depth info dependency constraint = do
           then case candidates of
             [_] -> improveThroughContext givens siblings depth instanceInfo arguments
             _ -> pure ()
-          else improveEqualities instanceDetermined (determined dependency arguments')
+          else improveEqualities givens instanceDetermined (determined dependency arguments')
     _ -> pure ()
 
 -- | Improve a wanted from the context of the one instance that its
@@ -305,10 +308,26 @@ determined dependency = atPositions (fdDetermined dependency)
 -- | Equate the determined parameters. Improvement carries no evidence, so
 -- the equality is solved by unification alone. Types that do not unify are
 -- left to the constraint itself to report as unsolved.
-improveEqualities :: [TcType] -> [TcType] -> TcM ()
-improveEqualities left right
+--
+-- The unifier cannot see through a type family application that no
+-- equation reduces, but a given equality can name it. The instance
+-- @ListLike [a] a@ improves the wanted @ListLike [Item full] (t0 Char)@
+-- with @Item full ~ t0 Char@, and only the given @Item full ~ v Char@
+-- gives @t0 := v@. Thus each family application that a given names is
+-- replaced by the other side of that given before the unification. A
+-- rigid variable is not replaced, because its solution must keep the
+-- name that other givens use.
+improveEqualities :: [Pred] -> [TcType] -> [TcType] -> TcM ()
+improveEqualities givens left right
   | length left /= length right = pure ()
-  | otherwise = zipWithM_ improveOne left right
+  | and (zipWith (==) left right) = pure ()
+  | otherwise = do
+      rewrites <- givenRewrites givens
+      familyRewrites <- filterM (isTypeFamilyApplication . fst) rewrites
+      left' <- mapM zonkType left
+      right' <- mapM zonkType right
+      let rewrite = applyGivenSubst familyRewrites
+      zipWithM_ improveOne (map rewrite left') (map rewrite right')
   where
     improveOne leftType rightType
       | leftType == rightType = pure ()
