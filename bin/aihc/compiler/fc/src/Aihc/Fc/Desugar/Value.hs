@@ -5638,6 +5638,7 @@ desugarEvidence evidence =
       withCoercion coercion (pure . ExCast expression)
     Ev.EvTypeable origin ty constructor kindArguments arguments -> desugarTypeableEvidence origin ty constructor kindArguments arguments
     Ev.EvTypeableLiteral origin ty helper singleton -> desugarTypeableLiteral origin ty helper singleton
+    Ev.EvTypeableApp origin function argument functionEvidence argumentEvidence -> desugarTypeableApp origin function argument functionEvidence argumentEvidence
     Ev.EvTypeLit origin ty literal -> desugarTypeLitEvidence origin ty literal
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
@@ -5871,6 +5872,29 @@ desugarTypeableLiteral origin ty helper evidence = do
   typeArguments <- typeableTypeArguments className ty
   let representation = ExApp (ExTyApp (ExVar function) argument) singleton
   pure (ExApp (foldl ExTyApp (ExVar dictionaryConstructor) typeArguments) representation)
+
+-- | The representation of @f x@ is @mkTrApp@ of the representations of
+-- @f@ and @x@.
+desugarTypeableApp :: Maybe (Text, Text) -> TcType -> TcType -> Ev.EvTerm -> Ev.EvTerm -> ValueM Expr
+desugarTypeableApp origin function argument functionEvidence argumentEvidence = do
+  className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
+  selector <- typeableName origin "Type.Reflection" "typeRep#" SortValue
+  application <- typeableName origin "Type.Reflection" "mkTrApp" SortValue
+  dictionaryConstructor <- typeableName origin "Type.Reflection" "$Dict$Typeable" SortDataConstructor
+  let ty = Tc.mkAppTy function argument
+  functionArguments <- typeableTypeArguments className function
+  argumentArguments <- typeableTypeArguments className argument
+  resultArguments <- typeableTypeArguments className ty
+  case (functionArguments, argumentArguments, resultArguments) of
+    ([_, functionType], [argumentKind, argumentType], [resultKind, _]) -> do
+      functionDictionary <- desugarEvidence functionEvidence
+      argumentDictionary <- desugarEvidence argumentEvidence
+      let functionRep = ExApp (foldl ExTyApp (ExVar selector) functionArguments) functionDictionary
+          argumentRep = ExApp (foldl ExTyApp (ExVar selector) argumentArguments) argumentDictionary
+          representation =
+            ExApp (ExApp (foldl ExTyApp (ExVar application) [argumentKind, resultKind, functionType, argumentType]) functionRep) argumentRep
+      pure (ExApp (foldl ExTyApp (ExVar dictionaryConstructor) resultArguments) representation)
+    _ -> failValue "Typeable evidence for an application has no kind arguments"
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [(TcType, Ev.EvTerm)] -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = do
@@ -6153,6 +6177,8 @@ convertCoercionWithExpectedKind expectedKind coercion =
     Ev.Sym inner -> unary CoSym inner
     Ev.Trans left right -> binary CoTrans left right
     Ev.NthCo index proof -> unary (CoNth index) proof
+    Ev.LeftCo proof -> unary CoLeft proof
+    Ev.RightCo proof -> unary CoRight proof
     Ev.AppCo function argument -> binary CoApp function argument
     Ev.FunCo domain range -> binary CoFun domain range
     Ev.ForAllCo tyVar body ->

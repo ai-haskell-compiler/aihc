@@ -21,6 +21,7 @@
 -- @t0@ and @t1@.
 module Aihc.Tc.Solve.FunDep
   ( improveFunDeps,
+    superClassClosure,
     superClassEqualities,
   )
 where

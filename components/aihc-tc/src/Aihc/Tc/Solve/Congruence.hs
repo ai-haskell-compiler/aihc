@@ -9,10 +9,12 @@ where
 
 import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes)
 import Aihc.Tc.Evidence
+import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
+import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
@@ -67,10 +69,27 @@ proveFromEqualities equalities left right
     projection (a, b) = case (a, b) of
       (TcTyCon {}, TcTyCon {}) -> project a b
       (TcFunTy {}, TcFunTy {}) -> project a b
+      (TcAppTy {}, TcAppTy {}) -> projectApplication a b
+      (TcAppTy {}, TcTyCon {}) -> projectApplication a b
+      (TcTyCon {}, TcAppTy {}) -> projectApplication a b
       _ -> pure []
     project a b = do
       children <- decomposeNominalEquality a b
-      pure [(a, b, index, x, y) | pairs <- maybe [] pure children, (index, (x, y)) <- zip [0 ..] (reverse pairs)]
+      pure [(a, b, NthCo index, x, y) | pairs <- maybe [] pure children, (index, (x, y)) <- zip [0 ..] (reverse pairs)]
+    -- A given @f a ~ T b c@ from a GADT match proves @f ~ T b@ and
+    -- @a ~ c@. The split is sound only when the two arguments have one
+    -- kind, and a family application does not split.
+    projectApplication a b = do
+      children <- decomposeNominalEquality a b
+      case children of
+        Just [(leftFunction, rightFunction), (leftArgument, rightArgument)] -> do
+          leftKind <- tcTypeKind leftArgument >>= zonkType
+          rightKind <- tcTypeKind rightArgument >>= zonkType
+          pure
+            ( [(a, b, LeftCo, leftFunction, rightFunction) | sameType leftKind rightKind]
+                <> [(a, b, RightCo, leftArgument, rightArgument)]
+            )
+        _ -> pure []
     addGiven graph (a, b, proof) = addProof a b proof graph
 
 -- | A given can expose a family equation inside a larger type.
@@ -167,17 +186,17 @@ findProof graph source target = go (Set.singleton (typeShape source)) [(source, 
 -- of a type constructor application.
 data KindContext = KindContext TcKinds TcKindEnv
 
-closeGraph :: KindContext -> [(TcType, TcType)] -> [(TcType, TcType, Int, TcType, TcType)] -> ProofGraph -> ProofGraph
+closeGraph :: KindContext -> [(TcType, TcType)] -> [(TcType, TcType, Coercion -> Coercion, TcType, TcType)] -> ProofGraph -> ProofGraph
 closeGraph context pairs projections graph =
   case List.foldl' project (List.foldl' extend (False, graph) pairs) projections of
     (False, _) -> graph
     (True, graph') -> closeGraph context pairs projections graph'
   where
-    project (changed, current) (outerLeft, outerRight, index, left, right)
+    project (changed, current) (outerLeft, outerRight, select, left, right)
       | isJust (findProof current left right) = (changed, current)
       | otherwise = case findProof current outerLeft outerRight of
           Nothing -> (changed, current)
-          Just proof -> (True, addProof left right (NthCo index proof) current)
+          Just proof -> (True, addProof left right (select proof) current)
     extend (changed, current) (left, right)
       | isJust (findProof current left right) = (changed, current)
       | otherwise =

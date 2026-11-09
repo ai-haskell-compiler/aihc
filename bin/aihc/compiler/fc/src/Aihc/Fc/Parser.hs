@@ -609,6 +609,8 @@ coercion =
       CoTrans <$> (keyword "trans" *> parens coercion) <*> parens coercion,
       CoApp <$> (keyword "app-co" *> parens coercion) <*> parens coercion,
       CoNth <$> (keyword "nth-co" *> int) <*> parens coercion,
+      CoLeft <$> (keyword "left-co" *> parens coercion),
+      CoRight <$> (keyword "right-co" *> parens coercion),
       CoFun <$> (keyword "fun-co" *> parens coercion) <*> parens coercion,
       CoForAll <$> (keyword "forall-co" *> openPiBinder) <*> parens coercion,
       CoTyConApp <$> (keyword "tycon-co" *> topReference) <*> MP.many (parens coercion),

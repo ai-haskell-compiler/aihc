@@ -725,6 +725,8 @@ lintNominalCoercion env proof =
     CoTrans left right -> lintNominalCoercion env left >> lintNominalCoercion env right
     CoApp function argument -> lintNominalCoercion env function >> lintNominalCoercion env argument
     CoNth _ inner -> lintNominalCoercion env inner
+    CoLeft inner -> lintNominalCoercion env inner
+    CoRight inner -> lintNominalCoercion env inner
     CoFun domain range -> lintNominalCoercion env domain >> lintNominalCoercion env range
     CoForAll binder body -> do
       binderEnv <- bindLocal env binder
@@ -734,6 +736,20 @@ lintNominalCoercion env proof =
       case Map.lookup name (teAxioms env) of
         Just declaration | axiomRole declaration == Nominal -> Right ()
         _ -> Left (LintFailure "equality evidence requires a nominal axiom")
+
+-- | The function parts and the argument parts of a nominal application
+-- equality. The two arguments must have one kind: otherwise @f a ~ g b@
+-- does not prove @f ~ g@.
+lintApplicationProjection :: TypeEnv -> Coercion -> Either LintError ((Type, Type), (Type, Type))
+lintApplicationProjection env proof = do
+  lintNominalCoercion env proof
+  endpoints <- coercionEndpoints env proof
+  parts@(_, (leftArgument, rightArgument)) <-
+    maybe (Left (LintFailure "invalid application projection")) Right (projectApplication env endpoints)
+  leftKind <- lintType env leftArgument
+  rightKind <- lintType env rightArgument
+  unless (typesEqual env leftKind rightKind) (Left (KindMismatch "application projection" leftKind rightKind))
+  Right parts
 
 coercionEndpoints :: TypeEnv -> Coercion -> Either LintError (Type, Type)
 coercionEndpoints env coercion =
@@ -769,6 +785,8 @@ coercionEndpoints env coercion =
       lintNominalCoercion env proof
       endpoints <- coercionEndpoints env proof
       maybe (Left (LintFailure "invalid nominal argument projection")) Right (projectNominalArgument env index endpoints)
+    CoLeft proof -> fst <$> lintApplicationProjection env proof
+    CoRight proof -> snd <$> lintApplicationProjection env proof
     CoFun domain range -> do
       (leftDomain, rightDomain) <- coercionEndpoints env domain
       (leftRange, rightRange) <- coercionEndpoints env range

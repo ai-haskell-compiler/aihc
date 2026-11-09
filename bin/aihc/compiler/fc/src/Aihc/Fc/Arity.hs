@@ -1519,6 +1519,8 @@ substVar from to = go
         CoFun left right -> CoFun (goCoercion left) (goCoercion right)
         CoForAll binder inner -> CoForAll binder (goCoercion inner)
         CoNth index inner -> CoNth index (goCoercion inner)
+        CoLeft inner -> CoLeft (goCoercion inner)
+        CoRight inner -> CoRight (goCoercion inner)
         CoTyConApp name arguments -> CoTyConApp name (map goCoercion arguments)
         CoAxiom {} -> coercion
 

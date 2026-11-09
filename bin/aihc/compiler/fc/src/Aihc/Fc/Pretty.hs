@@ -169,6 +169,8 @@ coercionLocals proof = case proof of
   CoTrans left right -> coercionLocals left <> coercionLocals right
   CoApp function argument -> coercionLocals function <> coercionLocals argument
   CoNth _ inner -> coercionLocals inner
+  CoLeft inner -> coercionLocals inner
+  CoRight inner -> coercionLocals inner
   CoFun argument result -> coercionLocals argument <> coercionLocals result
   CoForAll binder body -> binderLocals binder <> coercionLocals body
   CoTyConApp _ arguments -> foldMap coercionLocals arguments
@@ -771,6 +773,8 @@ coercionFree proof = case proof of
   CoTrans left right -> coercionFree left <> coercionFree right
   CoApp function argument -> coercionFree function <> coercionFree argument
   CoNth _ inner -> coercionFree inner
+  CoLeft inner -> coercionFree inner
+  CoRight inner -> coercionFree inner
   CoFun argument result -> coercionFree argument <> coercionFree result
   CoForAll binder body -> binderScope binder (coercionFree body)
   CoTyConApp _ arguments -> foldMap coercionFree arguments
@@ -789,6 +793,8 @@ prettyCoercion scopes coercion =
     CoTrans left right -> "trans " <> parens (prettyCoercion scopes left) <+> parens (prettyCoercion scopes right)
     CoApp function argument -> "app-co " <> parens (prettyCoercion scopes function) <+> parens (prettyCoercion scopes argument)
     CoNth index proof -> "nth-co " <> pretty index <+> parens (prettyCoercion scopes proof)
+    CoLeft proof -> "left-co " <> parens (prettyCoercion scopes proof)
+    CoRight proof -> "right-co " <> parens (prettyCoercion scopes proof)
     CoFun domain range -> "fun-co " <> parens (prettyCoercion scopes domain) <+> parens (prettyCoercion scopes range)
     CoForAll binder body -> "forall-co " <> prettyPiBinder scopes binder <+> parens (prettyCoercion scopes body)
     CoTyConApp name arguments ->

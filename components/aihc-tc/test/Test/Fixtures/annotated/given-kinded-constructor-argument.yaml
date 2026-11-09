@@ -1,0 +1,19 @@
+extensions: [MultiParamTypeClasses, FlexibleContexts, PolyKinds, KindSignatures]
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, KindSignatures #-}
+    module Other where
+    data Proxy (a :: k) = Proxy
+  - |
+    {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
+    module Test where
+    import Other (Proxy (..))
+    data Maybe a = Nothing | Just a
+    class C p f where
+      method :: p (Maybe a) -> f a -> f a
+    -- The given has Proxy with its kind argument. The wanted from the use
+    -- of method has Proxy without it. The two are one constraint.
+    use :: C Proxy f => f a -> f a
+    use = method Proxy
+status: pass
+reason: a given class constraint solves a wanted whose poly-kinded constructor argument has no kind arguments

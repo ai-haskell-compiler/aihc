@@ -349,6 +349,8 @@ walksWith insert = Walks axiomRefs binderRefs typeRefs exprRefs
         CoTrans left right -> coercionRefs (coercionRefs refs left) right
         CoApp function argument -> coercionRefs (coercionRefs refs function) argument
         CoNth _ proof -> coercionRefs refs proof
+        CoLeft proof -> coercionRefs refs proof
+        CoRight proof -> coercionRefs refs proof
         CoFun domain range -> coercionRefs (coercionRefs refs domain) range
         CoForAll binder body -> coercionRefs (binderRefs refs binder) body
         CoTyConApp name arguments -> foldl' coercionRefs (insert name refs) arguments
