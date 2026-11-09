@@ -1,0 +1,79 @@
+annotated:
+- |-
+  module GHC.Internal.Foldable where
+  class Foldable t where
+  └─ class methods: foldr ∷ ∀ t a b. (Foldable t) ⇒ (a → b → b) → b → t a → b
+    foldr :: (a -> b -> b) -> b -> t a -> b
+- |-
+  module GHC.Internal.Traversable where
+  import GHC.Prim.Base (Functor, Applicative)
+  import GHC.Internal.Foldable (Foldable)
+  class (Functor t, Foldable t) => Traversable t where
+  └─ class methods: traverse ∷ ∀ t f a b. (Traversable t, Applicative f) ⇒ (a → f b) → t a → f (t b)
+    traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+- |-
+  {-# LANGUAGE DeriveFoldable #-}
+  {-# LANGUAGE DeriveTraversable #-}
+  module Main where
+  import GHC.Prim.Base (Functor (..), Monad)
+  import GHC.Internal.Foldable (Foldable (..))
+  import GHC.Internal.Traversable (Traversable (..))
+  newtype L m a = L (m a)
+  │       │       └─ type: ∀ m a. m a → L m a
+  │       └─ type: (Type → Type) → Type → Type
+  └─ deriving plans: stock Foldable (L m) [context: Foldable m] [methods: foldr], stock Traversable (L m) [context: Monad m, Foldable m, Traversable m] [methods: traverse]
+    deriving (Foldable, Traversable)
+              │││││││         └─ $fTraversableLm ∷ ∀ m. (Monad m, Foldable m, Traversable m) ⇒ Traversable (L m) [superclasses: $fFunctorLm @m (given Monad m), $fFoldableLm @m (given Foldable m)]
+              │││││││         └─ type: m b → L m b; type-args: m, b
+              │││││││         └─ traverse ∷ ∀ f a b. (Applicative f) ⇒ (a → f b) → L m a → f (L m b)
+              │││││││         └─ type: m a
+              │││││││         └─ type: (a → f b) → m a → f (m b); type-args: m, f, a, b; evidence: given Traversable m, given Applicative f
+              │││││││         └─ type: f (m b → L m b) → f (m b) → f (L m b); type-args: f, m b, L m b; evidence: given Applicative f
+              │││││││         └─ type: (m b → L m b) → f (m b → L m b); type-args: f, m b → L m b; evidence: given Applicative f
+              │││││││         └─ type: a → f b
+              │││││││         └─ type: L m a
+              └─ type: m a
+              └─ $fFoldableLm ∷ ∀ m. (Foldable m) ⇒ Foldable (L m)
+              └─ type: b
+              └─ foldr ∷ ∀ a b. (a → b → b) → b → L m a → b
+              └─ type: a → b → b
+              └─ type: (a → b → b) → b → m a → b; type-args: m, a, b; evidence: given Foldable m
+              └─ type: L m a
+  instance Monad m => Functor (L m) where
+  └─ $fFunctorLm ∷ ∀ m. (Monad m) ⇒ Functor (L m)
+    fmap f (L m) = L (fmap f m)
+    │    │  │ │    │  └─ type: (a → b) → m a → m b; type-args: m, a, b; evidence: super[0](super[0](given Monad m))
+    │    │  │ │    └─ type: m b → L m b; type-args: m, b
+    │    │  │ └─ type: m a
+    │    │  └─ type: L m a
+    │    └─ type: a → b
+    └─ fmap ∷ ∀ a b. (a → b) → L m a → L m b
+extensions:
+- DeriveFoldable
+- DeriveTraversable
+modules:
+- |
+  module GHC.Internal.Foldable where
+  class Foldable t where
+    foldr :: (a -> b -> b) -> b -> t a -> b
+- |
+  module GHC.Internal.Traversable where
+  import GHC.Prim.Base (Functor, Applicative)
+  import GHC.Internal.Foldable (Foldable)
+  class (Functor t, Foldable t) => Traversable t where
+    traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+- |
+  {-# LANGUAGE DeriveFoldable #-}
+  {-# LANGUAGE DeriveTraversable #-}
+  module Main where
+  import GHC.Prim.Base (Functor (..), Monad)
+  import GHC.Internal.Foldable (Foldable (..))
+  import GHC.Internal.Traversable (Traversable (..))
+  newtype L m a = L (m a)
+    deriving (Foldable, Traversable)
+  instance Monad m => Functor (L m) where
+    fmap f (L m) = L (fmap f m)
+reason: the context of a derived Traversable instance has to entail its Functor
+  superclass, and a hand-written Functor instance can ask for more than the fields
+  do, as in Monad m => Functor (ListT m) of list-transformer
+status: pass

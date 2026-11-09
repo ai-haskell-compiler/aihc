@@ -225,7 +225,10 @@ derivingObligations kinds unlifted plan =
           Just $ case shape of
             FieldObligations -> fieldObligations
             DataObligations -> ((superclassObligations kinds plan <> argumentObligations) <>) <$> fieldObligations
-            FunctorialObligations functions -> functorialObligations kinds functions plan
+            -- The superclasses come first, as GHC does. A derived Traversable
+            -- must satisfy the context of a hand-written Functor instance,
+            -- such as @Monad m => Functor (ListT m)@.
+            FunctorialObligations functions -> (superclassObligations kinds plan <>) <$> functorialObligations kinds functions plan
             NoObligations -> Right []
       | otherwise -> Nothing
     TcDerivingNewtype ->
