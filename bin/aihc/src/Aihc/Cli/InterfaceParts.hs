@@ -265,7 +265,7 @@ walkPatSynInfo info = do
 
 walkForeignImportInfo :: TcForeignImportInfo -> Parts ()
 walkForeignImportInfo info = case info of
-  TcForeignPrimImport -> pure ()
+  TcForeignPrimImport _ -> pure ()
   TcForeignCCallImport _ plan ->
     traverse_ walkForeignMarshal (tcForeignResult plan : tcForeignArguments plan) >> case tcForeignTarget plan of
       TcForeignWrapper pointer -> walkForeignMarshal pointer

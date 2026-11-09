@@ -179,7 +179,7 @@ patSynInfoTyCons info =
 
 foreignImportInfoTyCons :: Collect TcForeignImportInfo
 foreignImportInfoTyCons info = case info of
-  TcForeignPrimImport -> id
+  TcForeignPrimImport _ -> id
   TcForeignCCallImport _ plan ->
     each marshalTyCons (tcForeignArguments plan <> [tcForeignResult plan]) . case tcForeignTarget plan of
       TcForeignWrapper pointer -> marshalTyCons pointer

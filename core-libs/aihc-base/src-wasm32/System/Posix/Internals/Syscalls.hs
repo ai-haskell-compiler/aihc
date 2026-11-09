@@ -10,11 +10,13 @@ module System.Posix.Internals.Syscalls
   ( -- * File system calls
     c_access,
     c_chmod,
+    c_close,
     c_fstat,
     c_ftruncate,
     c_link,
     c_lseek,
     c_mkfifo,
+    c_open,
     c_stat,
     c_umask,
     c_unlink,
@@ -78,6 +80,9 @@ foreign import capi unsafe "sys/stat.h fstat"
 foreign import capi unsafe "unistd.h ftruncate"
   c_ftruncate :: CInt -> COff -> IO CInt
 
+foreign import capi unsafe "unistd.h close"
+  c_close :: CInt -> IO CInt
+
 foreign import capi unsafe "unistd.h link"
   c_link :: CString -> CString -> IO CInt
 
@@ -87,6 +92,11 @@ foreign import capi unsafe "unistd.h lseek"
 -- | WASI has no FIFOs.
 c_mkfifo :: CString -> CMode -> IO CInt
 c_mkfifo _ _ = unsupported "mkfifo"
+
+-- | @open@ is a variadic function. The @capi@ wrapper gives the mode as its
+-- third argument.
+foreign import capi unsafe "fcntl.h open"
+  c_open :: CString -> CInt -> CMode -> IO CInt
 
 foreign import capi unsafe "sys/stat.h stat"
   c_stat :: CString -> Ptr CStat -> IO CInt

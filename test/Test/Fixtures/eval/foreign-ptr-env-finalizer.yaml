@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+
+    import Foreign.ForeignPtr (FinalizerEnvPtr, ForeignPtr, newForeignPtrEnv, withForeignPtr)
+    import Foreign.Ptr (Ptr, nullFunPtr, nullPtr)
+
+    main :: IO ()
+    main = do
+      let finalizer = nullFunPtr :: FinalizerEnvPtr () ()
+      pointer <- newForeignPtrEnv finalizer nullPtr nullPtr :: IO (ForeignPtr ())
+      withForeignPtr pointer (\p -> print (p == (nullPtr :: Ptr ())))
+expression: main
+stdout: |
+  True
+output: |
+  ()
+status: pass
+reason: Foreign.ForeignPtr exports newForeignPtrEnv of base, and the new foreign pointer holds the given address

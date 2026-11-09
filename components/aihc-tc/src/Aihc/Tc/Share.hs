@@ -340,7 +340,7 @@ sharePatSynInfo info = do
 shareForeignImportInfo :: TcForeignImportInfo -> Share TcForeignImportInfo
 shareForeignImportInfo info =
   case info of
-    TcForeignPrimImport -> pure TcForeignPrimImport
+    TcForeignPrimImport entity -> pure (TcForeignPrimImport entity)
     TcForeignCCallImport safety plan -> do
       arguments <- mapM shareMarshal (tcForeignArguments plan)
       result <- shareMarshal (tcForeignResult plan)

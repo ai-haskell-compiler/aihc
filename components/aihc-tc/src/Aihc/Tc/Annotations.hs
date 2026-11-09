@@ -225,8 +225,10 @@ instance NFData TcForeignCApiKind
 -- this fact for each foreign import, so a module that uses the import can
 -- desugar each use to a saturated foreign call.
 data TcForeignImportInfo
-  = -- | A @foreign import prim@. The name of the import selects the primitive.
-    TcForeignPrimImport
+  = -- | A @foreign import prim@. The entity string selects the primitive.
+    -- If the declaration has no entity string, the name of the import
+    -- selects the primitive. In GHC, the entity string names a Cmm function.
+    TcForeignPrimImport !(Maybe Text)
   | -- | A @foreign import ccall@ with its safety mark and checked plan.
     TcForeignCCallImport !TcForeignSafety !TcForeignImportAnnotation
   deriving (Eq, Show, Read, Generic)

@@ -2,6 +2,7 @@ module Text.Read.Lex
   ( Lexeme (..),
     expect,
     hsLex,
+    lexChar,
     numberToInteger,
     numberToFixed,
     numberToRational,
@@ -14,8 +15,8 @@ module Text.Read.Lex
 where
 
 import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit)
-import GHC.Read.Lex (Lexeme (..), expectP, lexP, numberToFixed, numberToInteger, numberToRational)
-import Text.ParserCombinators.ReadP (ReadP, gather, munch1, skipSpaces)
+import GHC.Read.Lex (Lexeme (..), expectP, lexP, numberToFixed, numberToInteger, numberToRational, readLitChar)
+import Text.ParserCombinators.ReadP (ReadP, gather, look, munch1, readS_to_P, skipSpaces, string)
 import Text.ParserCombinators.ReadPrec (minPrec, readPrec_to_P)
 import Prelude
 
@@ -29,6 +30,21 @@ hsLex = do
   skipSpaces
   (text, _) <- gather (readPrec_to_P lexP minPrec)
   return text
+
+-- | Read one character as in a Haskell character literal, without quotes.
+-- The character can be an escape sequence. After the character, skip each
+-- empty escape @\\&@.
+lexChar :: ReadP Char
+lexChar = do
+  c <- readS_to_P readLitChar
+  skipEmpties
+  return c
+  where
+    skipEmpties = do
+      rest <- look
+      case rest of
+        '\\' : '&' : _ -> string "\\&" >> skipEmpties
+        _ -> return ()
 
 -- | Read one or more digits in the given base.
 -- The predicate selects the digits. The function gives the value of a digit.

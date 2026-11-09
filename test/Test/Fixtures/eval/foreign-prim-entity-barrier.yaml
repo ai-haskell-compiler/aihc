@@ -1,0 +1,15 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    foreign import prim "hs_atomic_primops_store_load_barrier" barrier# :: State# RealWorld -> State# RealWorld
+    run :: Int# -> Int#
+    run x = case barrier# realWorld# of _ -> x
+output: |
+  7
+expression: |
+  run 7#
+status: pass
+reason: "the entity string of a foreign import prim selects the primitive"

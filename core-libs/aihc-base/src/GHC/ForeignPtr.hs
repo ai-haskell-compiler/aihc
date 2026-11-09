@@ -17,6 +17,7 @@ module GHC.ForeignPtr
     mallocForeignPtrAlignedBytes,
     mallocPlainForeignPtrAlignedBytes,
     addForeignPtrFinalizer,
+    addForeignPtrFinalizerEnv,
     addForeignPtrConcFinalizer,
     finalizeForeignPtr,
     touchForeignPtr,
@@ -164,6 +165,14 @@ foreign import ccall "dynamic" callFinalizer :: FunPtr (Ptr a -> IO ()) -> Ptr a
 addForeignPtrFinalizer :: FinalizerPtr a -> ForeignPtr a -> IO ()
 addForeignPtrFinalizer finalizer pointer =
   addForeignPtrConcFinalizer pointer (callFinalizer finalizer (unsafeForeignPtrToPtr pointer))
+
+foreign import ccall "dynamic" callFinalizerEnv :: FunPtr (Ptr env -> Ptr a -> IO ()) -> Ptr env -> Ptr a -> IO ()
+
+-- | Add a foreign finalizer that also gets the environment pointer. See
+-- 'addForeignPtrFinalizer'.
+addForeignPtrFinalizerEnv :: FinalizerEnvPtr env a -> Ptr env -> ForeignPtr a -> IO ()
+addForeignPtrFinalizerEnv finalizer environment pointer =
+  addForeignPtrConcFinalizer pointer (callFinalizerEnv finalizer environment (unsafeForeignPtrToPtr pointer))
 
 addForeignPtrConcFinalizer :: ForeignPtr a -> IO () -> IO ()
 addForeignPtrConcFinalizer (ForeignPtr _ contents) finalizer =

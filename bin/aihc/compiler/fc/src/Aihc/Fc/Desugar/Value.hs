@@ -833,7 +833,7 @@ desugarForeign foreignPlan foreignDecl =
 foreignCallFacts :: Entity -> TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
 foreignCallFacts key ty info =
   case info of
-    TcForeignPrimImport -> pure (Prim, [])
+    TcForeignPrimImport _ -> pure (Prim, [])
     TcForeignCCallImport safety plan -> do
       convertedSafety <- convertForeignSafetyMark safety
       dependencies <- foreignImportPlanDependencies ty plan
@@ -863,7 +863,7 @@ desugarForeignReference variable key info types evidence = do
   (convention, dependencies) <- foreignCallFacts key ty info
   let call =
         ForeignCall
-          { foreignCallName = variable,
+          { foreignCallName = primitiveCallName variable info,
             foreignCallConvention = convention,
             foreignCallDependencies = dependencies,
             foreignCallType = foreignType
@@ -875,6 +875,15 @@ desugarForeignReference variable key info types evidence = do
   let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
   binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
   pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
+
+-- | The name of a foreign call. The entity string of a primitive import
+-- selects the primitive, as in GHC. Then the name of the import is only an
+-- alias of the primitive.
+primitiveCallName :: Name -> TcForeignImportInfo -> Name
+primitiveCallName variable info =
+  case info of
+    TcForeignPrimImport (Just entity) -> variable {nameText = entity}
+    _ -> variable
 
 -- | Substitute the type arguments of a use for the leading binders of the
 -- foreign type.
