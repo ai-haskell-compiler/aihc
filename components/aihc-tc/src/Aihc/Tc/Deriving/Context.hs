@@ -74,6 +74,13 @@ inferDerivingContexts modules = do
   let originalPlans = concatMap moduleDerivingPlans modules
   trialEnvironment <- derivingEnv kinds unlifted existingInstances originalPlans
   let selectPlan plan
+        -- GHC uses stock deriving when the representation type does not
+        -- eta-reduce to the instance head. This applies also to a
+        -- standalone instance with an explicit context, such as
+        -- @deriving instance Functor M@ for @newtype M a = M (Name -> Maybe a)@.
+        | tcDerivingStockFallback plan,
+          Left _ <- newtypeRepresentation plan =
+            plan {tcDerivingStrategy = TcDerivingStock}
         | tcDerivingStockFallback plan,
           TcDerivingInferContext <- tcDerivingContext plan,
           Left _ <- inferredContext trialEnvironment plan =
