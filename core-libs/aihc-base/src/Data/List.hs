@@ -81,7 +81,13 @@ module Data.List
     findIndex,
     findIndices,
     zip4,
+    zip5,
+    zip6,
+    zip7,
     zipWith4,
+    zipWith5,
+    zipWith6,
+    zipWith7,
     unzip4,
     unzip5,
     unzip6,
@@ -295,6 +301,30 @@ zipWith4 :: (a -> b -> c -> d -> e) -> [a] -> [b] -> [c] -> [d] -> [e]
 zipWith4 combine (valueOne : onesRest) (valueTwo : twosRest) (valueThree : threesRest) (valueFour : foursRest) =
   combine valueOne valueTwo valueThree valueFour : zipWith4 combine onesRest twosRest threesRest foursRest
 zipWith4 _ _ _ _ _ = []
+
+zip5 :: [a] -> [b] -> [c] -> [d] -> [e] -> [(a, b, c, d, e)]
+zip5 = zipWith5 (,,,,)
+
+zip6 :: [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [(a, b, c, d, e, f)]
+zip6 = zipWith6 (,,,,,)
+
+zip7 :: [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [g] -> [(a, b, c, d, e, f, g)]
+zip7 = zipWith7 (,,,,,,)
+
+zipWith5 :: (a -> b -> c -> d -> e -> r) -> [a] -> [b] -> [c] -> [d] -> [e] -> [r]
+zipWith5 combine (a : as) (b : bs) (c : cs) (d : ds) (e : es) =
+  combine a b c d e : zipWith5 combine as bs cs ds es
+zipWith5 _ _ _ _ _ _ = []
+
+zipWith6 :: (a -> b -> c -> d -> e -> f -> r) -> [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [r]
+zipWith6 combine (a : as) (b : bs) (c : cs) (d : ds) (e : es) (f : fs) =
+  combine a b c d e f : zipWith6 combine as bs cs ds es fs
+zipWith6 _ _ _ _ _ _ _ = []
+
+zipWith7 :: (a -> b -> c -> d -> e -> f -> g -> r) -> [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [g] -> [r]
+zipWith7 combine (a : as) (b : bs) (c : cs) (d : ds) (e : es) (f : fs) (g : gs) =
+  combine a b c d e f g : zipWith7 combine as bs cs ds es fs gs
+zipWith7 _ _ _ _ _ _ _ _ = []
 
 -- The unzip functions use lazy patterns, as in @base@: each result list
 -- is available before the input list ends.
