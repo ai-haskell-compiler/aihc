@@ -182,11 +182,25 @@ import Data.Text qualified as T
 --
 -- A unit resolves as a whole: one name that does not resolve makes the
 -- unit a 'ResolveFailure', so a 'ResolvedUnit' has no unresolved name.
+--
+-- The resolver does not run Template Haskell. A top-level splice makes
+-- declarations that the resolver cannot see. Thus, a unit with a top-level
+-- splice fails with one error for each splice, and the resolver does not
+-- resolve its names. Each name that a splice must make would otherwise give
+-- an "unbound" error that hides the cause.
 resolveUnit :: Builtins -> ModuleExports -> [ModuleUnit] -> Either ResolveFailure ResolvedUnit
 resolveUnit (Builtins builtinScope) exports packageModules
+  | not (null spliceErrors) = Left (ResolveFailure spliceErrors spliceModules)
   | null errors = Right (ResolvedUnit modules)
   | otherwise = Left (ResolveFailure errors modules)
   where
+    spliceChecks = map (topLevelSpliceErrors . moduleUnitAst) packageModules
+    spliceErrors = concatMap fst spliceChecks
+    spliceModules =
+      zipWith
+        (\unit (_, modu) -> ResolvedModule unit {moduleUnitAst = modu} [])
+        packageModules
+        spliceChecks
     step currentNextLocal unit =
       resolveModule builtinScope (moduleUnitPackage unit) exports (moduleUnitExtensions unit) currentNextLocal (moduleUnitAst unit)
     (_, resolved) = mapAccumL step 0 packageModules
@@ -219,6 +233,42 @@ resolveModule builtinScope package exports extensions nextLocal modu =
           modu' {moduleDecls = decls'}
         )
       )
+
+-- | The errors for the top-level Template Haskell splices of a module, and
+-- the module with each splice annotated with its error.
+topLevelSpliceErrors :: Module -> ([ResolveError], Module)
+topLevelSpliceErrors modu =
+  let (errors, decls') = unzip (map checkDecl (moduleDecls modu))
+   in (concat errors, modu {moduleDecls = decls'})
+  where
+    checkDecl decl =
+      case peelDeclSpan decl of
+        (span', DeclSplice expr) ->
+          let resolveError =
+                ResolveError
+                  { resolveErrorSpan = span',
+                    resolveErrorName = spliceHeadName expr,
+                    resolveErrorNamespace = ResolutionNamespaceTerm,
+                    resolveErrorMessage = topLevelSpliceMessage
+                  }
+           in ([resolveError], DeclAnn (mkAnnotation resolveError) decl)
+        _ -> ([], decl)
+
+-- | The message of a top-level splice error.
+topLevelSpliceMessage :: String
+topLevelSpliceMessage = "top-level Template Haskell splices are not supported"
+
+-- | The name of the function that a splice applies, such as @makeLenses@ in
+-- @makeLenses ''T@. A splice with no such function gives the text "splice".
+spliceHeadName :: Expr -> Text
+spliceHeadName expr =
+  case expr of
+    EAnn _ inner -> spliceHeadName inner
+    EParen inner -> spliceHeadName inner
+    ETHSplice inner -> spliceHeadName inner
+    EApp fun _ -> spliceHeadName fun
+    EVar name -> nameText name
+    _ -> T.pack "splice"
 
 -- | What the resolver needs to know about the module it is resolving. The
 -- extensions come from the driver, which folded the language edition, the
