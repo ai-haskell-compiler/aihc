@@ -1,0 +1,24 @@
+extensions: [RecordWildCards]
+modules:
+- |
+  module Record where
+  data Box = Box { field :: Box }
+- |
+  module Main where
+  import qualified Record as R
+  f box = field where R.Box{..} = box
+annotated:
+- |-
+  module Main where
+  import qualified Record as R
+  f box = field where R.Box{..} = box
+  │ │     └─ v 1      └─ v 1      └─ v 0
+  │ └─ v 0            └─ v Record
+  └─ v Main
+- |-
+  module Record where
+  data Box = Box { field :: Box }
+       │     └─ v Record    └─ t Record
+       └─ t Record
+status: pass
+reason: A record wildcard with a constructor that the module imports only qualified binds each field without a qualifier.
