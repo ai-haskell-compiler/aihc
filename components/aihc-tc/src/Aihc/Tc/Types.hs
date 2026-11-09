@@ -716,18 +716,23 @@ typeKindInEnv kinds kindEnv = go
       where
         recur = matchKinds quantified argumentQuantified
 
--- | The quantified kind variables of the constructor at the head of a
--- type. When the arguments of the type do not determine one of them, the
--- kind of the type contains the variable itself.
+-- | The quantified kind variables of the constructors in a type. When the
+-- arguments of a constructor do not determine one of them, the kind of the
+-- type can contain the variable itself: the kind of @'( '[ 'Unit ], '[] )@
+-- contains the variable of @'[]@.
 argumentKindVariables :: TcKindEnv -> TcType -> [Unique]
 argumentKindVariables kindEnv argument =
   case argument of
-    TcTyCon tyCon _ ->
+    TcTyCon tyCon arguments ->
+      schemeVariables tyCon <> concatMap (argumentKindVariables kindEnv) arguments
+    TcAppTy function functionArgument ->
+      argumentKindVariables kindEnv function <> argumentKindVariables kindEnv functionArgument
+    _ -> []
+  where
+    schemeVariables tyCon =
       case Map.lookup (tyConKey tyCon) kindEnv of
         Just (ForAll variables _ _) -> map tvUnique variables
         Nothing -> []
-    TcAppTy function _ -> argumentKindVariables kindEnv function
-    _ -> []
 
 runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
 runtimeRepOfTypeInEnv kinds kindEnv ty = typeKindInEnv kinds kindEnv ty >>= runtimeRepFromKind
@@ -1130,15 +1135,17 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
   scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
   let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
-      (argumentSubstitution, remainingKind, skipped, leftover) = go quantifiedUniques [] 0 Map.empty resultKind arguments
+      (argumentSubstitution, remainingKind, skipped, leftover, open) = go quantifiedUniques [] 0 Map.empty resultKind arguments
       -- A kind variable in the place of an arrow, as in @Any :: forall k.
       -- k@, stands for the arrow from the kinds of the arguments that are
-      -- left over to the kind of the whole application.
+      -- left over to the kind of the whole application. The expected kind
+      -- can also determine a kind that an argument left open: the @'[]@ in
+      -- @'( '[ 'Unit ], '[] ) :: ([Unit], [k])@.
       resultSubstitution =
         case (expectedKind, mapM (typeKindInEnv kinds kindEnv) leftover) of
-          (Just expected, Right leftoverKinds) -> matchKind quantifiedUniques remainingKind (foldr KFun expected leftoverKinds)
+          (Just expected, Right leftoverKinds) -> matchKind (quantifiedUniques <> open) remainingKind (foldr KFun expected leftoverKinds)
           _ -> Map.empty
-      substitution = argumentSubstitution <> resultSubstitution
+      substitution = Map.map (applySubst resultSubstitution) argumentSubstitution <> resultSubstitution
   pure (TcTypeApplicationKinds substitution (argumentKinds (applySubst substitution resultKind)) skipped)
   where
     argumentKinds (KFun argument result) = argument : argumentKinds result
@@ -1153,9 +1160,9 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
               substitution' = Map.map (applySubst found) substitution <> found
            in go quantifiedUniques (open <> argumentKindVariables kindEnv argument) (position + 1) substitution' (applySubst found result) rest
         Left reason ->
-          let (substitution', kind, skipped, leftover) = go quantifiedUniques open (position + 1) substitution result rest
-           in (substitution', kind, skippedArgument position reason : skipped, leftover)
-    go _ _ _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover)
+          let (substitution', kind, skipped, leftover, open') = go quantifiedUniques open (position + 1) substitution result rest
+           in (substitution', kind, skippedArgument position reason : skipped, leftover, open')
+    go _ open _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover, open)
 
     -- The caller prints the arguments themselves, so name the one that
     -- failed by position rather than repeating it.
