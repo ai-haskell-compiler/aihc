@@ -98,6 +98,7 @@ import Aihc.Parser.Syntax
     GuardQualifier (..),
     GuardedRhs (..),
     IEBundledMember (..),
+    IEEntityNamespace (..),
     ImportDecl (..),
     ImportItem (..),
     ImportSpec (..),
@@ -2290,13 +2291,27 @@ bindTyVarBinders =
 allocateLocalDeclBinders :: [Decl] -> ResolveM (Map.Map Text Entity, Scope)
 allocateLocalDeclBinders decls = do
   fieldScope <- currentScope
-  foldM (step fieldScope) (Map.empty, emptyScope) decls
+  (targets, scope) <- foldM (step fieldScope) (Map.empty, emptyScope) decls
+  -- A local binder hides the fixity of an outer operator with the same
+  -- name. Thus, each local binder gets its local fixity or the default.
+  let declared = Map.unions (map localDeclFixities decls)
+      fixities = Map.union declared (Map.map (const defaultOperatorFixity) targets)
+  pure (targets, scope {scopeFixities = Map.restrictKeys fixities (Map.keysSet targets)})
   where
     step fieldScope acc decl = foldM addBinder acc (declBinderCandidates fieldScope decl)
     addBinder (targets, scope) (_, name) = do
       entity <- freshLocal
       let key = renderUnqualifiedName name
       pure (Map.insert key entity targets, insertTerm key entity scope)
+
+-- | The term operator fixities that a local declaration group declares.
+localDeclFixities :: Decl -> Map.Map Text OperatorFixity
+localDeclFixities decl =
+  case snd (peelDeclSpan decl) of
+    DeclFixity assoc mNamespace mPrec ops
+      | mNamespace /= Just IEEntityNamespaceType ->
+          Map.fromList [(renderUnqualifiedName op, OperatorFixity assoc (fromMaybe 9 mPrec)) | op <- ops]
+    _ -> Map.empty
 
 -- | Collect all term binders introduced by a declaration (handles tuple patterns etc.)
 declBinderCandidates :: Scope -> Decl -> [(Maybe SourceSpan, UnqualifiedName)]

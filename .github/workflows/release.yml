@@ -1,0 +1,224 @@
+name: Release
+
+# Build the release executables of aihc with aihc. GHC compiles stage 0,
+# stage 0 compiles stage 1, and stage 1 compiles stage 2, each at -O2 with
+# the core-libs sources in the executable. The job fails when stage 1 and
+# stage 2 are not byte-for-byte identical, and ships stage 2.
+#
+# A pushed tag v<version> makes a draft release with the archives, their
+# SHA-256 sums, and a build provenance attestation. The tag must match the
+# version in bin/aihc/aihc.cabal. A manual run only builds the archives and
+# keeps them as workflow artifacts.
+#
+# The paths of the work directory get into the executable. Thus, both stages
+# use the same WORK_DIR, and each target uses the same path.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OPTIMIZATION: "2"
+  WORK_DIR: /tmp/aihc-release
+
+jobs:
+  version:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read the version
+        id: version
+        run: |
+          set -euo pipefail
+          cabal_version=$(sed -n 's/^version:[[:space:]]*//p' bin/aihc/aihc.cabal)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag_version="${GITHUB_REF#refs/tags/v}"
+            if [[ "$tag_version" != "$cabal_version" ]]; then
+              echo "::error::The tag v$tag_version does not match version $cabal_version in bin/aihc/aihc.cabal."
+              exit 1
+            fi
+            version="$tag_version"
+          else
+            version="$cabal_version-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "Release version: $version" >>"$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-24.04
+          - target: apple-arm64
+            runner: macos-15
+    env:
+      TARGET: ${{ matrix.target }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      # Without AIHC, the app uses the GHC-built aihc, which is stage 0.
+      - name: Compile stage 1
+        run: |
+          nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage1" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION" \
+            --embed-core-libs
+
+      - name: Remove the stage 1 work directory
+        run: rm -rf "$WORK_DIR"
+
+      - name: Compile stage 2
+        run: |
+          chmod +x "$RUNNER_TEMP/stages/aihc-stage1"
+          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage2" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION" \
+            --embed-core-libs
+
+      - name: Compare stage 1 and stage 2
+        run: |
+          set -euo pipefail
+          stage1="$RUNNER_TEMP/stages/aihc-stage1"
+          stage2="$RUNNER_TEMP/stages/aihc-stage2"
+          status=0
+          cmp "$stage1" "$stage2" || status=$?
+          {
+            echo "### Self-compile of aihc for $TARGET"
+            echo
+            echo "| Stage | Size in bytes | SHA-256 |"
+            echo "| --- | --- | --- |"
+            for stage in 1 2; do
+              file="$RUNNER_TEMP/stages/aihc-stage$stage"
+              echo "| $stage | $(wc -c <"$file" | tr -d ' ') | \`$(shasum -a 256 "$file" | cut -d' ' -f1)\` |"
+            done
+            echo
+            if [ "$status" -eq 0 ]; then
+              echo "Stage 1 and stage 2 are identical."
+            else
+              echo "Stage 1 and stage 2 are different."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Stage 1 and stage 2 of aihc for $TARGET are not byte-for-byte identical."
+            exit 1
+          fi
+
+      - name: Run the smoke test
+        run: |
+          chmod +x "$RUNNER_TEMP/stages/aihc-stage2"
+          nix run .#release-smoke-test -- \
+            --aihc "$RUNNER_TEMP/stages/aihc-stage2" \
+            --target "$TARGET"
+
+      - name: Pack the archive
+        run: |
+          set -euo pipefail
+          name="aihc-$VERSION-$TARGET"
+          mkdir -p "$RUNNER_TEMP/archive/$name"
+          cp "$RUNNER_TEMP/stages/aihc-stage2" "$RUNNER_TEMP/archive/$name/aihc"
+          chmod 755 "$RUNNER_TEMP/archive/$name/aihc"
+          cp LICENSE "$RUNNER_TEMP/archive/$name/LICENSE"
+          tar -C "$RUNNER_TEMP/archive" -czf "$RUNNER_TEMP/$name.tar.gz" "$name"
+          echo "Wrote $name.tar.gz ($(wc -c <"$RUNNER_TEMP/$name.tar.gz" | tr -d ' ') bytes)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: aihc-${{ env.VERSION }}-${{ env.TARGET }}
+          path: ${{ runner.temp }}/aihc-${{ env.VERSION }}-${{ env.TARGET }}.tar.gz
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload the logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-logs-${{ env.TARGET }}
+          path: /tmp/aihc-release/logs
+          retention-days: 14
+          if-no-files-found: ignore
+
+  release:
+    name: Make the draft release
+    needs:
+      - version
+      - build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: aihc-${{ env.VERSION }}-*
+          path: archives
+          merge-multiple: true
+
+      - name: Write the checksums
+        run: |
+          set -euo pipefail
+          cd archives
+          sha256sum aihc-*.tar.gz >SHA256SUMS
+          cat SHA256SUMS >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: archives/aihc-*.tar.gz
+
+      - name: Make the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "v$VERSION" \
+            --draft \
+            --verify-tag \
+            --title "aihc $VERSION" \
+            --generate-notes \
+            archives/aihc-*.tar.gz archives/SHA256SUMS
+          echo "Draft release v$VERSION is ready for review." >>"$GITHUB_STEP_SUMMARY"

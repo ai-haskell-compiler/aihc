@@ -1,0 +1,49 @@
+extensions: []
+modules:
+- |
+  module Main where
+  infixr 5 ^^
+  infixl 5 %%
+  (^^) x y = y
+  (%%) x y = x
+  local = 'a' <!> 'b' ^^ 'c'
+    where
+      infixl 5 <!>
+      (<!>) x y = x
+  hidden = 'a' %% 'b' ^^ 'c'
+    where
+      (%%) x y = y
+annotated:
+- |-
+  module Main where
+  infixr 5 ^^
+  infixl 5 %%
+  (^^) x y = y
+   │   │ │   └─ v 1
+   │   │ └─ v 1
+   │   └─ v 0
+   └─ v Main
+  (%%) x y = x
+   │   │ │   └─ v 2
+   │   │ └─ v 3
+   │   └─ v 2
+   └─ v Main
+  local = 'a' <!> 'b' ^^ 'c'
+  └─ v Main   └─ v 4  └─ v Error ambiguous fixity
+    where
+      infixl 5 <!>
+      (<!>) x y = x
+       │    │ │   └─ v 5
+       │    │ └─ v 6
+       │    └─ v 5
+       └─ v 4
+  hidden = 'a' %% 'b' ^^ 'c'
+  └─ v Main    └─ v 7 └─ v Main
+    where
+      (%%) x y = y
+       │   │ │   └─ v 9
+       │   │ └─ v 9
+       │   └─ v 8
+       └─ v 7
+status: pass
+reason: A local fixity declaration sets the fixity of its local operator. A local binder hides the fixity of an outer operator.
