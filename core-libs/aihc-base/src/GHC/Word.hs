@@ -10,6 +10,10 @@ module GHC.Word
     byteSwap32,
     byteSwap64,
 
+    -- * Shifts
+    uncheckedShiftL64#,
+    uncheckedShiftRL64#,
+
     -- * Equality operators
     eqWord,
     neWord,
@@ -101,6 +105,8 @@ import GHC.Prim
     timesWord32#,
     timesWord64#,
     timesWord8#,
+    uncheckedShiftL64#,
+    uncheckedShiftRL64#,
     word16ToWord#,
     word32ToWord#,
     word64ToWord#,
