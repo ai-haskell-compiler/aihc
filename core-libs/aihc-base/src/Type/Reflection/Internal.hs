@@ -47,7 +47,7 @@ where
 
 import Data.Bool (Bool (..), (&&), (||))
 import Data.Proxy (Proxy (..))
-import Data.Type.Equality ((:~~:) (..))
+import Data.Type.Equality (TestEquality (..), (:~:) (..), (:~~:) (..))
 import GHC.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
@@ -308,6 +308,12 @@ instance Ord SomeTypeRep where
 
 instance forall k (a :: k). Ord (TypeRep a) where
   compare left right = compare (SomeTypeRep left) (SomeTypeRep right)
+
+instance TestEquality TypeRep where
+  testEquality left right =
+    case eqTypeRep left right of
+      Just HRefl -> Just Refl
+      Nothing -> Nothing
 
 instance Show TyCon where
   showsPrec _ con = showString (tyConName con)

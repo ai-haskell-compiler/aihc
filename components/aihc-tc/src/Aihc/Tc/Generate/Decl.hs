@@ -5548,10 +5548,21 @@ registerDataConWithResult paramInfos resTy con = case con of
     gadtResTy <- checkSurfaceType constructorEnv resultSurfTy (typeKind kinds)
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
     writtenPredicates <- surfaceContextToPreds constructorEnv context
+    -- Under PolyKinds, the signature can leave the kind of a variable open.
+    -- An example is @GEQ :: GOrdering t t@ for
+    -- @type GOrdering :: k -> k -> Type@. GHC quantifies such a kind as an
+    -- inferred binder, @forall {k} (t :: k)@, and does not default it.
+    -- This applies only when the head kinds are complete. Without a kind
+    -- signature, the open kinds can belong to the kind of the data type,
+    -- which the rest of the declaration group can still change.
+    polyKinds <- constructorPolyKinds names
+    headKinds <- mapM (zonkKind . paramKind) paramInfos
+    when (polyKinds && all (null . collectMetaVars) headKinds) (generalizeKindMetas AllKindMetas constructorTyVars)
+    constructorTyVars' <- mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) constructorTyVars
     (universalTyVars, refinementPredicates, universalResTy) <- rejigGadtResult resTy gadtResTy
     let predicates = refinementPredicates <> writtenPredicates
         conTy = foldr TcFunTy universalResTy gadtArgTys
-        candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
+        candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars')
         quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
         -- GHC gives a GADT constructor the binders its own signature
         -- writes: the explicit forall, or else the free variables of the
@@ -5585,6 +5596,12 @@ registerDataConWithResult paramInfos resTy con = case con of
         | param <- paramInfos
         ]
     paramVarIds = map paramTyVar paramInfos
+    -- The module that declares the constructor decides on PolyKinds.
+    constructorPolyKinds names = case names of
+      name : _
+        | Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} <- nameResolution name ->
+            isPolyKindOrigin (packageIdText (globalNamePackage global), globalNameModule global)
+      _ -> pure False
     -- A built-in form declares the constructor the wiring already names,
     -- so the declaration binds that name rather than spelling one.
     registerBuiltinDataCon forallVars context builtin fieldTypes = do
