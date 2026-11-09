@@ -33,11 +33,16 @@ isCoercibleClass constructor = do
 solveCoercible :: TyCon -> [Pred] -> (TcType -> TcType -> TcM Bool) -> TcType -> TcType -> TcM Bool
 solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
   edges <- mapM normalizeEdge [(left, right) | ClassPred className [left, right] <- givens, className == coercibleClass]
-  go edges [] False wantedLeft wantedRight
+  -- The first pass does not unify a meta variable at a representational
+  -- position. A nominal position can then give the variable its type, as
+  -- @MinQueue b@ against @MinQueue (Down a)@ does. The second pass permits
+  -- the unification that the first pass did not do.
+  waited <- go True edges [] False wantedLeft wantedRight
+  if waited then pure True else go False edges [] False wantedLeft wantedRight
   where
     normalizeEdge (left, right) = (,) <$> normalize left <*> normalize right
     normalize = reduceTypeFamilies <=< zonkType
-    go edges visited nested rawLeft rawRight = do
+    go wait edges visited nested rawLeft rawRight = do
       left <- normalize rawLeft
       right <- normalize rawRight
       if left == right || (left, right) `elem` edges || (right, left) `elem` edges
@@ -45,12 +50,12 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
         else
           if length visited >= 100 || (left, right) `elem` visited
             then pure False
-            else shapes edges ((left, right) : visited) nested left right
-    shapes edges visited _ (TcFunTy a b) (TcFunTy c d) = do
-      argument <- go edges visited True a c
-      result <- go edges visited True b d
+            else shapes wait edges ((left, right) : visited) nested left right
+    shapes wait edges visited _ (TcFunTy a b) (TcFunTy c d) = do
+      argument <- go wait edges visited True a c
+      result <- go wait edges visited True b d
       pure (argument && result)
-    shapes edges visited nested leftType@(TcTyCon left args) rightType@(TcTyCon right args')
+    shapes wait edges visited nested leftType@(TcTyCon left args) rightType@(TcTyCon right args')
       | left == right,
         length args == length args' = do
           -- A data family has nominal parameters, but two of its
@@ -59,7 +64,7 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
           family <- isDataFamily left
           unwrapped <- if family then unwrapEither leftType rightType else pure Nothing
           case unwrapped of
-            Just (leftInner, rightInner) -> go edges visited nested leftInner rightInner
+            Just (leftInner, rightInner) -> go wait edges visited nested leftInner rightInner
             Nothing -> do
               saved <- lift get
               decomposed <- decompose
@@ -73,7 +78,7 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
                   lift (put saved)
                   inner <- unwrapEither leftType rightType
                   case inner of
-                    Just (leftInner, rightInner) -> go edges visited nested leftInner rightInner
+                    Just (leftInner, rightInner) -> go wait edges visited nested leftInner rightInner
                     Nothing -> pure False
       where
         decompose =
@@ -84,16 +89,16 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
                   representational <- representationParameter [] left index
                   if
                     | phantom -> phantomPair argument argument'
-                    | representational -> go edges visited True argument argument'
+                    | representational -> go wait edges visited True argument argument'
                     | otherwise -> nominal argument argument'
               | (index, (argument, argument')) <- zip [0 ..] (zip args args')
               ]
-    shapes edges visited nested left right = do
+    shapes wait edges visited nested left right = do
       leftRepresentation <- representation left
       rightRepresentation <- representation right
       case (leftRepresentation, rightRepresentation) of
-        (Just inner, _) -> go edges visited nested inner right
-        (_, Just inner) -> go edges visited nested left inner
+        (Just inner, _) -> go wait edges visited nested inner right
+        (_, Just inner) -> go wait edges visited nested left inner
         -- Two applications to the same argument have the same
         -- representation when their functions have it, as in GHC:
         -- @Coercible f g@ solves @Coercible (f x) (g x)@. The argument
@@ -102,20 +107,21 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
           | Just (leftFunction, leftArgument) <- splitApplication left,
             Just (rightFunction, rightArgument) <- splitApplication right,
             leftArgument == rightArgument -> do
-              functions <- go edges visited True leftFunction rightFunction
-              if functions then pure True else fallback nested left right
+              functions <- go wait edges visited True leftFunction rightFunction
+              if functions then pure True else fallback wait nested left right
         -- The wanted that the caller solves is in its visited list, so
         -- the callback does not loop on it.
         _
           | hasRigidHead left || hasRigidHead right -> do
               solved <- solveNested left right
-              if solved then pure True else fallback nested left right
-        _ -> fallback nested left right
+              if solved then pure True else fallback wait nested left right
+        _ -> fallback wait nested left right
     -- A meta variable can become a newtype of a type constructor later, so
     -- its pair with a type constructor must wait. A unification here can
     -- bind a wrong type to it.
-    fallback nested left right
+    fallback wait nested left right
       | isMeta left && hasTyConHead right || isMeta right && hasTyConHead left = pure False
+      | wait && (isMeta left || isMeta right) = pure False
       | nested = nominal left right
       | otherwise = pure False
     splitApplication ty =
