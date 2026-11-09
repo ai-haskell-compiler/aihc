@@ -1,0 +1,24 @@
+extensions:
+  - MagicHash
+  - PatternSynonyms
+  - UnboxedTuples
+  - UnliftedNewtypes
+modules:
+  - |
+    {-# LANGUAGE MagicHash, PatternSynonyms, UnboxedTuples, UnliftedNewtypes #-}
+    module Test where
+    data Mark = Marked | Plain
+    newtype ZW = MkZW (# #)
+    pattern ZW :: ZW
+    pattern ZW <- MkZW (# #)
+      where
+        ZW = MkZW (# #)
+    inspect :: ZW -> Mark
+    inspect ZW = Marked
+output: |
+  Marked
+expression: |
+  inspect ZW
+status: pass
+reason: the builder of a nullary pattern synonym of unlifted type takes a unit, because a
+  top-level binding cannot be unlifted

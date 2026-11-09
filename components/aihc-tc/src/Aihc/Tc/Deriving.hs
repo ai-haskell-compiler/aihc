@@ -44,7 +44,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, isAutomaticTypeableClass)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
@@ -171,10 +171,17 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                 -- the derived instance, as in GHC.
                 extraParams <- mapM argumentParam (nub (concatMap freeTypeVars suppliedArguments) \\ Map.keys tvEnv)
                 let argumentEnv = tvEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- extraParams]
-                checkedArguments <- mapM defaultTypeKinds =<< zipWithM (checkSurfaceType argumentEnv) suppliedArguments (map tvKind prefixClassVars)
+                -- Each derived instance instantiates the kind variables of
+                -- the class afresh: @deriving Generic1@ on @Lift f a@
+                -- gives @Generic1 \@Type (Lift f)@ for
+                -- @class Generic1 (f :: k -> Type)@.
+                classKindSubst <- Map.fromList <$> mapM (\tyVar -> (,) (tvUnique tyVar) <$> freshKindMeta) (ciKindTyVars classInfo)
+                let instantiateClassKind = applySubst classKindSubst
+                checkedArguments <- mapM defaultTypeKinds =<< zipWithM (checkSurfaceType argumentEnv) suppliedArguments (map (instantiateClassKind . tvKind) prefixClassVars)
                 argumentParams <- mapM defaultArgumentParam extraParams
-                targetKind <- defaultKindMetas (tvKind targetClassVar)
-                targetType <- attachedTargetType classSpan targetInfo params targetKind
+                declaredTargetKind <- instantiateClassKind <$> defaultKindMetas (tvKind targetClassVar)
+                targetType <- attachedTargetType classSpan targetInfo params declaredTargetKind
+                targetKind <- defaultKindMetas =<< zonkKind declaredTargetKind
                 -- A poly-kinded via type, as @Wrap (Modify s)@ for
                 -- @newtype Wrap (a :: k -> Type) (es :: k)@, leaves kind
                 -- metas that the target kind has fixed. Settle them, as a
@@ -242,6 +249,7 @@ kindAccepts expected actual =
   expected == actual
     || case (expected, actual) of
       (_, TcMetaTv _) -> True
+      (TcMetaTv _, _) -> True
       (TcFunTy left right, TcFunTy left' right') -> kindAccepts left left' && kindAccepts right right'
       (KTYPE (TcTyVar _), KTYPE _) -> True
       (KTYPE (TcMetaTv _), KTYPE _) -> True
@@ -284,9 +292,13 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               pure Nothing
           | otherwise -> do
               kinds <- getKinds
-              checkedHead <- zipWithM (checkSurfaceType tvEnv) headArguments (map tvKind (ciTyVars classInfo))
+              -- The instance instantiates the kind variables of the class
+              -- afresh, as in 'checkAttachedDerivingPlan'.
+              classKindSubst <- Map.fromList <$> mapM (\tyVar -> (,) (tvUnique tyVar) <$> freshKindMeta) (ciKindTyVars classInfo)
+              let classParamKinds = map (applySubst classKindSubst . tvKind) (ciTyVars classInfo)
+              checkedHead <- zipWithM (checkSurfaceType tvEnv) headArguments classParamKinds
               checkedContext <- surfaceContextToPreds tvEnv (standaloneDerivingContext derivingDecl)
-              let targetKind = maybe (typeKind kinds) (tvKind . snd) (unsnoc (ciTyVars classInfo))
+              targetKind <- zonkKind (maybe (typeKind kinds) snd (unsnoc classParamKinds))
               targetFlavor <- standaloneTargetFlavor checkedHead
               checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
               tyVars <- mapM (defaultTyVarKinds . paramTyVar) params

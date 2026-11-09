@@ -1,0 +1,33 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, KindSignatures, DeriveAnyClass, StandaloneDeriving #-}
+  module Main where
+  import GHC.Types (Type)
+  class Functorial (f :: k -> Type)
+  └─ class methods:
+  data Box a = Box a
+  │    │       └─ type: ∀ a. a → Box a
+  │    └─ type: Type → Type
+  └─ deriving plans: anyclass Functorial Box [context: ()]
+    deriving anyclass (Functorial)
+                       └─ $fFunctorialBox ∷ () ⇒ Functorial Box
+  data Pair a = Pair a a
+       │        └─ type: ∀ a. a → a → Pair a
+       └─ type: Type → Type
+  deriving anyclass instance Functorial Pair
+  │                          └─ $fFunctorialPair ∷ () ⇒ Functorial Pair
+  └─ deriving plans: anyclass Functorial Pair [context: ()]
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, KindSignatures, DeriveAnyClass, StandaloneDeriving #-}
+  module Main where
+  import GHC.Types (Type)
+  class Functorial (f :: k -> Type)
+  data Box a = Box a
+    deriving anyclass (Functorial)
+  data Pair a = Pair a a
+  deriving anyclass instance Functorial Pair
+reason: a derived instance instantiates the kind variable of a poly-kinded class, so the
+  target of kind Type -> Type matches the class parameter of kind k -> Type
+status: pass
