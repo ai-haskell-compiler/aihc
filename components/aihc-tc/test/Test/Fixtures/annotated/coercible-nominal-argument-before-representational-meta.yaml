@@ -1,0 +1,60 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data List a = Nil | Cons a (List a)
+  newtype Id a = Id a
+  data Box f a = Box (f a)
+  newtype Down a = Down a
+  newtype Max a = Max (Box Id (Down a))
+  toBox :: List b -> Box Id b
+  toBox (Cons x _) = Box (Id x)
+  toMax :: List a -> Max a
+  toMax = coerce toBox
+reason: The parameter of Box is nominal, so the argument type of toBox is Down a. A
+  representational position must not first unify that type with a.
+status: pass
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data List a = Nil | Cons a (List a)
+       │        │     └─ type: ∀ a. a → List a → List a
+       │        └─ type: ∀ a. List a
+       └─ type: Type → Type
+  newtype Id a = Id a
+          │      └─ type: ∀ a. a → Id a
+          └─ type: Type → Type
+  data Box f a = Box (f a)
+       │         └─ type: ∀ f a. f a → Box f a
+       └─ type: (Type → Type) → Type → Type
+  newtype Down a = Down a
+          │        └─ type: ∀ a. a → Down a
+          └─ type: Type → Type
+  newtype Max a = Max (Box Id (Down a))
+          │       └─ type: ∀ a. Box Id (Down a) → Max a
+          └─ type: Type → Type
+  toBox :: List b -> Box Id b
+  toBox (Cons x _) = Box (Id x)
+  │      │    │ │    │    └─ type: b → Id b; type-args: b
+  │      │    │ │    └─ type: Id b → Box Id b; type-args: Id, b
+  │      │    │ └─ type: List b
+  │      │    └─ type: b
+  │      └─ type: List b
+  └─ type: ∀ b. List b → Box Id b
+  toMax :: List a -> Max a
+  toMax = coerce toBox
+  │       │      └─ type: List (Down a) → Box Id (Down a); type-args: Down a
+  │       └─ type: (List (Down a) → Box Id (Down a)) → List a → Max a; type-args: List (Down a) → Box Id (Down a), List a → Max a; evidence: coercible @List (Down a) → Box Id (Down a) @List a → Max a
+  └─ type: ∀ a. List a → Max a
