@@ -322,7 +322,10 @@ data RecordHead = RecordHead
     rhOrigin :: !(PackageId, Text),
     -- | One entry per argument, in order. A positional argument has no
     -- label, so record syntax can only leave it out.
-    rhFields :: ![Maybe Text]
+    rhFields :: ![Maybe Text],
+    -- | One entry per argument, in order. A record construction must give
+    -- each strict field. It can leave out a lazy field.
+    rhStrictFields :: ![Bool]
   }
   deriving (Eq, Show, Read, Generic)
 
@@ -333,7 +336,8 @@ dataConRecordHead con =
   RecordHead
     { rhName = dciName con,
       rhOrigin = dciOrigin con,
-      rhFields = map dcfiLabel (dciFields con)
+      rhFields = map dcfiLabel (dciFields con),
+      rhStrictFields = map dcfiStrict (dciFields con)
     }
 
 -- | A pattern synonym declared with prefix or infix arguments has no
@@ -347,7 +351,8 @@ patSynRecordHead info =
       rhFields =
         if null (psiFields info)
           then replicate (psiArity info) Nothing
-          else map Just (psiFields info)
+          else map Just (psiFields info),
+      rhStrictFields = replicate (psiArity info) False
     }
 
 -- | Information about a type class.

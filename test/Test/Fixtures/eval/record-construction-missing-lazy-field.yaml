@@ -1,0 +1,18 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE NoImplicitPrelude #-}
+    module Test where
+
+    data Int = IS Int#
+    data Pair = Pair { first :: Int, second :: Int }
+
+    -- The construction leaves out the lazy field "first".
+    -- The program does not use that field, thus it does not fail.
+    result :: Int
+    result = second (Pair { second = IS 42# })
+output: |
+  IS 42
+expression: result
+status: pass

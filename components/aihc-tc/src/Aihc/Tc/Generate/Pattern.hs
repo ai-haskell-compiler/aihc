@@ -451,7 +451,7 @@ checkPatternCore sp pat scrutTy =
       when wildcard $
         abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
       head' <- lookupRecordHead name
-      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ -> pure PWildcard)
+      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ _ -> pure PWildcard)
       checkConPattern sp (PCon name [] subPats) name subPats scrutTy
     PList items -> checkListPattern sp items scrutTy
     PView viewExpr inner -> do
