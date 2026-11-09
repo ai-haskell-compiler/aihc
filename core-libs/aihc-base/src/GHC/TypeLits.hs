@@ -22,6 +22,7 @@ module GHC.TypeLits
     natSing,
     natVal,
     natVal',
+    sameNat,
     SNat,
     fromSNat,
     withSomeSNat,
@@ -30,6 +31,7 @@ module GHC.TypeLits
     symbolSing,
     symbolVal,
     symbolVal',
+    sameSymbol,
     SSymbol,
     fromSSymbol,
     withSomeSSymbol,
@@ -38,6 +40,7 @@ module GHC.TypeLits
     charSing,
     charVal,
     charVal',
+    sameChar,
     SChar,
     fromSChar,
     withKnownChar,
@@ -62,6 +65,7 @@ module GHC.TypeLits
   )
 where
 
+import Data.Type.Equality ((:~:) (..))
 import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Integer (Integer)
@@ -69,9 +73,11 @@ import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Any, Char, Constraint, Ordering, Symbol, Type)
+import Unsafe.Coerce (unsafeCoerce)
+import Prelude (Bool (..), Eq (..), Maybe (..))
 
 -- | The value of a known type-level natural, as an 'Integer'.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Integer
@@ -101,6 +107,13 @@ symbolVal _ = knownSymbolValue @s
 -- | The value of a known type-level symbol, through an unlifted proxy.
 symbolVal' :: forall s. (KnownSymbol s) => Proxy# s -> [Char]
 symbolVal' _ = knownSymbolValue @s
+
+-- | Prove type equality when the symbols are equal.
+sameSymbol :: forall a b proxy1 proxy2. (KnownSymbol a, KnownSymbol b) => proxy1 a -> proxy2 b -> Maybe (a :~: b)
+sameSymbol left right =
+  case symbolVal left == symbolVal right of
+    True -> Just (unsafeCoerce (Refl :: a :~: a))
+    False -> Nothing
 
 -- | A singleton for a known type-level symbol.
 type SSymbol :: Symbol -> Type
@@ -140,6 +153,13 @@ charVal _ = knownCharValue @c
 -- | The value of a known type-level character, through an unlifted proxy.
 charVal' :: forall c. (KnownChar c) => Proxy# c -> Char
 charVal' _ = knownCharValue @c
+
+-- | Prove type equality when the characters are equal.
+sameChar :: forall a b proxy1 proxy2. (KnownChar a, KnownChar b) => proxy1 a -> proxy2 b -> Maybe (a :~: b)
+sameChar left right =
+  case charVal left == charVal right of
+    True -> Just (unsafeCoerce (Refl :: a :~: a))
+    False -> Nothing
 
 -- | A singleton for a known type-level character.
 type SChar :: Char -> Type
