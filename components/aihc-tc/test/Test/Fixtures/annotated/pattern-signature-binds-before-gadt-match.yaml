@@ -1,0 +1,83 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  data a :~: b where
+         └─ type: Type → Type → Type
+    Refl :: a :~: a
+    └─ type: ∀ a b. (b ~ a) ⇒ :~: a b
+  data T a where
+       └─ type: Type → Type
+    TB :: T Bool
+    └─ type: ∀ a. (a ~ Bool) ⇒ T a
+  same :: T a -> T b -> Maybe (a :~: b)
+  same TB TB = Just Refl
+  │    │  │    │    └─ type: :~: Bool Bool; type-args: Bool, Bool; evidence: refl Bool
+  │    │  │    └─ type: :~: Bool Bool → Maybe (:~: Bool Bool); type-args: :~: Bool Bool
+  │    │  └─ type: T b; type-args: b; evidence: given b ~ Bool
+  │    └─ type: T a; type-args: a; evidence: given a ~ Bool
+  └─ type: ∀ a b. T a → T b → Maybe (:~: a b)
+  data Field t = Field t
+       │         └─ type: ∀ t. t → Field t
+       └─ type: Type → Type
+  data Value = forall t. Value (T t) (Field t)
+       │       └─ type: ∀ t. T t → Field t → Value
+       └─ type: Type
+  newtype K c = K c
+          │     └─ type: ∀ c. c → K c
+          └─ type: Type → Type
+  class Typed a where
+  └─ class methods: typeOf ∷ ∀ a. (Typed a) ⇒ T a
+    typeOf :: T a
+  update :: forall ty c. (Typed ty, c ~ Field ty) => K c -> Value -> K c
+  update (K old) (Value newTy (new :: Field newTy)) =
+  │       │ │     │     │      └─ type: Field t
+  │       │ │     │     └─ type: T t
+  │       │ │     └─ type: T t → Field t → Value; type-args: t
+  │       │ └─ type: c
+  │       └─ type: K c
+  └─ type: ∀ ty c. (Typed ty, c ~ (Field ty)) ⇒ K c → Value → K c
+    case same (typeOf @ty) newTy of
+    │    │     └─ type: T ty; type-args: ty; evidence: given Typed ty
+    │    └─ type: T ty → T t → Maybe (:~: ty t); type-args: ty, t
+    └─ type: K c
+      Just Refl -> K new
+      │    │       └─ type: Field t → K (Field t); type-args: Field t
+      │    └─ type: :~: ty t; type-args: ty, t; evidence: given t ~ ty
+      └─ type: Maybe (:~: ty t)
+      _ -> K old
+      │    └─ type: c → K c; type-args: c
+      └─ type: Maybe (:~: ty t)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  data Bool = True | False
+  data Maybe a = Nothing | Just a
+  data a :~: b where
+    Refl :: a :~: a
+  data T a where
+    TB :: T Bool
+  same :: T a -> T b -> Maybe (a :~: b)
+  same TB TB = Just Refl
+  data Field t = Field t
+  data Value = forall t. Value (T t) (Field t)
+  newtype K c = K c
+  class Typed a where
+    typeOf :: T a
+  update :: forall ty c. (Typed ty, c ~ Field ty) => K c -> Value -> K c
+  update (K old) (Value newTy (new :: Field newTy)) =
+    case same (typeOf @ty) newTy of
+      Just Refl -> K new
+      _ -> K old
+status: pass
+reason: a pattern signature binds its type variable before a GADT match in the body can refine it

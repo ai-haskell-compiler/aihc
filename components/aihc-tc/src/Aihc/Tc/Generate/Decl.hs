@@ -5212,14 +5212,17 @@ registerDataConstructors origin dataDecl = do
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
       (kindParams, paramInfos) <- dataDeclParamInfos (Just (tciKindScheme info)) dataDecl
-      bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
-      constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
-      mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors origin constructors
       let writtenTyVars = map paramTyVar paramInfos
       declaredResultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
       (implicitTyVars, resultKind) <- implicitDataParameters declaredResultKind
-      let tyVars = writtenTyVars <> implicitTyVars
+      -- The constructors get the parameters that only the kind gives, so a
+      -- GADT result such as @T Bool@ refines the index of @data T :: Type -> Type@.
+      let implicitParamInfos = [ParamInfo (tvName tyVar) tyVar (tvKind tyVar) | tyVar <- implicitTyVars]
+          tyVars = writtenTyVars <> implicitTyVars
+      bindings <- mapM (registerDataCon (tciTyCon info) kindParams (paramInfos <> implicitParamInfos)) (dataDeclConstructors dataDecl)
+      constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
+      mapM_ registerTypeLevelDataCon constructors
+      selectorBindings <- registerRecordSelectors origin constructors
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -5893,7 +5896,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy (matchRhs match)))
+  (rhs', rhsTy, rhsCts) <- withPatternScope patCheck (checkRhs resTy (matchRhs match))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) <|> sp

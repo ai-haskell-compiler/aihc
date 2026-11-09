@@ -725,7 +725,7 @@ inferCaseAlts sp scrutTy resTy alternatives = do
       let altSp = sourceSpanFromAnns altAnns
           branchSp = (<|>) altSp sp
       patCheck <- checkPattern branchSp pat scrutTy
-      (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy rhs))
+      (rhs', rhsTy, rhsCts) <- withPatternScope patCheck (checkRhs resTy rhs)
       resultEv <- freshEvVar
       let rhsSp = rhsExprSpan rhs <|> branchSp
           resultCt =
@@ -754,7 +754,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy rhs))
+  (rhs', rhsTy, rhsCts) <- withPatternScope patCheck (checkRhs resTy rhs)
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
@@ -2076,8 +2076,7 @@ inferResolvedDoBind end expected ambient resolutionAnn resolution failMethod pat
   prepareScrutinee (actionCts <> methodCts)
   patCheck <- checkPattern ambient pat itemTy
   (rest', restTy, restCts) <-
-    withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
-      withPatternScope patCheck (inferDoStmtsEnd end (Just restExpected) ambient rest)
+    withPatternScope patCheck (inferDoStmtsEnd end (Just restExpected) ambient rest)
   resultEquality <- wantedDoEq ambient restTy restExpected
   failure <-
     case failMethod of

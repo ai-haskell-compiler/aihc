@@ -57,6 +57,7 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, unboxedSumType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
@@ -497,6 +498,11 @@ checkPatternCore sp pat scrutTy =
 -- Arr a) = ...@ under a signature without @forall@, the @a@ of a
 -- where-bound signature is this @a@, and the equality with the argument
 -- type makes it the @a@ of the outer signature.
+--
+-- When the signature binds a type variable, the equality is solved at the
+-- pattern if it can be, as GHC binds the variable at the pattern. Otherwise
+-- a GADT match in the body can solve the meta variable from its own givens,
+-- and the equality then fails outside that match.
 checkTypeSigPattern :: Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
 checkTypeSigPattern sp inner tyAnn scrutTy = do
   kinds <- getKinds
@@ -506,10 +512,16 @@ checkTypeSigPattern sp inner tyAnn scrutTy = do
     scoped' <- getScopedTyVars
     sigTy <- checkSurfaceType scoped' tyAnn (typeKind kinds)
     eqCt <- wantedEq sp scrutTy sigTy
+    solved <-
+      if null boundTyVars
+        then pure False
+        else do
+          result <- solveEquality eqCt
+          pure (case result of EqSolved -> True; _ -> False)
     innerCheck <- checkPattern sp inner sigTy
     pure
       innerCheck
-        { pcWantedCts = eqCt : pcWantedCts innerCheck,
+        { pcWantedCts = [eqCt | not solved] <> pcWantedCts innerCheck,
           pcTyVars = boundTyVars <> pcTyVars innerCheck,
           pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
         }
@@ -1131,10 +1143,13 @@ withPatternBindings ((name, ty) : rest) action =
   extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
 
 -- | Run the body of a match in the scope of its checked patterns: their
--- term binders and the type variables their signatures bound.
+-- term binders, the type variables their signatures bound, and the givens
+-- of their constructors. A nested match solves its branch inside this
+-- scope, so it can use these givens too.
 withPatternScope :: PatternCheck -> TcM a -> TcM a
 withPatternScope patCheck action =
-  withPatternTyVars (pcTyVars patCheck) (withPatternBindings (pcBindings patCheck) action)
+  withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
+    withPatternTyVars (pcTyVars patCheck) (withPatternBindings (pcBindings patCheck) action)
 
 -- | Whether a pattern can fail to match. A variable, a wildcard, a lazy
 -- pattern, and a tuple of such patterns cannot fail. A constructor pattern
