@@ -218,6 +218,14 @@ packageAliases =
       bootLibraryName library /= bootLibraryStandin library
     ]
 
+-- | Each boot library of the emulated release that comes from Hackage must
+-- have the version of that release.
+hackageBootLibraryConstraints :: [Constraint]
+hackageBootLibraryConstraints =
+  [ ConstraintVersion (mkPackageName name) (thisVersion (versionFromList version))
+  | (name, version) <- releaseHackageBootLibraries emulatedGhc
+  ]
+
 -- | Parse a @--constraint@ argument: @NAME RANGE@, or @NAME@ followed by
 -- @+flag@ and @-flag@ words.
 parseConstraint :: String -> Either String [Constraint]
@@ -257,7 +265,8 @@ planPackages request = do
             configAliases = packageAliases,
             configConstraints =
               requestConstraints request
-                <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots],
+                <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots]
+                <> hackageBootLibraryConstraints,
             configPreferences = Map.empty,
             configRoots = Map.fromList [(name, rootStanzas) | (name, _) <- roots],
             -- Every package depends on aihc-prim, so the plan needs it even

@@ -336,8 +336,15 @@ convertPred env predicate =
       argumentKinds <- visibleArgumentKinds env tyCon arguments Nothing
       converted <- zipWithM (convertNestedTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
       pure (foldl TyApp (TyCon (classDictTypeName tyCon)) (kindArguments <> converted))
+    -- The two sides of an equality have one kind. A side whose kind
+    -- cannot be found alone gets it from the other side: in
+    -- @TypeError msg ~ '()@ the result kind of 'TypeError' is the kind
+    -- of @'()@.
     EqPred left right ->
-      TyEq <$> convertType env left <*> convertType env right
+      let sideKind side = either (const Nothing) Just (typeKindInEnv env side)
+       in TyEq
+            <$> convertTypeWithExpectedKind env (sideKind right) left
+            <*> convertTypeWithExpectedKind env (sideKind left) right
     -- The evidence for an implicit parameter is a plain value of its type.
     IParamPred _ payload -> convertType env payload
     -- A stuck constraint is a dictionary whose type is the constraint
