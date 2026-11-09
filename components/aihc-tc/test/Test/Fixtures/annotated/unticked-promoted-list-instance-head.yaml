@@ -1,0 +1,22 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  class C (is :: [Type])
+  └─ class methods:
+  instance C [a, b, c]
+  └─ $fC:a:b:c[] ∷ ∀ a b c. () ⇒ C (': a (': b (': c '[])))
+extensions:
+- DataKinds
+- FlexibleInstances
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  class C (is :: [Type])
+  instance C [a, b, c]
+status: pass
+reason: Without a tick, a list of two or more types is a promoted list, as in GHC. Before the fix, the kind checker did not support the form, and the instance annotation kept an unzonked meta variable.

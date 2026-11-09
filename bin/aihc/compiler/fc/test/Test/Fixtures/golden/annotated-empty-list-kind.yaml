@@ -1,0 +1,49 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, KindSignatures #-}
+    module Test where
+    import GHC.Types (Type)
+    type NoIx = ('[] :: [Type])
+    data Proxy (t :: k) = Proxy
+    keep :: Proxy NoIx -> Proxy NoIx
+    keep p = p
+    made :: Proxy NoIx
+    made = keep Proxy
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.sNoIx :: t[] sType =
+    c[] sType
+
+  pub type 1.tProxy (k : sType) (t : k) :: sType {
+    pub 1.cProxy :: ∀(k : sType) (t : k). tProxy k t
+  }
+
+  pub val 1.vkeep :: tProxy (t[] sType) (c[] sType) → tProxy (t[] sType) (c[] sType)
+    = λ(x : tProxy (t[] sType) (c[] sType)).
+      x
+
+  pub val 1.vmade :: tProxy (t[] sType) (c[] sType)
+    = vkeep (cProxy @(t[] sType) @(c[] sType))
+status: pass
+reason: The synonym NoIx gives the empty list the kind [Type]. The type keeps that kind as a kind argument, so the type arguments of Proxy in made have it. Before the fix, the empty list lost the kind, and the desugarer could not infer the kind argument of the empty list.

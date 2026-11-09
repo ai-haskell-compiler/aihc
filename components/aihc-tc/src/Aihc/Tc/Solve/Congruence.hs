@@ -41,7 +41,7 @@ proveGivenEquality predicates left right = do
 -- Each equality keeps the proof of the given it came from.
 proveFromEqualities :: [(TcType, TcType, Coercion)] -> TcType -> TcType -> TcM (Maybe Coercion)
 proveFromEqualities equalities left right
-  | sameType left right = pure (Just (Refl left))
+  | sameType left right = pure (Just (Refl (reflexiveWitness left right)))
   | null equalities = pure Nothing
   | otherwise = prove
   where

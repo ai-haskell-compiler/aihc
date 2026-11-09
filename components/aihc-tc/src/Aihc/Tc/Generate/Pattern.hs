@@ -5,6 +5,8 @@
 module Aihc.Tc.Generate.Pattern
   ( PatternCheck (..),
     PatternTyVar (..),
+    bindPatternTyVar,
+    withPatternTyVars,
     annotatePatternBindings,
     reannotatePatternBinders,
     checkPattern,

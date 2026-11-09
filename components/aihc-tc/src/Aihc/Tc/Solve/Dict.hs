@@ -188,7 +188,15 @@ solveNormalizedDict visited givens ct
                   pure DictSolved
                 Nothing -> do
                   rules <- givenRewriteRuleSets givens'
-                  tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
+                  -- The rules can rewrite a stuck given to the wanted: with
+                  -- the given @p ~ Wrapped arr@, the given @Constraints k p@
+                  -- is the wanted @Constraints k (Wrapped arr)@.
+                  fromGivens <- firstRuleSet (\ruleSet -> rewrittenIrreducibleGiven (ctPred ct : visited) ruleSet (IrredPred reduced) givens') rules
+                  case fromGivens of
+                    Just given -> do
+                      bindEvidence (ctEvVar ct) given
+                      pure DictSolved
+                    Nothing -> tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -294,6 +302,11 @@ solveNormalizedDict visited givens ct
     -- which reduces to @Pro p@. That given, or one of its superclasses,
     -- then solves the wanted. The given dictionary is cast along the
     -- rewrite.
+    firstRuleSet _ [] = pure Nothing
+    firstRuleSet attempt (ruleSet : rest) = do
+      found <- attempt ruleSet
+      maybe (firstRuleSet attempt rest) (pure . Just) found
+
     rewrittenIrreducibleGiven _ _ _ [] = pure Nothing
     rewrittenIrreducibleGiven visited' rules target (given : rest) =
       case given of
@@ -887,6 +900,10 @@ canonicalPred :: Pred -> Pred
 canonicalPred predicate =
   case predicate of
     ClassPred className arguments -> ClassPred className (map canonicalApplications arguments)
+    -- A stuck constraint compares the same way: the given @Constraints k
+    -- (Re p a b)@ of a signature and the wanted at the same type.
+    IrredPred constraint -> IrredPred (canonicalApplications constraint)
+    EqPred left right -> EqPred (canonicalApplications left) (canonicalApplications right)
     _ -> predicate
 
 -- | Rewrite every occurrence of a rule's left side, outermost first, and

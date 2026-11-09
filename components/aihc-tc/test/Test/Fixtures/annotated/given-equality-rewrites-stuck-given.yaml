@@ -1,0 +1,33 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  newtype Request ctx body = Request body
+          │                  └─ type: ∀ k0 ctx body. body → Request ctx body
+          └─ type: k0 → Type → Type
+  class Monad' m where
+  └─ class methods: dispatch ∷ ∀ k0 m ctx body. (Monad' m) ⇒ Request ctx body → m body
+    dispatch :: Request ctx body -> m body
+  class Parse ctx where
+  └─ class methods: parse ∷ ∀ k0 ctx body. (Parse ctx) ⇒ Request ctx body → body
+    parse :: Request ctx body -> body
+  perform :: (Monad' m, Parse ctx) => Request ctx a -> m a
+  perform req = dispatch req
+  │       │     └─ type: Request ctx a → m a; type-args: k0, m, ctx, a; evidence: given Monad' m
+  │       └─ type: Request ctx a
+  └─ type: ∀ k0 m ctx a. (Monad' m, Parse ctx) ⇒ Request ctx a → m a
+extensions:
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  newtype Request ctx body = Request body
+  class Monad' m where
+    dispatch :: Request ctx body -> m body
+  class Parse ctx where
+    parse :: Request ctx body -> body
+  perform :: (Monad' m, Parse ctx) => Request ctx a -> m a
+  perform req = dispatch req
+status: pass
+reason: The wanted Constraints k (Wrapped arr) is stuck. The given equality p ~ Wrapped arr rewrites the stuck given Constraints k p to the wanted, so the given solves it. The evidence casts the given along the equality. Before the fix, the solver rewrote a stuck given only for a class wanted.
