@@ -30,11 +30,11 @@ annotated:
     instance (m ~~ m', Rd r m') => Rd r (Codensity (m :: k -> TYPE rep)) where
     └─ $fRdrCodensitym ∷ ∀ k rep m' r m. (m ~ m', Rd r m') ⇒ Rd r (Codensity m)
       rd = Codensity (\c -> bnd rd c)
-      │    ││          ││    │   └─ type: m r; type-args: r, m; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
-      │    ││          ││    └─ type: m r → (r → m b) → m b; type-args: r, m, r, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │    ││          ││    │   └─ type: m' r; type-args: r, m'; evidence: given Rd r m'
+      │    ││          ││    └─ type: m' r → (r → m' b) → m' b; type-args: r, m', r, b; evidence: given Rd r m'
       │    ││          │└─ type: r → m b
       │    ││          └─ type: (r → m b) → m b
-      │    └─ type: (∀ b. (r → m b) → m b) → Codensity m r; type-args: Type, 'BoxedRep 'Lifted, m, r
+      │    └─ type: (∀ b. (r → m b) → m b) → Codensity m r; type-args: k, rep, m, r
       │    └─ type: ∀ b. (r → m b) → m b
       └─ rd ∷ Codensity m r
       loc f (Codensity g) = Codensity (\c -> bnd rd (\r -> loc f (g (\a -> loc (\_ -> r) (c a)))))
@@ -52,7 +52,7 @@ annotated:
       │   │  │         │    ││          ││    └─ type: m r → (r → m b) → m b; type-args: r, m, r, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
       │   │  │         │    ││          │└─ type: a → m b
       │   │  │         │    ││          └─ type: (a → m b) → m b
-      │   │  │         │    └─ type: (∀ b. (a → m b) → m b) → Codensity m a; type-args: Type, 'BoxedRep 'Lifted, m, a
+      │   │  │         │    └─ type: (∀ b. (a → m b) → m b) → Codensity m a; type-args: k, rep, m, a
       │   │  │         │    └─ type: ∀ b. (a → m b) → m b
       │   │  │         └─ type: ∀ b. (a → m b) → m b
       │   │  └─ type: Codensity m a
@@ -60,14 +60,14 @@ annotated:
       └─ loc ∷ ∀ a. (r → r) → Codensity m a → Codensity m a
       bnd (Codensity g) h = Codensity (\c -> g (\a -> runCodensity (h a) c))
       │    │         │  │   ││          ││    │  ││    └─ type: (y → m b) → m b; type-args: b
-      │    │         │  │   ││          ││    │  ││    └─ type: Codensity m y → ∀ b. (y → m b) → m b; type-args: Type, 'BoxedRep 'Lifted, m, y
+      │    │         │  │   ││          ││    │  ││    └─ type: Codensity m y → ∀ b. (y → m b) → m b; type-args: k, rep, m, y
       │    │         │  │   ││          ││    │  │└─ type: x
       │    │         │  │   ││          ││    │  └─ type: x → m b
       │    │         │  │   ││          ││    └─ type: (x → m b) → m b; type-args: b
       │    │         │  │   ││          │└─ type: y → m b
       │    │         │  │   ││          └─ type: (y → m b) → m b
       │    │         │  │   └─ type: ∀ b. (y → m b) → m b
-      │    │         │  │   └─ type: (∀ b. (y → m b) → m b) → Codensity m y; type-args: Type, 'BoxedRep 'Lifted, m, y
+      │    │         │  │   └─ type: (∀ b. (y → m b) → m b) → Codensity m y; type-args: k, rep, m, y
       │    │         │  └─ type: x → Codensity m y
       │    │         └─ type: ∀ b. (x → m b) → m b
       │    └─ type: Codensity m x

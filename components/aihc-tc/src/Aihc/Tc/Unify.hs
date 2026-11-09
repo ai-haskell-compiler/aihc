@@ -162,7 +162,8 @@ retryDeferred loc pairs = sequence_ <$> mapM retryOne pairs
 -- family can remove the occurrence.
 unifyMetaTv :: Maybe SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind [(TcType, TcType)])
 unifyMetaTv loc u ty = do
-  ty' <- zonkType ty >>= refineGivenTyVarKinds
+  metaKind <- readMetaTvKind u
+  ty' <- zonkType ty >>= refineGivenTyVarKinds metaKind
   outside <- occursOutsideFamilies
   case ty' of
     TcMetaTv u' | u == u' -> pure (Right [])

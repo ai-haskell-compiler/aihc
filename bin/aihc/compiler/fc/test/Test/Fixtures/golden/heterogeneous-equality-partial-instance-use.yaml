@@ -1,0 +1,74 @@
+extensions:
+- GADTs
+- PolyKinds
+- TypeOperators
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE GADTs, PolyKinds, TypeOperators, KindSignatures #-}
+  module Test where
+  import GHC.Types (Bool (..), Int)
+  data (a :: k1) :~~: (b :: k2) where
+    HRefl :: forall k (a :: k). a :~~: a
+  data Ok (a :: k) (b :: k) = Ok
+  class C f where
+    m :: f a -> f b -> Ok a b
+  instance C ((:~~:) a) where
+    m _ _ = Ok
+  use = case m (HRefl :: Int :~~: Int) (HRefl :: Int :~~: Int) of
+    Ok -> True
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.t:~~: (k1 : sType) (k2 : sType) (a : k1) (b : k2) :: sType {
+    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: k k2 a b))
+  }
+
+  pub type 1.tOk (k : sType) (a : k) (b : k) :: sType {
+    pub 1.cOk :: ∀(k : sType) (a : k) (b : k). tOk k a b
+  }
+
+  pub type 1.t$Dict$C (k0 : sType) (f : k0 → sType) :: sType {
+    pub 1.c$Dict$C :: ∀(k0 : sType) (f : k0 → sType). (∀(a : k0) (b : k0). f a → f b → tOk k0 a b) → t$Dict$C k0 f
+  }
+
+  pub val 1.vm :: ∀(k0 : sType) (f : k0 → sType) (a : k0) (b : k0). t$Dict$C k0 f → f a → f b → tOk k0 a b
+    = Λ(k0 : sType) (f : k0 → sType) (a : k0) (b : k0). λ($dC : t$Dict$C k0 f).
+      let! c$Dict$C ($cm : ∀(a{1} : k0) (b{1} : k0). f a{1} → f b{1} → tOk k0 a{1} b{1}) = $dC;
+      $cm @a @b
+
+  pub val 1.v$fC:~~:a :: ∀(k0 : sType) (k1 : sType) (a : k0). t$Dict$C k1 (t:~~: k0 k1 a)
+    = Λ(k0 : sType) (k1 : sType) (a : k0).
+      c$Dict$C @k1 @(t:~~: k0 k1 a) (v$fC:~~:a$cm @k0 @k1 @a)
+
+  val 1.v$fC:~~:a$cm :: ∀(k0 : sType) (k1 : sType) (a : k0) (a{1} : k1) (b : k1). t:~~: k0 k1 a a{1} → t:~~: k0 k1 a b → tOk k1 a{1} b
+    = Λ(k0 : sType) (k1 : sType) (a : k0) (a{1} : k1) (b : k1). λ(unused x : t:~~: k0 k1 a a{1})
+    (unused y : t:~~: k0 k1 a b).
+      cOk @k1 @a{1} @b
+
+  pub val 1.vuse :: tBool
+    = let! cOk =
+      vm @sType @(t:~~: sType sType tInt) @tInt @tInt (v$fC:~~:a @sType @sType @tInt) (cHRefl @sType @tInt @sType @tInt (coercion (refl sType)) (coercion (refl tInt))) (cHRefl @sType @tInt @sType @tInt (coercion (refl sType)) (coercion (refl tInt)));
+    cTrue
+status: pass
+reason: An instance kind variable that only the kind arguments of the head mention gets its kind from the wanted argument.

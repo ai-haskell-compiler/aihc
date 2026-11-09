@@ -63,7 +63,7 @@ expected: |-
         x ▷ axiom-co $ax$Codensity @k @rep @v @a;
       let n : ∀(b : k). FUN @sLiftedRep @rep (FUN @sLiftedRep @rep a (v b)) (v b) =
         y ▷ axiom-co $ax$Codensity @k @rep @v @a;
-      (Λ(b : sType). λ(k{1} : a → v b).
-        vpl @v @b ($dPl ▷ sym (tycon-co t$Dict$Pl ($co))) (m @b k{1}) (n @b k{1})) ▷ sym (axiom-co $ax$Codensity @sType @sLiftedRep @v @a)
+      (Λ(b : k). λ(k{1} : FUN @sLiftedRep @rep a (v b)).
+        vpl @v @b ($dPl ▷ sym (tycon-co t$Dict$Pl ($co))) (m @b k{1}) (n @b k{1})) ▷ sym (axiom-co $ax$Codensity @k @rep @v @a)
 status: pass
 reason: the given v ~~ v' equates the kinds of v and v', so the System FC lint accepts the newtype axiom and the function representations at the refined kinds

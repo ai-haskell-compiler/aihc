@@ -1023,7 +1023,8 @@ constructorGiven sp constructorName predicate = do
         ctOrigin = origin,
         ctProvenance = FromCtOrigin origin,
         ctLoc = sp,
-        ctBranchGivens = []
+        ctBranchGivens = [],
+        ctWrittenPred = predicate
       }
 
 instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])

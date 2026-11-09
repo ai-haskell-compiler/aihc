@@ -67,7 +67,8 @@ quickLookUnify instantiationVariables = go
     -- gives a wired-in constructor its configured identity, so a kind from
     -- an installed interface compares equal to the wired-in kind.
     bind unique rawType = do
-      ty <- refineGivenTyVarKinds rawType
+      metaKind <- readMetaTvKind unique
+      ty <- refineGivenTyVarKinds metaKind rawType
       unless (unique `elem` metaVariables ty) $ do
         declaredKind <- readMetaTvKind unique >>= zonkKind
         solvedKind <- tcTypeKind ty >>= zonkKind

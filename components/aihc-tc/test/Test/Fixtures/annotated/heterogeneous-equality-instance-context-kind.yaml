@@ -28,11 +28,11 @@ annotated:
     instance (v ~~ v', Zero v') => Zero (Codensity (v :: k -> TYPE rep)) where
     └─ $fZeroCodensityv ∷ ∀ k rep v' v. (v ~ v', Zero v') ⇒ Zero (Codensity v)
       zero = Codensity (\_ -> zero)
-      │      ││          │││    └─ type: v b; type-args: v, b; evidence: cast(given Zero v', sym (Zero given v ~ v'))
+      │      ││          │││    └─ type: v' b; type-args: v', b; evidence: given Zero v'
       │      ││          │└─ type: a → v b
       │      ││          │└─ type: a → v b
       │      ││          └─ type: (a → v b) → v b
-      │      └─ type: (∀ b. (a → v b) → v b) → Codensity v a; type-args: Type, 'BoxedRep 'Lifted, v, a
+      │      └─ type: (∀ b. (a → v b) → v b) → Codensity v a; type-args: k, rep, v, a
       │      └─ type: ∀ b. (a → v b) → v b
       └─ zero ∷ ∀ a. Codensity v a
     class Zero f => Plus (f :: Type -> Type) where

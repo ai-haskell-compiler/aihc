@@ -109,7 +109,13 @@ data Ct = Ct
     -- | The givens of the pattern branches that a wanted leaves because it
     -- waits for a meta variable of an enclosing scope. The solver of that
     -- scope uses them when the variable gets its solution.
-    ctBranchGivens :: ![Ct]
+    ctBranchGivens :: ![Ct],
+    -- | The predicate as the constraint was made, before the solver
+    -- zonked or rewrote it. A meta variable in it keeps its kind, and the
+    -- kind can tell more than its solution does: the solution @(:~~:)
+    -- Int@ of @f :: Type -> Type@ does not keep the kind of its next
+    -- argument.
+    ctWrittenPred :: !Pred
   }
   deriving (Show)
 
@@ -123,7 +129,8 @@ mkWantedCt p ev orig loc =
       ctOrigin = orig,
       ctProvenance = FromCtOrigin orig,
       ctLoc = loc,
-      ctBranchGivens = []
+      ctBranchGivens = [],
+      ctWrittenPred = p
     }
 
 -- | Create a wanted equality constraint with expected-vs-actual diagnostic
@@ -145,7 +152,8 @@ mkWantedEqCt actual expected ev orig loc =
               eqPrimarySpan = loc
             },
       ctLoc = loc,
-      ctBranchGivens = []
+      ctBranchGivens = [],
+      ctWrittenPred = EqPred (typeTraceType actual) (typeTraceType expected)
     }
 
 ctEqProvenance :: Ct -> Maybe EqProvenance
