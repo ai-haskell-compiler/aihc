@@ -632,10 +632,15 @@ data GeneralizedKindMetas
   deriving (Eq)
 
 generalizeKindMetas :: GeneralizedKindMetas -> [TyVarId] -> TcM ()
-generalizeKindMetas scope variables = do
+generalizeKindMetas = generalizeKindMetasExcept []
+
+-- | 'generalizeKindMetas', except for the given meta-variables, which
+-- stay open.
+generalizeKindMetasExcept :: [Unique] -> GeneralizedKindMetas -> [TyVarId] -> TcM ()
+generalizeKindMetasExcept excluded scope variables = do
   kinds <- getKinds
   variableKinds <- mapM (zonkKind . tvKind) variables
-  let candidates = zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))
+  let candidates = zip [0 :: Int ..] (filter (`notElem` excluded) (nub (concatMap collectMetaVars variableKinds)))
   -- An empty candidate list needs no scan of the component's kinds.
   unless (null candidates) $ do
     reserved <- reservedKindMetas
@@ -773,68 +778,76 @@ tcRuleDecl rule = withAmbientSpan sp $ do
   typeBinders <- foldM (ruleTypeBinder kinds) [] (ruleTypeBinders rule)
   let scope = Map.fromList [(tvName tv, (tv, tvKind tv)) | tv <- typeBinders]
   withImpliedScopedTyVars scope $ do
-    binders <- forM (ruleBinders rule) $ \binder -> do
-      ty <- case ruleBinderType binder of
-        Nothing -> freshMetaTv
-        Just sig -> do
-          scoped <- getScopedTyVars
-          checkRuntimeType scoped sig
-      pure (binder, ty)
-    let ruleTypeOf lhsTy = foldr (TcFunTy . snd) lhsTy binders
-    ((lhs', lhsTy, rhs', residualPreds), failed) <-
-      withErrorTracking $
-        withRuleBinders binders $ do
-          (lhs', lhsTy, lhsCts) <- inferExpr (ruleLhs rule)
-          (rhs', rhsTy, rhsCts) <- checkExpr lhsTy (ruleRhs rule)
-          -- The check pushes the type into a lambda or a case; any other
-          -- right-hand side comes back with its own type, which the two
-          -- sides of a rule must share.
-          sidesEv <- freshEvVar
-          let sidesCt =
-                mkWantedEqCt
-                  TypeTrace {typeTraceType = rhsTy, typeTraceRole = ActualType, typeTraceOrigin = ExpressionTypeOrigin sp}
-                  TypeTrace {typeTraceType = lhsTy, typeTraceRole = ExpectedType, typeTraceOrigin = ExpressionTypeOrigin sp}
-                  sidesEv
-                  (UnifyOrigin sp)
-                  sp
-          solveResult <- solveWithImpls (lhsCts <> rhsCts <> [sidesCt]) []
-          -- GHC quantifies a rule over an equality that the sides leave
-          -- open, as in @PrimSize a ~ PrimSize b@. A rule type here holds
-          -- dictionary binders only, so such a rule keeps its source form
-          -- and reports nothing: the rule cannot rewrite, but the program
-          -- is still correct.
-          --
-          -- GHC also quantifies a rule over a class constraint of the
-          -- left-hand side that no instance solves, as in
-          -- @Indexable Int64 (Indexed Int)@. No program can supply that
-          -- dictionary, so the rule never rewrites. Such a rule also keeps
-          -- its source form and reports nothing.
-          residualCts <- mapM zonkCt (srResidual solveResult <> inertDicts (srInerts solveResult))
-          let leavesEquality = any (isEqualityPred . ctPred) residualCts
-          lhsPreds <- mapM (zonkPred . ctPred) lhsCts
-          let leavesConcreteDictionary = any (\ct -> isConcreteClassPred (ctPred ct) && ctPred ct `elem` lhsPreds) residualCts
-          residualPreds <-
-            if leavesEquality || leavesConcreteDictionary
-              then pure Nothing
-              else Just <$> generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
-          pure (lhs', lhsTy, rhs', residualPreds)
-    case residualPreds of
-      Nothing -> pure rule
-      Just residualPreds'
-        | failed -> pure rule
-        | otherwise -> do
-            let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
-            Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
-            let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
-            binders' <- forM binders $ \(binder, ty) ->
-              pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
-            pure
-              rule
-                { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
-                  ruleBinders = binders',
-                  ruleLhs = lhs',
-                  ruleRhs = rhs'
-                }
+    -- A type variable that a binder signature mentions and that no
+    -- @forall@ binds is bound by the signature, as in a pattern signature,
+    -- and scopes over the whole rule: the @g@ of @forall (o :: Star g i a
+    -- b). traversed__ o = wander traverse o :: Star g i (f a) (f b)@.
+    scopedBefore <- getScopedTyVars
+    let signatureNames = nub (concatMap freeTypeVars (mapMaybe ruleBinderType (ruleBinders rule)))
+    signatureTyVars <- mapM bindPatternTyVar (filter (`Map.notMember` scopedBefore) signatureNames)
+    withPatternTyVars signatureTyVars $ do
+      binders <- forM (ruleBinders rule) $ \binder -> do
+        ty <- case ruleBinderType binder of
+          Nothing -> freshMetaTv
+          Just sig -> do
+            scoped <- getScopedTyVars
+            checkRuntimeType scoped sig
+        pure (binder, ty)
+      let ruleTypeOf lhsTy = foldr (TcFunTy . snd) lhsTy binders
+      ((lhs', lhsTy, rhs', residualPreds), failed) <-
+        withErrorTracking $
+          withRuleBinders binders $ do
+            (lhs', lhsTy, lhsCts) <- inferExpr (ruleLhs rule)
+            (rhs', rhsTy, rhsCts) <- checkExpr lhsTy (ruleRhs rule)
+            -- The check pushes the type into a lambda or a case; any other
+            -- right-hand side comes back with its own type, which the two
+            -- sides of a rule must share.
+            sidesEv <- freshEvVar
+            let sidesCt =
+                  mkWantedEqCt
+                    TypeTrace {typeTraceType = rhsTy, typeTraceRole = ActualType, typeTraceOrigin = ExpressionTypeOrigin sp}
+                    TypeTrace {typeTraceType = lhsTy, typeTraceRole = ExpectedType, typeTraceOrigin = ExpressionTypeOrigin sp}
+                    sidesEv
+                    (UnifyOrigin sp)
+                    sp
+            solveResult <- solveWithImpls (lhsCts <> rhsCts <> [sidesCt]) []
+            -- GHC quantifies a rule over an equality that the sides leave
+            -- open, as in @PrimSize a ~ PrimSize b@. A rule type here holds
+            -- dictionary binders only, so such a rule keeps its source form
+            -- and reports nothing: the rule cannot rewrite, but the program
+            -- is still correct.
+            --
+            -- GHC also quantifies a rule over a class constraint of the
+            -- left-hand side that no instance solves, as in
+            -- @Indexable Int64 (Indexed Int)@. No program can supply that
+            -- dictionary, so the rule never rewrites. Such a rule also keeps
+            -- its source form and reports nothing.
+            residualCts <- mapM zonkCt (srResidual solveResult <> inertDicts (srInerts solveResult))
+            let leavesEquality = any (isEqualityPred . ctPred) residualCts
+            lhsPreds <- mapM (zonkPred . ctPred) lhsCts
+            let leavesConcreteDictionary = any (\ct -> isConcreteClassPred (ctPred ct) && ctPred ct `elem` lhsPreds) residualCts
+            residualPreds <-
+              if leavesEquality || leavesConcreteDictionary
+                then pure Nothing
+                else Just <$> generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
+            pure (lhs', lhsTy, rhs', residualPreds)
+      case residualPreds of
+        Nothing -> pure rule
+        Just residualPreds'
+          | failed -> pure rule
+          | otherwise -> do
+              let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
+              Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
+              let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
+              binders' <- forM binders $ \(binder, ty) ->
+                pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
+              pure
+                rule
+                  { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
+                    ruleBinders = binders',
+                    ruleLhs = lhs',
+                    ruleRhs = rhs'
+                  }
   where
     sp = sourceSpanFromAnns (ruleAnns rule)
 
@@ -1247,7 +1260,8 @@ checkTopLevelUnliftedBindings sourceGroups results =
   forM_ results $ \result ->
     case Map.lookup (tcGroupId result) groupsById of
       Just group
-        | Just sourceSpan <- declGroupSourceSpan group ->
+        | not (isPatSynGroup group),
+          Just sourceSpan <- declGroupSourceSpan group ->
             forM_ (tcGroupBindingResults result) $ \binding -> do
               kind <- tcTypeKind (tbType binding)
               when (isUnliftedKind kind) $
@@ -1255,6 +1269,12 @@ checkTopLevelUnliftedBindings sourceGroups results =
       _ -> pure ()
   where
     groupsById = Map.fromList sourceGroups
+    -- A pattern synonym binds no value of its own type. Its builder takes
+    -- a unit when its type is unlifted (see 'tcPatSynDecl').
+    isPatSynGroup group =
+      case group of
+        SingleDecl decl | DeclPatSyn {} <- peelDeclAnn decl -> True
+        _ -> False
     isUnliftedKind kind =
       case runtimeRepFromKind kind of
         Right (BoxedRep Lifted) -> False
@@ -3298,15 +3318,32 @@ tcPatSynDecl sigs groupId decl patSyn = do
           case maybeMatcherMatches of
             Just [matcherMatch'] -> do
               checkedPat <- maybe (abortTc ("pattern synonym " <> T.unpack name <> " lost its checked pattern")) pure (matcherPattern matcherMatch')
-              let builderSig = CheckedSig builderName scheme nameSpan [] False
+              -- A builder with no arguments and an unlifted result, as
+              -- the builder of @pattern ZW = MkZW (# #)@, takes a unit:
+              -- a top-level binding cannot have an unlifted type. GHC
+              -- gives it a @Void#@ argument for the same reason. The
+              -- desugarer applies the builder to the unit at each use.
+              voidBuilder <- if arity == 0 then patSynSchemeUnlifted scheme else pure False
+              builderScheme <-
+                if voidBuilder
+                  then do
+                    kinds <- getKinds
+                    unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
+                    let Scheme inferred specified predicates body = scheme
+                    pure (Scheme inferred specified predicates (TcFunTy (TcTyCon unitTyCon []) body))
+                  else pure scheme
+              let builderSig = CheckedSig builderName builderScheme nameSpan [] False
+                  withVoidArgument matches
+                    | voidBuilder = [match {matchPats = PWildcard : matchPats match} | match <- matches]
+                    | otherwise = matches
               (direction, sourceBuilder) <-
                 case patSynDeclDir patSyn of
                   PatSynUnidirectional -> pure (PatSynUnidirectionalInfo, Just Nothing)
-                  PatSynExplicitBidirectional matches -> pure (PatSynExplicitBidirectionalInfo, Just (Just matches))
+                  PatSynExplicitBidirectional matches -> pure (PatSynExplicitBidirectionalInfo, Just (Just (withVoidArgument matches)))
                   PatSynBidirectional ->
                     case patternToExpr pat of
                       Just expr ->
-                        pure (PatSynImplicitBidirectionalInfo, Just (Just [Match [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] expr Nothing)]))
+                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] expr Nothing)])))
                       Nothing -> do
                         emitError nameSpan (OtherError ("the pattern of the bidirectional pattern synonym " <> T.unpack name <> " is not an expression; give explicit builder equations"))
                         pure (PatSynImplicitBidirectionalInfo, Nothing)
@@ -3356,6 +3393,15 @@ tcPatSynDecl sigs groupId decl patSyn = do
                           results = TcBindingResult key displayName zonkedTy : matcherResults <> builderResults <> selectorResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
             _ -> pure failedResult
+
+-- | Whether the type of a pattern synonym has an unlifted result.
+patSynSchemeUnlifted :: TypeScheme -> TcM Bool
+patSynSchemeUnlifted (ForAll _ _ body) = do
+  kind <- tcTypeKind =<< zonkType body
+  pure $ case runtimeRepFromKind kind of
+    Right (BoxedRep Lifted) -> False
+    Right _ -> True
+    Left _ -> False
 
 -- | A pattern synonym bundled with a type in an export list must have that
 -- type as its scrutinee type.
@@ -4288,7 +4334,8 @@ registerClassDecl origin classDecl = do
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
       }
-  methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv allClassTyVars) (classDeclItems classDecl)
+  polyKinds <- isPolyKindOrigin origin
+  methodResults <- concat <$> mapM (registerClassItem polyKinds classPred paramTvEnv allClassTyVars) (classDeclItems classDecl)
   methods <- mapM (registeredMethod classTyCon) (classDeclMethodNames classDecl)
   defaultSignatures <- catMaybes <$> mapM (registerClassDefaultSignature paramTvEnv allClassTyVars) (classDeclItems classDecl)
   let defaults = classDeclDefaultMethodNames classDecl
@@ -4474,11 +4521,20 @@ typeArguments ty =
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
 
-registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
-registerClassItem classPred classTvEnv classTyVars item =
+registerClassItem :: Bool -> Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
+registerClassItem polyKinds classPred classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemTypeSig names ty -> do
       Scheme inferred specified contextPreds methodBody <- classSignatureScheme classTvEnv classTyVars ty
+      -- With PolyKinds, a kind that only the signature leaves open is a
+      -- kind variable of the method, as for an ordinary signature: @ctx@
+      -- in @dispatch :: Request ctx body -> m body@ has any kind. A meta
+      -- that the kind of a class parameter mentions stays open, because
+      -- the other methods can still determine it.
+      when polyKinds $ do
+        classKindMetas <- concatMap collectMetaVars <$> mapM (zonkKind . tvKind) classTyVars
+        let methodTyVars = filter (\tyVar -> tvUnique tyVar `notElem` map tvUnique classTyVars) (inferred <> specified)
+        generalizeKindMetasExcept classKindMetas AllKindMetas methodTyVars
       let preds = classPred : contextPreds
           scheme = Scheme inferred specified preds methodBody
           declaredTy = schemeToType scheme
@@ -5549,10 +5605,21 @@ registerDataConWithResult paramInfos resTy con = case con of
     gadtResTy <- checkSurfaceType constructorEnv resultSurfTy (typeKind kinds)
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
     writtenPredicates <- surfaceContextToPreds constructorEnv context
+    -- Under PolyKinds, the signature can leave the kind of a variable open.
+    -- An example is @GEQ :: GOrdering t t@ for
+    -- @type GOrdering :: k -> k -> Type@. GHC quantifies such a kind as an
+    -- inferred binder, @forall {k} (t :: k)@, and does not default it.
+    -- This applies only when the head kinds are complete. Without a kind
+    -- signature, the open kinds can belong to the kind of the data type,
+    -- which the rest of the declaration group can still change.
+    polyKinds <- constructorPolyKinds names
+    headKinds <- mapM (zonkKind . paramKind) paramInfos
+    when (polyKinds && all (null . collectMetaVars) headKinds) (generalizeKindMetas AllKindMetas constructorTyVars)
+    constructorTyVars' <- mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) constructorTyVars
     (universalTyVars, refinementPredicates, universalResTy) <- rejigGadtResult resTy gadtResTy
     let predicates = refinementPredicates <> writtenPredicates
         conTy = foldr TcFunTy universalResTy gadtArgTys
-        candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
+        candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars')
         quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
         -- GHC gives a GADT constructor the binders its own signature
         -- writes: the explicit forall, or else the free variables of the
@@ -5586,6 +5653,12 @@ registerDataConWithResult paramInfos resTy con = case con of
         | param <- paramInfos
         ]
     paramVarIds = map paramTyVar paramInfos
+    -- The module that declares the constructor decides on PolyKinds.
+    constructorPolyKinds names = case names of
+      name : _
+        | Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} <- nameResolution name ->
+            isPolyKindOrigin (packageIdText (globalNamePackage global), globalNameModule global)
+      _ -> pure False
     -- A built-in form declares the constructor the wiring already names,
     -- so the declaration binds that name rather than spelling one.
     registerBuiltinDataCon forallVars context builtin fieldTypes = do

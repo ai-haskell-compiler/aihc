@@ -35,6 +35,7 @@ module Aihc.Tc.Types
     mkAppTy,
     isAnyTyCon,
     kindedTyCon,
+    reflexiveWitness,
     bareTyCon,
     tyConNamespace,
     mkTyConWithOrigin,
@@ -229,6 +230,17 @@ tyConModuleName (TyConInternal _ _ moduleName _ _) = moduleName
 kindedTyCon :: TyCon -> [TcType] -> TcType
 kindedTyCon tyCon [] = TcTyCon tyCon []
 kindedTyCon tyCon kindArguments = TcKindedTyCon tyCon kindArguments
+
+-- | The type that a proof of the equality of two equal types names. A
+-- bare constructor and the same constructor with kind arguments are equal,
+-- and the proof names the form with the kind arguments, so that the
+-- desugarer finds the kind: the instance head @'[]@ against the superclass
+-- @is ~ ('[] :: [Type])@.
+reflexiveWitness :: TcType -> TcType -> TcType
+reflexiveWitness left right =
+  case (left, right) of
+    (TcTyCon _ [], TcKindedTyCon {}) -> right
+    _ -> left
 
 -- | The type constructor of a type that is a type constructor with no
 -- visible argument, kinded or not.

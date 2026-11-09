@@ -41,7 +41,7 @@ proveGivenEquality predicates left right = do
 -- Each equality keeps the proof of the given it came from.
 proveFromEqualities :: [(TcType, TcType, Coercion)] -> TcType -> TcType -> TcM (Maybe Coercion)
 proveFromEqualities equalities left right
-  | sameType left right = pure (Just (Refl left))
+  | sameType left right = pure (Just (Refl (reflexiveWitness left right)))
   | null equalities = pure Nothing
   | otherwise = prove
   where
@@ -225,7 +225,16 @@ congruence context graph left right =
     applicationCongruence = do
       (leftFunction, leftArgument) <- application left
       (rightFunction, rightArgument) <- application right
-      AppCo <$> findProof graph leftFunction rightFunction <*> findProof graph leftArgument rightArgument
+      AppCo <$> functionProof leftFunction rightFunction <*> findProof graph leftArgument rightArgument
+    -- A bare constructor and the same constructor with its kind arguments
+    -- have one shape. The reflexive proof keeps the kind arguments, because
+    -- the bare constructor of a partial application, as the @M1@ of @M1 D@,
+    -- does not determine them.
+    functionProof leftFunction rightFunction =
+      case findProof graph leftFunction rightFunction of
+        Just (Refl _)
+          | TcKindedTyCon {} <- rightFunction -> Just (Refl rightFunction)
+        found -> found
 
 -- | Prove the implicit kind arguments of the two sides equal.
 --

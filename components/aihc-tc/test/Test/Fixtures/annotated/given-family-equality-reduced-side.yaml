@@ -24,7 +24,7 @@ annotated:
     └─ addDicts ∷ ∀ b. (Constrained b, (AllOf b) ~ (All (Shape b)), AllOf b) ⇒ b → b
   addDictsDefault :: (AllOf b ~ All (Shape b), AllOf b) => b -> b
   addDictsDefault x = needsAll x
-  │               │   └─ type: b → b; type-args: b; evidence: cast(given AllOf b, sym (sym (given AllOf b ~ All (Shape b))))
+  │               │   └─ type: b → b; type-args: b; evidence: cast(given AllOf b, given AllOf b ~ All (Shape b))
   │               └─ type: b
   └─ type: ∀ b. ((AllOf b) ~ (All (Shape b)), AllOf b) ⇒ b → b
   -- The given @AllOf b@ rewrites through the given equality and reduces

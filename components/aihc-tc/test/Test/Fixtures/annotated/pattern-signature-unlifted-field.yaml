@@ -1,0 +1,33 @@
+annotated:
+- |-
+  {-# LANGUAGE MagicHash, GADTs, ScopedTypeVariables #-}
+  module Main where
+  import GHC.Prim (Proxy#)
+  data P where
+       └─ type: Type
+    P :: Proxy# s -> s -> P
+    └─ type: ∀ s. GHC.Prim.Proxy# s → s → P
+  use :: P -> ()
+  use p = case p of
+  │   │   └─ type: ()
+  │   └─ type: P
+  └─ type: P → ()
+    P (_ :: Proxy# t) _ -> ()
+    │  │              │    └─ type: ()
+    │  │              └─ type: s
+    │  └─ type: GHC.Prim.Proxy# s
+    └─ type: GHC.Prim.Proxy# s → s → P; type-args: s
+extensions: []
+modules:
+- |
+  {-# LANGUAGE MagicHash, GADTs, ScopedTypeVariables #-}
+  module Main where
+  import GHC.Prim (Proxy#)
+  data P where
+    P :: Proxy# s -> s -> P
+  use :: P -> ()
+  use p = case p of
+    P (_ :: Proxy# t) _ -> ()
+reason: a pattern signature has the kind of the scrutinee, so it can name an unlifted field
+  type such as Proxy# t
+status: pass

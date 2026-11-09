@@ -1,0 +1,50 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures, MultiParamTypeClasses, TypeFamilies, UndecidableSuperClasses, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  class is ~ '[i] => Single (is :: [Type]) (i :: Type) where
+  └─ class methods: index ∷ ∀ is i proxy. (Single is i) ⇒ proxy is → i → i
+    index :: proxy is -> i -> i
+  instance Single '[i] i where
+  └─ $fSingle:i[]i ∷ ∀ i. () ⇒ Single (': i '[]) i [superclasses: refl ': i '[]]
+    index _ x = x
+    │     │ └─ type: i
+    │     └─ type: proxy ('GHC.Types.: i 'GHC.Types.[])
+    └─ index ∷ ∀ proxy. proxy (': i '[]) → i → i
+  data P (is :: [Type]) = P
+       │                  └─ type: ∀ is. P is
+       └─ type: [Type] → Type
+  keep :: Single is i => P is -> P is
+  keep p = p
+  │    └─ type: P is
+  └─ type: ∀ is i. (Single is i) ⇒ P is → P is
+  use :: P '[i] -> P '[i]
+  use p = keep p
+  │   │   └─ type: P ('GHC.Types.: i 'GHC.Types.[]) → P ('GHC.Types.: i 'GHC.Types.[]); type-args: ': i '[], i; evidence: $fSingle:i[]i @i
+  │   └─ type: P ('GHC.Types.: i 'GHC.Types.[])
+  └─ type: ∀ i. P ('GHC.Types.: i 'GHC.Types.[]) → P ('GHC.Types.: i 'GHC.Types.[])
+extensions:
+- DataKinds
+- FlexibleInstances
+- KindSignatures
+- MultiParamTypeClasses
+- TypeFamilies
+- UndecidableSuperClasses
+- AllowAmbiguousTypes
+modules:
+- |
+  {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures, MultiParamTypeClasses, TypeFamilies, UndecidableSuperClasses, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  class is ~ '[i] => Single (is :: [Type]) (i :: Type) where
+    index :: proxy is -> i -> i
+  instance Single '[i] i where
+    index _ x = x
+  data P (is :: [Type]) = P
+  keep :: Single is i => P is -> P is
+  keep p = p
+  use :: P '[i] -> P '[i]
+  use p = keep p
+status: pass
+reason: The wanted Single '[i] t0 entails its equality superclass '[i] ~ '[t0], so t0 is i, and the instance solves the wanted. This improvement is the same as in GHC. Before the fix, nothing determined t0, and the wanted was unsolved.

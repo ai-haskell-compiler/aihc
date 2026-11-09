@@ -1,0 +1,13 @@
+extensions:
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  newtype Request ctx body = Request body
+  class Monad' m where
+    dispatch :: Request ctx body -> m body
+  perform :: Monad' m => Request ctx a -> m a
+  perform req = dispatch req
+status: pass
+reason: The method dispatch quantifies a kind variable before the class variable m. The FC lint checks that the class dictionary, the method selector, and its use in perform agree on this order. Before the fix, the type checker rejected perform with a kind mismatch.

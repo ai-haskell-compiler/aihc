@@ -22,7 +22,9 @@ where
 
 import Data.Maybe (Maybe (..))
 import Data.Type.Bool (type (&&))
-import GHC.Types (Bool (..), Type, type (~), type (~~))
+import GHC.Classes (Eq (..), Ord (..))
+import GHC.Prim.Show (Show (..))
+import GHC.Types (Bool (..), Ordering (..), Type, type (~), type (~~))
 
 infix 4 :~:, :~~:, ==
 
@@ -33,6 +35,26 @@ data (a :: k) :~: (b :: k) where
 -- | Kind-heterogeneous propositional equality.
 data (a :: k1) :~~: (b :: k2) where
   HRefl :: a :~~: a
+
+-- A type of propositional equality has at most one value. Thus all of
+-- its values are equal.
+instance Eq (a :~: b) where
+  _ == _ = True
+
+instance Ord (a :~: b) where
+  compare _ _ = EQ
+
+instance Show (a :~: b) where
+  show Refl = "Refl"
+
+instance Eq (a :~~: b) where
+  _ == _ = True
+
+instance Ord (a :~~: b) where
+  compare _ _ = EQ
+
+instance Show (a :~~: b) where
+  show HRefl = "HRefl"
 
 -- | Propositional equality is symmetric.
 sym :: (a :~: b) -> (b :~: a)

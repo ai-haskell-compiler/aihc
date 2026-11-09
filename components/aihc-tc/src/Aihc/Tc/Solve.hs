@@ -33,9 +33,12 @@ import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyIne
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.Interact (improveSharedFamilyApplications)
 import Aihc.Tc.Solve.Worklist
-import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique)
+import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, sameType, typeMentionsMeta)
+import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, put)
 
 -- | Result of solving constraints.
 data SolveResult = SolveResult
@@ -92,10 +95,47 @@ improveDictionaries inerts = do
   -- that no instance or given matched on its own. Improvement only
   -- solves meta variables, so a pass that solves none ends the loop.
   givens <- getGivenPredicates
-  improved <- improveFunDeps givens (inertDicts inerts)
+  improvedFunDeps <- improveFunDeps givens (inertDicts inerts)
+  improved <-
+    if improvedFunDeps
+      then pure True
+      else improveSuperClassEqualities (inertDicts inerts)
   if improved
     then solveLoop (foldr addDict emptyWorkList (inertDicts inerts)) inerts {inertDicts = []}
     else drained inerts
+
+-- | A wanted class constraint entails the equality superclasses of its
+-- class, so each of them must hold too. Unifying the two sides of one can
+-- solve a meta variable that no instance and no functional dependency
+-- determines, as GHC does with the superclasses of a wanted. The class
+-- @is ~ '[i] => HasSingleIndex is i@ is an example: a wanted
+-- @HasSingleIndex '[x] t0@ entails @'[x] ~ '[t0]@, which gives @t0 := x@.
+-- The equalities are for improvement only and carry no evidence. A side
+-- that does not unify leaves every meta variable as it was.
+improveSuperClassEqualities :: [Ct] -> TcM Bool
+improveSuperClassEqualities dictionaries = do
+  entailed <- superClassEqualities dictionaries
+  or <$> mapM improveOne entailed
+  where
+    improveOne predicate =
+      case predicate of
+        EqPred left right -> do
+          left' <- zonkType left
+          right' <- zonkType right
+          if sameType left' right' || not (typeMentionsMeta left' || typeMentionsMeta right')
+            then pure False
+            else do
+              saved <- lift get
+              result <- unifyTypes left' right'
+              case result of
+                Right () -> do
+                  left'' <- zonkType left'
+                  right'' <- zonkType right'
+                  pure (left'' /= left' || right'' /= right')
+                Left _ -> do
+                  lift (put saved)
+                  pure False
+        _ -> pure False
 
 -- | No work is left. An equality that waits on a type family application
 -- gets another attempt when a solved meta variable changed it. Failing

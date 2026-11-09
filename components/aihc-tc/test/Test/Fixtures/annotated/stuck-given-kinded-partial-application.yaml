@@ -1,0 +1,74 @@
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, PolyKinds, RankNTypes, TypeFamilies, KindSignatures #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Kind = Iso | Lens
+       │      │     └─ type: Kind
+       │      └─ type: Kind
+       └─ type: Type
+  class Pro (p :: Type -> Type -> Type -> Type) where
+  └─ class methods: dimap ∷ ∀ p i a b. (Pro p) ⇒ p i a b → p i a b
+    dimap :: p i a b -> p i a b
+  type family Constraints (k :: Kind) (p :: Type -> Type -> Type -> Type) :: Constraint where
+              └─ type: Kind → (Type → Type → Type → Type) → GHC.Types.Constraint
+    Constraints 'Iso p = Pro p
+  newtype Optic k s t a b = Optic (forall p i. Pro p => Constraints k p => p i a b -> p i s t)
+          │                 └─ type: ∀ k s t a b. (∀ p i. (Pro p) ⇒ (Constraints k p) ⇒ p i a b → p i s t) → Optic k s t a b
+          └─ type: Kind → Type → Type → Type → Type → Type
+  newtype Re p s t i a b = Re (p i b a -> p i t s)
+          │                └─ type: ∀ k0 k1 k2 p s t i a b. (p i b a → p i t s) → Re p s t i a b
+          └─ type: (k0 → k1 → k2 → Type) → k2 → k1 → k0 → k2 → k1 → Type
+  getOptic :: Pro p => Optic k s t a b -> (Constraints k p => p i a b -> p i s t)
+  getOptic (Optic o) = o
+  │         │     │    └─ type: p i a b → p i s t; type-args: p, i; evidence: given Pro p, given Constraints k p
+  │         │     └─ type: ∀ p i. (Pro p) ⇒ (Constraints k p) ⇒ p i a b → p i s t
+  │         └─ type: Optic k s t a b
+  └─ type: ∀ p k s t a b i. (Pro p, Constraints k p) ⇒ Optic k s t a b → p i a b → p i s t
+  unRe :: Re p s t i a b -> p i b a -> p i t s
+  unRe (Re f) = f
+  │     │  └─ type: p i b a → p i t s
+  │     └─ type: Re p s t i a b
+  └─ type: ∀ k0 k1 k2 p s t i a b. Re p s t i a b → p i b a → p i t s
+  instance Pro (Re p s t) where
+  └─ $fProRepst ∷ ∀ p s t. () ⇒ Pro (Re p s t)
+    dimap x = x
+    │     └─ type: Re p s t i a b
+    └─ dimap ∷ ∀ i a b. Re p s t i a b → Re p s t i a b
+  re :: (Pro p, Constraints k (Re p a b)) => Optic k s t a b -> p i t s -> p i b a
+  re o = unRe (getOptic o (Re (\x -> x)))
+  │  │   │     │           │   │└─ type: p i b a
+  │  │   │     │           │   └─ type: p i b a → p i b a
+  │  │   │     │           └─ type: (p i b a → p i b a) → Re p a b i a b; type-args: Type, Type, Type, p, a, b, i, a, b
+  │  │   │     └─ type: Optic k s t a b → Re p a b i a b → Re p a b i s t; type-args: Re p a b, k, s, t, a, b, i; evidence: $fProRepst @p @a @b, given Constraints k (Re p a b)
+  │  │   └─ type: Re p a b i s t → p i t s → p i b a; type-args: Type, Type, Type, p, a, b, i, s, t
+  │  └─ type: Optic k s t a b
+  └─ type: ∀ p k a b s t i. (Pro p, Constraints k (Re p a b)) ⇒ Optic k s t a b → p i t s → p i b a
+extensions:
+- ConstraintKinds
+- DataKinds
+- PolyKinds
+- RankNTypes
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, PolyKinds, RankNTypes, TypeFamilies, KindSignatures #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Kind = Iso | Lens
+  class Pro (p :: Type -> Type -> Type -> Type) where
+    dimap :: p i a b -> p i a b
+  type family Constraints (k :: Kind) (p :: Type -> Type -> Type -> Type) :: Constraint where
+    Constraints 'Iso p = Pro p
+  newtype Optic k s t a b = Optic (forall p i. Pro p => Constraints k p => p i a b -> p i s t)
+  newtype Re p s t i a b = Re (p i b a -> p i t s)
+  getOptic :: Pro p => Optic k s t a b -> (Constraints k p => p i a b -> p i s t)
+  getOptic (Optic o) = o
+  unRe :: Re p s t i a b -> p i b a -> p i t s
+  unRe (Re f) = f
+  instance Pro (Re p s t) where
+    dimap x = x
+  re :: (Pro p, Constraints k (Re p a b)) => Optic k s t a b -> p i t s -> p i b a
+  re o = unRe (getOptic o (Re (\x -> x)))
+status: pass
+reason: With PolyKinds, the given Constraints k (Re p a b) of the signature applies the poly-kinded Re with its kinds, and the wanted at the same type does not. The solver compares the stuck constraints in one canonical form, so the given solves the wanted. Before the fix, only class predicates had that form, and the wanted was unsolved.

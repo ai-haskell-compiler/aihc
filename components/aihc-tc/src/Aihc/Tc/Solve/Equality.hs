@@ -188,8 +188,10 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   _ -> do
     children <- decomposeNominalEquality t1 t2
     case children of
-      Just pairs -> solveDecomposed ct t1 pairs
+      Just pairs -> solveDecomposed ct witness pairs
       Nothing -> pure (EqError ct)
+    where
+      witness = reflexiveWitness t1 t2
 
 -- | Solve a meta-variable equality by binding.
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult

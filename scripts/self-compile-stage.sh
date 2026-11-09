@@ -23,6 +23,10 @@ Usage: scripts/self-compile-stage.sh --work-dir DIR --output FILE [OPTION]...
                   first. Then build the local packages and the aihc
                   executable, and write the time of that build in seconds
                   to FILE.
+  --embed-core-libs
+                  Put the core-libs sources into the executable, for a
+                  release that needs no checkout. The option runs
+                  scripts/embed-core-libs.sh first.
   --help          Show this message
 
 The compiler is taken from $AIHC, and defaults to `aihc` on PATH.
@@ -37,6 +41,7 @@ target="linux-amd64"
 level="2"
 build_timeout="18000"
 time_file=""
+embed_core_libs=0
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -67,6 +72,10 @@ while [ "$#" -gt 0 ]; do
 	--time-file)
 		time_file="${2:?--time-file needs a file}"
 		shift 2
+		;;
+	--embed-core-libs)
+		embed_core_libs=1
+		shift
 		;;
 	--help)
 		usage
@@ -125,6 +134,13 @@ aihc_build=(
 	--store "$work_directory/store" --build-root "$work_directory/build"
 	--target "$target" -O "$level"
 )
+
+# The embedded sources are a C file that the embed-core-libs flag of
+# aihc-package-plan compiles. Each stage generates the same file.
+if [ "$embed_core_libs" -eq 1 ]; then
+	scripts/embed-core-libs.sh
+	aihc_build+=(--constraint "aihc-package-plan +embed-core-libs")
+fi
 
 run_with_timeout() {
 	if command -v timeout >/dev/null 2>&1; then

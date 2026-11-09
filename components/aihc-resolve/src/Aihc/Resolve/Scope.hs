@@ -38,6 +38,7 @@ module Aihc.Resolve.Scope
     lookupTerm,
     lookupType,
     lookupFixity,
+    defaultOperatorFixity,
     resolveTermName,
     resolveTypeName,
     resolveFixityName,
@@ -479,10 +480,25 @@ exportedScopeFor package exports extensions modu = \case
     -- entity (Haskell 2010 5.5.2). @X@ is an import qualifier rather than a
     -- module name: several imports can share one alias, and an import list
     -- or a @hiding@ clause on them narrows what the alias re-exports.
+    --
+    -- Each import under the alias counts on its own. Two imports can share
+    -- the alias and a name: @Control.Applicative as X (Alternative (..))@
+    -- and @qualified Data.Aeson.KeyMap as X@ both have @empty@. Then @X.empty@
+    -- is ambiguous, but the unqualified @empty@ names the method of
+    -- 'Alternative', and the first import makes @X.empty@ name it too. Thus
+    -- @module X@ re-exports it, as in GHC.
     reexportedQualifier qualifier =
-      reexportedModuleScope
-        (Map.findWithDefault emptyScope qualifier (scopeQualifiedModules availableScope))
-        availableScope
+      List.foldl'
+        unionScope
+        ( reexportedModuleScope
+            (Map.findWithDefault emptyScope qualifier (scopeQualifiedModules availableScope))
+            availableScope
+        )
+        [ reexportedModuleScope importScope availableScope
+        | importDecl <- moduleImports modu,
+          fromMaybe (importDeclModule importDecl) (importDeclAs importDecl) == qualifier,
+          let importScope = filterImportSpec (importDeclSpec importDecl) (lookupImportedModule package (importDeclPackage importDecl) (importDeclModule importDecl) exports)
+        ]
 
     -- A qualified export item such as @L.smallChunkSize@ names an entity
     -- of the module that the qualifier imports. The module can also use

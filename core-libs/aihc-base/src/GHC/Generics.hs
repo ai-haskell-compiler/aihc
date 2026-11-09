@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -11,9 +13,8 @@
 -- | Representations of datatypes as sums of products, and the classes that
 -- convert a value to and from its representation.
 --
--- The vocabulary mirrors GHC's @GHC.Generics@. The representation types
--- take arguments of kind 'Type' only, where GHC lets some of them be
--- poly-kinded.
+-- The vocabulary mirrors GHC's @GHC.Generics@. As in GHC, the
+-- representation types are poly-kinded in their last parameter.
 module GHC.Generics
   ( -- * Generic representation types
     V1,
@@ -110,40 +111,40 @@ import Prelude
 -- * Representation types
 
 -- | Void: used for datatypes without constructors.
-data V1 (p :: Type)
+data V1 (p :: k)
 
 -- | Unit: used for constructors without arguments.
-data U1 (p :: Type) = U1
+data U1 (p :: k) = U1
 
 -- | Used for marking occurrences of the parameter.
 newtype Par1 (p :: Type) = Par1 {unPar1 :: p}
 
 -- | Recursive calls of kind @Type -> Type@ (or kind @k -> Type@).
-newtype Rec1 (f :: Type -> Type) (p :: Type) = Rec1 {unRec1 :: f p}
+newtype Rec1 (f :: k -> Type) (p :: k) = Rec1 {unRec1 :: f p}
 
 -- | Constants, additional parameters and recursion of kind @Type@.
-newtype K1 (i :: Type) (c :: Type) (p :: Type) = K1 {unK1 :: c}
+newtype K1 (i :: Type) (c :: Type) (p :: k) = K1 {unK1 :: c}
 
 -- | Meta-information (constructor names, etc.).
-newtype M1 (i :: Type) (c :: Meta) (f :: Type -> Type) (p :: Type) = M1 {unM1 :: f p}
+newtype M1 (i :: Type) (c :: Meta) (f :: k -> Type) (p :: k) = M1 {unM1 :: f p}
 
 infixr 5 :+:
 
 -- | Sums: encode choice between constructors.
-data (:+:) (f :: Type -> Type) (g :: Type -> Type) (p :: Type) = L1 (f p) | R1 (g p)
+data (:+:) (f :: k -> Type) (g :: k -> Type) (p :: k) = L1 (f p) | R1 (g p)
 
 infixr 6 :*:
 
 -- | Products: encode multiple arguments to constructors.
-data (:*:) (f :: Type -> Type) (g :: Type -> Type) (p :: Type) = f p :*: g p
+data (:*:) (f :: k -> Type) (g :: k -> Type) (p :: k) = f p :*: g p
 
 infixr 7 :.:
 
 -- | Composition of functors.
-newtype (:.:) (f :: Type -> Type) (g :: Type -> Type) (p :: Type) = Comp1 {unComp1 :: f (g p)}
+newtype (:.:) (f :: k2 -> Type) (g :: k1 -> k2) (p :: k1) = Comp1 {unComp1 :: f (g p)}
 
 -- | Constants of unlifted kinds.
-data family URec (a :: Type) (p :: Type)
+data family URec (a :: Type) (p :: k)
 
 data instance URec (Ptr ()) p = UAddr {uAddr# :: Addr#}
 
@@ -269,16 +270,16 @@ data Meta
 -- | Class for datatypes that represent datatypes.
 class Datatype (d :: Meta) where
   -- | The name of the datatype (unqualified).
-  datatypeName :: t d (f :: Type -> Type) (a :: Type) -> String
+  datatypeName :: t d (f :: k -> Type) (a :: k) -> String
 
   -- | The fully-qualified name of the module where the type is declared.
-  moduleName :: t d (f :: Type -> Type) (a :: Type) -> String
+  moduleName :: t d (f :: k -> Type) (a :: k) -> String
 
   -- | The package name of the module where the type is declared.
-  packageName :: t d (f :: Type -> Type) (a :: Type) -> String
+  packageName :: t d (f :: k -> Type) (a :: k) -> String
 
   -- | Marks if the datatype is actually a newtype.
-  isNewtype :: t d (f :: Type -> Type) (a :: Type) -> Bool
+  isNewtype :: t d (f :: k -> Type) (a :: k) -> Bool
   isNewtype _ = False
 
 instance (KnownSymbol n, KnownSymbol m, KnownSymbol p, KnownBool nt) => Datatype ('MetaData n m p nt) where
@@ -290,14 +291,14 @@ instance (KnownSymbol n, KnownSymbol m, KnownSymbol p, KnownBool nt) => Datatype
 -- | Class for datatypes that represent data constructors.
 class Constructor (c :: Meta) where
   -- | The name of the constructor.
-  conName :: t c (f :: Type -> Type) (a :: Type) -> String
+  conName :: t c (f :: k -> Type) (a :: k) -> String
 
   -- | The fixity of the constructor.
-  conFixity :: t c (f :: Type -> Type) (a :: Type) -> Fixity
+  conFixity :: t c (f :: k -> Type) (a :: k) -> Fixity
   conFixity _ = Prefix
 
   -- | Marks if this constructor is a record.
-  conIsRecord :: t c (f :: Type -> Type) (a :: Type) -> Bool
+  conIsRecord :: t c (f :: k -> Type) (a :: k) -> Bool
   conIsRecord _ = False
 
 instance (KnownSymbol n, KnownFixityI f, KnownBool r) => Constructor ('MetaCons n f r) where
@@ -308,16 +309,16 @@ instance (KnownSymbol n, KnownFixityI f, KnownBool r) => Constructor ('MetaCons 
 -- | Class for datatypes that represent records.
 class Selector (s :: Meta) where
   -- | The name of the selector. It is empty for a field without a name.
-  selName :: t s (f :: Type -> Type) (a :: Type) -> String
+  selName :: t s (f :: k -> Type) (a :: k) -> String
 
   -- | The unpackedness annotation of a field, as the user wrote it.
-  selSourceUnpackedness :: t s (f :: Type -> Type) (a :: Type) -> SourceUnpackedness
+  selSourceUnpackedness :: t s (f :: k -> Type) (a :: k) -> SourceUnpackedness
 
   -- | The strictness annotation of a field, as the user wrote it.
-  selSourceStrictness :: t s (f :: Type -> Type) (a :: Type) -> SourceStrictness
+  selSourceStrictness :: t s (f :: k -> Type) (a :: k) -> SourceStrictness
 
   -- | The strictness that the compiler inferred for a field.
-  selDecidedStrictness :: t s (f :: Type -> Type) (a :: Type) -> DecidedStrictness
+  selDecidedStrictness :: t s (f :: k -> Type) (a :: k) -> DecidedStrictness
 
 instance
   (KnownMaybeSymbol mn, KnownSourceUnpackedness su, KnownSourceStrictness ss, KnownDecidedStrictness ds) =>
@@ -431,10 +432,10 @@ class Generic a where
   -- | Convert from the representation to the datatype.
   to :: Rep a x -> a
 
--- | Representable types of kind @Type -> Type@.
-class Generic1 (f :: Type -> Type) where
+-- | Representable types of kind @k -> Type@.
+class Generic1 (f :: k -> Type) where
   -- | Generic representation type.
-  type Rep1 f :: Type -> Type
+  type Rep1 f :: k -> Type
 
   -- | Convert from the datatype to its representation.
   from1 :: f a -> Rep1 f a
@@ -771,6 +772,68 @@ instance Generic ((f :.: g) p) where
   type Rep ((f :.: g) p) = D1 (MetaGenerics ":.:" 'True) (C1 ('MetaCons "Comp1" 'PrefixI 'True :: Meta) (S1 (MetaField "unComp1") (Rec0 (f (g p)))))
   from (Comp1 a) = M1 (M1 (M1 (K1 a)))
   to r = Comp1 (unK1 (unM1 (unM1 (unM1 r))))
+
+-- * Eq and Ord instances
+
+instance Eq (U1 p) where
+  _ == _ = True
+
+instance Ord (U1 p) where
+  compare _ _ = EQ
+
+instance (Eq p) => Eq (Par1 p) where
+  Par1 left == Par1 right = left == right
+
+instance (Ord p) => Ord (Par1 p) where
+  compare (Par1 left) (Par1 right) = compare left right
+
+instance (Eq (f p)) => Eq (Rec1 f p) where
+  Rec1 left == Rec1 right = left == right
+
+instance (Ord (f p)) => Ord (Rec1 f p) where
+  compare (Rec1 left) (Rec1 right) = compare left right
+
+instance (Eq c) => Eq (K1 i c p) where
+  K1 left == K1 right = left == right
+
+instance (Ord c) => Ord (K1 i c p) where
+  compare (K1 left) (K1 right) = compare left right
+
+instance (Eq (f p)) => Eq (M1 i c f p) where
+  M1 left == M1 right = left == right
+
+instance (Ord (f p)) => Ord (M1 i c f p) where
+  compare (M1 left) (M1 right) = compare left right
+
+instance (Eq (f p), Eq (g p)) => Eq ((f :+: g) p) where
+  L1 left == L1 right = left == right
+  R1 left == R1 right = left == right
+  _ == _ = False
+
+-- | As the derived instance does, order 'L1' before 'R1'.
+instance (Ord (f p), Ord (g p)) => Ord ((f :+: g) p) where
+  compare (L1 left) (L1 right) = compare left right
+  compare (L1 _) (R1 _) = LT
+  compare (R1 _) (L1 _) = GT
+  compare (R1 left) (R1 right) = compare left right
+
+instance (Eq (f p), Eq (g p)) => Eq ((f :*: g) p) where
+  (leftFirst :*: leftSecond) == (rightFirst :*: rightSecond) =
+    case leftFirst == rightFirst of
+      True -> leftSecond == rightSecond
+      False -> False
+
+instance (Ord (f p), Ord (g p)) => Ord ((f :*: g) p) where
+  compare (leftFirst :*: leftSecond) (rightFirst :*: rightSecond) =
+    case compare leftFirst rightFirst of
+      EQ -> compare leftSecond rightSecond
+      order -> order
+
+instance (Eq (f (g p))) => Eq ((f :.: g) p) where
+  Comp1 left == Comp1 right = left == right
+
+instance (Ord (f (g p))) => Ord ((f :.: g) p) where
+  compare (Comp1 left) (Comp1 right) = compare left right
 
 -- * Functor instances
 

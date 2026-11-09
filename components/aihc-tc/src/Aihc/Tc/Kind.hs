@@ -377,6 +377,10 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       pure (TcTyCon tyCon tys, resultKind)
     TList _ [arg] ->
       convertListType tvEnv arg
+    -- Without a tick, a list of two or more types is a promoted list, as
+    -- in GHC: @HasSingleIndex [i1, i2, i3] i@.
+    TList _ arguments@(_ : _ : _) ->
+      convertDataConstructorList tvEnv arguments
     TKindSig inner kindTy -> do
       -- A type constructor kind keeps its foralls in prenex position (see
       -- 'standaloneKindSigToScheme'), so a kind annotation with a forall to
@@ -387,7 +391,19 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       annotated <- kindFromSurfaceType tvEnv kindTy
       let (nestedTyVars, annotated') = prenexKindForalls annotated
       (expected, _) <- instantiate (specifiedScheme nestedTyVars [] annotated')
-      checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
+      innerTy <- checkSurfaceType tvEnv inner expected
+      -- An annotated empty list, as in @type NoIx = ('[] :: [Type])@, keeps
+      -- its element kind as a kind argument. No visible argument tells it,
+      -- so a later use of the type, such as a type argument, cannot find
+      -- it otherwise.
+      nil <- wiredTyConIdentity tcWiringNilDataCon
+      list <- wiredTyConIdentity tcWiringListTyCon
+      expected' <- zonkKind expected
+      let kept = case (innerTy, expected') of
+            (TcTyCon tyCon [], TcTyCon listTyCon [element])
+              | tyCon == nil, listTyCon == list -> kindedTyCon tyCon [element]
+            _ -> innerTy
+      pure (kept, expected)
     TContext preds inner -> do
       predicates <- surfaceContextToPreds tvEnv preds
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
