@@ -57,8 +57,8 @@ Three kinds of dependency are separated, and only one of them is solved:
   test suites of the root in place of its executables.
 - **Build-tool dependencies** are checked, not solved. Every
   `build-tool-depends` and legacy `build-tools` entry is looked up in the host
-  preprocessor table (`Aihc.Hackage.Preprocessor`), which holds `hsc2hs` and
-  `happy`. An unknown tool is a plan error. Tools run on
+  preprocessor table (`Aihc.Hackage.Preprocessor`), which holds `hsc2hs`,
+  `alex`, and `happy`. An unknown tool is a plan error. Tools run on
   the build host, so resolving them against the target plan would be wrong under
   cross-compilation anyway.
 - **Setup dependencies** are ignored. aihc never runs `Setup.hs`: Simple

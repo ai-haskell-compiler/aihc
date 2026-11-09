@@ -865,6 +865,7 @@
         wasmLd
         pkgs.haskellPackages.hsc2hs
         pkgs.haskellPackages.happy
+        pkgs.haskellPackages.alex
       ];
     } ''
       set -euo pipefail

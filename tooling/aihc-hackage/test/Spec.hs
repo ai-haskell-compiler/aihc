@@ -334,8 +334,8 @@ test_configureBuildInfo = do
   assertEqual "C include dirs" ["/build/generated", "/pkg/include"] (HC.cCompileIncludeDirs cInfo')
   assertEqual "C sources" ["/pkg/cbits/helper.c"] (HC.cCompileSources cInfo')
 
--- A module found as @.hsc@ is marked for hsc2hs and one found as @.y@ for
--- happy; one that also ships as
+-- A module found as @.hsc@ is marked for hsc2hs, one found as @.x@ for
+-- alex, and one found as @.y@ for happy; one that also ships as
 -- plain Haskell takes the plain file, as under Cabal. Nothing in the cabal
 -- file has to name the tool.
 test_findsPreprocessorSources :: Assertion
@@ -351,20 +351,21 @@ test_findsPreprocessorSources =
             "version: 0.1.0.0",
             "",
             "library",
-            "  exposed-modules: Generated, Grammar, Plain",
+            "  exposed-modules: Generated, Grammar, Lexer, Plain",
             "  hs-source-dirs: src",
             "  default-language: Haskell2010"
           ]
       )
     writeFile (srcDir </> "Generated.hsc") "module Generated where\n"
     writeFile (srcDir </> "Grammar.y") "{\nmodule Grammar where\n}\n"
+    writeFile (srcDir </> "Lexer.x") "{\nmodule Lexer where\n}\n"
     writeFile (srcDir </> "Plain.hsc") "module Plain where\n"
     writeFile (srcDir </> "Plain.hs") "module Plain where\n"
     gpd <- parseTestCabal =<< readFile (root </> "demo.cabal")
     files <- HC.collectLibraryFiles gpd root
     assertEqual
       "sources and their preprocessors"
-      [(srcDir </> "Generated.hsc", Just HC.Hsc2hs), (srcDir </> "Grammar.y", Just HC.Happy), (srcDir </> "Plain.hs", Nothing)]
+      [(srcDir </> "Generated.hsc", Just HC.Hsc2hs), (srcDir </> "Grammar.y", Just HC.Happy), (srcDir </> "Lexer.x", Just HC.Alex), (srcDir </> "Plain.hs", Nothing)]
       (sort [(HC.fileInfoPath file, HC.fileInfoPreprocessor file) | file <- files])
 
 configureCabal :: String
