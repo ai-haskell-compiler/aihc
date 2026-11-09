@@ -4761,7 +4761,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
       case maybeFamilyInfo of
         Just familyInfo
           | tciFlavor familyInfo == DataFamilyTyCon -> do
-              bindings <- mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
+              bindings <- mapM (registerDataConWithResult [] paramInfos familyType) (dataFamilyInstConstructors familyInst)
               -- Under PolyKinds the head and the fields can leave the kind
               -- of a parameter open, as @b@ in @Vector (Const a b)@. GHC
               -- quantifies such a kind for each instance, so the instance,
@@ -5249,18 +5249,20 @@ implicitKindParams binders extraNames = mapM makeImplicitParam implicitNames
 
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
-  dataHeadParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
+  dataHeadParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration)) (dataDeclKind declaration)
 
 -- | The parameters of a data or newtype head. Without a standalone kind
 -- signature, a kind variable that only a binder annotation mentions, as
 -- @rep@ in @newtype Codensity (m :: k -> TYPE rep) a@, is a kind parameter
--- of the type constructor.
-dataHeadParamInfos :: Maybe TypeScheme -> [TyVarBinder] -> TcM ([ParamInfo], [ParamInfo])
-dataHeadParamInfos maybeKindScheme binders =
+-- of the type constructor. A kind variable of the result kind is also a
+-- kind parameter. Thus, the two occurrences of @x@ in
+-- @data All :: (x -> Type) -> [x] -> Type@ are one variable.
+dataHeadParamInfos :: Maybe TypeScheme -> [TyVarBinder] -> Maybe Type -> TcM ([ParamInfo], [ParamInfo])
+dataHeadParamInfos maybeKindScheme binders maybeResultKind =
   case maybeKindScheme of
     Just {} -> typeDeclParamInfos maybeKindScheme binders
     Nothing -> do
-      kindParams <- implicitBinderKindParams binders
+      kindParams <- implicitKindParams binders (maybe [] freeTypeVars maybeResultKind)
       params <- makeParamEnvWith (paramKindEnv kindParams) binders
       pure (kindParams, params)
 
@@ -5299,7 +5301,12 @@ registerDataConstructors origin dataDecl = do
     Just info -> do
       (kindParams, paramInfos) <- dataDeclParamInfos (Just (tciKindScheme info)) dataDecl
       let writtenTyVars = map paramTyVar paramInfos
-      declaredResultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
+      -- Do not instantiate the kind parameters of the scheme. They are in
+      -- scope in the constructors, so an implicit parameter of kind @[x]@
+      -- shares the @x@ of the declared kind.
+      declaredResultKind <- case tciKindScheme info of
+        ForAll [] _ _ -> tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
+        ForAll _ _ body -> snd . splitKindArrows (length writtenTyVars) <$> zonkKind body
       (implicitTyVars, resultKind) <- implicitDataParameters declaredResultKind
       -- The constructors get the parameters that only the kind gives, so a
       -- GADT result such as @T Bool@ refines the index of @data T :: Type -> Type@.
@@ -5341,7 +5348,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-  (kindParams, paramInfos) <- dataHeadParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- dataHeadParamInfos maybeKindScheme params (newtypeDeclKind nd)
   -- Without a kind signature, the result kind is the kind of the field.
   -- An UnliftedNewtypes field gives an unlifted result kind.
   -- 'registerNewtypeConstructor' unifies this meta with the field kind.
@@ -5566,11 +5573,13 @@ mkDeclaredTyCon binder name arity =
 -- Returns the binding result for the constructor.
 registerDataCon :: TyCon -> [ParamInfo] -> [ParamInfo] -> DataConDecl -> TcM TcBindingResult
 registerDataCon tc kindParams paramInfos =
-  registerDataConWithResult (kindParams <> paramInfos) (TcTyCon tc (map (TcTyVar . paramTyVar) paramInfos))
+  registerDataConWithResult (map paramName kindParams) (kindParams <> paramInfos) (TcTyCon tc (map (TcTyVar . paramTyVar) paramInfos))
 
-registerDataConWithResult :: [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindingResult
-registerDataConWithResult paramInfos resTy con = case con of
-  DataConAnn _ inner -> registerDataConWithResult paramInfos resTy inner
+-- | The first argument gives the parameter names that a GADT constructor
+-- signature cannot see.
+registerDataConWithResult :: [Text] -> [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindingResult
+registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
+  DataConAnn _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
   PrefixCon forallVars context conName args ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType args)
   InfixCon forallVars context lhs conName rhs ->
@@ -5585,7 +5594,11 @@ registerDataConWithResult paramInfos resTy con = case con of
     registerBuiltinDataCon forallVars context BuiltinNilCon []
   GadtCon forallBinders context names body -> do
     explicitParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
-    let explicitNames = map paramName (explicitParams <> paramInfos)
+    -- The kind variables of a GADT header do not scope over the
+    -- constructor signatures. Thus, the @x@ of
+    -- @Cons :: p x -> All p (x ': xs)@ is a new variable, also when
+    -- @data All :: (x -> Type) -> [x] -> Type@ names a kind variable @x@.
+    let explicitNames = map paramName (explicitParams <> gadtVisibleParams)
         implicitNames = filter (`notElem` explicitNames) (nub (concatMap freeTypeVars (gadtBodyResultType body : gadtBodyArgTypes body <> context)))
     implicitParams <- forM implicitNames $ \name -> do
       variable <- freshSkolemTv name
@@ -5597,7 +5610,7 @@ registerDataConWithResult paramInfos resTy con = case con of
             [ (paramName param, (paramTyVar param, paramKind param))
             | param <- constructorParams
             ]
-            <> paramEnv
+            <> gadtVisibleEnv
         constructorTyVars = map paramTyVar constructorParams
     let resultSurfTy = gadtBodyResultType body
         argSurfTys = gadtBodyArgTypes body
@@ -5653,6 +5666,12 @@ registerDataConWithResult paramInfos resTy con = case con of
         | param <- paramInfos
         ]
     paramVarIds = map paramTyVar paramInfos
+    gadtVisibleParams = filter ((`notElem` gadtHiddenNames) . paramName) paramInfos
+    gadtVisibleEnv =
+      Map.fromList
+        [ (paramName param, (paramTyVar param, paramKind param))
+        | param <- gadtVisibleParams
+        ]
     -- The module that declares the constructor decides on PolyKinds.
     constructorPolyKinds names = case names of
       name : _
@@ -5733,29 +5752,81 @@ rejigGadtResult declaredResTy writtenResTy =
 -- @k2 ~ k@ joins the index equality @b ~ a@, so a match at two different
 -- kinds still instantiates the constructor.
 rejigIndices :: [TyVarId] -> [(TyVarId, TcType)] -> TcM ([TyVarId], [Pred])
-rejigIndices = go Map.empty
+rejigIndices initialClaimed indices = do
+  -- Read the kind parameters from all claimed indices first. An earlier
+  -- index can have a kind that only a later index fixes, as the @[x]@ of
+  -- @Zero :: Index (x ': xs) x@ for @data Index :: [x] -> x -> Type@.
+  initialKindParams <- foldM claimIndex Map.empty (claimedIndices (map tvUnique initialClaimed) indices)
+  go initialKindParams initialClaimed indices
   where
+    claimedIndices _ [] = []
+    claimedIndices seen ((param, writtenArg) : rest) =
+      case writtenArg of
+        TcTyVar tyVar
+          | tvUnique tyVar `notElem` seen -> (param, tyVar) : claimedIndices (tvUnique tyVar : seen) rest
+        _ -> claimedIndices seen rest
+
+    claimIndex kindParams (param, tyVar) = do
+      declaredKind <- zonkKind (tvKind param)
+      writtenKind <- zonkKind (tvKind tyVar)
+      pure (claimKindParams kindParams declaredKind writtenKind)
+
     go _ _ [] = pure ([], [])
     go kindParams claimed ((param, writtenArg) : rest) = do
       (universal, predicates, kindParams') <- case writtenArg of
         TcTyVar tyVar
-          | tvUnique tyVar `notElem` map tvUnique claimed ->
-              pure (tyVar, [], claimKindParams kindParams (tvKind param) (tvKind tyVar))
+          | tvUnique tyVar `notElem` map tvUnique claimed -> do
+              declaredKind <- zonkKind (tvKind param)
+              writtenKind <- zonkKind (tvKind tyVar)
+              pure (tyVar, [], claimKindParams kindParams declaredKind writtenKind)
         _ -> do
-          writtenKind <- tcTypeKind writtenArg >>= zonkKind
           declaredKind <- zonkKind (substituteKindParams kindParams (tvKind param))
+          -- The kind of a bare poly-kinded index, as @'[]@, has fresh
+          -- metas. They are open, so they take the declared kind.
+          -- Otherwise, the kind equality keeps a meta that no pass settles.
+          openWrittenKind <- tcTypeKind writtenArg >>= zonkKind
+          fillWrittenKindMetas declaredKind openWrittenKind
+          writtenKind <- zonkKind openWrittenKind
           fresh <- setTyVarKind declaredKind <$> freshSkolemTv (tvName param)
           let kindPredicates = [EqPred declaredKind writtenKind | declaredKind /= writtenKind]
           pure (fresh, kindPredicates <> [EqPred (TcTyVar fresh) writtenArg], kindParams)
       (universals, restPredicates) <- go kindParams' (universal : claimed) rest
       pure (universal : universals, predicates <> restPredicates)
 
-    -- A claimed index whose declared kind is a kind parameter of the data
-    -- type fixes that parameter to the kind of the written variable.
+    -- Bind each open meta of a written kind to the part of the declared
+    -- kind at the same position. Different shapes stay as they are, and
+    -- the kind equality records them.
+    fillWrittenKindMetas declared written =
+      case (declared, written) of
+        (_, TcMetaTv {}) -> unifyKinds declared written
+        (TcTyCon left leftArguments, TcTyCon right rightArguments)
+          | left == right,
+            length leftArguments == length rightArguments ->
+              zipWithM_ fillWrittenKindMetas leftArguments rightArguments
+        (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) -> do
+          fillWrittenKindMetas leftArgument rightArgument
+          fillWrittenKindMetas leftResult rightResult
+        (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) -> do
+          fillWrittenKindMetas leftFunction rightFunction
+          fillWrittenKindMetas leftArgument rightArgument
+        _ -> pure ()
+
+    -- A claimed index whose declared kind mentions a kind parameter of the
+    -- data type fixes that parameter to the part of the written kind at the
+    -- same position. Thus, @p :: k0 -> Type@ in the position of
+    -- @(x -> Type)@ fixes @x@ to @k0@.
     claimKindParams kindParams declaredKind writtenKind =
-      case declaredKind of
-        TcTyVar kindParam
+      case (declaredKind, writtenKind) of
+        (TcTyVar kindParam, _)
           | tvUnique kindParam `Map.notMember` kindParams -> Map.insert (tvUnique kindParam) writtenKind kindParams
+        (TcTyCon left leftArguments, TcTyCon right rightArguments)
+          | left == right,
+            length leftArguments == length rightArguments ->
+              foldl (\current (declared, written) -> claimKindParams current declared written) kindParams (zip leftArguments rightArguments)
+        (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+          claimKindParams (claimKindParams kindParams leftArgument rightArgument) leftResult rightResult
+        (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+          claimKindParams (claimKindParams kindParams leftFunction rightFunction) leftArgument rightArgument
         _ -> kindParams
 
     substituteKindParams kindParams kind =
