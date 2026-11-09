@@ -10,6 +10,13 @@ module Debug.Trace
     putTraceMsg,
     traceM,
     traceShowM,
+    traceStack,
+    traceEvent,
+    traceEventWith,
+    traceEventIO,
+    flushEventLog,
+    traceMarker,
+    traceMarkerIO,
   )
 where
 
@@ -61,3 +68,36 @@ traceM message = trace message (pure ())
 -- | Like 'traceM', but takes a showable value instead of a message.
 traceShowM :: (Show a, Applicative f) => a -> f ()
 traceShowM = traceM . show
+
+-- | Like 'trace'. GHC also writes the call stack, but aihc has no call stack
+-- to write. Thus, this function writes only the message.
+traceStack :: String -> a -> a
+traceStack = trace
+
+-- | Return the second argument. GHC writes the message to the eventlog, but
+-- aihc has no eventlog. Thus, this function ignores the message.
+traceEvent :: String -> a -> a
+traceEvent _ result = result
+
+-- | Like 'traceEvent', but the message is derived from the value.
+traceEventWith :: (a -> String) -> a -> a
+traceEventWith _ value = value
+
+-- | Do nothing. GHC writes the message to the eventlog, but aihc has no
+-- eventlog.
+traceEventIO :: String -> IO ()
+traceEventIO _ = pure ()
+
+-- | Do nothing. aihc has no eventlog to flush.
+flushEventLog :: IO ()
+flushEventLog = pure ()
+
+-- | Return the second argument. GHC writes the marker to the eventlog, but
+-- aihc has no eventlog. Thus, this function ignores the marker.
+traceMarker :: String -> a -> a
+traceMarker _ result = result
+
+-- | Do nothing. GHC writes the marker to the eventlog, but aihc has no
+-- eventlog.
+traceMarkerIO :: String -> IO ()
+traceMarkerIO _ = pure ()
