@@ -1218,7 +1218,8 @@ checkTopLevelUnliftedBindings sourceGroups results =
   forM_ results $ \result ->
     case Map.lookup (tcGroupId result) groupsById of
       Just group
-        | Just sourceSpan <- declGroupSourceSpan group ->
+        | not (isPatSynGroup group),
+          Just sourceSpan <- declGroupSourceSpan group ->
             forM_ (tcGroupBindingResults result) $ \binding -> do
               kind <- tcTypeKind (tbType binding)
               when (isUnliftedKind kind) $
@@ -1226,6 +1227,12 @@ checkTopLevelUnliftedBindings sourceGroups results =
       _ -> pure ()
   where
     groupsById = Map.fromList sourceGroups
+    -- A pattern synonym binds no value of its own type. Its builder takes
+    -- a unit when its type is unlifted (see 'tcPatSynDecl').
+    isPatSynGroup group =
+      case group of
+        SingleDecl decl | DeclPatSyn {} <- peelDeclAnn decl -> True
+        _ -> False
     isUnliftedKind kind =
       case runtimeRepFromKind kind of
         Right (BoxedRep Lifted) -> False
@@ -3264,15 +3271,32 @@ tcPatSynDecl sigs groupId decl patSyn = do
           case maybeMatcherMatches of
             Just [matcherMatch'] -> do
               checkedPat <- maybe (abortTc ("pattern synonym " <> T.unpack name <> " lost its checked pattern")) pure (matcherPattern matcherMatch')
-              let builderSig = CheckedSig builderName scheme nameSpan [] False
+              -- A builder with no arguments and an unlifted result, as
+              -- the builder of @pattern ZW = MkZW (# #)@, takes a unit:
+              -- a top-level binding cannot have an unlifted type. GHC
+              -- gives it a @Void#@ argument for the same reason. The
+              -- desugarer applies the builder to the unit at each use.
+              voidBuilder <- if arity == 0 then patSynSchemeUnlifted scheme else pure False
+              builderScheme <-
+                if voidBuilder
+                  then do
+                    kinds <- getKinds
+                    unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
+                    let Scheme inferred specified predicates body = scheme
+                    pure (Scheme inferred specified predicates (TcFunTy (TcTyCon unitTyCon []) body))
+                  else pure scheme
+              let builderSig = CheckedSig builderName builderScheme nameSpan [] False
+                  withVoidArgument matches
+                    | voidBuilder = [match {matchPats = PWildcard : matchPats match} | match <- matches]
+                    | otherwise = matches
               (direction, sourceBuilder) <-
                 case patSynDeclDir patSyn of
                   PatSynUnidirectional -> pure (PatSynUnidirectionalInfo, Just Nothing)
-                  PatSynExplicitBidirectional matches -> pure (PatSynExplicitBidirectionalInfo, Just (Just matches))
+                  PatSynExplicitBidirectional matches -> pure (PatSynExplicitBidirectionalInfo, Just (Just (withVoidArgument matches)))
                   PatSynBidirectional ->
                     case patternToExpr pat of
                       Just expr ->
-                        pure (PatSynImplicitBidirectionalInfo, Just (Just [Match [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] expr Nothing)]))
+                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] expr Nothing)])))
                       Nothing -> do
                         emitError nameSpan (OtherError ("the pattern of the bidirectional pattern synonym " <> T.unpack name <> " is not an expression; give explicit builder equations"))
                         pure (PatSynImplicitBidirectionalInfo, Nothing)
@@ -3322,6 +3346,15 @@ tcPatSynDecl sigs groupId decl patSyn = do
                           results = TcBindingResult key displayName zonkedTy : matcherResults <> builderResults <> selectorResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
             _ -> pure failedResult
+
+-- | Whether the type of a pattern synonym has an unlifted result.
+patSynSchemeUnlifted :: TypeScheme -> TcM Bool
+patSynSchemeUnlifted (ForAll _ _ body) = do
+  kind <- tcTypeKind =<< zonkType body
+  pure $ case runtimeRepFromKind kind of
+    Right (BoxedRep Lifted) -> False
+    Right _ -> True
+    Left _ -> False
 
 -- | A pattern synonym bundled with a type in an export list must have that
 -- type as its scrutinee type.

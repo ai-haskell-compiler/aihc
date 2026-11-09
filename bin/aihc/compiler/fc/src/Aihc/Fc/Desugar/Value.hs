@@ -3572,14 +3572,17 @@ desugarVariable maybeAnnotation name = do
       annotation <- constructorAnnotation
       desugarUnpackConstructor name annotation info Nothing
     _ -> do
-      variable <- patSynBuilderName =<< resolvedTermName name
-      case maybeAnnotation of
+      sourceVariable <- resolvedTermName name
+      variable <- patSynBuilderName sourceVariable
+      voidArgument <- patSynBuilderVoidArgument sourceVariable
+      reference <- case maybeAnnotation of
         Nothing -> desugarTermReference variable [] [] []
         Just annotation -> do
           let inferredTypes = tcAnnTypeArgs annotation
           types <- convertOccurrenceTypeArguments name inferredTypes
           evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
           desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
+      pure (maybe reference (ExApp reference) voidArgument)
   where
     constructorAnnotation =
       case maybeAnnotation of
@@ -3608,6 +3611,37 @@ patSynBuilderName variable =
           Just info -> variable {nameText = patSynHelperName "$b" info, nameSort = SortValue}
           Nothing -> variable
     _ -> pure variable
+
+-- | The unit that the builder of a pattern synonym with no arguments and
+-- an unlifted type takes (see 'Aihc.Tc.Generate.Decl.tcPatSynDecl'). The
+-- builder's own type gives the unit type, so the call follows the
+-- declaration.
+patSynBuilderVoidArgument :: Name -> ValueM (Maybe Expr)
+patSynBuilderVoidArgument variable =
+  case nameOrigin variable of
+    OriginTop package moduleName' -> do
+      patSyns <- gets vsPatSyns
+      case Map.lookup (GlobalTerm package moduleName' (nameText variable)) patSyns of
+        Just info
+          | psiArity info == 0 -> do
+              builderType <- lookupBindingType (patSynHelperKey (psiOrigin info) "$b" info)
+              let (_, qualified) = peelForAlls builderType
+                  (_, body) = peelConstraints qualified
+                  ForAll _ _ synonymBody = psiScheme info
+              case body of
+                TcFunTy (TcTyCon unitTyCon []) _
+                  | not (isFunctionType synonymBody) ->
+                      pure (Just (ExVar (Name (tupleConstructorText Syn.Boxed 0) SortDataConstructor (OriginTop (tyConPackageId unitTyCon) (tyConModuleName unitTyCon)))))
+                _ -> pure Nothing
+        _ -> pure Nothing
+    _ -> pure Nothing
+  where
+    isFunctionType ty =
+      case ty of
+        TcFunTy {} -> True
+        TcForAllTy _ inner -> isFunctionType inner
+        TcQualTy _ inner -> isFunctionType inner
+        _ -> False
 
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
 desugarTermReference variable types evidence termArgumentTypes = do
