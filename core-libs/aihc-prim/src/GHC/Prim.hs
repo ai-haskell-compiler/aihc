@@ -292,6 +292,7 @@ module GHC.Prim
     nullAddr#,
     plusAddr#,
     minusAddr#,
+    remAddr#,
     eqAddr#,
     neAddr#,
     ltAddr#,
@@ -1331,6 +1332,8 @@ foreign import prim nullAddr# :: Addr#
 foreign import prim plusAddr# :: Addr# -> Int# -> Addr#
 
 foreign import prim minusAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim remAddr# :: Addr# -> Int# -> Int#
 
 foreign import prim eqAddr# :: Addr# -> Addr# -> Int#
 

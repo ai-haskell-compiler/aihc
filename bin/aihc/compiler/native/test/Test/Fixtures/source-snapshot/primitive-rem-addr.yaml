@@ -1,0 +1,17 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int# Int# Int#
+  value = Result
+    (remAddr# (int2Addr# 23#) 8#)
+    (remAddr# (int2Addr# 23#) (negateInt# 8#))
+    (remAddr# (int2Addr# (negateInt# 23#)) 8#)
+return: "@0"
+heap: |
+  @0 = CResult 7 7 -7
+allocated-bytes:
+  macos-arm64: 32
+  linux-amd64: 32
+status: pass
+reason: Native remAddr# gives the signed remainder of the address ordinal, as GHC does.

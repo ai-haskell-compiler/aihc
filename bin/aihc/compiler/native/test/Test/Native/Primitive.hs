@@ -334,6 +334,7 @@ addressArithmeticInlineNames :: [Text]
 addressArithmeticInlineNames =
   [ "plusAddr#",
     "minusAddr#",
+    "remAddr#",
     "eqAddr#",
     "neAddr#",
     "ltAddr#",

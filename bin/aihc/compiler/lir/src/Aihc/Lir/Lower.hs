@@ -3501,6 +3501,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       rightOperand <- word right
       result <- emitValue "result" I64 (Binary Sub I64 leftOperand rightOperand)
       bind [result]
+    ("remAddr#", [address, divisor]) -> do
+      addressOperand <- word address
+      divisorOperand <- word divisor
+      result <- emitValue "result" I64 (Binary RemS I64 addressOperand divisorOperand)
+      bind [result]
     ("addr2Int#", [address]) -> do
       operand <- word address
       bind [Typed operand I64]
