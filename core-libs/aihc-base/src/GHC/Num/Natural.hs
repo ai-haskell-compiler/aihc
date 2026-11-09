@@ -4,14 +4,15 @@
 module GHC.Num.Natural
   ( Natural (..),
     naturalLog2,
+    naturalCheck,
     naturalFromBigNat#,
   )
 where
 
 import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
-import GHC.Num.BigNat (BigNat#)
-import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#))
+import GHC.Num.BigNat (BigNat#, bigNatCheck#, bigNatSize#)
+import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#), (>=#))
 import GHC.Prim.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, wordToInteger)
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import GHC.Read ()
@@ -25,6 +26,14 @@ import Prelude
 -- other operations go through 'Integer' rather than working on the limbs
 -- directly: only the representation has to match GHC, and the operations
 -- are free to reuse the magnitude code that already backs 'Integer'.
+
+-- | Whether a natural number has the canonical representation.
+-- A big natural number must have whole limbs, no trailing zero limb, and
+-- a minimum of two limbs. A smaller value must use the small constructor.
+naturalCheck :: Natural -> Bool
+naturalCheck (NS _) = True
+naturalCheck (NB magnitude) =
+  isTrue# (bigNatCheck# magnitude) && isTrue# (bigNatSize# magnitude >=# 2#)
 
 underflow :: a
 underflow = throw Underflow
