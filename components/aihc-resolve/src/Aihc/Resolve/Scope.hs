@@ -620,11 +620,12 @@ isTermNamespace namespace =
 exportBundledMemberName :: IEBundledMember -> Text
 exportBundledMemberName = nameText . ieBundledMemberName
 
--- | The top-level scope of one module. The first argument holds the record
--- fields of each constructor that the module imports. A record wildcard in a
--- top-level pattern binding binds one name for each such field.
-topLevelScope :: Map.Map Text [Text] -> Package -> Module -> Scope
-topLevelScope importedFields package modu =
+-- | The top-level scope of one module. The first argument is the scope of
+-- the imports of the module. It gives the record fields of each imported
+-- constructor. A record wildcard in a top-level pattern binding binds one
+-- name for each such field.
+topLevelScope :: Scope -> Package -> Module -> Scope
+topLevelScope imported package modu =
   List.foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
@@ -632,10 +633,13 @@ topLevelScope importedFields package modu =
     -- A pattern binding can come before the data declaration that gives it
     -- the record fields, so collect all fields of the module first.
     visibleFields =
-      Map.unions
-        ( [fields | decl <- moduleDecls modu, let DeclExports _ _ _ fields _ _ _ = declExportedNames Map.empty decl]
-            <> [importedFields]
-        )
+      imported
+        { scopeRecordFields =
+            Map.unions
+              ( [fields | decl <- moduleDecls modu, let DeclExports _ _ _ fields _ _ _ = declExportedNames emptyScope decl]
+                  <> [scopeRecordFields imported]
+              )
+        }
     addDecl scope decl =
       let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames visibleFields decl
           scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify ResolutionNamespaceTerm name) acc) scope termNames
@@ -653,15 +657,15 @@ topLevelScope importedFields package modu =
 -- associated type families by class, and operator fixities.
 data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text OperatorFixity)
 
-declExportedNames :: Map.Map Text [Text] -> Decl -> DeclExports
-declExportedNames recordFields decl =
+declExportedNames :: Scope -> Decl -> DeclExports
+declExportedNames fieldScope decl =
   case decl of
-    DeclAnn _ inner -> declExportedNames recordFields inner
+    DeclAnn _ inner -> declExportedNames fieldScope inner
     DeclValue valueDecl ->
       case valueDecl of
         FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty Map.empty Map.empty
         PatternBind _ pat _ ->
-          DeclExports (map snd (collectPatVarBinders recordFields Nothing pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
+          DeclExports (map snd (collectPatVarBinders fieldScope Nothing pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclForeign foreignDecl
       | foreignDirection foreignDecl == ForeignImport ->
@@ -907,7 +911,7 @@ ownAndImportedScopes :: Package -> ModuleExports -> [Extension] -> Module -> (Sc
 ownAndImportedScopes packageId exports extensions modu = (ownScope, imported)
   where
     imported = importedScope packageId exports modu `unionScope` implicitPrelude
-    ownScope = topLevelScope (scopeRecordFields imported) packageId modu
+    ownScope = topLevelScope imported packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit imports supply both unqualified names and the Prelude qualifier.
     -- Export lists must see the same imported names as module bodies.
@@ -1226,17 +1230,17 @@ resolveFixityName scope name =
 -- for each pattern form and has no catch-all case. If the pattern syntax
 -- gets a new form, the compiler reports this function.
 --
--- The first argument holds the record fields of each constructor. A record
--- wildcard binds one variable for each field that the pattern does not
--- list, and only the constructor gives those field names.
-collectPatVarBinders :: Map.Map Text [Text] -> Maybe SourceSpan -> Pattern -> [(Maybe SourceSpan, UnqualifiedName)]
-collectPatVarBinders recordFields ambient pat =
+-- The first argument is the scope that gives the record fields of each
+-- constructor. A record wildcard binds one variable for each field that the
+-- pattern does not list, and only the constructor gives those field names.
+collectPatVarBinders :: Scope -> Maybe SourceSpan -> Pattern -> [(Maybe SourceSpan, UnqualifiedName)]
+collectPatVarBinders fieldScope ambient pat =
   case peelPatternAnn pat of
     PVar name -> [binderAt name]
     PAs alias inner -> binderAt alias : go inner
     PRecord conName fields wildcard ->
       concatMap (go . recordFieldValue) fields
-        <> map (binderAt . mkUnqualifiedName NameVarId) (recordWildcardFieldNames recordFields conName fields wildcard)
+        <> map (binderAt . mkUnqualifiedName NameVarId) (recordWildcardFieldNames fieldScope conName fields wildcard)
     PTuple _ pats -> concatMap go pats
     PUnboxedSum _ _ inner -> go inner
     PList pats -> concatMap go pats
@@ -1260,14 +1264,22 @@ collectPatVarBinders recordFields ambient pat =
     PQuasiQuote _ _ -> []
     PSplice _ -> []
   where
-    go = collectPatVarBinders recordFields ambient
+    go = collectPatVarBinders fieldScope ambient
     binderAt name = (spanStartNameSpan ambient (renderUnqualifiedName name), name)
 
 -- | The fields that a record wildcard @..@ stands for: each field of the
 -- constructor that the pattern or the construction does not list.
-recordWildcardFieldNames :: Map.Map Text [Text] -> Name -> [RecordField a] -> Bool -> [Text]
-recordWildcardFieldNames recordFields conName fields wildcard
+--
+-- A qualified constructor such as @M.C@ gets its fields from the scope of the
+-- qualifier @M@. Thus @M.C{..}@ binds the fields of @C@ when the module
+-- imports @C@ only qualified. GHC does the same.
+recordWildcardFieldNames :: Scope -> Name -> [RecordField a] -> Bool -> [Text]
+recordWildcardFieldNames scope conName fields wildcard
   | not wildcard = []
   | otherwise = filter (`notElem` explicitFields) (Map.findWithDefault [] (nameText conName) recordFields)
   where
     explicitFields = map (nameText . recordFieldName) fields
+    recordFields =
+      case nameQualifier conName of
+        Nothing -> scopeRecordFields scope
+        Just qualifier -> maybe Map.empty scopeRecordFields (Map.lookup qualifier (scopeQualifiedModules scope))

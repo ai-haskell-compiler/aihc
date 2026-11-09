@@ -1441,7 +1441,7 @@ resolveRecordUpdateFields =
 resolveRecordConWildcardFields :: Maybe SourceSpan -> Name -> [RecordField Expr] -> Bool -> ResolveM [RecordField Expr]
 resolveRecordConWildcardFields sp conName fields wildcard = do
   scope <- currentScope
-  mapM fieldPun (recordWildcardFieldNames (scopeRecordFields scope) conName fields wildcard)
+  mapM fieldPun (recordWildcardFieldNames scope conName fields wildcard)
   where
     fieldPun fieldName = do
       value <- resolveTermUse (Name Nothing NameVarId fieldName (map mkAnnotation (maybeToList sp)))
@@ -1510,22 +1510,22 @@ resolveMdoStmts stmts =
     Nothing -> pure []
     Just (body, final) -> do
       (targets, recScope) <- allocateDoStmtBinders body
-      recordFields <- scopeRecordFields <$> currentScope
+      fieldScope <- currentScope
       extendScope recScope $ do
         body' <- mapM (resolveRecGroupStmt targets) body
         (_, final') <- resolveDoStmt True final
-        segmented <- segmentMdoStmts recordFields targets (zip body body')
+        segmented <- segmentMdoStmts fieldScope targets (zip body body')
         pure (segmented <> [final'])
 
 -- | Put each recursive segment of the resolved statements of an @mdo@ block
 -- into a @rec@ statement. Each pair has the source statement and the
 -- resolved statement.
-segmentMdoStmts :: Map.Map Text [Text] -> Map.Map Text Entity -> [(DoStmt Expr, DoStmt Expr)] -> ResolveM [DoStmt Expr]
-segmentMdoStmts recordFields targets stmts = go indexed
+segmentMdoStmts :: Scope -> Map.Map Text Entity -> [(DoStmt Expr, DoStmt Expr)] -> ResolveM [DoStmt Expr]
+segmentMdoStmts fieldScope targets stmts = go indexed
   where
     indexed = zip [0 :: Int ..] (map snd stmts)
     definitions =
-      [ mapMaybe (`Map.lookup` targets) (doStmtBinderKeys recordFields source)
+      [ mapMaybe (`Map.lookup` targets) (doStmtBinderKeys fieldScope source)
       | (source, _) <- stmts
       ]
     definingIndex =
@@ -1615,8 +1615,8 @@ annotateRecStmt stmt = do
 -- | Give one entity to each variable that the statements bind.
 allocateDoStmtBinders :: [DoStmt Expr] -> ResolveM (Map.Map Text Entity, Scope)
 allocateDoStmtBinders stmts = do
-  recordFields <- scopeRecordFields <$> currentScope
-  foldM addBinder (Map.empty, emptyScope) (concatMap (doStmtBinderKeys recordFields) stmts)
+  fieldScope <- currentScope
+  foldM addBinder (Map.empty, emptyScope) (concatMap (doStmtBinderKeys fieldScope) stmts)
   where
     addBinder (targets, scope) key
       | Map.member key targets = pure (targets, scope)
@@ -1626,14 +1626,14 @@ allocateDoStmtBinders stmts = do
 
 -- | The names of the variables that a statement binds, in source order.
 -- The record fields give the variables of a record wildcard pattern.
-doStmtBinderKeys :: Map.Map Text [Text] -> DoStmt Expr -> [Text]
-doStmtBinderKeys recordFields stmt =
+doStmtBinderKeys :: Scope -> DoStmt Expr -> [Text]
+doStmtBinderKeys fieldScope stmt =
   case stmt of
-    DoAnn _ inner -> doStmtBinderKeys recordFields inner
-    DoBind pat _ -> map (renderUnqualifiedName . snd) (collectPatVarBinders recordFields Nothing pat)
-    DoLetDecls decls -> map (renderUnqualifiedName . snd) (concatMap (declBinderCandidates recordFields) decls)
+    DoAnn _ inner -> doStmtBinderKeys fieldScope inner
+    DoBind pat _ -> map (renderUnqualifiedName . snd) (collectPatVarBinders fieldScope Nothing pat)
+    DoLetDecls decls -> map (renderUnqualifiedName . snd) (concatMap (declBinderCandidates fieldScope) decls)
     DoExpr _ -> []
-    DoRecStmt stmts -> concatMap (doStmtBinderKeys recordFields) stmts
+    DoRecStmt stmts -> concatMap (doStmtBinderKeys fieldScope) stmts
 
 -- | Annotate a do statement with the method that sequences it.
 --
@@ -1965,7 +1965,7 @@ bindRecordWildcardFields conName fields wildcard =
 wildcardFieldNames :: Name -> [RecordField Pattern] -> Bool -> ResolveM [Text]
 wildcardFieldNames conName fields wildcard = do
   scope <- currentScope
-  pure (recordWildcardFieldNames (scopeRecordFields scope) conName fields wildcard)
+  pure (recordWildcardFieldNames scope conName fields wildcard)
 
 resolveDataDecl :: Text -> DataDecl -> ResolveM DataDecl
 resolveDataDecl keyword dataDecl = do
@@ -2290,15 +2290,15 @@ bindTyVarBinders =
 
 allocateLocalDeclBinders :: [Decl] -> ResolveM (Map.Map Text Entity, Scope)
 allocateLocalDeclBinders decls = do
-  recordFields <- scopeRecordFields <$> currentScope
-  (targets, scope) <- foldM (step recordFields) (Map.empty, emptyScope) decls
+  fieldScope <- currentScope
+  (targets, scope) <- foldM (step fieldScope) (Map.empty, emptyScope) decls
   -- A local binder hides the fixity of an outer operator with the same
   -- name. Thus, each local binder gets its local fixity or the default.
   let declared = Map.unions (map localDeclFixities decls)
       fixities = Map.union declared (Map.map (const defaultOperatorFixity) targets)
   pure (targets, scope {scopeFixities = Map.restrictKeys fixities (Map.keysSet targets)})
   where
-    step recordFields acc decl = foldM addBinder acc (declBinderCandidates recordFields decl)
+    step fieldScope acc decl = foldM addBinder acc (declBinderCandidates fieldScope decl)
     addBinder (targets, scope) (_, name) = do
       entity <- freshLocal
       let key = renderUnqualifiedName name
@@ -2314,8 +2314,8 @@ localDeclFixities decl =
     _ -> Map.empty
 
 -- | Collect all term binders introduced by a declaration (handles tuple patterns etc.)
-declBinderCandidates :: Map.Map Text [Text] -> Decl -> [(Maybe SourceSpan, UnqualifiedName)]
-declBinderCandidates recordFields decl =
+declBinderCandidates :: Scope -> Decl -> [(Maybe SourceSpan, UnqualifiedName)]
+declBinderCandidates fieldScope decl =
   let (outerSp, innerDecl) = peelDeclSpan decl
    in case innerDecl of
         DeclValue valueDecl ->
@@ -2325,7 +2325,7 @@ declBinderCandidates recordFields decl =
                in [(spanStartNameSpan loc (renderUnqualifiedName name), name)]
             PatternBind _ pat _ ->
               let loc = peelPatternSpan pat <|> outerSp
-               in collectPatVarBinders recordFields loc pat
+               in collectPatVarBinders fieldScope loc pat
         DeclTypeSig [name] _ ->
           [(spanStartNameSpan outerSp (renderUnqualifiedName name), name)]
         _ -> []
