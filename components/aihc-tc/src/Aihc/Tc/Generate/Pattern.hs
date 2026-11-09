@@ -283,6 +283,9 @@ patternNeedsInstantiation pattern' = case pattern' of
   PWildcard -> False
   PAs _ inner -> patternNeedsInstantiation inner
   PIrrefutable inner -> patternNeedsInstantiation inner
+  -- A bang forces the value as it is: @f !_ = ..@ for an argument of type
+  -- @forall x. C x => x -> x@ needs no @C@ instance.
+  PStrict inner -> patternNeedsInstantiation inner
   _ -> True
 
 checkPatternWithoutResultType :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck

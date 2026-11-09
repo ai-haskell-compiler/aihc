@@ -1,0 +1,22 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, BangPatterns, MultiParamTypeClasses #-}
+  module Main where
+  class Sub a b
+  └─ class methods:
+  trustMe :: (forall x y. Sub x y => x -> y) -> ()
+  trustMe !_ = ()
+  │        │   └─ type: ()
+  │        └─ type: ∀ x y. (Sub x y) ⇒ x → y
+  └─ type: (∀ x y. (Sub x y) ⇒ x → y) → ()
+extensions: []
+modules:
+- |
+  {-# LANGUAGE RankNTypes, BangPatterns, MultiParamTypeClasses #-}
+  module Main where
+  class Sub a b
+  trustMe :: (forall x y. Sub x y => x -> y) -> ()
+  trustMe !_ = ()
+reason: a bang pattern forces an argument of constrained polytype without an instance of
+  its constraint
+status: pass
