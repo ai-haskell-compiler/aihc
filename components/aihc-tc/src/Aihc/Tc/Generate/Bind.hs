@@ -61,9 +61,11 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
+import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM_, when)
+import Data.Either (isRight)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
 import Data.List qualified as List
@@ -908,11 +910,25 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
     Nothing -> pure (rhsCts ++ [bindCt])
   pure (annotateRhsCast ty ev rhs', ty, cts)
 
+-- | Relate the placeholder of a binder to the type that its binding has.
+--
+-- A placeholder that is still an unsolved meta variable becomes the type of
+-- the binding at once. The binder and its binding then have one type, as in
+-- GHC. A wanted equality is not sufficient here: a later use of the binder
+-- can fix the placeholder first, and a given can then prove the equality.
+-- No cast holds that proof, so the use and the binding would disagree.
 tiePlaceholder :: Map Entity TcType -> Entity -> TcType -> [Ct] -> TcM [Ct]
 tiePlaceholder placeholders key ty cts =
   case Map.lookup key placeholders of
     Nothing -> pure cts
     Just placeholderTy -> do
+      zonkedPlaceholder <- zonkType placeholderTy
+      bound <- case zonkedPlaceholder of
+        TcMetaTv _ -> isRight <$> unifyTypes zonkedPlaceholder ty
+        _ -> pure False
+      if bound then pure cts else tieWithEquality placeholderTy
+  where
+    tieWithEquality placeholderTy = do
       ev <- freshEvVar
       let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin Nothing) Nothing
       pure (cts ++ [eqCt])

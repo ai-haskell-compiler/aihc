@@ -1,0 +1,36 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  type family Index s
+              └─ type: Type → Type
+  ix :: Index m -> (m -> m) -> m -> m
+  ix _ _ g = g
+  │  │ │ └─ type: m
+  │  │ └─ type: m → m
+  │  └─ type: Index m
+  └─ type: ∀ m. Index m → (m → m) → m → m
+  id x = x
+  │  └─ type: a
+  └─ type: ∀ a. a → a
+  f :: (i ~ Index s) => i -> s -> s
+  f i z = let go j = ix j id z in go i
+  │ │ │       │  │   │    └─ type: s → s; type-args: s
+  │ │ │       │  │   └─ type: Index s → (s → s) → s → s; type-args: s
+  │ │ │       │  └─ type: Index s
+  │ │ │       └─ type: Index s → s
+  │ │ └─ type: s
+  │ └─ type: i
+  └─ type: ∀ i s. (i ~ (Index s)) ⇒ i → s → s
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  type family Index s
+  ix :: Index m -> (m -> m) -> m -> m
+  ix _ _ g = g
+  id x = x
+  f :: (i ~ Index s) => i -> s -> s
+  f i z = let go j = ix j id z in go i
+status: pass

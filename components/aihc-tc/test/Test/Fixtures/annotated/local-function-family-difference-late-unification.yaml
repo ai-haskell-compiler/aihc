@@ -87,12 +87,12 @@ annotated:
       loop None _ = False
       │    │    └─ type: Arr Nat
       │    └─ type: Opt (Count Nat)
-      └─ type: Difference (Count Nat) → Arr Nat → GHC.Types.Bool
+      └─ type: Opt (Count Nat) → Arr Nat → GHC.Types.Bool
       loop (Some cnt) haystack' =
       │     │    │    └─ type: Arr Nat
       │     │    └─ type: Count Nat
       │     └─ type: Opt (Count Nat)
-      └─ type: Difference (Count Nat) → Arr Nat → GHC.Types.Bool
+      └─ type: Opt (Count Nat) → Arr Nat → GHC.Types.Bool
         needle == take needleLen haystack'
                │  └─ type: Count (Element (Arr Nat)) → Arr Nat → Arr Nat; type-args: Arr Nat; evidence: $fCollectionArrty @Nat
                └─ type: Arr Nat → Arr Nat → GHC.Types.Bool; type-args: Arr Nat; evidence: $fEqArrty @Nat
