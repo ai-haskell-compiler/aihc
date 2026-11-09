@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  class Pro p where
+  └─ class methods: dimap ∷ ∀ p. (Pro p) ⇒ p → p
+    dimap :: p -> p
+  class Str p where
+  └─ class methods: first ∷ ∀ p. (Str p) ⇒ p → p
+    first :: p -> p
+  newtype Optic = Optic (forall p. Pro p => Str p => p -> p)
+          │       └─ type: (∀ p. (Pro p) ⇒ (Str p) ⇒ p → p) → Optic
+          └─ type: Type
+  getOptic :: Pro p => Optic -> (Str p => p -> p)
+  getOptic (Optic o) = o
+  │         │     │    └─ type: p → p; type-args: p; evidence: given Pro p, given Str p
+  │         │     └─ type: ∀ p. (Pro p) ⇒ (Str p) ⇒ p → p
+  │         └─ type: Optic
+  └─ type: ∀ p. (Pro p, Str p) ⇒ Optic → p → p
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  class Pro p where
+    dimap :: p -> p
+  class Str p where
+    first :: p -> p
+  newtype Optic = Optic (forall p. Pro p => Str p => p -> p)
+  getOptic :: Pro p => Optic -> (Str p => p -> p)
+  getOptic (Optic o) = o
+status: pass
+reason: The field type of Optic has two consecutive contexts, Pro p and Str p. The use of o instantiates both contexts as one context, so the givens of the signature solve both. Before the fix, the use kept the inner context Str p in its type, and the type did not match the signature.

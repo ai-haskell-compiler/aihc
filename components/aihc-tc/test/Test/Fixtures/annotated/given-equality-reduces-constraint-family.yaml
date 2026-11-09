@@ -1,0 +1,63 @@
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, FunctionalDependencies, RankNTypes, TypeFamilies, UndecidableInstances, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Kind = Iso | Lens
+       │      │     └─ type: Kind
+       │      └─ type: Kind
+       └─ type: Type
+  class Pro p where
+  └─ class methods: dimap ∷ ∀ p. (Pro p) ⇒ p → p
+    dimap :: p -> p
+  class Pro p => Str p where
+  └─ class methods: first ∷ ∀ p. (Str p) ⇒ p → p
+    first :: p -> p
+  type family Constraints (k :: Kind) (p :: Type) :: Constraint where
+              └─ type: Kind → Type → GHC.Types.Constraint
+    Constraints 'Iso p = Pro p
+    Constraints 'Lens p = Str p
+  class Join k l m | k l -> m where
+  └─ class methods: join ∷ ∀ k l m p r. (Join k l m, Constraints m p) ⇒ ((Constraints k p, Constraints l p) ⇒ r) → r; fundeps: k l → m
+    join :: ((Constraints k p, Constraints l p) => r) -> (Constraints m p => r)
+  instance k ~ 'Iso => Join 'Iso 'Iso k where
+  └─ $fJoinIsoIsok ∷ ∀ k. (k ~ 'Iso) ⇒ Join 'Iso 'Iso k
+    join r = r
+    │    │   └─ type: r; evidence: cast(given Constraints k p, Constraints given k ~ 'Iso refl p), cast(given Constraints k p, Constraints given k ~ 'Iso refl p)
+    │    └─ type: (Constraints 'Iso p, Constraints 'Iso p) ⇒ r
+    └─ join ∷ ∀ p r. (Constraints k p) ⇒ ((Constraints 'Iso p, Constraints 'Iso p) ⇒ r) → r
+  instance k ~ 'Lens => Join 'Iso 'Lens k where
+  └─ $fJoinIsoLensk ∷ ∀ k. (k ~ 'Lens) ⇒ Join 'Iso 'Lens k
+    join r = r
+    │    │   └─ type: r; evidence: super[0](cast(given Constraints k p, Constraints given k ~ 'Lens refl p)), cast(given Constraints k p, Constraints given k ~ 'Lens refl p)
+    │    └─ type: (Constraints 'Iso p, Constraints 'Lens p) ⇒ r
+    └─ join ∷ ∀ p r. (Constraints k p) ⇒ ((Constraints 'Iso p, Constraints 'Lens p) ⇒ r) → r
+extensions:
+- AllowAmbiguousTypes
+- ConstraintKinds
+- DataKinds
+- FunctionalDependencies
+- RankNTypes
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FunctionalDependencies, RankNTypes, TypeFamilies, UndecidableInstances, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Kind = Iso | Lens
+  class Pro p where
+    dimap :: p -> p
+  class Pro p => Str p where
+    first :: p -> p
+  type family Constraints (k :: Kind) (p :: Type) :: Constraint where
+    Constraints 'Iso p = Pro p
+    Constraints 'Lens p = Str p
+  class Join k l m | k l -> m where
+    join :: ((Constraints k p, Constraints l p) => r) -> (Constraints m p => r)
+  instance k ~ 'Iso => Join 'Iso 'Iso k where
+    join r = r
+  instance k ~ 'Lens => Join 'Iso 'Lens k where
+    join r = r
+status: pass
+reason: A given equality k ~ 'Iso rewrites the stuck given Constraints k p to Constraints 'Iso p, which reduces to Pro p. That given, or its superclass, solves the wanted. The evidence casts the given along the equality.

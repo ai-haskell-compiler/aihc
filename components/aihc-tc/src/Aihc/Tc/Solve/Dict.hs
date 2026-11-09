@@ -278,10 +278,36 @@ solveNormalizedDict visited givens ct
         (given, givenArgs, givenCoercions) : _ -> do
           bindEvidence (ctEvVar ct) (EvCast (EvGiven given) (TyConAppCo className givenArgs givenCoercions []))
           pure DictSolved
-        [] ->
-          if null rules || and (zipWith sameType rewrittenArgs args)
-            then tryRuleSets visited' zonkedGivens allGivens className args rest
-            else tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions
+        [] -> do
+          irreducible <- rewrittenIrreducibleGiven visited' rules (ClassPred className args) allGivens
+          case irreducible of
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) evidence
+              pure DictSolved
+            Nothing ->
+              if null rules || and (zipWith sameType rewrittenArgs args)
+                then tryRuleSets visited' zonkedGivens allGivens className args rest
+                else tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions
+
+    -- The rules can also make a stuck given reduce: with the given @k ~
+    -- 'Iso@, the given @Constraints k p@ rewrites to @Constraints 'Iso p@,
+    -- which reduces to @Pro p@. That given, or one of its superclasses,
+    -- then solves the wanted. The given dictionary is cast along the
+    -- rewrite.
+    rewrittenIrreducibleGiven _ _ _ [] = pure Nothing
+    rewrittenIrreducibleGiven visited' rules target (given : rest) =
+      case given of
+        IrredPred constraint
+          | let (rewritten, proof) = rewriteWithRules rules constraint,
+            not (sameType rewritten constraint) -> do
+              normalized <- normalizeGiven (IrredPred rewritten)
+              let evidence = EvCast (EvGiven given) proof
+              found <-
+                if samePredicate normalized target
+                  then pure (Just evidence)
+                  else superclassEvidence [] visited' target evidence normalized
+              maybe (rewrittenIrreducibleGiven visited' rules target rest) (pure . Just) found
+        _ -> rewrittenIrreducibleGiven visited' rules target rest
 
     rewrittenGivenMatches rules allGivens className args =
       [ (given, givenArgs, givenCoercions)
