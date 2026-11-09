@@ -1,0 +1,70 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, GADTs, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  type family Curry (xs :: [Type]) (y :: Type) :: Type where
+              └─ type: [Type] → Type → Type
+    Curry '[] y = y
+    Curry (x : xs) y = x -> Curry xs y
+  data IxEq i is js where
+       └─ type: Type → Type → Type → Type
+    IxEq :: IxEq i is is
+    └─ type: ∀ i is js. (js ~ is) ⇒ IxEq i is js
+  class AppendIndices (xs :: [Type]) (ys :: [Type]) (ks :: [Type]) where
+  └─ class methods: appendIndices ∷ ∀ xs ys ks i. (AppendIndices xs ys ks) ⇒ IxEq i (Curry xs (Curry ys i)) (Curry ks i)
+    appendIndices :: IxEq i (Curry xs (Curry ys i)) (Curry ks i)
+  class Pro p where
+  └─ class methods: dimap ∷ ∀ p i a b. (Pro p) ⇒ p i a b → p i a b
+    dimap :: p i a b -> p i a b
+  compose :: forall is js ks s t u v a b. AppendIndices is js ks
+    => (forall p i. Pro p => p i u v -> p (Curry is i) s t)
+    -> (forall p i. Pro p => p i a b -> p (Curry js i) u v)
+    -> (forall p i. Pro p => p i a b -> p (Curry ks i) s t)
+  compose k l = m
+  │       │ │   └─ type: p i a b → p (Curry ks i) s t; type-args: p, i; evidence: given Pro p
+  │       │ └─ type: ∀ p i. (Pro p) ⇒ p i a b → p (Curry js i) u v
+  │       └─ type: ∀ p i. (Pro p) ⇒ p i u v → p (Curry is i) s t
+  └─ type: ∀ is js ks s t u v a b p i. (AppendIndices is js ks, Pro p) ⇒ (∀ p i. (Pro p) ⇒ p i u v → p (Curry is i) s t) → (∀ p i. (Pro p) ⇒ p i a b → p (Curry js i) u v) → p i a b → p (Curry ks i) s t
+    where
+      m :: forall p i. Pro p => p i a b -> p (Curry ks i) s t
+      m | IxEq <- appendIndices @is @js @ks @i = \x -> k (l x)
+      │   │       │                              ││    │  └─ type: p i a b → p (Curry js i) u v; type-args: p, i; evidence: given Pro p
+      │   │       │                              ││    └─ type: p (Curry js i) u v → p (Curry is (Curry js i)) s t; type-args: p, Curry js i; evidence: given Pro p
+      │   │       │                              │└─ type: p i a b
+      │   │       │                              └─ type: p i a b → p (Curry is (Curry js i)) s t
+      │   │       └─ type: IxEq i (Curry is (Curry js i)) (Curry ks i); type-args: is, js, ks, i; evidence: given AppendIndices is js ks
+      │   └─ type: IxEq i (Curry is (Curry js i)) (Curry ks i); type-args: i, Curry is (Curry js i), Curry ks i; evidence: given Curry ks i ~ Curry is (Curry js i)
+      └─ type: ∀ p i. (Pro p) ⇒ p i a b → p (Curry ks i) s t
+extensions:
+- DataKinds
+- GADTs
+- RankNTypes
+- ScopedTypeVariables
+- TypeApplications
+- TypeFamilies
+- AllowAmbiguousTypes
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  type family Curry (xs :: [Type]) (y :: Type) :: Type where
+    Curry '[] y = y
+    Curry (x : xs) y = x -> Curry xs y
+  data IxEq i is js where
+    IxEq :: IxEq i is is
+  class AppendIndices (xs :: [Type]) (ys :: [Type]) (ks :: [Type]) where
+    appendIndices :: IxEq i (Curry xs (Curry ys i)) (Curry ks i)
+  class Pro p where
+    dimap :: p i a b -> p i a b
+  compose :: forall is js ks s t u v a b. AppendIndices is js ks
+    => (forall p i. Pro p => p i u v -> p (Curry is i) s t)
+    -> (forall p i. Pro p => p i a b -> p (Curry js i) u v)
+    -> (forall p i. Pro p => p i a b -> p (Curry ks i) s t)
+  compose k l = m
+    where
+      m :: forall p i. Pro p => p i a b -> p (Curry ks i) s t
+      m | IxEq <- appendIndices @is @js @ks @i = \x -> k (l x)
+status: pass
+reason: The local binding m has a signature and a pattern guard. The guard binds the given equality Curry is (Curry js i) ~ Curry ks i. The body is compared with the signature type inside the guard, where the given solves the comparison. Before the fix, the body type was compared with the signature type outside the guard, and the equality was unsolved.

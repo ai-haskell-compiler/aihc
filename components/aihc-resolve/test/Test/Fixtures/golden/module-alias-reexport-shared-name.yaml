@@ -1,0 +1,43 @@
+extensions: []
+modules:
+- |
+  module Methods (empty, other) where
+  empty = empty
+  other = other
+- |
+  module Maps (empty) where
+  empty = empty
+- |
+  module Imports (module X) where
+  import Methods as X (empty)
+  import qualified Maps as X
+- |
+  module Main where
+  import Imports (empty)
+  main = empty
+annotated:
+- |-
+  module Imports (module X) where
+  import Methods as X (empty)
+  import qualified Maps as X
+- |-
+  module Main where
+  import Imports (empty)
+  main = empty
+  │      └─ v Methods
+  └─ v Main
+- |-
+  module Maps (empty) where
+  empty = empty
+  │       └─ v Maps
+  └─ v Maps
+- |-
+  module Methods (empty, other) where
+  empty = empty
+  │       └─ v Methods
+  └─ v Methods
+  other = other
+  │       └─ v Methods
+  └─ v Methods
+reason: two imports share the alias X and the name empty, so X.empty is ambiguous, but the unqualified empty names the entity of Methods and the first import makes X.empty name it too. Thus module X re-exports it, as in GHC. Before the fix, the alias kept only the entity of the later import, and Main got an unbound empty.
+status: pass

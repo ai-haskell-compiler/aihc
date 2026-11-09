@@ -1,0 +1,28 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  newtype Request ctx body = Request body
+          │                  └─ type: ∀ k0 ctx body. body → Request ctx body
+          └─ type: k0 → Type → Type
+  class Monad' m where
+  └─ class methods: dispatch ∷ ∀ k0 m ctx body. (Monad' m) ⇒ Request ctx body → m body
+    dispatch :: Request ctx body -> m body
+  perform :: Monad' m => Request ctx a -> m a
+  perform req = dispatch req
+  │       │     └─ type: Request ctx a → m a; type-args: k0, m, ctx, a; evidence: given Monad' m
+  │       └─ type: Request ctx a
+  └─ type: ∀ k0 m ctx a. (Monad' m) ⇒ Request ctx a → m a
+extensions:
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  newtype Request ctx body = Request body
+  class Monad' m where
+    dispatch :: Request ctx body -> m body
+  perform :: Monad' m => Request ctx a -> m a
+  perform req = dispatch req
+status: pass
+reason: With PolyKinds, the kind of ctx in the method signature of dispatch is a kind variable of the method, as in GHC. Thus, perform can use dispatch at a ctx of any kind. Before the fix, the kind of ctx defaulted to Type, and the use in perform had a kind mismatch.

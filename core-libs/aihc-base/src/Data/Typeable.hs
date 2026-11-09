@@ -124,10 +124,10 @@ heqT =
     else Nothing
 
 -- | Cast a value under a type constructor.
-gcast :: forall (c :: Type -> Type) a b. (Typeable a, Typeable b) => c a -> Maybe (c b)
+gcast :: forall {k} (a :: k) (b :: k) (c :: k -> Type). (Typeable a, Typeable b) => c a -> Maybe (c b)
 gcast value = gcastWith value Proxy Proxy
 
-gcastWith :: forall (c :: Type -> Type) a b. (Typeable a, Typeable b) => c a -> Proxy a -> Proxy b -> Maybe (c b)
+gcastWith :: forall k (c :: k -> Type) (a :: k) (b :: k). (Typeable a, Typeable b) => c a -> Proxy a -> Proxy b -> Maybe (c b)
 gcastWith value source target =
   if eqTypeRep (typeRep source) (typeRep target)
     then Just (unsafeCoerce value)
