@@ -41,7 +41,7 @@ import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, guard, when, (<=<), (>=>))
+import Control.Monad (foldM, foldM_, guard, when, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, put)
@@ -473,7 +473,7 @@ solveNormalizedDict visited givens ct
             ClassPred _ writtenArgs
               | written == current,
                 length writtenArgs == length heads ->
-                  sequence_ (zipWith settleHeadKind heads writtenArgs)
+                  zipWithM_ settleHeadKind heads writtenArgs
             _ -> pure ()
       where
         settleHeadKind headType writtenArg = do
