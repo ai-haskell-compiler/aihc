@@ -1,0 +1,29 @@
+extensions:
+- AllowAmbiguousTypes
+- ConstraintKinds
+- DataKinds
+- FunctionalDependencies
+- RankNTypes
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FunctionalDependencies, RankNTypes, TypeFamilies, UndecidableInstances, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Kind = Iso | Lens
+  class Pro p where
+    dimap :: p -> p
+  class Pro p => Str p where
+    first :: p -> p
+  type family Constraints (k :: Kind) (p :: Type) :: Constraint where
+    Constraints 'Iso p = Pro p
+    Constraints 'Lens p = Str p
+  class Join k l m | k l -> m where
+    join :: ((Constraints k p, Constraints l p) => r) -> (Constraints m p => r)
+  instance k ~ 'Iso => Join 'Iso 'Iso k where
+    join r = r
+  instance k ~ 'Lens => Join 'Iso 'Lens k where
+    join r = r
+status: pass
+reason: A given equality k ~ 'Iso rewrites the stuck given Constraints k p to Constraints 'Iso p, which reduces to Pro p. That given, or its superclass, solves the wanted. The evidence casts the given along the equality.

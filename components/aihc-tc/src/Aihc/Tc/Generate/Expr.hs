@@ -1273,8 +1273,17 @@ instantiateSigmaType = go []
     go arguments (TcForAllTy binder body) = do
       argument <- freshMetaTvOfKind (tvKind binder)
       go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
-    go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
+    -- Consecutive contexts are one context: @Pro p => Str p => t@, which a
+    -- synonym such as @type Optic_ k p = Constraints k p => ...@ gives
+    -- under another context, is @(Pro p, Str p) => t@. The dictionaries
+    -- are arguments in the same order in both forms.
+    go arguments (TcQualTy predicates body) = pure (inner, arguments, predicates <> nested)
+      where
+        (nested, inner) = consecutiveContexts body
     go arguments ty = pure (ty, arguments, [])
+    consecutiveContexts (TcQualTy predicates body) =
+      let (nested, inner) = consecutiveContexts body in (predicates <> nested, inner)
+    consecutiveContexts ty = ([], ty)
 
 skolemizeSigmaType :: TcType -> TcM ([TyVarId], [Pred], TcType)
 skolemizeSigmaType = go [] []

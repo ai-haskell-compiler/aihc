@@ -1,0 +1,15 @@
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  class Pro p where
+    dimap :: p -> p
+  class Str p where
+    first :: p -> p
+  newtype Optic = Optic (forall p. Pro p => Str p => p -> p)
+  getOptic :: Pro p => Optic -> (Str p => p -> p)
+  getOptic (Optic o) = o
+status: pass
+reason: The field type of Optic has two consecutive contexts, Pro p and Str p. The use of o instantiates both contexts as one context, so the givens of the signature solve both. The FC lint checks the dictionary evidence. Before the fix, the use kept the inner context Str p in its type, and the type did not match the signature.
