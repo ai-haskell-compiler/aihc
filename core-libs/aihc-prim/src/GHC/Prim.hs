@@ -433,6 +433,12 @@ module GHC.Prim
     plusInt32#,
     subInt32#,
     timesInt32#,
+    word8ToInt8#,
+    int8ToWord8#,
+    word16ToInt16#,
+    int16ToWord16#,
+    word32ToInt32#,
+    int32ToWord32#,
     word64ToInt64#,
     int64ToWord64#,
     plusWord2#,
@@ -922,6 +928,18 @@ foreign import prim plusInt32# :: Int32# -> Int32# -> Int32#
 foreign import prim subInt32# :: Int32# -> Int32# -> Int32#
 
 foreign import prim timesInt32# :: Int32# -> Int32# -> Int32#
+
+foreign import prim word8ToInt8# :: Word8# -> Int8#
+
+foreign import prim int8ToWord8# :: Int8# -> Word8#
+
+foreign import prim word16ToInt16# :: Word16# -> Int16#
+
+foreign import prim int16ToWord16# :: Int16# -> Word16#
+
+foreign import prim word32ToInt32# :: Word32# -> Int32#
+
+foreign import prim int32ToWord32# :: Int32# -> Word32#
 
 foreign import prim word64ToInt64# :: Word64# -> Int64#
 

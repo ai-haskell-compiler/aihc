@@ -4374,7 +4374,8 @@ addressStorePrimitives =
   ]
 
 -- | Conversions to a narrow integer. The result keeps the width of a word.
--- A word narrows without a sign and an integer keeps its sign.
+-- A word narrows without a sign and an integer keeps its sign. A sign cast
+-- between a narrow word and a narrow integer is also a narrow conversion.
 narrowPrimitives :: [(Text, (Type, ConvertOp))]
 narrowPrimitives =
   [ ("wordToWord8#", (I8, ZExt)),
@@ -4382,7 +4383,13 @@ narrowPrimitives =
     ("wordToWord32#", (I32, ZExt)),
     ("intToInt8#", (I8, SExt)),
     ("intToInt16#", (I16, SExt)),
-    ("intToInt32#", (I32, SExt))
+    ("intToInt32#", (I32, SExt)),
+    ("word8ToInt8#", (I8, SExt)),
+    ("word16ToInt16#", (I16, SExt)),
+    ("word32ToInt32#", (I32, SExt)),
+    ("int8ToWord8#", (I8, ZExt)),
+    ("int16ToWord16#", (I16, ZExt)),
+    ("int32ToWord32#", (I32, ZExt))
   ]
 
 -- | Byte swaps. The value moves left by the given number of bits first, thus
