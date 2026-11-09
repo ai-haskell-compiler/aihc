@@ -1,6 +1,7 @@
 module Main where
 
 import BlackholeChecks (blackholeChecks)
+import EnvironmentBlankChecks (environmentBlankChecks)
 import FamilyBindChecks (familyBindChecks)
 import FileInputChecks (fileInputChecks)
 import FrozenChecks (frozenChecks)
@@ -21,6 +22,8 @@ main = do
   if responses then pure () else error "response file check failed"
   files <- fileInputChecks
   if files then pure () else error "file input check failed"
+  environment <- environmentBlankChecks
+  if environment then pure () else error "blank environment check failed"
   blackholes <- blackholeChecks
   transactions <- stmChecks
   if blackholes && primitiveChecks && transactions && frozenChecks && familyBindChecks && kindOrderChecks && sumChecks && recordUpdateChecks && unpackChecks then run else error "primitive check failed"
