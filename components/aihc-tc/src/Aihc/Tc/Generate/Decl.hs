@@ -1000,6 +1000,16 @@ generalizeDataKind (ForAll variables predicates body) = do
   kind' <- zonkKind kind
   pure (specifiedScheme (uniqueKindVariables (variables <> freeKindVariables kind')) predicates kind')
 
+-- | The first parameter kinds of a kind, and the kind that is left.
+splitKindArrows :: Int -> TcType -> ([TcType], TcType)
+splitKindArrows count kind =
+  case kind of
+    TcFunTy parameter result
+      | count > 0 ->
+          let (parameters, rest) = splitKindArrows (count - 1) result
+           in (parameter : parameters, rest)
+    _ -> ([], kind)
+
 closeKindVariables :: [TyVarId] -> [TyVarId]
 closeKindVariables variables =
   uniqueKindVariables (concatMap (\variable -> freeKindVariables (tvKind variable) <> [variable]) variables)
@@ -1200,9 +1210,28 @@ defaultGlobalKindMetas initialKeys = do
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
       left <- defaultTypeKinds (tfiiLeft info)
       right <- defaultTypeKinds (tfiiRight info)
+      -- A kind variable that only the result kind of the family mentions,
+      -- as the @k@ of @type family F t where F t = TypeError ...@ (@F ::
+      -- forall j k. j -> k@), is not determined by an argument. Each
+      -- equation binds it, as GHC does.
+      let bound = map tvUnique tyVars
+          resultOnly =
+            case familyInfo of
+              Just tyConInfo
+                | ForAll variables _ body <- tciKindScheme tyConInfo ->
+                    let (parameters, result) = splitKindArrows (tyConArity (tciTyCon tyConInfo)) body
+                        parameterVariables = map tvUnique (concatMap freeKindVariables parameters)
+                        resultVariables = map tvUnique (freeKindVariables result)
+                     in [ variable
+                        | variable <- variables,
+                          tvUnique variable `elem` resultVariables,
+                          tvUnique variable `notElem` parameterVariables,
+                          tvUnique variable `notElem` bound
+                        ]
+              _ -> []
       pure
         info
-          { tfiiTyVars = orderTyVarsByKind (closeKindVariables tyVars),
+          { tfiiTyVars = orderTyVarsByKind (closeKindVariables (tyVars <> resultOnly)),
             tfiiLeft = left,
             tfiiRight = right
           }
