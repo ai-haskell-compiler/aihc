@@ -701,10 +701,13 @@ typeKindInEnv kinds kindEnv = go
 
     matchKinds quantified argumentQuantified formal actual =
       case (formal, actual) of
-        (TcTyVar tyVar, _)
-          | tvUnique tyVar `elem` quantified -> Right (Map.singleton (tvUnique tyVar) actual)
+        -- A kind variable of the argument's own kind scheme, as the @k@ of
+        -- an unapplied @U1 :: forall k. k -> Type@, says nothing. Bind no
+        -- formal variable to it: a later argument can fix that variable.
         (_, TcTyVar tyVar)
           | tvUnique tyVar `elem` argumentQuantified -> Right Map.empty
+        (TcTyVar tyVar, _)
+          | tvUnique tyVar `elem` quantified -> Right (Map.singleton (tvUnique tyVar) actual)
         (KTYPE formalRep, KTYPE actualRep) -> recur formalRep actualRep
         (TcFunTy left right, TcFunTy left' right') ->
           Map.union <$> recur left left' <*> recur right right'
@@ -1125,7 +1128,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
       -- left over to the kind of the whole application.
       resultSubstitution =
         case (expectedKind, mapM (typeKindInEnv kinds kindEnv) leftover) of
-          (Just expected, Right leftoverKinds) -> matchKind quantifiedUniques remainingKind (foldr KFun expected leftoverKinds)
+          (Just expected, Right leftoverKinds) -> matchKind quantifiedUniques [] remainingKind (foldr KFun expected leftoverKinds)
           _ -> Map.empty
       substitution = argumentSubstitution <> resultSubstitution
   pure (TcTypeApplicationKinds substitution (argumentKinds (applySubst substitution resultKind)) skipped)
@@ -1135,7 +1138,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
     go quantifiedUniques position substitution (KFun formal result) (argument : rest) =
       case typeKindInEnv kinds kindEnv argument of
         Right argumentKind ->
-          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
+          let found = matchKind quantifiedUniques (argumentSchemeVariables argument) (applySubst substitution formal) argumentKind
            in go quantifiedUniques (position + 1) (substitution <> found) (applySubst found result) rest
         Left reason ->
           let (substitution', kind, skipped, leftover) = go quantifiedUniques (position + 1) substitution result rest
@@ -1147,14 +1150,29 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
     skippedArgument position reason =
       "argument " <> show (position + 1 :: Int) <> " has no usable kind: " <> reason
 
-    matchKind quantifiedUniques (TcTyVar tyVar) actual
+    -- A kind variable of an argument's own kind scheme, as the @k@ of an
+    -- unapplied @U1 :: forall k. k -> Type@, is not in scope. Binding a
+    -- quantified variable to it would leave that variable unbound; a later
+    -- argument or the expected kind fixes the quantified variable instead.
+    matchKind _ argumentQuantified _ (TcTyVar tyVar)
+      | tvUnique tyVar `elem` argumentQuantified = Map.empty
+    matchKind quantifiedUniques _ (TcTyVar tyVar) actual
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
-    matchKind quantifiedUniques (KTYPE (TcTyVar tyVar)) (KTYPE runtimeRep)
+    matchKind quantifiedUniques _ (KTYPE (TcTyVar tyVar)) (KTYPE runtimeRep)
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) runtimeRep
-    matchKind quantifiedUniques (KFun left right) (KFun left' right') =
-      matchKind quantifiedUniques left left' <> matchKind quantifiedUniques right right'
-    matchKind quantifiedUniques (TcTyCon left formalArguments) (TcTyCon right actualArguments)
+    matchKind quantifiedUniques argumentQuantified (KFun left right) (KFun left' right') =
+      matchKind quantifiedUniques argumentQuantified left left' <> matchKind quantifiedUniques argumentQuantified right right'
+    matchKind quantifiedUniques argumentQuantified (TcTyCon left formalArguments) (TcTyCon right actualArguments)
       | left == right,
         length formalArguments == length actualArguments =
-          Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
-    matchKind _ _ _ = Map.empty
+          Map.unions (zipWith (matchKind quantifiedUniques argumentQuantified) formalArguments actualArguments)
+    matchKind _ _ _ _ = Map.empty
+
+    argumentSchemeVariables argument =
+      case argument of
+        TcTyCon argumentTyCon _ ->
+          case Map.lookup (tyConKey argumentTyCon) kindEnv of
+            Just (ForAll variables _ _) -> map tvUnique variables
+            Nothing -> []
+        TcAppTy function _ -> argumentSchemeVariables function
+        _ -> []

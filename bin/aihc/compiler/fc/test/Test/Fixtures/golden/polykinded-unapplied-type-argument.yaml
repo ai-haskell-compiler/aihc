@@ -1,0 +1,21 @@
+extensions:
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE KindSignatures, NoImplicitPrelude, PolyKinds #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data U1 (p :: k) = U1
+
+  newtype M1 (f :: k -> Type) (p :: k) = M1 (f p)
+
+  data Unit = Unit
+
+  value :: M1 U1 Unit
+  value = M1 U1
+status: pass
+reason: The kind of an unapplied poly-kinded argument such as U1 does not fix the kind variable
+  of the type it is applied to. A later argument fixes it.
