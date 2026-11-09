@@ -1,0 +1,67 @@
+extensions:
+  - DefaultSignatures
+  - RankNTypes
+modules:
+  - |
+    module Test where
+    class Functor f where
+      fmap :: (a -> b) -> f a -> f b
+    class Strong p where
+      ilinear :: (forall f. Functor f => f i -> f i) -> p -> p
+      default ilinear :: (forall f. Functor f => f i -> f i) -> p -> p
+      ilinear _ x = x
+    data X = X
+    instance Strong X
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.t$Dict$Functor (f : sType → sType) :: sType {
+    pub 1.c$Dict$Functor :: ∀(f : sType → sType). (∀(a : sType) (b : sType). (a → b) → f a → f b) → t$Dict$Functor f
+  }
+
+  pub type 1.t$Dict$Strong (p : sType) :: sType {
+    pub 1.c$Dict$Strong :: ∀(p : sType). (∀(i : sType). (∀(f : sType → sType). t$Dict$Functor f → f i → f i) → p → p) → t$Dict$Strong p
+  }
+
+  pub type 1.tX :: sType {
+    pub 1.cX :: tX
+  }
+
+  pub val 1.vfmap :: ∀(f : sType → sType) (a : sType) (b : sType). t$Dict$Functor f → (a → b) → f a → f b
+    = Λ(f : sType → sType) (a : sType) (b : sType). λ($dFunctor : t$Dict$Functor f).
+      let! c$Dict$Functor ($cfmap : ∀(a{1} : sType) (b{1} : sType). (a{1} → b{1}) → f a{1} → f b{1}) = $dFunctor;
+      $cfmap @a @b
+
+  pub val 1.vilinear :: ∀(p : sType) (i : sType). t$Dict$Strong p → (∀(f : sType → sType). t$Dict$Functor f → f i → f i) → p → p
+    = Λ(p : sType) (i : sType). λ($dStrong : t$Dict$Strong p).
+      let! c$Dict$Strong ($cilinear : ∀(i{1} : sType). (∀(f : sType → sType). t$Dict$Functor f → f i{1} → f i{1}) → p → p) =
+        $dStrong;
+      $cilinear @i
+
+  pub val 1.v$dmilinear :: ∀(p : sType) (i : sType). t$Dict$Strong p → (∀(f : sType → sType). t$Dict$Functor f → f i → f i) → p → p
+    = Λ(p : sType) (i : sType). λ(unused $dStrong : t$Dict$Strong p)
+    (unused x : ∀(f : sType → sType). t$Dict$Functor f → f i → f i) (y : p).
+      y
+
+  pub val 1.v$fStrongX :: t$Dict$Strong tX
+    = c$Dict$Strong @tX v$fStrongX$cilinear
+
+  val 1.v$fStrongX$cilinear :: ∀(i : sType). (∀(f : sType → sType). t$Dict$Functor f → f i → f i) → tX → tX
+    = Λ(i : sType).
+      v$dmilinear @tX @i v$fStrongX
+status: pass
+reason: The default signature takes a higher-rank argument with a constraint. The instance wrapper must apply the worker to its own binder i. Before the fix, the type checker did not match the qualified argument types, and the wrapper used the variable of the signature. The FC lint then gave an unbound type variable.

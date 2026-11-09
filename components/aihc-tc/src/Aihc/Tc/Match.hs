@@ -58,6 +58,30 @@ matchOne subst (TcForAllTy tv body, TcForAllTy targetTv targetBody) = do
   let result = maybe (Map.delete (tvUnique tv) inner) (\previous -> Map.insert (tvUnique tv) previous inner) (Map.lookup (tvUnique tv) subst)
       escapes = or [typeMentionsTyVar targetTv bound | (unique, bound) <- Map.toList result, Map.lookup unique subst /= Just bound]
   if escapes then Nothing else Just result
+-- A qualified type matches when its constraints and its body do, as the
+-- @Functor f =>@ of a higher-rank argument @(forall f. Functor f => f i ->
+-- f i)@ in a default signature and in its method.
+matchOne subst (TcQualTy predicates body, TcQualTy targetPredicates targetBody)
+  | length predicates == length targetPredicates = do
+      subst' <- foldM matchPred subst (zip predicates targetPredicates)
+      matchOne subst' (body, targetBody)
 matchOne subst (patternTy, targetTy)
   | patternTy == targetTy = Just subst
   | otherwise = Nothing
+
+matchPred :: Map Unique TcType -> (Pred, Pred) -> Maybe (Map Unique TcType)
+matchPred subst predicates =
+  case predicates of
+    (ClassPred tc args, ClassPred targetTc targetArgs)
+      | tc == targetTc,
+        length args == length targetArgs ->
+          foldM matchOne subst (zip args targetArgs)
+    (EqPred left right, EqPred targetLeft targetRight) ->
+      foldM matchOne subst [(left, targetLeft), (right, targetRight)]
+    (IParamPred name payload, IParamPred targetName targetPayload)
+      | name == targetName -> matchOne subst (payload, targetPayload)
+    (IrredPred constraint, IrredPred targetConstraint) ->
+      matchOne subst (constraint, targetConstraint)
+    (patternPredicate, targetPredicate)
+      | patternPredicate == targetPredicate -> Just subst
+      | otherwise -> Nothing
