@@ -1,6 +1,6 @@
 cabal-version: 3.8
 name: aihc
-version: 0.1.0.0
+version: 0.1.0
 build-type: Simple
 license: Unlicense
 license-file: LICENSE
