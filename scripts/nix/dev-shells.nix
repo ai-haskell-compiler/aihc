@@ -22,6 +22,7 @@ in {
       pkgs.wasmtime
       pkgs.haskellPackages.hsc2hs
       pkgs.haskellPackages.happy
+      pkgs.haskellPackages.alex
       pkgs.wit-bindgen
       pkgs.zlib
       pkgs.lz4

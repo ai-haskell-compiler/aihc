@@ -4134,8 +4134,15 @@ preprocessorCommand config preprocessor cInfo file output macrosPath = do
   arguments <-
     case preprocessor of
       Hsc2hs -> hsc2hsArguments config cInfo file output macrosPath
+      Alex -> pure (alexArguments file output)
       Happy -> pure (happyArguments file output)
   pure (executable, arguments)
+
+-- | The arguments Cabal gives alex for GHC: @-g@ selects GHC extensions
+-- and unboxed tables. aihc claims to be GHC, so a package gets the same
+-- lexer that it gets under GHC.
+alexArguments :: HackageCabal.FileInfo -> FilePath -> [String]
+alexArguments file output = ["-g", "-o", output, HackageCabal.fileInfoPath file]
 
 -- | The arguments Cabal gives happy for GHC: @-agc@ selects array tables,
 -- GHC extensions, and coercions. aihc claims to be GHC, so a package gets

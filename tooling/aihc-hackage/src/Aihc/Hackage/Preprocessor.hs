@@ -21,6 +21,9 @@ data Preprocessor
   = -- | @.hsc@ files: C constants, structure sizes and field offsets
     -- computed with the C compiler of the target.
     Hsc2hs
+  | -- | @.x@ files: lexers that the alex lexer generator writes as
+    -- Haskell.
+    Alex
   | -- | @.y@ and @.ly@ files: parsers that the happy parser generator
     -- writes as Haskell.
     Happy
@@ -31,13 +34,14 @@ preprocessorForExtension :: String -> Maybe Preprocessor
 preprocessorForExtension extension =
   case extension of
     "hsc" -> Just Hsc2hs
+    "x" -> Just Alex
     "y" -> Just Happy
     "ly" -> Just Happy
     _ -> Nothing
 
 -- | The suffixes that select a preprocessor, in the order Cabal tries them.
 preprocessorExtensions :: [String]
-preprocessorExtensions = ["hsc", "y", "ly"]
+preprocessorExtensions = ["hsc", "x", "y", "ly"]
 
 -- | The name of the executable, which is also the name Cabal files use in
 -- @build-tool-depends@.
@@ -45,6 +49,7 @@ preprocessorToolName :: Preprocessor -> String
 preprocessorToolName preprocessor =
   case preprocessor of
     Hsc2hs -> "hsc2hs"
+    Alex -> "alex"
     Happy -> "happy"
 
 -- | The environment variable that names the executable instead of the
@@ -53,4 +58,5 @@ preprocessorEnvironmentVariable :: Preprocessor -> String
 preprocessorEnvironmentVariable preprocessor =
   case preprocessor of
     Hsc2hs -> "AIHC_HSC2HS"
+    Alex -> "AIHC_ALEX"
     Happy -> "AIHC_HAPPY"
