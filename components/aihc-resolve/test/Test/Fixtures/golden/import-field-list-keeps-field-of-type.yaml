@@ -1,0 +1,29 @@
+annotated:
+- |-
+  module Core (Request, rqA) where
+  import Types (Request (rqA))
+- |-
+  module Main where
+  import Core (Request (rqA))
+  f = rqA
+  │   └─ v Types
+  └─ v Main
+- |-
+  module Types where
+  data Request = Request {rqA :: Request, rqB :: Request}
+       │         └─ v Types      └─ t Types      └─ t Types
+       └─ t Types
+extensions: []
+modules:
+- |
+  module Types where
+  data Request = Request {rqA :: Request, rqB :: Request}
+- |
+  module Core (Request, rqA) where
+  import Types (Request (rqA))
+- |
+  module Main where
+  import Core (Request (rqA))
+  f = rqA
+reason: a field that an import item T(f) brings in without the constructor stays a member of T when the module exports it separately
+status: pass
