@@ -3887,7 +3887,11 @@ tcFunctionInfer key displayName matches = do
     withErrorTracking $ do
       extendTermKeyEnvPermanent key (TcMonoIdBinder placeholderTy)
       (matches', ty, cts', impls') <- tcMatches matches
-      solveResult <- solveWithImpls cts' impls'
+      -- A recursive use sees the placeholder. The placeholder and the
+      -- inferred type must be one type, else the use has a free result type.
+      evidence <- freshEvVar
+      let tie = mkWantedCt (EqPred placeholderTy ty) evidence (LetOrigin Nothing) Nothing
+      solveResult <- solveWithImpls (tie : cts') impls'
       rejectEscapingExistentials ty impls'
       residualPreds <- generalizableResidualPreds ty solveResult
       pure (matches', ty, residualPreds)
