@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Rank where
+  data Rank z s n where
+    Zeroy :: Rank z s z
+    Succy :: Rank z s n -> Rank z s (s n)
+- |
+  module Test where
+  import Rank
+  data Unit = Unit
+  newtype Zero k a = Zero a
+  data Succ rk k a = Succ (rk k a)
+  size :: Rank Zero Succ rk -> rk k a -> Unit
+  size Zeroy (Zero _) = Unit
+  size (Succy rank) (Succ inner) = size rank inner
+status: pass
+reason: A GADT match refines a higher-kinded index, and the application coercion compares a variable kind with a type constructor kind.

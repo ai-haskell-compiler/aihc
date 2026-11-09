@@ -779,7 +779,7 @@ coercionEndpoints env coercion =
           right = TyApp rightFunction rightArgument
       leftKind <- lintType env left
       rightKind <- lintType env right
-      unless (typesEqual env leftKind rightKind) (Left (KindMismatch "application coercion" leftKind rightKind))
+      unless (kindsEqual env leftKind rightKind) (Left (KindMismatch "application coercion" leftKind rightKind))
       Right (left, right)
     CoNth index proof -> do
       lintNominalCoercion env proof
