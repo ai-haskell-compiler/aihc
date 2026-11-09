@@ -38,6 +38,7 @@ module Aihc.Resolve.Scope
     lookupTerm,
     lookupType,
     lookupFixity,
+    defaultOperatorFixity,
     resolveTermName,
     resolveTypeName,
     resolveFixityName,
