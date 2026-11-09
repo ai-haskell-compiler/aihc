@@ -927,66 +927,73 @@ constructorNameExpr gen constructor =
 -- A type constructor of kind @Type -> Type@ or @Type -> Type -> Type@ also
 -- gets @dataCast1@ or @dataCast2@, as in GHC, so that a generic function
 -- can take a special case at the type constructor.
+--
+-- An empty datatype has no constructor. As in GHC, @gfoldl@ and @toConstr@
+-- then take their argument apart with an empty case, @gunfold@ examines the
+-- constructor index with an empty case, and @dataTypeOf@ gives an empty
+-- list of constructors.
 dataItems :: Gen -> DataTypeInfo -> TcM (Maybe [InstanceDeclItem])
-dataItems gen dataType
-  | null constructors = do
-      emitError (genSpan gen) (OtherError "stock Data deriving requires a datatype with at least one constructor")
-      pure Nothing
-  | otherwise = do
-      gfoldlMatches <- mapM gfoldlMatch constructors
-      unfoldCombine <- freshLocal gen "k"
-      unfoldWrap <- freshLocal gen "z"
-      description <- freshLocal gen "c"
-      tag <- freshLocal gen "t"
-      value <- freshLocal gen "x"
-      dataTypeBinder <- freshLocal gen "d"
-      castItems <- dataCastItems
-      let unfold constructor =
-            iterate (\inner -> applyN gen (localExpr gen unfoldCombine) [inner]) (applyN gen (localExpr gen unfoldWrap) [constructorExpr gen constructor])
-              !! length (dciFields constructor)
-          gunfoldBody =
-            case constructors of
-              [constructor] -> unfold constructor
-              _ ->
-                caseOf
-                  gen
-                  (applyN gen (dataReference dataConstrIndex) [localExpr gen description])
-                  [ ( atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar tag)]),
-                      caseOf
-                        gen
-                        (localExpr gen tag)
-                        ( [(intHashPattern gen index, unfold constructor) | (index, constructor) <- init indexed]
-                            <> [(atPattern gen PWildcard, unfold (last constructors))]
-                        )
-                    )
-                  ]
-          toConstrBody =
+dataItems gen dataType = do
+  gfoldlMatches <-
+    if null constructors
+      then do
+        emptyValue <- freshLocal gen "x"
+        pure [simpleMatch gen [atPattern gen PWildcard, atPattern gen PWildcard, atPattern gen (PVar emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
+      else mapM gfoldlMatch constructors
+  unfoldCombine <- freshLocal gen "k"
+  unfoldWrap <- freshLocal gen "z"
+  description <- freshLocal gen "c"
+  tag <- freshLocal gen "t"
+  value <- freshLocal gen "x"
+  dataTypeBinder <- freshLocal gen "d"
+  castItems <- dataCastItems
+  let unfold constructor =
+        iterate (\inner -> applyN gen (localExpr gen unfoldCombine) [inner]) (applyN gen (localExpr gen unfoldWrap) [constructorExpr gen constructor])
+          !! length (dciFields constructor)
+      gunfoldBody =
+        case constructors of
+          [] -> caseOf gen (applyN gen (dataReference dataConstrIndex) [localExpr gen description]) []
+          [constructor] -> unfold constructor
+          _ ->
             caseOf
               gen
-              (localExpr gen value)
-              [ ( constructorPattern gen constructor (map (const Nothing) (dciFields constructor)),
-                  applyN gen (dataReference dataIndexConstr) [methodApp gen "dataTypeOf" [localExpr gen value], intLiteral gen index]
+              (applyN gen (dataReference dataConstrIndex) [localExpr gen description])
+              [ ( atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar tag)]),
+                  caseOf
+                    gen
+                    (localExpr gen tag)
+                    ( [(intHashPattern gen index, unfold constructor) | (index, constructor) <- init indexed]
+                        <> [(atPattern gen PWildcard, unfold (last constructors))]
+                    )
                 )
-              | (index, constructor) <- indexed
               ]
-          -- The description of the datatype is a knot: each constructor
-          -- description names the datatype description, which takes the
-          -- index of the constructor from the position of its name.
-          dataTypeBody =
-            at gen $
-              ELetDecls
-                [DeclValue (FunctionBind dataTypeBinder [simpleMatch gen [] (describeDataType dataTypeBinder)])]
-                (localExpr gen dataTypeBinder)
-      pure
-        ( Just
-            ( [ methodBind gen "gfoldl" gfoldlMatches,
-                methodBind gen "gunfold" [simpleMatch gen [atPattern gen (PVar unfoldCombine), atPattern gen (PVar unfoldWrap), atPattern gen (PVar description)] gunfoldBody],
-                methodBind gen "toConstr" [simpleMatch gen [atPattern gen (PVar value)] toConstrBody],
-                methodBind gen "dataTypeOf" [simpleMatch gen [atPattern gen PWildcard] dataTypeBody]
-              ]
-                <> castItems
+      toConstrBody =
+        caseOf
+          gen
+          (localExpr gen value)
+          [ ( constructorPattern gen constructor (map (const Nothing) (dciFields constructor)),
+              applyN gen (dataReference dataIndexConstr) [methodApp gen "dataTypeOf" [localExpr gen value], intLiteral gen index]
             )
+          | (index, constructor) <- indexed
+          ]
+      -- The description of the datatype is a knot: each constructor
+      -- description names the datatype description, which takes the
+      -- index of the constructor from the position of its name.
+      dataTypeBody =
+        at gen $
+          ELetDecls
+            [DeclValue (FunctionBind dataTypeBinder [simpleMatch gen [] (describeDataType dataTypeBinder)])]
+            (localExpr gen dataTypeBinder)
+  pure
+    ( Just
+        ( [ methodBind gen "gfoldl" gfoldlMatches,
+            methodBind gen "gunfold" [simpleMatch gen [atPattern gen (PVar unfoldCombine), atPattern gen (PVar unfoldWrap), atPattern gen (PVar description)] gunfoldBody],
+            methodBind gen "toConstr" [simpleMatch gen [atPattern gen (PVar value)] toConstrBody],
+            methodBind gen "dataTypeOf" [simpleMatch gen [atPattern gen PWildcard] dataTypeBody]
+          ]
+            <> castItems
         )
+    )
   where
     constructors = dtiConstructors dataType
     indexed = zip [1 :: Integer ..] constructors

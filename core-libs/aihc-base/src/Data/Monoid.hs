@@ -38,6 +38,7 @@ import GHC.Base (Applicative (..), Functor (..), Maybe (..), Monad (..), (.))
 import GHC.Enum (Bounded (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Foldable (Foldable (..))
+import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Show (Show (..), showParen, showString, shows)
@@ -72,6 +73,14 @@ instance (Ord a, Bounded a) => Monoid (Max a) where
   mempty = Max minBound
 
 deriving newtype instance (Monoid m) => Monoid (WrappedMonoid m)
+
+deriving stock instance Read All
+
+deriving stock instance Show All
+
+deriving stock instance Read Any
+
+deriving stock instance Show Any
 
 instance (Alternative f) => Semigroup (Alt f a) where
   Alt left <> Alt right = Alt (left <|> right)
