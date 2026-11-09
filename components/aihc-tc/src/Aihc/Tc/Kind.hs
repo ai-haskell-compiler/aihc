@@ -3,6 +3,7 @@
 
 module Aihc.Tc.Kind
   ( TvKindEnv,
+    typeVariableUniques,
     instanceHeadArguments,
     ParamInfo (..),
     checkSurfaceType,
