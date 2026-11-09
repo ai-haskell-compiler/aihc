@@ -5512,7 +5512,24 @@ registerDataConWithResult paramInfos resTy con = case con of
         conTy = foldr TcFunTy universalResTy gadtArgTys
         candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
         quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
-        gadtScheme = specifiedScheme quantifiedTyVars predicates conTy
+        -- GHC gives a GADT constructor the binders its own signature
+        -- writes: the explicit forall, or else the free variables of the
+        -- signature. The data head is not part of that signature, so a
+        -- head variable that the signature does not name (the @k1@ of
+        -- @data (a :: k1) :~~: (b :: k2) where HRefl :: a :~~: a@) is
+        -- inferred, and a visible type application skips it.
+        --
+        -- The binders keep their dependency order (see
+        -- 'withInventedKindVariables'), because System FC applies the
+        -- constructor to its type arguments in this order. Thus only the
+        -- unwritten binders in front of the first written one become
+        -- inferred.
+        writtenNames
+          | null forallBinders = concatMap freeTypeVars (context <> argSurfTys <> [resultSurfTy])
+          | otherwise = map paramName explicitParams
+        writtenUniques = [tvUnique tyVar | name <- writtenNames, Just (tyVar, _) <- [Map.lookup name constructorEnv]]
+        (inferredTyVars, specifiedTyVars) = break ((`elem` writtenUniques) . tvUnique) (closeKindVariables quantifiedTyVars)
+        gadtScheme = Scheme inferredTyVars specifiedTyVars predicates conTy
     mapM_ (\n -> extendResolvedTermEnvPermanent n (TcIdBinder gadtScheme Closed)) names
     case names of
       (n : _) -> do

@@ -31,6 +31,7 @@ module GHC.Base
     unpackCString#,
     unpackCStringUtf8#,
     unpackFoldrCString#,
+    oneShot,
     ($),
     id,
     const,
@@ -235,3 +236,10 @@ iShiftRL# value count =
   case count >=# 64# of
     1# -> 0#
     _ -> uncheckedIShiftRL# value count
+
+-- | The function is returned unchanged. Arity hints do not apply.
+--
+-- The argument and the result may have any runtime representation: a
+-- worker that takes an @Int#@ index is the common caller.
+oneShot :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). (a -> b) -> a -> b
+oneShot function = function
