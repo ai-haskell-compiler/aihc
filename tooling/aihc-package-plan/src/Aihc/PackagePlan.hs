@@ -274,7 +274,7 @@ planPackages request = do
             configGoals =
               requestGoals request
                 <> [(prim, anyVersion) | all ((`notElem` [prim, mkPackageName "aihc-rts"]) . fst) roots],
-            configMaxBacktracks = 2000
+            configMaxConflicts = 10000
           }
       inputs = solverInputs request descriptions localRoots localDirectories
   forM_ (Map.toList localRoots) $ \(name, path) ->
