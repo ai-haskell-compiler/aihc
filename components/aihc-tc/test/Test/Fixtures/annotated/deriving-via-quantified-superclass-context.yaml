@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, DerivingVia, DataKinds, KindSignatures, QuantifiedConstraints, RankNTypes, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances, UndecidableSuperClasses #-}
+  module Main where
+  import GHC.Types (Type)
+  data Effects = Union Effects Effects
+       │         └─ type: Effects → Effects → Effects
+       └─ type: Type
+  class Sub (e :: Effects) (es :: Effects)
+  └─ class methods:
+  class OneWay a b
+  └─ class methods:
+  class (forall e es. Sub e es => OneWay (h e) (h es)) => Handle (h :: Effects -> Type)
+  └─ class methods:
+  newtype Wrap a es = MkWrap (a es)
+          │           └─ type: ∀ k0 a es. a es → Wrap a es
+          └─ type: (k0 → Type) → k0 → Type
+  instance (forall e es. Sub e es => OneWay (Wrap h e) (Wrap h es)) => Handle (Wrap h)
+  └─ $fHandleWraph ∷ ∀ h. (∀ e es. (Sub e es) ⇒ OneWay (Wrap h e) (Wrap h es)) ⇒ Handle (Wrap h) [superclasses: Λe. Λes. λ(_ ∷ Sub e es). (((given forall e es. (Sub e es) => OneWay Wrap h e Wrap h es) @e) @es) (given Sub e es)]
+  instance OneWay (h e) (h es) => OneWay (Wrap h e) (Wrap h es)
+  └─ $fOneWayWrapheWraphes ∷ ∀ k0 h e es. (OneWay (h e) (h es)) ⇒ OneWay (Wrap h e) (Wrap h es)
+  newtype Make h es = MkMake (h es)
+  │       │           └─ type: ∀ k0 h es. h es → Make h es
+  │       └─ type: (k0 → Type) → k0 → Type
+  └─ deriving plans: via Wrap (Make h) Handle (Make h) [context: Handle h]
+    deriving (Handle) via Wrap (Make h)
+              └─ $fHandleMakeh ∷ ∀ h. (Handle h) ⇒ Handle (Make h) [superclasses: Λe. Λes. λ(_ ∷ Sub e es). $fOneWayMakeheMakehes @h @e @es (given Handle h, given Sub e es)]
+  instance (Handle h, Sub e es) => OneWay (Make h e) (Make h es)
+  └─ $fOneWayMakeheMakehes ∷ ∀ h e es. (Handle h, Sub e es) ⇒ OneWay (Make h e) (Make h es)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, DerivingVia, DataKinds, KindSignatures, QuantifiedConstraints, RankNTypes, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances, UndecidableSuperClasses #-}
+  module Main where
+  import GHC.Types (Type)
+  data Effects = Union Effects Effects
+  class Sub (e :: Effects) (es :: Effects)
+  class OneWay a b
+  class (forall e es. Sub e es => OneWay (h e) (h es)) => Handle (h :: Effects -> Type)
+  newtype Wrap a es = MkWrap (a es)
+  instance (forall e es. Sub e es => OneWay (Wrap h e) (Wrap h es)) => Handle (Wrap h)
+  instance OneWay (h e) (h es) => OneWay (Wrap h e) (Wrap h es)
+  newtype Make h es = MkMake (h es)
+    deriving (Handle) via Wrap (Make h)
+  instance (Handle h, Sub e es) => OneWay (Make h e) (Make h es)
+reason: a quantified superclass obligation is simplified under its binders, so the inferred
+  context of a derived instance gets the residue Handle h
+status: pass
