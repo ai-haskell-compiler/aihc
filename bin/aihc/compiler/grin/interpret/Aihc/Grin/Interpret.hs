@@ -1912,6 +1912,10 @@ evalPrimitive "minusAddr#" [left, right] = do
   leftPointer <- expectAddress "minusAddr#" left
   rightPointer <- expectAddress "minusAddr#" right
   pure [intRuntimeValue (toInteger (leftPointer `minusPtr` rightPointer))]
+evalPrimitive "remAddr#" [address, divisor] = do
+  pointer <- expectAddress "remAddr#" address
+  modulus <- expectIntPrimitiveArgument "remAddr#" divisor
+  pure [intRuntimeValue (addressOrdinal pointer `rem` modulus)]
 evalPrimitive "eqAddr#" [left, right] = evalAddressComparison "eqAddr#" (==) left right
 evalPrimitive "neAddr#" [left, right] = evalAddressComparison "neAddr#" (/=) left right
 evalPrimitive "ltAddr#" [left, right] = evalAddressComparison "ltAddr#" (<) left right

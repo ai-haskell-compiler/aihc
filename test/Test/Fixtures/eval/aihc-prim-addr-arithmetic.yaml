@@ -10,7 +10,7 @@ modules:
     import GHC.Prim
     import System.IO.Unsafe (unsafePerformIO)
 
-    data Results = Results Int Int Int Int Int Int Int
+    data Results = Results Int Int Int Int Int Int Int Int
 
     test :: IO Results
     test = IO (\state -> case newPinnedByteArray# 16# state of
@@ -31,7 +31,8 @@ modules:
                            (I# (minusAddr# moved base))
                            (I# (eqAddr# (plusAddr# moved (-4#)) base))
                            (I# (ltAddr# base moved))
-                           (I# (minusAddr# (plusAddr# base 0#) moved)) #))
+                           (I# (minusAddr# (plusAddr# base 0#) moved))
+                           (I# (remAddr# (plusAddr# base 4#) 4# -# remAddr# base 4#)) #))
 
     literal :: Int
     literal = I# (word2Int# (word8ToWord# (indexWord8OffAddr# (plusAddr# "hello"# 1#) 0#)))
@@ -39,7 +40,7 @@ modules:
     literalLength :: Int
     literalLength = I# (cstringLength# "hello"#)
 output: |
-  ((Results (I# 65) (I# 4660) (I# 3735928559) (I# 4) (I# 1) (I# 1) (I# -4)),(I# 101),(I# 5))
+  ((Results (I# 65) (I# 4660) (I# 3735928559) (I# 4) (I# 1) (I# 1) (I# -4) (I# 0)),(I# 101),(I# 5))
 expression: |
   (unsafePerformIO test, literal, literalLength)
 status: pass
