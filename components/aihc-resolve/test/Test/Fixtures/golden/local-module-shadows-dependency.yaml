@@ -1,0 +1,65 @@
+extensions: []
+modules:
+  "app-1.0-main":
+    package: app
+    modules:
+      - |
+        module Prelude where
+        data Flag = On
+      - |
+        module Shared where
+        data Mode = Fast
+      - |
+        module Main where
+        import Shared
+        flag :: Flag
+        flag = On
+        mode :: Mode
+        mode = Fast
+  "pkg-a-1.0-abc":
+    package: pkg-a
+    modules:
+      - |
+        module Prelude where
+        data Flag = Off
+      - |
+        module Shared where
+        data Mode = Slow
+annotated:
+  - |
+    module Main where
+    import Shared
+    flag :: Flag
+    │       └─ t app-1.0-main:Prelude
+    └─ v app-1.0-main:Main
+    flag = On
+    │      └─ v app-1.0-main:Prelude
+    └─ v app-1.0-main:Main
+    mode :: Mode
+    │       └─ t app-1.0-main:Shared
+    └─ v app-1.0-main:Main
+    mode = Fast
+    │      └─ v app-1.0-main:Shared
+    └─ v app-1.0-main:Main
+  - |
+    module Prelude where
+    data Flag = On
+         │      └─ v app-1.0-main:Prelude
+         └─ t app-1.0-main:Prelude
+  - |
+    module Prelude where
+    data Flag = Off
+         │      └─ v pkg-a-1.0-abc:Prelude
+         └─ t pkg-a-1.0-abc:Prelude
+  - |
+    module Shared where
+    data Mode = Fast
+         │      └─ v app-1.0-main:Shared
+         └─ t app-1.0-main:Shared
+  - |
+    module Shared where
+    data Mode = Slow
+         │      └─ v pkg-a-1.0-abc:Shared
+         └─ t pkg-a-1.0-abc:Shared
+status: pass
+reason: An import without a package qualifier names the module of the current package before a dependency module.
