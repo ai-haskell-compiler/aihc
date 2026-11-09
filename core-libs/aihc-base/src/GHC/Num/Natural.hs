@@ -11,6 +11,7 @@ where
 
 import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
+import GHC.Ix (Ix (..), indexError)
 import GHC.Num.BigNat (BigNat#, bigNatCheck#, bigNatSize#)
 import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#), (>=#))
 import GHC.Prim.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, wordToInteger)
@@ -180,6 +181,16 @@ naturalsFromThenTo first second last = go first
           case value >= last && value >= 0 of
             True -> naturalFromInteger value : go (value + step)
             False -> []
+
+-- GHC.Ix cannot hold this instance: GHC.Ix is an import of this module.
+instance Ix Natural where
+  range (lower, upper) = enumFromTo lower upper
+  unsafeIndex (lower, _) value = fromIntegral (value - lower)
+  index bounds value =
+    case inRange bounds value of
+      True -> unsafeIndex bounds value
+      False -> indexError bounds value "Natural"
+  inRange (lower, upper) value = lower <= value && value <= upper
 
 instance Read Natural where
   readPrec = do
