@@ -63,8 +63,8 @@ data HeaderTarget = HeaderTarget
 haskellWordBytes :: Int
 haskellWordBytes = 8
 
--- | The macros that describe the Haskell word. As in GHC, @MachDeps.h@
--- defines them, and a module sees them only when it includes that header.
+-- | The macros that describe the Haskell word, which the CPP pass defines for
+-- every module as GHC defines them from its own @MachDeps.h@.
 haskellWordCppMacros :: Map Text Text
 haskellWordCppMacros =
   M.fromList

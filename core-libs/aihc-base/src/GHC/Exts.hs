@@ -21,6 +21,9 @@ module GHC.Exts
     considerAccessible,
     lazy,
     inline,
+    the,
+    sortWith,
+    groupWith,
     oneShot,
     runRW#,
     build,
@@ -119,18 +122,14 @@ module GHC.Exts
     writeWord64Array#,
     writeWordArray#,
     xor#,
-    the,
-    sortWith,
-    groupWith,
   )
 where
 
 import Data.Coerce (coerce)
-import Data.List (all, groupBy, sortBy)
-import Data.Ord (Down (..))
+import Data.List (groupBy, sortBy)
+import Data.Ord (Down (..), comparing)
 import Data.String (IsString (..))
-import GHC.Base (Eq (..), Ord (..), augment, build, iShiftL#, iShiftRA#, iShiftRL#, otherwise, shiftL#, shiftRL#)
-import GHC.Err (errorWithoutStackTrace)
+import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
@@ -139,6 +138,7 @@ import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
 import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
+import Prelude (Eq (..), Ord, all, errorWithoutStackTrace, otherwise)
 
 -- | 'True', written so that the pattern-match checker cannot tell.
 --
@@ -151,6 +151,24 @@ considerAccessible = True
 -- | The value is returned unchanged. Strictness analysis does not apply.
 lazy :: a -> a
 lazy value = value
+
+-- | Return the element of a list in which all elements are equal.
+-- Call 'errorWithoutStackTrace' when the list is empty or two elements differ.
+the :: (Eq a) => [a] -> a
+the (first : rest)
+  | all (first ==) rest = first
+  | otherwise = errorWithoutStackTrace "GHC.Exts.the: non-identical list"
+the [] = errorWithoutStackTrace "GHC.Exts.the: empty list"
+
+-- | Sort a list by the results of a function on its elements.
+-- The sort is stable.
+sortWith :: (Ord b) => (a -> b) -> [a] -> [a]
+sortWith key = sortBy (comparing key)
+
+-- | Sort a list by the results of a function on its elements.
+-- Then, put adjacent elements with equal results into the same group.
+groupWith :: (Ord b) => (a -> b) -> [a] -> [[a]]
+groupWith key values = groupBy (\left right -> key left == key right) (sortWith key values)
 
 -- | The value is returned unchanged. Inlining hints do not apply.
 inline :: a -> a
@@ -186,21 +204,3 @@ atomicModifyMutVar# reference modify state =
 dataToTag# :: forall a. a -> Int#
 dataToTag# = dataToTagLarge#
 {-# INLINE dataToTag# #-}
-
--- | Give the element of a list where all elements are equal. Fail on an
--- empty list and on a list with two different elements.
-the :: (Eq a) => [a] -> a
-the (x : xs)
-  | all (x ==) xs = x
-  | otherwise = errorWithoutStackTrace "GHC.Exts.the: non-identical list"
-the [] = errorWithoutStackTrace "GHC.Exts.the: empty list"
-
--- | Sort a list by the result of the function on each element. The sort
--- keeps the order of elements with equal results.
-sortWith :: (Ord b) => (a -> b) -> [a] -> [a]
-sortWith f = sortBy (\x y -> compare (f x) (f y))
-
--- | Sort a list by the result of the function on each element. Then put
--- adjacent elements with equal results into one group.
-groupWith :: (Ord b) => (a -> b) -> [a] -> [[a]]
-groupWith f xs = groupBy (\x y -> f x == f y) (sortWith f xs)

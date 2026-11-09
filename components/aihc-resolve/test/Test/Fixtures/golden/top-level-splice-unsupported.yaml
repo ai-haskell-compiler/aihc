@@ -1,0 +1,20 @@
+extensions:
+  - TemplateHaskell
+modules:
+- |
+  module Main where
+  data T = T { _field :: Int }
+  makeLenses ''T
+  $(deriveJSON ''T)
+  x = field
+reason: The resolver does not run Template Haskell, so each top-level splice gives one error and the names that the splices make give no errors.
+status: pass
+annotated:
+- |-
+  module Main where
+  data T = T { _field :: Int }
+  makeLenses ''T
+  └─ v Error top-level Template Haskell splices are not supported
+  $(deriveJSON ''T)
+  └─ v Error top-level Template Haskell splices are not supported
+  x = field

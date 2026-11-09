@@ -32,16 +32,13 @@ import Data.Text qualified as T
 -- | GHC version macros that every preprocessed file sees.
 -- Mirrors what GHC itself defines when invoking @cpp@.
 --
--- The word macros, for example @WORD_SIZE_IN_BITS@, are not in this map. As
--- in GHC, a module gets them only when it includes @MachDeps.h@. Some
--- packages use this: bytestring-strict-builder reads @WORD_SIZE_IN_BITS@
--- without the header, and only its branch for an undefined macro compiles.
+-- GHC does not define the word macros, for example @WORD_SIZE_IN_BITS@.
+-- A module gets them only when it includes @MachDeps.h@. An undefined macro
+-- is 0 in an @#if@ line, and some packages select their branch from that 0.
 builtinCppMacros :: Map Text Text
 builtinCppMacros = compilerVersionCppMacros
 
--- | The @__GLASGOW_HASKELL__@ family alone. The word macros are left out
--- because a C compiler learns those from the runtime's own headers, and a
--- second definition with a different value is an error there.
+-- | The @__GLASGOW_HASKELL__@ family alone.
 compilerVersionCppMacros :: Map Text Text
 compilerVersionCppMacros =
   M.fromList

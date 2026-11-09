@@ -10,6 +10,10 @@ module GHC.Word
     byteSwap32,
     byteSwap64,
 
+    -- * Shifts
+    uncheckedShiftL64#,
+    uncheckedShiftRL64#,
+
     -- * Equality operators
     eqWord,
     neWord,
@@ -41,10 +45,6 @@ module GHC.Word
     geWord64,
     ltWord64,
     leWord64,
-
-    -- * Shifts
-    uncheckedShiftL64#,
-    uncheckedShiftRL64#,
   )
 where
 
