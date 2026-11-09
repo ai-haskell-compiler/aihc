@@ -1,0 +1,28 @@
+extensions:
+  - DataKinds
+  - FlexibleContexts
+  - FlexibleInstances
+  - MultiParamTypeClasses
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DataKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, UndecidableInstances #-}
+    module Test where
+
+    import GHC.TypeLits (ErrorMessage (..), TypeError)
+
+    class Assert (pred :: Bool) (msg :: ErrorMessage)
+    instance Assert 'True msg
+    -- The result kind of 'TypeError' comes from the other side of the
+    -- equality: it is the kind of '().
+    instance (TypeError msg ~ '()) => Assert 'False msg
+
+    check :: Assert 'True ('Text "unused") => Int
+    check = 7
+
+    result :: Int
+    result = check
+output: 'I# 7'
+expression: result
+status: pass
+reason: the result kind of TypeError in an equality context comes from the kind of the other side

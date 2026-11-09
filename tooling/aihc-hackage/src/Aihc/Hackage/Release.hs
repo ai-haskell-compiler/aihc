@@ -38,7 +38,13 @@ data BootLibrary = BootLibrary
 
 data GhcRelease = GhcRelease
   { releaseCompilerVersion :: [Int],
-    releaseBootLibraries :: [BootLibrary]
+    releaseBootLibraries :: [BootLibrary],
+    -- | Boot libraries of the release that come from Hackage, with the
+    -- version that shipped with the release. Each one depends on an
+    -- internal API of its release, such as the Template Haskell AST of
+    -- @ghc-internal@, but its bounds do not say so. Thus the plan must use
+    -- this version and not the newest one.
+    releaseHackageBootLibraries :: [(String, [Int])]
   }
   deriving (Eq, Show)
 
@@ -57,6 +63,9 @@ emulatedGhc =
           BootLibrary "rts" "aihc-rts" [1, 0, 2],
           BootLibrary "system-cxx-std-lib" "system-cxx-std-lib" [1, 0],
           BootLibrary "template-haskell" "aihc-template-haskell" [2, 23, 0, 0]
+        ],
+      releaseHackageBootLibraries =
+        [ ("ghc-boot-th", [9, 12, 4])
         ]
     }
 

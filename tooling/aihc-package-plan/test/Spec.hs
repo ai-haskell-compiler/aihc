@@ -22,7 +22,7 @@ import Aihc.Hackage.Package
     unFlagName,
     unPackageName,
   )
-import Aihc.Hackage.Query (QueryOptions (..), defaultQueryOptions, getQueryCacheDir, newHackageQueries)
+import Aihc.Hackage.Query (HackageQueries, QueryOptions (..), defaultQueryOptions, getQueryCacheDir, newHackageQueries)
 import Aihc.PackagePlan
 import Aihc.PackagePlan.Lock
 import Aihc.PackagePlan.Project
@@ -836,6 +836,53 @@ test_packageLockFixtures =
         Left err -> do
           let message = show (err :: IOException)
           assertBool message ("dep, needed by the root" `isInfixOf` message)
+      checkHackageBootLibraryVersion (directory </> "boot") queries
+
+-- The newest ghc-boot-th needs the Template Haskell AST of a newer
+-- ghc-internal, but its bounds accept the emulated one. The plan must take
+-- the version of the emulated release.
+--
+-- The check uses the Hackage cache of 'test_packageLockFixtures'. If two tests
+-- set @XDG_CACHE_HOME@, they can run at the same time and see the cache
+-- of the other test.
+checkHackageBootLibraryVersion :: FilePath -> HackageQueries -> IO ()
+checkHackageBootLibraryVersion directory queries = do
+  queryDirectory <- getQueryCacheDir
+  createDirectoryIfMissing True (queryDirectory </> "versions")
+  createDirectoryIfMissing True (queryDirectory </> "cabal")
+  writeFile (queryDirectory </> "versions" </> "ghc-boot-th.json") "{\"9.12.4\":\"normal\",\"9.14.1\":\"normal\"}"
+  cache <- getHackageCacheDir
+  forM_ ["9.12.4", "9.14.1"] $ \versionText -> do
+    let contents = cabalFile "ghc-boot-th" versionText [] ["build-depends: base"]
+        packageDirectory = cache </> ("ghc-boot-th-" <> versionText)
+    writeFile (queryDirectory </> "cabal" </> ("ghc-boot-th-" <> versionText <> "-latest.cabal")) contents
+    createDirectoryIfMissing True packageDirectory
+    writeFile (packageDirectory </> "ghc-boot-th.cabal") contents
+    writeFile (packageDirectory </> ".complete") ""
+  let root = directory </> "root"
+  createDirectoryIfMissing True root
+  writeFile (root </> "root.cabal") (cabalFile "root" "0.1" [] ["build-depends: base, ghc-boot-th"])
+  planned <-
+    planPackages
+      PlanRequest
+        { requestRoots = [RootLocal root],
+          requestGoals = [],
+          requestExecutables = Nothing,
+          requestTestSuites = False,
+          requestCheckBuildTools = True,
+          requestProjectPackages = Map.empty,
+          requestWorkspaces = [],
+          requestHackage = Just (hackageSourceFor queries),
+          requestPlatform = (Linux, X86_64),
+          requestConstraints = [],
+          requestLockFile = Nothing,
+          requestLockMode = LockNormal,
+          requestVerbose = const (pure ())
+        }
+  assertEqual
+    "the version of ghc-boot-th"
+    (Just "9.12.4")
+    (showVersion . assignmentVersion <$> Map.lookup (mkPackageName "ghc-boot-th") (plannedSolution planned))
 
 -- The fields of a project file that change a plan. The other fields, a
 -- setup constraint and a stanza constraint have no effect.
