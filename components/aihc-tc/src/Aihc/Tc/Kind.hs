@@ -950,10 +950,12 @@ inferBuiltinTypeConstructor builtin promotion =
   case builtin of
     BuiltinList
       | promoted -> do
-          -- @\'[]@ has kind @[k]@.
-          resultKind <- listType =<< freshKindMeta
+          -- @\'[]@ has kind @[k]@. The constructor keeps @k@ as its kind
+          -- argument, so that the desugarer finds the kind of the use.
+          elementKind <- freshKindMeta
+          resultKind <- listType elementKind
           tyCon <- wiredTyCon tcWiringNilDataCon resultKind
-          pure (TcTyCon tyCon [], resultKind)
+          pure (kindedTyCon tyCon [elementKind], resultKind)
       | otherwise -> do
           kinds <- getKinds
           tyCon <- wiredTyCon tcWiringListTyCon (KFun (typeKind kinds) (typeKind kinds))

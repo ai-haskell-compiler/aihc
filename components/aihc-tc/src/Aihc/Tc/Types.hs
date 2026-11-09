@@ -1057,14 +1057,17 @@ decodeDataConstructorList :: TcType -> Maybe [TcType]
 decodeDataConstructorList ty =
   case ty of
     TcTyCon tyCon []
-      | tyConNamespace tyCon == ResolutionNamespaceTerm,
-        tyConName tyCon == "[]" ->
-          Just []
+      | isNil tyCon -> Just []
+    -- The empty list can keep its element kind as a kind argument.
+    TcKindedTyCon tyCon _
+      | isNil tyCon -> Just []
     TcTyCon tyCon [field, rest]
       | tyConNamespace tyCon == ResolutionNamespaceTerm,
         tyConName tyCon == ":" ->
           (field :) <$> decodeDataConstructorList rest
     _ -> Nothing
+  where
+    isNil tyCon = tyConNamespace tyCon == ResolutionNamespaceTerm && tyConName tyCon == "[]"
 
 -- The kind vocabulary is declared in GHC.Types. A type of another module
 -- can have the same name, such as a user type @Constraint@, and it is not
