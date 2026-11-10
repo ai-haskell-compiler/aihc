@@ -24,6 +24,9 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text qualified as T
 
@@ -56,7 +59,7 @@ simplifyFunction function0 =
 -- instruction that makes it is tested again. A load is pure here: the
 -- lowering reads a field only from an object it knows. A division and a
 -- conversion stay, because they can trap.
-eliminateDeadInstructions :: Map.Map Var Int -> Function -> Function
+eliminateDeadInstructions :: MonoidMap Var (Sum Int) -> Function -> Function
 eliminateDeadInstructions uses0 function
   | null initial = function
   | otherwise = function {functionBlocks = zipWith dropDead [0 ..] (functionBlocks function)}
@@ -65,7 +68,7 @@ eliminateDeadInstructions uses0 function
     instructions = Map.fromList numbered
     -- The instructions that make each value.
     makers = Map.fromListWith (<>) [(result, [key]) | (key, instruction) <- numbered, result <- instructionResults instruction]
-    unread uses instruction = all (\result -> Map.findWithDefault 0 result uses == 0) (instructionResults instruction)
+    unread uses instruction = all (\result -> MonoidMap.get result uses == 0) (instructionResults instruction)
     removable uses instruction = pure' (instructionOperation instruction) && unread uses instruction
     initial = [key | (key, instruction) <- numbered, removable uses0 instruction]
     dead = sweep uses0 (Set.fromList initial) initial
@@ -86,8 +89,8 @@ eliminateDeadInstructions uses0 function
               found' = List.foldl' (flip Set.insert) found newlyDead
            in sweep uses' found' (List.nub newlyDead <> rest)
     release (uses, emptied) var =
-      let count = Map.findWithDefault 0 var uses - 1
-       in (Map.insert var count uses, if count == 0 then var : emptied else emptied)
+      let count = MonoidMap.get var uses - 1
+       in (MonoidMap.set var count uses, if count == 0 then var : emptied else emptied)
     dropDead blockIndex block = block {blockInstructions = [instruction | (index, instruction) <- zip [0 ..] (blockInstructions block), Set.notMember (blockIndex, index) dead]}
     pure' operation = case operation of
       Binary op _ _ _ -> op `notElem` [DivS, DivU, RemS, RemU]
@@ -149,7 +152,7 @@ narrowExtendedCompares function
 -- so the copy reads the same value, and the base of the address dominates
 -- each compare because the load does. A backend can then compare each copy
 -- in memory. The original load dies.
-duplicateInvariantLoads :: Map.Map Var Int -> Function -> Function
+duplicateInvariantLoads :: MonoidMap Var (Sum Int) -> Function -> Function
 duplicateInvariantLoads uses function
   | Map.null candidates = function
   | otherwise = function {functionBlocks = snd (List.mapAccumL copyBlock (0 :: Int) (functionBlocks function))}
@@ -162,15 +165,15 @@ duplicateInvariantLoads uses function
           ty `elem` [I8, I16, I32, I64, Ptr, Code]
         ]
     compareReads =
-      Map.fromListWith
+      MonoidMap.fromListWith
         (+)
-        [ (var, 1 :: Int)
+        [ (var, 1 :: Sum Int)
         | block <- functionBlocks function,
           Instruction _ (Compare _ _ left right) <- blockInstructions block,
           (OperandVar var, OperandLiteral _) <- [(left, right), (right, left)]
         ]
     candidates =
-      Map.filterWithKey (\var _ -> Map.findWithDefault 0 var uses > 1 && Map.findWithDefault 0 var compareReads == Map.findWithDefault 0 var uses) definitions
+      Map.filterWithKey (\var _ -> MonoidMap.get var uses > 1 && MonoidMap.get var compareReads == MonoidMap.get var uses) definitions
     names = Set.fromList (map (unVar . fst) (functionParameters function) <> [unVar name | block <- functionBlocks function, name <- map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block)])
     fresh count (Var base) =
       let candidate n = base <> "$load" <> tshow n
@@ -204,12 +207,12 @@ duplicateInvariantLoads uses function
 -- so does a load that only that compare reads, when nothing after the load
 -- in the block writes memory. The compare of the first Boolean moves to the
 -- end of the block. Thus each compare is next to its branch.
-splitConditionBranches :: Map.Map Var Int -> Function -> Function
+splitConditionBranches :: MonoidMap Var (Sum Int) -> Function -> Function
 splitConditionBranches uses function
   | not (any splittable (functionBlocks function)) = function
   | otherwise = function {functionBlocks = concatMap (split (0 :: Int)) (functionBlocks function)}
   where
-    useOnce var = Map.findWithDefault 0 var uses == 1
+    useOnce var = MonoidMap.get var uses == 1
     labels = Set.fromList (map blockLabel (functionBlocks function))
     splittable block = case combination block of
       Just _ -> True
@@ -291,7 +294,7 @@ splitConditionBranches uses function
 -- | A zero extension from i1 can only produce zero or one.
 -- Keep the extension if another instruction or an edge argument reads it.
 -- Keep switches without both destinations, because their other path traps.
-simplifyBooleanBranches :: Map.Map Var Int -> Function -> Function
+simplifyBooleanBranches :: MonoidMap Var (Sum Int) -> Function -> Function
 simplifyBooleanBranches uses function
   | all isNothing simplified = function
   | otherwise = function {functionBlocks = zipWith fromMaybe (functionBlocks function) simplified}
@@ -308,7 +311,7 @@ simplifyBooleanBranches uses function
               Just
                 block
                   { blockInstructions =
-                      if Map.findWithDefault 0 wide uses == 1
+                      if MonoidMap.get wide uses == 1
                         then reverse before
                         else blockInstructions block,
                     blockTerminator = Branch condition whenTrue whenFalse
@@ -374,8 +377,8 @@ simplifyRotations function
     clean block = block {blockInstructions = fst (foldr remove ([], uses) (blockInstructions block))}
     remove instruction@(Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
-        Map.findWithDefault 0 v counts == 0 =
-          (rest, foldl' (flip (Map.adjust (subtract 1))) counts (operationReads operation))
+        MonoidMap.get v counts == 0 =
+          (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
       | otherwise = (instruction : rest, counts)
     remove instruction (rest, counts) = (instruction : rest, counts)
     simplify block = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, removed)
@@ -422,10 +425,10 @@ simplifyRotations function
 -- The definition table holds only the instructions that a rewrite reads: a
 -- modular wide operation and a zero extension from 32 bits. When no block
 -- changes, the reads of the rewritten function are the reads of the input.
-simplifyWidths :: Map.Map Var Int -> Function -> Function
+simplifyWidths :: MonoidMap Var (Sum Int) -> Function -> Function
 simplifyWidths uses function
   -- No block changes and no candidate is dead: the function is as it was.
-  | not changed && not (any (\v -> Map.findWithDefault 0 v remaining == 0) (Set.toList candidates)) = function
+  | not changed && not (any (\v -> MonoidMap.get v remaining == 0) (Set.toList candidates)) = function
   | otherwise = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
   where
     occupied = Set.fromList (map fst (functionParameters function) <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- functionBlocks function])
@@ -436,8 +439,8 @@ simplifyWidths uses function
     clean block = block {blockInstructions = fst (foldr remove ([], remaining) (blockInstructions block))}
     remove (Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
-        Map.findWithDefault 0 v counts == 0 =
-          (rest, foldl' (flip (Map.adjust (subtract 1))) counts (operationReads operation))
+        MonoidMap.get v counts == 0 =
+          (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
     remove instruction (rest, counts) = (instruction : rest, counts)
     modular op = op `elem` [Add, Sub, Mul, And, Or, Xor]
     removable (Binary op I64 _ _) = modular op
@@ -462,7 +465,7 @@ simplifyWidths uses function
         Convert Trunc I64 (OperandVar wide) I32
           | Just (Binary op I64 a b) <- Map.lookup wide definitions,
             modular op,
-            Map.findWithDefault 0 wide uses == 1,
+            MonoidMap.get wide uses == 1,
             cheapOperand definitions a || cheapOperand definitions b ->
               let (leftCode, left, names') = narrowOperand definitions names v "_left" a
                   (rightCode, right, names'') = narrowOperand definitions names' v "_right" b

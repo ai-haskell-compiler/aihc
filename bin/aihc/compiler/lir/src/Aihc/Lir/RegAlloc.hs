@@ -78,6 +78,9 @@ import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 -- | Where every value of one function lives.
@@ -1041,8 +1044,8 @@ orderByStart encoded starts hints partners = do
 -- read of a value that the table already holds does not copy a path of
 -- the map. Each Lir pass that removes or rewrites an instruction counts the
 -- reads again, so the count must be cheap.
-readCounts :: Function -> Map Var Int
-readCounts function = runST $ do
+readCounts :: Function -> MonoidMap Var (Sum Int)
+readCounts function = MonoidMap.fromMap $ runST $ do
   table <- newSTRef Map.empty
   let count operand =
         case operand of
@@ -1051,7 +1054,7 @@ readCounts function = runST $ do
             case Map.lookup var counters of
               Just counter -> modifySTRef' counter (+ 1)
               Nothing -> do
-                counter <- newSTRef (1 :: Int)
+                counter <- newSTRef (1 :: Sum Int)
                 writeSTRef table $! Map.insert var counter counters
           OperandLiteral _ -> pure ()
   for_ (functionBlocks function) $ \block -> do
