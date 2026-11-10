@@ -214,7 +214,7 @@ share env expr =
     ExApp function argument -> do
       (function', c1) <- share env function
       (argument', c2) <- share env argument
-      pure (ExApp function' argument', MonoidMap.unionWith (<>) c1 c2)
+      pure (ExApp function' argument', c1 <> c2)
     ExTyApp function ty -> do
       (function', calls) <- share env function
       pure (ExTyApp function' ty, calls)
@@ -227,7 +227,7 @@ share env expr =
     ExForeignCall call types arguments -> do
       results <- mapM (share env) arguments
       let expr' = ExForeignCall call types (map fst results)
-          calls = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (map snd results)
+          calls = List.foldl' (<>) MonoidMap.empty (map snd results)
       pure
         ( expr',
           if isJust (safePrimitiveCall env expr')
@@ -243,14 +243,14 @@ share env expr =
     ExLet bind body -> do
       (rhs, c1) <- sharePosition env [] (bindRhs bind)
       (body', c2) <- sharePosition env [bindBinder bind] body
-      pure (ExLet bind {bindRhs = rhs} body', MonoidMap.unionWith (<>) c1 c2)
+      pure (ExLet bind {bindRhs = rhs} body', c1 <> c2)
     ExRec binds body -> do
       let binders = map bindBinder binds
       results <- mapM (sharePosition env binders . bindRhs) binds
       (body', c2) <- sharePosition env binders body
       pure
         ( ExRec (zipWith (\bind (rhs, _) -> bind {bindRhs = rhs}) binds results) body',
-          List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (c2 : map snd results)
+          List.foldl' (<>) MonoidMap.empty (c2 : map snd results)
         )
     ExCase scrutinee binder alternatives -> do
       (scrutinee', c1) <- share env scrutinee
@@ -260,7 +260,7 @@ share env expr =
           alternatives
       pure
         ( ExCase scrutinee' binder (NE.zipWith (\alternative (rhs, _) -> alternative {altRhs = rhs}) alternatives results),
-          MonoidMap.unionWith (<>) c1 (List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map snd (NE.toList results)))
+          c1 <> List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map snd (NE.toList results))
         )
 
 -- | Share the calls of a body position that occur more than once there,
@@ -315,30 +315,27 @@ countWhere wanted = go
         ExVar {} -> MonoidMap.empty
         ExLit {} -> MonoidMap.empty
         ExCoercion {} -> MonoidMap.empty
-        ExApp function argument -> MonoidMap.unionWith (<>) (go function) (go argument)
+        ExApp function argument -> go function <> go argument
         ExTyApp function _ -> go function
         ExCast body _ -> go body
         ExAbsurd scrutinee _ -> go scrutinee
         ExForeignCall _ _ arguments ->
-          let inner = List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (map go arguments)
+          let inner = List.foldl' (<>) MonoidMap.empty (map go arguments)
            in if wanted expr then MonoidMap.adjust (+ 1) expr inner else inner
         ExLam binder body -> under [binder] (go body)
         ExTyLam binder body -> under [binder] (go body)
-        ExLet bind body -> MonoidMap.unionWith (<>) (go (bindRhs bind)) (under [bindBinder bind] (go body))
+        ExLet bind body -> go (bindRhs bind) <> under [bindBinder bind] (go body)
         ExRec binds body ->
           let binders = map bindBinder binds
-           in under binders (List.foldl' (MonoidMap.unionWith (<>)) MonoidMap.empty (go body : map (go . bindRhs) binds))
+           in under binders (List.foldl' (<>) MonoidMap.empty (go body : map (go . bindRhs) binds))
         ExCase scrutinee binder alternatives ->
-          MonoidMap.unionWith
-            (<>)
-            (go scrutinee)
-            ( List.foldl'
-                (MonoidMap.unionWith max)
-                MonoidMap.empty
-                [ under (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative) (go (altRhs alternative))
-                | alternative <- NE.toList alternatives
-                ]
-            )
+          go scrutinee
+            <> List.foldl'
+              (MonoidMap.unionWith max)
+              MonoidMap.empty
+              [ under (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative) (go (altRhs alternative))
+              | alternative <- NE.toList alternatives
+              ]
     under binders calls
       | null binders = calls
       | otherwise =
