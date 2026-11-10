@@ -511,6 +511,13 @@ inferLambdaCase :: Maybe SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct]
 inferLambdaCase sp alts = do
   argTy <- freshMetaTv
   resTy <- freshMetaTv
+  lambdaCaseWith sp argTy resTy alts
+
+-- | Check a lambda-case with known argument and result types. The
+-- alternatives then see the skolems of the expected type, and a GADT
+-- pattern can refine them with its givens.
+lambdaCaseWith :: Maybe SourceSpan -> TcType -> TcType -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
+lambdaCaseWith sp argTy resTy alts = do
   (alts', cts) <- inferCaseAlts sp argTy resTy alts
   -- The desugarer reads the type of the function from this annotation. A
   -- lambda-case with no alternative has no other source of it.
@@ -531,6 +538,16 @@ checkExpr expected expression = case expression of
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EPragma pragma inner', ty, constraints)
   ELambdaPats patterns body -> checkLambda expected (exprSpan expression) patterns body
+  ELambdaCase alternatives -> do
+    expectedParts <- splitExpectedFunction 1 expected
+    case expectedParts of
+      Just ([argumentType], resultType) -> lambdaCaseWith (exprSpan expression) argumentType resultType alternatives
+      _ -> inferExpr expression
+  ELambdaCases alternatives -> do
+    expectedParts <- splitExpectedFunction (lambdaCasesArity alternatives) expected
+    case expectedParts of
+      Just (argumentTypes, resultType) -> lambdaCasesWith (exprSpan expression) argumentTypes resultType alternatives
+      Nothing -> inferExpr expression
   EList elements -> inferListWithExpected (Just expected) (exprSpan expression) elements
   ECase scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
@@ -629,8 +646,23 @@ checksExpectedResult expression = case expression of
   ELetDecls {} -> True
   EDo _ flavor -> isMonadicDoFlavor flavor
   ELambdaPats {} -> True
+  ELambdaCase {} -> True
+  ELambdaCases {} -> True
   EList {} -> True
   _ -> False
+
+-- | Split an expected type into the given number of argument types and a
+-- result type. The result is 'Nothing' if the zonked type has fewer arrows.
+splitExpectedFunction :: Int -> TcType -> TcM (Maybe ([TcType], TcType))
+splitExpectedFunction count ty
+  | count <= 0 = pure (Just ([], ty))
+  | otherwise = do
+      zonked <- zonkType ty
+      case zonked of
+        TcFunTy argument result -> do
+          remaining <- splitExpectedFunction (count - 1) result
+          pure (fmap (Bifunctor.first (argument :)) remaining)
+        _ -> pure Nothing
 
 -- | Connect application results before constructor patterns refine their indices.
 prepareScrutinee :: [Ct] -> TcM ()
@@ -714,9 +746,16 @@ isVariableLabel label =
 
 inferLambdaCases :: Maybe SourceSpan -> [LambdaCaseAlt] -> TcM (Expr, TcType, [Ct])
 inferLambdaCases sp alts = do
-  let arity = maximum (0 : map (length . lambdaCaseAltPats) alts)
-  argTys <- mapM (const freshMetaTv) [1 .. arity]
+  argTys <- mapM (const freshMetaTv) [1 .. lambdaCasesArity alts]
   resTy <- freshMetaTv
+  lambdaCasesWith sp argTys resTy alts
+
+lambdaCasesArity :: [LambdaCaseAlt] -> Int
+lambdaCasesArity alts = maximum (0 : map (length . lambdaCaseAltPats) alts)
+
+-- | Check a @\\cases@ expression with known argument and result types.
+lambdaCasesWith :: Maybe SourceSpan -> [TcType] -> TcType -> [LambdaCaseAlt] -> TcM (Expr, TcType, [Ct])
+lambdaCasesWith sp argTys resTy alts = do
   results <- mapM (inferLambdaCaseAlt sp argTys resTy) alts
   let alts' = map fst results
       cts = concatMap snd results
