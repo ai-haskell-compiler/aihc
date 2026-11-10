@@ -1980,10 +1980,26 @@ expandModuleSplices shared build file source =
 -- | Give a module with an expression quote the imports of "Aihc.Th.Quote".
 -- Name resolution changes the quote into an expression that uses them. The
 -- module only gets the imports when its component depends on
--- @template-haskell@: without that package, the quote stays as it is.
+-- @template-haskell@: without that package, the quote stays as it is. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@. A
+-- main module names the package as the plan does, @aihc-template-haskell@.
 addQuoteImports :: HackageCabal.FileInfo -> SourceModule -> IO SourceModule
 addQuoteImports file source
-  | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.TemplateHaskellQuotes] && "template-haskell" `elem` HackageCabal.fileInfoDependencies file = do
+  | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.TemplateHaskellQuotes] && any (`elem` HackageCabal.fileInfoDependencies file) ["template-haskell", "aihc-template-haskell"] = do
       modu <- readMVar (sourceModuleParsed source)
       if moduleHasQuote modu
         then do
@@ -1995,14 +2011,14 @@ addQuoteImports file source
 -- | Resolve a unit, and change the expression quotes of its modules. A
 -- quote needs the result of name resolution, and its new expression has
 -- names that are not resolved. Thus, a unit with a quote resolves two
--- times. The first annotation of a name is the valid one, so the
--- annotations of the first time have no effect.
+-- times. The second time starts from the parsed modules, with the new
+-- expressions in the positions of the quotes.
 resolveUnitQuotes :: Builtins -> ModuleExports -> [ModuleUnit] -> Either ResolveFailure ResolvedUnit
 resolveUnitQuotes builtinScope exports modules =
   case resolveUnit builtinScope exports modules of
     Right (ResolvedUnit resolved)
       | any (hasQuoteImports . moduleUnitAst) modules ->
-          resolveUnit builtinScope exports [(resolvedModuleUnit modu) {moduleUnitAst = desugarModuleQuotes (moduleUnitAst (resolvedModuleUnit modu))} | modu <- resolved]
+          resolveUnit builtinScope exports [parsed {moduleUnitAst = desugarModuleQuotes (moduleUnitAst parsed) (moduleUnitAst (resolvedModuleUnit modu))} | (parsed, modu) <- zip modules resolved]
     result -> result
   where
     hasQuoteImports modu = any ((`elem` map importDeclModule quoteImports) . importDeclModule) (Syntax.moduleImports modu) && moduleHasQuote modu

@@ -702,7 +702,7 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
       assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an
