@@ -388,7 +388,7 @@ recordSelectorBindings origin declaration =
           selectorNames = recordSelectorNames [inner]
        in [ TcBindingResult (originTermKey origin selector) selector (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
-            all (`elem` universals) (typeTyVars fieldType),
+            all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType),
             Just label <- [maybeLabel],
             let selector = Map.findWithDefault label label selectorNames
           ]
@@ -5631,7 +5631,7 @@ registerRecordSelectors origin selectorNames constructors =
         [ (label, [(constructor, field)])
         | constructor <- constructors,
           field <- dciFields constructor,
-          not (any (`elem` dciExTyVars constructor) (typeTyVars (dcfiType field))),
+          not (any (`typeMentionsTyVar` dcfiType field) (dciExTyVars constructor)),
           Just label <- [dcfiLabel field]
         ]
     registerSelector (label, (constructor, field) : _) = do

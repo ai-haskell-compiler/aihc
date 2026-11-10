@@ -1,0 +1,19 @@
+extensions:
+  - GADTs
+modules:
+  - |
+    {-# LANGUAGE GADTs #-}
+    module Test where
+
+    data Box b where
+      Box :: { unbox :: [a], label :: b } -> Box b
+
+    result :: Bool
+    result = label (Box [()] True)
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a GADT record field whose type mentions an existential variable has no
+  selector, so the other fields of the constructor still have selectors
