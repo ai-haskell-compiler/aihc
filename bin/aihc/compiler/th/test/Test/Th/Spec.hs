@@ -9,6 +9,7 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm, exactType)
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
 import Data.ByteString qualified as BS
@@ -30,6 +31,7 @@ tests =
       testCase "gives a package-bound name its term or its type" exactNameTest,
       testCase "converts declarations to the surface syntax" declarationsTest,
       testCase "names a construct that it does not support" unsupportedTest,
+      testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
       testCase "writes the splice module" spliceModuleTest
     ]
@@ -216,12 +218,31 @@ exactNameTest = do
         (exactType typeName)
     other -> assertFailure ("expected a signature with a type constructor, got " <> show other)
 
+-- | A report is a request, and a report of an error makes the splice fail.
+requestTest :: IO ()
+requestTest = do
+  let report isError message = TreeNode "Report" [TreeNode isError [], TreeString message]
+  assertEqual "a warning" (Right (RequestReport False "w")) (requestFromTree (report "False" "w"))
+  assertEqual "an error" (Right (RequestReport True "e")) (requestFromTree (report "True" "e"))
+  assertEqual "an unknown request" (Left "The compiler does not know the splice request Reify.") (requestFromTree (TreeNode "Reify" []))
+  assertEqual "only warnings" Nothing (reportedFailure [RequestReport False "w"])
+  assertEqual
+    "two errors and a warning"
+    (Just "first\nsecond")
+    (reportedFailure [RequestReport True "first", RequestReport False "w", RequestReport True "second"])
+
 unsupportedTest :: IO ()
 unsupportedTest = do
+  -- A unique name has its number in its text, so two names with the same
+  -- text from two calls of newName are different names.
   assertEqual
     "a name that Template Haskell made unique"
-    (Left "The compiler does not support the name flavour NameU in a splice result.")
-    (expressionFromTree (TreeNode "VarE" [TreeNode "Name" [TreeNode "OccName" [TreeString "x"], TreeNode "NameU" [TreeInteger 1]]]))
+    (Right (EVar "x#u7"))
+    (expressionFromTree (TreeNode "VarE" [TreeNode "Name" [TreeNode "OccName" [TreeString "x"], TreeNode "NameU" [TreeInteger 7]]]))
+  assertEqual
+    "a name that is bound to a position in the source"
+    (Left "The compiler does not support the name flavour NameL in a splice result.")
+    (expressionFromTree (TreeNode "VarE" [TreeNode "Name" [TreeNode "OccName" [TreeString "x"], TreeNode "NameL" [TreeInteger 1]]]))
   assertEqual
     "a do expression"
     (Left "The compiler does not support the expression DoE in a splice result.")

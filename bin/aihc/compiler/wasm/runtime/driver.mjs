@@ -17,6 +17,11 @@
 // A reply is "ok", "ok VALUE...", or "error MESSAGE". The reply to "run"
 // has each message that the closure sent, as hexadecimal text.
 //
+// Before the reply to "run", the driver can write "request BYTES" lines.
+// A closure sends a request with aihc_engine_request and waits. The next
+// line of the input must then be "reply BYTES", with the bytes of the
+// reply as hexadecimal text.
+//
 // After "start", the guest has control. It calls aihc_engine_next for its
 // next closure, and that import reads the commands "load" and "run". The
 // driver does not call into the guest while the guest runs.
@@ -105,6 +110,21 @@ const hostFunctions = {
   // A closure sends a message to the host.
   "env aihc_engine_send": (message, length) => {
     closureRun.messages.push(Buffer.from(memoryBytes(message, length)).toString("hex"));
+  },
+  // A closure sends a request to the host and waits for the reply. The
+  // result is the number of bytes of the reply.
+  "env aihc_engine_request": (message, length) => {
+    reply("request " + Buffer.from(memoryBytes(message, length)).toString("hex"));
+    const line = readLine();
+    if (line === null) throw new Error("the input ended at a request");
+    const [command, bytes] = line.split(" ");
+    if (command !== "reply") throw new Error("the host sent the command " + command + " at a request");
+    requestReply = Buffer.from(bytes ?? "", "hex");
+    return BigInt(requestReply.length);
+  },
+  // Copy the reply of the last request to memory of the guest.
+  "env aihc_engine_reply": (target) => {
+    new Uint8Array(image.memory.buffer, target, requestReply.length).set(requestReply);
   },
   // The guest reports that the closure raised an exception.
   "env aihc_engine_fail": (message, length) => {
@@ -261,6 +281,8 @@ function call(name, parameters) {
 // The guest is "idle" before the command "start", "running" while its
 // program runs, and "stopped" after its program returns or traps.
 let guest = "idle";
+// The reply of the last request.
+let requestReply = Buffer.alloc(0);
 // The closure that the guest runs, or null. The command "run" has no reply
 // until the guest asks for the next closure.
 let closureRun = null;

@@ -63,4 +63,7 @@ main = do
   print (minus 5)
   -- The program makes the names of name quotes when it runs.
   putStrLn (nameBase 'negate ++ " " ++ nameBase ''Maybe)
+  -- A splice makes a unique name, and a splice recovers from a failure.
+  print ($(do x <- newName "x"; lamE [varP x] (varE x)) (7 :: Int))
+  print ($(recover (litE (integerL 1)) (fail "no")) :: Int)
   showTriple

@@ -12,8 +12,8 @@
 --    "Aihc.Th.Splices", and install it with the position-independent code
 --    model.
 -- 3. Link the package as a shared module and load it into the image.
--- 4. Run the closure of each splice, and convert each result to the
---    surface syntax.
+-- 4. Run the closure of each splice, answer its requests, and convert
+--    each result to the surface syntax.
 --
 -- The splice code has no access to the build machine. See
 -- "Aihc.Wasm.Engine".
@@ -31,19 +31,23 @@ import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), defaultPlanOpti
 import Aihc.Cli.Progress (quietProgress)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
 import Aihc.Th.Wire (decodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
-import Control.Exception (IOException, catch)
-import Control.Monad (forM)
+import Control.Exception (IOException, catch, try)
+import Control.Monad (forM, forM_)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, toLower)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (intercalate)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (stdout)
+import System.IO (hPutStrLn, stderr, stdout)
 import System.IO.Error (ioeGetErrorString)
 
 -- | Make a build run the expression splices of its modules. The builds
@@ -73,14 +77,30 @@ runSplices request =
         startGuest engine
         loadSharedModule engine shared
         forM (zip [0 ..] (spliceRequestSplices request)) $ \(index, splice) -> do
-          messages <- runClosure engine (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index)
+          requests <- newIORef []
+          outcome <- try (runClosure engine (answerRequest requests) (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index))
+          made <- reverse <$> readIORef requests
+          forM_ [message | RequestReport False message <- made] $ \message ->
+            hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
           let convert tree =
                 case splice of
                   ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
                   DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
-          case messages of
-            [message] -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert)
-            _ -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+          -- A report of an error is the cause of a failure of the closure,
+          -- so the report comes before the failure itself.
+          case (reportedFailure made, outcome) of
+            (Just message, _) -> ioError (userError (T.unpack message))
+            (Nothing, Left failure) -> ioError (failure :: IOException)
+            (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert)
+            (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+
+-- | Do the request of a splice and give the bytes of the reply. A report
+-- goes to the list, and its reply has no bytes.
+answerRequest :: IORef [Request] -> ByteString -> IO ByteString
+answerRequest requests bytes =
+  case decodeTree bytes >>= requestFromTree of
+    Right made -> BS.empty <$ modifyIORef' requests (made :)
+    Left message -> ioError (userError (T.unpack message))
 
 -- | Build the image of a request and give its path.
 buildImage :: SpliceRequest -> IO FilePath

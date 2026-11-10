@@ -26,6 +26,7 @@ import Aihc.Resolve (Entity (..), ExportEntry (..), GlobalName (..), LocalId (..
 import Aihc.Tc (TyConInfo (..), tcInterfaceTyCons, tyConName)
 import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
 import Aihc.Th.Convert (expressionFromTree)
+import Aihc.Th.Request (Request (..), requestFromTree)
 import Aihc.Th.Wire (decodeTree)
 import Aihc.Wasm.Engine (Engine, engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
@@ -36,6 +37,7 @@ import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -642,7 +644,7 @@ withBuildModuleSandbox getStore prefix action = do
 test_engineClosures :: IO (Maybe SeedStore) -> Assertion
 test_engineClosures getStore =
   withEngineFixture getStore [] "closures" $ \engine -> do
-    let run = runClosure engine "engine-closures-0.1.0.0" "Closures"
+    let run = runClosure engine noRequest "engine-closures-0.1.0.0" "Closures"
     first <- run "greet"
     second <- run "greet"
     failure <- try (run "failing") :: IO (Either IOException [BS.ByteString])
@@ -662,11 +664,15 @@ test_engineClosures getStore =
 test_engineSplice :: IO (Maybe SeedStore) -> Assertion
 test_engineSplice getStore =
   withEngineFixture getStore ["aihc-template-haskell"] "splices" $ \engine -> do
-    let splice name = do
-          messages <- runClosure engine "engine-splices-0.1.0.0" "Splices" name
+    let spliceWithRequests name = do
+          requests <- newIORef []
+          let answer bytes = BS.empty <$ modifyIORef' requests ((decodeTree bytes >>= requestFromTree) :)
+          messages <- runClosure engine answer "engine-splices-0.1.0.0" "Splices" name
+          made <- reverse <$> readIORef requests
           case messages of
-            [message] -> pure (decodeTree message >>= expressionFromTree)
+            [message] -> pure (made, decodeTree message >>= expressionFromTree)
             _ -> assertFailure ("expected one message, got " <> show messages)
+        splice name = snd <$> spliceWithRequests name
     application <- splice "application"
     assertEqual
       "an application"
@@ -677,6 +683,25 @@ test_engineSplice getStore =
       "a tuple with text that is not ASCII"
       (Right (Syntax.ETuple Syntax.Boxed [Just (Syntax.EString "h\233llo" "\"h\\233llo\""), Just (Syntax.EChar 'x' "'x'"), Just (Syntax.EVar (Syntax.mkName (Just "Data.Maybe") Syntax.NameConId "Nothing"))]))
       text
+    -- The splice reports a warning, and the compiler gets the report as a
+    -- request. The binder and the use of the new name are the same name,
+    -- and the text of the name has the mark of a unique name.
+    (uniqueRequests, unique) <- spliceWithRequests "unique"
+    assertEqual "the request of a report" [Right (RequestReport False "a warning")] uniqueRequests
+    case unique of
+      Right (Syntax.ELambdaPats [Syntax.PVar binder] (Syntax.EVar use)) -> do
+        assertEqual "the binder and the use" (Syntax.unqualifiedNameText binder) (Syntax.nameText use)
+        assertBool ("a unique name: " <> show (Syntax.nameText use)) ("x#u" `T.isPrefixOf` Syntax.nameText use)
+      other -> assertFailure ("expected a lambda with one variable, got " <> show other)
+    -- The reports of the code in a recover do not go to the compiler when
+    -- that code fails.
+    (recoveredRequests, recovered) <- spliceWithRequests "recovered"
+    assertEqual "no request of the code that failed" [] recoveredRequests
+    assertEqual "the result of the handler" (Right (Syntax.EInt 1 Syntax.TInteger "1")) recovered
+
+-- | The answer to a closure that must not send a request.
+noRequest :: BS.ByteString -> IO BS.ByteString
+noRequest _ = assertFailure "the closure sent a request"
 
 -- | A build runs the splices of a program in an engine, and the program
 -- has their results. The program has splices in expressions, some with
@@ -704,7 +729,7 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\n-5\nnegate Maybe\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
       assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an

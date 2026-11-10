@@ -33,7 +33,7 @@ import Control.Exception (bracket, onException)
 import Control.Monad (void)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.Char (digitToInt, isHexDigit)
+import Data.Char (digitToInt, intToDigit, isHexDigit)
 import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -158,10 +158,19 @@ startGuest engine = void (request engine "start")
 -- or in a loaded shared module. The result has each message that the
 -- closure sent with @aihc_engine_send@. An exception in the closure is an
 -- error.
-runClosure :: Engine -> Text -> Text -> Text -> IO [ByteString]
-runClosure engine package moduleName name = do
-  reply <- request engine ("run " <> T.unpack (renderLinkedGlobalSymbol (T.intercalate "\0" [package, moduleName, name])))
+--
+-- The closure can send a request with @aihc_engine_request@. The function
+-- of the caller gets the bytes of each request and gives the bytes of the
+-- reply. The closure waits for the reply.
+runClosure :: Engine -> (ByteString -> IO ByteString) -> Text -> Text -> Text -> IO [ByteString]
+runClosure engine answer package moduleName name = do
+  hPutStrLn (engineInput engine) ("run " <> T.unpack (renderLinkedGlobalSymbol (T.intercalate "\0" [package, moduleName, name])))
+  reply <- readReplyWith answerRequest engine
   maybe (ioError (userError ("the engine gave the messages " <> reply))) pure (mapM decodeHexadecimal (words reply))
+  where
+    answerRequest text = do
+      bytes <- maybe (ioError (userError "the engine gave a request that is not valid")) pure (decodeHexadecimal text)
+      encodeHexadecimal <$> answer bytes
 
 decodeHexadecimal :: String -> Maybe ByteString
 decodeHexadecimal = fmap BS.pack . bytes
@@ -172,6 +181,11 @@ decodeHexadecimal = fmap BS.pack . bytes
         high : low : rest | isHexDigit high && isHexDigit low -> (fromIntegral (16 * digitToInt high + digitToInt low) :) <$> bytes rest
         _ -> Nothing
 
+encodeHexadecimal :: ByteString -> String
+encodeHexadecimal = concatMap byte . BS.unpack
+  where
+    byte value = [intToDigit (fromIntegral (value `div` 16)), intToDigit (fromIntegral (value `mod` 16))]
+
 -- | Send one command and read its reply. The result is the text after
 -- @ok@.
 request :: Engine -> String -> IO String
@@ -179,8 +193,15 @@ request engine command = do
   hPutStrLn (engineInput engine) command
   readReply engine
 
+-- | Read the reply of a command that cannot send a request.
 readReply :: Engine -> IO String
-readReply engine = do
+readReply = readReplyWith (\_ -> ioError (userError "the engine sent a request that the command does not accept"))
+
+-- | Read the reply of a command. Before the reply, the engine can send
+-- requests. The function gets the text of a request and gives the text of
+-- its reply.
+readReplyWith :: (String -> IO String) -> Engine -> IO String
+readReplyWith answer engine = do
   end <- hIsEOF (engineOutput engine)
   if end
     then ioError (userError "the engine stopped")
@@ -188,4 +209,8 @@ readReply engine = do
       line <- hGetLine (engineOutput engine)
       case words line of
         "ok" : _ -> pure (drop 3 line)
+        "request" : payload -> do
+          reply <- answer (concat payload)
+          hPutStrLn (engineInput engine) ("reply " <> reply)
+          readReplyWith answer engine
         _ -> ioError (userError ("the engine failed: " <> drop 6 line))

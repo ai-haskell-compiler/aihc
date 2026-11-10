@@ -162,9 +162,9 @@ binderFromTree tree = do
     Just _ -> Left "A splice result binds a qualified name."
 
 -- | The name of a @Name@ tree. A name with no module, a name with a module
--- qualifier, and a name that is bound to its package and module are in
--- the subset. The last has an 'ExactTerm' or an 'ExactType' mark, so name
--- resolution gives it that term or type in each scope. A name that Template Haskell made
+-- qualifier, a unique name, and a name that is bound to its package and
+-- module are in the subset. The last has an 'ExactTerm' or an 'ExactType'
+-- mark, so name resolution gives it that term or type in each scope. A name that Template Haskell made
 -- unique is not in the subset.
 nameFromTree :: Tree -> Either Text Name
 nameFromTree tree =
@@ -175,6 +175,10 @@ nameFromTree tree =
           case flavour of
             TreeNode "NameS" [] -> Right (mkName Nothing (occurrenceType occurrence) occurrence)
             TreeNode "NameQ" [TreeNode "ModName" [TreeString qualifier]] -> Right (mkName (Just qualifier) (occurrenceType occurrence) occurrence)
+            -- The number of a unique name is part of its text. The text
+            -- has a character that a source name cannot have at that
+            -- position, so the name is different from each source name.
+            TreeNode "NameU" [TreeInteger unique] -> Right (mkName Nothing (occurrenceType occurrence) (occurrence <> "#u" <> T.pack (show unique)))
             TreeNode "NameG" [TreeNode space [], TreeNode "PkgName" [TreeString package], TreeNode "ModName" [TreeString home]]
               | space `elem` ["VarName", "DataName"] ->
                   let global = GlobalName occurrence (PackageId package) home ResolutionNamespaceTerm
