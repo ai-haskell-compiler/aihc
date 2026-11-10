@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 -- | A linear-scan register allocator over Lir functions.
 --
 -- The allocator is target-independent. A backend describes the registers it
@@ -1040,27 +1042,40 @@ orderByStart encoded starts hints partners = do
 
 -- | How many times the function reads each value, unweighted.
 --
--- Each value gets one counter, and a read adds one to it in place. Thus a
--- read of a value that the table already holds does not copy a path of
--- the map. Each Lir pass that removes or rewrites an instruction counts the
--- reads again, so the count must be cheap.
+-- Each Lir pass that removes or rewrites an instruction counts the reads
+-- again, so the count must be cheap. Thus 'countST' does the counting.
 readCounts :: Function -> MonoidMap Var (Sum Int)
-readCounts function = MonoidMap.fromMap $ runST $ do
-  table <- newSTRef Map.empty
+readCounts function = countST $ \yield -> do
   let count operand =
         case operand of
-          OperandVar var -> do
-            counters <- readSTRef table
-            case Map.lookup var counters of
-              Just counter -> modifySTRef' counter (+ 1)
-              Nothing -> do
-                counter <- newSTRef (1 :: Sum Int)
-                writeSTRef table $! Map.insert var counter counters
+          OperandVar var -> yield var
           OperandLiteral _ -> pure ()
   for_ (functionBlocks function) $ \block -> do
     for_ (blockInstructions block) (forOperationOperands count . instructionOperation)
     forTerminatorOperands count (blockTerminator block)
+
+-- | Count the occurrences of each element yielded by a computation.
+--
+-- This function uses in-place updates in order to minimise memory allocation.
+--
+-- A new element-count pair is added to the result map only when an element is
+-- encountered for the first time. For all subsequent encounters of the same
+-- element, the existing count is updated in place.
+countST ::
+  (Ord k, Integral n) =>
+  (forall s. (k -> ST s ()) -> ST s ()) ->
+  MonoidMap k (Sum n)
+countST walk = MonoidMap.fromMap $ runST $ do
+  table <- newSTRef Map.empty
+  walk $ \k -> do
+    counters <- readSTRef table
+    case Map.lookup k counters of
+      Just counter -> modifySTRef' counter (+ 1)
+      Nothing -> do
+        counter <- newSTRef 1
+        writeSTRef table $! Map.insert k counter counters
   traverse readSTRef =<< readSTRef table
+{-# INLINE countST #-}
 
 -- | Every read of a value by one operation, in order and with repeats.
 operationReads :: Operation -> [Var]
