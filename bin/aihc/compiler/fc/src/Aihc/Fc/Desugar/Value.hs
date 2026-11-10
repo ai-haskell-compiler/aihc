@@ -25,6 +25,7 @@ import Aihc.Resolve
     ResolutionNamespace (..),
     displayIdentifier,
     packageIdText,
+    recordSelectorNames,
     resolutionOf,
     termResolution,
   )
@@ -690,9 +691,12 @@ desugarRecordSelectors declarations = do
   bindingTypes <- gets vsBindingTypes
   -- A field whose type mentions an existential variable has no selector,
   -- so the type checker gives it no binding type.
+  -- A duplicate record field has a selector with its own name.
   let (package, moduleName') = moduleOrigin
-      selectable label = Map.member (GlobalTerm package moduleName' label) bindingTypes
-  mapM (desugarRecordSelector constructors) (filter selectable labels)
+      selectorNames = recordSelectorNames declarations
+      selectorOf label = Map.findWithDefault label label selectorNames
+      selectable label = Map.member (GlobalTerm package moduleName' (selectorOf label)) bindingTypes
+  mapM (\label -> desugarRecordSelector constructors label (selectorOf label)) (filter selectable labels)
 
 recordConstructorNames :: Syn.DataConDecl -> [Text]
 recordConstructorNames declaration =
@@ -702,34 +706,34 @@ recordConstructorNames declaration =
     Syn.GadtCon _ _ constructors (Syn.GadtRecordBody _ _) -> map Syn.unqualifiedNameText constructors
     _ -> []
 
-desugarRecordSelector :: [DataConInfo] -> Text -> ValueM Decl
-desugarRecordSelector constructors label = do
+desugarRecordSelector :: [DataConInfo] -> Text -> Text -> ValueM Decl
+desugarRecordSelector constructors label selector = do
   moduleOrigin <- gets vsModuleOrigin
   let (package, moduleName') = moduleOrigin
   bindingTypes <- gets vsBindingTypes
   selectorType <-
-    case Map.lookup (GlobalTerm package moduleName' label) bindingTypes of
+    case Map.lookup (GlobalTerm package moduleName' selector) bindingTypes of
       Just ty -> pure ty
-      Nothing -> failValue ("record selector does not have a checked type: " <> T.unpack label)
+      Nothing -> failValue ("record selector does not have a checked type: " <> T.unpack selector)
   let (typeVariables, afterForAlls) = peelForAlls selectorType
       (predicates, body) = peelConstraints afterForAlls
   (scrutineeType, fieldType) <-
     case body of
       TcFunTy argument result -> pure (argument, result)
-      _ -> failValue ("record selector does not have a function type: " <> T.unpack label)
+      _ -> failValue ("record selector does not have a function type: " <> T.unpack selector)
   withTypeVariables typeVariables $ do
     dictionaries <- mapM freshDictionaryBinder predicates
     argument <- freshBinder "$record" scrutineeType
     selection <- desugarRecordSelection label scrutineeType fieldType argument constructors
     typeBinders <- convertTypeBinders typeVariables
     selectorType' <- convertCheckedType selectorType
-    vis <- termVisibility label
+    vis <- termVisibility selector
     pure
       ( DeclVal
           ValDecl
             { valVis = vis,
               valInline = InlineDefault,
-              valName = topName moduleOrigin label,
+              valName = topName moduleOrigin selector,
               valType = selectorType',
               valBody = foldr ExTyLam (foldr ExLam selection (dictionaries <> [argument])) typeBinders
             }
@@ -3881,7 +3885,8 @@ desugarConstructorWrapper info = do
     dictionaries <- mapM freshDictionaryBinder predicates
     body <- constructorWrapperBody constructor info bodyType types (map (ExVar . binderName) dictionaries) Nothing
     wrapperType <- convertCheckedType constructorType
-    visibilities <- mapM termVisibility (dciName info : mapMaybe dcfiLabel (dciFields info))
+    env <- gets vsConvertEnv
+    let visibilities = exportedVis env ResolutionNamespaceTerm (dciName info) : map (exportedFieldVis env) (mapMaybe dcfiLabel (dciFields info))
     pure
       ( DeclVal
           ValDecl

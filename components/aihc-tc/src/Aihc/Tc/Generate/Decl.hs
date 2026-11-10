@@ -96,7 +96,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution, recordSelectorNames)
 import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
@@ -385,10 +385,12 @@ recordSelectorBindings origin declaration =
           closeOverKinds variables =
             let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
              in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
-       in [ TcBindingResult (originTermKey origin label) label (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
+          selectorNames = recordSelectorNames [inner]
+       in [ TcBindingResult (originTermKey origin selector) selector (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
             all (`elem` universals) (typeTyVars fieldType),
-            Just label <- [maybeLabel]
+            Just label <- [maybeLabel],
+            let selector = Map.findWithDefault label label selectorNames
           ]
 
 -- | The type that the type checker put on a binder, when it has one.
@@ -1582,7 +1584,9 @@ annotateRecordSelectorNames parent declaration =
     -- A record selector belongs to the declaration, so it is keyed like
     -- the type, which is how 'registerRecordSelectors' registers it.
     annotateSelectorName name = do
-      ty <- bindingType (tyConMemberTermKey parent (unqualifiedNameText name))
+      let label = unqualifiedNameText name
+          selector = Map.findWithDefault label label (recordSelectorNames [declaration])
+      ty <- bindingType (tyConMemberTermKey parent selector)
       pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
 
 dataConBindingType :: Entity -> TcM TcType
@@ -4812,7 +4816,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                     dfiiConstructors = constructors,
                     dfiiIsNewtype = dataFamilyInstIsNewtype familyInst
                   }
-              selectorBindings <- registerRecordSelectors (packageName, moduleName') constructors
+              selectorBindings <- registerRecordSelectors (packageName, moduleName') (recordSelectorNames (dataFamilyInstConstructors familyInst)) constructors
               pure (bindings <> selectorBindings)
         _ -> do
           emitError Nothing (OtherError ("data-family instance head does not name a data family: " <> T.unpack (tyConName familyTyCon)))
@@ -5356,7 +5360,7 @@ registerDataConstructors origin dataDecl = do
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams (paramInfos <> implicitParamInfos)) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors origin constructors
+      selectorBindings <- registerRecordSelectors origin (recordSelectorNames (dataDeclConstructors dataDecl)) constructors
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -5426,7 +5430,7 @@ registerNewtypeConstructor origin newtypeDecl = do
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors origin constructors
+      selectorBindings <- registerRecordSelectors origin (recordSelectorNames (maybeToList (newtypeDeclConstructor newtypeDecl))) constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
       -- The newtype and its field have one representation, so they have one kind.
@@ -5501,8 +5505,11 @@ registerTypeLevelDataCon constructor = do
           }
   storeTyConInfo info
 
-registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]
-registerRecordSelectors origin constructors =
+-- | Register the selector of each record field. The resolver gives the
+-- selector name of a duplicate record field, and any other label is its
+-- own selector name.
+registerRecordSelectors :: (Text, Text) -> Map.Map Text Text -> [DataConInfo] -> TcM [TcBindingResult]
+registerRecordSelectors origin selectorNames constructors =
   mapM registerSelector (Map.toList selectors)
   where
     -- A field whose type mentions an existential variable has no selector.
@@ -5523,10 +5530,11 @@ registerRecordSelectors origin constructors =
               []
               (TcFunTy (dciResTy constructor) (dcfiType field))
       let binder = TcIdBinder scheme Closed
-          selectorKey = originTermKey origin label
+          selector = Map.findWithDefault label label selectorNames
+          selectorKey = originTermKey origin selector
       extendTermKeyEnvPermanent selectorKey binder
       zonkedType <- zonkType (schemeToType scheme)
-      pure (TcBindingResult selectorKey label zonkedType)
+      pure (TcBindingResult selectorKey selector zonkedType)
     registerSelector (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
 
