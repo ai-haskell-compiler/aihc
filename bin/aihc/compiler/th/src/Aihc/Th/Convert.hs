@@ -19,7 +19,7 @@ where
 
 import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Syntax
-import Aihc.Resolve.Types (ExactTerm (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
+import Aihc.Resolve.Types (ExactTerm (..), ExactType (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
 import Data.Char (isAlpha, isUpper)
 import Data.Text (Text)
@@ -162,9 +162,9 @@ binderFromTree tree = do
     Just _ -> Left "A splice result binds a qualified name."
 
 -- | The name of a @Name@ tree. A name with no module, a name with a module
--- qualifier, and a term name that is bound to its package and module are
--- in the subset. The last has an 'ExactTerm' mark, so name resolution
--- gives it that term in each scope. A name that Template Haskell made
+-- qualifier, and a name that is bound to its package and module are in
+-- the subset. The last has an 'ExactTerm' or an 'ExactType' mark, so name
+-- resolution gives it that term or type in each scope. A name that Template Haskell made
 -- unique is not in the subset.
 nameFromTree :: Tree -> Either Text Name
 nameFromTree tree =
@@ -179,6 +179,9 @@ nameFromTree tree =
               | space `elem` ["VarName", "DataName"] ->
                   let global = GlobalName occurrence (PackageId package) home ResolutionNamespaceTerm
                    in Right (mkName Nothing (occurrenceType occurrence) occurrence) {nameAnns = [mkAnnotation (ExactTerm global)]}
+              | space == "TcClsName" ->
+                  let global = GlobalName occurrence (PackageId package) home ResolutionNamespaceType
+                   in Right (mkName Nothing (occurrenceType occurrence) occurrence) {nameAnns = [mkAnnotation (ExactType global)]}
             _ -> unsupported "name flavour" flavour
     _ -> unsupported "name" tree
 

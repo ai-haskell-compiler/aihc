@@ -18,6 +18,8 @@ module Aihc.Resolve.Types
     GlobalName (..),
     ExactTerm (..),
     exactTerm,
+    ExactType (..),
+    exactType,
     LocalId (..),
     Entity (.., GlobalTerm),
     globalTerm,
@@ -124,6 +126,15 @@ newtype ExactTerm = ExactTerm GlobalName
 -- | The term that a mark on the name gives, if the name has a mark.
 exactTerm :: Name -> Maybe GlobalName
 exactTerm name = listToMaybe [global | Just (ExactTerm global) <- map fromAnnotation (nameAnns name)]
+
+-- | A mark on a type constructor occurrence that gives its top-level type
+-- or class, as 'ExactTerm' does for a term.
+newtype ExactType = ExactType GlobalName
+  deriving (Eq, Show)
+
+-- | The type that a mark on the name gives, if the name has a mark.
+exactType :: Name -> Maybe GlobalName
+exactType name = listToMaybe [global | Just (ExactType global) <- map fromAnnotation (nameAnns name)]
 
 -- | The identity of one local binder, unique within a compilation unit.
 newtype LocalId = LocalId {localIdUnique :: Int}

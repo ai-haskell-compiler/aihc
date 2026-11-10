@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Change an expression quote into an expression that builds the syntax
--- tree of its body.
+-- tree of its body, and a name quote into the Template Haskell name.
 --
 -- The change needs the result of name resolution, because the form of a
 -- variable in a quote depends on its binder:
@@ -48,14 +48,9 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (Typeable, eqT, (:~:) (Refl))
 
--- | Whether a module has an expression quote.
+-- | Whether a module has an expression quote or a name quote.
 moduleHasQuote :: Module -> Bool
-moduleHasQuote = not . null . collect isQuote
-  where
-    isQuote expr =
-      case expr of
-        ETHExpQuote _ -> Just ()
-        _ -> Nothing
+moduleHasQuote = not . null . moduleQuotes
 
 -- | The alias of the modules that the new expressions refer to.
 quoteAlias :: Text
@@ -79,10 +74,19 @@ quoteImports = map qualified ["Language.Haskell.TH.Lib", "Language.Haskell.TH.Sy
           importDeclSpec = Nothing
         }
 
--- | Change each expression quote of a module that is in the subset. The
--- first module is the parsed form, and the second module is the resolved
--- form of the same module. The result is the parsed form with the new
--- expressions. A quote in a quote stays, with the quote that contains it.
+-- | A quote that this module changes.
+data Quote
+  = -- | @[| e |]@, with its body.
+    ExpressionQuote Expr
+  | -- | @'x@, with the expression of the name.
+    NameQuote Expr
+  | -- | @''T@, with the type of the name.
+    TypeNameQuote Type
+
+-- | Change each quote of a module that is in the subset. The first module
+-- is the parsed form, and the second module is the resolved form of the
+-- same module. The result is the parsed form with the new expressions. A
+-- quote in an expression quote stays, with the quote that contains it.
 desugarModuleQuotes :: Module -> Module -> Module
 desugarModuleQuotes parsed resolved
   | length parsedQuotes == length resolvedQuotes = evalState (traverseQuotes replace parsed) replacements
@@ -91,27 +95,34 @@ desugarModuleQuotes parsed resolved
     parsedQuotes = moduleQuotes parsed
     resolvedQuotes = moduleQuotes resolved
     replacements = zipWith replacement parsedQuotes resolvedQuotes
-    replacement parsedBody resolvedBody =
-      addExprParens <$> evalStateT (quoted (localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
-    replace body =
+    replacement parsedQuote resolvedQuote =
+      addExprParens
+        <$> case (parsedQuote, resolvedQuote) of
+          (ExpressionQuote parsedBody, ExpressionQuote resolvedBody) ->
+            evalStateT (quoted (localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
+          (_, NameQuote expr) -> quotedName expr
+          (_, TypeNameQuote ty) -> quotedTypeName ty
+          _ -> Nothing
+    replace original _ =
       state $ \case
         Just expr : rest -> (expr, rest)
-        _ : rest -> (ETHExpQuote body, rest)
-        [] -> (ETHExpQuote body, [])
+        _ : rest -> (original, rest)
+        [] -> (original, [])
 
--- | The body of each expression quote of a module that is not in a quote.
--- The parsed form and the resolved form of a module give the bodies in the
--- same order: the resolver changes the structure of infix expressions
--- only, and it keeps their operands in source order.
-moduleQuotes :: Module -> [Expr]
+-- | Each quote of a module that is not in an expression quote. The parsed
+-- form and the resolved form of a module give the quotes in the same
+-- order: the resolver changes the structure of infix expressions only, and
+-- it keeps their operands in source order.
+moduleQuotes :: Module -> [Quote]
 moduleQuotes modu = reverse (execState (traverseQuotes collectQuote modu) [])
   where
-    collectQuote body = do
-      modify' (body :)
-      pure (ETHExpQuote body)
+    collectQuote original quote = do
+      modify' (quote :)
+      pure original
 
--- | Visit each expression quote that 'moduleQuotes' gives, and replace it.
-traverseQuotes :: forall m. (Monad m) => (Expr -> m Expr) -> Module -> m Module
+-- | Visit each quote that 'moduleQuotes' gives, and replace it. The
+-- function gets the expression of the quote and the quote.
+traverseQuotes :: forall m. (Monad m) => (Expr -> Quote -> m Expr) -> Module -> m Module
 traverseQuotes onQuote = go
   where
     go :: forall value. (Data value) => value -> m value
@@ -122,12 +133,41 @@ traverseQuotes onQuote = go
     expression :: Expr -> m Expr
     expression expr =
       case expr of
-        ETHExpQuote body -> onQuote body
+        ETHExpQuote body -> onQuote expr (ExpressionQuote body)
+        ETHNameQuote name -> onQuote expr (NameQuote name)
+        ETHTypeNameQuote name -> onQuote expr (TypeNameQuote name)
         ETHTypedQuote {} -> pure expr
         ETHDeclQuote {} -> pure expr
         ETHTypeQuote {} -> pure expr
         ETHPatQuote {} -> pure expr
         _ -> gmapM go expr
+
+-- | The Template Haskell name of the term of a name quote. A top-level
+-- term gives a name that is bound to its package and module. A local
+-- variable gives a name with no module.
+quotedName :: Expr -> Maybe Expr
+quotedName expr =
+  case expr of
+    EAnn _ inner -> quotedName inner
+    EParen inner -> quotedName inner
+    EVar name ->
+      case nameEntity name of
+        Just (EntityGlobal global) -> Just (globalName name global)
+        Just (EntityLocal _) -> Just (dynamicName (nameText name))
+        _ -> Nothing
+    _ -> Nothing
+
+-- | The Template Haskell name of the type or class of a type name quote.
+quotedTypeName :: Type -> Maybe Expr
+quotedTypeName ty =
+  case ty of
+    TAnn _ inner -> quotedTypeName inner
+    TParen inner -> quotedTypeName inner
+    TCon name _ ->
+      case nameEntity name of
+        Just (EntityGlobal global) -> Just (call "mkNameG_tc" (globalNameParts global))
+        _ -> Nothing
+    _ -> Nothing
 
 -- | The body of each splice of a quote body, in source order. A splice in
 -- the body of a splice is not in the result.
@@ -207,9 +247,13 @@ quoted binders = go
 -- | The Template Haskell name of a top-level term.
 globalName :: Name -> GlobalName -> Expr
 globalName name global =
-  call
-    (if isConstructor name then "mkNameG_d" else "mkNameG_v")
-    (map stringLiteral [packageIdText (globalNamePackage global), globalNameModule global, globalNameText global])
+  call (if isConstructor name then "mkNameG_d" else "mkNameG_v") (globalNameParts global)
+
+-- | The package, the module, and the text of a top-level name, as the
+-- arguments of the functions that make a bound Template Haskell name.
+globalNameParts :: GlobalName -> [Expr]
+globalNameParts global =
+  map stringLiteral [packageIdText (globalNamePackage global), globalNameModule global, globalNameText global]
 
 -- | The Template Haskell name of a variable that the quote binds.
 dynamicName :: Text -> Expr
