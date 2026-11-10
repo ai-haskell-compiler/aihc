@@ -83,9 +83,9 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
-import Data.Maybe (isNothing)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
