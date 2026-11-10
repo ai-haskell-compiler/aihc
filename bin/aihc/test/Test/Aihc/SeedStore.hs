@@ -41,7 +41,7 @@ import Aihc.Cli.Options (InstallOptions (..), defaultPlanOptions)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory, wasmSysroot)
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless, void)
-import Data.List (isPrefixOf, nub)
+import Data.List (intercalate, isPrefixOf, nub)
 import Data.Maybe (fromMaybe, isJust, maybeToList)
 import System.Directory
   ( copyFile,
@@ -182,9 +182,13 @@ acquireCoreStore getPrimStore =
 acquireEngineStore :: IO SeedStore -> IO (Maybe SeedStore)
 acquireEngineStore getPrimStore = do
   targets <- installTestTargets
-  tools <- mapM findExecutable ["wasm-ld", "node"]
-  if Wasm32Wasip3 `elem` targets && all isJust tools
-    then
+  tools <- mapM (\tool -> (,) tool <$> findExecutable tool) ["wasm-ld", "node"]
+  required <- lookupEnv requireEngineVariable
+  let missing =
+        ["the wasm32-wasip3 toolchain (Clang for wasm32, an archive tool for foreign objects, and the WASI sysroot)" | Wasm32Wasip3 `notElem` targets]
+          <> [tool | (tool, Nothing) <- tools]
+  case missing of
+    [] ->
       Just
         <$> withPreparedStore
           engineStoreDirectory
@@ -194,7 +198,17 @@ acquireEngineStore getPrimStore = do
               baseRoot <- findCoreLibraryRoot "aihc-base"
               installCoreLibrary baseRoot root Wasm32Wasip3
           )
-    else pure Nothing
+    _
+      | maybe False (not . null) required ->
+          fail (requireEngineVariable <> " is set, and the engine tests cannot run. Missing: " <> intercalate "; " missing)
+      | otherwise -> pure Nothing
+
+-- | The environment variable that makes the engine tests necessary. The
+-- tests do nothing on a machine without their tools, and a result of that
+-- type looks the same as a pass. CI sets this variable, so that missing
+-- tools are a failure there.
+requireEngineVariable :: String
+requireEngineVariable = "AIHC_REQUIRE_ENGINE_TESTS"
 
 -- | Seed aihc-prim and aihc-base at @-O2@ for the host target, which is a
 -- @--lto@ build. The build is part of the identity of a package, so the
@@ -343,7 +357,12 @@ wasmSysrootAvailable = do
   result <- try (void wasmSysroot) :: IO (Either IOException ())
   pure (either (const False) (const True) result)
 
+-- | Whether the archive tool that the compiler selects keeps the objects
+-- of a foreign target. The compiler takes @AIHC_LLVM_AR@, then @llvm-ar@,
+-- then @ar@. The @ar@ of macOS does not keep such objects.
 arSupportsForeignObjects :: IO Bool
 arSupportsForeignObjects = do
+  override <- lookupEnv "AIHC_LLVM_AR"
+  llvmArchiveTool <- findExecutable "llvm-ar"
   archiveTool <- findExecutable "ar"
-  pure (System.os /= "darwin" || archiveTool /= Just "/usr/bin/ar")
+  pure (isJust override || isJust llvmArchiveTool || System.os /= "darwin" || archiveTool /= Just "/usr/bin/ar")
