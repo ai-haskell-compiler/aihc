@@ -461,6 +461,46 @@ instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g) => Eq (a, b, c, d, e, f, g) 
       && (leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG)
   left /= right = not (left == right)
 
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h) => Eq (a, b, c, d, e, f, g, h) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i) => Eq (a, b, c, d, e, f, g, h, i) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i, Eq j) => Eq (a, b, c, d, e, f, g, h, i, j) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI, leftJ) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI, rightJ) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI && leftJ == rightJ
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i, Eq j, Eq k) => Eq (a, b, c, d, e, f, g, h, i, j, k) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI, leftJ, leftK) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI, rightJ, rightK) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI && leftJ == rightJ && leftK == rightK
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i, Eq j, Eq k, Eq l) => Eq (a, b, c, d, e, f, g, h, i, j, k, l) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI, leftJ, leftK, leftL) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI, rightJ, rightK, rightL) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI && leftJ == rightJ && leftK == rightK && leftL == rightL
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i, Eq j, Eq k, Eq l, Eq m) => Eq (a, b, c, d, e, f, g, h, i, j, k, l, m) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI, leftJ, leftK, leftL, leftM) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI, rightJ, rightK, rightL, rightM) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI && leftJ == rightJ && leftK == rightK && leftL == rightL && leftM == rightM
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i, Eq j, Eq k, Eq l, Eq m, Eq n) => Eq (a, b, c, d, e, f, g, h, i, j, k, l, m, n) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI, leftJ, leftK, leftL, leftM, leftN) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI, rightJ, rightK, rightL, rightM, rightN) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI && leftJ == rightJ && leftK == rightK && leftL == rightL && leftM == rightM && leftN == rightN
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i, Eq j, Eq k, Eq l, Eq m, Eq n, Eq o) => Eq (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG, leftH, leftI, leftJ, leftK, leftL, leftM, leftN, leftO) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG, rightH, rightI, rightJ, rightK, rightL, rightM, rightN, rightO) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG && leftH == rightH && leftI == rightI && leftJ == rightJ && leftK == rightK && leftL == rightL && leftM == rightM && leftN == rightN && leftO == rightO
+  left /= right = not (left == right)
+
 instance (Eq a) => Eq (Solo a) where
   MkSolo left == MkSolo right = left == right
   left /= right = not (left == right)
