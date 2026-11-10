@@ -23,5 +23,6 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: ApplicativeDo accepts a do block with no Monad instance.
+status: pass
+reason: ApplicativeDo rewrites an independent do block with fmap and <*>, so the
+  block needs no Monad instance.

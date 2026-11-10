@@ -1086,6 +1086,10 @@ resolveExpr expr =
     EDo stmts DoMdo -> do
       stmts' <- resolveMdoStmts stmts
       pure (EDo stmts' DoMdo)
+    EDo stmts DoPlain -> do
+      (_, stmts') <- resolveDoStmts stmts
+      applicative <- applicativeDo stmts'
+      pure (fromMaybe (EDo stmts' DoPlain) applicative)
     EDo stmts flavor -> do
       (_, stmts') <- resolveDoStmts stmts
       pure (EDo stmts' flavor)
@@ -1329,6 +1333,8 @@ builtinSyntaxTerm info name =
         "return",
         "fail",
         "mfix",
+        "fmap",
+        "<*>",
         "enumFrom",
         "enumFromThen",
         "enumFromTo",
@@ -1499,6 +1505,126 @@ resolveDoStmt isLast stmt =
       stmt' <- annotateRecStmt (DoRecStmt stmts')
       pure (unionScope recScope scope, stmt')
 
+-- | Rewrite a resolved do block with the Applicative methods when
+-- ApplicativeDo is on. GHC does this rewrite in its renamer.
+--
+-- The rewrite applies only when the block has this form:
+--
+-- > do { p1 <- e1; ...; pn <- en; return e }
+--
+-- An expression statement is a bind with a wildcard pattern. Each pattern
+-- is a variable, a wildcard, or a lazy pattern. No action uses a variable
+-- that an earlier statement binds. The last statement applies @return@ or
+-- @pure@, directly or with @$@. Then the block is
+--
+-- > fmap (\p1 ... pn -> e) e1 <*> ... <*> en
+--
+-- and it needs only a Functor or an Applicative instance. A block of a
+-- different form stays a monadic do block.
+--
+-- GHC also splits a block with dependencies into independent segments.
+-- This rewrite does not do that.
+applicativeDo :: [DoStmt Expr] -> ResolveM (Maybe Expr)
+applicativeDo stmts = do
+  info <- currentModuleInfo
+  fieldScope <- currentScope
+  let extensions = moduleInfoExtensions info
+      binderNames = concatMap (doStmtBinderKeys fieldScope) stmts
+  if ApplicativeDo `notElem` extensions
+    || RebindableSyntax `elem` extensions
+    || length binderNames /= Set.size (Set.fromList binderNames)
+    then pure Nothing
+    else case List.unsnoc (map peelDoStmtAnn stmts) of
+      Just (args@(_ : _), DoExpr final)
+        | Just actions <- traverse applicativeArg args,
+          independentActions actions,
+          Just result <- returnedExpr info final ->
+            Just <$> applicativeExpr actions result
+      _ -> pure Nothing
+  where
+    applicativeArg stmt =
+      case stmt of
+        DoBind pat action | lazyPattern pat -> Just (pat, action)
+        DoExpr action -> Just (PWildcard, action)
+        _ -> Nothing
+    lazyPattern pat =
+      case peelPatternAnn pat of
+        PParen inner -> lazyPattern inner
+        PVar {} -> True
+        PWildcard -> True
+        PIrrefutable {} -> True
+        _ -> False
+
+-- | Whether no action or pattern uses a variable that an earlier pattern
+-- binds.
+independentActions :: [(Pattern, Expr)] -> Bool
+independentActions = go Set.empty
+  where
+    go _ [] = True
+    go bound ((pat, action) : rest) =
+      let patLocals = localEntities pat
+          uses = Set.union (localEntities action) patLocals
+       in Set.disjoint uses bound && go (Set.union bound patLocals) rest
+
+-- | The local entities that the annotations of a resolved node name.
+localEntities :: (Walkable a) => a -> Set.Set Entity
+localEntities =
+  Set.fromList
+    . collectAnnotations
+      ( \ann -> case annotationResolution ann of
+          Just resolved@ResolutionAnnotation {resolutionTarget = EntityLocal {}} -> Just (resolutionTarget resolved)
+          _ -> Nothing
+      )
+
+-- | The argument of the last statement of an applicative do block. The
+-- statement must be @return e@, @pure e@, @return $ e@, or @pure $ e@.
+returnedExpr :: ModuleInfo -> Expr -> Maybe Expr
+returnedExpr info expr =
+  case peelExpr expr of
+    EApp fun arg | isReturn fun -> Just arg
+    EInfix fun op arg | isDollar op && isReturn fun -> Just arg
+    _ -> Nothing
+  where
+    peelExpr e =
+      case e of
+        EAnn _ inner -> peelExpr inner
+        EParen inner -> peelExpr inner
+        _ -> e
+    builtinTarget name =
+      case lookupTerm name (moduleInfoBuiltinScope info) of
+        Resolved entity -> Just entity
+        Unresolved _ -> Nothing
+    isReturn fun =
+      case peelExpr fun of
+        EVar name ->
+          case nameTarget name of
+            Just target -> Just target `elem` map builtinTarget ["return", "pure"]
+            Nothing -> False
+        _ -> False
+    isDollar op =
+      case nameTarget op of
+        Just (EntityGlobal global) ->
+          globalNameText global == "$" && globalNameModule global == "GHC.Base"
+        _ -> False
+    nameTarget name =
+      listToMaybe [resolutionTarget resolved | Just resolved <- map annotationResolution (nameAnns name)]
+
+-- | Build @fmap (\p1 ... pn -> e) e1 <*> ... <*> en@.
+applicativeExpr :: [(Pattern, Expr)] -> Expr -> ResolveM Expr
+applicativeExpr actions result = do
+  sp <- currentSpan
+  fmapVar <- syntaxTermVar sp NameVarId "fmap"
+  apVar <- syntaxTermVar sp NameVarSym "<*>"
+  let lambda = EParen (ELambdaPats (map fst actions) result)
+  case map snd actions of
+    first : rest ->
+      pure (foldl (EApp . EApp apVar) (EApp (EApp fmapVar lambda) first) rest)
+    [] -> pure result
+  where
+    syntaxTermVar sp kind name = do
+      ann <- syntaxTermAnnotation sp name
+      pure (EVar (Name Nothing kind name [ann]))
+
 -- | Resolve the statements of an @mdo@ block.
 --
 -- Each variable that a statement binds is in scope in all statements of the
@@ -1568,18 +1694,9 @@ segmentMdoStmts fieldScope targets stmts = go indexed
 doStmtUses :: DoStmt Expr -> (Set.Set Entity, Bool)
 doStmtUses stmt =
   case peelDoStmtAnn stmt of
-    DoBind _ body -> (localUses body, True)
-    DoExpr body -> (localUses body, False)
-    _ -> (localUses stmt, False)
-  where
-    localUses :: (Walkable a) => a -> Set.Set Entity
-    localUses =
-      Set.fromList
-        . collectAnnotations
-          ( \ann -> case annotationResolution ann of
-              Just resolved@ResolutionAnnotation {resolutionTarget = EntityLocal {}} -> Just (resolutionTarget resolved)
-              _ -> Nothing
-          )
+    DoBind _ body -> (localEntities body, True)
+    DoExpr body -> (localEntities body, False)
+    _ -> (localEntities stmt, False)
 
 -- | Resolve one statement of a recursive group. The variables of the whole
 -- group are already in scope, and each binder takes its entity from the

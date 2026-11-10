@@ -4490,12 +4490,17 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
         kindSubstitution
           <> Map.fromList [(tvUnique tyVar, arg) | (TcTyVar tyVar, arg) <- zip defaultArguments args]
       freshTyVars = [tyVar | TcTyVar tyVar <- args, tyVar `notElem` instanceTyVars]
+      -- The axiom binds only the instance variables that its left side
+      -- names. A class parameter that the family does not take, as @m@ in
+      -- @instance Component m Parent@, has no place in the axiom: no family
+      -- application can instantiate it.
+      axiomTyVars = [tyVar | tyVar <- instanceTyVars, any (typeMentionsTyVar tyVar) args]
   pure
     TypeFamilyInstanceInfo
       { tfiiFamilyName = tyConName (atiTyCon info),
         tfiiAxiomName = associatedDefaultAxiomName kinds info headTys,
         tfiiOrigin = (PackageId packageName, moduleName'),
-        tfiiTyVars = instanceTyVars <> freshTyVars,
+        tfiiTyVars = axiomTyVars <> freshTyVars,
         tfiiLeft = TcTyCon (atiTyCon info) args,
         tfiiRight = applySubst substitution (tfiiRight defaultEquation),
         tfiiClosed = False
