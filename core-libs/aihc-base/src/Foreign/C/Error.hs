@@ -145,6 +145,7 @@ module Foreign.C.Error
     throwErrnoIfMinus1RetryMayBlock_,
     throwErrnoIfNull,
     throwErrnoIfNullRetry,
+    throwErrnoIfNullRetryMayBlock,
     throwErrnoPath,
     throwErrnoPathIf,
     throwErrnoPathIf_,
@@ -698,6 +699,11 @@ throwErrnoIfNull = throwErrnoIf (== nullPtr)
 -- | 'throwErrnoIfNull' that runs the action again when it was interrupted.
 throwErrnoIfNullRetry :: String -> IO (Ptr a) -> IO (Ptr a)
 throwErrnoIfNullRetry = throwErrnoIfRetry (== nullPtr)
+
+-- | Throw when the action returns a null pointer. Run the block action
+-- and try again when the action would block.
+throwErrnoIfNullRetryMayBlock :: String -> IO (Ptr a) -> IO b -> IO (Ptr a)
+throwErrnoIfNullRetryMayBlock = throwErrnoIfRetryMayBlock (== nullPtr)
 
 -- | 'throwErrno' naming the file the operation was working on.
 throwErrnoPath :: String -> FilePath -> IO a

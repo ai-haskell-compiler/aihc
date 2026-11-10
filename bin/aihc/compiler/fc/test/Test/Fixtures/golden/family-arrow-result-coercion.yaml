@@ -1,0 +1,94 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Lib (V, M (..)) where
+  import GHC.Types (Type)
+
+  type family V a :: Type -> Type
+
+  data M n a = M a
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  {-# LANGUAGE FlexibleContexts #-}
+  {-# LANGUAGE KindSignatures #-}
+  {-# LANGUAGE ScopedTypeVariables #-}
+  {-# LANGUAGE TypeApplications #-}
+  module Test (g) where
+  import Lib
+  import GHC.Types (Type, Int)
+
+  class C (v :: Type -> Type) where
+    c :: v Int -> Int
+
+  h :: forall v. C v => v Int -> Int
+  h = c
+
+  g :: forall m n a. (m ~ n, C (V (M n a))) => V (M m a) Int -> Int
+  g = h @(V (M m a))
+expected: |-
+  scope 1 = "" Lib
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tV (a : sType) :: sType → sType @N {}
+
+  pub type 1.tM (n : sType) (a : sType) :: sType {
+    pub 1.cM :: ∀(n : sType) (a : sType). a → tM n a
+  }
+  scope 1 = "" Lib
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [1.cM] 1.tM :: ∀(n : sType) (a : sType). sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    1.tV :: sType → sType → sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 2.t$Dict$C (v : sType → sType) :: sType {
+    2.c$Dict$C :: ∀(v : sType → sType). (v tInt → tInt) → t$Dict$C v
+  }
+
+  val 2.vc :: ∀(v : sType → sType). t$Dict$C v → v tInt → tInt
+    = Λ(v : sType → sType). λ($dC : t$Dict$C v).
+      let! c$Dict$C ($cc : v tInt → tInt) = $dC;
+      $cc
+
+  val 2.vh :: ∀(v : sType → sType). t$Dict$C v → v tInt → tInt
+    = Λ(v : sType → sType). λ($dC : t$Dict$C v).
+      vc @v $dC
+
+  pub val 2.vg :: ∀(m : sType) (n : sType) (a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (m ~ n) (t$Dict$C (tV (tM n a)) → tV (tM m a) tInt → tInt)
+    = Λ(m : sType) (n : sType) (a : sType). λ($co : m ~ n) ($dC : t$Dict$C (tV (tM n a))).
+      vh @(tV (tM m a)) ($dC ▷ sym (tycon-co t$Dict$C (tycon-co tV (tycon-co tM ($co) (refl a)))))
+status: pass
+reason: |-
+  A type family with an arrow result kind takes fewer arguments than its kind has arrows.
+  A coercion under the family has one argument for each family parameter, and the lint accepts it.

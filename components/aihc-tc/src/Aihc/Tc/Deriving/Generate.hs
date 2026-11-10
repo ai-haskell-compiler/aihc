@@ -21,6 +21,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     ArrowKind (..),
+    BuiltinCon (..),
     CaseAlt (..),
     Decl (..),
     Expr (..),
@@ -63,7 +64,7 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (UnliftedFieldType, functorialFieldUses, newtypeRepresentation, stockFieldTypes, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, unliftedFieldReferences)
 import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
@@ -229,7 +230,7 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
           -- them. The instance and its equation bind the kind variables
           -- explicitly ('genericKindBinders'). A datatype whose parameter
           -- kinds have no source syntax gets no instance.
-          | stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods,
+          | stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockGenericMethods, Just StockGeneric1Methods],
             Just dataType <- tcDerivingDataType plan,
             not (null (datatypeKindVariables dataType)),
             isNothing (genericKindBinders gen dataType) ->
@@ -318,7 +319,8 @@ generateItems gen =
                 Just StockFunctorMethods -> functorialItems gen functorItems constructors
                 Just StockFoldableMethods -> functorialItems gen foldableItems constructors
                 Just StockTraversableMethods -> functorialItems gen traversableItems constructors
-                Just StockGenericMethods -> genericItems gen dataType
+                Just StockGenericMethods -> genericItems gen GenericMode dataType
+                Just StockGeneric1Methods -> genericItems gen Generic1Mode dataType
                 Just StockDataMethods -> dataItems gen dataType
                 Nothing -> failWith ("stock deriving of " <> T.unpack (tcDerivingClassName plan) <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
@@ -1272,18 +1274,22 @@ associatedItems gen representation = do
 --
 -- The balance matches GHC's, so that a representation aihc derives and one
 -- GHC derives are the same type rather than two spellings of one datatype.
-genericItems :: Gen -> DataTypeInfo -> TcM (Maybe [InstanceDeclItem])
-genericItems gen dataType =
-  case stockFieldTypes plan of
+--
+-- A derived @Generic1@ instance has the same shape. Only the fields are
+-- different: a field that uses the last parameter of the datatype is a
+-- @Par1@, a @Rec1@ or a composition, and not a @Rec0@.
+genericItems :: Gen -> GenericMode -> DataTypeInfo -> TcM (Maybe [InstanceDeclItem])
+genericItems gen mode dataType =
+  case genericFieldShapes mode plan of
     Left message -> failWith message
-    Right fieldTypes -> do
+    Right fieldShapes -> do
       maybeRepTyCon <- genericRepTyCon gen
       let surfaceHeads = mapM (surfaceType (genSpan gen)) (tcDerivingHeadTypes plan)
-          surfaceFields = mapM (mapM (surfaceType (genSpan gen))) fieldTypes
+          surfaceFields = mapM (mapM (genericFieldRep gen)) fieldShapes
       case (maybeRepTyCon, surfaceHeads, surfaceFields) of
-        (Nothing, _, _) -> failWith "stock Generic deriving requires the Rep associated type of the class"
-        (_, Nothing, _) -> failWith "stock Generic deriving cannot express the datatype as source syntax"
-        (_, _, Nothing) -> failWith "stock Generic deriving cannot express a constructor field as source syntax"
+        (Nothing, _, _) -> failWith ("stock " <> className <> " deriving requires the representation associated type of the class")
+        (_, Nothing, _) -> failWith ("stock " <> className <> " deriving cannot express the datatype as source syntax")
+        (_, _, Nothing) -> failWith ("stock " <> className <> " deriving cannot express a constructor field as source syntax")
         (Just repTyCon, Just headTypes, Just fieldSyntax) -> do
           let constructors =
                 [ (constructor, zip (dciFields constructor) fields)
@@ -1310,13 +1316,95 @@ genericItems gen dataType =
                 value <- freshLocal gen "x"
                 pure [simpleMatch gen [atPattern gen (PVar value)] (applyN gen (genericExpr gen genericM1) [caseOf gen (localExpr gen value) []])]
               else mapM (genericFromMatch gen) (repTreePaths constructors)
-          toItem <- genericToItem gen constructors
-          pure (Just [equation, methodBind gen "from" fromMatches, toItem])
+          toItem <- genericToItem gen (genericMethodName mode "to") constructors
+          pure (Just [equation, methodBind gen (genericMethodName mode "from") fromMatches, toItem])
   where
     plan = genPlan gen
+    className = T.unpack (tcDerivingClassName plan)
     failWith message = do
       emitError (genSpan gen) (OtherError message)
       pure Nothing
+
+-- | Which of the two generic classes a plan derives.
+data GenericMode
+  = -- | @Generic@: every field is a @Rec0@.
+    GenericMode
+  | -- | @Generic1@: the representation is over the last parameter of the
+    -- datatype, which the instance head leaves out.
+    Generic1Mode
+  deriving (Eq, Show)
+
+-- | A method name of the class, @from@ or @from1@ for example.
+genericMethodName :: GenericMode -> Text -> Text
+genericMethodName mode name =
+  case mode of
+    GenericMode -> name
+    Generic1Mode -> name <> "1"
+
+-- | The fields of every constructor, as the representation sees them.
+genericFieldShapes :: GenericMode -> TcDerivingPlan -> Either String [[GenericField]]
+genericFieldShapes mode plan =
+  case mode of
+    GenericMode -> map (map GenericConstant) <$> stockFieldTypes plan
+    Generic1Mode -> generic1FieldShapes plan
+
+-- | One field of a representation: its type in the representation, and
+-- the conversions of a field value to and from that type.
+data GenericFieldRep = GenericFieldRep
+  { genericFieldType :: !Type,
+    genericFieldFrom :: !(Expr -> TcM Expr),
+    genericFieldTo :: !(Expr -> TcM Expr)
+  }
+
+-- | The representation of one field, or 'Nothing' when a type in it has no
+-- source syntax.
+genericFieldRep :: Gen -> GenericField -> Maybe GenericFieldRep
+genericFieldRep gen field =
+  case field of
+    GenericConstant ty -> do
+      surface <- surfaceType (genSpan gen) ty
+      pure (wrapped (TApp (genericType gen genericRec0Type) surface) genericK1 genericUnK1)
+    GenericParameter -> pure (wrapped (genericType gen genericPar1Type) genericPar1 genericUnPar1)
+    _ -> genericContainerRep gen field
+  where
+    wrapped ty wrap unwrap =
+      GenericFieldRep
+        { genericFieldType = ty,
+          genericFieldFrom = \value -> pure (applyN gen (genericExpr gen wrap) [value]),
+          genericFieldTo = \value -> pure (applyN gen (genericExpr gen unwrap) [value])
+        }
+
+-- | The representation of a field that is a type applied to a use of the
+-- parameter.
+genericContainerRep :: Gen -> GenericField -> Maybe GenericFieldRep
+genericContainerRep gen field =
+  case field of
+    GenericApplied function -> do
+      surface <- surfaceType (genSpan gen) function
+      pure
+        GenericFieldRep
+          { genericFieldType = TApp (genericType gen genericRec1Type) surface,
+            genericFieldFrom = \value -> pure (applyN gen (genericExpr gen genericRec1) [value]),
+            genericFieldTo = \value -> pure (applyN gen (genericExpr gen genericUnRec1) [value])
+          }
+    GenericComposed function inner -> do
+      surface <- surfaceType (genSpan gen) function
+      innerRep <- genericContainerRep gen inner
+      pure
+        GenericFieldRep
+          { genericFieldType = typeOperator gen genericCompType surface (genericFieldType innerRep),
+            genericFieldFrom = \value -> do
+              converted <- mapped (genericFieldFrom innerRep) value
+              pure (applyN gen (genericExpr gen genericComp1) [converted]),
+            genericFieldTo = \value ->
+              mapped (genericFieldTo innerRep) (applyN gen (genericExpr gen genericUnComp1) [value])
+          }
+    _ -> Nothing
+  where
+    mapped convert value = do
+      element <- freshLocal gen "y"
+      body <- convert (localExpr gen element)
+      pure (applyN gen (referenceExpr gen derivingFmap) [lambda gen element body, value])
 
 -- | The explicit binders of a derived Generic instance for a poly-kinded
 -- datatype: the kind variables of the datatype, then each parameter with
@@ -1383,7 +1471,7 @@ genericRepTyCon gen = do
 
 -- | The representation type of a datatype whose constructors are paired
 -- with their fields and the surface syntax of each field type.
-genericRepType :: Gen -> DataTypeInfo -> [(DataConInfo, [(DataConFieldInfo, Type)])] -> Type
+genericRepType :: Gen -> DataTypeInfo -> [(DataConInfo, [(DataConFieldInfo, GenericFieldRep)])] -> Type
 genericRepType gen dataType constructors =
   applyTypes (genericType gen genericD1Type) [genericMetaDataType gen dataType, sum']
   where
@@ -1402,10 +1490,10 @@ genericRepType gen dataType constructors =
             (genericType gen genericU1Type)
             (foldRepTree (typeOperator gen genericProductType) fieldType)
             (repTree fields)
-    fieldType (field, fieldSurface) =
+    fieldType (field, fieldRep) =
       applyTypes
         (genericType gen genericS1Type)
-        [genericMetaSelType gen field, TApp (genericType gen genericRec0Type) fieldSurface]
+        [genericMetaSelType gen field, genericFieldType fieldRep]
 
 -- | @'MetaData' name module package isNewtype@. The package is the unit
 -- that declares the datatype, as in GHC.
@@ -1461,16 +1549,17 @@ genericMetaSelType gen field =
 
 -- | One @from@ equation: the constructor's fields, wrapped in the metadata
 -- and the sum injections that lead to its leaf of the representation.
-genericFromMatch :: Gen -> ((DataConInfo, [(DataConFieldInfo, Type)]), [RepSide]) -> TcM Match
-genericFromMatch gen ((constructor, _), path) = do
+genericFromMatch :: Gen -> ((DataConInfo, [(DataConFieldInfo, GenericFieldRep)]), [RepSide]) -> TcM Match
+genericFromMatch gen ((constructor, fieldReps), path) = do
   fields <- fieldLocals gen "a" constructor
+  fieldExprs <- zipWithM (\(_, fieldRep) field -> genericFieldFrom fieldRep (localExpr gen field)) fieldReps fields
   let product' =
         maybe
           (genericExpr gen genericU1)
           (foldRepTree (\left right -> applyN gen (genericExpr gen genericProduct) [left, right]) fieldExpr)
-          (repTree fields)
-      fieldExpr field =
-        applyN gen (genericExpr gen genericM1) [applyN gen (genericExpr gen genericK1) [localExpr gen field]]
+          (repTree fieldExprs)
+      fieldExpr value =
+        applyN gen (genericExpr gen genericM1) [value]
       injected = foldr inject (applyN gen (genericExpr gen genericM1) [product']) path
       inject side inner = applyN gen (referenceExpr gen (sideConstructor side)) [inner]
   pure
@@ -1488,14 +1577,14 @@ genericFromMatch gen ((constructor, _), path) = do
 -- @Rep (T a) x@ rather than a saturated application of the newtype, and
 -- the desugarer reads the arguments of a newtype pattern's axiom off its
 -- checked type.
-genericToItem :: Gen -> [(DataConInfo, [(DataConFieldInfo, Type)])] -> TcM InstanceDeclItem
-genericToItem gen constructors = do
+genericToItem :: Gen -> Text -> [(DataConInfo, [(DataConFieldInfo, GenericFieldRep)])] -> TcM InstanceDeclItem
+genericToItem gen methodName constructors = do
   representation <- freshLocal gen "r"
   alternatives <- mapM constructorAlternative (repTreePaths constructors)
   pure
     ( methodBind
         gen
-        "to"
+        methodName
         [ simpleMatch
             gen
             [atPattern gen (PVar representation)]
@@ -1504,21 +1593,21 @@ genericToItem gen constructors = do
     )
   where
     unwrap expr = applyN gen (genericExpr gen genericUnM1) [expr]
-    constructorAlternative ((constructor, _), path) = do
+    constructorAlternative ((constructor, fieldReps), path) = do
       node <- freshLocal gen "c"
       fields <- fieldLocals gen "a" constructor
+      fieldValues <- zipWithM (\(_, fieldRep) local -> genericFieldTo fieldRep (unwrap (localExpr gen local))) fieldReps fields
       let fieldPattern =
             maybe
               (atPattern gen PWildcard)
               (foldRepTree pairPattern (atPattern gen . PVar))
               (repTree fields)
           pairPattern left right = atPattern gen (PCon (referenceSyntax gen (genericProduct . derivingGeneric)) [] [left, right])
-          field local = applyN gen (genericExpr gen genericUnK1) [unwrap (localExpr gen local)]
           body =
             caseOf
               gen
               (unwrap (localExpr gen node))
-              [(fieldPattern, applyN gen (constructorExpr gen constructor) (map field fields))]
+              [(fieldPattern, applyN gen (constructorExpr gen constructor) fieldValues)]
       pure (sumPattern gen node path, body)
 
 -- | The sum pattern that reaches one leaf of the representation, binding
@@ -1809,6 +1898,9 @@ surfaceType sp ty =
     -- A poly-kinded constructor that a use site applied to its kinds, such
     -- as the @Const@ of @b (Const a)@. Source syntax does not spell the
     -- kinds, and the check of the generated declaration infers them again.
+    -- A partially applied arrow, as the @(->) r@ of a @Generic1@
+    -- representation of @r -> m a@.
+    TcArrowTy -> Just (TBuiltinCon BuiltinArrow Unpromoted)
     TcKindedTyCon tyCon _
       | tyConNamespace tyCon == ResolutionNamespaceType ->
           Just (TCon (tyConNameSyntax sp tyCon) Unpromoted)

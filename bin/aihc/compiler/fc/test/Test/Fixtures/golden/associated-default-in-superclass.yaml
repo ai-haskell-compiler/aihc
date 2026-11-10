@@ -1,0 +1,63 @@
+extensions:
+  - TypeFamilies
+  - MultiParamTypeClasses
+  - FlexibleContexts
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances #-}
+    module Test where
+    data Box a = Box a
+    class Store a s
+    instance Store a (Box a)
+    -- The family does not take the class parameter m.
+    class (Store a (Storage a)) => Component m a where
+      type Storage a
+      type Storage a = Box a
+    data Nat = Z
+    instance Component m Nat
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a → tBox a
+  }
+
+  pub type 1.t$Dict$Store (a : sType) (s : sType) :: sType {
+    pub 1.c$Dict$Store :: ∀(a : sType) (s : sType). t$Dict$Store a s
+  }
+
+  pub type 1.t$Dict$Component (m : sType) (a : sType) :: sType {
+    pub 1.c$Dict$Component :: ∀(m : sType) (a : sType). t$Dict$Store a (tStorage a) → t$Dict$Component m a
+  }
+
+  pub type 1.tStorage (a : sType) :: sType @N {}
+
+  pub type 1.tNat :: sType {
+    pub 1.cZ :: tNat
+  }
+
+  axiom 1.$ax$Storage$Nat : tStorage tNat ~N tBox tNat
+
+  pub val 1.v$fStoreaBoxa :: ∀(a : sType). t$Dict$Store a (tBox a)
+    = Λ(a : sType).
+      c$Dict$Store @a @(tBox a)
+
+  pub val 1.v$fComponentmNat :: ∀(m : sType). t$Dict$Component m tNat
+    = Λ(m : sType).
+      c$Dict$Component @m @tNat (v$fStoreaBoxa @tNat)
+status: pass

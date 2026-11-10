@@ -25,7 +25,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens, splitTypeable)
 import Aihc.Tc.Solve.Equality (EqResult (..), givenRewrites, solveEquality)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
@@ -347,7 +347,19 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     result <- solveDictWithGivens givenPredicates ct
     case result of
       DictSolved -> pure []
-      DictStuck stuck -> deferOrReport skolems givenPredicates stuck
+      DictStuck stuck -> do
+        -- A Typeable wanted that mentions a skolem of the branch and a
+        -- meta variable of the enclosing scope cannot leave the branch.
+        -- Its parts can: the branch solves the parts of the skolem, and
+        -- the parts of the meta variable wait for the enclosing scope.
+        predicate <- zonkPred (ctPred stuck)
+        let mixed =
+              not (null (predMetaVars predicate))
+                && any (`elem` skolems) (predTyVars predicate)
+        parts <- if mixed then splitTypeable stuck {ctPred = predicate} else pure Nothing
+        case parts of
+          Just wanteds -> concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqualities) wanteds
+          Nothing -> deferOrReport skolems givenPredicates stuck
   quantified@QuantifiedPred {} -> do
     kinds <- getKinds
     let rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates

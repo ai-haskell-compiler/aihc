@@ -36,7 +36,7 @@ where
 
 import Aihc.Parser.Syntax (Extension (..))
 import Aihc.Tc.Deriving.Functorial (FunctionFields (..))
-import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), dataReferenceList, genericTermReferences)
+import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), dataReferenceList, generic1TermReferences, genericTermReferences)
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -77,6 +77,7 @@ data StockMethods
   | StockFoldableMethods
   | StockTraversableMethods
   | StockGenericMethods
+  | StockGeneric1Methods
   | StockDataMethods
   deriving (Eq, Show)
 
@@ -181,7 +182,11 @@ stockClasses =
         stockClassMethods = Just StockGenericMethods,
         stockClassReferences = [select . derivingGeneric | select <- genericTermReferences]
       },
-    extension "Generic1" DeriveGeneric NewtypeNever,
+    (extension "Generic1" DeriveGeneric NewtypeNever)
+      { stockClassObligations = NoObligations,
+        stockClassMethods = Just StockGeneric1Methods,
+        stockClassReferences = derivingFmap : [select . derivingGeneric | select <- genericTermReferences <> generic1TermReferences]
+      },
     (extension "Lift" DeriveLift NewtypeNever)
       { stockClassMethods = Just StockLiftMethods,
         stockClassReferences =

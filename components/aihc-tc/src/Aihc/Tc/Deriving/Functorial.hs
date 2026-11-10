@@ -25,6 +25,7 @@ module Aihc.Tc.Deriving.Functorial
     FunctionFields (..),
     fieldUse,
     fieldUseObligations,
+    splitLastArgument,
   )
 where
 
