@@ -1086,8 +1086,8 @@ capturesContinuation expression =
 useCounts :: GrinExpr -> MonoidMap GrinVar (Sum Int)
 useCounts expression =
   case expression of
-    GrinBind _ valueExpression body -> MonoidMap.unionWith (+) (useCounts valueExpression) (useCounts body)
-    GrinStoreRec bindings body -> MonoidMap.unionWith (+) (valueUses (concatMap (grinNodeFields . snd) bindings)) (useCounts body)
+    GrinBind _ valueExpression body -> MonoidMap.unionWith (<>) (useCounts valueExpression) (useCounts body)
+    GrinStoreRec bindings body -> MonoidMap.unionWith (<>) (valueUses (concatMap (grinNodeFields . snd) bindings)) (useCounts body)
     GrinCase scrutinee binder alternatives ->
       let alternativeCounts = [(alternative, useCounts (grinAltRhs alternative)) | alternative <- alternatives]
           aliasUses (alternative, counts) =
@@ -1097,7 +1097,7 @@ useCounts expression =
                 _ -> 0
           scrutineeUses = 1 + maximum (0 : map aliasUses alternativeCounts)
           branches = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map snd alternativeCounts)
-       in MonoidMap.unionWith (+) (valueUsesTimes scrutineeUses scrutinee) branches
+       in MonoidMap.unionWith (<>) (valueUsesTimes scrutineeUses scrutinee) branches
     _ -> valueUses (exprOperands expression)
   where
     valueUses values = MonoidMap.fromListWith (+) [(var, 1) | GrinVarValue var <- values]
