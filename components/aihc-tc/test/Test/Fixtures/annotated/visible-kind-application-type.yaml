@@ -1,0 +1,30 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - PolyKinds
+  - StandaloneKindSignatures
+  - TypeApplications
+modules:
+  - |
+    {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, StandaloneKindSignatures, TypeApplications #-}
+    module Test where
+    import GHC.Types
+    type Proxy :: forall k. k -> Type
+    data Proxy a = Proxy
+    typeProxy :: Proxy @Type Int
+    typeProxy = Proxy
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, StandaloneKindSignatures, TypeApplications #-}
+    module Test where
+    import GHC.Types
+    type Proxy :: forall k. k -> Type
+    data Proxy a = Proxy
+         │         └─ type: ∀ k a. Proxy a
+         └─ type: k → Type
+    typeProxy :: Proxy @Type Int
+    typeProxy = Proxy
+    │           └─ type: Proxy GHC.Types.Int; type-args: Type, Int
+    └─ type: Proxy GHC.Types.Int
+status: pass
+reason: a visible kind application gives the specified kind variable of a type constructor

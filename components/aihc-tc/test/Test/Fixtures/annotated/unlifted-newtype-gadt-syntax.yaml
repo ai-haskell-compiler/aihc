@@ -1,0 +1,26 @@
+extensions:
+  - DataKinds
+  - GADTSyntax
+  - KindSignatures
+  - MagicHash
+  - UnliftedNewtypes
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTSyntax, KindSignatures, MagicHash, UnliftedNewtypes #-}
+    module Test where
+    import GHC.Types
+    import GHC.Prim (Word#)
+    newtype Bool# :: TYPE 'WordRep where
+      Bool# :: Word# -> Bool#
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTSyntax, KindSignatures, MagicHash, UnliftedNewtypes #-}
+    module Test where
+    import GHC.Types
+    import GHC.Prim (Word#)
+    newtype Bool# :: TYPE 'WordRep where
+            └─ type: GHC.Types.TYPE 'GHC.Types.WordRep
+      Bool# :: Word# -> Bool#
+      └─ type: GHC.Prim.Word# → Bool#
+status: pass
+reason: a GADT-syntax constructor of an UnliftedNewtypes newtype returns a type of an unlifted kind

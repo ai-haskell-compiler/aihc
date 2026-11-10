@@ -1,0 +1,24 @@
+extensions:
+  - DataKinds
+  - GADTSyntax
+  - KindSignatures
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTSyntax, KindSignatures, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types
+    data Phantom :: forall (r :: RuntimeRep). TYPE r -> Type where
+      Phantom :: forall (r :: RuntimeRep) (a :: TYPE r). Phantom a
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTSyntax, KindSignatures, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types
+    data Phantom :: forall (r :: RuntimeRep). TYPE r -> Type where
+         └─ type: GHC.Types.TYPE r → Type
+      Phantom :: forall (r :: RuntimeRep) (a :: TYPE r). Phantom a
+      └─ type: ∀ r a. Phantom a
+status: pass
+reason: an inline kind quantifies its own kind variable, as a standalone kind signature can

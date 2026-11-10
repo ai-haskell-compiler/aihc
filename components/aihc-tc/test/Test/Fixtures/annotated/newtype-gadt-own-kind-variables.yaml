@@ -1,0 +1,26 @@
+extensions:
+  - DataKinds
+  - GADTSyntax
+  - KindSignatures
+  - PolyKinds
+  - RankNTypes
+  - UnboxedSums
+  - UnliftedNewtypes
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTSyntax, KindSignatures, PolyKinds, RankNTypes, UnboxedSums, UnliftedNewtypes #-}
+    module Test where
+    import GHC.Types
+    newtype Choice :: forall (ra :: RuntimeRep) (rb :: RuntimeRep). TYPE ra -> TYPE rb -> TYPE ('SumRep '[ra, rb]) where
+      Choice :: forall (ra :: RuntimeRep) (rb :: RuntimeRep) (a :: TYPE ra) (b :: TYPE rb). (# a | b #) -> Choice a b
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTSyntax, KindSignatures, PolyKinds, RankNTypes, UnboxedSums, UnliftedNewtypes #-}
+    module Test where
+    import GHC.Types
+    newtype Choice :: forall (ra :: RuntimeRep) (rb :: RuntimeRep). TYPE ra -> TYPE rb -> TYPE ('SumRep '[ra, rb]) where
+            └─ type: GHC.Types.TYPE ra → GHC.Types.TYPE rb → GHC.Types.TYPE ('GHC.Types.SumRep ('GHC.Types.: ra ('GHC.Types.: rb 'GHC.Types.[])))
+      Choice :: forall (ra :: RuntimeRep) (rb :: RuntimeRep) (a :: TYPE ra) (b :: TYPE rb). (# a | b #) -> Choice a b
+      └─ type: ∀ ra a rb b. GHC.Types.Sum2# a b → Choice a b
+status: pass
+reason: a GADT newtype constructor quantifies its own representation variables, and its field has the kind of its own result
