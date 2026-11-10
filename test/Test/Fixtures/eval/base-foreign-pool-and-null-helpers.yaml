@@ -1,0 +1,23 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.Error (throwErrnoIfNullRetryMayBlock)
+    import Foreign.Marshal.Error (throwIfNull)
+    import Foreign.Marshal.Pool (Pool, withPool)
+    import Foreign.Marshal.Utils (maybePeek)
+    import Foreign.Ptr (Ptr, nullPtr)
+    import System.IO.Unsafe (unsafePerformIO)
+    import System.Posix.Internals (c_safe_open)
+
+    peekNull :: Pool -> IO (Maybe Char)
+    peekNull _ = maybePeek (\_ -> return 'x') (nullPtr :: Ptr Char)
+
+    result :: Maybe Char
+    result = unsafePerformIO (withPool peekNull)
+output: |
+  Nothing
+expression: result
+status: pass
+reason: aihc-base exports the memory pools, maybePeek, throwIfNull, throwErrnoIfNullRetryMayBlock, and c_safe_open that unliftio imports
