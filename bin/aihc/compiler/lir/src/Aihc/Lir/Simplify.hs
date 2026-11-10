@@ -68,7 +68,7 @@ eliminateDeadInstructions uses0 function
     instructions = Map.fromList numbered
     -- The instructions that make each value.
     makers = Map.fromListWith (<>) [(result, [key]) | (key, instruction) <- numbered, result <- instructionResults instruction]
-    unread uses instruction = all (\result -> MonoidMap.get result uses == 0) (instructionResults instruction)
+    unread uses instruction = all (`MonoidMap.nullKey` uses) (instructionResults instruction)
     removable uses instruction = pure' (instructionOperation instruction) && unread uses instruction
     initial = [key | (key, instruction) <- numbered, removable uses0 instruction]
     dead = sweep uses0 (Set.fromList initial) initial
@@ -376,7 +376,7 @@ simplifyRotations function
     clean block = block {blockInstructions = fst (foldr remove ([], uses) (blockInstructions block))}
     remove instruction@(Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
-        MonoidMap.get v counts == 0 =
+        MonoidMap.nullKey v counts =
           (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
       | otherwise = (instruction : rest, counts)
     remove instruction (rest, counts) = (instruction : rest, counts)
@@ -427,7 +427,7 @@ simplifyRotations function
 simplifyWidths :: MonoidMap Var (Sum Int) -> Function -> Function
 simplifyWidths uses function
   -- No block changes and no candidate is dead: the function is as it was.
-  | not changed && not (any (\v -> MonoidMap.get v remaining == 0) (Set.toList candidates)) = function
+  | not changed && not (any (`MonoidMap.nullKey` remaining) (Set.toList candidates)) = function
   | otherwise = rewritten {functionBlocks = map clean (functionBlocks rewritten)}
   where
     occupied = Set.fromList (map fst (functionParameters function) <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- functionBlocks function])
@@ -438,7 +438,7 @@ simplifyWidths uses function
     clean block = block {blockInstructions = fst (foldr remove ([], remaining) (blockInstructions block))}
     remove (Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
-        MonoidMap.get v counts == 0 =
+        MonoidMap.nullKey v counts =
           (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
     remove instruction (rest, counts) = (instruction : rest, counts)
     modular op = op `elem` [Add, Sub, Mul, And, Or, Xor]

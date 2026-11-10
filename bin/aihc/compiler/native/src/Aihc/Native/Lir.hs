@@ -773,7 +773,7 @@ dropUnreadStackAllocations readers function
   | otherwise = function
   where
     allocations = [result | block <- functionBlocks function, Instruction [result] (StackAlloc _ _) <- blockInstructions block]
-    unread result = MonoidMap.get result readers == 0
+    unread result = MonoidMap.nullKey result readers
     dropBlock block =
       block
         { blockInstructions =
