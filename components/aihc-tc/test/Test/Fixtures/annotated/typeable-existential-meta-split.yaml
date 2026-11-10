@@ -1,0 +1,68 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Main where
+  import Type.Reflection (Typeable)
+  data T n a = T
+       │       └─ type: ∀ n a. T n a
+       └─ type: Type → Type → Type
+  data A n where
+       └─ type: Type → Type
+    MA :: Typeable a => T n a -> A n
+    └─ type: ∀ n a. (Type.Reflection.Typeable a) ⇒ T n a → A n
+  need :: Typeable s => s -> ()
+  need _ = ()
+  │    │   └─ type: ()
+  │    └─ type: s
+  └─ type: ∀ s. (Type.Reflection.Typeable s) ⇒ s → ()
+  infixr 0 $
+  ($) :: (a -> b) -> a -> b
+  g $ x = g x
+  ││   └─ type: a
+  └─ type: ∀ a b. (a → b) → a → b
+  └─ type: a → b
+  f :: Typeable n => A n -> ()
+  f = id $ \t -> case t of MA a -> need a
+  │   │  │ ││    │         │  │    └─ type: T n a → (); type-args: T n a; evidence: typeable @T n a (given Typeable n, given Typeable a)
+  │   │  │ ││    │         │  └─ type: T n a
+  │   │  │ ││    │         └─ type: T n a → A n; type-args: n, a; evidence: given Typeable a
+  │   │  │ ││    └─ type: ()
+  │   │  │ │└─ type: A n
+  │   │  │ └─ type: A n → ()
+  │   │  └─ type: ((A n → ()) → A n → ()) → (A n → ()) → A n → (); type-args: A n → (), A n → ()
+  │   └─ type: (A n → ()) → A n → (); type-args: A n → ()
+  └─ type: ∀ n. (Type.Reflection.Typeable n) ⇒ A n → ()
+  id :: a -> a
+  id x = x
+  │  └─ type: a
+  └─ type: ∀ a. a → a
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+  └─ class methods:
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+- |
+  {-# LANGUAGE GADTs #-}
+  module Main where
+  import Type.Reflection (Typeable)
+  data T n a = T
+  data A n where
+    MA :: Typeable a => T n a -> A n
+  need :: Typeable s => s -> ()
+  need _ = ()
+  infixr 0 $
+  ($) :: (a -> b) -> a -> b
+  g $ x = g x
+  f :: Typeable n => A n -> ()
+  f = id $ \t -> case t of MA a -> need a
+  id :: a -> a
+  id x = x
+reason: a GADT branch solves the Typeable part of an existential and defers the Typeable part of an outer meta variable
+status: pass

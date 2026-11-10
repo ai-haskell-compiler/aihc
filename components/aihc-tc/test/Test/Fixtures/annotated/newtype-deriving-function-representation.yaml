@@ -1,0 +1,32 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  class K f where
+  └─ class methods: k ∷ ∀ f a. (K f) ⇒ f a → f a
+    k :: f a -> f a
+  instance K ((->) e) where
+  └─ $fK(->)e ∷ ∀ e. () ⇒ K ((->) e)
+    k g = g
+    │ └─ type: e → a
+    └─ k ∷ ∀ a. (e → a) → e → a
+  newtype R e a = R (e -> a)
+  │       │       └─ type: ∀ e a. (e → a) → R e a
+  │       └─ type: Type → Type → Type
+  └─ deriving plans: newtype K (R e) [context: ()] [methods: k]
+    deriving K
+             └─ $fKRe ∷ ∀ e. () ⇒ K (R e)
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  class K f where
+    k :: f a -> f a
+  instance K ((->) e) where
+    k g = g
+  newtype R e a = R (e -> a)
+    deriving K
+reason: newtype deriving eta-reduces a function representation type to a partial arrow
+status: pass

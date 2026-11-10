@@ -13,6 +13,7 @@ module Aihc.Tc.Solve.Dict
     callStackOrigin,
     isDefaultedImplicitParam,
     reportUnsolvedDict,
+    splitTypeable,
     classFieldTypes,
     mostSpecificInstances,
     matchInstanceKinds,
@@ -1149,6 +1150,44 @@ matchTypeQuantified quantified substitution (TcAppTy function argument, TcAppTy 
 matchTypeQuantified _ substitution (patternType, targetType)
   | patternType == targetType = Just substitution
   | otherwise = Nothing
+
+-- | Split a @Typeable@ wanted for a type constructor application into one
+-- @Typeable@ wanted for each kind argument and each type argument. The
+-- representation of the application is built from the representations of
+-- the parts, so the evidence of the wanted refers to the new wanteds.
+--
+-- A branch of a GADT match uses this for a wanted that it cannot solve as a
+-- whole. In @Typeable (T t0 a)@, the given of the branch can solve
+-- @Typeable a@ for the existential @a@, but @Typeable t0@ must wait until
+-- the enclosing scope solves the meta variable @t0@.
+splitTypeable :: Ct -> TcM (Maybe [Ct])
+splitTypeable ct =
+  case ctPred ct of
+    ClassPred className [ty]
+      | tyConName className == "Typeable" -> do
+          zonked <- zonkType ty
+          case typeableArguments zonked of
+            Just arguments@(_ : _) -> do
+              (constructor, kindArguments) <- typeableConstructor zonked
+              kindWanteds <- mapM part kindArguments
+              argumentWanteds <- mapM part arguments
+              classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
+              bindEvidence
+                (ctEvVar ct)
+                ( EvTypeable
+                    classOrigin
+                    zonked
+                    constructor
+                    (zip kindArguments (map (EvVarTerm . ctEvVar) kindWanteds))
+                    (map (EvVarTerm . ctEvVar) argumentWanteds)
+                )
+              pure (Just (kindWanteds <> argumentWanteds))
+            _ -> pure Nothing
+      where
+        part argument = do
+          evidence <- freshEvVar
+          pure ct {ctPred = ClassPred className [argument], ctEvVar = evidence}
+    _ -> pure Nothing
 
 -- | Resolve the kind arguments before FC constructs a runtime representation.
 typeableConstructor :: TcType -> TcM (TypeableTyCon, [TcType])
