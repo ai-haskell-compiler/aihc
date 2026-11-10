@@ -4041,6 +4041,12 @@ comparisonPrimitives =
   | width <- ["8", "16", "32"],
     (prefix, op) <- [("eq", Eq), ("ne", Ne), ("lt", LtU), ("le", LeU), ("gt", GtU), ("ge", GeU)]
   ]
+    -- A sized integer keeps its sign in the full word. Thus a signed
+    -- comparison of the full word gives the result of the narrow comparison.
+    <> [ (prefix <> "Int" <> width <> "#", op)
+       | width <- ["8", "16", "32"],
+         (prefix, op) <- [("eq", Eq), ("ne", Ne), ("lt", LtS), ("le", LeS), ("gt", GtS), ("ge", GeS)]
+       ]
     <> [ ("<#", LtS),
          ("==#", Eq),
          (">#", GtS),

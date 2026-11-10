@@ -13,6 +13,7 @@ module GHC.Show
     showString,
     showList__,
     showSpace,
+    showCommaSpace,
     appPrec,
     appPrec1,
     showMultiLineString,
@@ -53,6 +54,9 @@ showParen condition output =
 
 showSpace :: ShowS
 showSpace = showChar ' '
+
+showCommaSpace :: ShowS
+showCommaSpace = showString ", "
 
 showListWith :: (a -> ShowS) -> [a] -> ShowS
 showListWith _ [] = showString "[]"
