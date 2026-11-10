@@ -22,6 +22,7 @@ module Aihc.Wasm.ControlFlow
 where
 
 import Aihc.Lir.Syntax (Block (..), Label, Target (..), terminatorTargets)
+import Aihc.Util.Occurrences qualified as Occurrences
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -83,7 +84,7 @@ analyzeControlFlow blocks =
           MonoidMap.nonNullKeys
             ( MonoidMap.filter
                 (>= (2 :: Sum Int))
-                (MonoidMap.fromList [(target, 1) | (source, target) <- edges, number Map.! target > number Map.! source])
+                (Occurrences.count [target | (source, target) <- edges, number Map.! target > number Map.! source])
             )
 
 -- | The blocks that the entry reaches, in reverse postorder.

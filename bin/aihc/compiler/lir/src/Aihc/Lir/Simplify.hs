@@ -18,6 +18,7 @@ where
 
 import Aihc.Lir.RegAlloc (operationReads, readCounts)
 import Aihc.Lir.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative ((<|>))
 import Data.Bits (popCount)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -165,8 +166,8 @@ duplicateInvariantLoads uses function
           ty `elem` [I8, I16, I32, I64, Ptr, Code]
         ]
     compareReads =
-      MonoidMap.fromList
-        [ (var, 1 :: Sum Int)
+      Occurrences.count
+        [ var
         | block <- functionBlocks function,
           Instruction _ (Compare _ _ left right) <- blockInstructions block,
           (OperandVar var, OperandLiteral _) <- [(left, right), (right, left)]

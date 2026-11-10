@@ -46,6 +46,7 @@ import Aihc.Lir.Lint qualified as Lint
 import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Aihc.Wasm.ControlFlow (ControlFlow (..), analyzeControlFlow)
 import Control.Exception (finally)
 import Control.Monad (forM_, unless, when, zipWithM)
@@ -760,7 +761,8 @@ assignLocals fn consumed body = (map snd declared, map render resolved)
       SlotVar var -> Map.findWithDefault 0 var coloring
       _ -> Map.findWithDefault 0 slot specialIds
     types = slotTypes <> Map.fromList [(index, specialType slot) | (slot, index) <- Map.toList specialIds]
-    counts = MonoidMap.fromList [(slotId slot, 1 :: Sum Int) | Right (_, slot) <- resolved]
+    counts :: MonoidMap Int (Sum Int)
+    counts = Occurrences.count [slotId slot | Right (_, slot) <- resolved]
     -- The most used locals take the indices that encode in one byte. Each
     -- of the two groups is sorted by type, so that the declarations are a
     -- few runs of one type.
