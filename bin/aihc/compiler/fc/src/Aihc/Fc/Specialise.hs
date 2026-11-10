@@ -54,6 +54,7 @@ import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (substType, substTypes, typeEnvFromProgram)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, execState, get, modify', put, runState, state)
@@ -143,7 +144,7 @@ specialiseTopProgram primPackage home program =
             MonoidMap.nonNullKeys
               ( MonoidMap.filterWithKey
                   (\name count -> count + MonoidMap.get name (topCounts current) > Sum specialisationLimit)
-                  (MonoidMap.fromList [(name, 1 :: Sum Int) | (key@(name, _), _) <- MonoidMap.toList full, Map.notMember key (topCopies current)])
+                  (Occurrences.count [name | (key@(name, _), _) <- MonoidMap.toList full, Map.notMember key (topCopies current)])
               )
           reduced = topReduced current <> crowded
           calls = execState (mapM_ (onValue (walkCalls (collect (`Set.member` reduced)))) decls) MonoidMap.empty
