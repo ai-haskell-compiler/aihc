@@ -19,6 +19,7 @@ import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, runtimeSourceRoot, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm (wasip3WorldPath)
+import Aihc.Wasm.Engine (EngineValue (..), callFunction, engineNodeCommand, linkImage, linkSharedModule, loadSharedModule, withEngine)
 import Aihc.Wasm.Lir (CodeModel (..), compileLirModule, compileLirModuleFor)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_, unless)
@@ -82,6 +83,7 @@ tests = do
           testGroup "static data fixtures lowered for wasm32" (map (snapshotTest lowerDirectory) lowerFixtures),
           testCase "a word-scaled address offset counts four bytes" wordOffsetTest,
           testCase "a position-independent module reads a symbol address from the Global Offset Table" positionIndependentTest,
+          testCase "an engine loads shared modules into a live image" (sharedModuleTest tools),
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -137,6 +139,98 @@ positionIndependentTest = do
   assertBool ("the address comes from the table: " <> T.unpack assembly) ("global.get\t.Ltable@GOT" `T.isInfixOf` assembly)
   assertBool ("the address is not a constant: " <> T.unpack assembly) (not ("i32.const\t.Ltable" `T.isInfixOf` assembly))
   assertBool ("the exported function is visible: " <> T.unpack assembly) (not ("\t.hidden\tmain" `T.isInfixOf` assembly))
+
+-- | An engine loads two shared modules into an instance of an image. The
+-- first module reads and writes data of the image, calls a function of the
+-- image, and uses its own data and its own function table entry. The second
+-- module calls a function of the first module. The test runs only when the
+-- WebAssembly toolchain and Node.js are installed.
+sharedModuleTest :: Maybe WasmTools -> IO ()
+sharedModuleTest tools = do
+  node <- engineNodeCommand >>= findExecutable
+  case tools of
+    Just available | isJust node ->
+      withTempDirectory "aihc-wasm-shared" $ \directory -> do
+        let image = directory </> "image.wasm"
+            first = directory </> "first.wasm"
+            second = directory </> "second.wasm"
+        imageObject <- assemble available directory "image" Static imageSource
+        firstObject <- assemble available directory "first" PositionIndependent firstSharedSource
+        secondObject <- assemble available directory "second" PositionIndependent secondSharedSource
+        linkImage image [imageObject] []
+        linkSharedModule first [firstObject]
+        linkSharedModule second [secondObject]
+        results <- withEngine image $ \engine -> do
+          loadSharedModule engine first
+          loadSharedModule engine second
+          sequence
+            [ callFunction engine "first_entry" [],
+              callFunction engine "first_entry" [],
+              callFunction engine "second_entry" [EngineI64 21]
+            ]
+        -- The counter starts at 40. A call gives counter + 2 * counter + 2
+        -- and stores that value in the counter.
+        assertEqual "results" [Just 122, Just 368, Just 42] results
+    _ -> pure ()
+  where
+    assemble available directory name model source = do
+      parsed <- either (assertFailure . renderParseError) pure (parseModule source)
+      assembly <- either (assertFailure . ("WebAssembly backend failed: " <>) . show) pure (compileLirModuleFor model parsed)
+      let assemblyPath = directory </> name <> ".s"
+          objectPath = directory </> name <> ".o"
+      TIO.writeFile assemblyPath assembly
+      (_, backendArguments) <- backendCompiler Wasm32Wasip3
+      runTool (toolsClang available) (backendArguments <> ["-c", assemblyPath, "-o", objectPath])
+      pure objectPath
+    imageSource =
+      T.unlines
+        [ "export data mut @image_counter align 8 = { i64 40 }",
+          "export func @image_add(%a: i64, %b: i64) -> i64 cc c {",
+          "entry:",
+          "  %sum = add i64 %a, %b",
+          "  return %sum",
+          "}"
+        ]
+    firstSharedSource =
+      T.unlines
+        [ "extern data @image_counter",
+          "extern func @image_add(i64, i64) -> i64 cc c",
+          "data @local align 8 = { i64 2 }",
+          "data @table align 8 = { ptr @image_counter, code @double, ptr @local }",
+          "export func @double(%value: i64) -> i64 {",
+          "entry:",
+          "  %result = add i64 %value, %value",
+          "  return %result",
+          "}",
+          "export func @first_entry() -> i64 cc c {",
+          "entry:",
+          "  %counter = load i64 [@image_counter] align 8",
+          "  %pointer = load ptr [@table] align 1 word",
+          "  %again = load i64 [%pointer] align 8",
+          "  %function = load code [@table + 1 word] align 1 word",
+          "  %same = eq code %function, @double",
+          "  br %same, known, unknown",
+          "known:",
+          "  %doubled = call.indirect %function(%again) : (i64) -> i64",
+          "  %localPointer = load ptr [@table + 2 words] align 1 word",
+          "  %local = load i64 [%localPointer] align 8",
+          "  %sum = call @image_add(%counter, %doubled)",
+          "  %total = add i64 %sum, %local",
+          "  store i64 %total, [@image_counter] align 8",
+          "  return %total",
+          "unknown:",
+          "  return 0",
+          "}"
+        ]
+    secondSharedSource =
+      T.unlines
+        [ "extern func @double(i64) -> i64",
+          "export func @second_entry(%value: i64) -> i64 cc c {",
+          "entry:",
+          "  %result = call @double(%value)",
+          "  return %result",
+          "}"
+        ]
 
 wordScaledModule :: Address -> Alignment -> Module
 wordScaledModule address alignment =

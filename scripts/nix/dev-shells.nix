@@ -20,6 +20,7 @@ in {
       pkgs.wasm-tools
       pkgs.wasm-component-ld
       pkgs.wasmtime
+      pkgs.nodejs_24
       pkgs.haskellPackages.hsc2hs
       pkgs.haskellPackages.happy
       pkgs.haskellPackages.alex

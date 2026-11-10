@@ -234,6 +234,8 @@ in rec {
       ".cpp"
       ".h"
       ".wit"
+      # The engine driver of Aihc.Wasm.Engine.
+      ".mjs"
       ".yaml"
       ".yml"
       ".fc"
