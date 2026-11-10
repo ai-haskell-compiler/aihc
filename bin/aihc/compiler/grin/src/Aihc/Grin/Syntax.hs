@@ -74,6 +74,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
 import Data.List (mapAccumL)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
@@ -789,7 +790,7 @@ sumLayout :: [GrinRep] -> SumLayout
 sumLayout alternatives = SumLayout slots (map positions components)
   where
     components = map (map sumSlotRep . runtimeRepComponents) alternatives
-    counts = Map.unionsWith max (map (Map.fromListWith (+) . map (,1 :: Int)) components)
+    counts = List.foldl' (Map.unionWith max) Map.empty (map (Map.fromListWith (+) . map (,1 :: Int)) components)
     slots = concat [replicate count representation | (representation, count) <- Map.toAscList counts]
     offsets = Map.fromListWith (flip (<>)) [(representation, [index]) | (index, representation) <- zip [0 ..] slots]
     positions = snd . mapAccumL select offsets

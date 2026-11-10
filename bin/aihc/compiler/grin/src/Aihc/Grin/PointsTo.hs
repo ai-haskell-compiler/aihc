@@ -1093,7 +1093,7 @@ useCounts expression =
                 GrinDefaultAlt -> sum [Map.findWithDefault 0 var counts | var <- grinAltBinders alternative]
                 _ -> 0
           scrutineeUses = 1 + maximum (0 : map aliasUses alternativeCounts)
-          branches = Map.unionsWith max (map snd alternativeCounts)
+          branches = List.foldl' (Map.unionWith max) Map.empty (map snd alternativeCounts)
        in Map.unionWith (+) (valueUsesTimes scrutineeUses scrutinee) branches
     _ -> valueUses (exprOperands expression)
   where

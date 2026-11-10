@@ -224,7 +224,7 @@ share env expr =
     ExForeignCall call types arguments -> do
       results <- mapM (share env) arguments
       let expr' = ExForeignCall call types (map fst results)
-          calls = Map.unionsWith (+) (map snd results)
+          calls = List.foldl' (Map.unionWith (+)) Map.empty (map snd results)
       pure
         ( expr',
           if isJust (safePrimitiveCall env expr')
@@ -247,7 +247,7 @@ share env expr =
       (body', c2) <- sharePosition env binders body
       pure
         ( ExRec (zipWith (\bind (rhs, _) -> bind {bindRhs = rhs}) binds results) body',
-          Map.unionsWith (+) (c2 : map snd results)
+          List.foldl' (Map.unionWith (+)) Map.empty (c2 : map snd results)
         )
     ExCase scrutinee binder alternatives -> do
       (scrutinee', c1) <- share env scrutinee
@@ -257,7 +257,7 @@ share env expr =
           alternatives
       pure
         ( ExCase scrutinee' binder (NE.zipWith (\alternative (rhs, _) -> alternative {altRhs = rhs}) alternatives results),
-          Map.unionWith (+) c1 (Map.unionsWith max (map snd (NE.toList results)))
+          Map.unionWith (+) c1 (List.foldl' (Map.unionWith max) Map.empty (map snd (NE.toList results)))
         )
 
 -- | Share the calls of a body position that occur more than once there,
@@ -317,20 +317,21 @@ countWhere wanted = go
         ExCast body _ -> go body
         ExAbsurd scrutinee _ -> go scrutinee
         ExForeignCall _ _ arguments ->
-          let inner = Map.unionsWith (+) (map go arguments)
+          let inner = List.foldl' (Map.unionWith (+)) Map.empty (map go arguments)
            in if wanted expr then Map.insertWith (+) expr 1 inner else inner
         ExLam binder body -> under [binder] (go body)
         ExTyLam binder body -> under [binder] (go body)
         ExLet bind body -> Map.unionWith (+) (go (bindRhs bind)) (under [bindBinder bind] (go body))
         ExRec binds body ->
           let binders = map bindBinder binds
-           in under binders (Map.unionsWith (+) (go body : map (go . bindRhs) binds))
+           in under binders (List.foldl' (Map.unionWith (+)) Map.empty (go body : map (go . bindRhs) binds))
         ExCase scrutinee binder alternatives ->
           Map.unionWith
             (+)
             (go scrutinee)
-            ( Map.unionsWith
-                max
+            ( List.foldl'
+                (Map.unionWith max)
+                Map.empty
                 [ under (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative) (go (altRhs alternative))
                 | alternative <- NE.toList alternatives
                 ]
