@@ -1,0 +1,93 @@
+annotated:
+- |-
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances, UndecidableInstances, ScopedTypeVariables #-}
+  module Test where
+  data True
+       └─ type: Type
+  data False
+       └─ type: Type
+  data Leaf
+       └─ type: Type
+  data Sum a b
+       └─ type: Type → Type → Type
+  data P a = P
+       │     └─ type: ∀ a. P a
+       └─ type: Type → Type
+  data Answer = Yes | No
+       │        │     └─ type: Answer
+       │        └─ type: Answer
+       └─ type: Type
+  class And x y z | x y -> z
+  └─ class methods:; fundeps: x y → z
+  instance And True True True
+  └─ $fAndTrueTrueTrue ∷ () ⇒ And True True True
+  instance And True False False
+  └─ $fAndTrueFalseFalse ∷ () ⇒ And True False False
+  instance And False True False
+  └─ $fAndFalseTrueFalse ∷ () ⇒ And False True False
+  instance And False False False
+  └─ $fAndFalseFalseFalse ∷ () ⇒ And False False False
+  class AllLeaves t n | t -> n
+  └─ class methods:; fundeps: t → n
+  instance AllLeaves Leaf True
+  └─ $fAllLeavesLeafTrue ∷ () ⇒ AllLeaves Leaf True
+  instance (AllLeaves a l, AllLeaves b r, And l r n) => AllLeaves (Sum a b) n
+  └─ $fAllLeavesSumabn ∷ ∀ a l b r n. (AllLeaves a l, AllLeaves b r, And l r n) ⇒ AllLeaves (Sum a b) n
+  class Name n where
+  └─ class methods: name ∷ ∀ n. (Name n) ⇒ P n → Answer
+    name :: P n -> Answer
+  instance Name True where
+  └─ $fNameTrue ∷ () ⇒ Name True
+    name _ = Yes
+    │    └─ type: P True
+    └─ name ∷ P True → Answer
+  instance Name False where
+  └─ $fNameFalse ∷ () ⇒ Name False
+    name _ = No
+    │    └─ type: P False
+    └─ name ∷ P False → Answer
+  leaves :: forall t n. (AllLeaves t n, Name n) => P t -> Answer
+  leaves _ = name (P :: P n)
+  │      │   │     └─ type: P n; type-args: n
+  │      │   └─ type: P n → Answer; type-args: n; evidence: given Name n
+  │      └─ type: P t
+  └─ type: ∀ t n. (AllLeaves t n, Name n) ⇒ P t → Answer
+  deep :: Answer
+  deep = leaves (P :: P (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))))))))
+  │      │       └─ type: P (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))))))); type-args: Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))))))
+  │      └─ type: P (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))))))) → Answer; type-args: Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))))))))))))))), True; evidence: $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf))) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf (Sum Leaf Leaf)) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf (Sum Leaf Leaf) @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Sum Leaf Leaf @True @True ($fAllLeavesLeafTrue, $fAllLeavesSumabn @Leaf @True @Leaf @True @True ($fAllLeavesLeafTrue, $fAllLeavesLeafTrue, $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fAndTrueTrueTrue), $fNameTrue
+  └─ type: Answer
+extensions: []
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances, UndecidableInstances, ScopedTypeVariables #-}
+  module Test where
+  data True
+  data False
+  data Leaf
+  data Sum a b
+  data P a = P
+  data Answer = Yes | No
+  class And x y z | x y -> z
+  instance And True True True
+  instance And True False False
+  instance And False True False
+  instance And False False False
+  class AllLeaves t n | t -> n
+  instance AllLeaves Leaf True
+  instance (AllLeaves a l, AllLeaves b r, And l r n) => AllLeaves (Sum a b) n
+  class Name n where
+    name :: P n -> Answer
+  instance Name True where
+    name _ = Yes
+  instance Name False where
+    name _ = No
+  leaves :: forall t n. (AllLeaves t n, Name n) => P t -> Answer
+  leaves _ = name (P :: P n)
+  deep :: Answer
+  deep = leaves (P :: P (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf (Sum Leaf Leaf)))))))))))))))))))))))))
+reason: the instance context of AllLeaves (Sum a b) determines n, so
+  improvement goes through the context of each Sum level of the deep type;
+  each level must be improved once and not once for each pass of the levels
+  above it
+status: pass
