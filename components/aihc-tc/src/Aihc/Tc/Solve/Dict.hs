@@ -858,21 +858,39 @@ givenRewriteRuleSets givens = do
     -- g@, which can rewrite a wanted @C f@ to the given @C g@. Each part
     -- keeps the given and its projection, and the projection numbers the
     -- arguments from the last one, as 'NthCo' does.
+    --
+    -- A split of an application @f a ~ g b@ gives the function and the
+    -- argument, not the constructor arguments. 'NthCo' numbers the
+    -- arguments of the outer constructor, so these parts use 'LeftCo' and
+    -- 'RightCo'. The function part is sound only when the two arguments
+    -- have one kind.
     decomposeGiven depth equality@(left, right, proof)
       | depth <= 0 || not (decomposable left && decomposable right) = pure [equality]
       | otherwise = do
           children <- decomposeNominalEquality left right
-          case children of
+          projected <- case children of
+            Nothing -> pure Nothing
+            Just [(leftFunction, rightFunction), (leftArgument, rightArgument)]
+              | isApplication left || isApplication right -> do
+                  leftKind <- tcTypeKind leftArgument >>= zonkType
+                  rightKind <- tcTypeKind rightArgument >>= zonkType
+                  pure . Just $
+                    [(leftFunction, rightFunction, LeftCo proof) | sameType leftKind rightKind]
+                      <> [(leftArgument, rightArgument, RightCo proof)]
+            Just pairs ->
+              pure (Just [(childLeft, childRight, NthCo index proof) | (index, (childLeft, childRight)) <- zip [0 ..] (reverse pairs)])
+          case projected of
             Nothing -> pure [equality]
-            Just pairs -> do
-              parts <-
+            Just parts -> do
+              decomposed <-
                 mapM
                   (decomposeGiven (depth - 1))
-                  [ (childLeft, childRight, NthCo index proof)
-                  | (index, (childLeft, childRight)) <- zip [0 ..] (reverse pairs),
-                    not (sameType childLeft childRight)
-                  ]
-              pure (equality : concat parts)
+                  [part | part@(childLeft, childRight, _) <- parts, not (sameType childLeft childRight)]
+              pure (equality : concat decomposed)
+    isApplication ty =
+      case ty of
+        TcAppTy {} -> True
+        _ -> False
     decomposable ty =
       case ty of
         TcTyCon {} -> True
