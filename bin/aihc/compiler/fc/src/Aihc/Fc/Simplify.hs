@@ -108,6 +108,9 @@ import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -532,7 +535,7 @@ data SimplState = SimplState
     ssRulesFired :: !Int,
     -- | How many copies of its right-hand side each moved binder has
     -- taken so far, over every walk of the body. See 'mkLet'.
-    ssCopied :: !(Map Name Int),
+    ssCopied :: !(MonoidMap Name (Sum Int)),
     -- | How many more rules may fire in this walk. Rules are not checked
     -- for termination, so a bound keeps a looping pair of rules finite.
     ssRuleFuel :: !Int,
@@ -557,7 +560,7 @@ initialSimplState supply allowance =
       ssInlined = 0,
       ssExempt = 0,
       ssRulesFired = 0,
-      ssCopied = Map.empty,
+      ssCopied = MonoidMap.empty,
       ssRuleFuel = ruleFuel,
       ssResidualSizes = Map.empty,
       ssCallPatterns = Map.empty
@@ -2804,7 +2807,7 @@ simplifyApp env headExpr args =
     -- of the copy and the new ones together.
     ExVar name
       | Just done <- Map.lookup name (spDone env) -> do
-          modify' (\st -> st {ssCopied = Map.insertWith (+) name 1 (ssCopied st)})
+          modify' (\st -> st {ssCopied = MonoidMap.adjust (+ 1) name (ssCopied st)})
           copy <- freshenExpr done
           if null args
             then pure copy
@@ -3856,9 +3859,9 @@ mkLet env bind body
   | lifted,
     Occurrences 1 False <- uses = do
       before <- get
-      let earlier = Map.findWithDefault 0 name (ssCopied before)
+      let earlier = MonoidMap.get name (ssCopied before)
       body' <- simplifyExpr env {spDone = Map.insert name rhs (spDone env)} body
-      copies <- gets (subtract earlier . Map.findWithDefault 0 name . ssCopied)
+      copies <- gets (subtract earlier . MonoidMap.get name . ssCopied)
       if copies <= 1
         then pure (if unused name body' then body' else ExLet bind body')
         else do

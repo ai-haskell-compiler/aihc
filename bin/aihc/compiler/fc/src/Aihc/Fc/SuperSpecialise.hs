@@ -15,6 +15,9 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -45,7 +48,7 @@ data Supply = Supply
     homeModule :: !Home,
     nextUnique :: !Int,
     remainingNodes :: !Int,
-    copyCounts :: !(Map Name Int),
+    copyCounts :: !(MonoidMap Name (Sum Int)),
     currentRegion :: !Region,
     report :: !SuperReport
   }
@@ -60,7 +63,7 @@ superSpecialiseProgram home program =
       protected = foldMap ruleNames declarations
       definitions = Map.fromList [(valName val, Bind (Binder (valName val) (valType val)) (valBody val)) | DeclVal val <- declarations, eligible protected val]
       size = sum [nodes (valBody val) | DeclVal val <- declarations]
-      initial = Supply home supply (min 100000 (max 256 (size `div` 2))) Map.empty (Region Set.empty False Map.empty []) (SuperReport 0 0 0)
+      initial = Supply home supply (min 100000 (max 256 (size `div` 2))) MonoidMap.empty (Region Set.empty False Map.empty []) (SuperReport 0 0 0)
       (rewritten, final) = runState (mapM (onDecl definitions) declarations) initial
       copies = [DeclVal (ValDecl Private (binderName binder) (binderType binder) body InlineDefault) | Bind binder body <- reverse (regionCopies (currentRegion final))]
    in (tidyProgram program {programDecls = rewritten <> copies}, report final)
@@ -216,7 +219,7 @@ request definitions binding choices arguments = do
       countCall
       pure (call copy)
     Nothing
-      | Map.findWithDefault 0 name (copyCounts state) >= 16 || cost > remainingNodes state -> do
+      | MonoidMap.get name (copyCounts state) >= 16 || cost > remainingNodes state -> do
           modify' (\s -> s {report = (report s) {superLimits = superLimits (report s) + 1}})
           pure original
       | Just ty <- specializeType choices (binderType (bindBinder binding)) -> do
@@ -226,7 +229,7 @@ request definitions binding choices arguments = do
                 | otherwise = derivedTopName (homeModule state) name ("$ss" <> nameText name <> T.pack (show unique))
               body = specializeBody choices (bindRhs binding)
               (freshBody, supply) = freshenExprFrom (unique + 1) body
-          modify' (\s -> s {nextUnique = supply, remainingNodes = remainingNodes s - cost, copyCounts = Map.insertWith (+) name 1 (copyCounts s), currentRegion = region {regionCache = Map.insert key copy (regionCache region)}, report = (report s) {superCopies = superCopies (report s) + 1}})
+          modify' (\s -> s {nextUnique = supply, remainingNodes = remainingNodes s - cost, copyCounts = MonoidMap.adjust (+ 1) name (copyCounts s), currentRegion = region {regionCache = Map.insert key copy (regionCache region)}, report = (report s) {superCopies = superCopies (report s) + 1}})
           rewritten <- walk definitions (regionScope region) freshBody
           modify' (\s -> s {currentRegion = (currentRegion s) {regionCopies = Bind (Binder copy ty) rewritten : regionCopies (currentRegion s)}})
           countCall
