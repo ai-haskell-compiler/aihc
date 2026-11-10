@@ -27,14 +27,14 @@ import Foreign.Marshal.Array (pokeArray, pokeArray0)
 import Foreign.Marshal.Error (throwIf)
 import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (Storable (..))
-import Prelude (Bool, Eq (..), IO, Int, Num (..), any, const, length, mapM_, not, return, undefined, ($), (.), (>>=))
+import Prelude (IO, Int, Num (..), const, length, mapM_, notElem, return, undefined, ($), (.), (<$>), (>>=))
 
 -- | A pool of memory. The pool keeps the pointer of each allocation.
 newtype Pool = Pool (IORef [Ptr ()])
 
 -- | Make an empty pool.
 newPool :: IO Pool
-newPool = newIORef [] >>= return . Pool
+newPool = Pool <$> newIORef []
 
 -- | Release all memory that the pool holds.
 freePool :: Pool -> IO ()
@@ -70,7 +70,7 @@ pooledRealloc pool pointer = pooledReallocArray pool pointer 1
 pooledReallocBytes :: Pool -> Ptr a -> Int -> IO (Ptr a)
 pooledReallocBytes (Pool pool) pointer size = do
   let untyped = castPtr pointer
-  _ <- throwIf (not . elemPointer untyped) (const "pointer not in pool") (readIORef pool)
+  _ <- throwIf (notElem untyped) (const "pointer not in pool") (readIORef pool)
   newPointer <- reallocBytes untyped size
   modifyIORef pool ((newPointer :) . delete untyped)
   return (castPtr newPointer)
@@ -125,6 +125,3 @@ elementSize pointer = sizeOf (pointee pointer)
   where
     pointee :: Ptr b -> b
     pointee _ = undefined
-
-elemPointer :: Ptr () -> [Ptr ()] -> Bool
-elemPointer pointer = any (== pointer)
