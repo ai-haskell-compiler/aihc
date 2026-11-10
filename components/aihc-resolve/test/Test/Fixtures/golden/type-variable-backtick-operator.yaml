@@ -1,0 +1,17 @@
+extensions: []
+modules:
+- |
+  module Main where
+  f :: a `k` b -> k a b
+  f x = x
+annotated:
+- |
+  module Main where
+  f :: a `k` b -> k a b
+  └─ v Main
+  f x = x
+  │ │   └─ v 0
+  │ └─ v 0
+  └─ v Main
+status: pass
+reason: An implicitly quantified type variable in backticks is a type variable use.

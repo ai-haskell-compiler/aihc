@@ -163,7 +163,7 @@ import Control.Monad (foldM, mapAndUnzipM)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Ratio (denominator, numerator)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -2559,8 +2559,21 @@ resolveInfixType ty = do
     build left (name, promotion) = TInfix left name promotion
     resolveOperator operator = do
       let (name, promotion) = resolvedInfixName operator
-      resolved <- resolveTypeConstructorUse promotion name
+      resolved <-
+        if isTypeVariableOperator promotion name
+          then resolveTypeVariableOperator name
+          else resolveTypeConstructorUse promotion name
       pure operator {resolvedInfixName = (resolved, promotion)}
+    -- A type variable in backticks, as in a `k` b, is a type variable use.
+    -- Its binder can be implicit. Thus, an unknown name is not an error.
+    isTypeVariableOperator promotion name =
+      promotion == Unpromoted && isNothing (nameQualifier name) && nameType name == NameVarId
+    resolveTypeVariableOperator name = do
+      sp <- currentSpan
+      scope <- currentScope
+      case lookupType (nameText name) scope of
+        Unresolved _ -> pure name
+        resolved -> resolveNameTo sp ResolutionNamespaceType resolved name
     resolveAmbiguous ambient ambiguous operator
       | resolvedInfixIndex operator == resolvedInfixIndex ambiguous = do
           let (name, promotion) = resolvedInfixName operator
