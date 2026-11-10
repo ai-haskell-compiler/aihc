@@ -5,19 +5,30 @@ modules:
     {-# LANGUAGE DeriveGeneric #-}
     module Test where
 
-    import GHC.Generics (Generic1)
+    import GHC.Generics (Generic1, Generically1 (..))
     import Prelude
 
-    data Pair a = Pair a a deriving (Generic1)
+    data T a = A a (Maybe a) [Maybe a] Int | B deriving (Eq, Generic1)
 
-    fromPair :: (Generic1 f) => f a -> Bool
-    fromPair _ = True
+    -- The outer type m of the composition needs Functor m in the
+    -- instance context.
+    newtype R r m a = R (r -> m (Maybe a)) deriving (Generic1)
+
+    bump :: T Int -> T Int
+    bump t = case fmap (+ 1) (Generically1 t) of Generically1 u -> u
+
+    runR :: R Int [] Int -> [Maybe Int]
+    runR (R f) = f 10
+
+    bumpR :: R Int [] Int -> R Int [] Int
+    bumpR r = case fmap (+ 1) (Generically1 r) of Generically1 u -> u
 
     result :: Bool
-    result = fromPair (Pair True True)
+    result =
+      map bump [A 1 (Just 2) [Just 3, Nothing] 4, B] == [A 2 (Just 3) [Just 4, Nothing] 4, B]
+        && runR (bumpR (R (\x -> [Just x, Nothing]))) == [Just 11, Nothing]
 output: |
   True
 expression: |
   result
-status: xfail
-reason: Stock deriving generates a Generic1 instance.
+status: pass

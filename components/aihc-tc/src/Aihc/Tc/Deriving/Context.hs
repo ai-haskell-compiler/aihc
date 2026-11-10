@@ -22,6 +22,9 @@ module Aihc.Tc.Deriving.Context
     unliftedFieldReferences,
     newtypeRepresentation,
     stockFieldTypes,
+    GenericField (..),
+    generic1FieldShapes,
+    functorClassTyCon,
     functorialFieldUses,
     typeTyVars,
     moduleDerivingPlans,
@@ -43,10 +46,11 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
+    renderTcType,
   )
 import Aihc.Tc.Constraint (CtOrigin (..))
-import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations)
-import Aihc.Tc.Deriving.References (DerivingReferences (..), UnliftedFieldReferences (..), referenceIdentity)
+import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations, splitLastArgument)
+import Aihc.Tc.Deriving.References (DerivingReferences (..), StockClassLocation (..), UnliftedFieldReferences (..), referenceIdentity)
 import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -128,16 +132,93 @@ isContextFreeStockPlan plan =
   tcDerivingStrategy plan == TcDerivingStock
     && stockClassObligationsOf (tcDerivingClassName plan) == Just NoObligations
 
--- | Give every context-free stock plan of a module its empty context, so
--- that it can be generated ahead of context inference.
-settleContextFreePlans :: Module -> Module
-settleContextFreePlans modu = replaceModulePlans (map settle (moduleDerivingPlans modu)) modu
+-- | Give every context-free stock plan of a module its context, so that it
+-- can be generated ahead of context inference. The context is empty,
+-- except for a @Generic1@ plan, which needs @Functor@ of a type variable
+-- at the outer type of each composed field. It is @Functor m@ for the
+-- field @m (Maybe a)@ of @MaybeT m a@, as in GHC. The argument is the
+-- @Functor@ class.
+--
+-- A composition whose outer type is headed by a type constructor adds
+-- nothing. The check of the generated body finds its instance. Thus no
+-- other plan of the batch can change this context.
+settleContextFreePlans :: Maybe TyCon -> Module -> Module
+settleContextFreePlans functorClass modu = replaceModulePlans (map settle (moduleDerivingPlans modu)) modu
   where
     settle plan
       | isContextFreeStockPlan plan,
         TcDerivingInferContext <- tcDerivingContext plan =
-          plan {tcDerivingContext = TcDerivingExplicitContext []}
+          plan {tcDerivingContext = TcDerivingExplicitContext (settledContext plan)}
       | otherwise = plan
+    settledContext plan =
+      case (stockClassMethodsOf (tcDerivingClassName plan), functorClass, generic1FieldShapes plan) of
+        (Just StockGeneric1Methods, Just functor, Right shapes) ->
+          nub [ClassPred functor [outer] | outer <- concatMap composedOuterTypes (concat shapes), headedByTyVar outer]
+        _ -> []
+    composedOuterTypes field =
+      case field of
+        GenericComposed outer inner -> outer : composedOuterTypes inner
+        _ -> []
+    headedByTyVar ty =
+      case ty of
+        TcTyVar _ -> True
+        TcAppTy function _ -> headedByTyVar function
+        _ -> False
+
+-- | The @Functor@ class, as the stock class table locates it.
+functorClassTyCon :: TcM (Maybe TyCon)
+functorClassTyCon = do
+  references <- getDerivingReferences
+  pure $ case [location | location <- derivingStockClasses references, stockLocationName location == "Functor"] of
+    StockClassLocation (Just package) moduleName name : _ -> Just (mkTyConWithOrigin package moduleName name 1)
+    _ -> Nothing
+
+-- | What a field of a generic representation does with the last parameter
+-- of the datatype. A @Generic@ representation only has 'GenericConstant'
+-- fields.
+data GenericField
+  = -- | The field does not use the parameter. It is a @Rec0@.
+    GenericConstant !TcType
+  | -- | The field is the parameter. It is a @Par1@.
+    GenericParameter
+  | -- | The field is a type applied to the parameter, as @f a@. It is a
+    -- @Rec1 f@.
+    GenericApplied !TcType
+  | -- | The field is a type applied to another use of the parameter, as
+    -- @f (g a)@. It is a composition @f :.: Rep1 (g a)@, and @fmap@ of
+    -- @f@ converts the inner values.
+    GenericComposed !TcType !GenericField
+  deriving (Eq, Show)
+
+-- | The fields of every constructor of a @Generic1@ plan.
+--
+-- As in GHC, a field can use the parameter only as the last argument of a
+-- type, or of a type in such a position. A field that uses it in another
+-- position, as in @a -> Int@ or @Either a Int@, has no representation.
+generic1FieldShapes :: TcDerivingPlan -> Either String [[GenericField]]
+generic1FieldShapes plan = do
+  (parameter, fieldTypes) <- stockFunctorialFields plan
+  mapM (mapM (generic1Field parameter)) fieldTypes
+  where
+    generic1Field parameter ty
+      | not (typeMentionsTyVar parameter ty) = Right (GenericConstant ty)
+      | TcTyVar tyVar <- ty, tvUnique tyVar == tvUnique parameter = Right GenericParameter
+      | otherwise = generic1Container parameter ty
+    generic1Container parameter ty =
+      case splitLastArgument ty of
+        Just (function, argument)
+          | not (typeMentionsTyVar parameter function) ->
+              case argument of
+                TcTyVar tyVar | tvUnique tyVar == tvUnique parameter -> Right (GenericApplied function)
+                _ -> GenericComposed function <$> generic1Container parameter argument
+        _ ->
+          Left
+            ( "stock Generic1 deriving cannot use the parameter "
+                <> T.unpack (tvName parameter)
+                <> " in the field type "
+                <> renderTcType ty
+                <> "; the parameter must be the last argument of a type"
+            )
 
 -- | Everything context simplification needs about the batch: the instances
 -- and deriving plans in scope, indexed by class source name, and the context
