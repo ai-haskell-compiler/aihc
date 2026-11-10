@@ -1,0 +1,30 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - MagicHash
+  - StandaloneKindSignatures
+modules:
+  - |
+    {-# LANGUAGE DataKinds, KindSignatures, MagicHash, StandaloneKindSignatures #-}
+    module Test where
+    import GHC.Types
+    type Tag :: TYPE 'IntRep -> Type
+    data Tag a = Tag
+    tag :: a -> Tag a
+    tag _ = Tag
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, KindSignatures, MagicHash, StandaloneKindSignatures #-}
+    module Test where
+    import GHC.Types
+    type Tag :: TYPE 'IntRep -> Type
+    data Tag a = Tag
+         │       └─ type: ∀ a. Tag a
+         └─ type: GHC.Types.TYPE 'GHC.Types.IntRep → Type
+    tag :: a -> Tag a
+    tag _ = Tag
+    │   │   └─ type: Tag a; type-args: a
+    │   └─ type: a
+    └─ type: ∀ a. a → Tag a
+status: pass
+reason: the result of a function type gives the unlifted kind of a variable that the argument mentions first

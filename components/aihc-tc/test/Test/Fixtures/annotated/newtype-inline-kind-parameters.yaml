@@ -1,0 +1,21 @@
+extensions:
+  - GADTSyntax
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE GADTSyntax, KindSignatures #-}
+    module Test where
+    import GHC.Types
+    newtype Tagged :: Type -> Type where
+      Tagged :: forall a. Int -> Tagged a
+annotated:
+  - |-
+    {-# LANGUAGE GADTSyntax, KindSignatures #-}
+    module Test where
+    import GHC.Types
+    newtype Tagged :: Type -> Type where
+            └─ type: Type → Type
+      Tagged :: forall a. Int -> Tagged a
+      └─ type: ∀ a. GHC.Types.Int → Tagged a
+status: pass
+reason: the inline kind of a newtype gives a parameter that the head omits

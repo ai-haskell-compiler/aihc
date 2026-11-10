@@ -29,6 +29,7 @@ module Aihc.Tc.Kind
     explicitForallNames,
     scopedSigTyVars,
     standaloneKindSigToScheme,
+    prenexKindForalls,
     surfaceContextToPreds,
     takeVisibleArgumentKinds,
     tyConKindFromParams,
@@ -310,8 +311,14 @@ surfaceTypeSpan ty =
 -- unlifted types retain their fixed representation.
 checkRuntimeType :: TvKindEnv -> Type -> TcM TcType
 checkRuntimeType tvEnv ty = do
+  converted <- convertSurfaceTypeWithKinds tvEnv ty
+  requireRuntimeKind ty converted
+
+-- | Require that a converted type has the kind @TYPE rep@. An open kind
+-- becomes 'Type'.
+requireRuntimeKind :: Type -> (TcType, TcType) -> TcM TcType
+requireRuntimeKind ty (tcTy, actual) = do
   kinds <- getKinds
-  (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
   actual' <- zonkKind actual
   case actual' of
     KTYPE {} -> pure tcTy
@@ -355,6 +362,20 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TApp f a -> do
       function <- convertSurfaceTypeWithKinds tvEnv f
       applyOneArgument tvEnv function a
+    TTypeApp {}
+      | (TCon name _, kindArguments@(_ : _)) <- kindApplicationSpine ty -> do
+          -- A visible kind application, as @Maybe# \@r a@, gives the
+          -- specified kind variables of the constructor in order. The use
+          -- keeps these variables as its kind arguments.
+          (function, kind) <- inferTypeConstructor name
+          case function of
+            TcKindedTyCon _ instantiated
+              | length kindArguments <= length instantiated -> do
+                  zipWithM_ (applyKindArgument tvEnv) instantiated kindArguments
+                  (,) <$> zonkKind function <*> zonkKind kind
+            _ -> do
+              emitError (surfaceTypeSpan ty) (OtherError ("too many kind arguments for " <> T.unpack (nameText name)))
+              pure (function, kind)
     TTypeApp f a -> do
       function <- convertSurfaceTypeWithKinds tvEnv f
       applyOneArgument tvEnv function a
@@ -362,8 +383,14 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       constructor <- inferTypeConstructor name
       applySurfaceTypeArguments tvEnv constructor [lhs, rhs]
     TFun _ a b -> do
-      aTy <- checkRuntimeType tvEnv a
-      bTy <- checkRuntimeType tvEnv b
+      -- Convert both sides before an open kind becomes 'Type'. The result
+      -- can fix the kind of a variable in the argument: in
+      -- @b -> EitherVoid# a b@, the kind of @b@ is the unlifted kind that
+      -- @EitherVoid#@ gives.
+      aConverted <- convertSurfaceTypeWithKinds tvEnv a
+      bConverted <- convertSurfaceTypeWithKinds tvEnv b
+      aTy <- requireRuntimeKind a aConverted
+      bTy <- requireRuntimeKind b bConverted
       pure (TcFunTy (prenexPolytype aTy) bTy, typeKind kinds)
     TTuple flavor _ args ->
       convertTupleType tvEnv flavor args
@@ -585,6 +612,26 @@ applyOneArgument tvEnv (functionType, functionKind) argument = do
       unifyKindsAt (surfaceTypeSpan argument) functionKind' (KFun argumentKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (mkAppTy functionType argumentType, resultKind')
+
+-- | The head of a type and the visible kind arguments that follow it
+-- directly, as @T@ and @[k1, k2]@ for @T \@k1 \@k2@.
+kindApplicationSpine :: Type -> (Type, [Type])
+kindApplicationSpine = go []
+  where
+    go arguments ty =
+      case ty of
+        TAnn _ inner -> go arguments inner
+        TParen inner -> go arguments inner
+        TTypeApp function argument -> go (argument : arguments) function
+        _ -> (ty, arguments)
+
+-- | Check one visible kind argument against the kind of the kind variable
+-- that it gives, and give that variable the argument.
+applyKindArgument :: TvKindEnv -> TcType -> Type -> TcM ()
+applyKindArgument tvEnv instantiated argument = do
+  expectedKind <- tcTypeKind instantiated
+  argumentType <- checkSurfaceType tvEnv argument expectedKind
+  unifyKindsAt (surfaceTypeSpan argument) instantiated argumentType
 
 -- | Whether an argument is a bare wildcard, once parentheses and source
 -- annotations are peeled off.

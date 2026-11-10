@@ -140,7 +140,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, prenexKindForalls, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -5340,15 +5340,19 @@ registerDataDeclHeader maybeKindScheme dd = do
       arity = dataDeclArity dd
   (kindParams, paramInfos) <- dataDeclParamInfos maybeKindScheme dd
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
-  inferredKind <- tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
+  -- An inline kind can quantify its own variables, as in
+  -- @data T :: forall r. TYPE r -> Type where@. These variables are kind
+  -- parameters too, as in a standalone kind signature.
+  (nestedTyVars, inferredKind) <- prenexKindForalls <$> tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
+      kindTyVars = map paramTyVar kindParams <> maybe nestedTyVars (const []) maybeKindScheme
   storeTyConInfo
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = specifiedScheme kindTyVars [] declaredKind,
         tciFlavor = DataTyCon,
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
@@ -5423,14 +5427,17 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       resultKind <- freshKindMeta
       pure (foldr (KFun . paramKind) resultKind paramInfos)
     Just _ -> tyConKindFromParamsWith (paramKindEnv kindParams) paramInfos (newtypeDeclKind nd)
+  -- See 'registerDataDeclHeader' for the variables of an inline kind.
+  let (nestedTyVars, inferredKind') = prenexKindForalls inferredKind
   tc <- mkDeclaredTyCon tyBinder tyName arity
-  let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
+  let declaredKind = maybe inferredKind' typeSchemeBody maybeKindScheme
+      kindTyVars = map paramTyVar kindParams <> maybe nestedTyVars (const []) maybeKindScheme
   storeTyConInfo
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = specifiedScheme kindTyVars [] declaredKind,
         tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
@@ -5447,17 +5454,30 @@ registerNewtypeConstructor origin newtypeDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("newtype " <> T.unpack tyName)
     Just info -> do
-      (kindParams, paramInfos) <- typeDeclParamInfos (Just (tciKindScheme info)) (binderHeadParams (newtypeDeclHead newtypeDecl))
-      constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
+      (kindParams, writtenParamInfos) <- typeDeclParamInfos (Just (tciKindScheme info)) (binderHeadParams (newtypeDeclHead newtypeDecl))
+      -- As for a data type, an inline GADT kind can give parameters that
+      -- the newtype head omits.
+      let writtenTyVars = map paramTyVar writtenParamInfos
+      declaredResultKind <- case tciKindScheme info of
+        ForAll [] _ _ -> tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
+        ForAll _ _ body -> snd . splitKindArrows (length writtenTyVars) <$> zonkKind body
+      (implicitTyVars, resultKind) <- implicitDataParameters declaredResultKind
+      let paramInfos = writtenParamInfos <> [ParamInfo (tvName tyVar) tyVar (tvKind tyVar) | tyVar <- implicitTyVars]
+      registered <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
+      aligned <- mapM (alignNewtypeConstructor implicitTyVars writtenTyVars) registered
+      let constructor = fst <$> aligned
+          tyVars = maybe writtenTyVars snd aligned
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors origin (recordSelectorNames (maybeToList (newtypeDeclConstructor newtypeDecl))) constructors
-      let tyVars = map paramTyVar paramInfos
-      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
-      -- The newtype and its field have one representation, so they have one kind.
-      forM_ (concatMap dataConArgTypes constructors) $ \fieldType -> do
-        fieldKind <- tcTypeKind fieldType
-        unifyKindsAt (newtypeConstructorSpan newtypeDecl) resultKind fieldKind
+      -- The newtype and its field have one representation, so they have one
+      -- kind. Compare the field with the constructor's own result, because
+      -- a GADT constructor quantifies its own kind variables.
+      forM_ constructors $ \constructorInfo -> do
+        constructorResultKind <- tcTypeKind (dciResTy constructorInfo)
+        forM_ (dataConArgTypes constructorInfo) $ \fieldType -> do
+          fieldKind <- tcTypeKind fieldType
+          unifyKindsAt (newtypeConstructorSpan newtypeDecl) constructorResultKind fieldKind
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -5470,6 +5490,76 @@ registerNewtypeConstructor origin newtypeDecl = do
             dtiCType = cTypePragma (newtypeDeclCTypePragma newtypeDecl)
           }
       pure (maybeToList constructor <> selectorBindings)
+
+-- | Give a newtype constructor the variables of the newtype, as GHC does.
+-- A GADT constructor quantifies its own variables. The @r@ and @a@ of
+-- @IO# :: forall r (a :: TYPE r). ... -> IO# a@ become the variables of
+-- @newtype IO# :: forall r. TYPE r -> Type@. Thus the newtype axiom
+-- relates the type and the field with one set of binders. The new scheme
+-- is the same scheme with other names.
+--
+-- The first argument gives the parameters that only the inline kind gives.
+-- They have no written name, so they take the names that the constructor
+-- writes. The result also gives all parameters of the newtype.
+alignNewtypeConstructor :: [TyVarId] -> [TyVarId] -> TcBindingResult -> TcM (TcBindingResult, [TyVarId])
+alignNewtypeConstructor implicitTyVars writtenTyVars result = do
+  maybeBinder <- lookupTermKey (tbKey result)
+  case maybeBinder of
+    Just (TcIdBinder (Scheme inferred specified predicates body) closedness)
+      | (_, resultType) <- splitFunctionType body,
+        TcTyCon _ arguments <- resultType,
+        Just constructorTyVars <- mapM asTyVar arguments,
+        length constructorTyVars == length unnamedHeadTyVars -> do
+          let headTyVars =
+                writtenTyVars
+                  <> zipWith (\implicitTyVar constructorTyVar -> mkTyVarId (tvName constructorTyVar) (tvUnique implicitTyVar) (tvKind implicitTyVar)) implicitTyVars (drop (length writtenTyVars) constructorTyVars)
+          constructorKinds <- mapM (zonkKind . tvKind) constructorTyVars
+          headKinds <- mapM (zonkKind . tvKind) headTyVars
+          let quantified = map tvUnique (inferred <> specified)
+              pairs =
+                zip constructorTyVars headTyVars
+                  <> concat (zipWith matchKindVariables constructorKinds headKinds)
+              renaming =
+                Map.fromList
+                  [ (tvUnique constructorTyVar, headTyVar)
+                  | (constructorTyVar, headTyVar) <- pairs,
+                    tvUnique constructorTyVar `elem` quantified
+                  ]
+              substitution = Map.map TcTyVar renaming
+              renameBinder tyVar =
+                fromMaybe (setTyVarKind (applySubst substitution (tvKind tyVar)) tyVar) (Map.lookup (tvUnique tyVar) renaming)
+              scheme =
+                Scheme
+                  (map renameBinder inferred)
+                  (map renameBinder specified)
+                  (map (applySubstPred substitution) predicates)
+                  (applySubst substitution body)
+          if Map.null renaming
+            then pure (result, headTyVars)
+            else do
+              replaceTermKeyEnvPermanent (tbKey result) (TcIdBinder scheme closedness)
+              zonkedType <- zonkType (applySubst substitution body)
+              pure (result {tbType = zonkedType}, headTyVars)
+    _ -> pure (result, unnamedHeadTyVars)
+  where
+    unnamedHeadTyVars = writtenTyVars <> implicitTyVars
+    asTyVar argument = case argument of
+      TcTyVar tyVar -> Just tyVar
+      _ -> Nothing
+    -- The variables of the constructor kind at the positions of variables of
+    -- the header kind.
+    matchKindVariables constructorKind headKind =
+      case (constructorKind, headKind) of
+        (TcTyVar constructorTyVar, TcTyVar headTyVar) -> [(constructorTyVar, headTyVar)]
+        (TcTyCon left leftArguments, TcTyCon right rightArguments)
+          | left == right,
+            length leftArguments == length rightArguments ->
+              concat (zipWith matchKindVariables leftArguments rightArguments)
+        (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+          matchKindVariables leftArgument rightArgument <> matchKindVariables leftResult rightResult
+        (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+          matchKindVariables leftFunction rightFunction <> matchKindVariables leftArgument rightArgument
+        _ -> []
 
 -- | The source span of a newtype's constructor, if the parser gave one.
 newtypeConstructorSpan :: NewtypeDecl -> Maybe SourceSpan
@@ -5684,8 +5774,13 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
         constructorTyVars = map paramTyVar constructorParams
     let resultSurfTy = gadtBodyResultType body
         argSurfTys = gadtBodyArgTypes body
-    kinds <- getKinds
-    gadtResTy <- checkSurfaceType constructorEnv resultSurfTy (typeKind kinds)
+    -- The written result is the declared type, so its kind follows from
+    -- the kind of that type. An UnliftedNewtypes result, as @W :: Word# -> W@
+    -- for @newtype W :: TYPE 'WordRep@, is not of kind Type. The kind
+    -- variables of the result are the constructor's own variables, as the
+    -- @r@ of @Maybe# :: forall r (a :: TYPE r). (# (# #) | a #) -> Maybe# a@.
+    writtenResultKind <- freshKindMeta
+    gadtResTy <- checkSurfaceType constructorEnv resultSurfTy writtenResultKind
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
     writtenPredicates <- surfaceContextToPreds constructorEnv context
     -- Under PolyKinds, the signature can leave the kind of a variable open.
