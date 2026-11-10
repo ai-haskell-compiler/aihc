@@ -1117,8 +1117,12 @@ resolveExpr expr =
     ETHDeclQuote {} -> pure expr
     ETHTypeQuote {} -> pure expr
     ETHPatQuote {} -> pure expr
-    ETHNameQuote {} -> pure expr
-    ETHTypeNameQuote {} -> pure expr
+    -- A name quote gives the name of a term or of a type. The change of
+    -- the quote into a Template Haskell name reads the resolution.
+    ETHNameQuote inner ->
+      ETHNameQuote <$> resolveExpr inner
+    ETHTypeNameQuote ty ->
+      ETHTypeNameQuote <$> resolveType ty
     EProc {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EProc" <*> pure expr
 
 -- | An overloaded integer literal applies fromInteger to an Integer.
@@ -2615,7 +2619,7 @@ resolveTypeConstructorUse promotion name =
       sp <- currentSpan
       scope <- currentScope
       info <- currentModuleInfo
-      case resolveTypeName scope name of
+      case maybe (resolveTypeName scope name) (Resolved . EntityGlobal) (exactType name) of
         unresolved@(Unresolved _)
           | DataKinds `elem` moduleInfoExtensions info ->
               case resolveTermName scope name of

@@ -680,7 +680,8 @@ test_engineSplice getStore =
 
 -- | A build runs the splices of a program in an engine, and the program
 -- has their results. The program has splices in expressions, some with
--- expression quotes, and splices in the position of a declaration. The program is for the host target, and the
+-- expression quotes, splices in the position of a declaration, and name
+-- quotes. The program is for the host target, and the
 -- splices run for @wasm32-wasip3@, so the store has the core libraries of
 -- the two targets.
 test_buildSplices :: IO SeedStore -> IO (Maybe SeedStore) -> Assertion
@@ -703,7 +704,7 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\n-5\nnegate Maybe\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
       assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an

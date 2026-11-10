@@ -34,6 +34,14 @@ $( pure
      ]
  )
 
+-- A declaration splice with name quotes. Each name keeps its package and
+-- its module.
+$( pure
+     [ SigD (mkName "minus") (AppT (AppT ArrowT (ConT ''Int)) (ConT ''Int)),
+       ValD (VarP (mkName "minus")) (NormalB (VarE 'negate)) []
+     ]
+ )
+
 -- A declaration splice without the splice syntax, with no declarations.
 pure []
 
@@ -52,4 +60,7 @@ main = do
   let length = const (0 :: Int) in print ($([|length "abcd"|]) :: Int)
   print $([|(if True then 'a' else 'b', [length "x", 2])|])
   print (twice 21)
+  print (minus 5)
+  -- The program makes the names of name quotes when it runs.
+  putStrLn (nameBase 'negate ++ " " ++ nameBase ''Maybe)
   showTriple

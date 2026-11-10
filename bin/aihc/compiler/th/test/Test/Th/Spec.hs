@@ -7,7 +7,7 @@ module Test.Th.Spec (tests) where
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
-import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm)
+import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm, exactType)
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
 import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
@@ -27,7 +27,7 @@ tests =
     [ testCase "decodes the message of a splice" decodeTest,
       testCase "rejects a message that is not one complete tree" rejectTest,
       testCase "converts expressions to the surface syntax" convertTest,
-      testCase "gives a package-bound name its term" exactNameTest,
+      testCase "gives a package-bound name its term or its type" exactNameTest,
       testCase "converts declarations to the surface syntax" declarationsTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -193,6 +193,28 @@ exactNameTest = do
         (Just (GlobalName "length" (PackageId "aihc-base-4.21.2.0") "GHC.Internal.Foldable" ResolutionNamespaceTerm))
         (exactTerm variableName)
     other -> assertFailure ("expected a variable, got " <> show other)
+  let typeTree =
+        list
+          [ TreeNode
+              "SigD"
+              [ name "x",
+                TreeNode
+                  "ConT"
+                  [ TreeNode
+                      "Name"
+                      [ TreeNode "OccName" [TreeString "Int"],
+                        TreeNode "NameG" [TreeNode "TcClsName" [], TreeNode "PkgName" [TreeString "aihc-prim-0.13.0"], TreeNode "ModName" [TreeString "GHC.Types"]]
+                      ]
+                  ]
+              ]
+          ]
+  case declarationsFromTree typeTree of
+    Right [DeclTypeSig _ (TCon typeName Unpromoted)] ->
+      assertEqual
+        "the type of the name"
+        (Just (GlobalName "Int" (PackageId "aihc-prim-0.13.0") "GHC.Types" ResolutionNamespaceType))
+        (exactType typeName)
+    other -> assertFailure ("expected a signature with a type constructor, got " <> show other)
 
 unsupportedTest :: IO ()
 unsupportedTest = do
