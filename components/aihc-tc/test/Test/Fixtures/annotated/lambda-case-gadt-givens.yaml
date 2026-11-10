@@ -1,0 +1,61 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  {-# LANGUAGE LambdaCase #-}
+  module Test where
+  data V = VNull | VOther
+       │   │       └─ type: V
+       │   └─ type: V
+       └─ type: Type
+  data Codec ctx a where
+       └─ type: Type → Type → Type
+    NullCodec :: Codec V ()
+    └─ type: ∀ ctx a. (ctx ~ V, a ~ ()) ⇒ Codec ctx a
+
+  isNull :: ctx -> Codec ctx a -> a
+  isNull v = \case
+  │      │   └─ type: Codec ctx a → a
+  │      └─ type: ctx
+  └─ type: ∀ ctx a. ctx → Codec ctx a → a
+    NullCodec -> case (v :: V) of
+    │            └─ type: a
+    └─ type: Codec ctx a; type-args: ctx, a; evidence: given ctx ~ V, given a ~ ()
+      VNull -> ()
+      │        └─ type: ()
+      └─ type: V
+      VOther -> ()
+      │         └─ type: ()
+      └─ type: V
+
+  isNulls :: Codec ctx a -> ctx -> a
+  isNulls = \cases
+  └─ type: ∀ ctx a. Codec ctx a → ctx → a
+    NullCodec VNull -> ()
+    │         │        └─ type: ()
+    │         └─ type: V
+    └─ type: Codec ctx a; type-args: ctx, a; evidence: given ctx ~ V, given a ~ ()
+    NullCodec VOther -> ()
+    │         │         └─ type: ()
+    │         └─ type: V
+    └─ type: Codec ctx a; type-args: ctx, a; evidence: given ctx ~ V, given a ~ ()
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  {-# LANGUAGE LambdaCase #-}
+  module Test where
+  data V = VNull | VOther
+  data Codec ctx a where
+    NullCodec :: Codec V ()
+
+  isNull :: ctx -> Codec ctx a -> a
+  isNull v = \case
+    NullCodec -> case (v :: V) of
+      VNull -> ()
+      VOther -> ()
+
+  isNulls :: Codec ctx a -> ctx -> a
+  isNulls = \cases
+    NullCodec VNull -> ()
+    NullCodec VOther -> ()
+status: pass
