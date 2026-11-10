@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: engine-splices
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Splices
+  hs-source-dirs: src
+  build-depends:
+    base,
+    template-haskell,
+
+  default-language: Haskell2010

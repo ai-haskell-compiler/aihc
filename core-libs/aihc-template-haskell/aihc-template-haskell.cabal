@@ -10,6 +10,7 @@ synopsis: API-compatible stand-in for template-haskell
 
 library
   exposed-modules:
+    Aihc.TH.Splice
     Language.Haskell.TH
     Language.Haskell.TH.CodeDo
     Language.Haskell.TH.LanguageExtensions
