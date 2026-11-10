@@ -166,7 +166,7 @@ duplicateInvariantLoads uses function
         ]
     compareReads =
       MonoidMap.fromListWith
-        (+)
+        (<>)
         [ (var, 1 :: Sum Int)
         | block <- functionBlocks function,
           Instruction _ (Compare _ _ left right) <- blockInstructions block,
