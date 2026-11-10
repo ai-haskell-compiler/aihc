@@ -64,6 +64,7 @@ where
 
 import Aihc.Lir.Flat
 import Aihc.Lir.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative (Const (..))
 import Control.Monad (unless, when, (>=>))
 import Control.Monad.ST (ST, runST)
@@ -78,6 +79,8 @@ import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
 import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 -- | Where every value of one function lives.
@@ -1037,27 +1040,18 @@ orderByStart encoded starts hints partners = do
 
 -- | How many times the function reads each value, unweighted.
 --
--- Each value gets one counter, and a read adds one to it in place. Thus a
--- read of a value that the table already holds does not copy a path of
--- the map. Each Lir pass that removes or rewrites an instruction counts the
--- reads again, so the count must be cheap.
-readCounts :: Function -> Map Var Int
-readCounts function = runST $ do
-  table <- newSTRef Map.empty
+-- Each Lir pass that removes or rewrites an instruction counts the reads
+-- again, so the count must be cheap. Thus 'Occurrences.countST' does the
+-- counting.
+readCounts :: Function -> MonoidMap Var (Sum Int)
+readCounts function = Occurrences.countST $ \yield -> do
   let count operand =
         case operand of
-          OperandVar var -> do
-            counters <- readSTRef table
-            case Map.lookup var counters of
-              Just counter -> modifySTRef' counter (+ 1)
-              Nothing -> do
-                counter <- newSTRef (1 :: Int)
-                writeSTRef table $! Map.insert var counter counters
+          OperandVar var -> yield var
           OperandLiteral _ -> pure ()
   for_ (functionBlocks function) $ \block -> do
     for_ (blockInstructions block) (forOperationOperands count . instructionOperation)
     forTerminatorOperands count (blockTerminator block)
-  traverse readSTRef =<< readSTRef table
 
 -- | Every read of a value by one operation, in order and with repeats.
 operationReads :: Operation -> [Var]

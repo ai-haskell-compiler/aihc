@@ -22,9 +22,12 @@ module Aihc.Wasm.ControlFlow
 where
 
 import Aihc.Lir.Syntax (Block (..), Label, Target (..), terminatorTargets)
+import Aihc.Util.Occurrences qualified as Occurrences
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Monoid (Sum)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Ord (Down (..))
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -78,10 +81,10 @@ analyzeControlFlow blocks =
           | label == entry = False
           | otherwise = dominates dominator (idoms Map.! label)
         merges =
-          Map.keysSet
-            ( Map.filter
-                (>= (2 :: Int))
-                (Map.fromListWith (+) [(target, 1) | (source, target) <- edges, number Map.! target > number Map.! source])
+          MonoidMap.nonNullKeys
+            ( MonoidMap.filter
+                (>= (2 :: Sum Int))
+                (Occurrences.count [target | (source, target) <- edges, number Map.! target > number Map.! source])
             )
 
 -- | The blocks that the entry reaches, in reverse postorder.
