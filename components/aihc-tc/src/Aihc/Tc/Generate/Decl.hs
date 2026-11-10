@@ -1865,7 +1865,9 @@ checkForeignWrapper :: Maybe SourceSpan -> Text -> TcType -> TcM TcForeignImport
 checkForeignWrapper sourceSpan symbol ty =
   case splitFunctionType ty of
     ([callback], TcTyCon (TyCon "IO" 1) [pointer@(TcTyCon (TyCon "FunPtr" 1) [pointed])]) -> do
-      unless (equivalentTypeSchemes (typeSchemeFromType callback) (typeSchemeFromType pointed)) $
+      -- A type variable of the import is free in both types, and a type
+      -- scheme comparison renames only variables that it binds.
+      unless (callback == pointed || equivalentTypeSchemes (typeSchemeFromType callback) (typeSchemeFromType pointed)) $
         emitError sourceSpan (OtherError "a wrapper result must point to its callback type")
       let (callbackArguments, callbackResult) = splitFunctionType callback
       when (null callbackArguments && not (isIO callbackResult)) $
