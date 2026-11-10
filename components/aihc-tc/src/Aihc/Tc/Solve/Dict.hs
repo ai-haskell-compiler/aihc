@@ -320,6 +320,16 @@ solveNormalizedDict visited givens ct
                   then pure (Just evidence)
                   else superclassEvidence [] visited' target evidence normalized
               maybe (rewrittenIrreducibleGiven visited' rules target rest) (pure . Just) found
+        -- A class given rewrites in the same way, and a superclass of the
+        -- rewritten given can solve the wanted: with the given @a ~ ()@,
+        -- the given @Gen (m a)@ rewrites to @Gen (m ())@, and its
+        -- superclass is the wanted @Str (m ())@.
+        ClassPred givenClass givenArgs
+          | let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) givenArgs),
+            not (and (zipWith sameType rewrittenArgs givenArgs)) -> do
+              let evidence = EvCast (EvGiven given) (TyConAppCo givenClass givenArgs coercions [])
+              found <- superclassEvidence [] visited' target evidence (ClassPred givenClass rewrittenArgs)
+              maybe (rewrittenIrreducibleGiven visited' rules target rest) (pure . Just) found
         _ -> rewrittenIrreducibleGiven visited' rules target rest
 
     rewrittenGivenMatches rules allGivens className args =

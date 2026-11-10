@@ -1,0 +1,48 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, TypeFamilies, ConstraintKinds, KindSignatures, FlexibleInstances, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (Type, Constraint, Bool)
+    type family F :: k -> Constraint
+    type instance F = C
+    class C (p :: k) where
+      m :: proxy p -> Bool
+    g :: F p => proxy p -> Bool
+    g = m
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tF (k : sType) :: k → sType @N {}
+
+  axiom 1.$ax$F (_ : sType) : tF _ ~N t$Dict$C _
+
+  pub type 1.t$Dict$C (k : sType) (p : k) :: sType {
+    pub 1.c$Dict$C :: ∀(k : sType) (p : k). (∀(proxy : k → sType). proxy p → tBool) → t$Dict$C k p
+  }
+
+  pub val 1.vm :: ∀(k : sType) (p : k) (proxy : k → sType). t$Dict$C k p → proxy p → tBool
+    = Λ(k : sType) (p : k) (proxy : k → sType). λ($dC : t$Dict$C k p).
+      let! c$Dict$C ($cm : ∀(proxy{1} : k → sType). proxy{1} p → tBool) = $dC;
+      $cm @proxy
+
+  pub val 1.vg :: ∀(k0 : sType) (p : k0) (proxy : k0 → sType). tF k0 p → proxy p → tBool
+    = Λ(k0 : sType) (p : k0) (proxy : k0 → sType). λ($d : tF k0 p).
+      vm @k0 @p @proxy $d
+status: pass
+reason: The family F has no visible parameters, and its equation F = C gets the kind argument of F explicitly. Before the fix, the axiom also bound the result kind variable of F, which no side used. The axiom then never matched, and the System FC lint rejected the given F p as a C p dictionary.

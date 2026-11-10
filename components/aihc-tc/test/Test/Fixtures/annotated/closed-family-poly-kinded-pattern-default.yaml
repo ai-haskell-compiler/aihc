@@ -1,0 +1,37 @@
+extensions:
+- DataKinds
+- StandaloneKindSignatures
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, StandaloneKindSignatures, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  type V :: forall k. k -> Type
+  data V p
+  data Maybe a = Nothing | Just a
+  type family HasSum f where
+    HasSum V = 'False
+  type T = HasSum Maybe
+status: pass
+reason: >-
+  Without PolyKinds, the kind variable of a poly-kinded constructor in an equation
+  defaults to Type. It does not become a variable of the equation. Thus, the
+  family accepts Maybe.
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, StandaloneKindSignatures, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  type V :: forall k. k -> Type
+  data V p
+       └─ type: k → Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  type family HasSum f where
+              └─ type: (Type → Type) → GHC.Types.Bool
+    HasSum V = 'False
+  type T = HasSum Maybe
+       └─ type: GHC.Types.Bool

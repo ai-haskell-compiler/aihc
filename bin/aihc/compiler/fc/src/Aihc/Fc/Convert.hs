@@ -15,6 +15,7 @@ module Aihc.Fc.Convert
     convertNestedTypeWithExpectedKind,
     withSynonymTyCons,
     withExportedNames,
+    exportedFieldVis,
     exportedVis,
     convertKind,
     convertRep,
@@ -40,7 +41,7 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Wired
-import Aihc.Resolve (PackageId, ResolutionNamespace (..))
+import Aihc.Resolve (PackageId, ResolutionNamespace (..), isFieldSelectorOf)
 import Aihc.Tc.Types
   ( GlobalName,
     Pred (..),
@@ -152,6 +153,17 @@ exportedVis env namespace name =
   case ceExportedNames env of
     Nothing -> Pub
     Just names -> if Set.member (namespace, name) names then Pub else Private
+
+-- | Whether the selector of a record field label is visible to other
+-- modules. A duplicate record field has a selector with its own name.
+exportedFieldVis :: ConvertEnv -> Text -> Vis
+exportedFieldVis env label =
+  case ceExportedNames env of
+    Nothing -> Pub
+    Just names
+      | Set.member (ResolutionNamespaceTerm, label) names -> Pub
+      | any (\(namespace, name) -> namespace == ResolutionNamespaceTerm && isFieldSelectorOf label name) names -> Pub
+      | otherwise -> Private
 
 classDictTypeName :: TyCon -> Name
 classDictTypeName tyCon =

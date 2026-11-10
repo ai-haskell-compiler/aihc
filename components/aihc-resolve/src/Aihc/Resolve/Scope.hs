@@ -46,6 +46,10 @@ module Aihc.Resolve.Scope
     recordWildcardFieldNames,
     importItemTypeName,
     allTypeMembers,
+    fieldSelectorName,
+    isFieldSelectorOf,
+    duplicateFieldSelectors,
+    declarationFirstConstructor,
   )
 where
 
@@ -567,7 +571,7 @@ selectTypeWithMembers :: Text -> Scope -> [Text] -> Scope
 selectTypeWithMembers name scope members =
   selectType name scope
     `unionScope` emptyScope
-      { scopeTerms = Map.restrictKeys (scopeTerms scope) memberSet,
+      { scopeTerms = Map.unions [ownedSelectors, selectorNames, Map.restrictKeys (scopeTerms scope) memberSet],
         scopeTypes = Map.restrictKeys (scopeTypes scope) (Set.fromList bundledAssociatedTypes),
         scopeConstructors = bundledConstructors,
         scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) memberSet,
@@ -579,6 +583,17 @@ selectTypeWithMembers name scope members =
   where
     memberSet = Set.fromList members
     existingConstructors = Map.findWithDefault [] name (scopeConstructors scope)
+    -- A duplicate field label names the selector of this type, not the
+    -- selector of the other type that has the same label.
+    fieldSelectors =
+      [ (member, selector, entity)
+      | member <- List.nub members,
+        constructor <- existingConstructors,
+        let selector = fieldSelectorName member constructor,
+        Just entity <- [Map.lookup selector (scopeTerms scope)]
+      ]
+    ownedSelectors = Map.fromListWith (\_ first -> first) [(member, entity) | (member, _, entity) <- fieldSelectors]
+    selectorNames = Map.fromList [(selector, entity) | (_, selector, entity) <- fieldSelectors]
     bundledAssociatedTypes =
       [member | member <- associatedTypeMembers name scope, member `Set.member` memberSet]
     knownMembers =
@@ -626,9 +641,16 @@ exportBundledMemberName = nameText . ieBundledMemberName
 -- name for each such field.
 topLevelScope :: Scope -> Package -> Module -> Scope
 topLevelScope imported package modu =
-  List.foldl' addDecl emptyScope (moduleDecls modu)
+  List.foldl' addSelector (List.foldl' addDecl emptyScope (moduleDecls modu)) (duplicateFieldSelectors (moduleDecls modu))
   where
     moduleKeyText = moduleKey modu
+    -- A field label that two declarations of the module declare names two
+    -- selectors. Each selector gets its own name, and the label names one
+    -- of them. A record export or a field declaration finds each selector
+    -- by its own name.
+    addSelector scope (label, selector) =
+      let entity = EntityGlobal (GlobalName selector (packageId package) moduleKeyText ResolutionNamespaceTerm)
+       in insertTerm label entity (insertTerm selector entity scope)
     qualify namespace name = EntityGlobal (GlobalName (unqualifiedNameText name) (packageId package) moduleKeyText namespace)
     -- A pattern binding can come before the data declaration that gives it
     -- the record fields, so collect all fields of the module first.
@@ -846,6 +868,63 @@ dataDeclTermNames :: [DataConDecl] -> [UnqualifiedName]
 dataDeclTermNames constructors =
   concatMap dataConDeclConstructors constructors
     <> concatMap (concatMap fieldNames . snd) (concatMap dataConDeclRecordFields constructors)
+
+-- | The name of the selector of a duplicate record field. Two data
+-- declarations of one module can declare the same field label when
+-- DuplicateRecordFields is on. Each selector then gets this name, from the
+-- label and the first constructor of its declaration, as in GHC.
+fieldSelectorName :: Text -> Text -> Text
+fieldSelectorName label constructor = "$sel:" <> label <> ":" <> constructor
+
+-- | Whether a top-level name is the selector of a duplicate record field
+-- with this label.
+isFieldSelectorOf :: Text -> Text -> Bool
+isFieldSelectorOf label name = ("$sel:" <> label <> ":") `T.isPrefixOf` name
+
+-- | The duplicate record fields of a module, each with its selector name.
+-- A label is a duplicate when more than one declaration declares it.
+duplicateFieldSelectors :: [Decl] -> [(Text, Text)]
+duplicateFieldSelectors decls =
+  [ (label, fieldSelectorName label constructor)
+  | (constructor, labels) <- owners,
+    label <- labels,
+    Map.findWithDefault 0 label counts > (1 :: Int)
+  ]
+  where
+    owners = concatMap declRecordFieldOwners decls
+    counts = Map.fromListWith (+) [(label, 1) | (_, labels) <- owners, label <- labels]
+
+-- | The first constructor that a declaration names. A duplicate record
+-- field takes its selector name from it.
+declarationFirstConstructor :: [DataConDecl] -> Maybe Text
+declarationFirstConstructor constructors =
+  case concatMap dataConDeclConstructors constructors of
+    first : _ -> Just (renderUnqualifiedName first)
+    [] -> Nothing
+
+-- | The first constructor and the field labels of each declaration that
+-- declares record fields.
+declRecordFieldOwners :: Decl -> [(Text, [Text])]
+declRecordFieldOwners decl =
+  case decl of
+    DeclAnn _ inner -> declRecordFieldOwners inner
+    DeclData dataDecl -> owner (dataDeclConstructors dataDecl)
+    DeclNewtype newtypeDecl -> owner (maybeToList (newtypeDeclConstructor newtypeDecl))
+    DeclDataFamilyInst familyInst -> owner (dataFamilyInstConstructors familyInst)
+    DeclInstance instanceDecl -> concatMap instanceItemOwners (instanceDeclItems instanceDecl)
+    _ -> []
+  where
+    instanceItemOwners item =
+      case item of
+        InstanceItemAnn _ inner -> instanceItemOwners inner
+        InstanceItemDataFamilyInst familyInst -> owner (dataFamilyInstConstructors familyInst)
+        _ -> []
+    owner constructors =
+      case (declarationFirstConstructor constructors, labelsOf constructors) of
+        (Just first, labels@(_ : _)) -> [(first, labels)]
+        _ -> []
+    labelsOf constructors =
+      List.nub (map renderUnqualifiedName (concatMap (concatMap fieldNames . snd) (concatMap dataConDeclRecordFields constructors)))
 
 -- | The constructors that one declaration names. Built-in syntax such as
 -- @(,)@, @(# | #)@ and @[]@ binds no name: a use of it resolves to

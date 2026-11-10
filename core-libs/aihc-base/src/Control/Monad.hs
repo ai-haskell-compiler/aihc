@@ -45,6 +45,7 @@ import Control.Applicative (Alternative (..), WrappedMonad (..))
 import Control.Arrow (ArrowPlus (..), ArrowZero (..), Kleisli (..))
 import Control.Monad.Fail (MonadFail (..))
 import Data.Functor (void)
+import GHC.Base (MonadPlus (..))
 import Prelude
   ( Applicative (..),
     Bool (..),
@@ -122,17 +123,6 @@ liftM5 function first second third fourth fifth = do
   fourthValue <- fourth
   fifthValue <- fifth
   return (function firstValue secondValue thirdValue fourthValue fifthValue)
-
-class (Alternative m, Monad m) => MonadPlus m where
-  mzero :: m a
-  mplus :: m a -> m a -> m a
-
-  mzero = empty
-  mplus = (<|>)
-
-instance MonadPlus []
-
-instance MonadPlus Maybe
 
 -- GHC declares these instances beside 'Kleisli'. 'Control.Arrow' cannot
 -- import this module, so they live beside 'MonadPlus'.

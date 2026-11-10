@@ -24,6 +24,7 @@ import Control.Arrow (Arrow (..), ArrowPlus (..), ArrowZero (..), Kleisli (..), 
 import Data.Bits (Bits)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import Foreign.Storable (Storable (..))
+import GHC.Base (Alternative (..))
 import GHC.List (drop)
 import GHC.Ptr (castPtr)
 import Prelude (Applicative (..), Bounded, Enum, Eq (..), Floating, Foldable (..), Fractional, Functor (..), Integral, Maybe (..), Monad (..), Num, Ord (..), Read (..), Real, RealFloat, RealFrac, Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
@@ -139,20 +140,6 @@ instance Alternative ZipList where
   empty = ZipList []
   ZipList left <|> ZipList right = ZipList (left ++ drop (length left) right)
 
-class (Applicative f) => Alternative f where
-  empty :: f a
-  (<|>) :: f a -> f a -> f a
-  some :: f a -> f [a]
-  many :: f a -> f [a]
-
-  some value = fmap prepend value <*> many value
-  many value = some value <|> pure []
-
-infixl 3 <|>
-
-prepend :: a -> [a] -> [a]
-prepend value values = value : values
-
 repeatZipList :: a -> [a]
 repeatZipList value = value : repeatZipList value
 
@@ -161,20 +148,11 @@ applyZipList [] _ = []
 applyZipList _ [] = []
 applyZipList (f : functions) (value : values) = f value : applyZipList functions values
 
-instance Alternative [] where
-  empty = []
-  (<|>) = (++)
-
 -- GHC declares this instance beside 'Kleisli'. 'Control.Arrow' cannot
 -- import this module, so the instance lives beside the class.
 instance (Alternative m) => Alternative (Kleisli m a) where
   empty = Kleisli (const empty)
   Kleisli f <|> Kleisli g = Kleisli (\x -> f x <|> g x)
-
-instance Alternative Maybe where
-  empty = Nothing
-  Nothing <|> value = value
-  value <|> _ = value
 
 -- | A 'Const' is stored as the value it wraps.
 instance (Storable a) => Storable (Const a b) where
