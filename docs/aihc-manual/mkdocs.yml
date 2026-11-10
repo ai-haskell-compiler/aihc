@@ -113,3 +113,4 @@ nav:
           - Lir: developers/pipeline/lir.md
           - Examples: developers/pipeline/examples.md
       - Info tables: developers/info-tables.md
+      - Template Haskell design: developers/template-haskell.md
