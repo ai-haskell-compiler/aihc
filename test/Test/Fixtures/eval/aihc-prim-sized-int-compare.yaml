@@ -1,0 +1,27 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (ltInt8# (intToInt8# 200#) (intToInt8# 100#)))
+        (I# (leInt8# (intToInt8# 127#) (intToInt8# 128#)))
+        (I# (eqInt8# (intToInt8# 300#) (intToInt8# 44#)))
+        (I# (ltInt16# (intToInt16# (negateInt# 1#)) (intToInt16# 1#)))
+        (I# (geInt16# (intToInt16# (negateInt# 5#)) (intToInt16# (negateInt# 5#))))
+        (I# (gtInt32# (intToInt32# 3000000000#) (intToInt32# 0#)))
+        (I# (neInt32# (intToInt32# 7#) (intToInt32# 7#)))
+output: |
+  Results (I# 1) (I# 0) (I# 1) (I# 1) (I# 1) (I# 0) (I# 0)
+expression: |
+  results
+status: pass
+reason: the sized integer comparisons wrap their operands to the width and compare as signed numbers

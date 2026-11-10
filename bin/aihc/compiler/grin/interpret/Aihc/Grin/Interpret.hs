@@ -2920,12 +2920,22 @@ compareOrdinal ordering =
     EQ -> 0
     GT -> 1
 
--- | The comparisons of the 8-bit, 16-bit and 32-bit words, with the
--- representation of their operands.
+-- | The comparisons of the 8-bit, 16-bit and 32-bit words and integers,
+-- with the representation of their operands. A sized integer literal keeps
+-- its sign, thus the same comparison applies to words and integers.
 sizedWordComparison :: Text -> Maybe (GrinRep, Integer -> Integer -> Bool)
 sizedWordComparison name = do
   (prefix, width) <- Just (T.splitAt 2 name)
-  rep <- lookup width [("Word8#", Word8Rep), ("Word16#", Word16Rep), ("Word32#", Word32Rep)]
+  rep <-
+    lookup
+      width
+      [ ("Word8#", Word8Rep),
+        ("Word16#", Word16Rep),
+        ("Word32#", Word32Rep),
+        ("Int8#", Int8Rep),
+        ("Int16#", Int16Rep),
+        ("Int32#", Int32Rep)
+      ]
   comparison <- lookup prefix [("eq", (==)), ("ne", (/=)), ("lt", (<)), ("le", (<=)), ("gt", (>)), ("ge", (>=))]
   Just (rep, comparison)
 

@@ -44,6 +44,7 @@ module GHC.Base
     map,
     mapFB,
     otherwise,
+    getTag,
     shiftL#,
     shiftRL#,
     iShiftL#,
@@ -74,6 +75,11 @@ class (Applicative f) => Alternative f where
   many value = some value <|> pure []
 
 infixl 3 <|>
+
+-- | Return the constructor index of a value after the value is evaluated.
+getTag :: a -> Int#
+getTag = dataToTagLarge#
+{-# INLINE getTag #-}
 
 prepend :: a -> [a] -> [a]
 prepend value values = value : values

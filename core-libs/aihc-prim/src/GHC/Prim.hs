@@ -20,6 +20,24 @@ module GHC.Prim
     andWord8#,
     andWord16#,
     andWord32#,
+    eqInt8#,
+    neInt8#,
+    ltInt8#,
+    leInt8#,
+    gtInt8#,
+    geInt8#,
+    eqInt16#,
+    neInt16#,
+    ltInt16#,
+    leInt16#,
+    gtInt16#,
+    geInt16#,
+    eqInt32#,
+    neInt32#,
+    ltInt32#,
+    leInt32#,
+    gtInt32#,
+    geInt32#,
     neWord8#,
     ltWord8#,
     leWord8#,
@@ -1445,6 +1463,42 @@ foreign import prim wordToWord64# :: Word# -> Word64#
 foreign import prim word16ToWord# :: Word16# -> Word#
 
 foreign import prim eqWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim eqInt8# :: Int8# -> Int8# -> Int#
+
+foreign import prim neInt8# :: Int8# -> Int8# -> Int#
+
+foreign import prim ltInt8# :: Int8# -> Int8# -> Int#
+
+foreign import prim leInt8# :: Int8# -> Int8# -> Int#
+
+foreign import prim gtInt8# :: Int8# -> Int8# -> Int#
+
+foreign import prim geInt8# :: Int8# -> Int8# -> Int#
+
+foreign import prim eqInt16# :: Int16# -> Int16# -> Int#
+
+foreign import prim neInt16# :: Int16# -> Int16# -> Int#
+
+foreign import prim ltInt16# :: Int16# -> Int16# -> Int#
+
+foreign import prim leInt16# :: Int16# -> Int16# -> Int#
+
+foreign import prim gtInt16# :: Int16# -> Int16# -> Int#
+
+foreign import prim geInt16# :: Int16# -> Int16# -> Int#
+
+foreign import prim eqInt32# :: Int32# -> Int32# -> Int#
+
+foreign import prim neInt32# :: Int32# -> Int32# -> Int#
+
+foreign import prim ltInt32# :: Int32# -> Int32# -> Int#
+
+foreign import prim leInt32# :: Int32# -> Int32# -> Int#
+
+foreign import prim gtInt32# :: Int32# -> Int32# -> Int#
+
+foreign import prim geInt32# :: Int32# -> Int32# -> Int#
 
 foreign import prim neWord8# :: Word8# -> Word8# -> Int#
 
