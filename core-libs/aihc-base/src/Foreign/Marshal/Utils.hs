@@ -8,6 +8,7 @@ module Foreign.Marshal.Utils
     toBool,
     maybeNew,
     maybeWith,
+    maybePeek,
     withMany,
     copyBytes,
     moveBytes,
@@ -22,7 +23,7 @@ import GHC.IO (IO)
 import GHC.Int (Int (..))
 import GHC.Ptr (Ptr (..), nullPtr)
 import GHC.Word (Word8 (..))
-import Prelude (Bool (..), Eq (..), Maybe (..), Num (..), Ord (..), fromIntegral, otherwise, return, (>>))
+import Prelude (Bool (..), Eq (..), Maybe (..), Num (..), Ord (..), fromIntegral, otherwise, return, (>>), (>>=))
 
 with :: (Storable a) => a -> (Ptr a -> IO b) -> IO b
 with value action =
@@ -48,6 +49,12 @@ maybeNew make (Just value) = make value
 maybeWith :: (a -> (Ptr b -> IO c) -> IO c) -> Maybe a -> (Ptr b -> IO c) -> IO c
 maybeWith _ Nothing action = action nullPtr
 maybeWith wrap (Just value) action = wrap value action
+
+-- | Read a value through a pointer, or give 'Nothing' for a null pointer.
+maybePeek :: (Ptr a -> IO b) -> Ptr a -> IO (Maybe b)
+maybePeek peekValue pointer
+  | pointer == nullPtr = return Nothing
+  | otherwise = peekValue pointer >>= \value -> return (Just value)
 
 withMany :: (a -> (b -> result) -> result) -> [a] -> ([b] -> result) -> result
 withMany _ [] action = action []

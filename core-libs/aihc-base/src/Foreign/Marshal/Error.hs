@@ -3,11 +3,13 @@ module Foreign.Marshal.Error
     throwIf_,
     throwIfNeg,
     throwIfNeg_,
+    throwIfNull,
     void,
   )
 where
 
-import Prelude (Bool, IO, Num (..), Ord (..), String, ioError, return, userError, (>>), (>>=))
+import Foreign.Ptr (Ptr, nullPtr)
+import Prelude (Bool, Eq (..), IO, Num (..), Ord (..), String, const, ioError, return, userError, (>>), (>>=))
 
 throwIf :: (a -> Bool) -> (a -> String) -> IO a -> IO a
 throwIf failed describe action =
@@ -24,6 +26,10 @@ throwIfNeg = throwIf (< 0)
 
 throwIfNeg_ :: (Ord a, Num a) => (a -> String) -> IO a -> IO ()
 throwIfNeg_ = throwIf_ (< 0)
+
+-- | Throw an error with the message when the action returns a null pointer.
+throwIfNull :: String -> IO (Ptr a) -> IO (Ptr a)
+throwIfNull message = throwIf (== nullPtr) (const message)
 
 void :: IO a -> IO ()
 void action = action >> return ()
