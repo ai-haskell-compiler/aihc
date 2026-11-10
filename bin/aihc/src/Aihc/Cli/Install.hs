@@ -119,7 +119,7 @@ import Aihc.Cli.ModuleProvider
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), progressTaskObserver, quietProgress, withProgress)
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), progressTaskObserver, quietProgress, renderProgressItem, withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifactParts)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -256,7 +256,7 @@ import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar, wit
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (IOException, SomeException, bracket_, evaluate, finally, throwIO, try)
+import Control.Exception (SomeException, bracket_, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -277,6 +277,7 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
+import GHC.IO.Exception (IOException (..))
 import GHC.IO.Handle.Lock qualified as HandleLock
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
@@ -285,6 +286,7 @@ import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, stderr, stdout, withFile)
+import System.IO.Error (modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -2038,6 +2040,10 @@ partitionModules graph shared build sourceSlots = do
       -- the last task of a unit reports its modules as compiled.
       reportCompiling = progressReport (compileProgress config) (ProgressCompile (moduleBuildItem build))
       reportCompiled unit = progressReport (compileProgress config) (ProgressModules (moduleBuildItem build) (length (sourceUnitSources unit)))
+      -- A failure of a unit names the package or component of the unit:
+      -- an install compiles many packages, and the message of a lint
+      -- failure names only the module.
+      inItem = modifyIOError (prefixIOError (renderProgressItem (moduleBuildItem build)))
       unitTasks runtime =
         let unit = runtimeUnit runtime
             unitOrder = order * 1000000 + sourceUnitOrder unit
@@ -2047,14 +2053,14 @@ partitionModules graph shared build sourceSlots = do
                   taskKind = TaskResolve,
                   taskOrder = unitOrder,
                   taskDependencies = Set.fromList (map runtimeResolveTask below),
-                  taskAction = runResolveUnit context runtimeMap runtime
+                  taskAction = inItem (runResolveUnit context runtimeMap runtime)
                 },
               Task
                 { taskId = runtimeTypeTask runtime,
                   taskKind = TaskTypeCheck,
                   taskOrder = unitOrder,
                   taskDependencies = Set.fromList (runtimeResolveTask runtime : map runtimeTypeTask below),
-                  taskAction = reportCompiling >> runTypeUnit context runtimeMap runtime >> when noCode (reportCompiled unit)
+                  taskAction = reportCompiling >> inItem (runTypeUnit context runtimeMap runtime) >> when noCode (reportCompiled unit)
                 }
             ]
               <> [ Task
@@ -2062,7 +2068,7 @@ partitionModules graph shared build sourceSlots = do
                        taskKind = TaskBackend,
                        taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources unit))),
                        taskDependencies = Set.singleton (runtimeTypeTask runtime),
-                       taskAction = runBackendUnit context runtime >> reportCompiled unit
+                       taskAction = inItem (runBackendUnit context runtime) >> reportCompiled unit
                      }
                  | not noCode
                  ]
@@ -2080,6 +2086,11 @@ partitionModules graph shared build sourceSlots = do
           }
   addTasks graph (concatMap unitTasks runtimes <> [finishTask])
   moduleBuildPartitioned build (Map.fromList [(sourceName source, runtime) | runtime <- runtimes, source <- sourceUnitSources (runtimeUnit runtime)])
+
+-- | Put the name of a package or component in front of the message of an
+-- error.
+prefixIOError :: String -> IOException -> IOException
+prefixIOError item failure = failure {ioe_description = "In " <> item <> ": " <> ioe_description failure}
 
 -- | Collect the results of the units of a module build: report the
 -- diagnostics, and write the digests a consumer reads.
