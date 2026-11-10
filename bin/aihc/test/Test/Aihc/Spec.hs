@@ -3,7 +3,7 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Capi (parseDependencyFile)
-import Aihc.Cli.Build (BuiltProgram (..), build, buildWith)
+import Aihc.Cli.Build (BuiltProgram (..), build, buildWith, buildWithConfig)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, readLinkBundle, runLinkExe)
 import Aihc.Cli.Memo (newMemo)
@@ -11,6 +11,7 @@ import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), L
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Progress (quietProgress, withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
+import Aihc.Cli.Splice (withSplices)
 import Aihc.Cli.Test (TestSuiteResult (..), buildTests, renderTestSummary, runTestSuites)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
@@ -56,6 +57,7 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, openTempFile)
+import System.IO qualified as SystemIO
 import System.IO.Error (ioeGetErrorString)
 import System.Info qualified
 import System.Process (readProcess, readProcessWithExitCode)
@@ -71,6 +73,7 @@ import Test.Aihc.SeedStore
     copyWritable,
     installTestTargets,
     releaseSeedStore,
+    seedStoreRoot,
     seededPackagePath,
     withSandbox,
   )
@@ -126,7 +129,8 @@ tests =
                 testGroup
                   "engine"
                   [ testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
-                    testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore)
+                    testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore),
+                    testCase "runs the expression splices of a program" (test_buildSplices coreStore engineStore)
                   ],
               testCase "compiles and archives capi wrappers" (test_installCapi primStore),
               testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
@@ -673,6 +677,33 @@ test_engineSplice getStore =
       "a tuple with text that is not ASCII"
       (Right (Syntax.ETuple Syntax.Boxed [Just (Syntax.EString "h\233llo" "\"h\\233llo\""), Just (Syntax.EChar 'x' "'x'"), Just (Syntax.EVar (Syntax.mkName (Just "Data.Maybe") Syntax.NameConId "Nothing"))]))
       text
+
+-- | A build runs the expression splices of a program in an engine, and the
+-- program has their results. The program is for the host target, and the
+-- splices run for @wasm32-wasip3@, so the store has the core libraries of
+-- the two targets.
+test_buildSplices :: IO SeedStore -> IO (Maybe SeedStore) -> Assertion
+test_buildSplices getStore getEngineStore = do
+  available <- getEngineStore
+  forM_ available $ \engineStore ->
+    withBuildModuleSandbox getStore "aihc-splices" $ \sandbox _fixtureRoot storeRoot options -> do
+      copyWritable (seedStoreRoot engineStore) storeRoot
+      fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/template-haskell"
+      let output = sandboxRoot sandbox </> "program"
+      void $
+        buildWithConfig
+          (quietProgress SystemIO.stdout)
+          options
+            { buildInput = fixtureRoot </> "Main.hs",
+              buildSourceDirectories = [fixtureRoot],
+              buildPackageConstraints = buildPackageConstraints options <> ["template-haskell"],
+              buildOutput = Just output
+            }
+          withSplices
+      (status, out, err) <- readProcessWithExitCode output [] ""
+      assertEqual "exit status" ExitSuccess status
+      assertEqual "stdout" "42\n-6\nababab\n" out
+      assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an
 -- engine that has the two. The image is the guest program with the image

@@ -212,7 +212,8 @@ runFrontend options = do
             compilePrintTimings = const (pure ()),
             compileUseColor = False,
             compileProgress = quietProgress stderr,
-            compileObserver = Nothing
+            compileObserver = Nothing,
+            compileSplices = Nothing
           }
   (_, totals) <-
     foldM

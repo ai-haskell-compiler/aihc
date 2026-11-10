@@ -25,6 +25,7 @@ module Test.Aihc.SeedStore
     acquireLtoStore,
     acquireLlvmLtoStore,
     releaseSeedStore,
+    seedStoreRoot,
     withSandbox,
     copyWritable,
     seededPackagePath,

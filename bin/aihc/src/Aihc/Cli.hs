@@ -4,11 +4,12 @@ module Aihc.Cli
   )
 where
 
-import Aihc.Cli.Build (runBuild)
-import Aihc.Cli.Install (runInstall)
+import Aihc.Cli.Build (runBuildWith)
+import Aihc.Cli.Install (runInstallWith)
 import Aihc.Cli.Link (runLinkExe)
 import Aihc.Cli.Options (Command (..), parseCommandIO)
 import Aihc.Cli.Plan (runPlan)
+import Aihc.Cli.Splice (withSplices)
 import Aihc.Cli.Test (runTest)
 import Control.Exception (IOException, displayException, try)
 import System.Exit (exitFailure)
@@ -24,8 +25,8 @@ main = do
       exitFailure
 
 runCommand :: Command -> IO ()
-runCommand (CmdBuild opts) = runBuild opts
-runCommand (CmdInstall opts) = runInstall opts
+runCommand (CmdBuild opts) = runBuildWith withSplices opts
+runCommand (CmdInstall opts) = runInstallWith withSplices opts
 runCommand (CmdLinkExe opts) = runLinkExe opts
 runCommand (CmdPlan opts) = runPlan opts
 runCommand (CmdTest opts) = runTest opts
