@@ -52,6 +52,7 @@ where
 import Aihc.Parser.Syntax
   ( BuiltinCon (..),
     Name (..),
+    NameType (..),
     SourceSpan,
     TupleFlavor (..),
     TyVarBSpecificity (..),
@@ -84,6 +85,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -379,9 +381,12 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TTypeApp f a -> do
       function <- convertSurfaceTypeWithKinds tvEnv f
       applyOneArgument tvEnv function a
-    TInfix lhs name _ rhs -> do
-      constructor <- inferTypeConstructor name
-      applySurfaceTypeArguments tvEnv constructor [lhs, rhs]
+    TInfix lhs name promotion rhs -> do
+      operator <-
+        case typeVariableOperator name promotion of
+          Just variable -> inferTypeVariable tvEnv variable
+          Nothing -> inferTypeConstructor name
+      applySurfaceTypeArguments tvEnv operator [lhs, rhs]
     TFun _ a b -> do
       -- Convert both sides before an open kind becomes 'Type'. The result
       -- can fix the kind of a variable in the argument: in
@@ -915,6 +920,17 @@ expandTcTypeSynonyms expanding ty = do
     expandVariable variable = do
       kind <- expandTcTypeSynonyms expanding (tvKind variable)
       pure (setTyVarKind kind variable)
+
+-- | The type variable that a backtick operator names, as in @a `k` b@.
+-- An unqualified and unpromoted variable identifier is a type variable.
+-- A symbolic operator, as in @a + b@, names a type constructor.
+typeVariableOperator :: Name -> TypePromotion -> Maybe UnqualifiedName
+typeVariableOperator name promotion
+  | promotion == Unpromoted,
+    isNothing (nameQualifier name),
+    nameType name == NameVarId =
+      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name))
+  | otherwise = Nothing
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
 inferTypeVariable tvEnv name =
@@ -1656,7 +1672,8 @@ freeTypeVars = nub . go
     go (TVar name) = [unqualifiedNameText name]
     go (TApp f a) = go f ++ go a
     go (TTypeApp f a) = go f ++ go a
-    go (TInfix lhs _ _ rhs) = go lhs ++ go rhs
+    go (TInfix lhs name promotion rhs) =
+      go lhs ++ maybe [] (pure . unqualifiedNameText) (typeVariableOperator name promotion) ++ go rhs
     go (TFun _ a b) = go a ++ go b
     go (TTuple _ _ args) = concatMap go args
     go (TUnboxedSum args) = concatMap go args
