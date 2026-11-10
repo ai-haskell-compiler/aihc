@@ -127,6 +127,7 @@ testBuildOptions options =
       buildNoLink = False,
       buildOnlyDependencies = False,
       buildNoPie = False,
+      buildWasmImage = False,
       buildVerbose = testVerbose options,
       buildPrintTimings = False,
       buildOutput = Nothing,

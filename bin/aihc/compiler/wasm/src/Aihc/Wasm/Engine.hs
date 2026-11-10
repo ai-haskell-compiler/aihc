@@ -15,20 +15,28 @@ module Aihc.Wasm.Engine
   ( Engine,
     EngineValue (..),
     engineDriverPath,
+    engineGuestPath,
     engineNodeCommand,
     linkImage,
     linkSharedModule,
     withEngine,
     loadSharedModule,
     callFunction,
+    startGuest,
+    runClosure,
   )
 where
 
 import Aihc.DataFiles (getDataFileName)
-import Aihc.Native (WasmSysroot (..), wasmSysroot)
+import Aihc.Native (WasmSysroot (..), renderLinkedGlobalSymbol, wasmSysroot)
 import Control.Exception (bracket, onException)
 import Control.Monad (void)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.Char (digitToInt, isHexDigit)
 import Data.Maybe (fromMaybe, maybeToList)
+import Data.Text (Text)
+import Data.Text qualified as T
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hPutStrLn, hSetBuffering)
@@ -51,6 +59,11 @@ data EngineValue
 engineDriverPath :: IO FilePath
 engineDriverPath = getDataFileName "compiler/wasm/runtime/driver.mjs"
 
+-- | The source of the guest: the main module of an image that runs
+-- closures. Build it with the image link to get such an image.
+engineGuestPath :: IO FilePath
+engineGuestPath = getDataFileName "compiler/wasm/runtime/Guest.hs"
+
 -- | The Node.js command. @AIHC_NODE@ replaces the default command.
 engineNodeCommand :: IO FilePath
 engineNodeCommand = fromMaybe "node" <$> lookupEnv "AIHC_NODE"
@@ -58,26 +71,30 @@ engineNodeCommand = fromMaybe "node" <$> lookupEnv "AIHC_NODE"
 -- | Link an image from objects and archives. The image contains each member
 -- of each archive and exports each symbol, because a shared module can
 -- refer to any of them. An undefined function becomes an import, which the
--- driver denies when the instance calls it.
-linkImage :: FilePath -> [FilePath] -> [FilePath] -> IO ()
-linkImage output objects archives = do
+-- driver denies when the instance calls it. The arguments for the system
+-- libraries of the packages follow the archives.
+linkImage :: FilePath -> [FilePath] -> [FilePath] -> [String] -> IO ()
+linkImage output objects archives libraries = do
   sysroot <- wasmSysroot
   runLinker
     ( ["-m", "wasm32", "--no-entry", "--export-all", "--export=__stack_pointer", "--export-table", "--growable-table", "--import-undefined", "--extra-features=atomics"]
         <> objects
         <> ["--whole-archive"]
         <> archives
-        <> ["--no-whole-archive", wasmSysrootLibc sysroot]
+        <> ["--no-whole-archive"]
+        <> libraries
+        <> [wasmSysrootLibc sysroot]
         <> maybeToList (wasmSysrootBuiltins sysroot)
         <> ["-o", output]
     )
 
--- | Link position-independent objects into a shared module. Each symbol
+-- | Link position-independent objects and each member of the archives
+-- into a shared module. Each symbol
 -- that the objects do not define becomes an import, which the driver
 -- supplies when it loads the module.
-linkSharedModule :: FilePath -> [FilePath] -> IO ()
-linkSharedModule output objects =
-  runLinker (["-m", "wasm32", "-shared", "--experimental-pic", "--unresolved-symbols=import-dynamic", "--extra-features=atomics", "--no-entry"] <> objects <> ["-o", output])
+linkSharedModule :: FilePath -> [FilePath] -> [FilePath] -> IO ()
+linkSharedModule output objects archives =
+  runLinker (["-m", "wasm32", "-shared", "--experimental-pic", "--unresolved-symbols=import-dynamic", "--extra-features=atomics", "--no-entry"] <> objects <> ["--whole-archive"] <> archives <> ["--no-whole-archive", "-o", output])
 
 runLinker :: [String] -> IO ()
 runLinker arguments = do
@@ -129,6 +146,31 @@ callFunction engine name arguments = do
       case value of
         EngineI32 number -> "i32:" <> show number
         EngineI64 number -> "i64:" <> show number
+
+-- | Start the program of the image, which is the guest of
+-- 'engineGuestPath'. The guest then has control: the engine can load
+-- shared modules and run closures, and it cannot call functions.
+startGuest :: Engine -> IO ()
+startGuest engine = void (request engine "start")
+
+-- | Run a closure in the guest. The closure is the static value of the type
+-- @IO ()@ that the package, the module, and the name identify, in the image
+-- or in a loaded shared module. The result has each message that the
+-- closure sent with @aihc_engine_send@. An exception in the closure is an
+-- error.
+runClosure :: Engine -> Text -> Text -> Text -> IO [ByteString]
+runClosure engine package moduleName name = do
+  reply <- request engine ("run " <> T.unpack (renderLinkedGlobalSymbol (T.intercalate "\0" [package, moduleName, name])))
+  maybe (ioError (userError ("the engine gave the messages " <> reply))) pure (mapM decodeHexadecimal (words reply))
+
+decodeHexadecimal :: String -> Maybe ByteString
+decodeHexadecimal = fmap BS.pack . bytes
+  where
+    bytes text =
+      case text of
+        [] -> Just []
+        high : low : rest | isHexDigit high && isHexDigit low -> (fromIntegral (16 * digitToInt high + digitToInt low) :) <$> bytes rest
+        _ -> Nothing
 
 -- | Send one command and read its reply. The result is the text after
 -- @ok@.

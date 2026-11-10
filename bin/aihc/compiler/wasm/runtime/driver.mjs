@@ -10,8 +10,16 @@
 //   load PATH              Load a shared module into the instance.
 //   call NAME ARGUMENT...  Call an exported function. An argument is
 //                          i32:VALUE or i64:VALUE.
+//   start                  Start the program of the image. The program is
+//                          the guest, and it asks for closures.
+//   run SYMBOL             Give the guest the closure at a data symbol.
 //
-// A reply is "ok", "ok VALUE", or "error MESSAGE".
+// A reply is "ok", "ok VALUE...", or "error MESSAGE". The reply to "run"
+// has each message that the closure sent, as hexadecimal text.
+//
+// After "start", the guest has control. It calls aihc_engine_next for its
+// next closure, and that import reads the commands "load" and "run". The
+// driver does not call into the guest while the guest runs.
 //
 // The driver reads the standard input synchronously. Thus, an import of the
 // instance can also read the next command while the instance runs.
@@ -93,12 +101,24 @@ let image;
 const hostFunctions = {
   // The clock gives a fixed time, so that a run is deterministic.
   "wasi:clocks/monotonic-clock@0.3.0 now": () => 0n,
+  "env aihc_engine_next": nextClosure,
+  // A closure sends a message to the host.
+  "env aihc_engine_send": (message, length) => {
+    closureRun.messages.push(Buffer.from(memoryBytes(message, length)).toString("hex"));
+  },
+  // The guest reports that the closure raised an exception.
+  "env aihc_engine_fail": (message, length) => {
+    closureRun.failure = new TextDecoder().decode(memoryBytes(message, length));
+  },
   // An image without the run-time system takes its trap function from here.
   "env aihc_lir_trap": (message, length) => {
-    const bytes = new Uint8Array(image.memory.buffer, message, Number(length));
-    throw new Error("trap: " + new TextDecoder().decode(bytes));
+    throw new Error("trap: " + new TextDecoder().decode(memoryBytes(message, length)));
   },
 };
+
+function memoryBytes(address, length) {
+  return new Uint8Array(image.memory.buffer, address, Number(length));
+}
 
 function denied(name) {
   return () => {
@@ -238,6 +258,61 @@ function call(name, parameters) {
   return result === undefined ? "ok" : "ok " + result;
 }
 
+// The guest is "idle" before the command "start", "running" while its
+// program runs, and "stopped" after its program returns or traps.
+let guest = "idle";
+// The closure that the guest runs, or null. The command "run" has no reply
+// until the guest asks for the next closure.
+let closureRun = null;
+
+function failure(error) {
+  return "error " + (error?.message ?? error);
+}
+
+// The import aihc_engine_next of the guest. It replies to the command that
+// gave control to the guest. Then it reads commands until one gives a
+// closure. The result is the address of the closure, or zero at the end of
+// the input.
+function nextClosure() {
+  if (closureRun === null) reply("ok");
+  else if (closureRun.failure !== undefined) reply("error " + closureRun.failure);
+  else reply(["ok", ...closureRun.messages].join(" "));
+  closureRun = null;
+  for (let line = readLine(); line !== null; line = readLine()) {
+    const [command, name] = line.split(" ");
+    try {
+      if (command === "load") {
+        load(line.slice(5));
+        reply("ok");
+      } else if (command === "run") {
+        const address = dataSymbols.get(name);
+        if (address === undefined) throw new Error("unknown closure " + name);
+        closureRun = { messages: [] };
+        return address;
+      } else {
+        throw new Error("the guest cannot do the command " + command);
+      }
+    } catch (error) {
+      reply(failure(error));
+    }
+  }
+  return 0;
+}
+
+// Run the program of the image. The call returns at the end of the input.
+// A trap in the guest is the reply to the command that the guest has.
+function start() {
+  if (guest !== "idle") throw new Error("the guest was started before");
+  guest = "running";
+  try {
+    image.__wasm_call_ctors?.();
+    image.aihc_lir_program_start();
+  } finally {
+    guest = "stopped";
+    closureRun = null;
+  }
+}
+
 reply("ok");
 for (let line = readLine(); line !== null; line = readLine()) {
   const [command, ...parameters] = line.split(" ");
@@ -247,10 +322,14 @@ for (let line = readLine(); line !== null; line = readLine()) {
       reply("ok");
     } else if (command === "call") {
       reply(call(parameters[0], parameters.slice(1)));
+    } else if (command === "start") {
+      start();
+    } else if (command === "run") {
+      throw new Error("the guest is " + guest);
     } else {
       throw new Error("unknown command " + command);
     }
   } catch (error) {
-    reply("error " + (error?.message ?? error));
+    reply(failure(error));
   }
 }

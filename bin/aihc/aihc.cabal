@@ -121,6 +121,7 @@ extra-source-files:
   test/Test/Fixtures/install/resolve-error/src/Zulu.hs
 
 data-files:
+  compiler/wasm/runtime/Guest.hs
   compiler/wasm/runtime/driver.mjs
   compiler/wasm/runtime/wit/command.wit
   compiler/wasm/runtime/wit/deps/cli.wit

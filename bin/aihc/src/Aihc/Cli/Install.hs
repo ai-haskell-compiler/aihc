@@ -76,7 +76,7 @@ import Aihc.Cabal (HookedBuildInfo (..), parseHookedBuildInfo, parseValue)
 import Aihc.Cabal qualified as Cabal
 import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
-import Aihc.Cli.Backend (compileGrinTo, compileLirObject, lirModuleDefinesCode, nativeSourceExtension, nativeSourceIsLir)
+import Aihc.Cli.Backend (compileGrinToFor, compileLirObject, lirModuleDefinesCode, nativeSourceExtension, nativeSourceIsLir)
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
     FileStamp (..),
@@ -246,6 +246,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
@@ -521,6 +522,10 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
     compileTarget :: !NativeTarget,
+    -- | The code model of the WebAssembly modules of a package the user
+    -- named. A dependency always has the static model. The other targets
+    -- do not read it.
+    compileCodeModel :: !Wasm.CodeModel,
     -- | Where the headers of the target are, for the C compiles of a
     -- package: its @c-sources@, the wrappers of its @capi@ imports and
     -- @hsc2hs@.
@@ -653,6 +658,8 @@ install = installWith (quietProgress stdout)
 -- threads, and a redirect would capture that progress.
 installWith :: ProgressReporter -> InstallOptions -> IO InstallResult
 installWith reporter options = do
+  when (installPositionIndependent options && installTarget options /= Wasm32Wasip3) $
+    ioError (userError "--position-independent requires the wasm32-wasip3 target")
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
   let target = installTarget options
       targetDirectory = nativeTargetStoreDirectory target
@@ -683,6 +690,7 @@ installWith reporter options = do
             compileLint = installLint options,
             compileCheckPrimBounds = installCheckPrimBounds options,
             compileNoCode = installNoCode options,
+            compileCodeModel = if installPositionIndependent options then Wasm.PositionIndependent else Wasm.Static,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
             compileUseColor = useColor,
@@ -729,6 +737,7 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileNoCode = False,
         compileOptimization = level,
         compileTarget = target,
+        compileCodeModel = Wasm.Static,
         compileHeaderDirectory = headerDirectory,
         compileVerbose = const (pure ()),
         compilePrintTimings = const (pure ()),
@@ -746,7 +755,8 @@ dependencyCompileConfig config =
     { compileKeepCore = False,
       compileKeepGrin = False,
       compileKeepLir = False,
-      compileKeepNative = False
+      compileKeepNative = False,
+      compileCodeModel = Wasm.Static
     }
 
 -- | Where a local package builds unless @--build-root@ says otherwise.
@@ -2213,7 +2223,7 @@ buildEnvironmentIdentity target = do
 -- that add or drop outputs, such as @--keep-core@, or that only check,
 -- such as @--lint@, are recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config)
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> codeModelKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -2249,6 +2259,11 @@ ltoKeyParts config = ["lto" | compileLto config]
 checkPrimBoundsKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
 checkPrimBoundsKeyParts config = ["check-prim-bounds" | compileCheckPrimBounds config]
 
+-- | The key part of a position-independent package. The static model adds
+-- nothing, as the default level adds nothing.
+codeModelKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+codeModelKeyParts config = ["position-independent" | compileCodeModel config == Wasm.PositionIndependent]
+
 -- | The part of the configuration the type interfaces depend on. The level
 -- changes only C and LLVM objects, so a local package that changes its
 -- level keeps its interfaces.
@@ -2266,6 +2281,7 @@ backendOptionsKey config =
         <> optimizationKeyParts config
         <> ltoKeyParts config
         <> checkPrimBoundsKeyParts config
+        <> codeModelKeyParts config
         <> ["profile-allocations" | compileProfileAllocations config]
         <> ["profile-time" | compileProfileTime config]
     )
@@ -3621,7 +3637,7 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     writeModule name gcProgram = do
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      wroteSource <- compileGrinTo (compileLint config) lirSettings codeGoal target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputNativePath paths) (outputObjectPath paths)
+      wroteSource <- compileGrinToFor (compileCodeModel config) (compileLint config) lirSettings codeGoal target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputNativePath paths) (outputObjectPath paths)
       when keepLir (verbose ("Write Lir: " <> T.unpack name))
       when wroteSource (verbose ("Write native source: " <> T.unpack name))
       when wroteSource $ do

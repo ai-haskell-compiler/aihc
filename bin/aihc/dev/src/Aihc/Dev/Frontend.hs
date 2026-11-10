@@ -89,6 +89,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Share (shareTcInterface)
+import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (readMVar)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
@@ -205,6 +206,7 @@ runFrontend options = do
             compileNoCode = True,
             compileOptimization = defaultOptimizationLevel,
             compileTarget = target,
+            compileCodeModel = Wasm.Static,
             compileHeaderDirectory = headerDirectory,
             compileVerbose = when (frontendVerbose options) . hPutStrLn stderr,
             compilePrintTimings = const (pure ()),
