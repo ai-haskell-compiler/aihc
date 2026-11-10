@@ -165,8 +165,7 @@ duplicateInvariantLoads uses function
           ty `elem` [I8, I16, I32, I64, Ptr, Code]
         ]
     compareReads =
-      MonoidMap.fromListWith
-        (<>)
+      MonoidMap.fromList
         [ (var, 1 :: Sum Int)
         | block <- functionBlocks function,
           Instruction _ (Compare _ _ left right) <- blockInstructions block,
