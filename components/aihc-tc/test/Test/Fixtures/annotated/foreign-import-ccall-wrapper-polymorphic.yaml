@@ -1,0 +1,13 @@
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+  import GHC.Prim (Addr#)
+  data Ptr a = Ptr Addr#
+  data FunPtr a = FunPtr Addr#
+  data IO a
+  foreign import ccall "wrapper" wrap :: (Ptr a -> IO ()) -> IO (FunPtr (Ptr a -> IO ()))
+reason: a wrapper import that names a type variable in both the callback and the function pointer is accepted
+status: pass
