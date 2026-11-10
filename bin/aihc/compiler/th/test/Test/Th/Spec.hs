@@ -8,8 +8,8 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm)
-import Aihc.Th.Convert (expressionFromTree)
-import Aihc.Th.Splices (SpliceRequest (..), moduleSplices, replaceModuleSplices, spliceModuleText)
+import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
 import Data.ByteString qualified as BS
 import Data.Either (isLeft)
@@ -28,6 +28,7 @@ tests =
       testCase "rejects a message that is not one complete tree" rejectTest,
       testCase "converts expressions to the surface syntax" convertTest,
       testCase "gives a package-bound name its term" exactNameTest,
+      testCase "converts declarations to the surface syntax" declarationsTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "finds and replaces the splices of a module" splicesTest,
       testCase "writes the splice module" spliceModuleTest
@@ -102,6 +103,75 @@ convertTest = do
         )
     )
 
+-- | The declarations for:
+--
+-- > swap :: (a, Int) -> [Maybe a]
+-- > swap (x, 0) = [Just x]
+-- > swap _ = none
+-- >   where
+-- >     none = []
+declarationsTest :: IO ()
+declarationsTest = do
+  let binder = mkUnqualifiedName NameVarId
+      constructor text = TreeNode "ConT" [name text]
+      apply function argument = TreeNode "AppT" [function, argument]
+      tree =
+        list
+          [ TreeNode
+              "SigD"
+              [ name "swap",
+                apply
+                  (apply (TreeNode "ArrowT" []) (apply (apply (TreeNode "TupleT" [TreeInteger 2]) (TreeNode "VarT" [name "a"])) (constructor "Int")))
+                  (apply (TreeNode "ListT" []) (apply (constructor "Maybe") (TreeNode "VarT" [name "a"])))
+              ],
+            TreeNode
+              "FunD"
+              [ name "swap",
+                list
+                  [ TreeNode
+                      "Clause"
+                      [ list [TreeNode "TupP" [list [TreeNode "VarP" [name "x"], TreeNode "LitP" [TreeNode "IntegerL" [TreeInteger 0]]]]],
+                        TreeNode "NormalB" [TreeNode "ListE" [list [TreeNode "AppE" [TreeNode "ConE" [name "Just"], variable "x"]]]],
+                        list []
+                      ],
+                    TreeNode
+                      "Clause"
+                      [ list [TreeNode "WildP" []],
+                        TreeNode "NormalB" [variable "none"],
+                        list [TreeNode "ValD" [TreeNode "VarP" [name "none"], TreeNode "NormalB" [TreeNode "ListE" [list []]], list []]]
+                      ]
+                  ]
+              ]
+          ]
+  assertEqual
+    "a signature and a function with two clauses"
+    ( Right
+        [ DeclTypeSig
+            [binder "swap"]
+            ( TFun
+                ArrowUnrestricted
+                (TTuple Boxed Unpromoted [TVar (binder "a"), TCon "Int" Unpromoted])
+                (TList Unpromoted [TApp (TCon "Maybe" Unpromoted) (TVar (binder "a"))])
+            ),
+          DeclValue
+            ( FunctionBind
+                (binder "swap")
+                [ Match [] MatchHeadPrefix [PTuple Boxed [PVar (binder "x"), PLit (LitInt 0 TInteger "0")]] (UnguardedRhs [] (EList [EApp (EVar "Just") (EVar "x")]) Nothing),
+                  Match
+                    []
+                    MatchHeadPrefix
+                    [PWildcard]
+                    (UnguardedRhs [] (EVar "none") (Just [DeclValue (FunctionBind (binder "none") [Match [] MatchHeadPrefix [] (UnguardedRhs [] (EList []) Nothing)])]))
+                ]
+            )
+        ]
+    )
+    (declarationsFromTree tree)
+  assertEqual
+    "a data declaration"
+    (Left "The compiler does not support the declaration DataD in a splice result.")
+    (declarationsFromTree (list [TreeNode "DataD" []]))
+
 -- | A name that a quote bound to its package and module keeps that term in
 -- each scope.
 exactNameTest :: IO ()
@@ -136,7 +206,8 @@ unsupportedTest = do
     (expressionFromTree (TreeNode "DoE" [TreeNode "Nothing" [], list []]))
 
 -- | A module with a splice in each position that matters: with and
--- without parentheses, in a quote, and in the body of a splice.
+-- without parentheses, in a quote, in the body of a splice, and in the
+-- position of a declaration, with and without the splice syntax.
 spliceSource :: Text
 spliceSource =
   T.unlines
@@ -144,7 +215,9 @@ spliceSource =
       "import Data.List (sort)",
       "import Own.Module",
       "x = $(a 1) + f $b [| $(c) |]",
-      "y = $(d $(e))"
+      "$(g 2)",
+      "y = $(d $(e))",
+      "h"
     ]
 
 parseSpliceSource :: IO Module
@@ -163,13 +236,30 @@ splicesTest = do
   modu <- parseSpliceSource
   -- The splice in the quote and the splice in the body of a splice do not
   -- run for this module.
-  assertEqual "the splice bodies, in source order" ["(a 1)", "b", "(d $(e))"] (map render (moduleSplices modu))
-  let replaced = replaceModuleSplices [EVar "p", EVar "q", EVar "r"] modu
-  assertEqual "no splice is left outside the quote" [] (map render (moduleSplices replaced))
   assertEqual
-    "each result has parentheses and the quote keeps its splice"
-    "module M where import Data.List (sort) import Own.Module x = (p) + f (q) [| $(c) |] y = (r)"
+    "the splices, in source order"
+    [("expression", "(a 1)"), ("expression", "b"), ("declaration", "(g 2)"), ("expression", "(d $(e))"), ("declaration", "h")]
+    (map kindAndBody (moduleSplices modu))
+  signature <- declarationOf "s :: T"
+  value <- declarationOf "s = t"
+  let replaced =
+        replaceModuleSplices
+          [ExpressionResult (EVar "p"), ExpressionResult (EVar "q"), DeclarationResult [signature, value], ExpressionResult (EVar "r"), DeclarationResult []]
+          modu
+  assertEqual "no splice is left outside the quote" [] (map kindAndBody (moduleSplices replaced))
+  assertEqual
+    "an expression has parentheses, declarations take the position of their splice, and the quote keeps its splice"
+    "module M where import Data.List (sort) import Own.Module x = (p) + f (q) [| $(c) |] s :: T s = t y = (r)"
     (render replaced)
+  where
+    kindAndBody splice =
+      case splice of
+        ExpressionSplice body -> ("expression" :: Text, render body)
+        DeclarationSplice body -> ("declaration", render body)
+    declarationOf source =
+      case parseModule defaultConfig (T.unlines ["module D where", source]) of
+        ([], Module {moduleDecls = [decl]}) -> pure decl
+        other -> assertFailure ("expected one declaration, got " <> show other)
 
 spliceModuleTest :: IO ()
 spliceModuleTest = do
@@ -185,11 +275,11 @@ spliceModuleTest = do
             spliceRequestLanguage = Nothing,
             spliceRequestPragmas = [EnableExtension TemplateHaskell],
             spliceRequestImports = take 1 (moduleImports modu),
-            spliceRequestBodies = moduleSplices modu
+            spliceRequestSplices = moduleSplices modu
           }
   assertEqual
     "one closure for each splice"
-    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runExpressionSplice (d $(e))"
+    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 = Aihc.TH.Splice.runDeclarationsSplice (h)"
     (T.unwords (T.words (spliceModuleText request)))
 
 name :: Text -> Tree

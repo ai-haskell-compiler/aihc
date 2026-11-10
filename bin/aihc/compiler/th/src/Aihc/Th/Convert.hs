@@ -8,14 +8,16 @@
 -- the type checker handle the result of a splice as they handle source
 -- text.
 --
--- The conversion handles a subset of the expressions. For a construct
--- outside the subset, the result is a message that names the construct.
+-- The conversion handles a subset of the expressions, the declarations,
+-- the types, and the patterns. For a construct outside the subset, the
+-- result is a message that names the construct.
 module Aihc.Th.Convert
   ( expressionFromTree,
+    declarationsFromTree,
   )
 where
 
-import Aihc.Parser.Parens (addExprParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (ExactTerm (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
@@ -26,6 +28,59 @@ import Data.Text qualified as T
 -- | The expression of an @Exp@ tree.
 expressionFromTree :: Tree -> Either Text Expr
 expressionFromTree = fmap addExprParens . expression
+
+-- | The declarations of a list of @Dec@ trees.
+declarationsFromTree :: Tree -> Either Text [Decl]
+declarationsFromTree tree = map addDeclParens <$> declarations tree
+
+declarations :: Tree -> Either Text [Decl]
+declarations tree = list tree >>= mapM declaration
+
+declaration :: Tree -> Either Text Decl
+declaration tree =
+  case tree of
+    TreeNode "SigD" [name, signature] -> DeclTypeSig . pure <$> binderFromTree name <*> typeFromTree signature
+    TreeNode "FunD" [name, clauses] -> DeclValue <$> (FunctionBind <$> binderFromTree name <*> (list clauses >>= mapM clause))
+    -- A value with a variable pattern is a function with no arguments.
+    TreeNode "ValD" [TreeNode "VarP" [name], body, locals] -> do
+      binder <- binderFromTree name
+      rhs <- rightSide body locals
+      pure (DeclValue (FunctionBind binder [Match [] MatchHeadPrefix [] rhs]))
+    _ -> unsupported "declaration" tree
+  where
+    clause clauseTree =
+      case clauseTree of
+        TreeNode "Clause" [patterns, body, locals] -> Match [] MatchHeadPrefix <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
+        _ -> unsupported "clause" clauseTree
+
+-- | The right side of a binding, from its body and its local declarations.
+rightSide :: Tree -> Tree -> Either Text (Rhs Expr)
+rightSide body locals =
+  case body of
+    TreeNode "NormalB" [value] -> do
+      value' <- expression value
+      locals' <- declarations locals
+      pure (UnguardedRhs [] value' (if null locals' then Nothing else Just locals'))
+    _ -> unsupported "body" body
+
+-- | The type of a @Type@ tree. An application of the arrow, the list, or a
+-- tuple constructor to all its arguments becomes the syntax of that type.
+typeFromTree :: Tree -> Either Text Type
+typeFromTree tree =
+  case typeApplication tree [] of
+    (TreeNode "ArrowT" [], [argument, result]) -> TFun ArrowUnrestricted <$> typeFromTree argument <*> typeFromTree result
+    (TreeNode "ListT" [], [element]) -> (\element' -> TList Unpromoted [element']) <$> typeFromTree element
+    (TreeNode "TupleT" [TreeInteger size], fields)
+      | toInteger (length fields) == size -> TTuple Boxed Unpromoted <$> mapM typeFromTree fields
+    (TreeNode "ConT" [name], arguments) -> foldl TApp . (`TCon` Unpromoted) <$> nameFromTree name <*> mapM typeFromTree arguments
+    (TreeNode "VarT" [name], arguments) -> foldl TApp . TVar <$> binderFromTree name <*> mapM typeFromTree arguments
+    (other, _) -> unsupported "type" other
+  where
+    -- The head of a chain of type applications, and its arguments.
+    typeApplication applied arguments =
+      case applied of
+        TreeNode "AppT" [function, argument] -> typeApplication function (argument : arguments)
+        _ -> (applied, arguments)
 
 expression :: Tree -> Either Text Expr
 expression tree =
@@ -84,13 +139,27 @@ literal tree =
 patternFromTree :: Tree -> Either Text Pattern
 patternFromTree tree =
   case tree of
-    TreeNode "VarP" [name] -> do
-      Name {nameQualifier, nameType, nameText} <- nameFromTree name
-      case nameQualifier of
-        Nothing -> Right (PVar (mkUnqualifiedName nameType nameText))
-        Just _ -> Left "A splice result binds a qualified name."
+    TreeNode "VarP" [name] -> PVar <$> binderFromTree name
     TreeNode "WildP" [] -> Right PWildcard
+    TreeNode "ConP" [name, typeArguments, fields] -> do
+      typeArguments' <- list typeArguments
+      if null typeArguments'
+        then PCon <$> nameFromTree name <*> pure [] <*> (list fields >>= mapM patternFromTree)
+        else unsupported "pattern with type arguments" tree
+    TreeNode "TupP" [fields] -> PTuple Boxed <$> (list fields >>= mapM patternFromTree)
+    TreeNode "LitP" [TreeNode "IntegerL" [TreeInteger number]]
+      | number >= 0 -> Right (PLit (LitInt number TInteger (T.pack (show number))))
+    TreeNode "LitP" [TreeNode "CharL" [TreeChar char]] -> Right (PLit (LitChar char (T.pack (show char))))
+    TreeNode "LitP" [TreeNode "StringL" [TreeString string]] -> Right (PLit (LitString string (T.pack (show (T.unpack string)))))
     _ -> unsupported "pattern" tree
+
+-- | The binder of a @Name@ tree. A binder has no module.
+binderFromTree :: Tree -> Either Text UnqualifiedName
+binderFromTree tree = do
+  Name {nameQualifier, nameType, nameText} <- nameFromTree tree
+  case nameQualifier of
+    Nothing -> Right (mkUnqualifiedName nameType nameText)
+    Just _ -> Left "A splice result binds a qualified name."
 
 -- | The name of a @Name@ tree. A name with no module, a name with a module
 -- qualifier, and a term name that is bound to its package and module are

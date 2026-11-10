@@ -130,7 +130,7 @@ tests =
                   "engine"
                   [ testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
                     testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore),
-                    testCase "runs the expression splices and quotes of a program" (test_buildSplices coreStore engineStore)
+                    testCase "runs the splices and quotes of a program" (test_buildSplices coreStore engineStore)
                   ],
               testCase "compiles and archives capi wrappers" (test_installCapi primStore),
               testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
@@ -678,8 +678,9 @@ test_engineSplice getStore =
       (Right (Syntax.ETuple Syntax.Boxed [Just (Syntax.EString "h\233llo" "\"h\\233llo\""), Just (Syntax.EChar 'x' "'x'"), Just (Syntax.EVar (Syntax.mkName (Just "Data.Maybe") Syntax.NameConId "Nothing"))]))
       text
 
--- | A build runs the expression splices of a program in an engine, and the
--- program has their results. Some splices have expression quotes. The program is for the host target, and the
+-- | A build runs the splices of a program in an engine, and the program
+-- has their results. The program has splices in expressions, some with
+-- expression quotes, and splices in the position of a declaration. The program is for the host target, and the
 -- splices run for @wasm32-wasip3@, so the store has the core libraries of
 -- the two targets.
 test_buildSplices :: IO SeedStore -> IO (Maybe SeedStore) -> Assertion
@@ -702,7 +703,7 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\n" out
       assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an

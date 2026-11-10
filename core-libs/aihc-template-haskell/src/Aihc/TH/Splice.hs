@@ -22,6 +22,7 @@
 module Aihc.TH.Splice
   ( runSplice,
     runExpressionSplice,
+    runDeclarationsSplice,
   )
 where
 
@@ -32,7 +33,7 @@ import Data.Ratio (denominator, numerator)
 import Data.Word (Word8)
 import Foreign.Marshal.Array (withArrayLen)
 import Foreign.Ptr (Ptr)
-import Language.Haskell.TH.Syntax (Exp, Q, runQ)
+import Language.Haskell.TH.Syntax (Dec, Exp, Q, runQ)
 
 -- | Send a message to the host.
 foreign import ccall unsafe "aihc_engine_send" engineSend :: Ptr Word8 -> Int -> IO ()
@@ -47,6 +48,11 @@ runSplice splice = do
 -- that the body gives an expression.
 runExpressionSplice :: Q Exp -> IO ()
 runExpressionSplice = runSplice
+
+-- | 'runSplice' for the body of a declaration splice. The type makes sure
+-- that the body gives a list of declarations.
+runDeclarationsSplice :: Q [Dec] -> IO ()
+runDeclarationsSplice = runSplice
 
 -- | The bytes of a value, before the bytes that follow it.
 encodeTree :: (Data a) => a -> [Word8] -> [Word8]

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Run the expression splices of a module in a WebAssembly engine.
+-- | Run the splices of a module in a WebAssembly engine.
 --
 -- A build that has 'withSplices' in its compile config gives each module
 -- with splices to 'runSplices'. For one module, 'runSplices' does these
@@ -30,9 +30,8 @@ import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWi
 import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), defaultPlanOptions)
 import Aihc.Cli.Progress (quietProgress)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..))
-import Aihc.Parser.Syntax (Expr)
-import Aihc.Th.Convert (expressionFromTree)
-import Aihc.Th.Splices (SpliceRequest (..), spliceClosureName, spliceModuleName, spliceModuleText)
+import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
 import Aihc.Th.Wire (decodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch)
@@ -53,9 +52,8 @@ import System.IO.Error (ioeGetErrorString)
 withSplices :: ModuleCompileConfig -> ModuleCompileConfig
 withSplices config = config {compileSplices = Just runSplices}
 
--- | The expression of each splice of a request, in the order of the
--- request.
-runSplices :: SpliceRequest -> IO [Expr]
+-- | The result of each splice of a request, in the order of the request.
+runSplices :: SpliceRequest -> IO [SpliceResult]
 runSplices request =
   run `catch` \failure ->
     ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> ioeGetErrorString (failure :: IOException)))
@@ -74,10 +72,14 @@ runSplices request =
       withEngine image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
-        forM (zipWith const [0 ..] (spliceRequestBodies request)) $ \index -> do
+        forM (zip [0 ..] (spliceRequestSplices request)) $ \(index, splice) -> do
           messages <- runClosure engine (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index)
+          let convert tree =
+                case splice of
+                  ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
+                  DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
           case messages of
-            [message] -> either (ioError . userError . T.unpack) pure (decodeTree message >>= expressionFromTree)
+            [message] -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert)
             _ -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
 
 -- | Build the image of a request and give its path.

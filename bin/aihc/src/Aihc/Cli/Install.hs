@@ -250,7 +250,7 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (desugarModuleQuotes, moduleHasQuote, quoteImports)
-import Aihc.Th.Splices (SpliceRequest (..), moduleSplices, replaceModuleSplices)
+import Aihc.Th.Splices (SpliceRequest (..), SpliceResult, moduleSplices, replaceModuleSplices)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -547,10 +547,9 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- output of each phase, such as @aihc-dev explore@, sets it. The build
     -- gives the values only and does no other work for it.
     compileObserver :: !(Maybe (CompileObservation -> IO ())),
-    -- | Runs the expression splices of a module and gives one expression
-    -- for each. "Aihc.Cli.Splice" supplies it. Without it, the build
+    -- | Runs the splices of a module and gives one result for each. "Aihc.Cli.Splice" supplies it. Without it, the build
     -- does not run splices.
-    compileSplices :: !(Maybe (SpliceRequest -> IO [Syntax.Expr]))
+    compileSplices :: !(Maybe (SpliceRequest -> IO [SpliceResult]))
   }
 
 -- | What 'compileObserver' receives.
@@ -1934,8 +1933,7 @@ addModuleBuild graph shared build = do
           }
   addTasks graph (parseTasks <> [partitionTask])
 
--- | Run the expression splices of a module and put their results into its
--- parse tree. This comes before name resolution, so the phases after the
+-- | Run the splices of a module and put their results into its parse tree. This comes before name resolution, so the phases after the
 -- parse see the results as source text. The body of a splice can only use
 -- imported names, so the run does not need the other modules of the unit.
 expandModuleSplices :: InstallShared -> ModuleBuild -> HackageCabal.FileInfo -> SourceModule -> IO ()
@@ -1943,8 +1941,8 @@ expandModuleSplices shared build file source =
   case compileSplices (moduleBuildConfig build) of
     Just run | Syntax.TemplateHaskell `elem` sourceModuleExtensions source -> do
       modu <- readMVar (sourceModuleParsed source)
-      let bodies = moduleSplices modu
-      unless (null bodies) $ do
+      let splices = moduleSplices modu
+      unless (null splices) $ do
         results <-
           withMVar (sharedSpliceLock shared) $ \_ ->
             run
@@ -1963,7 +1961,7 @@ expandModuleSplices shared build file source =
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
                   spliceRequestImports = filter (not . isOwnModule . importDeclModule) (Syntax.moduleImports modu),
-                  spliceRequestBodies = bodies
+                  spliceRequestSplices = splices
                 }
         void (swapMVar (sourceModuleParsed source) (replaceModuleSplices results modu))
     _ -> pure ()

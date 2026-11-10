@@ -1,7 +1,7 @@
 # Template Haskell design
 
 This page gives the design of Template Haskell in AIHC.
-The compiler runs a splice in an expression, as this page describes.
+The compiler runs a splice in an expression and a splice in the position of a declaration, as this page describes.
 The other parts of the design are a plan.
 
 The first implementation has these limits:
@@ -9,7 +9,8 @@ The first implementation has these limits:
 - A splice cannot use a module of its own package. Thus, a quote in the body of a splice cannot use a name of its own package.
 - The compiler changes an expression quote into an expression that builds its syntax tree. A quote with a construct outside the supported subset, and each other form of quote, stays a run-time error.
 - A variable that a quote binds has a name with no module, so a splice result can capture it.
-- The result of a splice can only have the expressions that `Aihc.Th.Convert` handles.
+- The result of a splice can only have the expressions, declarations, types, and patterns that `Aihc.Th.Convert` handles.
+- A declaration splice runs before name resolution of its module, as an expression splice does. Thus, it cannot use a declaration of its own module.
 - A splice cannot ask the compiler for information, for example with `reify`.
 - The compiler builds one image for each module that has splices.
 
