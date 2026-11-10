@@ -24,7 +24,9 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (Entity (..), ExportEntry (..), GlobalName (..), LocalId (..), OperatorFixity (..), PackageId (..), ResolutionNamespace (..), exportsEntries, exportsFromEntries)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTyCons, tyConName)
 import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
-import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
+import Aihc.Th.Convert (expressionFromTree)
+import Aihc.Th.Wire (decodeTree)
+import Aihc.Wasm.Engine (Engine, engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.Async (async, cancel, waitCatch)
 import Control.Exception (IOException, bracket, displayException, try)
@@ -121,7 +123,11 @@ tests =
             -- aihc-base again. The code-quality fixtures choose per fixture.
             [ testCase "code-quality install fixtures" (testInstallFixtures primStore coreStore),
               withResource (acquireEngineStore primStore) (mapM_ releaseSeedStore) $ \engineStore ->
-                testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
+                testGroup
+                  "engine"
+                  [ testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
+                    testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore)
+                  ],
               testCase "compiles and archives capi wrappers" (test_installCapi primStore),
               testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
               testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
@@ -627,22 +633,67 @@ withBuildModuleSandbox getStore prefix action = do
     action sandbox fixtureRoot storeRoot options
 
 -- | The guest of an engine image runs closures of a shared module. The
--- image is the guest program with the image link. The shared module has the
--- modules of a package with the position-independent code model. The test
--- runs only when the WebAssembly toolchain and Node.js are installed.
+-- closures keep state in the instance, and an exception in a closure does
+-- not stop the guest.
 test_engineClosures :: IO (Maybe SeedStore) -> Assertion
-test_engineClosures getStore = do
+test_engineClosures getStore =
+  withEngineFixture getStore [] "closures" $ \engine -> do
+    let run = runClosure engine "engine-closures-0.1.0.0" "Closures"
+    first <- run "greet"
+    second <- run "greet"
+    failure <- try (run "failing") :: IO (Either IOException [BS.ByteString])
+    third <- run "greet"
+    -- The count of the runs is in the instance, so it stays between the
+    -- closures and after the exception.
+    assertEqual "first run" ["run 1", "5000050000"] first
+    assertEqual "second run" ["run 2", "5000050000"] second
+    case failure of
+      Left err -> assertBool ("the exception text: " <> ioeGetErrorString err) ("the closure failed" `isInfixOf` ioeGetErrorString err)
+      Right messages -> assertFailure ("expected an exception, got " <> show messages)
+    assertEqual "run after the exception" ["run 3", "5000050000"] third
+
+-- | A closure runs a Template Haskell computation in the guest and sends
+-- its result. The compiler decodes the message and converts it to the
+-- surface syntax.
+test_engineSplice :: IO (Maybe SeedStore) -> Assertion
+test_engineSplice getStore =
+  withEngineFixture getStore ["aihc-template-haskell"] "splices" $ \engine -> do
+    let splice name = do
+          messages <- runClosure engine "engine-splices-0.1.0.0" "Splices" name
+          case messages of
+            [message] -> pure (decodeTree message >>= expressionFromTree)
+            _ -> assertFailure ("expected one message, got " <> show messages)
+    application <- splice "application"
+    assertEqual
+      "an application"
+      (Right (Syntax.EApp (Syntax.EVar "negate") (Syntax.EParen (Syntax.ENegate (Syntax.EInt 7 Syntax.TInteger "7")))))
+      application
+    text <- splice "text"
+    assertEqual
+      "a tuple with text that is not ASCII"
+      (Right (Syntax.ETuple Syntax.Boxed [Just (Syntax.EString "h\233llo" "\"h\\233llo\""), Just (Syntax.EChar 'x' "'x'"), Just (Syntax.EVar (Syntax.mkName (Just "Data.Maybe") Syntax.NameConId "Nothing"))]))
+      text
+
+-- | Build an engine image and a shared module, and run an action with an
+-- engine that has the two. The image is the guest program with the image
+-- link and the packages of the constraints. The shared module has the
+-- modules of the fixture package @engine-NAME@, with the
+-- position-independent code model. The action does not run when the
+-- WebAssembly toolchain or Node.js is not installed.
+withEngineFixture :: IO (Maybe SeedStore) -> [String] -> String -> (Engine -> Assertion) -> Assertion
+withEngineFixture getStore constraints name action = do
   available <- getStore
   forM_ available $ \store ->
     withBuildModuleSandbox (pure store) "aihc-engine" $ \sandbox _fixtureRoot storeRoot options -> do
       let root = sandboxRoot sandbox
-          shared = root </> "closures.wasm"
+          shared = root </> name <> ".wasm"
       guest <- engineGuestPath
       images <-
         build
           options
             { buildInput = guest,
               buildSourceDirectories = [takeDirectory guest],
+              buildPackageConstraints = buildPackageConstraints options <> constraints,
               buildTarget = Wasm32Wasip3,
               buildWasmImage = True,
               buildOutput = Just (root </> "guest.wasm")
@@ -650,30 +701,17 @@ test_engineClosures getStore = do
       image <- case images of
         [path] -> pure path
         _ -> assertFailure ("expected one image, got " <> show images)
-      fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/engine/closures"
+      fixtureRoot <- findFixtureRoot ("bin/aihc/test/Test/Fixtures/engine" </> name)
       result <-
         install
-          (InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "closures-build")) False False False False False False False O0 False False False False False Wasm32Wasip3 Nothing defaultPlanOptions)
+          (InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "fixture-build")) False False False False False False False O0 False False False False False Wasm32Wasip3 Nothing defaultPlanOptions)
             { installPositionIndependent = True
             }
-      linkSharedModule shared [] [installStorePath result </> "lib" </> "libengine-closures.a"]
-      let run engine = runClosure engine "engine-closures-0.1.0.0" "Closures"
-      (first, second, failure, third) <- withEngine image $ \engine -> do
+      linkSharedModule shared [] [installStorePath result </> "lib" </> "libengine-" <> name <> ".a"]
+      withEngine image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
-        first <- run engine "greet"
-        second <- run engine "greet"
-        failure <- try (run engine "failing") :: IO (Either IOException [BS.ByteString])
-        third <- run engine "greet"
-        pure (first, second, failure, third)
-      -- The count of the runs is in the instance, so it stays between the
-      -- closures and after the exception.
-      assertEqual "first run" ["run 1", "5000050000"] first
-      assertEqual "second run" ["run 2", "5000050000"] second
-      case failure of
-        Left err -> assertBool ("the exception text: " <> ioeGetErrorString err) ("the closure failed" `isInfixOf` ioeGetErrorString err)
-        Right messages -> assertFailure ("expected an exception, got " <> show messages)
-      assertEqual "run after the exception" ["run 3", "5000050000"] third
+        action engine
 
 -- | Run @build@ and return the error it reports, failing the test when it
 -- succeeds instead.

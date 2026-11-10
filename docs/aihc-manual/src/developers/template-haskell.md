@@ -53,26 +53,34 @@ Modules stay isolated from each other, and parallel builds stay deterministic.
 
 ## Splice protocol
 
-`Q` is abstract over a `Quasi` monad.
-The guest uses a coroutine monad above `IO` for it.
+The program of the base image is the guest.
+The guest asks the driver for a closure, runs the closure, and asks again.
+A closure is a static value of the type `IO ()` in a shared module.
+The compiler makes one closure for each splice.
+The closure applies `runSplice` to the body of the splice.
 
-The guest exports the functions `start` and `resume`.
-Each call returns one request or the final result.
-Examples of requests are `Reify`, `NewName`, `Report`, and `ReadFile`.
-The host answers a request with `resume`.
+The guest calls the driver through imported functions.
+A call returns when the driver has the answer.
+The driver does not call into the guest, and the guest does not call into the compiler.
+Thus, the guest needs no coroutine monad: its `Quasi` monad is above `IO`.
 
-The guest does not call into the compiler.
-Thus, the same protocol works in one process, across a pipe, and in a browser worker.
+On `node`, the driver reads its commands synchronously.
+A browser worker cannot do that.
+There, the driver must suspend the guest during a call, for example with JavaScript Promise Integration.
+
+A request of a splice is one such call.
+Examples of requests are `Reify`, `Report`, and `ReadFile`.
 
 The wire format is specific to AIHC.
-The guest encodes the Template Haskell AST.
-The host decodes directly into the surface AST.
+The guest encodes a value as a tree of constructor names, with one child for each field.
+Thus, the guest encoder has no knowledge of the Template Haskell AST.
+The host decodes the tree directly into the surface AST.
 The host encodes the result of `reify` directly from the data of the type checker.
 Thus, the compiler does not depend on the types of `template-haskell`.
 
 ## Engine
 
-The engine has a small interface: make an instance, load a module, start a splice, and resume a splice.
+The engine has a small interface: make an instance, load a module, start the guest, and run a closure.
 
 A JavaScript driver implements this interface.
 On a native host, the driver runs on `node` as a child process of the compiler.

@@ -14,6 +14,7 @@ import Test.Lir.Spec qualified as Lir
 import Test.Llvm.Spec qualified as Llvm
 import Test.Native.Spec qualified as Native
 import Test.Tasty (defaultMain, testGroup)
+import Test.Th.Spec qualified as Th
 import Test.Wasm.Spec qualified as Wasm
 
 main :: IO ()
@@ -39,6 +40,7 @@ main = do
           testGroup "amd64-spec" [amd64],
           testGroup "arm64-spec" [arm64],
           testGroup "llvm-spec" [llvm],
+          testGroup "th-spec" [Th.tests],
           testGroup "wasm-spec" [wasm]
         ]
     )

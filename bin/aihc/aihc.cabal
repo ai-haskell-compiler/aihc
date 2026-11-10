@@ -257,6 +257,8 @@ library
     Aihc.Llvm.Lir
     Aihc.Native
     Aihc.Prim.Wiring
+    Aihc.Th.Convert
+    Aihc.Th.Wire
     Aihc.Wasm
     Aihc.Wasm.ControlFlow
     Aihc.Wasm.Engine
@@ -296,6 +298,7 @@ library
     compiler/lir/src
     compiler/llvm/src
     compiler/native/src
+    compiler/th/src
     compiler/wasm/src
 
   build-depends:
@@ -468,6 +471,7 @@ test-suite spec
     compiler/amd64/test
     compiler/arm64/test
     compiler/llvm/test
+    compiler/th/test
     compiler/wasm/test
     test-support
     compiler/grin/interpret
@@ -513,6 +517,7 @@ test-suite spec
     Test.Native.Primitive
     Test.Native.Runtime
     Test.Native.Spec
+    Test.Th.Spec
     Test.Wasm.Spec
 
   build-depends:
