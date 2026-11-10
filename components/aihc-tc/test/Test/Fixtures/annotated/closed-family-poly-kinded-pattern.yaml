@@ -1,0 +1,48 @@
+extensions:
+- DataKinds
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Gen where
+  import GHC.Types (Type)
+  data V1 (p :: k)
+  type family R a :: Type -> Type
+- |
+  {-# LANGUAGE DataKinds, TypeFamilies #-}
+  module Test where
+  import Gen (R, V1)
+  import GHC.Types (Bool (..))
+  type family HasSum f where
+    HasSum V1 = 'False
+  data P = P
+  type instance R P = V1
+  f :: (HasSum (R P) ~ 'False) => P -> P
+  f x = x
+status: pass
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Gen where
+  import GHC.Types (Type)
+  data V1 (p :: k)
+       └─ type: k → Type
+  type family R a :: Type -> Type
+              └─ type: Type → Type → Type
+- |-
+  {-# LANGUAGE DataKinds, TypeFamilies #-}
+  module Test where
+  import Gen (R, V1)
+  import GHC.Types (Bool (..))
+  type family HasSum f where
+              └─ type: (Type → Type) → GHC.Types.Bool
+    HasSum V1 = 'False
+  data P = P
+       │   └─ type: P
+       └─ type: Type
+  type instance R P = V1
+  f :: (HasSum (R P) ~ 'False) => P -> P
+  f x = x
+  │ └─ type: P
+  └─ type: ((HasSum (Gen.R P)) ~ 'GHC.Types.False) ⇒ P → P

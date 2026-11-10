@@ -5082,7 +5082,15 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
   -- errMsg = errMsg@ matches every @check@. It arrives as a meta, because
   -- only the parameter kind gave it its kind, so it is bound to a fresh
   -- variable here and joins the equation's own.
-  wildcardParams <- bindWildcardParams rawLhs
+  --
+  -- A closed family without a kind signature takes its kinds from its
+  -- equations, so its own kind can still hold metas. They are the kinds
+  -- of the family, not variables of the equation: @HasSum V1 = 'False@
+  -- gives the parameter of @HasSum@ the kind @k -> Type@ through the kind
+  -- argument of @V1@. These metas stay open here, and the declaration
+  -- group settles them.
+  familyKindMetas <- maybe (pure []) tyConKindMetas (typeFamilyApplicationHead rawLhs)
+  wildcardParams <- bindWildcardParams familyKindMetas rawLhs
   lhs <- zonkType rawLhs
   rhs <- zonkType rawRhs
   -- A closed family's declared parameters are in scope for every
@@ -5125,23 +5133,11 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
 -- | Bind every meta left in a family equation's left-hand side to a fresh
 -- variable, and report those variables. Only a wildcard leaves one: every
 -- other argument is a name the equation quantifies already.
-bindWildcardParams :: TcType -> TcM [ParamInfo]
-bindWildcardParams lhs = do
+bindWildcardParams :: [Unique] -> TcType -> TcM [ParamInfo]
+bindWildcardParams familyKindMetas lhs = do
   zonked <- zonkType lhs
-  mapM bindOne (nub (typeMetas zonked))
+  mapM bindOne (filter (`notElem` familyKindMetas) (nub (typeMetas zonked)))
   where
-    typeMetas ty =
-      case ty of
-        TcMetaTv unique -> [unique]
-        TcTyVar {} -> []
-        TcArrowTy -> []
-        TcTyLit {} -> []
-        TcTyCon _ arguments -> concatMap typeMetas arguments
-        TcKindedTyCon _ kindArguments -> concatMap typeMetas kindArguments
-        TcFunTy argument result -> typeMetas argument <> typeMetas result
-        TcForAllTy _ body -> typeMetas body
-        TcQualTy _ body -> typeMetas body
-        TcAppTy function argument -> typeMetas function <> typeMetas argument
     bindOne unique = do
       kind <- zonkKind =<< readMetaTvKind unique
       tyVar <- freshSkolemTvOfKind "_" kind
@@ -5152,6 +5148,29 @@ bindWildcardParams lhs = do
             paramTyVar = tyVar,
             paramKind = kind
           }
+
+-- | The open metas of a type, kind arguments included.
+typeMetas :: TcType -> [Unique]
+typeMetas ty =
+  case ty of
+    TcMetaTv unique -> [unique]
+    TcTyVar {} -> []
+    TcArrowTy -> []
+    TcTyLit {} -> []
+    TcTyCon _ arguments -> concatMap typeMetas arguments
+    TcKindedTyCon _ kindArguments -> concatMap typeMetas kindArguments
+    TcFunTy argument result -> typeMetas argument <> typeMetas result
+    TcForAllTy _ body -> typeMetas body
+    TcQualTy _ body -> typeMetas body
+    TcAppTy function argument -> typeMetas function <> typeMetas argument
+
+-- | The open metas of the kind of a type constructor.
+tyConKindMetas :: TyCon -> TcM [Unique]
+tyConKindMetas tyCon = do
+  maybeInfo <- lookupTyConByIdentity tyCon
+  case maybeInfo of
+    Just info -> typeMetas <$> zonkKind (typeSchemeBody (tciKindScheme info))
+    Nothing -> pure []
 
 typeFamilyApplicationHead :: TcType -> Maybe TyCon
 typeFamilyApplicationHead ty =
