@@ -211,6 +211,7 @@ primDerivingReferences prim =
       derivingLexemePunc = term readModule NameConId "Punc",
       derivingPure = term "GHC.Prim.Base" NameVarId "pure",
       derivingApply = term "GHC.Prim.Base" NameVarSym "<*>",
+      derivingFmap = term "GHC.Prim.Base" NameVarId "fmap",
       derivingLiftConE = classTerm thSyntaxModule NameConId "ConE",
       derivingLiftAppE = classTerm thSyntaxModule NameConId "AppE",
       derivingLiftDataConName = classTerm thSyntaxModule NameVarId "mkNameG_d",
@@ -273,7 +274,16 @@ genericReferences =
       genericSourceStrict = constructor "SourceStrict",
       genericDecidedLazy = constructor "DecidedLazy",
       genericDecidedStrict = constructor "DecidedStrict",
-      genericDecidedUnpack = constructor "DecidedUnpack"
+      genericDecidedUnpack = constructor "DecidedUnpack",
+      genericPar1 = constructor "Par1",
+      genericUnPar1 = value "unPar1",
+      genericRec1 = constructor "Rec1",
+      genericUnRec1 = value "unRec1",
+      genericComp1 = constructor "Comp1",
+      genericUnComp1 = value "unComp1",
+      genericPar1Type = tyCon "Par1",
+      genericRec1Type = tyCon "Rec1",
+      genericCompType = tyOperator ":.:"
     }
   where
     genericsModule = "GHC.Generics"
@@ -327,6 +337,7 @@ coreStockClasses prim =
     coreClass "GHC.Internal.Traversable" "Traversable",
     coreClass "GHC.Internal.TH.Lift" "Lift",
     coreClass "GHC.Generics" "Generic",
+    coreClass "GHC.Generics" "Generic1",
     coreClass "Data.Data" "Data"
   ]
   where
@@ -340,8 +351,7 @@ coreRecognizedClasses :: [(Text, Text)]
 coreRecognizedClasses =
   [ ("GHC.Ix", "Ix"),
     ("Type.Reflection", "Typeable"),
-    ("Type.Reflection.Internal", "Typeable"),
-    ("GHC.Generics", "Generic1")
+    ("Type.Reflection.Internal", "Typeable")
   ]
 
 -- | The modules whose exports desugaring reaches without an import: the

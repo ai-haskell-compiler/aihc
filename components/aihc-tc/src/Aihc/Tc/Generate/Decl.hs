@@ -127,7 +127,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
-import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
+import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -508,7 +508,8 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   -- equation of its datatype, which a default signature derived in the same
   -- clause (deriving (Generic, NFData)) constrains. Register those instances
   -- first so that context inference can reduce the representation.
-  derivingRepresented <- mapM (registerDerivedInstances isContextFreeStockPlan . settleContextFreePlans) derivingAnnotated
+  functorClass <- functorClassTyCon
+  derivingRepresented <- mapM (registerDerivedInstances isContextFreeStockPlan . settleContextFreePlans functorClass) derivingAnnotated
   derivingInferred <- inferDerivingContexts derivingRepresented
   derivingFinalized <- mapM (registerDerivedInstances (not . isContextFreeStockPlan)) derivingInferred
   -- A derived instance registers type constructors and associated type

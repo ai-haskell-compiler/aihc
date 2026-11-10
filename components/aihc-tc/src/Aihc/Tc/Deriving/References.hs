@@ -34,6 +34,7 @@ module Aihc.Tc.Deriving.References
     stockClassLocationMatches,
     derivingReferenceList,
     genericTermReferences,
+    generic1TermReferences,
     dataReferenceList,
   )
 where
@@ -172,6 +173,9 @@ data DerivingReferences = DerivingReferences
     -- | The @(\<*\>)@ method of @Applicative@, which a derived @traverse@
     -- applies a constructor to one visited field with.
     derivingApply :: !DerivingReference,
+    -- | The @fmap@ method of @Functor@, which a derived @from1@ and @to1@
+    -- map a composed field with.
+    derivingFmap :: !DerivingReference,
     -- | The @ConE@ expression, which names a data constructor.
     derivingLiftConE :: !DerivingReference,
     -- | The @AppE@ expression, which applies one expression to another.
@@ -335,7 +339,25 @@ data GenericReferences = GenericReferences
     -- | @DecidedStrict@, a field the compiler makes strict.
     genericDecidedStrict :: !DerivingReference,
     -- | @DecidedUnpack@, a field the compiler unpacks.
-    genericDecidedUnpack :: !DerivingReference
+    genericDecidedUnpack :: !DerivingReference,
+    -- | The @Par1@ constructor of a @Generic1@ field that is the parameter.
+    genericPar1 :: !DerivingReference,
+    -- | @unPar1@, which takes the parameter back out.
+    genericUnPar1 :: !DerivingReference,
+    -- | The @Rec1@ constructor of a @Generic1@ field such as @f a@.
+    genericRec1 :: !DerivingReference,
+    -- | @unRec1@, which takes such a field back out.
+    genericUnRec1 :: !DerivingReference,
+    -- | The @Comp1@ constructor of a @Generic1@ field such as @f (g a)@.
+    genericComp1 :: !DerivingReference,
+    -- | @unComp1@, which takes such a field back out.
+    genericUnComp1 :: !DerivingReference,
+    -- | The @Par1@ type.
+    genericPar1Type :: !DerivingReference,
+    -- | The @Rec1@ type.
+    genericRec1Type :: !DerivingReference,
+    -- | The @(:.:)@ type of a composition.
+    genericCompType :: !DerivingReference
   }
   deriving (Eq, Show)
 
@@ -345,10 +367,16 @@ genericTermReferences :: [GenericReferences -> DerivingReference]
 genericTermReferences =
   [genericM1, genericUnM1, genericK1, genericUnK1, genericU1, genericL1, genericR1, genericProduct]
 
+-- | The names that only a derived @Generic1@ body mentions in a term
+-- position.
+generic1TermReferences :: [GenericReferences -> DerivingReference]
+generic1TermReferences =
+  [genericPar1, genericUnPar1, genericRec1, genericUnRec1, genericComp1, genericUnComp1]
+
 -- | Every name of 'GenericReferences', in every namespace.
 genericReferenceList :: GenericReferences -> [DerivingReference]
 genericReferenceList references =
-  map ($ references) (genericTermReferences <> types <> promoted)
+  map ($ references) (genericTermReferences <> generic1TermReferences <> types <> promoted)
   where
     types =
       [ genericV1Type,
@@ -358,7 +386,10 @@ genericReferenceList references =
         genericD1Type,
         genericC1Type,
         genericS1Type,
-        genericRec0Type
+        genericRec0Type,
+        genericPar1Type,
+        genericRec1Type,
+        genericCompType
       ]
     promoted =
       [ genericMetaData,
@@ -414,6 +445,7 @@ derivingReferenceList references =
     derivingLexemePunc references,
     derivingPure references,
     derivingApply references,
+    derivingFmap references,
     derivingLiftConE references,
     derivingLiftAppE references,
     derivingLiftDataConName references,
