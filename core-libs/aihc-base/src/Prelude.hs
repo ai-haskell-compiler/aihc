@@ -892,6 +892,202 @@ instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h) => Sho
       . shows eighth
       . showChar ')'
 
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i) => Show (a, b, c, d, e, f, g, h, i) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i, Show j) => Show (a, b, c, d, e, f, g, h, i, j) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ','
+      . shows x10
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i, Show j, Show k) => Show (a, b, c, d, e, f, g, h, i, j, k) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ','
+      . shows x10
+      . showChar ','
+      . shows x11
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i, Show j, Show k, Show l) => Show (a, b, c, d, e, f, g, h, i, j, k, l) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ','
+      . shows x10
+      . showChar ','
+      . shows x11
+      . showChar ','
+      . shows x12
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i, Show j, Show k, Show l, Show m) => Show (a, b, c, d, e, f, g, h, i, j, k, l, m) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ','
+      . shows x10
+      . showChar ','
+      . shows x11
+      . showChar ','
+      . shows x12
+      . showChar ','
+      . shows x13
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i, Show j, Show k, Show l, Show m, Show n) => Show (a, b, c, d, e, f, g, h, i, j, k, l, m, n) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ','
+      . shows x10
+      . showChar ','
+      . shows x11
+      . showChar ','
+      . shows x12
+      . showChar ','
+      . shows x13
+      . showChar ','
+      . shows x14
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h, Show i, Show j, Show k, Show l, Show m, Show n, Show o) => Show (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o) where
+  showsPrec _ (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15) =
+    showChar '('
+      . shows x1
+      . showChar ','
+      . shows x2
+      . showChar ','
+      . shows x3
+      . showChar ','
+      . shows x4
+      . showChar ','
+      . shows x5
+      . showChar ','
+      . shows x6
+      . showChar ','
+      . shows x7
+      . showChar ','
+      . shows x8
+      . showChar ','
+      . shows x9
+      . showChar ','
+      . shows x10
+      . showChar ','
+      . shows x11
+      . showChar ','
+      . shows x12
+      . showChar ','
+      . shows x13
+      . showChar ','
+      . shows x14
+      . showChar ','
+      . shows x15
+      . showChar ')'
+
 putChar :: Char -> IO ()
 putChar character = putStr [character]
 
