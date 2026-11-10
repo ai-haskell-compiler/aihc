@@ -143,7 +143,7 @@ specialiseTopProgram primPackage home program =
             MonoidMap.nonNullKeys
               ( MonoidMap.filterWithKey
                   (\name count -> count + MonoidMap.get name (topCounts current) > Sum specialisationLimit)
-                  (MonoidMap.fromListWith (<>) [(name, 1 :: Sum Int) | (key@(name, _), _) <- MonoidMap.toList full, Map.notMember key (topCopies current)])
+                  (MonoidMap.fromList [(name, 1 :: Sum Int) | (key@(name, _), _) <- MonoidMap.toList full, Map.notMember key (topCopies current)])
               )
           reduced = topReduced current <> crowded
           calls = execState (mapM_ (onValue (walkCalls (collect (`Set.member` reduced)))) decls) MonoidMap.empty
