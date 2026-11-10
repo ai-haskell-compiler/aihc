@@ -89,6 +89,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad (forM, forM_, guard, unless, when, zipWithM_)
 import Control.Monad.ST (ST, runST)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
@@ -1100,7 +1101,7 @@ useCounts expression =
        in valueUsesTimes scrutineeUses scrutinee <> branches
     _ -> valueUses (exprOperands expression)
   where
-    valueUses values = MonoidMap.fromList [(var, 1) | GrinVarValue var <- values]
+    valueUses values = Occurrences.count [var | GrinVarValue var <- values]
     valueUsesTimes count value =
       case value of
         GrinVarValue var -> MonoidMap.singleton var count

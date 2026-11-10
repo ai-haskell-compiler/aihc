@@ -71,6 +71,7 @@ module Aihc.Grin.Syntax
   )
 where
 
+import Aihc.Util.Occurrences qualified as Occurrences
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
 import Data.List (mapAccumL)
@@ -792,7 +793,7 @@ sumLayout :: [GrinRep] -> SumLayout
 sumLayout alternatives = SumLayout slots (map positions components)
   where
     components = map (map sumSlotRep . runtimeRepComponents) alternatives
-    counts = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map (MonoidMap.fromList . map (,1 :: Sum Int)) components)
+    counts = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map Occurrences.count components)
     slots = concat [replicate (getSum count) representation | (representation, count) <- MonoidMap.toList counts]
     offsets = Map.fromListWith (flip (<>)) [(representation, [index]) | (index, representation) <- zip [0 ..] slots]
     positions = snd . mapAccumL select offsets
