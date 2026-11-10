@@ -38,6 +38,10 @@ import GHC.Types (Bool (..))
 -- | A reference the collector follows, which foreign code may hold.
 data StablePtr a = StablePtr (StablePtr# a)
 
+-- | Stable pointers compare by the table slot they name.
+instance Eq (StablePtr a) where
+  left == right = indexOfStablePtr left == indexOfStablePtr right
+
 -- | A value of any type, as the table stores it. Nothing reads one back
 -- except through the entry that put it there, which knows its type.
 data Referent

@@ -1,0 +1,35 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Foreign.StablePtr (freeStablePtr, newStablePtr)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    stableResults :: IO (Bool, Bool)
+    stableResults = do
+      first <- newStablePtr 'a'
+      second <- newStablePtr 'b'
+      let same = first == first
+          different = first == second
+      freeStablePtr first
+      freeStablePtr second
+      return (same, different)
+
+    tuple8 :: (Int, Int, Int, Int, Int, Int, Int, Int)
+    tuple8 = (1, 2, 3, 4, 5, 6, 7, 8)
+
+    tuple15 :: (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int)
+    tuple15 = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+
+    tuple15Changed :: (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int)
+    tuple15Changed = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0)
+
+    result :: [Bool]
+    result =
+      case unsafePerformIO stableResults of
+        (same, different) -> [same, different, tuple8 == tuple8, tuple15 == tuple15, tuple15 == tuple15Changed]
+output: ": True (: False (: True (: True (: False []))))"
+expression: result
+status: pass
+reason: aihc-base has the Eq instances for StablePtr and for tuples with 8 to 15 elements that ieee754 needs
