@@ -542,6 +542,9 @@ etaReduce tyVars ty =
         TcTyVar argument <- last arguments,
         argument == expected ->
           etaReduce (init tyVars) (TcTyCon tyCon (init arguments))
+    -- A function type @a -> r@ is the application @(->) a r@.
+    (TcFunTy domain (TcTyVar result), expected)
+      | result == expected -> etaReduce (init tyVars) (TcAppTy TcArrowTy domain)
     _ -> Nothing
 
 -- | The arguments the instance head applies the target type constructor to.
