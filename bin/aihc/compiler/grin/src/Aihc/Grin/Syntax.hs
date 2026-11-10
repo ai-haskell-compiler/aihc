@@ -77,6 +77,8 @@ import Data.List (mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Monoid (Sum (..))
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -790,8 +792,8 @@ sumLayout :: [GrinRep] -> SumLayout
 sumLayout alternatives = SumLayout slots (map positions components)
   where
     components = map (map sumSlotRep . runtimeRepComponents) alternatives
-    counts = List.foldl' (Map.unionWith max) Map.empty (map (Map.fromListWith (+) . map (,1 :: Int)) components)
-    slots = concat [replicate count representation | (representation, count) <- Map.toAscList counts]
+    counts = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map (MonoidMap.fromListWith (+) . map (,1 :: Sum Int)) components)
+    slots = concat [replicate (getSum count) representation | (representation, count) <- MonoidMap.toList counts]
     offsets = Map.fromListWith (flip (<>)) [(representation, [index]) | (index, representation) <- zip [0 ..] slots]
     positions = snd . mapAccumL select offsets
     select available representation =
