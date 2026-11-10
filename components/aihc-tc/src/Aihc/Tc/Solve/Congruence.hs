@@ -13,6 +13,7 @@ import Aihc.Tc.Kind (tcTypeKind, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
@@ -152,8 +153,11 @@ givenEqualities visited (predicate, evidence) = case predicate of
           Nothing -> pure []
           Just info -> do
             kinds <- getKinds
-            let substitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
-                fields = classFieldTypes info substitution
+            -- The field types also need the class kind variables. A method
+            -- binder kind such as @f :: k -> Type@ mentions them.
+            let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
+            substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+            let fields = classFieldTypes info substitution
                 supers = map (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info)
             concat
               <$> traverse

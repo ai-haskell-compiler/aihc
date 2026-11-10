@@ -1,0 +1,16 @@
+extensions:
+- PolyKinds
+- KindSignatures
+- TypeFamilies
+- FlexibleContexts
+modules:
+- |
+  {-# LANGUAGE PolyKinds, TypeFamilies, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Type)
+  type family P (h :: (k -> Type) -> Type) :: (k -> Type) -> Type
+  class (P (P h) ~ P h) => C (h :: (k -> Type) -> Type) where
+    m :: P h f -> h f
+  use :: (C h, C (P h)) => P h f -> P h f
+  use x = m x
+status: pass
