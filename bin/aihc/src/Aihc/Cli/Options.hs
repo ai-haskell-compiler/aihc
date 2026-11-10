@@ -68,6 +68,9 @@ data BuildOptions = BuildOptions
     buildOnlyDependencies :: !Bool,
     -- | Link an ELF executable at a fixed address, without ASLR.
     buildNoPie :: !Bool,
+    -- | Link each executable as an image for the WebAssembly engine, not
+    -- as a component. See "Aihc.Wasm.Engine".
+    buildWasmImage :: !Bool,
     buildVerbose :: !Bool,
     buildPrintTimings :: !Bool,
     -- | The executable of a main module, or the directory the executables
@@ -172,6 +175,10 @@ data InstallOptions = InstallOptions
     installOptimization :: !OptimizationLevel,
     installReinstall :: !Bool,
     installNoCode :: !Bool,
+    -- | Compile the modules of the package for a shared module of the
+    -- WebAssembly engine. The dependencies of the package keep the static
+    -- code model. See "Aihc.Wasm.Engine".
+    installPositionIndependent :: !Bool,
     installVerbose :: !Bool,
     installPrintTimings :: !Bool,
     installTarget :: !NativeTarget,
@@ -322,6 +329,11 @@ buildOptionsParser =
     <*> OA.switch
       ( OA.long "no-pie"
           <> OA.help "Link a Linux executable at a fixed address, not as a position-independent executable (PIE). WARNING: This disables address space layout randomization (ASLR) for the code and static data of the program. An attacker can then use known addresses to exploit a memory defect, for example in C code that the program calls. Use this option only for programs that do not process untrusted input. Without PIE, the executable is approximately 0.4% smaller. It also starts faster, because the loader does not write the pointers of the static data. For a 17 MB program, the difference is approximately 3 ms. Apple and WebAssembly targets ignore this option"
+      )
+    <*> OA.switch
+      ( OA.long "wasm-image"
+          <> OA.internal
+          <> OA.help "Link each executable as an image for the WebAssembly engine, not as a component. Only the wasm32-wasip3 target accepts this option"
       )
     <*> OA.switch
       ( OA.long "verbose"
@@ -596,6 +608,11 @@ installOptionsParser =
     <*> OA.switch
       ( OA.long "no-code"
           <> OA.help "Do not generate compiler or native code"
+      )
+    <*> OA.switch
+      ( OA.long "position-independent"
+          <> OA.internal
+          <> OA.help "Compile the modules of the package for a shared module of the WebAssembly engine. Only the wasm32-wasip3 target accepts this option"
       )
     <*> OA.switch
       ( OA.long "verbose"

@@ -157,9 +157,9 @@ sharedModuleTest tools = do
         imageObject <- assemble available directory "image" Static imageSource
         firstObject <- assemble available directory "first" PositionIndependent firstSharedSource
         secondObject <- assemble available directory "second" PositionIndependent secondSharedSource
-        linkImage image [imageObject] []
-        linkSharedModule first [firstObject]
-        linkSharedModule second [secondObject]
+        linkImage image [imageObject] [] []
+        linkSharedModule first [firstObject] []
+        linkSharedModule second [secondObject] []
         results <- withEngine image $ \engine -> do
           loadSharedModule engine first
           loadSharedModule engine second

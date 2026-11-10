@@ -120,7 +120,9 @@
     # The LLVM bintools must shadow the GNU binutils that the clang wrapper
     # links into its own bin directory: the foreign-target suites
     # archive their objects with llvm-ar.
-    export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:$PATH
+    # The engine test links an image and a shared module with wasm-ld and
+    # runs them with Node.js.
+    export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:${wasmLd}/bin:${pkgs.nodejs_24}/bin:$PATH
     # The install tests preprocess a .hsc fixture with the real
     # tool; the standalone one, not GHC's wrapper, which adds
     # GHC's own C flags and include directory.
@@ -739,7 +741,7 @@
   # install run back to back. Store entries are named after a content
   # fingerprint, so -n skips the files an earlier copy already put in place.
   specSeedStore = pkgs.runCommand "aihc-spec-seed-store" {} ''
-    mkdir -p "$out/prim" "$out/core" "$out/lto" "$out/lto-llvm"
+    mkdir -p "$out/prim" "$out/core" "$out/engine" "$out/lto" "$out/lto-llvm"
 
     ${pkgs.lib.concatMapStringsSep "\n" (target: ''
         cp -Rn --no-preserve=mode ${primStoreFor target}/. "$out/prim/"
@@ -751,6 +753,11 @@
     # itself outside CI, so a test sees the same store either way.
     cp -R --no-preserve=mode "$out/prim/." "$out/core/"
     cp -Rn --no-preserve=mode ${exampleToolchainFor hostBackendTarget}/. "$out/core/"
+
+    # The engine test builds an image for wasm32-wasip3, which contains
+    # aihc-base. The examples of that target use the same store.
+    cp -R --no-preserve=mode "$out/prim/." "$out/engine/"
+    cp -Rn --no-preserve=mode ${exampleToolchainFor "wasm32-wasip3"}/. "$out/engine/"
 
     cp -R --no-preserve=mode ${ltoStore}/. "$out/lto/"
     cp -R --no-preserve=mode ${ltoStoreFor "llvm"}/. "$out/lto-llvm/"

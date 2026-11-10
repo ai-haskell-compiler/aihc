@@ -9,6 +9,7 @@ module Aihc.Cli.Backend
     compileLirObject,
     compileEntryObject,
     compileGrinTo,
+    compileGrinToFor,
     lirModuleDefinesCode,
     lowerTargetFor,
     renderLirModule,
@@ -131,14 +132,20 @@ compileEntryObject lto profileAllocations profileTime target directory object = 
 -- backend take each Lir item as conversion produces it, so the Lir module is
 -- never complete in memory. The Lir of the module is written to @lirPath@
 -- when one is given. The LLVM target writes IR for the code goal, and the
--- other targets ignore it.
+-- other targets ignore it. The WebAssembly target uses the static code
+-- model.
 compileGrinTo :: Bool -> Lower.ModuleSettings -> Llvm.CodeGoal -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> FilePath -> IO Bool
-compileGrinTo lint settings goal target lirPath gcProgram sourcePath path = case target of
+compileGrinTo = compileGrinToFor Wasm.Static
+
+-- | 'compileGrinTo' with the code model of the WebAssembly target. The other
+-- targets do not read the code model.
+compileGrinToFor :: Wasm.CodeModel -> Bool -> Lower.ModuleSettings -> Llvm.CodeGoal -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> FilePath -> IO Bool
+compileGrinToFor model lint settings goal target lirPath gcProgram sourcePath path = case target of
   AppleArm64 -> Arm64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
   LinuxAmd64 -> Amd64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
   Wasm32Wasip3 -> do
     let produce output = Lower.lowerModuleTo (lowerTargetFor target) settings (const output) gcProgram >>= either (ioError . userError . ("Lir generation failed: " <>) . show) pure
-    Wasm.writeLirItems Wasm.Static lint produce lirPath sourcePath
+    Wasm.writeLirItems model lint produce lirPath sourcePath
     pure True
   Llvm -> do
     lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) settings gcProgram)

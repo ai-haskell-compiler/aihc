@@ -133,6 +133,8 @@ buildWith reporter options = buildWithConfig reporter options id
 -- 'compileObserver'.
 buildWithConfig :: ProgressReporter -> BuildOptions -> (ModuleCompileConfig -> ModuleCompileConfig) -> IO [FilePath]
 buildWithConfig reporter options adjust = do
+  when (buildWasmImage options && buildTarget options /= Wasm32Wasip3) $
+    ioError (userError "--wasm-image requires the wasm32-wasip3 target")
   isFile <- doesFileExist (buildInput options)
   when (isFile && not (null (buildExecutables options))) $
     ioError (userError "--executable selects the executables of a package, and a main module is one executable")
@@ -196,7 +198,7 @@ linkPrograms reporter options adjust targetsOf = do
           let output = executableOutput executable
               component = executableComponent executable
           report (ProgressLink (componentItem component))
-          linkCompiledExecutable config (positionIndependence options) (buildNoLink options) (componentOutputRoot component) output compiledExecutable
+          linkCompiledExecutable config (positionIndependence options) (buildWasmImage options) (buildNoLink options) (componentOutputRoot component) output compiledExecutable
           report (ProgressDone (componentItem component))
           pure (BuiltProgram (executableName executable) (componentSourceRoot component) output)
 

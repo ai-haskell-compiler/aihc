@@ -27,6 +27,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Native (NativeTarget (..), PositionIndependence (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
+import Aihc.Wasm.Engine qualified as Engine
 import Control.Monad (filterM, forM, forM_, unless, when)
 import Data.Char (isSpace)
 import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
@@ -48,12 +49,13 @@ import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode, readProcessWithExitCode)
 
 -- | Turn a compiled executable and the packages below it into the
--- executable, or into a link bundle when the link is deferred. The runtime
+-- executable, into an image of the WebAssembly engine, or into a link
+-- bundle when the link is deferred. The runtime
 -- is the @aihc-rts@ package among the packages; the entry unit is generated
 -- in the build directory of the executable, where a @--lto@ build also
 -- writes the program object.
-linkCompiledExecutable :: ModuleCompileConfig -> PositionIndependence -> Bool -> FilePath -> FilePath -> CompiledExecutable -> IO ()
-linkCompiledExecutable compileConfig independence noLink buildRoot output executable = do
+linkCompiledExecutable :: ModuleCompileConfig -> PositionIndependence -> Bool -> Bool -> FilePath -> FilePath -> CompiledExecutable -> IO ()
+linkCompiledExecutable compileConfig independence wasmImage noLink buildRoot output executable = do
   let target = compileTarget compileConfig
       packages = compiledPackages executable
       cCompileInfo = compiledCCompileInfo executable
@@ -121,7 +123,12 @@ linkCompiledExecutable compileConfig independence noLink buildRoot output execut
           }
   if noLink
     then writeLinkBundle target output libraries objects archives
-    else linkExecutable target output libraries objects archives
+    else
+      if wasmImage
+        then -- An image has each member of each archive, and the C objects of
+        -- the packages are among the members.
+          Engine.linkImage output (programObjects <> compiledModuleObjects executable <> [entry] <> compiledCObjects executable) archives linkArguments
+        else linkExecutable target output libraries objects archives
 
 -- | The directory of an installed package: in the store, or in the build
 -- directory for a local package.

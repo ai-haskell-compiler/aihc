@@ -21,6 +21,7 @@ module Test.Aihc.SeedStore
     Sandbox (..),
     acquirePrimStore,
     acquireCoreStore,
+    acquireEngineStore,
     acquireLtoStore,
     acquireLlvmLtoStore,
     releaseSeedStore,
@@ -40,7 +41,7 @@ import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget,
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless, void)
 import Data.List (isPrefixOf, nub)
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, maybeToList)
 import System.Directory
   ( copyFile,
     createDirectory,
@@ -78,6 +79,11 @@ primStoreDirectory = "prim"
 -- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base.
 coreStoreDirectory :: FilePath
 coreStoreDirectory = "core"
+
+-- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base
+-- for @wasm32-wasip3@.
+engineStoreDirectory :: FilePath
+engineStoreDirectory = "engine"
 
 -- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base
 -- built at @-O2@, which implies @--lto@.
@@ -168,6 +174,27 @@ acquireCoreStore getPrimStore =
     baseRoot <- findCoreLibraryRoot "aihc-base"
     installCoreLibrary baseRoot root buildHostTarget
 
+-- | Seed aihc-prim and aihc-base for @wasm32-wasip3@. An image of the
+-- WebAssembly engine contains the two packages. Only the engine test needs
+-- this store. There is no store when the toolchain of the target, the
+-- linker, or Node.js is not installed, and the test then does nothing.
+acquireEngineStore :: IO SeedStore -> IO (Maybe SeedStore)
+acquireEngineStore getPrimStore = do
+  targets <- installTestTargets
+  tools <- mapM findExecutable ["wasm-ld", "node"]
+  if Wasm32Wasip3 `elem` targets && all isJust tools
+    then
+      Just
+        <$> withPreparedStore
+          engineStoreDirectory
+          ( \root -> do
+              primStore <- getPrimStore
+              copyWritable (seedStoreRoot primStore) root
+              baseRoot <- findCoreLibraryRoot "aihc-base"
+              installCoreLibrary baseRoot root Wasm32Wasip3
+          )
+    else pure Nothing
+
 -- | Seed aihc-prim and aihc-base at @-O2@ for the host target, which is a
 -- @--lto@ build. The build is part of the identity of a package, so the
 -- entries of the other stores do not serve it. Only the @lto@ tests need
@@ -219,7 +246,7 @@ installCoreLibrary = installCoreLibraryWith O0
 -- | Install a core library into the store at a level.
 installCoreLibraryWith :: OptimizationLevel -> FilePath -> FilePath -> NativeTarget -> IO ()
 installCoreLibraryWith level source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False False level False False False False target Nothing defaultPlanOptions)
+  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False False level False False False False False target Nothing defaultPlanOptions)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

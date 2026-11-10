@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (Entity (..), ExportEntry (..), GlobalName (..), LocalId (..), OperatorFixity (..), PackageId (..), ResolutionNamespace (..), exportsEntries, exportsFromEntries)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTyCons, tyConName)
 import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
+import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.Async (async, cancel, waitCatch)
 import Control.Exception (IOException, bracket, displayException, try)
@@ -60,6 +61,7 @@ import Test.Aihc.SeedStore
   ( Sandbox (..),
     SeedStore,
     acquireCoreStore,
+    acquireEngineStore,
     acquireLlvmLtoStore,
     acquireLtoStore,
     acquirePrimStore,
@@ -118,6 +120,8 @@ tests =
             -- aihc-base. With aihc-prim alone, each such test would compile
             -- aihc-base again. The code-quality fixtures choose per fixture.
             [ testCase "code-quality install fixtures" (testInstallFixtures primStore coreStore),
+              withResource (acquireEngineStore primStore) (mapM_ releaseSeedStore) $ \engineStore ->
+                testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
               testCase "compiles and archives capi wrappers" (test_installCapi primStore),
               testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
               testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
@@ -519,7 +523,7 @@ testInstallFixtures getPrimStore getCoreStore = do
       store <- sandboxStore sandbox "store"
       let input = if installFixtureInput fixture == "." then directory else directory </> installFixtureInput fixture
           options =
-            (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget Nothing defaultPlanOptions)
+            (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False False buildHostTarget Nothing defaultPlanOptions)
               { installImmutable = installFixtureImmutable fixture,
                 installOptimization = installFixtureOptimization fixture,
                 installKeepGrin = not (null (installFixtureGrin fixture)),
@@ -613,6 +617,7 @@ withBuildModuleSandbox getStore prefix action = do
               buildNoLink = False,
               buildOnlyDependencies = False,
               buildNoPie = False,
+              buildWasmImage = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Just (sandboxRoot sandbox </> "program"),
@@ -620,6 +625,55 @@ withBuildModuleSandbox getStore prefix action = do
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox fixtureRoot storeRoot options
+
+-- | The guest of an engine image runs closures of a shared module. The
+-- image is the guest program with the image link. The shared module has the
+-- modules of a package with the position-independent code model. The test
+-- runs only when the WebAssembly toolchain and Node.js are installed.
+test_engineClosures :: IO (Maybe SeedStore) -> Assertion
+test_engineClosures getStore = do
+  available <- getStore
+  forM_ available $ \store ->
+    withBuildModuleSandbox (pure store) "aihc-engine" $ \sandbox _fixtureRoot storeRoot options -> do
+      let root = sandboxRoot sandbox
+          shared = root </> "closures.wasm"
+      guest <- engineGuestPath
+      images <-
+        build
+          options
+            { buildInput = guest,
+              buildSourceDirectories = [takeDirectory guest],
+              buildTarget = Wasm32Wasip3,
+              buildWasmImage = True,
+              buildOutput = Just (root </> "guest.wasm")
+            }
+      image <- case images of
+        [path] -> pure path
+        _ -> assertFailure ("expected one image, got " <> show images)
+      fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/engine/closures"
+      result <-
+        install
+          (InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "closures-build")) False False False False False False False O0 False False False False False Wasm32Wasip3 Nothing defaultPlanOptions)
+            { installPositionIndependent = True
+            }
+      linkSharedModule shared [] [installStorePath result </> "lib" </> "libengine-closures.a"]
+      let run engine = runClosure engine "engine-closures-0.1.0.0" "Closures"
+      (first, second, failure, third) <- withEngine image $ \engine -> do
+        startGuest engine
+        loadSharedModule engine shared
+        first <- run engine "greet"
+        second <- run engine "greet"
+        failure <- try (run engine "failing") :: IO (Either IOException [BS.ByteString])
+        third <- run engine "greet"
+        pure (first, second, failure, third)
+      -- The count of the runs is in the instance, so it stays between the
+      -- closures and after the exception.
+      assertEqual "first run" ["run 1", "5000050000"] first
+      assertEqual "second run" ["run 2", "5000050000"] second
+      case failure of
+        Left err -> assertBool ("the exception text: " <> ioeGetErrorString err) ("the closure failed" `isInfixOf` ioeGetErrorString err)
+        Right messages -> assertFailure ("expected an exception, got " <> show messages)
+      assertEqual "run after the exception" ["run 3", "5000050000"] third
 
 -- | Run @build@ and return the error it reports, failing the test when it
 -- succeeds instead.
@@ -846,7 +900,7 @@ test_lto getStore =
     assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleArguments bundleManifest)))
     -- An install at the same level stops at System FC in the same way.
     fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
-    let installOptions = InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "install-build")) False False False False False False True O2 False False False False target Nothing defaultPlanOptions
+    let installOptions = InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "install-build")) False False False False False False True O2 False False False False False target Nothing defaultPlanOptions
     result <- install installOptions
     let packageRoot = installStorePath result
     assertEqual "lto install writes the module" ["Demo"] (installWrittenModules result)
@@ -990,6 +1044,7 @@ withBuildPackageSandbox getStore prefix action = do
               buildNoLink = False,
               buildOnlyDependencies = False,
               buildNoPie = False,
+              buildWasmImage = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
@@ -1246,6 +1301,7 @@ test_buildAsmSources getStore = do
               buildNoLink = False,
               buildOnlyDependencies = False,
               buildNoPie = False,
+              buildWasmImage = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
@@ -1294,6 +1350,7 @@ test_buildCxxSources getStore = do
               buildNoLink = False,
               buildOnlyDependencies = False,
               buildNoPie = False,
+              buildWasmImage = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
@@ -1361,6 +1418,7 @@ test_buildExtraLibraries getStore = do
               buildNoLink = False,
               buildOnlyDependencies = False,
               buildNoPie = False,
+              buildWasmImage = False,
               buildVerbose = False,
               buildPrintTimings = False,
               buildOutput = Nothing,
@@ -1469,7 +1527,7 @@ test_installArchSourceDirs getStore = do
   withSandbox getStore "aihc-install-arch-source-dirs" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     forM_ targets $ \target -> do
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False target Nothing defaultPlanOptions)
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False False target Nothing defaultPlanOptions)
       core <- T.unpack . Fc.renderProgram <$> readCoreFile (installStorePath result </> "Payload" </> "core.fc")
       let expected = archSourceDirPayload target
           unexpected = if expected == "32#" then "64#" else "32#"
@@ -1528,7 +1586,7 @@ test_installMinVersionMacros getStore =
           ]
       )
     target <- hostBackendTarget
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target Nothing defaultPlanOptions)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False False target Nothing defaultPlanOptions)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- A module that includes an RTS header by its own name resolves it out of
@@ -1568,7 +1626,7 @@ test_installRtsHeaderInclude getStore =
           ]
       )
     target <- hostBackendTarget
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target Nothing defaultPlanOptions)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False False target Nothing defaultPlanOptions)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- | The runtime is an installed package that aihc-prim depends on, so the
@@ -1638,7 +1696,7 @@ test_installRtsCapi getStore =
             "foreign import capi unsafe \"Rts.h rtsSupportsBoundThreads\" boundThreads :: Int32"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False buildHostTarget Nothing defaultPlanOptions)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False False buildHostTarget Nothing defaultPlanOptions)
     let stubSource = installStorePath result </> "Demo" </> "Demo.capi.c"
     stub <- readFile stubSource
     assertBool "the wrapper includes Rts.h" ("#include \"Rts.h\"" `isInfixOf` stub)
@@ -1696,7 +1754,7 @@ test_installCapi getStore =
         sourceDir = sourceRoot </> "src"
         includeDir = sourceRoot </> "include"
         header = includeDir </> "demo_capi.h"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm Nothing defaultPlanOptions
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False False Llvm Nothing defaultPlanOptions
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile
@@ -1784,7 +1842,7 @@ test_installCapiCType getStore =
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src"
         includeDir = sourceRoot </> "include"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm Nothing defaultPlanOptions
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False False Llvm Nothing defaultPlanOptions
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile
