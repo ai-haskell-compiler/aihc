@@ -267,6 +267,15 @@ improveFromInstances givens siblings depth info dependency constraint = do
 -- constraints, and @all@ from the third. The constraints improve each
 -- other until a pass changes none of them.
 --
+-- A pass improves only the constraints of the context that still have a
+-- meta variable. Improvement solves meta variables, so it cannot change a
+-- constraint without one. Such a constraint stays in the sibling list,
+-- where it can still improve the other constraints. Without this filter,
+-- each pass goes through the contexts below it again. A pass that changed
+-- a constraint causes one more pass, so the work doubles at each level.
+-- The 'Generic' representation of a sum type with many constructors is a
+-- deep tree of these instances, and the improvement then does not finish.
+--
 -- An instance context can be as large as the head or larger under
 -- @UndecidableInstances@, so a depth limit stops a chain of contexts that
 -- does not end.
@@ -288,7 +297,7 @@ improveThroughContext givens siblings depth instanceInfo arguments
               improveContext :: Int -> TcM ()
               improveContext passes = do
                 before <- mapM zonkPred context
-                improvable <- concat <$> mapM predicateFunDeps context
+                improvable <- concat <$> mapM predicateFunDeps (filter predicateMentionsMeta before)
                 forM_ improvable (uncurry (improveConstraint givens (siblings <> context) (depth + 1)))
                 after <- mapM zonkPred context
                 when (before /= after && passes > 1) (improveContext (passes - 1))
