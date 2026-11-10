@@ -58,6 +58,8 @@ module Aihc.PackagePlan.Solver
     Dependent (..),
     renderSolveFailure,
     renderDependents,
+    UnsupportedDependency (..),
+    unsupportedDependencies,
     solve,
     unavailablePackages,
     verifySolution,
@@ -227,6 +229,10 @@ data SolverConfig = SolverConfig
     -- | Further packages to plan, with the range each must satisfy. A main
     -- module built against a set of packages has these and no root.
     configGoals :: ![(PackageName, VersionRange)],
+    -- | Packages that aihc can never build, each with the reason. The
+    -- solver gives them no candidates, so that a plan avoids them, and a
+    -- failed solve names them.
+    configUnsupported :: !(Map PackageName String),
     -- | Give up after this many conflicts. A normal solve resolves a few
     -- conflicts at most, so the limit is a guard against a search that
     -- does not end.
@@ -350,7 +356,9 @@ data Proof = Proof
     proofRoot :: !IncompatId,
     -- | The versions of every package the proof mentions, in increasing
     -- order, so that a set of versions renders as a range.
-    proofUniverses :: !(Map PackageName [Version])
+    proofUniverses :: !(Map PackageName [Version]),
+    -- | The packages that aihc cannot build, with the reason.
+    proofUnsupported :: !(Map PackageName String)
   }
   deriving (Eq, Show)
 
@@ -371,6 +379,66 @@ renderSolveFailure failure =
       NoSolution proof -> explain proof
       ConflictLimit limit proof ->
         ("Gave up after " <> show limit <> " conflicts; the last conflict was:") : explain proof
+
+-- | A package that aihc cannot build and that a failed solve needed.
+data UnsupportedDependency = UnsupportedDependency
+  { unsupportedPackage :: !PackageName,
+    unsupportedReason :: !String,
+    -- | A chain of dependencies from a root or goal to the package. The
+    -- first name is the root or goal, and the last name is the package.
+    unsupportedPath :: ![PackageName]
+  }
+  deriving (Eq, Show)
+
+-- | The packages that aihc cannot build and that the facts of the failure
+-- name, each with the shortest chain of dependencies from a root to it.
+unsupportedDependencies :: SolveFailure -> [UnsupportedDependency]
+unsupportedDependencies failure =
+  [ UnsupportedDependency name reason (pathTo name)
+  | (name, reason) <- Map.toAscList (proofUnsupported proof),
+    Set.member name needed
+  ]
+  where
+    proof = case failure of
+      NoSolution p -> p
+      ConflictLimit _ p -> p
+    incompat incId = proofIncompatibilities proof IntMap.! incId
+    facts = collect IntSet.empty [proofRoot proof]
+    collect _ [] = []
+    collect seen (incId : rest)
+      | IntSet.member incId seen = collect seen rest
+      | otherwise =
+          case incKind (incompat incId) of
+            KindDerived left right -> collect (IntSet.insert incId seen) (left : right : rest)
+            _ -> incompat incId : collect (IntSet.insert incId seen) rest
+    -- The edges from a package to the packages it needs. 'Nothing' is
+    -- the root.
+    edges =
+      Map.fromListWith
+        (<>)
+        ( [(Nothing, [dependency]) | Incompat _ (KindRootNeeds dependency _ _) <- facts]
+            <> [ (Just dependent, [dependency])
+               | Incompat terms (KindDependency dependency _ _) <- facts,
+                 (VarPackage dependent, Positive _) <- Map.toList terms
+               ]
+        )
+    needed =
+      Set.fromList
+        ( [dependency | Incompat _ (KindRootNeeds dependency _ True) <- facts]
+            <> [dependency | Incompat _ (KindDependency dependency _ True) <- facts]
+        )
+    -- A breadth-first search from the root, so that the chain is short.
+    parents = search (Map.singleton Nothing Nothing) [Nothing]
+    search known [] = known
+    search known (node : queue) =
+      let next = [Just child | child <- nub (Map.findWithDefault [] node edges), not (Map.member (Just child) known)]
+       in search (foldr (\child -> Map.insert child (Just node)) known next) (queue <> next)
+    pathTo name = reverse (walk (Just name))
+    walk node =
+      case (node, Map.lookup node parents) of
+        (Just package, Just (Just parent)) -> package : walk parent
+        (Just package, Nothing) -> [package]
+        _ -> []
 
 -- | The packages that demanded a range of a goal, each with its range.
 renderDependents :: [(Dependent, VersionRange)] -> String
@@ -443,7 +511,10 @@ memoCandidatesOf inputs config name = do
   case known of
     Just candidates -> pure candidates
     Nothing -> do
-      candidates <- lift (inputsCandidates inputs name (Map.lookup name (configPreferences config)))
+      candidates <-
+        if Map.member name (configUnsupported config)
+          then pure []
+          else lift (inputsCandidates inputs name (Map.lookup name (configPreferences config)))
       modify' (\memo -> memo {memoCandidates = Map.insert name candidates (memoCandidates memo)})
       pure candidates
 
@@ -721,13 +792,13 @@ resolveConflict config conflictId = do
   conflicts <- gets ((+ 1) . stConflicts)
   modify' (\st -> st {stConflicts = conflicts})
   if conflicts > configMaxConflicts config
-    then Left . ConflictLimit (configMaxConflicts config) <$> proofOf conflictId
+    then Left . ConflictLimit (configMaxConflicts config) <$> proofOf config conflictId
     else go False conflictId
   where
     go isNew incId = do
       inc <- lookupIncompat incId
       if isFailure inc
-        then Left . NoSolution <$> proofOf incId
+        then Left . NoSolution <$> proofOf config incId
         else do
           history <- gets (zip [0 :: Int ..] . reverse . partialHistory . stPartial)
           let satisfiedAt = firstSatisfying history
@@ -939,14 +1010,15 @@ extractSolution inputs config = do
       )
   pure (Map.fromList assignments)
 
-proofOf :: (Monad m) => IncompatId -> Solve m Proof
-proofOf incId = do
+proofOf :: (Monad m) => SolverConfig -> IncompatId -> Solve m Proof
+proofOf config incId = do
   st <- get
   pure
     Proof
       { proofIncompatibilities = stIncompats st,
         proofRoot = incId,
-        proofUniverses = Map.map (Set.toAscList . Set.fromList . map candidateVersion) (memoCandidates (stMemo st))
+        proofUniverses = Map.map (Set.toAscList . Set.fromList . map candidateVersion) (memoCandidates (stMemo st)),
+        proofUnsupported = configUnsupported config
       }
 
 -- | Write the derivation of the proof's incompatibility, as Dart's @pub@
@@ -1075,6 +1147,7 @@ explain proof =
       | otherwise = unPackageName dependency <> " " <> showVersionRange range
 
     noneSuffix inc dependency unknown
+      | unknown, Map.member dependency (proofUnsupported proof) = ", which aihc cannot build"
       | unknown = ", which is an unknown package"
       | Map.member (VarPackage dependency) (incTerms inc) = ""
       | otherwise = ", which no version of " <> unPackageName dependency <> " satisfies"

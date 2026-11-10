@@ -64,6 +64,7 @@ main =
       testCase "maps the package of a boot library import to its standin" test_aliasesImportPackages,
       testCase "explains a failed solve" test_explainsFailure,
       testCase "reports an unknown package" test_reportsUnknownPackage,
+      testCase "avoids and reports a package that aihc cannot build" test_reportsUnsupportedPackage,
       testCase "applies version and flag constraints" test_appliesConstraints,
       testCase "only searches flags that guard build-depends" test_searchableFlags,
       testCase "round-trips the lock file" test_lockRoundTrip,
@@ -249,6 +250,7 @@ configFor roots =
       configPreferences = Map.empty,
       configRoots = Map.fromList [(mkPackageName root, noStanzas) | root <- roots],
       configGoals = [],
+      configUnsupported = Map.empty,
       configMaxConflicts = 100
     }
 
@@ -549,6 +551,30 @@ test_explainsFailure = do
           "And because root-0.1 needs c >=2 && <3 and the root needs root, no plan exists."
         ]
         (lines (renderSolveFailure failure))
+
+-- A package that aihc cannot build has releases, but the solver must not
+-- choose one. A plan that can avoid it does. A plan that cannot names the
+-- chain of dependencies to it.
+test_reportsUnsupportedPackage :: Assertion
+test_reportsUnsupportedPackage = do
+  let packages =
+        universe
+          [ ("root", "0.1", False, local, cabalFile "root" "0.1" [] ["build-depends: mid"]),
+            ("mid", "2.0", False, hackage, cabalFile "mid" "2.0" [] ["build-depends: bad"]),
+            ("mid", "1.0", False, hackage, cabalFile "mid" "1.0" [] []),
+            ("bad", "1.0", False, hackage, cabalFile "bad" "1.0" [] [])
+          ]
+      config = (configFor ["root"]) {configUnsupported = Map.singleton (mkPackageName "bad") "no reason"}
+  solution <- expectSolution (solveWith packages config)
+  assertEqual "the older mid avoids bad" [("mid", "1.0"), ("root", "0.1")] (chosen solution)
+  case solveWith packages config {configConstraints = [ConstraintVersion (mkPackageName "mid") (range ">=2")]} of
+    Right found -> assertFailure ("expected a failure, got " <> show (chosen found))
+    Left failure -> do
+      assertEqual
+        "the chain to bad"
+        [UnsupportedDependency (mkPackageName "bad") "no reason" (map mkPackageName ["root", "mid", "bad"])]
+        (unsupportedDependencies failure)
+      assertBool (renderSolveFailure failure) ("mid-2.0 needs bad, which aihc cannot build" `isInfixOf` renderSolveFailure failure)
 
 test_reportsUnknownPackage :: Assertion
 test_reportsUnknownPackage = do

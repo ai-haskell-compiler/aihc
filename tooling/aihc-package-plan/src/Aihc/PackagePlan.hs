@@ -218,6 +218,16 @@ packageAliases =
       bootLibraryName library /= bootLibraryStandin library
     ]
 
+-- | Packages that aihc can never build, with the reason. A plan that
+-- needs one of them fails with a short message that names the chain of
+-- dependencies to it.
+unsupportedPackages :: Map PackageName String
+unsupportedPackages =
+  Map.fromList
+    [ (mkPackageName "ghc", "it is the GHC compiler as a library, and it needs the internals of GHC itself"),
+      (mkPackageName "ghci", "it is the GHC interpreter library, and it needs the internals of GHC itself")
+    ]
+
 -- | Parse a @--constraint@ argument: @NAME RANGE@, or @NAME@ followed by
 -- @+flag@ and @-flag@ words.
 parseConstraint :: String -> Either String [Constraint]
@@ -265,6 +275,7 @@ planPackages request = do
             configGoals =
               requestGoals request
                 <> [(prim, anyVersion) | all ((`notElem` [prim, mkPackageName "aihc-rts"]) . fst) roots],
+            configUnsupported = unsupportedPackages,
             configMaxConflicts = 10000
           }
       inputs = solverInputs request descriptions localRoots localDirectories
@@ -339,11 +350,28 @@ solveWithLock request inputs config localDirectories
       result <- solve inputs solverConfig
       case result of
         Left failure
+          | unsupported@(_ : _) <- unsupportedDependencies failure -> do
+              requestVerbose request ("The solver explanation:\n" <> renderSolveFailure failure)
+              ioError (userError (renderUnsupported unsupported))
           | Just _ <- requestHackage request -> ioError (userError ("Could not resolve dependencies:\n" <> renderSolveFailure failure))
           | otherwise -> do
               unavailable <- unavailablePackages inputs solverConfig
               ioError (userError (renderLocalFailure localDirectories unavailable failure))
         Right solution -> pure (solution, True)
+
+-- | Explain a failed solve that needs packages that aihc cannot build.
+renderUnsupported :: [UnsupportedDependency] -> String
+renderUnsupported unsupported =
+  intercalate "\n" $
+    "Could not resolve dependencies. The plan needs packages that aihc cannot build:"
+      : concat
+        [ [ "  " <> unPackageName (unsupportedPackage dependency) <> ": " <> unsupportedReason dependency <> ".",
+            case unsupportedPath dependency of
+              path@(_ : _ : _) -> "    Dependency chain: " <> intercalate " -> " (map unPackageName path)
+              _ -> "    You asked for it directly."
+          ]
+        | dependency <- unsupported
+        ]
 
 -- | Explain a failed solve without Hackage. The packages that no local
 -- directory provides come first, because a user acts on them first. When
