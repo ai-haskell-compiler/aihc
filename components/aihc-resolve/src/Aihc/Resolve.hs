@@ -1614,7 +1614,7 @@ applicativeExpr actions result = do
   let lambda = EParen (ELambdaPats (map fst actions) result)
   case map snd actions of
     first : rest ->
-      pure (foldl (\acc action -> EApp (EApp apVar acc) action) (EApp (EApp fmapVar lambda) first) rest)
+      pure (foldl (EApp . EApp apVar) (EApp (EApp fmapVar lambda) first) rest)
     [] -> pure result
   where
     syntaxTermVar sp kind name = do
