@@ -31,9 +31,16 @@
 -- touch @__stack_pointer@. Otherwise the frame lasts for the whole function. A trap calls @aihc_lir_trap@ with the message and its
 -- length and then executes @unreachable@; the host runtime provides that
 -- function.
+--
+-- A module has one of two code models, as 'CodeModel' describes. The
+-- linker makes an executable from static modules. It makes a shared module
+-- from position-independent modules, and a host loads that shared module
+-- into an instance that already runs.
 module Aihc.Wasm.Lir
   ( WasmLirError (..),
+    CodeModel (..),
     compileLirModule,
+    compileLirModuleFor,
     writeLirItems,
   )
 where
@@ -51,7 +58,7 @@ import Aihc.Wasm.ControlFlow (ControlFlow (..), analyzeControlFlow)
 import Control.Exception (finally)
 import Control.Monad (forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (fromRight)
@@ -80,16 +87,32 @@ data WasmLirError
   | WasmLirUnsupported !Text
   deriving (Eq, Show)
 
+-- | How the code of a module finds the address of a symbol.
+data CodeModel
+  = -- | The address is a constant that the linker writes into the code.
+    -- This is the model of an executable.
+    Static
+  | -- | The code reads the address from the Global Offset Table, because
+    -- the address is not known before the host loads the module. An
+    -- exported symbol is visible to the modules that the host loads later.
+    -- This is the model of a shared module.
+    PositionIndependent
+  deriving (Eq, Show)
+
+-- | Compile a module with the static code model.
+compileLirModule :: Module -> Either WasmLirError Text
+compileLirModule = compileLirModuleFor Static
+
 -- | Lint the module as written and as this backend receives it, then render
 -- it. The helpers for wide 64-bit
 -- multiplication are Lir functions that the backend adds to the module when
 -- it uses them.
-compileLirModule :: Module -> Either WasmLirError Text
-compileLirModule lirModule =
+compileLirModuleFor :: CodeModel -> Module -> Either WasmLirError Text
+compileLirModuleFor model lirModule =
   case prepared of
     Right _ -> do
       let items = userItems <> [ItemFunction helper | wide, helper <- wideHelpers] <> [ItemFunction helper | scatter, helper <- bitScatterHelpers]
-          ctx = moduleContext items
+          ctx = moduleContext model items
       (functions, final) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) initialState
       let traps = Map.toAscList (moduleTraps final)
       pure
@@ -111,7 +134,7 @@ compileLirModule lirModule =
     Module userItems = fromRight (Module []) prepared
     wide = any usesWideMultiply [function | ItemFunction function <- userItems]
     scatter = any usesBitScatter [function | ItemFunction function <- userItems]
-    initialState = ModuleState {moduleTraps = Map.empty, moduleUsesStack = False}
+    initialState = initialModuleState model
 
 -- | Write the assembly of a module whose items a producer gives one at a
 -- time, as 'compileLirModule' renders it. The producer runs two times. The
@@ -124,26 +147,26 @@ compileLirModule lirModule =
 -- The items are the items that the compiler lowers, so they have no
 -- constants and no inline functions. As in the object backends, the items
 -- are linted only when @lint@ is set.
-writeLirItems :: Bool -> ((Item -> IO ()) -> IO ()) -> Maybe FilePath -> FilePath -> IO ()
-writeLirItems lint produce dumpPath path =
+writeLirItems :: CodeModel -> Bool -> ((Item -> IO ()) -> IO ()) -> Maybe FilePath -> FilePath -> IO ()
+writeLirItems model lint produce dumpPath path =
   writeParts `finally` mapM_ removePathForcibly [functionsPath, dataPath]
   where
     functionsPath = path <> ".functions"
     dataPath = path <> ".data"
-    writeParts = writeLirParts lint produce dumpPath path functionsPath dataPath
+    writeParts = writeLirParts model lint produce dumpPath path functionsPath dataPath
 
-writeLirParts :: Bool -> ((Item -> IO ()) -> IO ()) -> Maybe FilePath -> FilePath -> FilePath -> FilePath -> IO ()
-writeLirParts lint produce dumpPath path functionsPath dataPath = do
+writeLirParts :: CodeModel -> Bool -> ((Item -> IO ()) -> IO ()) -> Maybe FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+writeLirParts model lint produce dumpPath path functionsPath dataPath = do
   declared <- newIORef []
   produce $ \item ->
     let value = declaration item
      in value `seq` modifyIORef' declared (value :)
   declarations <- reverse <$> readIORef declared
-  let ctx = moduleContext (declarations <> map ItemFunction (wideHelpers <> bitScatterHelpers))
+  let ctx = moduleContext model (declarations <> map ItemFunction (wideHelpers <> bitScatterHelpers))
       (symbols, duplicateErrors) = Lint.moduleSymbols (Module [lintDeclaration item | item <- declarations])
   when lint (checkLint duplicateErrors)
   references <- newIORef Set.empty
-  progress <- newIORef (ModuleState {moduleTraps = Map.empty, moduleUsesStack = False}, False, False)
+  progress <- newIORef (initialModuleState model, False, False)
   let writeFunction functions function = do
         (state, wide, scatter) <- readIORef progress
         (lines', next) <- either failed pure (runStateT (compileFunction ctx function) state)
@@ -236,13 +259,15 @@ usesBitScatter function =
 data Ctx = Ctx
   { ctxSymbols :: !(Map Symbol Text),
     ctxSignatures :: !(Map Symbol Signature),
-    ctxGlobals :: !(Map Symbol Type)
+    ctxGlobals :: !(Map Symbol Type),
+    ctxCodeModel :: !CodeModel
   }
 
-moduleContext :: [Item] -> Ctx
-moduleContext items =
+moduleContext :: CodeModel -> [Item] -> Ctx
+moduleContext model items =
   Ctx
-    { ctxSymbols = Map.fromList (mapMaybe symbolName items),
+    { ctxCodeModel = model,
+      ctxSymbols = Map.fromList (mapMaybe symbolName items),
       ctxSignatures =
         Map.fromList
           ( [(functionName function, functionSignature function) | ItemFunction function <- items]
@@ -275,8 +300,27 @@ symbolText ctx symbol = fromMaybe (unSymbol symbol) (Map.lookup symbol (ctxSymbo
 
 data ModuleState = ModuleState
   { moduleTraps :: !(Map Text Int),
-    moduleUsesStack :: !Bool
+    moduleUsesStack :: !Bool,
+    moduleCodeModel :: !CodeModel
   }
+
+initialModuleState :: CodeModel -> ModuleState
+initialModuleState model = ModuleState {moduleTraps = Map.empty, moduleUsesStack = False, moduleCodeModel = model}
+
+-- | The instruction that pushes the address of a symbol. A static module
+-- has the address as a constant. A position-independent module reads the
+-- entry of the symbol in the Global Offset Table. The entry of a function
+-- holds its index in the function table.
+symbolAddress :: CodeModel -> Text -> Text
+symbolAddress model name =
+  case model of
+    Static -> "i32.const\t" <> name
+    PositionIndependent -> "global.get\t" <> name <> "@GOT"
+
+-- | Whether the assembly hides an exported symbol from the modules that a
+-- host loads. A static module hides it, because the executable is complete.
+hidesExports :: Ctx -> Bool
+hidesExports ctx = ctxCodeModel ctx == Static
 
 trapMessageSymbol :: Int -> Text
 trapMessageSymbol index = ".Llir_trap_" <> tshow index
@@ -330,7 +374,7 @@ renderData ctx dataItem =
   [ "\t.type\t" <> name <> ",@object",
     "\t.section\t" <> (if dataMutable dataItem then ".data." else ".rodata.") <> name <> ",\"\",@"
   ]
-    <> ["\t.hidden\t" <> name | dataLinkage dataItem == Export]
+    <> ["\t.hidden\t" <> name | dataLinkage dataItem == Export, hidesExports ctx]
     <> ["\t.globl\t" <> name | dataLinkage dataItem == Export]
     <> ["\t.p2align\t" <> tshow (log2 (dataAlignment dataItem)) <> ", 0x0" | dataAlignment dataItem > 1]
     <> [name <> ":"]
@@ -516,7 +560,8 @@ trapIndex message = do
 trap :: Text -> M ()
 trap message = do
   index <- trapIndex message
-  emit ("i32.const\t" <> trapMessageSymbol index)
+  model <- gets (moduleCodeModel . functionModule)
+  emit (symbolAddress model (trapMessageSymbol index))
   emit ("i64.const\t" <> tshow (BS.length (Text.encodeUtf8 message)))
   emit ("call\t" <> trapSymbol)
   emit "unreachable"
@@ -588,7 +633,7 @@ compileFunction ctx input = do
     ( [ "\t.section\t.text." <> name <> ",\"\",@",
         "\t.type\t" <> name <> ",@function"
       ]
-        <> ["\t.hidden\t" <> name | functionLinkage function == Export]
+        <> ["\t.hidden\t" <> name | functionLinkage function == Export, hidesExports ctx]
         <> ["\t.globl\t" <> name | functionLinkage function == Export]
         <> [ name <> ":",
              "\t.functype\t" <> name <> " " <> renderSignature (functionSignature function)
@@ -1232,7 +1277,7 @@ push fn ty operand =
           | ty == F32 -> pushFloat value
           | otherwise -> pushDouble value
         LitNull -> emit "i32.const\t0"
-        LitSymbol symbol -> emit ("i32.const\t" <> symbolText (fnCtx fn) symbol)
+        LitSymbol symbol -> emit (symbolAddress (ctxCodeModel (fnCtx fn)) (symbolText (fnCtx fn) symbol))
   where
     pushDouble value = do
       emit ("i64.const\t" <> renderInteger 8 (toInteger (castDoubleToWord64 value)))

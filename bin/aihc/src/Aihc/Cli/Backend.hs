@@ -138,7 +138,7 @@ compileGrinTo lint settings goal target lirPath gcProgram sourcePath path = case
   LinuxAmd64 -> Amd64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure False
   Wasm32Wasip3 -> do
     let produce output = Lower.lowerModuleTo (lowerTargetFor target) settings (const output) gcProgram >>= either (ioError . userError . ("Lir generation failed: " <>) . show) pure
-    Wasm.writeLirItems lint produce lirPath sourcePath
+    Wasm.writeLirItems Wasm.Static lint produce lirPath sourcePath
     pure True
   Llvm -> do
     lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) settings gcProgram)

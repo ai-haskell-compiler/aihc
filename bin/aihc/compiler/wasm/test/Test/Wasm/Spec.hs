@@ -19,7 +19,7 @@ import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, runtimeSourceRoot, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm (wasip3WorldPath)
-import Aihc.Wasm.Lir (compileLirModule)
+import Aihc.Wasm.Lir (CodeModel (..), compileLirModule, compileLirModuleFor)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_, unless)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
@@ -81,6 +81,7 @@ tests = do
           testGroup "GRIN heap snapshots lowered for wasm32" (map (snapshotTest snapshotDirectory) snapshots),
           testGroup "static data fixtures lowered for wasm32" (map (snapshotTest lowerDirectory) lowerFixtures),
           testCase "a word-scaled address offset counts four bytes" wordOffsetTest,
+          testCase "a position-independent module reads a symbol address from the Global Offset Table" positionIndependentTest,
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -125,6 +126,17 @@ wordOffsetTest :: IO ()
 wordOffsetTest = do
   assembly <- compileText (wordScaledModule (Address (OperandLiteral (LitSymbol (Symbol "table"))) 0 2 [] AnyRegion) (byteAlignment 1))
   assertBool ("two words is offset 8, not 16: " <> T.unpack assembly) ("i32.load\t8" `T.isInfixOf` assembly)
+
+-- | A shared module does not know its load address. Thus, its code must not
+-- contain the address of a symbol as a constant, and a later module must be
+-- able to refer to its exported symbols.
+positionIndependentTest :: IO ()
+positionIndependentTest = do
+  let lirModule = wordScaledModule (Address (OperandLiteral (LitSymbol (Symbol "table"))) 0 0 [] AnyRegion) (byteAlignment 1)
+  assembly <- either (assertFailure . ("WebAssembly backend failed: " <>) . show) pure (compileLirModuleFor PositionIndependent lirModule)
+  assertBool ("the address comes from the table: " <> T.unpack assembly) ("global.get\t.Ltable@GOT" `T.isInfixOf` assembly)
+  assertBool ("the address is not a constant: " <> T.unpack assembly) (not ("i32.const\t.Ltable" `T.isInfixOf` assembly))
+  assertBool ("the exported function is visible: " <> T.unpack assembly) (not ("\t.hidden\tmain" `T.isInfixOf` assembly))
 
 wordScaledModule :: Address -> Alignment -> Module
 wordScaledModule address alignment =
