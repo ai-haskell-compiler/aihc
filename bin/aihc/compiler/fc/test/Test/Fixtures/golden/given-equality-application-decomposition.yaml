@@ -1,0 +1,23 @@
+extensions:
+- PolyKinds
+- KindSignatures
+- TypeOperators
+- TypeFamilies
+- MultiParamTypeClasses
+- FlexibleInstances
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE PolyKinds, TypeFamilies, TypeOperators, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables, KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  data Proxy (a :: k -> Type) = Proxy
+  data (f :*: g) p = f p :*: g p
+  data U1 p = U1
+  class G (f :: k -> Type) (g :: k -> Type) where
+    gpure :: (f ~ g) => Proxy f -> f x
+  instance G U1 U1 where
+    gpure _ = U1
+  instance (G lf lg, G rf rg) => G (lf :*: rf) (lg :*: rg) where
+    gpure _ = gpure (Proxy :: Proxy lf) :*: gpure (Proxy :: Proxy rf)
+status: pass

@@ -114,14 +114,36 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
             Just (rightFunction, rightArgument) <- splitApplication right,
             leftArgument == rightArgument -> do
               functions <- go wait edges visited True leftFunction rightFunction
-              if functions then pure True else fallback wait nested left right
+              if functions then pure True else viaGiven wait edges visited nested left right
         -- The wanted that the caller solves is in its visited list, so
         -- the callback does not loop on it.
         _
           | hasRigidHead left || hasRigidHead right -> do
               solved <- solveNested left right
-              if solved then pure True else fallback wait nested left right
-        _ -> fallback wait nested left right
+              if solved then pure True else viaGiven wait edges visited nested left right
+        _ -> viaGiven wait edges visited nested left right
+    -- A @Coercible@ given with a type variable side rewrites that variable,
+    -- as in GHC. With the given @Coercible a (M k v)@, the wanted
+    -- @Coercible a (M t v)@ becomes @Coercible (M k v) (M t v)@, and a
+    -- nominal parameter then gives @t ~ k@. A failed rewrite must not keep
+    -- its unifications.
+    viaGiven wait edges visited nested left right = tryRewrites rewrites
+      where
+        rewrites =
+          [(other, right) | isRigid left, other <- endpoints left]
+            <> [(left, other) | isRigid right, other <- endpoints right]
+        endpoints ty = [other | (a, b) <- edges, other <- [b | a == ty] <> [a | b == ty]]
+        tryRewrites [] = fallback wait nested left right
+        tryRewrites ((left', right') : rest) = do
+          saved <- lift get
+          solved <- go wait edges visited nested left' right'
+          if solved
+            then pure True
+            else do
+              lift (put saved)
+              tryRewrites rest
+    isRigid TcTyVar {} = True
+    isRigid _ = False
     -- A meta variable can become a newtype of a type constructor later, so
     -- its pair with a type constructor must wait. A unification here can
     -- bind a wrong type to it.
@@ -129,7 +151,9 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
       | isMeta left && hasTyConHead right || isMeta right && hasTyConHead left = pure False
       | wait && (isMeta left || isMeta right) = pure False
       | nested = nominal left right
-      | otherwise = pure False
+      -- Equal types have the same representation, so a chain of given
+      -- equalities, as the @ctx ~ V@ of a GADT match, solves the pair.
+      | otherwise = givenEqual left right
     splitApplication ty =
       case ty of
         TcAppTy function argument -> Just (function, argument)
@@ -156,11 +180,12 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
       result <- unifyTypes left right
       case result of
         Right () -> pure True
-        _ -> do
-          equalities <- mapM normalizeEdge [(givenLeft, givenRight) | EqPred givenLeft givenRight <- givens]
-          left' <- normalize left
-          right' <- normalize right
-          pure (connected equalities [left'] [left'] right')
+        _ -> givenEqual left right
+    givenEqual left right = do
+      equalities <- mapM normalizeEdge [(givenLeft, givenRight) | EqPred givenLeft givenRight <- givens]
+      left' <- normalize left
+      right' <- normalize right
+      pure (connected equalities [left'] [left'] right')
     representation (TcTyCon constructor arguments) = do
       info <- lookupDataType constructor
       case info of
