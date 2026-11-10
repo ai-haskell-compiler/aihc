@@ -121,7 +121,9 @@
     # links into its own bin directory: the foreign-target suites
     # archive their objects with llvm-ar.
     # The engine test links an image and a shared module with wasm-ld and
-    # runs them with Node.js.
+    # runs them with Node.js. The test does nothing when a tool is missing,
+    # and this variable makes missing tools a failure here.
+    export AIHC_REQUIRE_ENGINE_TESTS=1
     export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:${wasmLd}/bin:${pkgs.nodejs_24}/bin:$PATH
     # The install tests preprocess a .hsc fixture with the real
     # tool; the standalone one, not GHC's wrapper, which adds
