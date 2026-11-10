@@ -792,7 +792,7 @@ sumLayout :: [GrinRep] -> SumLayout
 sumLayout alternatives = SumLayout slots (map positions components)
   where
     components = map (map sumSlotRep . runtimeRepComponents) alternatives
-    counts = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map (MonoidMap.fromListWith (+) . map (,1 :: Sum Int)) components)
+    counts = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map (MonoidMap.fromListWith (<>) . map (,1 :: Sum Int)) components)
     slots = concat [replicate (getSum count) representation | (representation, count) <- MonoidMap.toList counts]
     offsets = Map.fromListWith (flip (<>)) [(representation, [index]) | (index, representation) <- zip [0 ..] slots]
     positions = snd . mapAccumL select offsets

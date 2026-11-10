@@ -1100,7 +1100,7 @@ useCounts expression =
        in valueUsesTimes scrutineeUses scrutinee <> branches
     _ -> valueUses (exprOperands expression)
   where
-    valueUses values = MonoidMap.fromListWith (+) [(var, 1) | GrinVarValue var <- values]
+    valueUses values = MonoidMap.fromListWith (<>) [(var, 1) | GrinVarValue var <- values]
     valueUsesTimes count value =
       case value of
         GrinVarValue var -> MonoidMap.singleton var count
