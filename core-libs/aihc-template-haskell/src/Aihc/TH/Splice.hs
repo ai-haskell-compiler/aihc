@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | Run a splice in the guest of an engine image.
 --
 -- The compiler runs a splice in a WebAssembly instance. This module is the
@@ -19,6 +22,11 @@
 -- >          | 4 text text          a ratio: numerator, denominator
 -- > text     = count byte*          UTF-8, with the number of bytes
 -- > count    = an unsigned LEB128 number
+--
+-- A splice runs in the monad 'Splice', which is the 'Quasi' monad of this
+-- module. An operation that needs the compiler sends a 'Request', which is
+-- a tree with the same encoding, and waits for the reply. The instance has
+-- no other access to the compiler or to the build machine.
 module Aihc.TH.Splice
   ( runSplice,
     runExpressionSplice,
@@ -26,22 +34,38 @@ module Aihc.TH.Splice
   )
 where
 
+import Control.Exception (SomeException, try)
+import Control.Monad (void)
+import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits (shiftR, (.&.), (.|.))
 import Data.Char (ord)
 import Data.Data (ConstrRep (..), Data, cast, constrRep, gmapQ, showConstr, toConstr)
+import Data.Dynamic (Dynamic, fromDynamic, toDyn)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Proxy (Proxy (..))
 import Data.Ratio (denominator, numerator)
+import Data.Typeable (TypeRep, Typeable, typeRep)
 import Data.Word (Word8)
-import Foreign.Marshal.Array (withArrayLen)
+import Foreign.Marshal.Alloc (allocaBytes)
+import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr)
-import Language.Haskell.TH.Syntax (Dec, Exp, Q, runQ)
+import Language.Haskell.TH.Syntax (Dec, Exp, Q, Quasi (..), runQ)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | Send a message to the host.
 foreign import ccall unsafe "aihc_engine_send" engineSend :: Ptr Word8 -> Int -> IO ()
 
+-- | Send a request to the host and wait for the reply. The result is the
+-- number of bytes of the reply.
+foreign import ccall unsafe "aihc_engine_request" engineRequest :: Ptr Word8 -> Int -> IO Int
+
+-- | Copy the reply of the last request to memory of the guest.
+foreign import ccall unsafe "aihc_engine_reply" engineReply :: Ptr Word8 -> IO ()
+
 -- | Run a splice and send its result to the host.
 runSplice :: (Data a) => Q a -> IO ()
 runSplice splice = do
-  result <- runQ splice
+  result <- spliceAction (runQ splice)
   withArrayLen (encodeTree result []) (flip engineSend)
 
 -- | 'runSplice' for the body of an expression splice. The type makes sure
@@ -53,6 +77,123 @@ runExpressionSplice = runSplice
 -- that the body gives a list of declarations.
 runDeclarationsSplice :: Q [Dec] -> IO ()
 runDeclarationsSplice = runSplice
+
+-- | The monad of a splice in the guest.
+newtype Splice a = Splice {spliceAction :: IO a}
+
+instance Functor Splice where
+  fmap function (Splice action) = Splice (fmap function action)
+
+instance Applicative Splice where
+  pure value = Splice (pure value)
+  Splice function <*> Splice action = Splice (function <*> action)
+
+instance Monad Splice where
+  Splice action >>= next = Splice (action >>= spliceAction . next)
+
+instance MonadFail Splice where
+  fail message = Splice (fail message)
+
+instance MonadIO Splice where
+  liftIO = Splice
+
+-- | What a splice asks the compiler to do.
+data Request
+  = -- | Report an error ('True') or a warning ('False').
+    Report Bool String
+  deriving (Data)
+
+-- | Send a request and give the bytes of the reply.
+sendRequest :: Request -> IO [Word8]
+sendRequest request =
+  withArrayLen (encodeTree request []) $ \size bytes -> do
+    replySize <- engineRequest bytes size
+    if replySize == 0
+      then pure []
+      else allocaBytes replySize $ \reply -> do
+        engineReply reply
+        peekArray replySize reply
+
+-- | The reports of each 'qRecover' that is in progress, with the last one
+-- first. The reports of the code in a 'qRecover' only go to the compiler
+-- when that code completes with no error.
+recoverReports :: IORef [[Request]]
+recoverReports = unsafePerformIO (newIORef [])
+{-# NOINLINE recoverReports #-}
+
+-- | The state of 'qGetQ' and 'qPutQ': one value for each type. The instance
+-- runs the splices of one module, so the state is the state of that module.
+userState :: IORef [(TypeRep, Dynamic)]
+userState = unsafePerformIO (newIORef [])
+{-# NOINLINE userState #-}
+
+-- | Give a report to the 'qRecover' that is in progress, or to the compiler.
+report :: Request -> IO ()
+report request = do
+  pending <- readIORef recoverReports
+  case pending of
+    [] -> void (sendRequest request)
+    current : outer -> writeIORef recoverReports ((request : current) : outer)
+
+-- | Stop a splice at an operation that this module does not have.
+unsupported :: String -> Splice a
+unsupported operation =
+  Splice $ do
+    report (Report True ("The compiler does not support `" ++ operation ++ "' in a splice."))
+    fail "Template Haskell failure"
+
+instance Quasi Splice where
+  -- The counter of the library gives each name a number that is unique in
+  -- the instance.
+  qNewName = Splice . qNewName
+  qReport isError message = Splice (report (Report isError message))
+  qRecover (Splice handler) (Splice body) =
+    Splice $ do
+      modifyIORef' recoverReports ([] :)
+      result <- try body
+      pending <- readIORef recoverReports
+      let (reports, outer) =
+            case pending of
+              current : rest -> (reverse current, rest)
+              [] -> ([], [])
+      writeIORef recoverReports outer
+      case result of
+        Right value | not (any isErrorReport reports) -> value <$ mapM_ report reports
+        Right _ -> handler
+        Left (_ :: SomeException) -> handler
+    where
+      isErrorReport (Report isError _) = isError
+  qGetQ = Splice (lookupState Proxy)
+    where
+      lookupState :: forall a. (Typeable a) => Proxy a -> IO (Maybe a)
+      lookupState proxy = do
+        values <- readIORef userState
+        pure (lookup (typeRep proxy) values >>= fromDynamic)
+  qPutQ value =
+    Splice (modifyIORef' userState (\values -> (key, toDyn value) : filter ((/= key) . fst) values))
+    where
+      key = typeRep (Just value)
+  qLookupName _ _ = unsupported "lookupName"
+  qReify _ = unsupported "reify"
+  qReifyFixity _ = unsupported "reifyFixity"
+  qReifyType _ = unsupported "reifyType"
+  qReifyInstances _ _ = unsupported "reifyInstances"
+  qReifyRoles _ = unsupported "reifyRoles"
+  qReifyAnnotations _ = unsupported "reifyAnnotations"
+  qReifyModule _ = unsupported "reifyModule"
+  qReifyConStrictness _ = unsupported "reifyConStrictness"
+  qLocation = unsupported "location"
+  qGetPackageRoot = unsupported "getPackageRoot"
+  qAddDependentFile _ = unsupported "addDependentFile"
+  qAddTempFile _ = unsupported "addTempFile"
+  qAddTopDecls _ = unsupported "addTopDecls"
+  qAddForeignFilePath _ _ = unsupported "addForeignFilePath"
+  qAddModFinalizer _ = unsupported "addModFinalizer"
+  qAddCorePlugin _ = unsupported "addCorePlugin"
+  qIsExtEnabled _ = unsupported "isExtEnabled"
+  qExtsEnabled = unsupported "extsEnabled"
+  qPutDoc _ _ = unsupported "putDoc"
+  qGetDoc _ = unsupported "getDoc"
 
 -- | The bytes of a value, before the bytes that follow it.
 encodeTree :: (Data a) => a -> [Word8] -> [Word8]

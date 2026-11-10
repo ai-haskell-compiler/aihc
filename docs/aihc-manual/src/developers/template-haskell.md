@@ -11,7 +11,7 @@ The first implementation has these limits:
 - A variable that a quote binds has a name with no module, so a splice result can capture it.
 - The result of a splice can only have the expressions, declarations, types, and patterns that `Aihc.Th.Convert` handles.
 - A declaration splice runs before name resolution of its module, as an expression splice does. Thus, it cannot use a declaration of its own module.
-- A splice cannot ask the compiler for information, for example with `reify`.
+- A splice can report a warning or an error, make a unique name, and use `recover`, `getQ`, and `putQ`. It cannot ask the compiler for information, for example with `reify`.
 - The compiler builds one image for each module that has splices.
 
 ## Goals
@@ -79,7 +79,15 @@ A browser worker cannot do that.
 There, the driver must suspend the guest during a call, for example with JavaScript Promise Integration.
 
 A request of a splice is one such call.
-Examples of requests are `Reify`, `Report`, and `ReadFile`.
+The guest sends the request as a tree and waits for the reply.
+The driver gives the request to the compiler before the reply of the closure, and the compiler answers it.
+The first request is a report of a warning or of an error.
+Later requests are `Reify` and `ReadFile`.
+
+The guest does some operations without a request.
+A new unique name gets its number from a counter in the instance.
+The state of `getQ` and `putQ` is in the instance, which runs the splices of one module.
+The reports of the code in a `recover` stay in the instance until that code completes with no error.
 
 The wire format is specific to AIHC.
 The guest encodes a value as a tree of constructor names, with one child for each field.
