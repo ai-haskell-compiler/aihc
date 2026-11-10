@@ -20,6 +20,23 @@ showTriple =
     tree <- runQ triple
     print tree
 
+-- A declaration splice gives a signature and a function. The function has
+-- a local declaration.
+$( pure
+     [ SigD (mkName "twice") (AppT (AppT ArrowT (ConT (mkName "Int"))) (ConT (mkName "Int"))),
+       FunD
+         (mkName "twice")
+         [ Clause
+             [VarP (mkName "x")]
+             (NormalB (InfixE (Just (VarE (mkName "x"))) (VarE (mkName "+")) (Just (VarE (mkName "same")))))
+             [ValD (VarP (mkName "same")) (NormalB (VarE (mkName "x"))) []]
+         ]
+     ]
+ )
+
+-- A declaration splice without the splice syntax, with no declarations.
+pure []
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -34,4 +51,5 @@ main = do
   -- The name in the quote keeps its meaning where a local name hides it.
   let length = const (0 :: Int) in print ($([|length "abcd"|]) :: Int)
   print $([|(if True then 'a' else 'b', [length "x", 2])|])
+  print (twice 21)
   showTriple
