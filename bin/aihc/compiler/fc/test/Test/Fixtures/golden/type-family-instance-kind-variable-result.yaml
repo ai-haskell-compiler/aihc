@@ -1,0 +1,40 @@
+extensions:
+  - TypeFamilies
+  - PolyKinds
+  - DataKinds
+modules:
+  - |
+    module Test where
+    import GHC.Types (Type)
+    data Function :: Type -> Type -> Type
+    data Constant1 :: Type -> Function b a -> Type
+    type family Apply (t :: Function k l -> Type) (u :: k) :: l
+    type instance Apply (Constant1 x) y = x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tFunction ($parameter : sType) ($parameter{1} : sType) :: sType {}
+
+  pub type 1.tConstant1 (b : sType) (a : sType) ($parameter : sType) ($parameter{1} : tFunction b a) :: sType {}
+
+  pub type 1.tApply (k : sType) (l : sType) (t : tFunction k l → sType) (u : k) :: l @N @N @N @N {}
+
+  axiom 1.$ax$Apply$Constant1$x$y (x : sType) (_ : sType) (y : _) : tApply _ sType (tConstant1 _ sType x) y ~N x
+status: pass
+reason: >-
+  A partial application of a data type with a kind signature keeps its kind
+  arguments. Thus, the axiom gives the result kind Type to Apply and Constant1.

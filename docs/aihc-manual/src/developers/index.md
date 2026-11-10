@@ -7,6 +7,7 @@ It describes the design of the compiler and of its run-time system.
 | --- | --- |
 | [Compiler pipeline](pipeline/index.md) | The components of the compiler and their boundaries. |
 | [Info tables](info-tables.md) | How the run-time system describes each object in managed memory. |
+| [Template Haskell design](template-haskell.md) | The plan to run splices in a WebAssembly sandbox. |
 
 ## Development workflow
 

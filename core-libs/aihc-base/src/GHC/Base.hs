@@ -6,6 +6,8 @@
 
 module GHC.Base
   ( WithDict (withDict),
+    Alternative (..),
+    MonadPlus (..),
     module GHC.Prim.Base,
     module GHC.Prim,
     module GHC.Classes,
@@ -57,6 +59,31 @@ import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim
 import GHC.Prim.Base
 import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, Word (..), isTrue#)
+
+-- | A monoid on applicative functors. GHC declares 'Alternative' and
+-- 'MonadPlus' in this module, and packages such as @STMonadTrans@ import
+-- them from here. The instances for lists and 'Maybe' are in "Prelude",
+-- beside their 'Applicative' and 'Monad' instances.
+class (Applicative f) => Alternative f where
+  empty :: f a
+  (<|>) :: f a -> f a -> f a
+  some :: f a -> f [a]
+  many :: f a -> f [a]
+
+  some value = fmap prepend value <*> many value
+  many value = some value <|> pure []
+
+infixl 3 <|>
+
+prepend :: a -> [a] -> [a]
+prepend value values = value : values
+
+class (Alternative m, Monad m) => MonadPlus m where
+  mzero :: m a
+  mplus :: m a -> m a -> m a
+
+  mzero = empty
+  mplus = (<|>)
 
 -- | Assertions are not checked. The value is returned unchanged.
 assert :: Bool -> a -> a
