@@ -1108,7 +1108,11 @@ resolveExpr expr =
       pure (EListCompParallel body' branches')
     -- Template Haskell quotes compile to a runtime error. The quoted
     -- syntax stays unresolved because nothing consumes it.
-    ETHExpQuote {} -> pure expr
+    -- The body of an expression quote is code for a later stage, but its
+    -- names have the scope of the quote. The change of a quote into an
+    -- expression that builds its syntax tree reads their resolutions.
+    ETHExpQuote inner ->
+      ETHExpQuote <$> resolveExpr inner
     ETHTypedQuote {} -> pure expr
     ETHDeclQuote {} -> pure expr
     ETHTypeQuote {} -> pure expr
@@ -2496,7 +2500,13 @@ resolveTermUse :: Name -> ResolveM Name
 resolveTermUse name = do
   sp <- currentSpan
   scope <- currentScope
-  resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name
+  resolveNameTo sp ResolutionNamespaceTerm (termUseResolution scope name) name
+
+-- | The resolution of a term occurrence: the term of its 'ExactTerm' mark,
+-- or the term that the scope gives for its name.
+termUseResolution :: Scope -> Name -> Resolution
+termUseResolution scope name =
+  maybe (resolveTermName scope name) (Resolved . EntityGlobal) (exactTerm name)
 
 -- | Resolve a term name that has its own place in the source, such as an
 -- infix operator. The parser gives the name the span of its token. A name
@@ -2506,7 +2516,7 @@ resolveTermUseAtName name = do
   sp <- currentSpan
   scope <- currentScope
   let nameSpan = sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan sp (nameText name)
-  resolveNameTo nameSpan ResolutionNamespaceTerm (resolveTermName scope name) name
+  resolveNameTo nameSpan ResolutionNamespaceTerm (termUseResolution scope name) name
 
 resolveInfixExpr :: Expr -> ResolveM Expr
 resolveInfixExpr expr = do

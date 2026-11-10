@@ -6,7 +6,9 @@ The other parts of the design are a plan.
 
 The first implementation has these limits:
 
-- A splice cannot use a module of its own package.
+- A splice cannot use a module of its own package. Thus, a quote in the body of a splice cannot use a name of its own package.
+- The compiler changes an expression quote into an expression that builds its syntax tree. A quote with a construct outside the supported subset, and each other form of quote, stays a run-time error.
+- A variable that a quote binds has a name with no module, so a splice result can capture it.
 - The result of a splice can only have the expressions that `Aihc.Th.Convert` handles.
 - A splice cannot ask the compiler for information, for example with `reify`.
 - The compiler builds one image for each module that has splices.
@@ -133,6 +135,15 @@ Then, it runs the splices and continues with the next group.
 
 A splice in an expression runs before name resolution of its group.
 This is possible because the body of a splice can only use imported names.
+
+An expression quote changes after name resolution, because the form of each variable depends on its binder.
+A top-level name becomes a Template Haskell name that is bound to its package and its module.
+A variable that the quote binds becomes a name with no module.
+A variable that the code outside the quote binds becomes a call of `lift`.
+The new expression has names that are not resolved, so name resolution runs again on a unit that has a quote.
+
+The result of a splice can have a name that is bound to its package and its module.
+The conversion gives such a name a mark, and name resolution gives the name that term in each scope.
 
 | Component | Change |
 | --- | --- |

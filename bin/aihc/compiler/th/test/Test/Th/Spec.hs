@@ -7,6 +7,7 @@ module Test.Th.Spec (tests) where
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
+import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm)
 import Aihc.Th.Convert (expressionFromTree)
 import Aihc.Th.Splices (SpliceRequest (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
@@ -17,7 +18,7 @@ import Data.Text qualified as T
 import Prettyprinter (Pretty, defaultLayoutOptions, layoutPretty, pretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 tests :: TestTree
 tests =
@@ -26,6 +27,7 @@ tests =
     [ testCase "decodes the message of a splice" decodeTest,
       testCase "rejects a message that is not one complete tree" rejectTest,
       testCase "converts expressions to the surface syntax" convertTest,
+      testCase "gives a package-bound name its term" exactNameTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "finds and replaces the splices of a module" splicesTest,
       testCase "writes the splice module" spliceModuleTest
@@ -99,6 +101,28 @@ convertTest = do
             ]
         )
     )
+
+-- | A name that a quote bound to its package and module keeps that term in
+-- each scope.
+exactNameTest :: IO ()
+exactNameTest = do
+  let tree =
+        TreeNode
+          "VarE"
+          [ TreeNode
+              "Name"
+              [ TreeNode "OccName" [TreeString "length"],
+                TreeNode "NameG" [TreeNode "VarName" [], TreeNode "PkgName" [TreeString "aihc-base-4.21.2.0"], TreeNode "ModName" [TreeString "GHC.Internal.Foldable"]]
+              ]
+          ]
+  case expressionFromTree tree of
+    Right (EVar variableName) -> do
+      assertEqual "the text of the name" "length" (nameText variableName)
+      assertEqual
+        "the term of the name"
+        (Just (GlobalName "length" (PackageId "aihc-base-4.21.2.0") "GHC.Internal.Foldable" ResolutionNamespaceTerm))
+        (exactTerm variableName)
+    other -> assertFailure ("expected a variable, got " <> show other)
 
 unsupportedTest :: IO ()
 unsupportedTest = do
