@@ -1,0 +1,79 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, MagicHash, PartialTypeSignatures, RoleAnnotations #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data V = V
+       │   └─ type: V
+       └─ type: Type
+  data Codec ctx a where
+       └─ type: Type → Type → Type
+    ValueCodec :: Coercible V a => Codec V a
+    └─ type: ∀ ctx a. (ctx ~ V, GHC.Types.Coercible V a) ⇒ Codec ctx a
+  fromValue :: ctx -> Codec ctx a -> a
+  fromValue v c = case c of
+  │         │ │   └─ type: a
+  │         │ └─ type: Codec ctx a
+  │         └─ type: ctx
+  └─ type: ∀ ctx a. ctx → Codec ctx a → a
+    ValueCodec -> coerce v
+    │             └─ type: ctx → a; type-args: ctx, a; evidence: coercible @ctx @a
+    └─ type: Codec ctx a; type-args: ctx, a; evidence: given ctx ~ V, given Coercible V a
+  type role M nominal representational
+  data M k v = M
+       │       └─ type: ∀ k v. M k v
+       └─ type: Type → Type → Type
+  class Key k
+  └─ class methods:
+  class Size f where
+  └─ class methods: size ∷ ∀ f v. (Size f) ⇒ f v → Int
+    size :: f v -> Int
+  instance Key k => Size (M k)
+  │                 └─ warning: no implementation of size, and class Size gives no default; calling it raises at run time
+  └─ $fSizeMk ∷ ∀ k. (Key k) ⇒ Size (M k)
+  data MapCodec a where
+       └─ type: Type → Type
+    MapCodec :: (Key k, Coercible a (M k Int)) => MapCodec a
+    └─ type: ∀ a k. (Key k, GHC.Types.Coercible a (M k GHC.Types.Int)) ⇒ MapCodec a
+  sizeOf :: a -> MapCodec a -> Int
+  sizeOf x c = case c of
+  │      │ │   └─ type: GHC.Types.Int
+  │      │ └─ type: MapCodec a
+  │      └─ type: a
+  └─ type: ∀ a. a → MapCodec a → GHC.Types.Int
+    MapCodec -> size (coerce x :: M _ Int)
+    │           │     └─ type: a → M k GHC.Types.Int; type-args: a, M k Int; evidence: coercible @a @M k Int
+    │           └─ type: M k GHC.Types.Int → GHC.Types.Int; type-args: M k, Int; evidence: $fSizeMk @k (given Key k)
+    └─ type: MapCodec a; type-args: a, k; evidence: given Key k, given Coercible a M k Int
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, MagicHash, PartialTypeSignatures, RoleAnnotations #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data V = V
+  data Codec ctx a where
+    ValueCodec :: Coercible V a => Codec V a
+  fromValue :: ctx -> Codec ctx a -> a
+  fromValue v c = case c of
+    ValueCodec -> coerce v
+  type role M nominal representational
+  data M k v = M
+  class Key k
+  class Size f where
+    size :: f v -> Int
+  instance Key k => Size (M k)
+  data MapCodec a where
+    MapCodec :: (Key k, Coercible a (M k Int)) => MapCodec a
+  sizeOf :: a -> MapCodec a -> Int
+  sizeOf x c = case c of
+    MapCodec -> size (coerce x :: M _ Int)
+status: pass
