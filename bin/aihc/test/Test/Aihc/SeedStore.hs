@@ -357,12 +357,15 @@ wasmSysrootAvailable = do
   result <- try (void wasmSysroot) :: IO (Either IOException ())
   pure (either (const False) (const True) result)
 
--- | Whether the archive tool that the compiler selects keeps the objects
--- of a foreign target. The compiler takes @AIHC_LLVM_AR@, then @llvm-ar@,
--- then @ar@. The @ar@ of macOS does not keep such objects.
+-- | Whether the archive tool keeps the objects of a foreign target. The
+-- @ar@ of macOS does not keep such objects. @AIHC_LLVM_AR@ names a tool
+-- that does, and the compiler uses that tool first.
+--
+-- An @llvm-ar@ on the path is not sufficient here, although the compiler
+-- accepts it. On a Mac with the LLVM tools but without the toolchain of a
+-- foreign target, the suite then tries to build for that target.
 arSupportsForeignObjects :: IO Bool
 arSupportsForeignObjects = do
   override <- lookupEnv "AIHC_LLVM_AR"
-  llvmArchiveTool <- findExecutable "llvm-ar"
   archiveTool <- findExecutable "ar"
-  pure (isJust override || isJust llvmArchiveTool || System.os /= "darwin" || archiveTool /= Just "/usr/bin/ar")
+  pure (isJust override || System.os /= "darwin" || archiveTool /= Just "/usr/bin/ar")
