@@ -378,7 +378,7 @@ simplifyRotations function
     remove instruction@(Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
         MonoidMap.nullKey v counts =
-          (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
+          (rest, counts `MonoidMap.minus` Occurrences.count (operationReads operation))
       | otherwise = (instruction : rest, counts)
     remove instruction (rest, counts) = (instruction : rest, counts)
     simplify block = (block {blockInstructions = concatMap rewrite (blockInstructions block)}, removed)
@@ -440,7 +440,7 @@ simplifyWidths uses function
     remove (Instruction [v] operation) (rest, counts)
       | Set.member v candidates,
         MonoidMap.nullKey v counts =
-          (rest, foldl' (flip (MonoidMap.adjust (subtract 1))) counts (operationReads operation))
+          (rest, counts `MonoidMap.minus` Occurrences.count (operationReads operation))
     remove instruction (rest, counts) = (instruction : rest, counts)
     modular op = op `elem` [Add, Sub, Mul, And, Or, Xor]
     removable (Binary op I64 _ _) = modular op
