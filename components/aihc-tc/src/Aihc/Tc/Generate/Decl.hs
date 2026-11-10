@@ -1226,11 +1226,16 @@ defaultGlobalKindMetas initialKeys = do
       -- A kind variable that only the result kind of the family mentions,
       -- as the @k@ of @type family F t where F t = TypeError ...@ (@F ::
       -- forall j k. j -> k@), is not determined by an argument. Each
-      -- equation binds it, as GHC does.
+      -- equation binds it, as GHC does. A left side with explicit kind
+      -- arguments, as @F \@k@ of @type family F :: k -> Constraint@,
+      -- already instantiates each kind variable of the family. The
+      -- equation then does not use the variable of the family, and an
+      -- axiom binder that no side uses never matches.
       let bound = map tvUnique tyVars
           resultOnly =
             case familyInfo of
               Just tyConInfo
+                | hasExplicitKindArguments (tfiiLeft info) -> []
                 | ForAll variables _ body <- tciKindScheme tyConInfo ->
                     let (parameters, result) = splitKindArrows (tyConArity (tciTyCon tyConInfo)) body
                         parameterVariables = map tvUnique (concatMap freeKindVariables parameters)
@@ -5152,6 +5157,14 @@ bindWildcardParams lhs = do
             paramTyVar = tyVar,
             paramKind = kind
           }
+
+-- | Whether the head of a family application has explicit kind arguments.
+hasExplicitKindArguments :: TcType -> Bool
+hasExplicitKindArguments ty =
+  case ty of
+    TcKindedTyCon {} -> True
+    TcAppTy function _ -> hasExplicitKindArguments function
+    _ -> False
 
 typeFamilyApplicationHead :: TcType -> Maybe TyCon
 typeFamilyApplicationHead ty =
