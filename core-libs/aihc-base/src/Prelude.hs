@@ -1093,6 +1093,19 @@ instance Monad List where
   xs >> ys = thenList xs ys
   return x = [x]
 
+instance GHC.Base.Alternative List where
+  empty = []
+  (<|>) = (++)
+
+instance GHC.Base.Alternative Maybe where
+  empty = Nothing
+  Nothing <|> value = value
+  value <|> _ = value
+
+instance GHC.Base.MonadPlus List
+
+instance GHC.Base.MonadPlus Maybe
+
 instance MonadFail IO where
   fail = error
 

@@ -961,7 +961,7 @@ convertConstructor env info = do
       -- selector is public even when the export list hides its name.
       fieldVisible =
         or
-          [ exportedVis env ResolutionNamespaceTerm label == Pub
+          [ exportedFieldVis env label == Pub
           | Just label <- map dcfiLabel (dciFields info)
           ]
       -- Built-in syntax such as @(,)@ or @[]@ has no name that an export

@@ -96,7 +96,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution, recordSelectorNames)
 import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
@@ -385,10 +385,12 @@ recordSelectorBindings origin declaration =
           closeOverKinds variables =
             let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
              in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
-       in [ TcBindingResult (originTermKey origin label) label (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
+          selectorNames = recordSelectorNames [inner]
+       in [ TcBindingResult (originTermKey origin selector) selector (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
             all (`elem` universals) (typeTyVars fieldType),
-            Just label <- [maybeLabel]
+            Just label <- [maybeLabel],
+            let selector = Map.findWithDefault label label selectorNames
           ]
 
 -- | The type that the type checker put on a binder, when it has one.
@@ -1455,7 +1457,7 @@ annotateDataDeclTc dataDecl = do
   let binder = binderHeadName (dataDeclHead dataDecl)
       tyName = unqualifiedNameText binder
   ty <- tyConBindingType binder
-  parent <- mkDeclaredTyCon binder tyName (length (binderHeadParams (dataDeclHead dataDecl)))
+  parent <- mkDeclaredTyCon binder tyName (dataDeclArity dataDecl)
   constructors <- mapM (annotateDataConDeclTc parent) (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
@@ -1465,7 +1467,7 @@ annotateNewtypeDeclTc newtypeDecl = do
   let binder = binderHeadName (newtypeDeclHead newtypeDecl)
       tyName = unqualifiedNameText binder
   ty <- tyConBindingType binder
-  parent <- mkDeclaredTyCon binder tyName (length (binderHeadParams (newtypeDeclHead newtypeDecl)))
+  parent <- mkDeclaredTyCon binder tyName (newtypeDeclArity newtypeDecl)
   constructor <- mapM (annotateDataConDeclTc parent) (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
@@ -1582,7 +1584,9 @@ annotateRecordSelectorNames parent declaration =
     -- A record selector belongs to the declaration, so it is keyed like
     -- the type, which is how 'registerRecordSelectors' registers it.
     annotateSelectorName name = do
-      ty <- bindingType (tyConMemberTermKey parent (unqualifiedNameText name))
+      let label = unqualifiedNameText name
+          selector = Map.findWithDefault label label (recordSelectorNames [declaration])
+      ty <- bindingType (tyConMemberTermKey parent selector)
       pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
 
 dataConBindingType :: Entity -> TcM TcType
@@ -1861,7 +1865,9 @@ checkForeignWrapper :: Maybe SourceSpan -> Text -> TcType -> TcM TcForeignImport
 checkForeignWrapper sourceSpan symbol ty =
   case splitFunctionType ty of
     ([callback], TcTyCon (TyCon "IO" 1) [pointer@(TcTyCon (TyCon "FunPtr" 1) [pointed])]) -> do
-      unless (equivalentTypeSchemes (typeSchemeFromType callback) (typeSchemeFromType pointed)) $
+      -- A type variable of the import is free in both types, and a type
+      -- scheme comparison renames only variables that it binds.
+      unless (callback == pointed || equivalentTypeSchemes (typeSchemeFromType callback) (typeSchemeFromType pointed)) $
         emitError sourceSpan (OtherError "a wrapper result must point to its callback type")
       let (callbackArguments, callbackResult) = splitFunctionType callback
       when (null callbackArguments && not (isIO callbackResult)) $
@@ -4166,10 +4172,10 @@ predeclareTypeConstructor declaration =
     DeclData dataDeclaration ->
       let binder = binderHeadName (dataDeclHead dataDeclaration)
           name = unqualifiedNameText binder
-       in predeclare binder name (length (binderHeadParams (dataDeclHead dataDeclaration))) DataTyCon
+       in predeclare binder name (dataDeclArity dataDeclaration) DataTyCon
     DeclNewtype newtypeDeclaration ->
       let binder = binderHeadName (newtypeDeclHead newtypeDeclaration)
-       in predeclare binder (unqualifiedNameText binder) (length (binderHeadParams (newtypeDeclHead newtypeDeclaration))) NewtypeTyCon
+       in predeclare binder (unqualifiedNameText binder) (newtypeDeclArity newtypeDeclaration) NewtypeTyCon
     DeclTypeSyn synonymDeclaration ->
       let binder = binderHeadName (typeSynHead synonymDeclaration)
        in predeclare binder (unqualifiedNameText binder) (length (binderHeadParams (typeSynHead synonymDeclaration))) SynonymTyCon
@@ -4236,13 +4242,13 @@ predeclareTypeLevelDataConstructors declaration =
     DeclData dataDeclaration -> do
       let parentBinder = binderHeadName (dataDeclHead dataDeclaration)
           parentName = unqualifiedNameText parentBinder
-          parentArity = length (binderHeadParams (dataDeclHead dataDeclaration))
+          parentArity = dataDeclArity dataDeclaration
       parent <- mkDeclaredTyCon parentBinder parentName parentArity
       mapM_ (predeclareConstructor parent) (dataDeclConstructors dataDeclaration)
     DeclNewtype newtypeDeclaration -> do
       let parentBinder = binderHeadName (newtypeDeclHead newtypeDeclaration)
           parentName = unqualifiedNameText parentBinder
-          parentArity = length (binderHeadParams (newtypeDeclHead newtypeDeclaration))
+          parentArity = newtypeDeclArity newtypeDeclaration
       parent <- mkDeclaredTyCon parentBinder parentName parentArity
       maybe (pure ()) (predeclareConstructor parent) (newtypeDeclConstructor newtypeDeclaration)
     _ -> pure ()
@@ -4812,7 +4818,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                     dfiiConstructors = constructors,
                     dfiiIsNewtype = dataFamilyInstIsNewtype familyInst
                   }
-              selectorBindings <- registerRecordSelectors (packageName, moduleName') constructors
+              selectorBindings <- registerRecordSelectors (packageName, moduleName') (recordSelectorNames (dataFamilyInstConstructors familyInst)) constructors
               pure (bindings <> selectorBindings)
         _ -> do
           emitError Nothing (OtherError ("data-family instance head does not name a data family: " <> T.unpack (tyConName familyTyCon)))
@@ -5082,13 +5088,10 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
   -- errMsg = errMsg@ matches every @check@. It arrives as a meta, because
   -- only the parameter kind gave it its kind, so it is bound to a fresh
   -- variable here and joins the equation's own.
-  --
-  -- A closed family without a kind signature takes its kinds from its
-  -- equations, so its own kind can still hold metas. They are the kinds
-  -- of the family, not variables of the equation: @HasSum V1 = 'False@
-  -- gives the parameter of @HasSum@ the kind @k -> Type@ through the kind
-  -- argument of @V1@. These metas stay open here, and the declaration
-  -- group settles them.
+  -- A meta that the family kind still has is not a variable of this
+  -- equation. Without PolyKinds, @type family HasSum f where HasSum V1 =
+  -- 'False@ gives @f@ the kind @k0 -> Type@, with @k0@ from the kind of
+  -- @V1@. Later, @k0@ defaults to 'Type', as GHC does.
   familyKindMetas <- maybe (pure []) tyConKindMetas (typeFamilyApplicationHead rawLhs)
   wildcardParams <- bindWildcardParams familyKindMetas rawLhs
   lhs <- zonkType rawLhs
@@ -5134,9 +5137,9 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
 -- variable, and report those variables. Only a wildcard leaves one: every
 -- other argument is a name the equation quantifies already.
 bindWildcardParams :: [Unique] -> TcType -> TcM [ParamInfo]
-bindWildcardParams familyKindMetas lhs = do
+bindWildcardParams excluded lhs = do
   zonked <- zonkType lhs
-  mapM bindOne (filter (`notElem` familyKindMetas) (nub (typeMetas zonked)))
+  mapM bindOne (filter (`notElem` excluded) (nub (tcTypeMetas zonked)))
   where
     bindOne unique = do
       kind <- zonkKind =<< readMetaTvKind unique
@@ -5149,27 +5152,27 @@ bindWildcardParams familyKindMetas lhs = do
             paramKind = kind
           }
 
--- | The open metas of a type, kind arguments included.
-typeMetas :: TcType -> [Unique]
-typeMetas ty =
+-- | The metas of a type, kind arguments included.
+tcTypeMetas :: TcType -> [Unique]
+tcTypeMetas ty =
   case ty of
     TcMetaTv unique -> [unique]
     TcTyVar {} -> []
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyCon _ arguments -> concatMap typeMetas arguments
-    TcKindedTyCon _ kindArguments -> concatMap typeMetas kindArguments
-    TcFunTy argument result -> typeMetas argument <> typeMetas result
-    TcForAllTy _ body -> typeMetas body
-    TcQualTy _ body -> typeMetas body
-    TcAppTy function argument -> typeMetas function <> typeMetas argument
+    TcTyCon _ arguments -> concatMap tcTypeMetas arguments
+    TcKindedTyCon _ kindArguments -> concatMap tcTypeMetas kindArguments
+    TcFunTy argument result -> tcTypeMetas argument <> tcTypeMetas result
+    TcForAllTy _ body -> tcTypeMetas body
+    TcQualTy _ body -> tcTypeMetas body
+    TcAppTy function argument -> tcTypeMetas function <> tcTypeMetas argument
 
--- | The open metas of the kind of a type constructor.
+-- | The metas that the kind of a type constructor still has.
 tyConKindMetas :: TyCon -> TcM [Unique]
 tyConKindMetas tyCon = do
   maybeInfo <- lookupTyConByIdentity tyCon
   case maybeInfo of
-    Just info -> typeMetas <$> zonkKind (typeSchemeBody (tciKindScheme info))
+    Just info -> tcTypeMetas <$> zonkKind (typeSchemeBody (tciKindScheme info))
     Nothing -> pure []
 
 typeFamilyApplicationHead :: TcType -> Maybe TyCon
@@ -5285,12 +5288,37 @@ dataHeadParamInfos maybeKindScheme binders maybeResultKind =
       params <- makeParamEnvWith (paramKindEnv kindParams) binders
       pure (kindParams, params)
 
+-- | The visible arity of a data type: its head parameters and then the
+-- visible arguments of its result kind. @data Constant1 :: Type -> Function
+-- b a -> Type@ has the arity 2, as GHC gives it. Thus, @Constant1 x@ is a
+-- partial application, and it keeps the kind arguments of its use: no
+-- visible argument gives the kind @a@.
+dataDeclArity :: DataDecl -> Int
+dataDeclArity declaration =
+  length (binderHeadParams (dataDeclHead declaration)) + resultKindArity (dataDeclKind declaration)
+
+-- | The visible arity of a newtype. See 'dataDeclArity'.
+newtypeDeclArity :: NewtypeDecl -> Int
+newtypeDeclArity declaration =
+  length (binderHeadParams (newtypeDeclHead declaration)) + resultKindArity (newtypeDeclKind declaration)
+
+-- | The number of visible arguments of a declared result kind.
+resultKindArity :: Maybe Type -> Int
+resultKindArity = maybe 0 go
+  where
+    go kind =
+      case kind of
+        TFun _ _ result -> 1 + go result
+        TForall _ inner -> go inner
+        TParen inner -> go inner
+        TAnn _ inner -> go inner
+        _ -> 0
+
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM ()
 registerDataDeclHeader maybeKindScheme dd = do
   let tyBinder = binderHeadName (dataDeclHead dd)
       tyName = unqualifiedNameText tyBinder
-      params = binderHeadParams (dataDeclHead dd)
-      arity = length params
+      arity = dataDeclArity dd
   (kindParams, paramInfos) <- dataDeclParamInfos maybeKindScheme dd
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   inferredKind <- tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
@@ -5334,7 +5362,7 @@ registerDataConstructors origin dataDecl = do
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams (paramInfos <> implicitParamInfos)) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors origin constructors
+      selectorBindings <- registerRecordSelectors origin (recordSelectorNames (dataDeclConstructors dataDecl)) constructors
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -5366,7 +5394,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
   let tyBinder = binderHeadName (newtypeDeclHead nd)
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
-      arity = length params
+      arity = newtypeDeclArity nd
   (kindParams, paramInfos) <- dataHeadParamInfos maybeKindScheme params (newtypeDeclKind nd)
   -- Without a kind signature, the result kind is the kind of the field.
   -- An UnliftedNewtypes field gives an unlifted result kind.
@@ -5404,7 +5432,7 @@ registerNewtypeConstructor origin newtypeDecl = do
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors origin constructors
+      selectorBindings <- registerRecordSelectors origin (recordSelectorNames (maybeToList (newtypeDeclConstructor newtypeDecl))) constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
       -- The newtype and its field have one representation, so they have one kind.
@@ -5479,8 +5507,11 @@ registerTypeLevelDataCon constructor = do
           }
   storeTyConInfo info
 
-registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]
-registerRecordSelectors origin constructors =
+-- | Register the selector of each record field. The resolver gives the
+-- selector name of a duplicate record field, and any other label is its
+-- own selector name.
+registerRecordSelectors :: (Text, Text) -> Map.Map Text Text -> [DataConInfo] -> TcM [TcBindingResult]
+registerRecordSelectors origin selectorNames constructors =
   mapM registerSelector (Map.toList selectors)
   where
     -- A field whose type mentions an existential variable has no selector.
@@ -5501,10 +5532,11 @@ registerRecordSelectors origin constructors =
               []
               (TcFunTy (dciResTy constructor) (dcfiType field))
       let binder = TcIdBinder scheme Closed
-          selectorKey = originTermKey origin label
+          selector = Map.findWithDefault label label selectorNames
+          selectorKey = originTermKey origin selector
       extendTermKeyEnvPermanent selectorKey binder
       zonkedType <- zonkType (schemeToType scheme)
-      pure (TcBindingResult selectorKey label zonkedType)
+      pure (TcBindingResult selectorKey selector zonkedType)
     registerSelector (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
 

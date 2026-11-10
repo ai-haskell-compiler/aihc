@@ -1,0 +1,47 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  {-# LANGUAGE FlexibleContexts #-}
+  {-# LANGUAGE FlexibleInstances #-}
+  module Test where
+  class Str a where
+  └─ class methods: str ∷ ∀ a. (Str a) ⇒ a
+    str :: a
+  class Str l => Gen l where
+  └─ class methods: gen ∷ ∀ l. (Gen l) ⇒ l → l
+    gen :: l -> l
+  newtype Q m a = Q (m a)
+          │       └─ type: ∀ m a. m a → Q m a
+          └─ type: (Type → Type) → Type → Type
+  instance (Str (m ()), a ~ ()) => Str (Q m a) where
+  └─ $fStrQma ∷ ∀ m a. (Str (m ()), a ~ ()) ⇒ Str (Q m a)
+    str = Q str
+    │     │ └─ type: m (); type-args: m (); evidence: given Str m ()
+    │     └─ type: m () → Q m (); type-args: m, ()
+    └─ str ∷ Q m a
+  instance (Gen (m a), a ~ ()) => Gen (Q m a) where
+  └─ $fGenQma ∷ ∀ m a. (Gen (m a), a ~ ()) ⇒ Gen (Q m a) [superclasses: $fStrQma @m @a (super[0](cast(given Gen m a, Gen app (refl m) (given a ~ ()))), given a ~ ())]
+    gen x = x
+    │   └─ type: Q m a
+    └─ gen ∷ Q m a → Q m a
+extensions:
+- TypeFamilies
+- FlexibleContexts
+- FlexibleInstances
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  {-# LANGUAGE FlexibleContexts #-}
+  {-# LANGUAGE FlexibleInstances #-}
+  module Test where
+  class Str a where
+    str :: a
+  class Str l => Gen l where
+    gen :: l -> l
+  newtype Q m a = Q (m a)
+  instance (Str (m ()), a ~ ()) => Str (Q m a) where
+    str = Q str
+  instance (Gen (m a), a ~ ()) => Gen (Q m a) where
+    gen x = x
+status: pass
+reason: The given equality a ~ () rewrites the given Gen (m a) to Gen (m ()). Its superclass then solves the wanted Str (m ()) of the instance superclass. Before the fix, the solver rewrote only a given of the class of the wanted, so the superclass stayed unsolved.

@@ -1,0 +1,35 @@
+extensions:
+  - DuplicateRecordFields
+  - NamedFieldPuns
+modules:
+  - |
+    {-# LANGUAGE DuplicateRecordFields #-}
+    {-# LANGUAGE NamedFieldPuns #-}
+    module Lib (Store (Store, ref, key), Registry (Registry, ref), storeRef, registryRef) where
+
+    data Store = Store { ref :: Int, key :: Bool }
+
+    data Registry = Registry { ref :: Bool }
+
+    storeRef :: Store -> Int
+    storeRef Store { ref } = ref
+
+    registryRef :: Registry -> Bool
+    registryRef Registry { ref } = ref
+  - |
+    {-# LANGUAGE NamedFieldPuns #-}
+    module Test where
+    import Lib
+
+    run :: (Int, Bool, Bool)
+    run =
+      let s = Store { ref = 3, key = True }
+          r = Registry { ref = False }
+          Store { key } = s
+      in (storeRef s, registryRef r, key)
+output: |
+  ((I# 3),False,True)
+expression: |
+  run
+status: pass
+reason: two records in one module can have a field with the same name when DuplicateRecordFields is on
