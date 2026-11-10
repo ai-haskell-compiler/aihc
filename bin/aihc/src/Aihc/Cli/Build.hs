@@ -25,6 +25,7 @@ module Aihc.Cli.Build
     buildWith,
     buildWithConfig,
     runBuild,
+    runBuildWith,
     BuiltProgram (..),
     buildTestSuites,
   )
@@ -78,10 +79,14 @@ import System.IO (hPutStrLn, stderr, stdout)
 
 -- | Build with the progress on stderr, and name each output on stdout.
 runBuild :: BuildOptions -> IO ()
-runBuild options = do
+runBuild = runBuildWith id
+
+-- | 'runBuild' with a change to the compile config that the options give.
+runBuildWith :: (ModuleCompileConfig -> ModuleCompileConfig) -> BuildOptions -> IO ()
+runBuildWith adjust options = do
   when (buildNoPie options) $
     hPutStrLn stderr "warning: --no-pie links each Linux executable at a fixed address. ASLR cannot then move its code and static data. Do not use --no-pie for a program that processes untrusted input."
-  outputs <- withProgress stderr (`buildWith` options)
+  outputs <- withProgress stderr (\reporter -> buildWithConfig reporter options adjust)
   let label = if buildNoLink options then "bundle: " else "executable: "
   mapM_ (putStrLn . (label <>)) outputs
 

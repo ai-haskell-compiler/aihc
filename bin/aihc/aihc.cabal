@@ -180,6 +180,7 @@ library
     Aihc.Cli.PlayBundleStore
     Aihc.Cli.Progress
     Aihc.Cli.ResolveArtifact
+    Aihc.Cli.Splice
     Aihc.Cli.Store
     Aihc.Cli.TaskGraph
     Aihc.Cli.Terminal
@@ -258,6 +259,7 @@ library
     Aihc.Native
     Aihc.Prim.Wiring
     Aihc.Th.Convert
+    Aihc.Th.Splices
     Aihc.Th.Wire
     Aihc.Wasm
     Aihc.Wasm.ControlFlow

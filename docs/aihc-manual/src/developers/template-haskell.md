@@ -1,8 +1,15 @@
 # Template Haskell design
 
 This page gives the design of Template Haskell in AIHC.
-The design is a plan.
-The compiler does not run splices at this time.
+The compiler runs a splice in an expression, as this page describes.
+The other parts of the design are a plan.
+
+The first implementation has these limits:
+
+- A splice cannot use a module of its own package.
+- The result of a splice can only have the expressions that `Aihc.Th.Convert` handles.
+- A splice cannot ask the compiler for information, for example with `reify`.
+- The compiler builds one image for each module that has splices.
 
 ## Goals
 

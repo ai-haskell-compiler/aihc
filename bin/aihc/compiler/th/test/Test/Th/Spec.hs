@@ -4,13 +4,18 @@
 -- surface syntax.
 module Test.Th.Spec (tests) where
 
+import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
+import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Th.Convert (expressionFromTree)
+import Aihc.Th.Splices (SpliceRequest (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
 import Data.ByteString qualified as BS
 import Data.Either (isLeft)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Prettyprinter (Pretty, defaultLayoutOptions, layoutPretty, pretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 
@@ -21,7 +26,9 @@ tests =
     [ testCase "decodes the message of a splice" decodeTest,
       testCase "rejects a message that is not one complete tree" rejectTest,
       testCase "converts expressions to the surface syntax" convertTest,
-      testCase "names a construct that it does not support" unsupportedTest
+      testCase "names a construct that it does not support" unsupportedTest,
+      testCase "finds and replaces the splices of a module" splicesTest,
+      testCase "writes the splice module" spliceModuleTest
     ]
 
 -- | The message that the guest sent for @appE (varE (mkName "negate"))
@@ -103,6 +110,63 @@ unsupportedTest = do
     "a do expression"
     (Left "The compiler does not support the expression DoE in a splice result.")
     (expressionFromTree (TreeNode "DoE" [TreeNode "Nothing" [], list []]))
+
+-- | A module with a splice in each position that matters: with and
+-- without parentheses, in a quote, and in the body of a splice.
+spliceSource :: Text
+spliceSource =
+  T.unlines
+    [ "module M where",
+      "import Data.List (sort)",
+      "import Own.Module",
+      "x = $(a 1) + f $b [| $(c) |]",
+      "y = $(d $(e))"
+    ]
+
+parseSpliceSource :: IO Module
+parseSpliceSource = do
+  let (errors, modu) = parseModule defaultConfig {parserExtensions = [TemplateHaskell]} spliceSource
+  assertEqual "parse errors" [] errors
+  pure modu
+
+-- | The text of a syntax tree with one space between its words. The
+-- layout of the pretty-printer is not the subject of these tests.
+render :: (Pretty syntax) => syntax -> Text
+render = T.unwords . T.words . renderStrict . layoutPretty defaultLayoutOptions . pretty
+
+splicesTest :: IO ()
+splicesTest = do
+  modu <- parseSpliceSource
+  -- The splice in the quote and the splice in the body of a splice do not
+  -- run for this module.
+  assertEqual "the splice bodies, in source order" ["(a 1)", "b", "(d $(e))"] (map render (moduleSplices modu))
+  let replaced = replaceModuleSplices [EVar "p", EVar "q", EVar "r"] modu
+  assertEqual "no splice is left outside the quote" [] (map render (moduleSplices replaced))
+  assertEqual
+    "each result has parentheses and the quote keeps its splice"
+    "module M where import Data.List (sort) import Own.Module x = (p) + f (q) [| $(c) |] y = (r)"
+    (render replaced)
+
+spliceModuleTest :: IO ()
+spliceModuleTest = do
+  modu <- parseSpliceSource
+  let request =
+        SpliceRequest
+          { spliceRequestPackage = "demo",
+            spliceRequestModule = "M",
+            spliceRequestStoreRoot = "store",
+            spliceRequestBuildRoot = "build",
+            spliceRequestDependencies = [("base", [4, 21, 2, 0])],
+            spliceRequestExtensions = [],
+            spliceRequestLanguage = Nothing,
+            spliceRequestPragmas = [EnableExtension TemplateHaskell],
+            spliceRequestImports = take 1 (moduleImports modu),
+            spliceRequestBodies = moduleSplices modu
+          }
+  assertEqual
+    "one closure for each splice"
+    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runExpressionSplice (d $(e))"
+    (T.unwords (T.words (spliceModuleText request)))
 
 name :: Text -> Tree
 name occurrence = TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], TreeNode "NameS" []]

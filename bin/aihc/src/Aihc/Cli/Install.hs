@@ -26,6 +26,7 @@ module Aihc.Cli.Install
     dependencyPlans,
     installPlans,
     installWith,
+    installWithConfig,
     installTargetRoot,
     TargetRoot (..),
     newModuleCompileConfig,
@@ -34,6 +35,7 @@ module Aihc.Cli.Install
     planProgressItems,
     planRequestFor,
     runInstall,
+    runInstallWith,
     sourceFileModuleName,
 
     -- * The front end, one phase at a time
@@ -246,10 +248,11 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Th.Splices (SpliceRequest (..), moduleSplices, replaceModuleSplices)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
-import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar, withMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
@@ -539,7 +542,11 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- and the output of each phase of the backend. A tool that shows the
     -- output of each phase, such as @aihc-dev explore@, sets it. The build
     -- gives the values only and does no other work for it.
-    compileObserver :: !(Maybe (CompileObservation -> IO ()))
+    compileObserver :: !(Maybe (CompileObservation -> IO ())),
+    -- | Runs the expression splices of a module and gives one expression
+    -- for each. "Aihc.Cli.Splice" supplies it. Without it, the build
+    -- does not run splices.
+    compileSplices :: !(Maybe (SpliceRequest -> IO [Syntax.Expr]))
   }
 
 -- | What 'compileObserver' receives.
@@ -642,8 +649,12 @@ data PackageTaskContext = PackageTaskContext
 -- | Install a package with the progress on stderr, and name the store
 -- entry on stdout.
 runInstall :: InstallOptions -> IO ()
-runInstall options = do
-  result <- withProgress stderr (`installWith` options)
+runInstall = runInstallWith id
+
+-- | 'runInstall' with a change to the compile config that the options give.
+runInstallWith :: (ModuleCompileConfig -> ModuleCompileConfig) -> InstallOptions -> IO ()
+runInstallWith adjust options = do
+  result <- withProgress stderr (\reporter -> installWithConfig reporter options adjust)
   putStrLn ("store: " <> installStorePath result)
 
 -- | Install a package without progress. The verbose and timing messages go
@@ -657,7 +668,12 @@ install = installWith (quietProgress stdout)
 -- stdout instead: the test runner writes its progress to stdout from other
 -- threads, and a redirect would capture that progress.
 installWith :: ProgressReporter -> InstallOptions -> IO InstallResult
-installWith reporter options = do
+installWith reporter options = installWithConfig reporter options id
+
+-- | 'installWith' with a change to the compile config that the options
+-- give.
+installWithConfig :: ProgressReporter -> InstallOptions -> (ModuleCompileConfig -> ModuleCompileConfig) -> IO InstallResult
+installWithConfig reporter options adjust = do
   when (installPositionIndependent options && installTarget options /= Wasm32Wasip3) $
     ioError (userError "--position-independent requires the wasm32-wasip3 target")
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
@@ -683,19 +699,20 @@ installWith reporter options = do
   buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
   levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (installLto options) (installOptimization options)
   let config =
-        levelConfig
-          { compileKeepCore = installKeepCore options,
-            compileKeepGrin = installKeepGrin options,
-            compileKeepNative = installKeepNative options,
-            compileLint = installLint options,
-            compileCheckPrimBounds = installCheckPrimBounds options,
-            compileNoCode = installNoCode options,
-            compileCodeModel = if installPositionIndependent options then Wasm.PositionIndependent else Wasm.Static,
-            compileVerbose = verbose,
-            compilePrintTimings = printTimings,
-            compileUseColor = useColor,
-            compileProgress = reporter
-          }
+        adjust
+          levelConfig
+            { compileKeepCore = installKeepCore options,
+              compileKeepGrin = installKeepGrin options,
+              compileKeepNative = installKeepNative options,
+              compileLint = installLint options,
+              compileCheckPrimBounds = installCheckPrimBounds options,
+              compileNoCode = installNoCode options,
+              compileCodeModel = if installPositionIndependent options then Wasm.PositionIndependent else Wasm.Static,
+              compileVerbose = verbose,
+              compilePrintTimings = printTimings,
+              compileUseColor = useColor,
+              compileProgress = reporter
+            }
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,
@@ -743,7 +760,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compilePrintTimings = const (pure ()),
         compileUseColor = False,
         compileProgress = quietProgress stdout,
-        compileObserver = Nothing
+        compileObserver = Nothing,
+        compileSplices = Nothing
       }
 
 -- | The config of a package the user did not name. The flags that keep the
@@ -899,7 +917,10 @@ data InstallShared = InstallShared
     -- | The facts of the store modules that the packages read. Each
     -- package reads them through its own provider, and this cache lets
     -- the providers decode each artifact only once.
-    sharedProviderCache :: !ProviderCache
+    sharedProviderCache :: !ProviderCache,
+    -- | Held while the splices of one module run. Each run builds packages
+    -- and starts an engine, so the modules take turns.
+    sharedSpliceLock :: !(MVar ())
   }
 
 -- | One package of a plan, as the graph installs it. The package has four
@@ -1036,13 +1057,15 @@ installGraph config locations plans components = do
   temporaryRoots <- newIORef Set.empty
   phaseTimings <- newIORef mempty
   providerCache <- newProviderCache
+  spliceLock <- newMVar ()
   let shared =
         InstallShared
           { sharedConfig = config,
             sharedLocations = locations,
             sharedTemporaryRoots = temporaryRoots,
             sharedBackendPhaseTimings = phaseTimings,
-            sharedProviderCache = providerCache
+            sharedProviderCache = providerCache,
+            sharedSpliceLock = spliceLock
           }
       removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
@@ -1885,6 +1908,7 @@ addModuleBuild graph shared build = do
               taskDependencies = Set.empty,
               taskAction = do
                 source <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
+                expandModuleSplices shared build file source
                 -- The header fields of the module are strict, so the import
                 -- list is known once the source exists. The tree is forced
                 -- here, in the parse task, and not by the first task that
@@ -1904,6 +1928,49 @@ addModuleBuild graph shared build = do
             taskAction = partitionModules graph shared build sourceSlots
           }
   addTasks graph (parseTasks <> [partitionTask])
+
+-- | Run the expression splices of a module and put their results into its
+-- parse tree. This comes before name resolution, so the phases after the
+-- parse see the results as source text. The body of a splice can only use
+-- imported names, so the run does not need the other modules of the unit.
+expandModuleSplices :: InstallShared -> ModuleBuild -> HackageCabal.FileInfo -> SourceModule -> IO ()
+expandModuleSplices shared build file source =
+  case compileSplices (moduleBuildConfig build) of
+    Just run | Syntax.TemplateHaskell `elem` sourceModuleExtensions source -> do
+      modu <- readMVar (sourceModuleParsed source)
+      let bodies = moduleSplices modu
+      unless (null bodies) $ do
+        results <-
+          withMVar (sharedSpliceLock shared) $ \_ ->
+            run
+              SpliceRequest
+                { spliceRequestPackage = ownName,
+                  spliceRequestModule = sourceModuleName source,
+                  spliceRequestStoreRoot = takeDirectory (locationStoreRoot locations),
+                  spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
+                  spliceRequestDependencies =
+                    [ (name, version)
+                    | name <- nub (HackageCabal.fileInfoDependencies file),
+                      name /= ownName,
+                      Just version <- [Map.lookup name (moduleBuildVersions build)]
+                    ],
+                  spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
+                  spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
+                  spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
+                  spliceRequestImports = filter (not . isOwnModule . importDeclModule) (Syntax.moduleImports modu),
+                  spliceRequestBodies = bodies
+                }
+        void (swapMVar (sourceModuleParsed source) (replaceModuleSplices results modu))
+    _ -> pure ()
+  where
+    locations = sharedLocations shared
+    ownName = packageName (moduleBuildPackage build)
+    -- A module of the package is a file whose path ends with the path of
+    -- the module name. A splice cannot use such a module at this time.
+    isOwnModule name =
+      any
+        (\other -> splitDirectories (T.unpack (T.replace "." "/" name)) `isSuffixOf` splitDirectories (dropExtension (HackageCabal.fileInfoPath other)))
+        (moduleBuildFiles build)
 
 -- | Cut the parsed modules into units and add the tasks of each unit and
 -- the finish task. A unit waits on the units of its own package it
