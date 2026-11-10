@@ -17,5 +17,5 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: Standalone Functor derivation must retain an existential constructor dictionary. The type checker rejects the existential constructor.
+status: pass
+reason: A standalone Functor instance maps an existential constructor and keeps its constructor dictionary.

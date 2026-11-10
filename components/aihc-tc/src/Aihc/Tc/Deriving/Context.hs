@@ -562,17 +562,21 @@ targetTypeArguments mechanism dataType plan =
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
 -- | Standalone Eq and Show methods use constructor evidence through the
--- ordinary instance checker. Other plans keep the constructor restrictions.
+-- ordinary instance checker. Standalone Functor, Foldable, and Traversable
+-- methods do the same for existential and constrained constructors. A
+-- refined GADT result stays unsupported for them, because a derived method
+-- cannot change a refined index. Other plans keep the constructor
+-- restrictions.
 validateStockDataType :: TcDerivingPlan -> DataTypeInfo -> Either String ()
 validateStockDataType plan dataType
   | dtiFlavor dataType `notElem` [DataTyCon, NewtypeTyCon] =
       Left (mechanism <> " requires a data or newtype declaration")
   | null constructors =
       Left (mechanism <> " does not yet support empty data declarations")
-  | not checksConstructorEvidence,
+  | not checksExistentialEvidence,
     not (all (null . dciExTyVars) constructors) =
       Left (mechanism <> " does not yet support existential constructors")
-  | not checksConstructorEvidence,
+  | not checksExistentialEvidence,
     not (all (\constructor -> null (dciTheta constructor) || null (dciFields constructor)) constructors) =
       Left (mechanism <> " does not yet support constrained constructors")
   | not checksConstructorEvidence,
@@ -584,6 +588,11 @@ validateStockDataType plan dataType
     checksConstructorEvidence =
       tcDerivingStandalone plan
         && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockShowMethods]
+    checksExistentialEvidence =
+      checksConstructorEvidence
+        || ( tcDerivingStandalone plan
+               && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockFunctorMethods, Just StockFoldableMethods, Just StockTraversableMethods]
+           )
     constructors = dtiConstructors dataType
     expectedResult = TcTyCon (dtiTyCon dataType) (map TcTyVar (dtiTyVars dataType))
 
