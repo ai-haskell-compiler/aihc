@@ -62,6 +62,10 @@ module Aihc.Resolve
     ResolvedExport (..),
     exportedLocalNames,
 
+    -- * Record field selectors
+    recordSelectorNames,
+    isFieldSelectorOf,
+
     -- * Builtins
     Builtins,
     builtins,
@@ -1978,7 +1982,7 @@ resolveDataDecl keyword dataDecl = do
   head' <- resolveBinderHeadKinds resolveHeadName (dataDeclHead dataDecl)
   context' <- mapM resolveType (dataDeclContext dataDecl)
   kind' <- traverse resolveType (dataDeclKind dataDecl)
-  constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl) >>= mapM (resolveDataConDefinitions scope)
+  constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl) >>= mapM (resolveDataConDefinitions scope (declarationFirstConstructor (dataDeclConstructors dataDecl)))
   deriving' <- mapM resolveDerivingClause (dataDeclDeriving dataDecl)
   pure
     dataDecl
@@ -2093,7 +2097,7 @@ resolveDataFamilyInst familyInst = do
       (,,,)
         <$> resolveType (dataFamilyInstHead familyInst)
         <*> traverse resolveType (dataFamilyInstKind familyInst)
-        <*> (mapM resolveDataConDecl (dataFamilyInstConstructors familyInst) >>= mapM (resolveDataConDefinitions scope))
+        <*> (mapM resolveDataConDecl (dataFamilyInstConstructors familyInst) >>= mapM (resolveDataConDefinitions scope (declarationFirstConstructor (dataFamilyInstConstructors familyInst))))
         <*> mapM resolveDerivingClause (dataFamilyInstDeriving familyInst)
   pure
     familyInst
@@ -2126,7 +2130,7 @@ resolveNewtypeDecl newtypeDecl = do
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
   head' <- resolveBinderHeadKinds resolveHeadName (newtypeDeclHead newtypeDecl)
   kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
-  constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl) >>= traverse (resolveDataConDefinitions scope)
+  constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl) >>= traverse (resolveDataConDefinitions scope (declarationFirstConstructor (maybeToList (newtypeDeclConstructor newtypeDecl))))
   deriving' <- mapM resolveDerivingClause (newtypeDeclDeriving newtypeDecl)
   pure
     newtypeDecl
@@ -2508,8 +2512,33 @@ resolveScopedTypeVariableUse name = do
     Unresolved _ -> pure name
     _ -> resolveUnqualifiedNameTo sp ResolutionNamespaceType resolved name
 
-resolveDataConDefinitions :: Scope -> DataConDecl -> ResolveM DataConDecl
-resolveDataConDefinitions scope =
+-- | The selector name of each record field label of one declaration. A
+-- duplicate record field has a selector with its own name, which the
+-- resolver puts on the field binder. Any other label is its own selector
+-- name.
+recordSelectorNames :: [DataConDecl] -> Map.Map Text Text
+recordSelectorNames constructors =
+  Map.fromList
+    [ (unqualifiedNameText name, selector)
+    | constructor <- constructors,
+      fields <- recordFields constructor,
+      field <- fields,
+      name <- fieldNames field,
+      let selector =
+            case binderEntity name of
+              Just (EntityGlobal global) -> globalNameText global
+              _ -> unqualifiedNameText name
+    ]
+  where
+    recordFields constructor =
+      case constructor of
+        DataConAnn _ inner -> recordFields inner
+        RecordCon _ _ _ fields -> [fields]
+        GadtCon _ _ _ (GadtRecordBody fields _) -> [fields]
+        _ -> []
+
+resolveDataConDefinitions :: Scope -> Maybe Text -> DataConDecl -> ResolveM DataConDecl
+resolveDataConDefinitions scope firstConstructor =
   go Nothing
   where
     go ambient current =
@@ -2518,11 +2547,11 @@ resolveDataConDefinitions scope =
         PrefixCon forallVars context name bangTypes ->
           (\name' -> PrefixCon forallVars context name' bangTypes) <$> resolveConstructor ambient name
         RecordCon forallVars context name fields ->
-          (\name' -> RecordCon forallVars context name' fields) <$> resolveConstructor ambient name
+          RecordCon forallVars context <$> resolveConstructor ambient name <*> pure (map resolveFieldSelectors fields)
         InfixCon forallVars context lhs name rhs ->
           (\name' -> InfixCon forallVars context lhs name' rhs) <$> resolveConstructor ambient name
         GadtCon forallVars context names body ->
-          (\names' -> GadtCon forallVars context names' body) <$> mapM (resolveConstructor ambient) names
+          (\names' -> GadtCon forallVars context names' (resolveGadtFieldSelectors body)) <$> mapM (resolveConstructor ambient) names
         TupleCon {} -> pure current
         UnboxedSumCon {} -> pure current
         ListCon {} -> do
@@ -2536,3 +2565,21 @@ resolveDataConDefinitions scope =
             ResolutionNamespaceTerm
             (lookupTerm rendered scope)
             name
+
+    resolveGadtFieldSelectors body =
+      case body of
+        GadtRecordBody fields result -> GadtRecordBody (map resolveFieldSelectors fields) result
+        _ -> body
+
+    -- A duplicate record field has a selector with its own name. The field
+    -- binder gets that selector, so the type checker and the desugarer use
+    -- the same name. Other field binders keep no resolution.
+    resolveFieldSelectors field =
+      field {fieldNames = map (resolveFieldSelector (sourceSpanFromAnns (fieldAnns field))) (fieldNames field)}
+
+    resolveFieldSelector span' name =
+      let rendered = renderUnqualifiedName name
+       in case firstConstructor >>= \constructor -> Map.lookup (fieldSelectorName rendered constructor) (scopeTerms scope) of
+            Just entity ->
+              name {unqualifiedNameAnns = mkAnnotation (ResolutionAnnotation (spanStartNameSpan span' rendered) (IdentifierNamed rendered) ResolutionNamespaceTerm entity) : unqualifiedNameAnns name}
+            Nothing -> name
