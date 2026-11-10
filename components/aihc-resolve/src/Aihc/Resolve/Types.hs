@@ -16,6 +16,8 @@ module Aihc.Resolve.Types
     ModuleUnit (..),
     modulesInPackage,
     GlobalName (..),
+    ExactTerm (..),
+    exactTerm,
     LocalId (..),
     Entity (.., GlobalTerm),
     globalTerm,
@@ -111,6 +113,17 @@ data GlobalName = GlobalName
     globalNameNamespace :: !ResolutionNamespace
   }
   deriving (Eq, Ord, Show, Read, Generic)
+
+-- | A mark on a name occurrence that gives its top-level term. The resolver
+-- gives the occurrence that term and does not look in the scope. The
+-- result of a Template Haskell splice has such names: a quote binds a name
+-- to its definition, and the scope at the splice can be different.
+newtype ExactTerm = ExactTerm GlobalName
+  deriving (Eq, Show)
+
+-- | The term that a mark on the name gives, if the name has a mark.
+exactTerm :: Name -> Maybe GlobalName
+exactTerm name = listToMaybe [global | Just (ExactTerm global) <- map fromAnnotation (nameAnns name)]
 
 -- | The identity of one local binder, unique within a compilation unit.
 newtype LocalId = LocalId {localIdUnique :: Int}

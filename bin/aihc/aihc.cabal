@@ -259,6 +259,7 @@ library
     Aihc.Native
     Aihc.Prim.Wiring
     Aihc.Th.Convert
+    Aihc.Th.Quote
     Aihc.Th.Splices
     Aihc.Th.Wire
     Aihc.Wasm

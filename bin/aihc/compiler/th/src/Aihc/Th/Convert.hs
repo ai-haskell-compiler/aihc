@@ -17,6 +17,7 @@ where
 
 import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Syntax
+import Aihc.Resolve.Types (ExactTerm (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
 import Data.Char (isAlpha, isUpper)
 import Data.Text (Text)
@@ -91,9 +92,11 @@ patternFromTree tree =
     TreeNode "WildP" [] -> Right PWildcard
     _ -> unsupported "pattern" tree
 
--- | The name of a @Name@ tree. A name with no module and a name with a
--- module qualifier are in the subset. A name that Template Haskell made
--- unique and a name that is bound to its package are not.
+-- | The name of a @Name@ tree. A name with no module, a name with a module
+-- qualifier, and a term name that is bound to its package and module are
+-- in the subset. The last has an 'ExactTerm' mark, so name resolution
+-- gives it that term in each scope. A name that Template Haskell made
+-- unique is not in the subset.
 nameFromTree :: Tree -> Either Text Name
 nameFromTree tree =
   case tree of
@@ -103,6 +106,10 @@ nameFromTree tree =
           case flavour of
             TreeNode "NameS" [] -> Right (mkName Nothing (occurrenceType occurrence) occurrence)
             TreeNode "NameQ" [TreeNode "ModName" [TreeString qualifier]] -> Right (mkName (Just qualifier) (occurrenceType occurrence) occurrence)
+            TreeNode "NameG" [TreeNode space [], TreeNode "PkgName" [TreeString package], TreeNode "ModName" [TreeString home]]
+              | space `elem` ["VarName", "DataName"] ->
+                  let global = GlobalName occurrence (PackageId package) home ResolutionNamespaceTerm
+                   in Right (mkName Nothing (occurrenceType occurrence) occurrence) {nameAnns = [mkAnnotation (ExactTerm global)]}
             _ -> unsupported "name flavour" flavour
     _ -> unsupported "name" tree
 

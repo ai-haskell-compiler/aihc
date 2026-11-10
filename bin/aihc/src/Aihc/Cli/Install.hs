@@ -198,12 +198,13 @@ import Aihc.Resolve
     GlobalName (..),
     ModuleExports,
     ModuleKey (..),
-    ModuleUnit,
+    ModuleUnit (..),
     Package (..),
     PackageId (..),
     ResolutionNamespace (..),
     ResolveError (..),
     ResolveFailure (..),
+    ResolvedModule (..),
     ResolvedUnit (..),
     builtins,
     collectModuleExportsWithDeps,
@@ -248,6 +249,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Th.Quote (desugarModuleQuotes, moduleHasQuote, quoteImports)
 import Aihc.Th.Splices (SpliceRequest (..), moduleSplices, replaceModuleSplices)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
@@ -1907,8 +1909,9 @@ addModuleBuild graph shared build = do
               taskOrder = order,
               taskDependencies = Set.empty,
               taskAction = do
-                source <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
-                expandModuleSplices shared build file source
+                parsedSource <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
+                expandModuleSplices shared build file parsedSource
+                source <- addQuoteImports file parsedSource
                 -- The header fields of the module are strict, so the import
                 -- list is known once the source exists. The tree is forced
                 -- here, in the parse task, and not by the first task that
@@ -1971,6 +1974,36 @@ expandModuleSplices shared build file source =
       any
         (\other -> splitDirectories (T.unpack (T.replace "." "/" name)) `isSuffixOf` splitDirectories (dropExtension (HackageCabal.fileInfoPath other)))
         (moduleBuildFiles build)
+
+-- | Give a module with an expression quote the imports of "Aihc.Th.Quote".
+-- Name resolution changes the quote into an expression that uses them. The
+-- module only gets the imports when its component depends on
+-- @template-haskell@: without that package, the quote stays as it is.
+addQuoteImports :: HackageCabal.FileInfo -> SourceModule -> IO SourceModule
+addQuoteImports file source
+  | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.TemplateHaskellQuotes] && "template-haskell" `elem` HackageCabal.fileInfoDependencies file = do
+      modu <- readMVar (sourceModuleParsed source)
+      if moduleHasQuote modu
+        then do
+          void (swapMVar (sourceModuleParsed source) modu {Syntax.moduleImports = Syntax.moduleImports modu <> quoteImports})
+          pure source {sourceModuleImports = nub (sourceModuleImports source <> [(Nothing, importDeclModule importDecl) | importDecl <- quoteImports])}
+        else pure source
+  | otherwise = pure source
+
+-- | Resolve a unit, and change the expression quotes of its modules. A
+-- quote needs the result of name resolution, and its new expression has
+-- names that are not resolved. Thus, a unit with a quote resolves two
+-- times. The first annotation of a name is the valid one, so the
+-- annotations of the first time have no effect.
+resolveUnitQuotes :: Builtins -> ModuleExports -> [ModuleUnit] -> Either ResolveFailure ResolvedUnit
+resolveUnitQuotes builtinScope exports modules =
+  case resolveUnit builtinScope exports modules of
+    Right (ResolvedUnit resolved)
+      | any (hasQuoteImports . moduleUnitAst) modules ->
+          resolveUnit builtinScope exports [(resolvedModuleUnit modu) {moduleUnitAst = desugarModuleQuotes (moduleUnitAst (resolvedModuleUnit modu))} | modu <- resolved]
+    result -> result
+  where
+    hasQuoteImports modu = any ((`elem` map importDeclModule quoteImports) . importDeclModule) (Syntax.moduleImports modu) && moduleHasQuote modu
 
 -- | Cut the parsed modules into units and add the tasks of each unit and
 -- the finish task. A unit waits on the units of its own package it
@@ -2816,7 +2849,7 @@ runResolveUnit context runtimes runtime = do
           visibleExports = localReexportExports context (unitExports <> availableExports)
           builtinScope = builtinFunctionScope resolvePackage visibleExports
           (resolved, errors) =
-            case resolveUnit builtinScope visibleExports packageModules of
+            case resolveUnitQuotes builtinScope visibleExports packageModules of
               Right resolvedUnit' -> (resolvedUnit', [])
               Left failure -> (ResolvedUnit (failureModules failure), failureErrors failure)
           success = parseSuccess && dependenciesSucceeded && null errors
@@ -2967,7 +3000,7 @@ runTypeUnit context runtimes runtime = do
                   let visibleExports = localReexportExports context (collectUnitExports context availableExports packageModules <> availableExports)
                    in -- The unit resolved when its artifacts were written, and the
                       -- same inputs resolve the same way.
-                      fromRight (ResolvedUnit []) (resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules)
+                      fromRight (ResolvedUnit []) (resolveUnitQuotes (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules)
             checked =
               typecheckModuleSccWithInterface
                 (primTcConfig primIdentity)
