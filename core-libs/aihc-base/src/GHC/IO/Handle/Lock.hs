@@ -11,7 +11,7 @@ module GHC.IO.Handle.Lock
   )
 where
 
-import Data.Typeable (cast)
+import Data.Typeable.Internal (cast)
 import GHC.IO.FD (FD (..))
 import GHC.IO.Handle.Internals (withHandle_)
 import GHC.IO.Handle.Lock.Common (FileLockingNotSupported (..), LockMode (..))

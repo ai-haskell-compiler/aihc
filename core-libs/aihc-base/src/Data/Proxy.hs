@@ -19,7 +19,7 @@ asProxyTypeOf x _ = x
 -- type are equal.
 --
 -- @base@ gives 'Proxy' many more instances. They are not here because
--- 'Data.Typeable' imports this module and sits below 'Prelude': an import
+-- 'Data.Typeable.Internal' imports this module and sits below 'Prelude': an import
 -- of 'Prelude' or of 'Data.Semigroup.Internal' from here closes a cycle.
 instance Eq (Proxy a) where
   _ == _ = True

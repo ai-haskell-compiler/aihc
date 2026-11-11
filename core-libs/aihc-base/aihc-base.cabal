@@ -253,6 +253,7 @@ library
     Unsafe.Coerce
 
   other-modules:
+    Data.Typeable.Internal
     Foreign.C.Error.Repr
     Foreign.C.Types.Repr
     Foreign.Storable.Repr

@@ -297,7 +297,9 @@ genericReferences =
 
 -- | The names of @Data.Data@ and @Data.Typeable@ that a derived @Data@
 -- instance is built from. They sit beside the class, so the table cannot
--- name their package.
+-- name their package. Each reference names the module that defines the
+-- name: 'gcast1' and 'gcast2' come from @Data.Typeable.Internal@, which
+-- @Data.Typeable@ re-exports.
 dataReferences :: DataReferences
 dataReferences =
   DataReferences
@@ -312,7 +314,7 @@ dataReferences =
     }
   where
     dataModule = "Data.Data"
-    typeableModule = "Data.Typeable"
+    typeableModule = "Data.Typeable.Internal"
     reference nameType moduleName name =
       DerivingReference ReferenceClassPackage moduleName name nameType ResolutionNamespaceTerm
     constructor = reference NameConId

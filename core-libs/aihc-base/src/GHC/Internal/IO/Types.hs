@@ -50,7 +50,7 @@ where
 
 import Data.Bool (Bool (..), not, (&&))
 import Data.Maybe (Maybe (..))
-import Data.Typeable (Typeable)
+import Data.Typeable.Internal (Typeable)
 import Foreign.C.Types (CInt)
 import GHC.Base (Monad (..), String, id, (.))
 import GHC.Enum (Bounded (..), Enum (..))

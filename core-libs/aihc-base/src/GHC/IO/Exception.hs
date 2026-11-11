@@ -33,7 +33,7 @@ where
 
 import Data.Bool (Bool (..))
 import Data.Maybe (Maybe (..))
-import Data.Typeable (cast)
+import Data.Typeable.Internal (cast)
 import GHC.Base (String, (.))
 import GHC.Exception.Type (Exception (..), SomeException)
 import GHC.Int (Int)
