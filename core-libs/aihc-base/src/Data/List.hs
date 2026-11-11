@@ -70,6 +70,7 @@ module Data.List
     isPrefixOf,
     isSuffixOf,
     isInfixOf,
+    isSubsequenceOf,
     elem,
     notElem,
     lookup,
@@ -262,6 +263,15 @@ isSuffixOf suffix value = reverse suffix `isPrefixOf` reverse value
 
 isInfixOf :: (Eq a) => [a] -> [a] -> Bool
 isInfixOf needle haystack = any (isPrefixOf needle) (tails haystack)
+
+-- | 'True' if the elements of the first list occur in the second list in
+-- the same order. The elements need not be adjacent.
+isSubsequenceOf :: (Eq a) => [a] -> [a] -> Bool
+isSubsequenceOf [] _ = True
+isSubsequenceOf _ [] = False
+isSubsequenceOf needle@(value : values) (candidate : candidates)
+  | value == candidate = isSubsequenceOf values candidates
+  | otherwise = isSubsequenceOf needle candidates
 
 partition :: (a -> Bool) -> [a] -> ([a], [a])
 partition select = foldr (selectPartition select) ([], [])

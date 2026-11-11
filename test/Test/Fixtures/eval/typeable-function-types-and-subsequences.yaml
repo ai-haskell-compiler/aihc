@@ -1,0 +1,28 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.List (isSubsequenceOf)
+    import Data.Typeable (funResultTy, mkFunTy, typeOf)
+
+    boolRep = typeOf True
+    intRep = typeOf (0 :: Int)
+
+    answer :: (Bool, Bool, Bool, Bool, Bool, Bool)
+    answer =
+      ( mkFunTy boolRep intRep == typeOf not'
+      , funResultTy (typeOf not') boolRep == Just intRep
+      , funResultTy (typeOf not') intRep == Nothing
+      , funResultTy boolRep boolRep == Nothing
+      , "ace" `isSubsequenceOf` "abcde"
+      , "eca" `isSubsequenceOf` "abcde"
+      )
+      where
+        not' :: Bool -> Int
+        not' b = if b then 1 else 0
+output: |
+  (True,True,True,True,True,False)
+expression: |
+  answer
+status: pass
+reason: base exports funResultTy and mkFunTy from Data.Typeable and isSubsequenceOf from Data.List
