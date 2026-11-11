@@ -10,6 +10,10 @@
 --
 -- The driver does not call into the program. The program calls the driver,
 -- and the driver gives its answer as the result of that call.
+--
+-- A closure can refer to a CAF that an earlier closure evaluated, and the
+-- earlier code is not live then. Thus the program tells the run-time system
+-- to keep the value of each CAF, before it runs a closure.
 module Main (main) where
 
 import Control.Exception (SomeException, try)
@@ -23,11 +27,17 @@ import GHC.Ptr (Ptr (..))
 -- a closure or has no more commands.
 foreign import ccall unsafe "aihc_engine_next" engineNext :: IO (Ptr ())
 
+-- | Keep the values of the CAFs after their evaluation.
+foreign import ccall unsafe "aihc_keep_cafs" keepCafs :: IO ()
+
 -- | Tell the driver that the closure raised an exception.
 foreign import ccall unsafe "aihc_engine_fail" engineFail :: Ptr CChar -> Int -> IO ()
 
 main :: IO ()
-main = do
+main = keepCafs >> runClosures
+
+runClosures :: IO ()
+runClosures = do
   closure <- engineNext
   if closure == nullPtr
     then pure ()
@@ -36,7 +46,7 @@ main = do
       case result of
         Left exception -> withCStringLen (show (exception :: SomeException)) (uncurry engineFail)
         Right () -> pure ()
-      main
+      runClosures
 
 -- | The closure at an address. A static closure does not move, so its
 -- address is the value itself.

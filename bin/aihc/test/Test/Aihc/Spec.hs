@@ -640,7 +640,8 @@ withBuildModuleSandbox getStore prefix action = do
 
 -- | The guest of an engine image runs closures of a shared module. The
 -- closures keep state in the instance, and an exception in a closure does
--- not stop the guest.
+-- not stop the guest. A static thunk that a closure evaluated keeps its
+-- value after collections between the closures.
 test_engineClosures :: IO (Maybe SeedStore) -> Assertion
 test_engineClosures getStore =
   withEngineFixture getStore [] "closures" $ \engine -> do
@@ -657,6 +658,13 @@ test_engineClosures getStore =
       Left err -> assertBool ("the exception text: " <> ioeGetErrorString err) ("the closure failed" `isInfixOf` ioeGetErrorString err)
       Right messages -> assertFailure ("expected an exception, got " <> show messages)
     assertEqual "run after the exception" ["run 3", "5000050000"] third
+    -- A static thunk keeps its value between closures. Other closures
+    -- cause full collections while no live code refers to the thunk.
+    tableFirst <- run "tableSum"
+    _ <- run "churn"
+    tableSecond <- run "tableSum"
+    assertEqual "the first sum of the static list" ["200010000"] tableFirst
+    assertEqual "the sum of the static list after the collections" ["200010000"] tableSecond
 
 -- | A closure runs a Template Haskell computation in the guest and sends
 -- its result. The compiler decodes the message and converts it to the

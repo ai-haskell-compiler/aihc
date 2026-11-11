@@ -1,4 +1,4 @@
-module Closures (greet, failing) where
+module Closures (greet, failing, tableSum, churn) where
 
 import Control.Exception (ErrorCall (..), throwIO)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
@@ -26,3 +26,21 @@ greet = do
 
 failing :: IO ()
 failing = throwIO (ErrorCall "the closure failed")
+
+-- | A static thunk. The first run of 'tableSum' evaluates it, and later
+-- runs use its value again.
+table :: [Int]
+table = [1 .. 20000]
+{-# NOINLINE table #-}
+
+tableSum :: IO ()
+tableSum = send (show (sum table))
+
+-- | Allocate many objects that stay live for a short time. Thus, the
+-- collector does full collections while no code refers to 'table'.
+churn :: IO ()
+churn = send (show (sum (map live [1 .. 12])))
+  where
+    -- The list stays live while 'length' walks it.
+    live :: Int -> Int
+    live seed = let values = [seed .. seed + 300000] in length values + sum values
