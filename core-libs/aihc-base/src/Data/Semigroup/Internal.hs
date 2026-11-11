@@ -15,6 +15,7 @@ module Data.Semigroup.Internal
 where
 
 import Data.Bool (Bool (..), (&&), (||))
+import Data.Either (Either (..))
 import Data.Proxy (Proxy (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), id, (.))
 import GHC.Err (errorWithoutStackTrace)
@@ -144,6 +145,11 @@ instance Semigroup Ordering where
 
 instance Monoid Ordering where
   mempty = EQ
+
+instance Semigroup (Either a b) where
+  Left _ <> right = right
+  left <> _ = left
+  stimes = stimesIdempotent
 
 instance (Semigroup b) => Semigroup (a -> b) where
   (left <> right) value = left value <> right value
