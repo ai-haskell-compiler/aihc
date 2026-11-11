@@ -2,8 +2,13 @@
 
 -- | The legacy @integer-gmp@ interface to 'Integer'.  Packages still using it
 -- get the operations from here; new code should use "GHC.Num.Integer".
+{-# LANGUAGE MagicHash #-}
+
 module GHC.Integer
   ( Integer,
+    smallInteger,
+    integerToInt,
+    integerToWord,
     divInteger,
     divModInteger,
     modInteger,
@@ -13,8 +18,21 @@ module GHC.Integer
   )
 where
 
-import GHC.Internal.Integer (Integer)
+import GHC.Internal.Integer (Integer (..), integerToInt#)
+import GHC.Prim (Int#, Word#, int2Word#)
 import GHC.Real (div, divMod, mod, quot, quotRem, rem)
+
+-- | Convert an unboxed 'Int#' to an 'Integer'.
+smallInteger :: Int# -> Integer
+smallInteger = IS
+
+-- | The low machine word of an 'Integer' as an 'Int#'. The value wraps.
+integerToInt :: Integer -> Int#
+integerToInt = integerToInt#
+
+-- | The low machine word of an 'Integer' as a 'Word#'. The value wraps.
+integerToWord :: Integer -> Word#
+integerToWord value = int2Word# (integerToInt# value)
 
 -- | Truncating division, rounding towards zero.
 quotInteger :: Integer -> Integer -> Integer

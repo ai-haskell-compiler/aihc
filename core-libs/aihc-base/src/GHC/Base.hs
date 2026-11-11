@@ -16,7 +16,10 @@ module GHC.Base
     Int (..),
     Char (..),
     Word (..),
+    Float (..),
+    Double (..),
     Type,
+    isTrue#,
     ord,
     unsafeChr,
     assert,
@@ -29,6 +32,7 @@ module GHC.Base
     quotInt,
     remInt,
     modInt,
+    modInt#,
     build,
     augment,
     unpackCString#,
@@ -62,7 +66,7 @@ import GHC.Magic (oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim hiding (aihcAddWeakFinalizer#)
 import GHC.Prim.Base
-import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, Word (..), isTrue#)
+import GHC.Types (Bool (..), Char (..), Double (..), Float (..), RuntimeRep, TYPE, Type, Word (..), isTrue#)
 
 -- | A monoid on applicative functors. GHC declares 'Alternative' and
 -- 'MonadPlus' in this module, and packages such as @STMonadTrans@ import
@@ -134,6 +138,14 @@ modInt (I# numerator) (I# denominator) =
               case (remainder <# 0#) ==# (denominator <# 0#) of
                 1# -> I# remainder
                 _ -> I# (remainder +# denominator)
+
+-- | The unboxed 'modInt'. The remainder has the sign of the denominator.
+-- Division by zero is the caller's responsibility.
+modInt# :: Int# -> Int# -> Int#
+modInt# numerator denominator =
+  case modInt (I# numerator) (I# denominator) of
+    I# remainder -> remainder
+{-# INLINE modInt# #-}
 
 -- List fusion follows GHC: a good producer is written with 'build', a
 -- good consumer with 'foldr', and the rules below remove the list between
