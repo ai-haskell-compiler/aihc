@@ -1,0 +1,51 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE DataKinds, DeriveGeneric, GeneralizedNewtypeDeriving, KindSignatures, TypeFamilies #-}
+    module Test where
+
+    import Data.Coerce (coerce)
+    import Data.Functor.Classes (Eq1 (..), Ord1 (..), compare1, eq1)
+    import Data.Kind (Type)
+    import GHC.Generics (Generic (..))
+    import qualified Numeric
+
+    data Variant = DQuantity Bool | DUnit
+
+    class KnownVariant (v :: Variant) where
+      data Dimensional v :: Type -> Type -> Type
+
+    instance KnownVariant ('DQuantity s) where
+      newtype Dimensional ('DQuantity s) d a = Quantity a
+        deriving (Eq, Ord, Show, Generic)
+
+    instance KnownVariant 'DUnit where
+      data Dimensional 'DUnit d a = Unit Int a
+        deriving (Eq, Show)
+
+    instance Eq1 (Dimensional ('DQuantity s) d) where
+      liftEq = coerce
+
+    instance Ord1 (Dimensional ('DQuantity s) d) where
+      liftCompare = coerce
+
+    metre :: Dimensional ('DQuantity 'True) () Int
+    metre = Quantity 1
+
+    result :: Bool
+    result =
+      and
+        [ metre == Quantity 1,
+          not (eq1 metre (Quantity 2)),
+          compare1 metre (Quantity 0) == GT,
+          show (to (from metre) `asTypeOf` metre) == "Quantity 1",
+          Unit 1 'x' == (Unit 1 'x' :: Dimensional 'DUnit () Char),
+          Numeric.log1p (0 :: Double) == 0
+        ]
+expression: result
+output: 'True'
+status: pass
+reason: >
+  A deriving clause on an associated data or newtype instance derives its
+  instances for the family application, as GHC does. Numeric exports the
+  Floating methods log1p, expm1, log1pexp, and log1mexp.

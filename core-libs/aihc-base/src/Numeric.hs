@@ -20,11 +20,12 @@ module Numeric
     showGFloat,
     showFloat,
     showHFloat,
+    Floating (..),
   )
 where
 
 import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit, isSpace)
-import GHC.Float (FFFormat (..), floatToDigits, formatRealFloat, showFloat)
+import GHC.Float (FFFormat (..), Floating (..), floatToDigits, formatRealFloat, showFloat)
 import GHC.Read.Lex (Lexeme (..), lexP, numberToRational)
 import GHC.Show (intToDigit)
 import Text.ParserCombinators.ReadPrec (readPrec_to_S)

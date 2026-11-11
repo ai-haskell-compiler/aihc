@@ -21,6 +21,7 @@ import Control.Monad (zipWithM)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
 
 -- | A proof of @source ~ target@ at representational role, or 'Nothing'
 -- when the two types do not share a representation. Coercions lift through
@@ -141,8 +142,32 @@ newtypeUnwrapping ty =
               let substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)
               axiom <- newtypeAxiom constructor dataType arguments
               pure (Just (normalize (applySubst substitution (dcfiType field)), axiom))
-        _ -> pure Nothing
+        _ -> familyNewtypeUnwrapping (TcTyCon constructor arguments)
     _ -> pure Nothing
+
+-- | The representation of a data family application that a newtype
+-- instance covers. The family axiom proves @F pats ~ R:F vars@, and the
+-- representation axiom proves @R:F vars ~ field@. A deriving clause on the
+-- newtype instance coerces through both.
+familyNewtypeUnwrapping :: TcType -> TcM (Maybe (TcType, Coercion))
+familyNewtypeUnwrapping target = do
+  instances <- getDataFamilyInstances
+  pure $ case [ (normalize (applySubst substitution (dcfiType field)), mkTrans (AxiomInstCo (dataFamilyAxiomKey familyInstance) arguments) (AxiomInstCo (representationAxiomKey familyInstance) arguments))
+              | familyInstance <- instances,
+                dfiiIsNewtype familyInstance,
+                [con] <- [dfiiConstructors familyInstance],
+                null (dciExTyVars con),
+                null (dciTheta con),
+                [field] <- [dciFields con],
+                Just substitution <- [matchTypes [normalize (dfiiFamilyType familyInstance)] [target]],
+                let arguments = map (applySubst substitution . TcTyVar) (dfiiTyVars familyInstance)
+              ] of
+    [unwrapping] -> Just unwrapping
+    _ -> Nothing
+  where
+    representationAxiomKey familyInstance =
+      let tyCon = dfiiRepresentationTyCon familyInstance
+       in TcAxiomKey (tyConPackageId tyCon) (tyConModuleName tyCon) ("$ax$" <> T.drop 1 (tyConName tyCon))
 
 -- | Instantiate the axiom of a newtype. The kind arguments the declaration
 -- binds implicitly come before the type arguments.

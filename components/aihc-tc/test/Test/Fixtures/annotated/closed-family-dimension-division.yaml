@@ -1,0 +1,91 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+
+  data Int' = Zero | Pos1 | Pos2 | Neg1 | Neg2
+       │      │      │      │      │      └─ type: Int'
+       │      │      │      │      └─ type: Int'
+       │      │      │      └─ type: Int'
+       │      │      └─ type: Int'
+       │      └─ type: Int'
+       └─ type: Type
+
+  type family (a :: Int') - (b :: Int') :: Int' where
+                          └─ type: Int' → Int' → Int'
+    a - 'Zero = a
+    'Zero - 'Pos1 = 'Neg1
+    'Zero - 'Pos2 = 'Neg2
+    'Pos1 - 'Pos1 = 'Zero
+    'Pos1 - 'Pos2 = 'Neg1
+
+  data Dimension = Dim Int' Int'
+       │           └─ type: Int' → Int' → Dimension
+       └─ type: Type
+
+  type DOne = 'Dim 'Zero 'Zero
+       └─ type: Dimension
+
+  type family (a :: Dimension) / (b :: Dimension) where
+                               └─ type: Dimension → Dimension → Dimension
+    d / DOne = d
+    d / d = DOne
+    ('Dim l t) / ('Dim l' t') = 'Dim (l - l') (t - t')
+
+  data P (d :: Dimension) = P
+       │                    └─ type: ∀ d. P d
+       └─ type: Dimension → Type
+
+  accel :: P ('Dim 'Pos1 'Zero) -> P ('Dim 'Zero 'Pos2) -> P ('Dim 'Pos1 'Zero / 'Dim 'Zero 'Pos2)
+  accel _ _ = P
+  │     │ │   └─ type: P ('Dim 'Pos1 'Neg2); type-args: 'Dim 'Pos1 'Neg2
+  │     │ └─ type: P ('Dim 'Zero 'Pos2)
+  │     └─ type: P ('Dim 'Pos1 'Zero)
+  └─ type: P ('Dim 'Pos1 'Zero) → P ('Dim 'Zero 'Pos2) → P (/ ('Dim 'Pos1 'Zero) ('Dim 'Zero 'Pos2))
+
+  check :: P ('Dim 'Pos1 'Neg2)
+  check = accel P P
+  │             │ └─ type: P ('Dim 'Zero 'Pos2); type-args: 'Dim 'Zero 'Pos2
+  │             └─ type: P ('Dim 'Pos1 'Zero); type-args: 'Dim 'Pos1 'Zero
+  └─ type: P ('Dim 'Pos1 'Neg2)
+extensions:
+- DataKinds
+- KindSignatures
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+
+  data Int' = Zero | Pos1 | Pos2 | Neg1 | Neg2
+
+  type family (a :: Int') - (b :: Int') :: Int' where
+    a - 'Zero = a
+    'Zero - 'Pos1 = 'Neg1
+    'Zero - 'Pos2 = 'Neg2
+    'Pos1 - 'Pos1 = 'Zero
+    'Pos1 - 'Pos2 = 'Neg1
+
+  data Dimension = Dim Int' Int'
+
+  type DOne = 'Dim 'Zero 'Zero
+
+  type family (a :: Dimension) / (b :: Dimension) where
+    d / DOne = d
+    d / d = DOne
+    ('Dim l t) / ('Dim l' t') = 'Dim (l - l') (t - t')
+
+  data P (d :: Dimension) = P
+
+  accel :: P ('Dim 'Pos1 'Zero) -> P ('Dim 'Zero 'Pos2) -> P ('Dim 'Pos1 'Zero / 'Dim 'Zero 'Pos2)
+  accel _ _ = P
+
+  check :: P ('Dim 'Pos1 'Neg2)
+  check = accel P P
+status: pass
+reason: >-
+  A closed family equation with a repeated pattern variable, as d / d, is
+  apart from arguments that cannot unify with each other. Thus the later
+  equation reduces, as in GHC.

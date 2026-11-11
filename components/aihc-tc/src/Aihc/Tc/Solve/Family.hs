@@ -27,7 +27,7 @@ import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyEqu
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
-import Control.Monad ((>=>))
+import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
@@ -341,7 +341,7 @@ firstEquation family kindOf equations arguments argumentKinds extraArguments =
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
               Just (applySubst (substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution) (tfiiRight equation))
           | tfiiClosed equation,
-            and (zipWith (couldUnify family) patterns arguments),
+            couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
         _ -> firstEquation family kindOf rest arguments argumentKinds extraArguments
@@ -373,30 +373,79 @@ equationArguments info =
     TcKindedTyCon {} -> Just []
     _ -> Nothing
 
--- | Whether a pattern could match a type once more is known about it.
+-- | Whether patterns could match types once more is known about them.
 --
 -- As in GHC's apartness check, every type variable of the target counts
 -- as unifiable -- a skolem here is instantiated elsewhere -- and so does a
--- stuck type family application, which may reduce to anything.
+-- stuck type family application, which may reduce to anything. A pattern
+-- variable that occurs more than once, as @d@ in @d / d@, binds types
+-- that must unify with each other. Thus @'Dim 'Pos1 / 'Dim 'Zero@ is apart
+-- from @d / d@.
+couldUnifyAll :: (TyCon -> Bool) -> [TcType] -> [TcType] -> Bool
+couldUnifyAll family patterns targets =
+  case concat <$> zipWithM (patternBindings family) patterns targets of
+    Nothing -> False
+    Just bindings ->
+      all
+        consistent
+        (Map.elems (Map.fromListWith (<>) [(tvUnique variable, [target]) | (variable, target) <- bindings]))
+  where
+    consistent bound = and [typesCouldUnify family left right | (left, rest) <- picks bound, right <- rest]
+    picks values = case values of
+      [] -> []
+      value : rest -> (value, rest) : picks rest
+
 couldUnify :: (TyCon -> Bool) -> TcType -> TcType -> Bool
-couldUnify family = go
+couldUnify family patternType target = couldUnifyAll family [patternType] [target]
+
+-- | The types that the pattern variables bind when a pattern could match a
+-- type, or 'Nothing' when the two are apart.
+patternBindings :: (TyCon -> Bool) -> TcType -> TcType -> Maybe [(TyVarId, TcType)]
+patternBindings family = go
   where
     go patternType target =
       case (patternType, target) of
-        (TcTyVar _, _) -> True
-        (_, TcTyVar _) -> True
-        (_, TcMetaTv _) -> True
-        (_, TcTyCon targetTyCon _) | family targetTyCon -> True
-        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments) ->
-          tyCon == targetTyCon
-            && length arguments == length targetArguments
-            && and (zipWith go arguments targetArguments)
+        (TcTyVar variable, _) -> Just [(variable, target)]
+        (_, TcTyVar _) -> Just []
+        (_, TcMetaTv _) -> Just []
+        (_, TcTyCon targetTyCon _) | family targetTyCon -> Just []
+        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+          | tyCon == targetTyCon && length arguments == length targetArguments ->
+              concat <$> zipWithM go arguments targetArguments
+          | otherwise -> Nothing
         -- The kind arguments are kinds, and a kind can still change.
-        (TcKindedTyCon tyCon _, TcKindedTyCon targetTyCon _) -> tyCon == targetTyCon
-        (TcKindedTyCon tyCon _, TcTyCon targetTyCon []) -> tyCon == targetTyCon
-        (TcTyCon tyCon [], TcKindedTyCon targetTyCon _) -> tyCon == targetTyCon
+        (TcKindedTyCon tyCon _, TcKindedTyCon targetTyCon _) -> sameTyCon tyCon targetTyCon
+        (TcKindedTyCon tyCon _, TcTyCon targetTyCon []) -> sameTyCon tyCon targetTyCon
+        (TcTyCon tyCon [], TcKindedTyCon targetTyCon _) -> sameTyCon tyCon targetTyCon
         (TcFunTy argument result, TcFunTy targetArgument targetResult) ->
-          go argument targetArgument && go result targetResult
+          (<>) <$> go argument targetArgument <*> go result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
-          go function targetFunction && go argument targetArgument
-        _ -> patternType == target
+          (<>) <$> go function targetFunction <*> go argument targetArgument
+        _
+          | patternType == target -> Just []
+          | otherwise -> Nothing
+    sameTyCon tyCon targetTyCon = if tyCon == targetTyCon then Just [] else Nothing
+
+-- | Whether two types that one pattern variable binds could become equal.
+-- A type variable, a meta variable, or a stuck family application on
+-- either side can become anything.
+typesCouldUnify :: (TyCon -> Bool) -> TcType -> TcType -> Bool
+typesCouldUnify family = go
+  where
+    open ty = case ty of
+      TcTyVar _ -> True
+      TcMetaTv _ -> True
+      TcTyCon tyCon _ -> family tyCon
+      _ -> False
+    go left right
+      | open left || open right = True
+      | otherwise =
+          case (left, right) of
+            (TcTyCon tyCon arguments, TcTyCon tyCon' arguments') ->
+              tyCon == tyCon' && length arguments == length arguments' && and (zipWith go arguments arguments')
+            (TcKindedTyCon tyCon _, TcKindedTyCon tyCon' _) -> tyCon == tyCon'
+            (TcKindedTyCon tyCon _, TcTyCon tyCon' []) -> tyCon == tyCon'
+            (TcTyCon tyCon [], TcKindedTyCon tyCon' _) -> tyCon == tyCon'
+            (TcFunTy argument result, TcFunTy argument' result') -> go argument argument' && go result result'
+            (TcAppTy function argument, TcAppTy function' argument') -> go function function' && go argument argument'
+            _ -> left == right

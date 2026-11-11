@@ -50,7 +50,7 @@ import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplify
 import Aihc.Tc.Types (Unique (..))
 import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, guard)
+import Control.Monad (foldM, guard, zipWithM)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -509,7 +509,7 @@ applyFamilyEquations env equations source = snd <$> select equations
         (sourceHead, sourceArguments) <- spine [] source,
         patternHead == sourceHead,
         length patternArguments == length sourceArguments,
-        and (zipWith couldUnify patternArguments sourceArguments) = do
+        couldUnifyAll patternArguments sourceArguments = do
           selected@(later, _) <- select rest
           -- A later equation can pass an earlier equation when both give
           -- the same result throughout the earlier equation's domain.
@@ -536,23 +536,51 @@ applyFamilyEquations env equations source = snd <$> select equations
           and (zipWith synonymsEqual [r1a, r2a, a1, b1] [r1b, r2b, a2, b2])
         (TyEq a1 b1, TyEq a2 b2) -> synonymsEqual a1 a2 && synonymsEqual b1 b2
         _ -> first == second
-    couldUnify patternType target =
+    -- A pattern variable that occurs more than once, as @d@ in @d / d@,
+    -- binds types that must unify with each other.
+    couldUnifyAll patterns targets =
+      case concat <$> zipWithM bindings patterns targets of
+        Nothing -> False
+        Just bound ->
+          all
+            consistent
+            (Map.elems (Map.fromListWith (<>) [(name, [target]) | (name, target) <- bound]))
+    consistent bound = and [typesCouldUnify left right | (left, rest) <- picks bound, right <- rest]
+    picks values = case values of
+      [] -> []
+      value : rest -> (value, rest) : picks rest
+    bindings patternType target =
       case (patternType, target) of
-        (TyVar _, _) -> True
-        (_, TyVar _) -> True
-        (_, _) | isFamilyApplication target -> True
-        (TyCon name, TyCon targetName) -> name == targetName
-        (TyLit _ literal, TyLit _ targetLiteral) -> literal == targetLiteral
+        (TyVar name, _) -> Just [(name, target)]
+        (_, TyVar _) -> Just []
+        (_, _) | isFamilyApplication target -> Just []
+        (TyCon name, TyCon targetName) -> if name == targetName then Just [] else Nothing
+        (TyLit _ literal, TyLit _ targetLiteral) -> if literal == targetLiteral then Just [] else Nothing
         -- A pattern @t a@ takes a type argument. It is apart from the
         -- application of a constructor to a kind argument, as @Void k@ is,
         -- because the kind of that constructor quantifies the argument.
         (TyApp (TyVar _) _, TyApp targetFunction _)
-          | takesKindArgument targetFunction -> False
+          | takesKindArgument targetFunction -> Nothing
         (TyApp function argument, TyApp targetFunction targetArgument) ->
-          couldUnify function targetFunction && couldUnify argument targetArgument
+          (<>) <$> bindings function targetFunction <*> bindings argument targetArgument
         (TyFun _ _ argument result, TyFun _ _ targetArgument targetResult) ->
-          couldUnify argument targetArgument && couldUnify result targetResult
-        _ -> False
+          (<>) <$> bindings argument targetArgument <*> bindings result targetResult
+        _ -> Nothing
+    -- Whether two types that one pattern variable binds could become equal.
+    typesCouldUnify left right
+      | open left || open right = True
+      | otherwise =
+          case (left, right) of
+            (TyCon name, TyCon name') -> name == name'
+            (TyLit _ literal, TyLit _ literal') -> literal == literal'
+            (TyApp function argument, TyApp function' argument') ->
+              typesCouldUnify function function' && typesCouldUnify argument argument'
+            (TyFun _ _ argument result, TyFun _ _ argument' result') ->
+              typesCouldUnify argument argument' && typesCouldUnify result result'
+            _ -> left == right
+    open ty = case ty of
+      TyVar _ -> True
+      _ -> isFamilyApplication ty
     takesKindArgument function =
       case reduceType env <$> typeOf env function of
         Just (TyForAll binder body) -> typeUsesName (binderName binder) body

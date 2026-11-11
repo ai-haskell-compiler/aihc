@@ -9,6 +9,4 @@ modules:
     result = C == C
 expression: result
 output: 'True'
-status: xfail
-reason: >
-  GHC returns True. The type checker does not produce the Eq instance from the data family instance declaration.
+status: pass
