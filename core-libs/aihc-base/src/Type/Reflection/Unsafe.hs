@@ -10,6 +10,7 @@ module Type.Reflection.Unsafe
     mkTrCon,
     mkTrApp,
     typeRepFingerprint,
+    tyConFingerprint,
     tyConKindArgs,
     tyConKindRep,
     KindRep (..),

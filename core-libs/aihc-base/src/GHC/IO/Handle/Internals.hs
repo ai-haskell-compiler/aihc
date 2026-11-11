@@ -50,7 +50,7 @@ where
 
 import Data.Bool (Bool (..), not, (||))
 import Data.Maybe (Maybe (..), isJust)
-import Data.Typeable (Typeable)
+import Data.Typeable.Internal (Typeable)
 import GHC.Base (Monad (..), String, ($), (++))
 import GHC.Exception.Type (SomeException)
 import GHC.IO (FilePath, IO, catchException, onException, throwIO)
