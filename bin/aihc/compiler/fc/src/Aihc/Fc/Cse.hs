@@ -30,6 +30,7 @@ import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad (foldM)
 import Control.Monad.Trans.State.Strict (State, modify', runState, state)
+import Data.Foldable (foldMap')
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -227,7 +228,7 @@ share env expr =
     ExForeignCall call types arguments -> do
       results <- mapM (share env) arguments
       let expr' = ExForeignCall call types (map fst results)
-          calls = List.foldl' (<>) MonoidMap.empty (map snd results)
+          calls = foldMap' snd results
       pure
         ( expr',
           if isJust (safePrimitiveCall env expr')
@@ -320,7 +321,7 @@ countWhere wanted = go
         ExCast body _ -> go body
         ExAbsurd scrutinee _ -> go scrutinee
         ExForeignCall _ _ arguments ->
-          let inner = List.foldl' (<>) MonoidMap.empty (map go arguments)
+          let inner = foldMap' go arguments
            in if wanted expr then MonoidMap.adjust (+ 1) expr inner else inner
         ExLam binder body -> under [binder] (go body)
         ExTyLam binder body -> under [binder] (go body)
