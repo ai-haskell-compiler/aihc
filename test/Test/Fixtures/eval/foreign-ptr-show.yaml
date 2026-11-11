@@ -1,0 +1,21 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word8)
+    import Foreign.ForeignPtr (ForeignPtr, newForeignPtr_)
+    import Foreign.Ptr (nullPtr)
+
+    data Buffer = Buffer {buffer :: ForeignPtr Word8} deriving Show
+
+    main :: IO ()
+    main = do
+      pointer <- newForeignPtr_ nullPtr
+      print (Buffer pointer)
+expression: main
+stdout: |
+  Buffer {buffer = 0x0000000000000000}
+output: |
+  ()
+status: pass
+reason: base gives Show (ForeignPtr a), which shows the address that the foreign pointer holds

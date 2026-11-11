@@ -39,6 +39,7 @@ import GHC.IO (IO (..))
 import GHC.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Show (Show (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, plusAddr#, touch#)
 
 sequence_ :: [IO ()] -> IO ()
@@ -68,6 +69,10 @@ instance Eq (ForeignPtr a) where
 
 instance Ord (ForeignPtr a) where
   compare left right = compare (unsafeForeignPtrToPtr left) (unsafeForeignPtrToPtr right)
+
+-- | Like GHC, show a foreign pointer as the address it wraps.
+instance Show (ForeignPtr a) where
+  showsPrec precedence pointer = showsPrec precedence (unsafeForeignPtrToPtr pointer)
 
 unsafeForeignPtrToPtr :: ForeignPtr a -> Ptr a
 unsafeForeignPtrToPtr (ForeignPtr address _) = Ptr address
