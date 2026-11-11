@@ -46,6 +46,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId)
+import Aihc.Tc.Env (typeFamilyAxiomIndex)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily, typeLitFamilyModules)
 import Aihc.Tc.Types (Unique (..))
 import Aihc.Tc.Types qualified as Tc
@@ -103,7 +104,7 @@ unionTypeEnv left right =
       teHeaders = teHeaders left `Map.union` teHeaders right,
       teSynonyms = teSynonyms left `Map.union` teSynonyms right,
       teAxioms = teAxioms left `Map.union` teAxioms right,
-      teFamilyAxioms = Map.unionWith (<>) (teFamilyAxioms left) (teFamilyAxioms right),
+      teFamilyAxioms = Map.unionWith (List.foldl' (flip insertEquation)) (teFamilyAxioms left) (teFamilyAxioms right),
       teBinders = teBinders left `Map.union` teBinders right,
       teConRepresentations = teConRepresentations left `Map.union` teConRepresentations right,
       teConStrictFields = teConStrictFields left `Map.union` teConStrictFields right,
@@ -189,7 +190,10 @@ headerType :: [Binder] -> Type -> Type
 headerType binders result = foldr TyForAll result binders
 
 -- | Register a nominal axiom as an equation of the family at the head of
--- its left-hand side. The equations keep their declaration order.
+-- its left-hand side. The equations keep their declaration order, which
+-- is the order of the index at the end of each closed-family axiom name.
+-- The imports give the axioms in name order, and @$ax$F$10@ comes before
+-- @$ax$F$9@ in that order.
 addFamilyAxiom :: Map Name [AxiomDecl] -> AxiomDecl -> Map Name [AxiomDecl]
 addFamilyAxiom families declaration
   | axiomRole declaration /= Nominal = families
@@ -197,8 +201,16 @@ addFamilyAxiom families declaration
       case typeHead (axiomLeft declaration) of
         Just family
           | declaration `elem` Map.findWithDefault [] family families -> families
-          | otherwise -> Map.insertWith (flip (<>)) family [declaration] families
+          | otherwise -> Map.insertWith (\_ equations -> insertEquation declaration equations) family [declaration] families
         Nothing -> families
+
+-- | Put an equation after each equation whose index is not larger.
+insertEquation :: AxiomDecl -> [AxiomDecl] -> [AxiomDecl]
+insertEquation declaration equations =
+  let (before, after) = span ((<= equationIndex declaration) . equationIndex) equations
+   in before <> (declaration : after)
+  where
+    equationIndex = typeFamilyAxiomIndex . nameText . axiomName
 
 -- | The type constructor at the head of a type application.
 typeHead :: Type -> Maybe Name

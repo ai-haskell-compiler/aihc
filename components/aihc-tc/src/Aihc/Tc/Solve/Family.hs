@@ -21,7 +21,7 @@ module Aihc.Tc.Solve.Family
   )
 where
 
-import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
+import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), typeFamilyAxiomIndex)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
@@ -35,7 +35,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
-import Text.Read (readMaybe)
 
 -- | Rewrite every type family application in a type that an equation
 -- matches. The type must be zonked.
@@ -312,12 +311,7 @@ builtinTypeLitFamily wiring kinds tyCon arguments
 
 -- | The equations of a type family, in declaration order.
 familyEquations :: TyCon -> TcM [TypeFamilyInstanceInfo]
-familyEquations tyCon = sortOn axiomIndex . Map.elems <$> getTypeFamilyEquations tyCon
-
--- | The index of an equation in its family. The axiom name ends with it.
-axiomIndex :: TypeFamilyInstanceInfo -> Int
-axiomIndex info =
-  fromMaybe 0 (readMaybe (T.unpack (T.takeWhileEnd (/= '$') (tfiiAxiomName info))))
+familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elems <$> getTypeFamilyEquations tyCon
 
 -- | The right-hand side of the first equation that matches. In a closed
 -- family, an earlier equation that could still match after the meta

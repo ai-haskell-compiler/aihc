@@ -63,6 +63,7 @@ module Aihc.Tc.Env
     TypeFamilyInstanceInfo (..),
     typeFamilyAxiomKey,
     typeFamilyAxiomName,
+    typeFamilyAxiomIndex,
   )
 where
 
@@ -71,11 +72,13 @@ import Aihc.Tc.Types
 import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+import Text.Read (readMaybe)
 
 -- | Information about a type constructor.
 data TyConFlavor
@@ -632,3 +635,11 @@ typeFamilyAxiomKey info =
 typeFamilyAxiomName :: Text -> Int -> Text
 typeFamilyAxiomName familyName index =
   "$ax$" <> familyName <> "$" <> T.pack (show index)
+
+-- | The index that 'typeFamilyAxiomName' put at the end of an axiom name.
+-- The equations of a closed family are in the order of these indices.
+-- Do not sort them by the name text: @$ax$F$10@ comes before @$ax$F$9@.
+-- A name without an index, as an open-family axiom has, gives 0.
+typeFamilyAxiomIndex :: Text -> Int
+typeFamilyAxiomIndex axiomName =
+  fromMaybe 0 (readMaybe (T.unpack (T.takeWhileEnd (/= '$') axiomName)))
