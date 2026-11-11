@@ -810,6 +810,11 @@ instanceHeadClass ty =
 -- or the class can be in scope only under a qualifier. A binder that is
 -- not a method of the class is an error. If the class of the instance
 -- head is not known, the term scope resolves the binder.
+--
+-- The result of a Template Haskell splice can name the class with its
+-- package and its module, and the class can be out of scope. Then the
+-- binder names the term of that name in the module of the class, and the
+-- type checker finds a binder that is not a method of the class.
 instanceMethodDefinition :: Maybe (Text, Entity) -> Scope -> TermDefinition
 instanceMethodDefinition headClass scope name =
   case headClass of
@@ -817,14 +822,18 @@ instanceMethodDefinition headClass scope name =
       | methodLists@(_ : _) <- classMethodLists className resolvedClass ->
           Just
             ( if any (rendered `elem`) methodLists
-                then Resolved (globalTerm (globalNamePackage classGlobal) (globalNameModule classGlobal) (unqualifiedNameText name))
+                then Resolved (classMethod classGlobal)
                 else Unresolved ("not a method of the class " <> T.unpack className)
             )
+      | not (classInScope className resolvedClass) -> Just (Resolved (classMethod classGlobal))
     _ -> Just (lookupTerm rendered scope)
   where
     rendered = renderUnqualifiedName name
     -- A class and its methods have the same defining module, so the
     -- resolved method name comes from the resolved class name.
+    classMethod classGlobal = globalTerm (globalNamePackage classGlobal) (globalNameModule classGlobal) (unqualifiedNameText name)
+    classInScope className resolvedClass =
+      any (\candidate -> lookupType className candidate == Resolved resolvedClass) (scope : Map.elems (scopeQualifiedModules scope))
     classMethodLists className resolvedClass =
       [ methods
       | candidate <- scope : Map.elems (scopeQualifiedModules scope),

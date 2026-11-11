@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
 -- A quote in a module that also has a do block in an operand of an infix
 -- expression. Name resolution runs two times on such a module, and the
@@ -62,6 +63,46 @@ $( do
        ]
  )
 
+-- A type of this module, with an instance that a splice makes.
+data Box a = Box a | Pair a a
+  deriving (Eq, Show)
+
+-- A declaration splice makes an instance of a class that the program does
+-- not import, and a function of the module of the class. The splice names
+-- them with their package and their module, as a derived instance of a
+-- library does.
+$( do
+     let classes make occurrence =
+           case 'print of
+             Name _ (NameG _ package _) -> make (pkgString package) "Data.Functor.Classes" occurrence
+             _ -> error "The name print has no package."
+     f <- newName "f"
+     x <- newName "x"
+     y <- newName "y"
+     a <- newName "a"
+     b <- newName "b"
+     let call function first second = AppE (AppE (VarE function) (VarE first)) (VarE second)
+         box = AppT (ConT ''Box) (ConT ''Int)
+     pure
+       [ InstanceD
+           Nothing
+           []
+           (AppT (ConT (classes mkNameG_tc "Eq1")) (ConT ''Box))
+           [ FunD
+               (classes mkNameG_v "liftEq")
+               [ Clause [VarP f, ConP 'Box [] [VarP x], ConP 'Box [] [VarP y]] (NormalB (call f x y)) [],
+                 Clause
+                   [VarP f, ConP 'Pair [] [VarP x, VarP a], ConP 'Pair [] [VarP y, VarP b]]
+                   (GuardedB [(NormalG (call f x y), call f a b), (NormalG (VarE 'otherwise), ConE 'False)])
+                   [],
+                 Clause [WildP, WildP, WildP] (NormalB (ConE 'False)) []
+               ]
+           ],
+         SigD (mkName "sameBox") (AppT (AppT ArrowT box) (AppT (AppT ArrowT box) (ConT ''Bool))),
+         ValD (VarP (mkName "sameBox")) (NormalB (VarE (classes mkNameG_v "eq1"))) []
+       ]
+ )
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -104,4 +145,5 @@ main = do
   print shapeNames
   print firstShape
   print ($(do TyConI (DataD _ _ _ _ constructors _) <- reify ''Shape; litE (integerL (fromIntegral (length constructors)))) :: Int)
+  print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple

@@ -46,22 +46,46 @@ declaration tree =
       binder <- binderFromTree name
       rhs <- rightSide body locals
       pure (DeclValue (FunctionBind binder [Match [] MatchHeadPrefix [] rhs]))
+    TreeNode "ValD" [pattern', body, locals] -> DeclValue <$> (PatternBind NoMultiplicityTag <$> patternFromTree pattern' <*> rightSide body locals)
+    TreeNode "InstanceD" [TreeNode "Nothing" [], context, instanceHead, members] -> do
+      context' <- list context >>= mapM typeFromTree
+      instanceHead' <- typeFromTree instanceHead
+      items <- list members >>= fmap concat . mapM instanceItem
+      pure (DeclInstance (InstanceDecl [] Nothing [] context' instanceHead' items))
+    TreeNode "InstanceD" [overlap, _, _, _] -> unsupported "overlap pragma" overlap
     _ -> unsupported "declaration" tree
   where
+    -- A pragma in an instance, such as @INLINE@, does not change the
+    -- meaning of the instance. The conversion leaves it out.
+    instanceItem item =
+      case item of
+        TreeNode "SigD" [name, signature] -> (\binder signature' -> [InstanceItemTypeSig [binder] signature']) <$> binderFromTree name <*> typeFromTree signature
+        TreeNode "PragmaD" _ -> Right []
+        _ -> do
+          member <- declaration item
+          case member of
+            DeclValue binding -> Right [InstanceItemBind binding]
+            _ -> unsupported "instance member" item
     clause clauseTree =
       case clauseTree of
         TreeNode "Clause" [patterns, body, locals] -> Match [] MatchHeadPrefix <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
         _ -> unsupported "clause" clauseTree
 
--- | The right side of a binding, from its body and its local declarations.
+-- | The right side of a binding or of a case alternative, from its body
+-- and its local declarations.
 rightSide :: Tree -> Tree -> Either Text (Rhs Expr)
-rightSide body locals =
+rightSide body locals = do
+  locals' <- declarations locals
+  let localDecls = if null locals' then Nothing else Just locals'
   case body of
-    TreeNode "NormalB" [value] -> do
-      value' <- expression value
-      locals' <- declarations locals
-      pure (UnguardedRhs [] value' (if null locals' then Nothing else Just locals'))
+    TreeNode "NormalB" [value] -> (\value' -> UnguardedRhs [] value' localDecls) <$> expression value
+    TreeNode "GuardedB" [guarded] -> (\branches -> GuardedRhss [] branches localDecls) <$> (list guarded >>= mapM branch)
     _ -> unsupported "body" body
+  where
+    branch tree =
+      case tree of
+        TreeNode "(,)" [TreeNode "NormalG" [condition], value] -> (\condition' value' -> GuardedRhs [] [GuardExpr condition'] value') <$> expression condition <*> expression value
+        _ -> unsupported "guard" tree
 
 -- | The type of a @Type@ tree. An application of the arrow, the list, or a
 -- tuple constructor to all its arguments becomes the syntax of that type.
@@ -104,7 +128,22 @@ expression tree =
     TreeNode "TupE" [fields] -> ETuple Boxed <$> (list fields >>= mapM (optional expression))
     TreeNode "CondE" [condition, whenTrue, whenFalse] -> EIf <$> expression condition <*> expression whenTrue <*> expression whenFalse
     TreeNode "ListE" [elements] -> EList <$> (list elements >>= mapM expression)
+    TreeNode "CaseE" [scrutinee, matches] -> ECase <$> expression scrutinee <*> (list matches >>= mapM alternative)
+    TreeNode "LamCaseE" [matches] -> ELambdaCase <$> (list matches >>= mapM alternative)
+    TreeNode "LetE" [locals, body] -> ELetDecls <$> declarations locals <*> expression body
+    TreeNode "SigE" [inner, signature] -> ETypeSig <$> expression inner <*> typeFromTree signature
+    TreeNode "RecConE" [name, fields] -> (\name' fields' -> ERecordCon name' fields' False) <$> nameFromTree name <*> (list fields >>= mapM field)
+    TreeNode "RecUpdE" [record, fields] -> ERecordUpd <$> expression record <*> (list fields >>= mapM field)
     _ -> unsupported "expression" tree
+  where
+    alternative matchTree =
+      case matchTree of
+        TreeNode "Match" [pattern', body, locals] -> CaseAlt [] <$> patternFromTree pattern' <*> rightSide body locals
+        _ -> unsupported "case alternative" matchTree
+    field fieldTree =
+      case fieldTree of
+        TreeNode "(,)" [name, value] -> (\name' value' -> RecordField name' value' False) <$> nameFromTree name <*> expression value
+        _ -> unsupported "record field" fieldTree
 
 -- | An operand of an infix expression. Template Haskell gives the operands
 -- of @InfixE@ as they are, with no fixity. The parentheses keep the name
@@ -132,6 +171,11 @@ literal tree =
       | otherwise -> Right (integerLiteral number)
     TreeNode "CharL" [TreeChar char] -> Right (EChar char (T.pack (show char)))
     TreeNode "StringL" [TreeString string] -> Right (EString string (T.pack (show (T.unpack string))))
+    -- A primitive literal has its sign in the literal, as @-1#@ has.
+    TreeNode "IntPrimL" [TreeInteger number] -> Right (EInt number TIntHash (T.pack (show number) <> "#"))
+    TreeNode "WordPrimL" [TreeInteger number]
+      | number >= 0 -> Right (EInt number TWordHash (T.pack (show number) <> "##"))
+    TreeNode "CharPrimL" [TreeChar char] -> Right (ECharHash char (T.pack (show char) <> "#"))
     _ -> unsupported "literal" tree
   where
     integerLiteral number = EInt number TInteger (T.pack (show number))
@@ -147,11 +191,28 @@ patternFromTree tree =
         then PCon <$> nameFromTree name <*> pure [] <*> (list fields >>= mapM patternFromTree)
         else unsupported "pattern with type arguments" tree
     TreeNode "TupP" [fields] -> PTuple Boxed <$> (list fields >>= mapM patternFromTree)
+    TreeNode "InfixP" [left, name, right] -> PInfix <$> patternFromTree left <*> nameFromTree name <*> patternFromTree right
+    TreeNode "ParensP" [inner] -> PParen <$> patternFromTree inner
+    TreeNode "AsP" [name, inner] -> PAs <$> binderFromTree name <*> patternFromTree inner
+    TreeNode "BangP" [inner] -> PStrict <$> patternFromTree inner
+    TreeNode "TildeP" [inner] -> PIrrefutable <$> patternFromTree inner
+    TreeNode "ListP" [elements] -> PList <$> (list elements >>= mapM patternFromTree)
+    TreeNode "SigP" [inner, signature] -> PTypeSig <$> patternFromTree inner <*> typeFromTree signature
+    TreeNode "RecP" [name, fields] -> (\name' fields' -> PRecord name' fields' False) <$> nameFromTree name <*> (list fields >>= mapM field)
     TreeNode "LitP" [TreeNode "IntegerL" [TreeInteger number]]
       | number >= 0 -> Right (PLit (LitInt number TInteger (T.pack (show number))))
     TreeNode "LitP" [TreeNode "CharL" [TreeChar char]] -> Right (PLit (LitChar char (T.pack (show char))))
+    TreeNode "LitP" [TreeNode "IntPrimL" [TreeInteger number]] -> Right (PLit (LitInt number TIntHash (T.pack (show number) <> "#")))
+    TreeNode "LitP" [TreeNode "WordPrimL" [TreeInteger number]]
+      | number >= 0 -> Right (PLit (LitInt number TWordHash (T.pack (show number) <> "##")))
+    TreeNode "LitP" [TreeNode "CharPrimL" [TreeChar char]] -> Right (PLit (LitCharHash char (T.pack (show char) <> "#")))
     TreeNode "LitP" [TreeNode "StringL" [TreeString string]] -> Right (PLit (LitString string (T.pack (show (T.unpack string)))))
     _ -> unsupported "pattern" tree
+  where
+    field fieldTree =
+      case fieldTree of
+        TreeNode "(,)" [name, value] -> (\name' value' -> RecordField name' value' False) <$> nameFromTree name <*> patternFromTree value
+        _ -> unsupported "record field" fieldTree
 
 -- | The binder of a @Name@ tree. A binder has no module.
 binderFromTree :: Tree -> Either Text UnqualifiedName
