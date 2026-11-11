@@ -20,7 +20,7 @@ import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (unless)
+import Control.Monad (unless, zipWithM_)
 import Data.Map.Strict qualified as Map
 
 -- | Preserve a proof from the current signature or pattern scope.
@@ -46,10 +46,49 @@ solveGivenEquality givens ct = case ctPred ct of
         proveFromEqualities reduced reducedLeft reducedRight
     case result of
       Just proof -> do
+        alignProvedKinds left' right'
         bindEvidence (ctEvVar ct) (EvCoercion proof)
         pure True
       Nothing -> pure False
   _ -> pure False
+
+-- | Unify the open kinds of two types that a given proves equal.
+--
+-- The proof compares types up to their kinds. The kind arguments of a
+-- poly-kinded type constructor are not visible arguments, thus a proof of
+-- @Shape '[] ~ Shape xs@ from the given @xs ~ '[]@ does not relate the
+-- kinds. Two equal types have one kind, as in GHC, where the decomposition
+-- of @Shape \@k1 '[] ~ Shape \@k xs@ also gives @k1 ~ k@. Without this
+-- step, the kind @k1@ of a use of the constructor @ShapeNil@ stays open.
+--
+-- Only a kind with a meta-variable is unified. A rigid kind can differ, as
+-- in a heterogeneous given @a :~~: b@.
+alignProvedKinds :: TcType -> TcType -> TcM ()
+alignProvedKinds left right
+  | typeMentionsMeta left || typeMentionsMeta right = go left right
+  | otherwise = pure ()
+  where
+    go (TcTyCon leftCon leftArgs) (TcTyCon rightCon rightArgs)
+      | leftCon == rightCon,
+        length leftArgs == length rightArgs =
+          zipWithM_ go leftArgs rightArgs
+    go (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
+      | leftCon == rightCon,
+        length leftKinds == length rightKinds =
+          zipWithM_ unifyOpen leftKinds rightKinds
+    go (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
+      go leftArg rightArg >> go leftResult rightResult
+    go leftLeaf rightLeaf
+      | sameType leftLeaf rightLeaf = pure ()
+      | otherwise = do
+          leftKind <- tcTypeKind leftLeaf >>= zonkType
+          rightKind <- tcTypeKind rightLeaf >>= zonkType
+          unifyOpen leftKind rightKind
+    unifyOpen leftKind rightKind = do
+      leftKind' <- zonkType leftKind
+      rightKind' <- zonkType rightKind
+      unless (sameType leftKind' rightKind' || not (typeMentionsMeta leftKind' || typeMentionsMeta rightKind')) $
+        unifyKindsAt Nothing leftKind' rightKind'
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult
