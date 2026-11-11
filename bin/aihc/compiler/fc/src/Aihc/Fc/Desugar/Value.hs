@@ -4719,7 +4719,7 @@ desugarListCompTransform resultElementType cons body prefix annotation transform
   let recursiveCall = ExApp (ExVar (binderName loopFunction)) (ExVar (binderName items))
   (binds, locals) <-
     if isGroup
-      then unzip <$> mapM (groupVariable item tupleType variables) [0 .. length variables - 1]
+      then mapAndUnzipM (groupVariable item tupleType variables) [0 .. length variables - 1]
       else recTupleSelections item tupleType variables
   success <- withLocals locals (desugarListCompStatements resultElementType cons body suffix recursiveCall)
   let loop =

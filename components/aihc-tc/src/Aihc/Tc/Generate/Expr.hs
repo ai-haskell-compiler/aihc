@@ -1839,7 +1839,7 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
         CompThen function -> transform seen ambient qual rest False Nothing function (\_ function' -> CompThen function')
         CompThenBy function key -> transform seen ambient qual rest False (Just key) function (\key' function' -> CompThenBy function' (fromMaybe key key'))
         CompGroupUsing function -> transform seen ambient qual rest True Nothing function (\_ function' -> CompGroupUsing function')
-        CompGroupByUsing key function -> transform seen ambient qual rest True (Just key) function (\key' function' -> CompGroupByUsing (fromMaybe key key') function')
+        CompGroupByUsing key function -> transform seen ambient qual rest True (Just key) function (CompGroupByUsing . fromMaybe key)
 
     -- Check a transform statement of TransformListComp. Let @t@ be the
     -- tuple type of the variables of the statements before it. The
