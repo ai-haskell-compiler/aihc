@@ -1,0 +1,35 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Ix (Ix (..))
+
+    data Level = Initial | Early | Handshake | Final
+      deriving (Eq, Ord, Ix)
+
+    data Cell = Cell !Int Level Bool
+      deriving (Eq, Ord, Ix)
+
+    result :: Bool
+    result =
+      range (Initial, Final) == [Initial, Early, Handshake, Final]
+        && range (Early, Handshake) == [Early, Handshake]
+        && range (Final, Final) == [Final]
+        && null (range (Handshake, Early))
+        && map (index (Early, Final)) [Early, Handshake, Final] == [0, 1, 2]
+        && map (inRange (Early, Handshake)) [Initial, Early, Handshake, Final] == [False, True, True, False]
+        && rangeSize (Final, Initial) == 0
+        && range cells
+          == [ Cell 1 Early False, Cell 1 Early True, Cell 1 Handshake False, Cell 1 Handshake True,
+               Cell 2 Early False, Cell 2 Early True, Cell 2 Handshake False, Cell 2 Handshake True
+             ]
+        && map (index cells) (range cells) == [0 .. 7]
+        && map (inRange cells) [Cell 2 Handshake False, Cell 3 Early False, Cell 1 Initial True] == [True, False, False]
+        && rangeSize (Cell 2 Early False, Cell 1 Early False) == 0
+      where
+        cells = (Cell 1 Early False, Cell 2 Handshake True)
+expression: result
+output: |
+  True
+status: pass
+reason: stock Ix deriving numbers the constructors of an enumeration from zero, and a single constructor varies its last field fastest

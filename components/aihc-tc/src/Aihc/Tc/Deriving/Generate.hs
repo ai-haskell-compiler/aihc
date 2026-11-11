@@ -315,6 +315,7 @@ generateItems gen =
                 Just StockReadMethods -> Just <$> readItems gen constructors
                 Just StockBoundedMethods -> boundedItems gen constructors
                 Just StockEnumMethods -> enumItems gen constructors
+                Just StockIxMethods -> ixItems gen constructors
                 Just StockLiftMethods -> Just <$> liftItems gen constructors
                 Just StockFunctorMethods -> functorialItems gen functorItems constructors
                 Just StockFoldableMethods -> functorialItems gen foldableItems constructors
@@ -857,6 +858,183 @@ enumItems gen constructors
       ]
     enumFromThenToward from second limit =
       methodApp gen "enumFromThenTo" [localExpr gen from, localExpr gen second, constructorExpr gen limit]
+
+-- * Ix
+
+-- | The @Ix@ methods of an enumeration or of a datatype with one
+-- constructor, in the shape GHC derives them.
+--
+-- For an enumeration, the methods read the constructor index of each value, which is the
+-- numbering of the derived @Ord@ and @Enum@ instances. @unsafeIndex@ is the
+-- difference of two indices. @inRange@ compares the index of the value with
+-- the two bounds. @range@ walks from the lower bound to the upper bound with
+-- one local function. Each equation of that function gives one constructor
+-- and the walk from the next one, so the code is linear in the number of
+-- constructors. @index@, @rangeSize@ and @unsafeRangeSize@ keep their class
+-- defaults, as in GHC.
+ixItems :: Gen -> [DataConInfo] -> TcM (Maybe [InstanceDeclItem])
+ixItems gen constructors
+  | _ : _ <- constructors,
+    all (null . dciFields) constructors = do
+      rangeLower <- freshLocal gen "l"
+      rangeUpper <- freshLocal gen "u"
+      lowerIndex <- freshLocal gen "i"
+      upperIndex <- freshLocal gen "j"
+      walk <- freshLocal gen "walk"
+      indexLower <- freshLocal gen "l"
+      indexValue <- freshLocal gen "x"
+      inLower <- freshLocal gen "l"
+      inUpper <- freshLocal gen "u"
+      inValue <- freshLocal gen "x"
+      inLowerIndex <- freshLocal gen "i"
+      inUpperIndex <- freshLocal gen "j"
+      inValueIndex <- freshLocal gen "k"
+      let walkMatch (index, constructor) following =
+            simpleMatch gen [constructorPattern gen constructor []] $
+              case following of
+                Just next ->
+                  applyN
+                    gen
+                    (referenceExpr gen derivingCons)
+                    [ constructorExpr gen constructor,
+                      caseOf
+                        gen
+                        (less (intHashLiteral gen index) (localExpr gen upperIndex))
+                        [ (intHashPattern gen 0, at gen (EList [])),
+                          (atPattern gen PWildcard, applyN gen (localExpr gen walk) [constructorExpr gen next])
+                        ]
+                    ]
+                Nothing -> at gen (EList [constructorExpr gen constructor])
+          rangeBody =
+            bindIndex lowerIndex rangeLower $
+              bindIndex upperIndex rangeUpper $
+                caseOf
+                  gen
+                  (less (localExpr gen upperIndex) (localExpr gen lowerIndex))
+                  [ ( intHashPattern gen 0,
+                      at gen $
+                        ELetDecls
+                          [DeclValue (FunctionBind walk (zipWith walkMatch indexed (map Just (drop 1 constructors) <> [Nothing])))]
+                          (applyN gen (localExpr gen walk) [localExpr gen rangeLower])
+                    ),
+                    (atPattern gen PWildcard, at gen (EList []))
+                  ]
+          indexBody =
+            applyN
+              gen
+              (referenceExpr gen derivingIntCon)
+              [applyN gen (referenceExpr gen derivingIntMinus) [tag indexValue, tag indexLower]]
+          false = referenceExpr gen derivingFalse
+          inRangeBody =
+            bindIndex inLowerIndex inLower $
+              bindIndex inUpperIndex inUpper $
+                bindIndex inValueIndex inValue $
+                  caseOf
+                    gen
+                    (less (localExpr gen inValueIndex) (localExpr gen inLowerIndex))
+                    [ ( intHashPattern gen 0,
+                        caseOf
+                          gen
+                          (less (localExpr gen inUpperIndex) (localExpr gen inValueIndex))
+                          [(intHashPattern gen 0, referenceExpr gen derivingTrue), (atPattern gen PWildcard, false)]
+                      ),
+                      (atPattern gen PWildcard, false)
+                    ]
+      pure
+        ( Just
+            [ methodBind gen "range" [simpleMatch gen [tuplePattern gen [rangeLower, rangeUpper]] rangeBody],
+              methodBind
+                gen
+                "unsafeIndex"
+                [simpleMatch gen [atPattern gen (PTuple Boxed [atPattern gen (PVar indexLower), atPattern gen PWildcard]), atPattern gen (PVar indexValue)] indexBody],
+              methodBind gen "inRange" [simpleMatch gen [tuplePattern gen [inLower, inUpper], atPattern gen (PVar inValue)] inRangeBody]
+            ]
+        )
+  | [constructor] <- constructors = Just <$> productIxItems gen constructor
+  | otherwise = do
+      emitError (genSpan gen) (OtherError "stock Ix deriving requires an enumeration or a datatype with one constructor")
+      pure Nothing
+  where
+    indexed = zip [0 :: Integer ..] constructors
+    less first second = applyN gen (referenceExpr gen derivingIntLess) [first, second]
+    tag value = applyN gen (referenceExpr gen derivingDataToTag) [localExpr gen value]
+    bindIndex index value body = caseOf gen (tag value) [(atPattern gen (PVar index), body)]
+
+-- | The @Ix@ methods of a datatype with one constructor that has fields.
+--
+-- Each field is an index of its own, and the value is the tuple of these
+-- indices. @range@ varies the last field fastest. @unsafeIndex@ adds the
+-- index of each field to the index of the earlier fields times the size of
+-- the range of the field, so that the last field has the factor one.
+-- @inRange@ asks each field. These are the equations of GHC. @index@,
+-- @rangeSize@ and @unsafeRangeSize@ keep their class defaults.
+productIxItems :: Gen -> DataConInfo -> TcM [InstanceDeclItem]
+productIxItems gen constructor = do
+  rangeLowers <- fieldLocals gen "l" constructor
+  rangeUppers <- fieldLocals gen "u" constructor
+  rangeValues <- fieldLocals gen "i" constructor
+  indexLowers <- fieldLocals gen "l" constructor
+  indexUppers <- fieldLocals gen "u" constructor
+  indexValues <- fieldLocals gen "i" constructor
+  inLowers <- fieldLocals gen "l" constructor
+  inUppers <- fieldLocals gen "u" constructor
+  inValues <- fieldLocals gen "i" constructor
+  boxedParts <- mapM (const (freshLocal gen "a")) indexValues
+  boxedSizes <- mapM (const (freshLocal gen "s")) indexValues
+  let bounds lowers uppers = atPattern gen (PTuple Boxed [constructorPattern gen constructor (map Just lowers), constructorPattern gen constructor (map Just uppers)])
+      valuePattern values = constructorPattern gen constructor (map Just values)
+      fieldBounds lower upper = tupleExpr gen [localExpr gen lower, localExpr gen upper]
+      -- [C i1 .. in | i1 <- range (l1, u1), ..., in <- range (ln, un)]
+      rangeBody =
+        foldr
+          ( \(lower, upper, value) rest ->
+              applyN
+                gen
+                (referenceExpr gen derivingBind)
+                [methodApp gen "range" [fieldBounds lower upper], lambda gen value rest]
+          )
+          (applyN gen (referenceExpr gen derivingReturn) [applyN gen (constructorExpr gen constructor) (map (localExpr gen) rangeValues)])
+          (zip3 rangeLowers rangeUppers rangeValues)
+      -- Unbox the index and the range size of each field, then combine
+      -- them on Int#.
+      unbox expression name body =
+        caseOf gen expression [(atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar name)]), body)]
+      fields = zip3 (zip indexLowers indexUppers) indexValues (zip boxedParts boxedSizes)
+      combined =
+        foldl
+          ( \accumulated ((_, _), _, (part, size)) ->
+              applyN
+                gen
+                (referenceExpr gen derivingIntPlus)
+                [localExpr gen part, applyN gen (referenceExpr gen derivingIntTimes) [localExpr gen size, accumulated]]
+          )
+          (intHashLiteral gen 0)
+          fields
+      indexBody =
+        foldr
+          ( \((lower, upper), value, (part, size)) rest ->
+              unbox (methodApp gen "unsafeIndex" [fieldBounds lower upper, localExpr gen value]) part $
+                unbox (methodApp gen "unsafeRangeSize" [fieldBounds lower upper]) size rest
+          )
+          (applyN gen (referenceExpr gen derivingIntCon) [combined])
+          fields
+      inRangeBody =
+        foldr
+          ( \(lower, upper, value) rest ->
+              caseOf
+                gen
+                (methodApp gen "inRange" [fieldBounds lower upper, localExpr gen value])
+                [ (referencePattern gen derivingTrue, rest),
+                  (referencePattern gen derivingFalse, referenceExpr gen derivingFalse)
+                ]
+          )
+          (referenceExpr gen derivingTrue)
+          (zip3 inLowers inUppers inValues)
+  pure
+    [ methodBind gen "range" [simpleMatch gen [bounds rangeLowers rangeUppers] rangeBody],
+      methodBind gen "unsafeIndex" [simpleMatch gen [bounds indexLowers indexUppers, valuePattern indexValues] indexBody],
+      methodBind gen "inRange" [simpleMatch gen [bounds inLowers inUppers, valuePattern inValues] inRangeBody]
+    ]
 
 -- * Lift
 

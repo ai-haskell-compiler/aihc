@@ -11,6 +11,7 @@ module GHC.Conc.Sync
     labelThread,
     myThreadId,
     showThreadId,
+    threadLabel,
     throwTo,
     yield,
     STM (..),
@@ -144,10 +145,17 @@ throwTo (ThreadId target) exception =
 --
 -- GHC keeps the label in its runtime for debug tools and 'threadLabel'.
 -- The aihc runtime has no storage for thread labels. Thus this operation
--- does nothing. A program cannot see the difference, because aihc has no
--- 'threadLabel' and no debug tool that shows labels.
+-- does nothing, and 'threadLabel' does not find the label.
 labelThread :: ThreadId -> String -> IO ()
 labelThread _ _ = return ()
+
+-- | Read the label of a green thread.
+--
+-- The aihc runtime has no storage for thread labels, and 'labelThread'
+-- does nothing. Thus each thread has no label, and the result is always
+-- 'Nothing'. GHC gives the same result for a thread without a label.
+threadLabel :: ThreadId -> IO (Maybe String)
+threadLabel _ = return Nothing
 
 -- | Raise 'ThreadKilled' in a thread.
 killThread :: ThreadId -> IO ()
