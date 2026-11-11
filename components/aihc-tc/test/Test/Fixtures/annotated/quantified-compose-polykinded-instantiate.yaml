@@ -1,0 +1,31 @@
+extensions:
+- AllowAmbiguousTypes
+- ConstraintKinds
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
+- GADTs
+- PolyKinds
+- QuantifiedConstraints
+- RankNTypes
+- ScopedTypeVariables
+- TypeApplications
+- UndecidableInstances
+- UndecidableSuperClasses
+modules:
+- |
+  {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, TypeApplications, UndecidableInstances, UndecidableSuperClasses #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  class HasDict c e | e -> c
+  data Entails (a :: Constraint) (b :: Constraint)
+  instance a => HasDict b (Entails a b)
+  with :: forall c e r. HasDict c e => (c => r) -> r
+  with r = with @c @e r
+  class p (f a) => ComposeC (p :: k2 -> Constraint) (f :: k1 -> k2) (a :: k1)
+  class (forall a. p a) => Forall (p :: k -> Constraint)
+  class Forall (ComposeC p f) => C (p :: k2 -> Constraint) (f :: k1 -> k2)
+  whichever :: forall c t a r. C c t => (c (t a) => r) -> r
+  whichever r = with @_ @(Entails (C c t) (c (t a))) r
+status: pass
+reason: The superclass closure of the given "C c t" substitutes the class kind variables in "Forall (ComposeC p f)". Before, they stayed free and gave a kind mismatch.
