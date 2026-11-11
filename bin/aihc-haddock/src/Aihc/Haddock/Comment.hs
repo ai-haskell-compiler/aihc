@@ -41,8 +41,9 @@ import Aihc.Parser.Token
 import Data.Char (isAlphaNum)
 import Data.Foldable (fold)
 import Data.List (partition)
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -197,7 +198,7 @@ spanStartColumn = sourceSpanStartCol
 -- parent that claims a @-- |@ comment hides it from its children, and a child
 -- that claims a @-- ^@ comment hides it from its parent.
 data CommentIndex = CommentIndex
-  { indexNext :: Map Int [DocComment],
+  { indexNext :: MonoidMap Int [DocComment],
     indexPrev :: [DocComment],
     indexNamed :: [DocComment],
     indexSections :: [DocComment]
@@ -206,7 +207,7 @@ data CommentIndex = CommentIndex
 buildCommentIndex :: [DocComment] -> CommentIndex
 buildCommentIndex comments =
   CommentIndex
-    { indexNext = Map.fromListWith (flip (<>)) [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
+    { indexNext = MonoidMap.fromListWith (<>) [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
       indexPrev = prevs,
       indexNamed = named,
       indexSections = sections
@@ -221,8 +222,8 @@ buildCommentIndex comments =
 -- offset.
 claimNextAt :: Int -> CommentIndex -> ([DocComment], CommentIndex)
 claimNextAt offset index =
-  ( Map.findWithDefault [] offset (indexNext index),
-    index {indexNext = Map.delete offset (indexNext index)}
+  ( MonoidMap.get offset (indexNext index),
+    index {indexNext = MonoidMap.nullify offset (indexNext index)}
   )
 
 -- | Claim the @-- ^@ comments whose preceding token lies inside the node span
@@ -251,7 +252,7 @@ claimBetween sp index =
       (sections, sections') = partition inside (indexSections index)
       (named, named') = partition inside (indexNamed index)
       nextsInside = foldMap (filter inside) (indexNext index)
-      nexts' = Map.filter (not . null) (Map.map (filter (not . inside)) (indexNext index))
+      nexts' = MonoidMap.filter (not . null) (MonoidMap.map (filter (not . inside)) (indexNext index))
       claimed = sortBySpan (sections <> named <> nextsInside)
    in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
   where
