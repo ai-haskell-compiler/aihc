@@ -11,6 +11,7 @@ module GHC.Base
     module GHC.Prim.Base,
     module GHC.Prim,
     module GHC.Classes,
+    module GHC.Err,
     Bool (..),
     Int (..),
     Char (..),
@@ -55,6 +56,7 @@ where
 
 import GHC.CString (unpackCString#, unpackCStringUtf8#, unpackFoldrCString#)
 import GHC.Classes
+import GHC.Err
 import GHC.Int (Int (..))
 import GHC.Magic (oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
