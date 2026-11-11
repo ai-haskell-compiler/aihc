@@ -41,8 +41,8 @@ import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (familyEquations, isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.TypeLitFamily (cancellableTypeLitFamily)
 import Aihc.Tc.Types
-import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Unify (unifyTypes)
+import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (forM_, unless, void, when, zipWithM_)
 
