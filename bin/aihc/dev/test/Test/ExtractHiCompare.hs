@@ -342,7 +342,8 @@ knownCoreLibApiDivergences :: [T.Text]
 knownCoreLibApiDivergences =
   -- GHC exports these from GHC.Magic, GHC.Exts or GHC.Internal.Exts
   -- instead, or (stm*, compareInt#, divInt#) does not have them.
-  [ "GHC.Prim.compareInt#",
+  [ "GHC.Prim.aihcAddWeakFinalizer#",
+    "GHC.Prim.compareInt#",
     "GHC.Prim.cstringLength#",
     "GHC.Prim.divInt#",
     "GHC.Prim.newDelayTVar#",

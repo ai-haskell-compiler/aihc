@@ -1,0 +1,24 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    test :: IO Int
+    test = IO (\state -> case newByteArray# 8# state of
+      (# state1, mutable #) -> case writeIntArray# mutable 0# 42# state1 of
+       state2 -> case unsafeFreezeByteArray# mutable state2 of
+        (# state3, bytes #) -> case mkWeakNoFinalizer# mutable bytes state3 of
+         (# state4, weak #) -> case deRefWeak# weak state4 of
+          (# state5, 0#, _ #) -> (# state5, I# 0# #)
+          (# state5, _, value #) -> (# state5, I# (indexIntArray# value 0#) #))
+expression: test
+output: |
+  I# 42
+status: pass
+reason: As in GHC, a weak pointer can have an unlifted key and an unlifted value.

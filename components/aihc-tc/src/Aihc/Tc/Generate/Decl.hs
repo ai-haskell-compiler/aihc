@@ -1008,7 +1008,18 @@ generalizeDataKindInfo info = do
 
 generalizeDataKind :: TypeScheme -> TcM TypeScheme
 generalizeDataKind (ForAll variables predicates body) = do
-  kind <- zonkKind body
+  kinds <- getKinds
+  open <- zonkKind body
+  -- GHC does not quantify a data type over a levity or a representation.
+  -- It defaults them to lifted. Thus @data STRef s a = STRef (MutVar# s a)@
+  -- gets @a :: Type@, although 'MutVar#' accepts an unlifted value.
+  forM_ (nub (collectMetaVars open)) $ \meta -> do
+    metaKind <- readMetaTvKind meta >>= zonkKind
+    case metaKind of
+      KLevity -> writeMetaTv meta (TcTyCon (kindsDataCon kinds "Lifted" 0) [])
+      KRuntimeRep -> writeMetaTv meta (liftedRep kinds)
+      _ -> pure ()
+  kind <- zonkKind open
   let metas = nub (collectMetaVars kind)
   forM_ (zip [0 :: Int ..] metas) $ \(index, meta) -> do
     variable <- freshSkolemTv ("k" <> T.pack (show index))

@@ -4,7 +4,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
@@ -196,6 +195,8 @@ module GHC.Prim
     mkWeakNoFinalizer#,
     deRefWeak#,
     finalizeWeak#,
+    aihcAddWeakFinalizer#,
+    coerce,
     newTVar#,
     readTVar#,
     readTVarIO#,
@@ -559,7 +560,7 @@ module GHC.Prim
   )
 where
 
-import GHC.Types (Levity (..), RuntimeRep (..), TYPE, Type, UnliftedType)
+import GHC.Types (Any, Coercible, Levity (..), RuntimeRep (..), TYPE, Type, UnliftedType)
 
 type Int# :: TYPE 'IntRep
 data Int#
@@ -615,19 +616,19 @@ data ByteArray#
 type MutableArray# :: forall (l :: Levity). Type -> TYPE ('BoxedRep l) -> UnliftedType
 data MutableArray# d a
 
-type SmallArray# :: Type -> UnliftedType
+type SmallArray# :: forall (l :: Levity). TYPE ('BoxedRep l) -> UnliftedType
 data SmallArray# a
 
-type SmallMutableArray# :: Type -> Type -> UnliftedType
+type SmallMutableArray# :: forall (l :: Levity). Type -> TYPE ('BoxedRep l) -> UnliftedType
 data SmallMutableArray# d a
 
 type MutableByteArray# :: Type -> UnliftedType
 data MutableByteArray# d
 
-type MVar# :: Type -> Type -> UnliftedType
+type MVar# :: forall (l :: Levity). Type -> TYPE ('BoxedRep l) -> UnliftedType
 data MVar# d a
 
-type MutVar# :: Type -> Type -> UnliftedType
+type MutVar# :: forall (l :: Levity). Type -> TYPE ('BoxedRep l) -> UnliftedType
 data MutVar# d a
 
 type TVar# :: Type -> Type -> UnliftedType
@@ -674,6 +675,16 @@ foreign import prim
     (# State# RealWorld, b #)
 
 foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
+
+-- | Change the type of a value with the same representation. The value can
+-- have any runtime representation, as in GHC. No function can bind such a
+-- value. Thus the desugarer changes each use to an @unsafeCoerce#@ at the
+-- representation of the use, and this body does not run.
+coerce :: forall {r :: RuntimeRep} (a :: TYPE r) (b :: TYPE r). (Coercible a b) => a -> b
+coerce = unsafeCoerce# liftedCoerce
+
+liftedCoerce :: Any -> Any
+liftedCoerce value = value
 
 foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
 
@@ -1119,41 +1130,41 @@ foreign import prim pdep# :: Word# -> Word# -> Word#
 
 foreign import prim pext# :: Word# -> Word# -> Word#
 
-foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
+foreign import prim newMutVar# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. a -> State# d -> (# State# d, MutVar# d a #)
 
-foreign import prim newMVar# :: State# d -> (# State# d, MVar# d a #)
+foreign import prim newMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). State# d -> (# State# d, MVar# d a #)
 
-foreign import prim readMVar# :: MVar# d a -> State# d -> (# State# d, a #)
+foreign import prim readMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> State# d -> (# State# d, a #)
 
-foreign import prim takeMVar# :: MVar# d a -> State# d -> (# State# d, a #)
+foreign import prim takeMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> State# d -> (# State# d, a #)
 
-foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
+foreign import prim putMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> a -> State# d -> State# d
 
-foreign import prim sameMVar# :: MVar# d a -> MVar# d a -> Int#
+foreign import prim sameMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> MVar# d a -> Int#
 
-foreign import prim isEmptyMVar# :: MVar# d a -> State# d -> (# State# d, Int# #)
+foreign import prim isEmptyMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> State# d -> (# State# d, Int# #)
 
 -- | Take the contents when the variable is full. The flag is @0#@ when the
 -- variable was empty, and the value field is then undefined.
-foreign import prim tryTakeMVar# :: MVar# d a -> State# d -> (# State# d, Int#, a #)
+foreign import prim tryTakeMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> State# d -> (# State# d, Int#, a #)
 
 -- | Fill the variable when it is empty. The flag is @1#@ on success.
-foreign import prim tryPutMVar# :: MVar# d a -> a -> State# d -> (# State# d, Int# #)
+foreign import prim tryPutMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> a -> State# d -> (# State# d, Int# #)
 
 -- | Read the contents without taking them. The flag is @0#@ when the variable
 -- was empty, and the value field is then undefined.
-foreign import prim tryReadMVar# :: MVar# d a -> State# d -> (# State# d, Int#, a #)
+foreign import prim tryReadMVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MVar# d a -> State# d -> (# State# d, Int#, a #)
 
-foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
+foreign import prim readMutVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MutVar# d a -> State# d -> (# State# d, a #)
 
-foreign import prim writeMutVar# :: MutVar# d a -> a -> State# d -> State# d
+foreign import prim writeMutVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MutVar# d a -> a -> State# d -> State# d
 
 -- | Replace a mutable variable when its current value is pointer-identical to
 -- the expected value. The flag is @0#@ when the swap succeeds and @1#@ when it
 -- fails; the final field is the value left in the mutable variable.
-foreign import prim casMutVar# :: MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)
+foreign import prim casMutVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)
 
-foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
+foreign import prim sameMutVar# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). MutVar# d a -> MutVar# d a -> Int#
 
 foreign import prim newArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Int# -> a -> State# d -> (# State# d, MutableArray# d a #)
 
@@ -1188,43 +1199,43 @@ foreign import prim thawArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l))
 -- generational write barrier; the aihc collector has no write barrier, so
 -- every small-array primitive below is the boxed-array primitive of the same
 -- name under a distinct type.
-foreign import prim newSmallArray# :: Int# -> a -> State# d -> (# State# d, SmallMutableArray# d a #)
+foreign import prim newSmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Int# -> a -> State# d -> (# State# d, SmallMutableArray# d a #)
 
-foreign import prim indexSmallArray# :: SmallArray# a -> Int# -> (# a #)
+foreign import prim indexSmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). SmallArray# a -> Int# -> (# a #)
 
-foreign import prim readSmallArray# :: SmallMutableArray# d a -> Int# -> State# d -> (# State# d, a #)
+foreign import prim readSmallArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> State# d -> (# State# d, a #)
 
-foreign import prim writeSmallArray# :: SmallMutableArray# d a -> Int# -> a -> State# d -> State# d
+foreign import prim writeSmallArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> a -> State# d -> State# d
 
-foreign import prim casSmallArray# :: SmallMutableArray# d a -> Int# -> a -> a -> State# d -> (# State# d, Int#, a #)
+foreign import prim casSmallArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> a -> a -> State# d -> (# State# d, Int#, a #)
 
-foreign import prim unsafeFreezeSmallArray# :: SmallMutableArray# d a -> State# d -> (# State# d, SmallArray# a #)
+foreign import prim unsafeFreezeSmallArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> State# d -> (# State# d, SmallArray# a #)
 
-foreign import prim unsafeThawSmallArray# :: SmallArray# a -> State# d -> (# State# d, SmallMutableArray# d a #)
+foreign import prim unsafeThawSmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. SmallArray# a -> State# d -> (# State# d, SmallMutableArray# d a #)
 
-foreign import prim sameSmallMutableArray# :: SmallMutableArray# d a -> SmallMutableArray# d a -> Int#
+foreign import prim sameSmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> SmallMutableArray# d a -> Int#
 
-foreign import prim sizeofSmallArray# :: SmallArray# a -> Int#
+foreign import prim sizeofSmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). SmallArray# a -> Int#
 
-foreign import prim sizeofSmallMutableArray# :: SmallMutableArray# d a -> Int#
+foreign import prim sizeofSmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int#
 
-foreign import prim getSizeofSmallMutableArray# :: SmallMutableArray# d a -> State# d -> (# State# d, Int# #)
+foreign import prim getSizeofSmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> State# d -> (# State# d, Int# #)
 
-foreign import prim copySmallArray# :: SmallArray# a -> Int# -> SmallMutableArray# d a -> Int# -> Int# -> State# d -> State# d
+foreign import prim copySmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. SmallArray# a -> Int# -> SmallMutableArray# d a -> Int# -> Int# -> State# d -> State# d
 
-foreign import prim copySmallMutableArray# :: SmallMutableArray# d a -> Int# -> SmallMutableArray# d a -> Int# -> Int# -> State# d -> State# d
+foreign import prim copySmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> SmallMutableArray# d a -> Int# -> Int# -> State# d -> State# d
 
-foreign import prim cloneSmallArray# :: SmallArray# a -> Int# -> Int# -> SmallArray# a
+foreign import prim cloneSmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). SmallArray# a -> Int# -> Int# -> SmallArray# a
 
-foreign import prim cloneSmallMutableArray# :: SmallMutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, SmallMutableArray# d a #)
+foreign import prim cloneSmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, SmallMutableArray# d a #)
 
-foreign import prim freezeSmallArray# :: SmallMutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, SmallArray# a #)
+foreign import prim freezeSmallArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, SmallArray# a #)
 
-foreign import prim thawSmallArray# :: SmallArray# a -> Int# -> Int# -> State# d -> (# State# d, SmallMutableArray# d a #)
+foreign import prim thawSmallArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. SmallArray# a -> Int# -> Int# -> State# d -> (# State# d, SmallMutableArray# d a #)
 
-foreign import prim shrinkSmallMutableArray# :: SmallMutableArray# d a -> Int# -> State# d -> State# d
+foreign import prim shrinkSmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> State# d -> State# d
 
-foreign import prim resizeSmallMutableArray# :: SmallMutableArray# d a -> Int# -> a -> State# d -> (# State# d, SmallMutableArray# d a #)
+foreign import prim resizeSmallMutableArray# :: forall {l :: Levity} d (a :: TYPE ('BoxedRep l)). SmallMutableArray# d a -> Int# -> a -> State# d -> (# State# d, SmallMutableArray# d a #)
 
 foreign import prim sameMutableByteArray# :: MutableByteArray# d -> MutableByteArray# d -> Int#
 
@@ -1840,42 +1851,86 @@ foreign import prim stmActive# :: State# RealWorld -> (# State# RealWorld, Int# 
 
 -- | Weak pointers retain their value until explicit finalization.
 -- The collector does not schedule automatic finalizers.
-type Weak# :: Type -> UnliftedType
-type Weak# a = MutVar# RealWorld (WeakState a)
+type Weak# :: forall (l :: Levity). TYPE ('BoxedRep l) -> UnliftedType
+data Weak# a
+
+-- | The run-time object of a 'Weak#'. The value has the type 'Any', thus a
+-- lifted value and an unlifted value use the same cell. The functions below
+-- change the type between 'Weak#' and this cell with 'unsafeCoerce#'.
+type WeakCell# :: UnliftedType
+type WeakCell# = MutVar# RealWorld WeakState
 
 type WeakUnit :: Type
 data WeakUnit = WeakUnit
 
-type WeakState :: Type -> Type
-data WeakState a
-  = WeakLive a (State# RealWorld -> (# State# RealWorld, WeakUnit #))
-  | WeakWithoutFinalizer a
+-- | A live weak pointer keeps its value, its Haskell finalizer, and the
+-- foreign finalizers. 'finalizeWeak#' runs the foreign finalizers.
+type WeakState :: Type
+data WeakState
+  = WeakLive Any WeakFinalizer (State# RealWorld -> State# RealWorld)
   | WeakDead
 
-mkWeak# :: forall {l :: Levity} (k :: TYPE ('BoxedRep l)) a b. k -> a -> (State# RealWorld -> (# State# RealWorld, b #)) -> State# RealWorld -> (# State# RealWorld, Weak# a #)
-mkWeak# = unsafeCoerce# (mkWeakLifted :: WeakUnit -> WeakUnit -> (State# RealWorld -> (# State# RealWorld, WeakUnit #)) -> State# RealWorld -> (# State# RealWorld, Weak# WeakUnit #))
+type WeakFinalizer :: Type
+data WeakFinalizer
+  = WeakFinalizer (State# RealWorld -> (# State# RealWorld, Any #))
+  | NoWeakFinalizer
 
-mkWeakLifted :: k -> a -> (State# RealWorld -> (# State# RealWorld, WeakUnit #)) -> State# RealWorld -> (# State# RealWorld, Weak# a #)
-mkWeakLifted _ value finalizer = newMutVar# (WeakLive value finalizer)
+mkWeak# :: forall {l :: Levity} {m :: Levity} (k :: TYPE ('BoxedRep l)) (a :: TYPE ('BoxedRep m)) b. k -> a -> (State# RealWorld -> (# State# RealWorld, b #)) -> State# RealWorld -> (# State# RealWorld, Weak# a #)
+mkWeak# = unsafeCoerce# mkWeakCell
 
-mkWeakNoFinalizer# :: forall {l :: Levity} (k :: TYPE ('BoxedRep l)) a. k -> a -> State# RealWorld -> (# State# RealWorld, Weak# a #)
-mkWeakNoFinalizer# = unsafeCoerce# (mkWeakNoFinalizerLifted :: WeakUnit -> WeakUnit -> State# RealWorld -> (# State# RealWorld, Weak# WeakUnit #))
+mkWeakCell :: Any -> Any -> (State# RealWorld -> (# State# RealWorld, Any #)) -> State# RealWorld -> (# State# RealWorld, WeakCell# #)
+mkWeakCell _ value finalizer = newMutVar# (WeakLive value (WeakFinalizer finalizer) noForeignFinalizers)
 
-mkWeakNoFinalizerLifted :: k -> a -> State# RealWorld -> (# State# RealWorld, Weak# a #)
-mkWeakNoFinalizerLifted _ value = newMutVar# (WeakWithoutFinalizer value)
+mkWeakNoFinalizer# :: forall {l :: Levity} {m :: Levity} (k :: TYPE ('BoxedRep l)) (a :: TYPE ('BoxedRep m)). k -> a -> State# RealWorld -> (# State# RealWorld, Weak# a #)
+mkWeakNoFinalizer# = unsafeCoerce# mkWeakNoFinalizerCell
 
-deRefWeak# :: Weak# a -> State# RealWorld -> (# State# RealWorld, Int#, a #)
-deRefWeak# weak state = case readMutVar# weak state of
+mkWeakNoFinalizerCell :: Any -> Any -> State# RealWorld -> (# State# RealWorld, WeakCell# #)
+mkWeakNoFinalizerCell _ value = newMutVar# (WeakLive value NoWeakFinalizer noForeignFinalizers)
+
+noForeignFinalizers :: State# RealWorld -> State# RealWorld
+noForeignFinalizers state = state
+
+deRefWeak# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). Weak# a -> State# RealWorld -> (# State# RealWorld, Int#, a #)
+deRefWeak# = unsafeCoerce# deRefWeakCell
+
+deRefWeakCell :: WeakCell# -> State# RealWorld -> (# State# RealWorld, Int#, Any #)
+deRefWeakCell weak state = case readMutVar# weak state of
   (# next, content #) -> case content of
-    WeakLive value _ -> (# next, 1#, value #)
-    WeakWithoutFinalizer value -> (# next, 1#, value #)
+    WeakLive value _ _ -> (# next, 1#, value #)
     WeakDead -> (# next, 0#, unsafeCoerce# WeakUnit #)
 
-finalizeWeak# :: Weak# a -> State# RealWorld -> (# State# RealWorld, Int#, State# RealWorld -> (# State# RealWorld, b #) #)
-finalizeWeak# weak state = case readMutVar# weak state of
+-- | Make the weak pointer dead and run its foreign finalizers. The flag is
+-- @1#@ when the result is the Haskell finalizer. The caller must run it.
+finalizeWeak# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) b. Weak# a -> State# RealWorld -> (# State# RealWorld, Int#, State# RealWorld -> (# State# RealWorld, b #) #)
+finalizeWeak# = unsafeCoerce# finalizeWeakCell
+
+finalizeWeakCell :: WeakCell# -> State# RealWorld -> (# State# RealWorld, Int#, State# RealWorld -> (# State# RealWorld, Any #) #)
+finalizeWeakCell weak state = case readMutVar# weak state of
   (# next, content #) -> case writeMutVar# weak WeakDead next of
-    finalState -> case content of
-      WeakLive _ finalizer -> (# finalState, 1#, unsafeCoerce# finalizer #)
-      _ -> (# finalState, 0#, (# ,unsafeCoerce# WeakUnit #) #)
+    written -> case content of
+      WeakLive _ finalizer foreignFinalizers -> case foreignFinalizers written of
+        finalized -> case finalizer of
+          WeakFinalizer action -> (# finalized, 1#, action #)
+          NoWeakFinalizer -> (# finalized, 0#, noHaskellFinalizer #)
+      WeakDead -> (# written, 0#, noHaskellFinalizer #)
+
+noHaskellFinalizer :: State# RealWorld -> (# State# RealWorld, Any #)
+noHaskellFinalizer state = (# state, unsafeCoerce# WeakUnit #)
+
+-- | Add an action that 'finalizeWeak#' runs before it returns.
+-- @GHC.Exts.addCFinalizerToWeak#@ uses it to add a foreign finalizer.
+-- The last action that you add runs first, as in GHC.
+-- The flag is @1#@ on success and @0#@ when the weak pointer is dead.
+aihcAddWeakFinalizer# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). Weak# a -> (State# RealWorld -> State# RealWorld) -> State# RealWorld -> (# State# RealWorld, Int# #)
+aihcAddWeakFinalizer# = unsafeCoerce# addWeakCellFinalizer
+
+addWeakCellFinalizer :: WeakCell# -> (State# RealWorld -> State# RealWorld) -> State# RealWorld -> (# State# RealWorld, Int# #)
+addWeakCellFinalizer weak action state = case readMutVar# weak state of
+  (# next, content #) -> case content of
+    WeakLive value finalizer foreignFinalizers ->
+      let runAll current = foreignFinalizers (action current)
+       in case writeMutVar# weak (WeakLive value finalizer runAll) next of
+            written -> (# written, 1# #)
+    WeakDead -> (# next, 0# #)
 
 foreign import prim newDelayTVar# :: Int# -> a -> a -> State# RealWorld -> (# State# RealWorld, TVar# RealWorld a #)

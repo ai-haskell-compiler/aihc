@@ -1,0 +1,32 @@
+annotated:
+- |-
+  {-# LANGUAGE MagicHash, PolyKinds #-}
+  module Test where
+
+  import GHC.Prim (MutVar#, RealWorld)
+
+  data Ref a = Ref (MutVar# RealWorld a)
+       │       └─ type: ∀ a. GHC.Prim.MutVar# GHC.Prim.RealWorld a → Ref a
+       └─ type: Type → Type
+
+  unRef :: Ref a -> MutVar# RealWorld a
+  unRef (Ref reference) = reference
+  │      │   └─ type: GHC.Prim.MutVar# GHC.Prim.RealWorld a
+  │      └─ type: Ref a
+  └─ type: ∀ a. Ref a → GHC.Prim.MutVar# GHC.Prim.RealWorld a
+extensions:
+- MagicHash
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE MagicHash, PolyKinds #-}
+  module Test where
+
+  import GHC.Prim (MutVar#, RealWorld)
+
+  data Ref a = Ref (MutVar# RealWorld a)
+
+  unRef :: Ref a -> MutVar# RealWorld a
+  unRef (Ref reference) = reference
+reason: GHC does not quantify a data head over a levity. It defaults the levity to Lifted, so a is of kind Type.
+status: pass

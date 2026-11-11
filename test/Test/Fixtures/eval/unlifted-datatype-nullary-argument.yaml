@@ -1,0 +1,19 @@
+extensions:
+  - UnliftedDatatypes
+  - StandaloneKindSignatures
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (UnliftedType)
+
+    type Mark :: UnliftedType
+    data Mark = Mark
+
+    count :: Mark -> Int
+    count Mark = 3
+expression: count Mark
+output: |
+  I# 3
+status: pass
+reason: A nullary constructor of an unlifted data type is an unlifted value.
