@@ -207,7 +207,7 @@ data CommentIndex = CommentIndex
 buildCommentIndex :: [DocComment] -> CommentIndex
 buildCommentIndex comments =
   CommentIndex
-    { indexNext = MonoidMap.fromListWith (<>) [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
+    { indexNext = MonoidMap.fromList [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
       indexPrev = prevs,
       indexNamed = named,
       indexSections = sections
