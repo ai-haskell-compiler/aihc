@@ -249,7 +249,7 @@ claimBetween sp index =
          in start <= cStart && cEnd <= end
       (sections, sections') = partition inside (indexSections index)
       (named, named') = partition inside (indexNamed index)
-      nextsInside = [c | cs <- Map.elems (indexNext index), c <- cs, inside c]
+      nextsInside = foldMap (filter inside) (indexNext index)
       nexts' = Map.filter (not . null) (Map.map (filter (not . inside)) (indexNext index))
       claimed = sortBySpan (sections <> named <> nextsInside)
    in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
