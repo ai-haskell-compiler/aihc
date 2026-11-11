@@ -1,0 +1,23 @@
+extensions: [DeriveDataTypeable]
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    module Test where
+
+    import Data.Data
+    import Data.Void
+
+    newtype Wrap = Wrap (Either Void Int)
+      deriving (Data)
+
+    results :: [Bool]
+    results =
+      [ showConstr (toConstr (Wrap (Right 1))) == "Wrap",
+        dataTypeName (dataTypeOf (undefined :: Void)) == "Data.Void.Void",
+        isAlgType (dataTypeOf (undefined :: Void)),
+        null (dataTypeConstrs (dataTypeOf (undefined :: Void)))
+      ]
+expression: results
+output: ": True (: True (: True (: True [])))"
+status: pass
+reason: base has a Data instance for Void, so a type with a Void field can derive Data, as in modern-uri
