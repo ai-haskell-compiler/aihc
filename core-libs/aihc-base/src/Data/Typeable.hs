@@ -1,11 +1,11 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE PatternSynonyms #-}
+
 -- | The 'Typeable' class and the type representations that it gives.
 --
 -- "Data.Typeable.Internal" holds most of this module. Modules below
 -- 'Prelude' import it directly. This module adds the fingerprints, which
 -- need "GHC.Fingerprint" and thus 'Prelude'.
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE PatternSynonyms #-}
-
 module Data.Typeable
   ( Typeable,
     TypeRep,
