@@ -568,11 +568,7 @@ stockFieldTypes plan = do
   -- instance with no constructors, as in GHC.
   unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockGenericMethods, Just StockDataMethods]) $
     validateStockDataType plan dataType
-  let substitution =
-        Map.fromList
-          [ (tvUnique tyVar, argument)
-          | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
-          ]
+  let substitution = headSubstitution dataType targetArguments
   pure
     [ [applySubst substitution (dcfiType field) | field <- dciFields constructor]
     | constructor <- dtiConstructors dataType
@@ -600,16 +596,40 @@ newtypeRepresentation plan = do
       _ -> Left "newtype deriving requires a newtype with one field"
   targetArguments <- targetTypeArguments "newtype deriving" dataType plan
   let supplied = length targetArguments
-      substitution =
-        Map.fromList
-          [ (tvUnique tyVar, argument)
-          | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
-          ]
+      substitution = headSubstitution dataType targetArguments
       dropped = drop supplied (dtiTyVars dataType)
   case etaReduce dropped (applySubst substitution field) of
     Just representation
       | not (any (`elem` typeTyVars representation) dropped) -> Right representation
     _ -> Left "newtype deriving cannot eta-reduce the representation type to the instance head"
+
+-- | The substitution from the datatype parameters to the instance head
+-- arguments. The kind variables of the datatype get the kinds of the
+-- arguments too. In @deriving instance Eq (POP f xss)@ for @newtype POP (f
+-- :: k -> Type) (xss :: [[k]])@, the instance has its own kind variable,
+-- and the field type @NP (NP f) xss@ must use it, not the @k@ of the
+-- declaration.
+headSubstitution :: DataTypeInfo -> [TcType] -> Map Unique TcType
+headSubstitution dataType targetArguments =
+  Map.union typeSubstitution kindSubstitution
+  where
+    pairs = zip (dtiTyVars dataType) targetArguments
+    typeSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- pairs]
+    parameters = Map.keysSet typeSubstitution
+    -- Only a type variable argument tells its kind here. A kind variable
+    -- that is also a parameter is in the type substitution already.
+    kindSubstitution =
+      Map.filterWithKey
+        (\unique _ -> unique `notElem` parameters)
+        ( foldl
+            (\current (tyVar, argument) -> maybe current (`Map.union` current) (argumentKindMatch tyVar argument))
+            Map.empty
+            pairs
+        )
+    argumentKindMatch tyVar argument =
+      case argument of
+        TcTyVar argumentVar -> matchTypes [tvKind tyVar] [tvKind argumentVar]
+        _ -> Nothing
 
 -- | Remove trailing arguments that are exactly the given type variables.
 etaReduce :: [TyVarId] -> TcType -> Maybe TcType

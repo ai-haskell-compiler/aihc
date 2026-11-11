@@ -139,7 +139,13 @@ newtypeUnwrapping ty =
             length arguments == length (dtiTyVars dataType),
             [con] <- dtiConstructors dataType,
             [field] <- dciFields con -> do
-              let substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)
+              -- The kind variables of the declaration get the kinds of the
+              -- arguments, as in the axiom. A partial application in the
+              -- field, as the @P f@ of @newtype W f a = W (P (P f) a)@,
+              -- keeps its kind arguments.
+              argumentKinds <- mapM tcTypeKind arguments
+              let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) argumentKinds)
+                  substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments) `Map.union` kindSubstitution
               axiom <- newtypeAxiom constructor dataType arguments
               pure (Just (normalize (applySubst substitution (dcfiType field)), axiom))
         _ -> familyNewtypeUnwrapping (TcTyCon constructor arguments)
