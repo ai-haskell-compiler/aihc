@@ -3,6 +3,7 @@ module Aihc.Tc.Solve.Congruence
   ( proveGivenEquality,
     proveFromEqualities,
     givenEqualities,
+    allGivenEqualities,
     applyGivenSubst,
   )
 where
@@ -12,7 +13,7 @@ import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -35,7 +36,7 @@ type ProofGraph = Map TypeShape [(TcType, Coercion)]
 -- Each new edge joins two components, so closure terminates.
 proveGivenEquality :: [Pred] -> TcType -> TcType -> TcM (Maybe Coercion)
 proveGivenEquality predicates left right = do
-  equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) predicates
+  equalities <- allGivenEqualities predicates
   proveFromEqualities equalities left right
 
 -- | Prove an equality from given equalities that are already taken apart.
@@ -123,6 +124,74 @@ reduceRewritten equalities ty =
                   then (current, Refl current)
                   else (mkAppTy function' argument', AppCo functionProof argumentProof)
           _ -> (current, Refl current)
+
+-- | The equalities of the givens. A given constraint that is a stuck
+-- family application can reduce after the other givens rewrite it. In
+-- @trans_NP@ of @sop-core@, the superclass @SameShapeAs xs ys@ of the given
+-- @AllZip c xs ys@ is stuck, but a match on @Nil@ gives @xs ~ '[]@. The
+-- rewritten constraint @SameShapeAs '[] ys@ reduces to @ys ~ '[]@, and
+-- this is an equality of the givens too. The evidence casts the given
+-- dictionary to the rewritten constraint.
+allGivenEqualities :: [Pred] -> TcM [(TcType, TcType, Coercion)]
+allGivenEqualities predicates = do
+  let roots = [(predicate, EvGiven predicate) | predicate <- predicates]
+  equalities <- concat <$> traverse (givenEqualities []) roots
+  stuck <- concat <$> traverse (stuckGivenConstraints []) roots
+  if null stuck || null equalities
+    then pure equalities
+    else do
+      kinds <- getKinds
+      derived <- concat <$> traverse (rewrittenEqualities kinds equalities) stuck
+      pure (equalities <> derived)
+  where
+    rewrittenEqualities kinds equalities (constraint, evidence) = do
+      reductions <- reduceRewritten equalities constraint
+      concat
+        <$> traverse
+          ( \(_, reduced, proof) ->
+              let cast = EvCast evidence proof
+               in case constraintTypeToPred kinds reduced of
+                    Just equality@(EqPred left right) ->
+                      pure [(left, right, EvidenceCo equality (EvSuperClass cast Nothing (IrredPred reduced) [reduced] 0))]
+                    Just classPredicate@ClassPred {} -> givenEqualities [] (classPredicate, cast)
+                    _ -> pure []
+          )
+          reductions
+
+-- | The given constraints, with their evidence, that are neither an
+-- equality nor a class: a family application that does not reduce yet.
+stuckGivenConstraints :: [TyCon] -> (Pred, EvTerm) -> TcM [(TcType, EvTerm)]
+stuckGivenConstraints visited (predicate, evidence) = case predicate of
+  IrredPred constraint -> stuckFamily constraint
+  ClassPred tyCon arguments
+    | tyCon `notElem` visited -> do
+        family <- isTypeFamilyApplication (TcTyCon tyCon arguments)
+        maybeInfo <- if family then pure Nothing else lookupClass tyCon
+        case maybeInfo of
+          Nothing
+            | family -> stuckFamily (TcTyCon tyCon arguments)
+            | otherwise -> pure []
+          Just info -> do
+            kinds <- getKinds
+            let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
+            substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+            let fields = classFieldTypes info substitution
+                supers = map (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info)
+                -- A superclass that is not a class or an equality is the
+                -- constraint type itself.
+                superItems =
+                  [ (index, fromMaybe (IrredPred (applySubst substitution superType)) super)
+                  | (index, superType, super) <- zip3 [0 ..] (ciSuperClassTypes info) supers
+                  ]
+            concat
+              <$> traverse
+                (\(index, super) -> stuckGivenConstraints (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
+                superItems
+  _ -> pure []
+  where
+    stuckFamily constraint = do
+      family <- isTypeFamilyApplication constraint
+      pure [(constraint, evidence) | family]
 
 -- | Preserve the dictionary path of each equality superclass.
 givenEqualities :: [TyCon] -> (Pred, EvTerm) -> TcM [(TcType, TcType, Coercion)]
