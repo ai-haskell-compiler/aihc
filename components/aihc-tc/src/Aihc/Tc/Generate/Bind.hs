@@ -53,7 +53,7 @@ import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme)
+import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -63,7 +63,7 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
-import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Aihc.Tc.Zonk (defaultTypeSchemeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM_, when)
 import Data.Either (isRight)
@@ -119,10 +119,32 @@ localSignatureBinders decls = do
       case peelDeclAnn decl of
         DeclTypeSig names ty
           | not (hasWildcardType ty) -> do
-              scheme <- sigToScheme ty
+              scheme <- localSigToScheme ty
               keyed <- mapM (\name -> (,name) <$> resolvedUnqualifiedTermKey name) names
               pure [(name, TcIdBinder scheme Closed) | (key, name) <- keyed, Set.member key binderKeys]
         _ -> pure []
+
+-- | Convert a local signature to a type scheme. The signature is complete
+-- after its check, thus the kind meta-variables that it leaves open are
+-- settled now. In @let x :: M f a@ with @M (f :: k -> Type) (a :: k)@,
+-- the kind @k@ stays open. Without PolyKinds it defaults to 'Type', as in
+-- GHC. With PolyKinds it is settled after the component, as the kinds of
+-- a generalized local binding are.
+localSigToScheme :: Type -> TcM TypeScheme
+localSigToScheme ty = do
+  scheme <- sigToScheme ty
+  polyKinds <- getPolyKinds
+  if polyKinds
+    then deferSchemeKinds scheme
+    else defaultTypeSchemeKinds scheme
+  where
+    deferSchemeKinds (Scheme inferred specified predicates body) = do
+      inferred' <- mapM deferTyVarKind inferred
+      specified' <- mapM deferTyVarKind specified
+      pure (Scheme inferred' specified' predicates body)
+    deferTyVarKind tyVar = do
+      kind <- deferKindMetas deferKindMeta (tvKind tyVar)
+      pure (setTyVarKind kind tyVar)
 
 -- | Split the declarations of a local group into its strongly connected
 -- components, in dependency order. A binding is generalized before the
@@ -274,7 +296,7 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
   let groups = groupValueDecls decls
   binders <- distinctLocalBinders (concatMap groupBinders groups)
   rawSigs <- collectRawSigs decls
-  sigs <- traverse sigToScheme rawSigs
+  sigs <- traverse localSigToScheme rawSigs
   let scopedSigs = Map.intersectionWith (\rawSig (ForAll tyVars _ _) -> scopedSigTyVars (explicitForallNames rawSig) tyVars) rawSigs sigs
   placeholders <- traverse (placeholderFor sigs) binders
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
