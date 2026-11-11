@@ -1769,9 +1769,8 @@ static int aihc_keeps_caf(AihcValue *object) {
    holds each object once. The caller holds the heap lock. */
 static void aihc_keep_caf_unlocked(AihcValue *object) {
   if (aihc_kept_caf_count == aihc_kept_caf_capacity) {
-    aihc_kept_cafs =
-        aihc_worklist_grow(aihc_kept_cafs, &aihc_kept_caf_capacity,
-                           sizeof(*aihc_kept_cafs));
+    aihc_kept_cafs = aihc_worklist_grow(aihc_kept_cafs, &aihc_kept_caf_capacity,
+                                        sizeof(*aihc_kept_cafs));
   }
   aihc_kept_cafs[aihc_kept_caf_count++] = object;
 }
