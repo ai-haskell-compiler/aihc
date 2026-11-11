@@ -4618,7 +4618,158 @@ desugarListCompParallel annotation expression branches = do
 -- one element of the result, in the scope of the variables of the
 -- statements.
 desugarListCompStatements :: TcType -> Expr -> ValueM Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
-desugarListCompStatements resultElementType cons body statements rest =
+desugarListCompStatements resultElementType cons body statements rest
+  | Just (prefix, annotation, transform, suffix) <- splitLastTransform statements =
+      desugarListCompTransform resultElementType cons body prefix annotation transform suffix rest
+  | otherwise = desugarListCompPlain resultElementType cons body statements rest
+
+-- | Split the statements at the last TransformListComp statement. The
+-- result has the statements before it, its checked tuple annotation, the
+-- statement, and the statements after it.
+splitLastTransform :: [Syn.CompStmt] -> Maybe ([Syn.CompStmt], TcAnnotation, Syn.CompStmt, [Syn.CompStmt])
+splitLastTransform statements =
+  case [index | (index, statement) <- zip [0 :: Int ..] statements, Just _ <- [transformStatement Nothing statement]] of
+    [] -> Nothing
+    indices -> do
+      let index = last indices
+      (prefix, statement, suffix) <-
+        case splitAt index statements of
+          (before, statement : after) -> Just (before, statement, after)
+          _ -> Nothing
+      (annotation, transform) <- transformStatement Nothing statement
+      checked <- annotation
+      pure (prefix, checked, transform, suffix)
+  where
+    transformStatement :: Maybe TcAnnotation -> Syn.CompStmt -> Maybe (Maybe TcAnnotation, Syn.CompStmt)
+    transformStatement annotation statement =
+      case statement of
+        Syn.CompAnn ann inner ->
+          transformStatement (annotation <|> Syn.fromAnnotation ann) inner
+        Syn.CompThen {} -> Just (annotation, statement)
+        Syn.CompThenBy {} -> Just (annotation, statement)
+        Syn.CompGroupUsing {} -> Just (annotation, statement)
+        Syn.CompGroupByUsing {} -> Just (annotation, statement)
+        _ -> Nothing
+
+-- | Desugar a TransformListComp statement. Let @vs@ be the tuple of the
+-- variables of the statements before it, and @t@ its type. The desugaring
+-- of @[body | Q, then f by e, R]@ is
+--
+-- > [body | vs <- f (\vs -> e) [vs | Q], R]
+--
+-- A group statement gives a list of groups. After it, each variable is the
+-- list of its values in the group:
+--
+-- > [body | group <- f (\vs -> e) [vs | Q], let v1 = map sel1 group, ..., R]
+--
+-- The type checker gives the tuple annotation, see 'inferCompQuals'.
+desugarListCompTransform :: TcType -> Expr -> ValueM Expr -> [Syn.CompStmt] -> TcAnnotation -> Syn.CompStmt -> [Syn.CompStmt] -> Expr -> ValueM Expr
+desugarListCompTransform resultElementType cons body prefix annotation transform suffix rest = do
+  let tupleType = tcAnnType annotation
+      binderTypes = tcAnnTypeArgs annotation
+  (isGroup, maybeKey, function) <-
+    case transform of
+      Syn.CompThen function' -> pure (False, Nothing, function')
+      Syn.CompThenBy function' key -> pure (False, Just key, function')
+      Syn.CompGroupUsing function' -> pure (True, Nothing, function')
+      Syn.CompGroupByUsing key function' -> pure (True, Just key, function')
+      _ -> failValue ("statement is not a transform statement: " <> take 80 (show transform))
+  keys <- mapM requiredBinderKey (compStmtBinderNames prefix)
+  unless (length keys == length binderTypes) $
+    failValue ("transform statement has " <> show (length keys) <> " variables and " <> show (length binderTypes) <> " types")
+  let variables = zip keys binderTypes
+  tupleListType <- listTypeFromElement tupleType
+  convertedTupleType <- convertCheckedType tupleType
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  let tupleNil = ExTyApp (ExVar nilName) convertedTupleType
+      tupleCons = ExTyApp (ExVar consName) convertedTupleType
+      tuple = do
+        locals <- gets vsLocals
+        values <-
+          mapM
+            ( \(key, _) -> case Map.lookup key locals of
+                Just (binder, _) -> pure (ExVar (binderName binder))
+                Nothing -> failValue ("transform statement variable is not in scope: " <> show key)
+            )
+            variables
+        recTupleValue tupleType binderTypes values
+  prefixList <- desugarListCompStatements tupleType tupleCons tuple prefix tupleNil
+  keyFunctions <-
+    case maybeKey of
+      Nothing -> pure []
+      Just key -> do
+        argument <- freshBinder "_list_comp_key" tupleType
+        (binds, locals) <- recTupleSelections argument tupleType variables
+        key' <- withLocals locals (desugarExpr key)
+        pure [ExLam argument (foldr ExLet key' binds)]
+  function' <- desugarExpr function
+  let transformed = foldl ExApp function' (keyFunctions <> [prefixList])
+      itemType
+        | isGroup = tupleListType
+        | otherwise = tupleType
+  transformedType <- listTypeFromElement itemType
+  resultListType <- listTypeFromElement resultElementType
+  resultType <- convertCheckedType resultListType
+  loopFunction <- freshBinder "_list_comp" (TcFunTy transformedType resultListType)
+  argument <- freshBinder "_list_comp_list" transformedType
+  item <- freshBinder "_list_comp_item" itemType
+  items <- freshBinder "_list_comp_tail" transformedType
+  caseBinder <- freshBinder "_list_comp_scrut" transformedType
+  let recursiveCall = ExApp (ExVar (binderName loopFunction)) (ExVar (binderName items))
+  (binds, locals) <-
+    if isGroup
+      then unzip <$> mapM (groupVariable item tupleType variables) [0 .. length variables - 1]
+      else recTupleSelections item tupleType variables
+  success <- withLocals locals (desugarListCompStatements resultElementType cons body suffix recursiveCall)
+  let loop =
+        caseFromList
+          (ExVar (binderName argument))
+          (Just caseBinder)
+          resultType
+          [ Alt (AltData nilName) [] [] rest,
+            Alt (AltData consName) [] [item, items] (foldr ExLet success binds)
+          ]
+  pure (ExRec [Bind loopFunction (ExLam argument loop)] (ExApp (ExVar (binderName loopFunction)) transformed))
+
+-- | Bind one variable after a group statement to the list of its values in
+-- the group: @v = map sel group@.
+groupVariable :: Binder -> TcType -> [(Entity, TcType)] -> Int -> ValueM (Bind, (Entity, (Binder, TcType)))
+groupVariable group tupleType variables index = do
+  let (key, ty) = variables !! index
+  tupleListType <- listTypeFromElement tupleType
+  valueListType <- listTypeFromElement ty
+  convertedType <- convertCheckedType ty
+  convertedListType <- convertCheckedType valueListType
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  mapFunction <- freshBinder "_list_comp_map" (TcFunTy tupleListType valueListType)
+  argument <- freshBinder "_list_comp_group" tupleListType
+  element <- freshBinder "_list_comp_element" tupleType
+  elements <- freshBinder "_list_comp_elements" tupleListType
+  caseBinder <- freshBinder "_list_comp_group_scrut" tupleListType
+  (selectionBinds, selectionLocals) <- recTupleSelections element tupleType variables
+  selected <-
+    case lookup key selectionLocals of
+      Just (binder, _) -> pure (foldr ExLet (ExVar (binderName binder)) selectionBinds)
+      Nothing -> failValue ("group variable has no selection: " <> show key)
+  let nil = ExTyApp (ExVar nilName) convertedType
+      cons = ExTyApp (ExVar consName) convertedType
+      recursiveCall = ExApp (ExVar (binderName mapFunction)) (ExVar (binderName elements))
+      body =
+        caseFromList
+          (ExVar (binderName argument))
+          (Just caseBinder)
+          convertedListType
+          [ Alt (AltData nilName) [] [] nil,
+            Alt (AltData consName) [] [element, elements] (ExApp (ExApp cons selected) recursiveCall)
+          ]
+  variable <- freshBinder "_list_comp_var" valueListType
+  let value = ExRec [Bind mapFunction (ExLam argument body)] (ExApp (ExVar (binderName mapFunction)) (ExVar (binderName group)))
+  pure (Bind variable value, (key, (variable, valueListType)))
+
+desugarListCompPlain :: TcType -> Expr -> ValueM Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
+desugarListCompPlain resultElementType cons body statements rest =
   case statements of
     [] -> do
       body' <- body

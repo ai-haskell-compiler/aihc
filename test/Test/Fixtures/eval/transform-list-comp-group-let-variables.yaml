@@ -1,0 +1,30 @@
+extensions:
+  - TransformListComp
+modules:
+  - |
+    {-# LANGUAGE TransformListComp #-}
+    module Test where
+
+    import GHC.Exts (groupWith, sortWith, the)
+
+    windows :: [Int] -> [(Int, [Int])]
+    windows ts =
+      [ (the high, low)
+      | t <- ts,
+        let high = t `div` 256,
+        let low = t `mod` 256,
+        then group by high using groupWith
+      ]
+
+    sorted :: [Int]
+    sorted = [x | x <- [3, 1, 2], then sortWith by negate x]
+
+    result :: Bool
+    result =
+      windows [257, 2, 513, 3] == [(0, [2, 3]), (1, [1]), (2, [1])]
+        && sorted == [3, 2, 1]
+expression: result
+output: |
+  True
+status: pass
+reason: A group qualifier collects each of two let variables into a list, and a then qualifier with a key sorts the elements.

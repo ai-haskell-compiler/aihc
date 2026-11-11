@@ -1798,49 +1798,91 @@ inferListCompParallel sp body branches = do
 -- | Check the statements of a list comprehension, and then run the action
 -- in the scope of their variables.
 inferCompQuals :: TyCon -> Maybe SourceSpan -> [CompStmt] -> TcM (Expr, TcType, [Ct]) -> TcM ([CompStmt], Expr, TcType, [Ct])
-inferCompQuals _ _ [] action = do
-  (body', bodyTy, bodyCts) <- action
-  pure ([], body', bodyTy, bodyCts)
-inferCompQuals listTyCon' ambient (qual : rest) action =
-  case qual of
-    CompAnn ann inner -> do
-      (stmts', body', bodyTy, cts) <- inferCompQuals listTyCon' (compStmtSpan qual <|> ambient) (inner : rest) action
-      case stmts' of
-        inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
-        [] -> pure ([], body', bodyTy, cts)
-    CompGen pat src -> do
-      elemTy <- freshMetaTv
-      (src', srcTy, srcCts) <- inferExpr src
-      patCheck <- checkPattern ambient pat elemTy
-      ev <- freshEvVar
-      let srcSp = exprSpan src <|> ambient
-          srcListCt = mkWantedCt (EqPred srcTy (TcTyCon listTyCon' [elemTy])) ev (AppOrigin srcSp) srcSp
-      (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (inferCompQuals listTyCon' ambient rest action)
-      remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
-      pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
-    CompGuard guard -> do
-      (guard', guardTy, guardCts) <- inferExpr guard
-      ev <- freshEvVar
-      expectedBoolTy <- boolType
-      let guardSp = exprSpan guard <|> ambient
-          guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
-      (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
-      pure (CompGuard guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
-    CompLetDecls decls -> do
-      (decls', (rest', body'), bodyTy, bodyCts) <-
-        inferLocalDecls inferExpr decls $ do
-          (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
-          pure ((rest', body'), bodyTy, bodyCts)
-      pure (CompLetDecls decls' : rest', body', bodyTy, bodyCts)
-    CompThen {} -> unsupportedQual
-    CompThenBy {} -> unsupportedQual
-    CompGroupUsing {} -> unsupportedQual
-    CompGroupByUsing {} -> unsupportedQual
+inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
   where
-    unsupportedQual = do
+    -- The first argument has the statements before the current statement,
+    -- in reverse order. A transform statement uses their variables.
+    go _ _ [] = do
+      (body', bodyTy, bodyCts) <- action
+      pure ([], body', bodyTy, bodyCts)
+    go seen ambient (qual : rest) =
+      case qual of
+        CompAnn ann inner -> do
+          (stmts', body', bodyTy, cts) <- go seen (compStmtSpan qual <|> ambient) (inner : rest)
+          case stmts' of
+            inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
+            [] -> pure ([], body', bodyTy, cts)
+        CompGen pat src -> do
+          elemTy <- freshMetaTv
+          (src', srcTy, srcCts) <- inferExpr src
+          patCheck <- checkPattern ambient pat elemTy
+          ev <- freshEvVar
+          let srcSp = exprSpan src <|> ambient
+              srcListCt = mkWantedCt (EqPred srcTy (TcTyCon listTyCon' [elemTy])) ev (AppOrigin srcSp) srcSp
+          (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (go (qual : seen) ambient rest)
+          remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
+          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
+        CompGuard guard -> do
+          (guard', guardTy, guardCts) <- inferExpr guard
+          ev <- freshEvVar
+          expectedBoolTy <- boolType
+          let guardSp = exprSpan guard <|> ambient
+              guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
+          (rest', body', bodyTy, bodyCts) <- go (qual : seen) ambient rest
+          pure (CompGuard guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
+        CompLetDecls decls -> do
+          (decls', (rest', body'), bodyTy, bodyCts) <-
+            inferLocalDecls inferExpr decls $ do
+              (rest', body', bodyTy, bodyCts) <- go (qual : seen) ambient rest
+              pure ((rest', body'), bodyTy, bodyCts)
+          pure (CompLetDecls decls' : rest', body', bodyTy, bodyCts)
+        CompThen function -> transform seen ambient qual rest False Nothing function (\_ function' -> CompThen function')
+        CompThenBy function key -> transform seen ambient qual rest False (Just key) function (\key' function' -> CompThenBy function' (fromMaybe key key'))
+        CompGroupUsing function -> transform seen ambient qual rest True Nothing function (\_ function' -> CompGroupUsing function')
+        CompGroupByUsing key function -> transform seen ambient qual rest True (Just key) function (\key' function' -> CompGroupByUsing (fromMaybe key key') function')
+
+    -- Check a transform statement of TransformListComp. Let @t@ be the
+    -- tuple type of the variables of the statements before it. The
+    -- function has the type @[t] -> [t]@, or @[t] -> [[t]]@ for a group
+    -- statement. A key expression @e@ adds the argument @t -> te@ in
+    -- front. After a group statement, each variable has a list type.
+    --
+    -- The statement gets a tuple annotation. The annotation has the tuple
+    -- type, the variable types as type arguments, and the key type as
+    -- term argument type.
+    transform seen ambient qual rest isGroup maybeKey function rebuild = do
       let qualSp = compStmtSpan qual <|> ambient
-      emitError qualSp (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
-      inferCompQuals listTyCon' ambient rest action
+          listOf ty = TcTyCon listTyCon' [ty]
+      keys <- mapM resolvedUnqualifiedTermKey (compStmtBinderNames (reverse seen))
+      binderTys <- mapM (transformBinderType qualSp) keys
+      tupleTy <- recTupleType binderTys
+      keyPart <- traverse inferExpr maybeKey
+      (function', functionTy, functionCts) <- inferExpr function
+      let resultTy
+            | isGroup = listOf (listOf tupleTy)
+            | otherwise = listOf tupleTy
+          keyArgTys = [TcFunTy tupleTy keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
+          expectedTy = foldr TcFunTy (TcFunTy (listOf tupleTy) resultTy) keyArgTys
+          functionSp = exprSpan function <|> qualSp
+      functionCt <- wantedDoEq functionSp functionTy expectedTy
+      let rebind action'
+            | isGroup = foldr (\(key, ty) -> rebindTermEnv key (TcMonoIdBinder (listOf ty))) action' (zip keys binderTys)
+            | otherwise = action'
+      (rest', body', bodyTy, bodyCts) <- rebind (go (qual : seen) ambient rest)
+      let keyTys = [keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
+          keyCts = maybe [] (\(_, _, cts) -> cts) keyPart
+          tupleAnn = mkAnnotation (pendingAnnotation tupleTy binderTys [] keyTys)
+          qual' = CompAnn tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
+      pure (qual' : rest', body', bodyTy, keyCts ++ functionCts ++ [functionCt] ++ bodyCts)
+
+    transformBinderType sp key = do
+      binder <- lookupTermKey key
+      case binder of
+        Just (TcMonoIdBinder ty) -> pure ty
+        Just (TcIdBinder (ForAll [] [] ty) _) -> pure ty
+        _ -> do
+          emitError sp (OtherError "a variable before a TransformListComp statement must have a monomorphic type")
+          freshMetaTv
 
 resolvedListTyCon :: TcM TyCon
 resolvedListTyCon = listTyConOfWiring

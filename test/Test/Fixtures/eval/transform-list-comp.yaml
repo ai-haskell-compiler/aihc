@@ -13,5 +13,5 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: TransformListComp accepts a then qualifier.
+status: pass
+reason: A then qualifier applies its function to the list of the earlier variables.
