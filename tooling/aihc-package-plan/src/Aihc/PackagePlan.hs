@@ -56,6 +56,7 @@ import Aihc.Hackage.Package
     Version,
     VersionRange,
     anyVersion,
+    mkFlagAssignment,
     mkFlagName,
     mkPackageName,
     packageNameOf,
@@ -268,7 +269,7 @@ planPackages request = do
             configConstraints =
               requestConstraints request
                 <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots],
-            configPreferences = Map.empty,
+            configPreferences = installedPreferences,
             configRoots = Map.fromList [(name, rootStanzas) | (name, _) <- roots],
             -- Every package depends on aihc-prim, so the plan needs it even
             -- when no cabal file names it; see 'withImplicitPrimDependency'.
@@ -302,6 +303,15 @@ planPackages request = do
         { stanzasTests = requestTestSuites request,
           stanzasExecutables = Set.fromList . map T.pack <$> requestExecutables request
         }
+
+-- | The versions that the emulated release installs. A lock entry takes
+-- precedence over these.
+installedPreferences :: Map PackageName Preference
+installedPreferences =
+  Map.fromList
+    [ (mkPackageName name, Preference (versionFromList version) Nothing (mkFlagAssignment []))
+    | (name, version) <- releaseInstalledLibraries emulatedGhc
+    ]
 
 -- | Take the plan from a valid lock, or solve and say so.
 solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> [FilePath] -> IO (Solution, Bool)
@@ -342,7 +352,7 @@ solveWithLock request inputs config localDirectories
                 Just (Right solution) -> transitiveDependents solution dropped
                 _ -> dropped
               preferences = Map.withoutKeys (lockPreferences locked) dependents
-          runSolve config {configPreferences = if mode == LockUpdateAll then Map.empty else preferences}
+          runSolve config {configPreferences = if mode == LockUpdateAll then installedPreferences else Map.union preferences installedPreferences}
         (_, Nothing, _) -> runSolve config
   where
     platform = uncurry platformKey (requestPlatform request)

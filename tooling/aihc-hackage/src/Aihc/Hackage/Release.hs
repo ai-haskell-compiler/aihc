@@ -44,7 +44,14 @@ data GhcRelease = GhcRelease
     -- internal API of its release, such as the Template Haskell AST of
     -- @ghc-internal@, but its bounds do not say so. Thus the plan must use
     -- this version and not the newest one.
-    releaseHackageBootLibraries :: [(String, [Int])]
+    releaseHackageBootLibraries :: [(String, [Int])],
+    -- | Further libraries that the release installs in its global package
+    -- database, with their versions. Cabal prefers an installed version to
+    -- a newer one on Hackage, so a plan prefers these versions too. A
+    -- package can work only with the installed version. For example,
+    -- @containers-0.8.1@ adds a @Data.Sequence.toList@ that makes an
+    -- unqualified @toList@ ambiguous in many packages.
+    releaseInstalledLibraries :: [(String, [Int])]
   }
   deriving (Eq, Show)
 
@@ -66,6 +73,34 @@ emulatedGhc =
         ],
       releaseHackageBootLibraries =
         [ ("ghc-boot-th", [9, 12, 4])
+        ],
+      releaseInstalledLibraries =
+        [ ("Cabal", [3, 14, 2, 0]),
+          ("Cabal-syntax", [3, 14, 2, 0]),
+          ("array", [0, 5, 8, 0]),
+          ("binary", [0, 8, 9, 3]),
+          ("bytestring", [0, 12, 2, 0]),
+          ("containers", [0, 7]),
+          ("deepseq", [1, 5, 1, 0]),
+          ("directory", [1, 3, 10, 1]),
+          ("exceptions", [0, 10, 12]),
+          ("file-io", [0, 1, 6]),
+          ("filepath", [1, 5, 5, 0]),
+          ("haskeline", [0, 8, 4, 1]),
+          ("hpc", [0, 7, 0, 2]),
+          ("mtl", [2, 3, 2]),
+          ("os-string", [2, 0, 10]),
+          ("parsec", [3, 1, 18, 0]),
+          ("pretty", [1, 1, 3, 6]),
+          ("process", [1, 6, 26, 1]),
+          ("semaphore-compat", [1, 0, 0]),
+          ("stm", [2, 5, 3, 1]),
+          ("terminfo", [0, 4, 1, 7]),
+          ("text", [2, 1, 4]),
+          ("time", [1, 14]),
+          ("transformers", [0, 6, 3, 0]),
+          ("unix", [2, 8, 8, 0]),
+          ("xhtml", [3000, 2, 2, 1])
         ]
     }
 
