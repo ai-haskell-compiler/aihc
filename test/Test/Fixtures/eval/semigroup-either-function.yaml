@@ -1,0 +1,21 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Semigroup (stimes)
+
+    decodeA :: Int -> Either String Int
+    decodeA n = if n > 0 then Right n else Left "a"
+
+    decodeB :: Int -> Either String Int
+    decodeB n = Right (negate n)
+
+    decode :: Int -> Either String Int
+    decode = decodeA <> decodeB
+
+    results :: [Either String Int]
+    results = [decode 3, decode (-2), Left "x" <> Left "y", stimes (3 :: Int) (Left "z" :: Either String Int)]
+expression: results
+output: ": (Right (I# 3)) (: (Right (I# 2)) (: (Left (: 'y' [])) (: (Left (: 'z' [])) [])))"
+status: pass
+reason: base has a Semigroup instance for Either, so functions that return Either combine with (<>), as in hedis
