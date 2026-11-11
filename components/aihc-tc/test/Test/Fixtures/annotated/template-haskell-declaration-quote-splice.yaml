@@ -1,0 +1,42 @@
+annotated:
+- |-
+  {-# LANGUAGE TemplateHaskell #-}
+  module Test where
+  class Builder m where
+  └─ class methods: unit ∷ ∀ m a. (Builder m) ⇒ a → m a
+    unit :: a -> m a
+  data Q a = Q a
+       │     └─ type: ∀ a. a → Q a
+       └─ type: Type → Type
+  instance Builder Q where
+  └─ $fBuilderQ ∷ () ⇒ Builder Q
+    unit = Q
+    │      └─ type: a → Q a; type-args: a
+    └─ unit ∷ ∀ a. a → Q a
+  data Dec = Dec
+       │     └─ type: Dec
+       └─ type: Type
+  quoted :: Q [Dec]
+  quoted = let decs = unit [] in [d| $decs |]
+  │            │      │    │     │    └─ type: Q [()]; type-args: ()
+  │            │      │    │     └─ type: Q [Dec]
+  │            │      │    └─ type: [a]; type-args: a
+  │            │      └─ type: [a] → Q [a]; type-args: Q, [a]; evidence: $fBuilderQ
+  │            └─ type: ∀ a. Q [a]
+  └─ type: Q [Dec]
+extensions:
+- TemplateHaskell
+modules:
+- |
+  {-# LANGUAGE TemplateHaskell #-}
+  module Test where
+  class Builder m where
+    unit :: a -> m a
+  data Q a = Q a
+  instance Builder Q where
+    unit = Q
+  data Dec = Dec
+  quoted :: Q [Dec]
+  quoted = let decs = unit [] in [d| $decs |]
+reason: A splice in a declaration quote has the monad of the quote, so a monomorphic binding that only the splice uses gets that monad
+status: pass

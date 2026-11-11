@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -20,6 +21,7 @@ import Aihc.Parser.Syntax
     ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
+    Decl (..),
     DoFlavor (..),
     DoStmt (..),
     Expr (..),
@@ -34,7 +36,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan,
     TupleFlavor (..),
-    Type,
+    Type (..),
     UnqualifiedName (..),
     fromAnnotation,
     mkAnnotation,
@@ -62,8 +64,11 @@ import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (mfilter, when, zipWithM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Char (isLower)
+import Data.Data (Data, gmapM)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -71,6 +76,8 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Type.Equality ((:~:) (..))
+import Data.Typeable (eqT)
 
 -- | Infer the type of an expression.
 --
@@ -202,6 +209,9 @@ inferExprAt ambient expr = case expr of
     inferDo (exprSpan expr <|> ambient) flavor stmts
   -- A Template Haskell quote or a quasi-quote compiles to a runtime
   -- error, so it has any type the context wants.
+  ETHDeclQuote decls -> inferSyntaxQuote (exprSpan expr <|> ambient) ETHDeclQuote decls
+  ETHTypeQuote ty -> inferSyntaxQuote (exprSpan expr <|> ambient) ETHTypeQuote ty
+  ETHPatQuote pat -> inferSyntaxQuote (exprSpan expr <|> ambient) ETHPatQuote pat
   _ | isTemplateHaskellQuote expr -> literalResult expr freshMetaTv
   EQuasiQuote {} -> literalResult expr freshMetaTv
   other -> do
@@ -221,6 +231,66 @@ isTemplateHaskellQuote expr =
     ETHNameQuote {} -> True
     ETHTypeNameQuote {} -> True
     _ -> False
+
+-- | A declaration, type, or pattern quote. The quote compiles to a runtime
+-- error, but the bodies of its splices are code of the current stage. As
+-- in GHC, the quote has the type @m r@ and each splice body has the type
+-- @m s@, with the same @m@. Thus, a use of a binding in a splice fixes
+-- the monad of the binding.
+inferSyntaxQuote :: (Data body) => Maybe SourceSpan -> (body -> Expr) -> body -> TcM (Expr, TcType, [Ct])
+inferSyntaxQuote sp quote body = do
+  monad <- freshMetaTv
+  result <- freshMetaTv
+  (body', cts) <- runStateT (checkQuoteSplices (checkSpliceBody monad) body) []
+  let ty = TcAppTy monad result
+  pure (annotatePendingExprAt sp (pendingAnnotation ty [] [] []) (quote body'), ty, reverse cts)
+  where
+    checkSpliceBody monad inner = do
+      (inner', innerTy, innerCts) <- lift (inferExpr inner)
+      spliceResult <- lift freshMetaTv
+      ev <- lift freshEvVar
+      let loc = exprSpan inner <|> sp
+          monadCt = mkWantedCt (EqPred innerTy (TcAppTy monad spliceResult)) ev (AppOrigin loc) loc
+      modify' (\cts -> monadCt : reverse innerCts ++ cts)
+      pure inner'
+
+-- | Apply a function to the body of each splice in quoted syntax. The
+-- function does not go into the body of a splice.
+checkQuoteSplices :: forall m value. (Monad m, Data value) => (Expr -> m Expr) -> value -> m value
+checkQuoteSplices check = go
+  where
+    go :: forall node. (Data node) => node -> m node
+    go value =
+      case eqT @node @Expr of
+        Just Refl ->
+          case value of
+            ETHSplice inner -> ETHSplice <$> check inner
+            _ -> gmapM go value
+        Nothing ->
+          case eqT @node @Decl of
+            Just Refl ->
+              case value of
+                DeclSplice inner -> DeclSplice <$> spliceExpr inner
+                _ -> gmapM go value
+            Nothing ->
+              case eqT @node @Type of
+                Just Refl ->
+                  case value of
+                    TSplice inner -> TSplice <$> spliceExpr inner
+                    _ -> gmapM go value
+                Nothing ->
+                  case eqT @node @Pattern of
+                    Just Refl ->
+                      case value of
+                        PSplice inner -> PSplice <$> spliceExpr inner
+                        _ -> gmapM go value
+                    Nothing -> gmapM go value
+    -- A splice position holds @$(e)@, @$x@, or a naked expression.
+    spliceExpr inner =
+      case inner of
+        EAnn ann annotated -> EAnn ann <$> spliceExpr annotated
+        ETHSplice body -> ETHSplice <$> check body
+        _ -> check inner
 
 literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
 literalResult expr typeAction = do

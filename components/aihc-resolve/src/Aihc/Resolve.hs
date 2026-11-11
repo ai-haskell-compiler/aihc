@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -163,6 +164,7 @@ import Aihc.Resolve.Traverse (Walkable, collectAnnotations)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
+import Data.Data (Data, gmapM)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -171,6 +173,8 @@ import Data.Ratio (denominator, numerator)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Type.Equality ((:~:) (..))
+import Data.Typeable (eqT)
 
 -- | Resolve one compilation unit against the scopes its modules can see:
 -- what the unit's own modules export, on top of what its dependencies
@@ -1141,16 +1145,22 @@ resolveExpr expr =
       body' <- extendScope (foldr unionScope emptyScope bounds) (resolveExpr body)
       pure (EListCompParallel body' branches')
     -- Template Haskell quotes compile to a runtime error. The quoted
-    -- syntax stays unresolved because nothing consumes it.
+    -- syntax stays unresolved because nothing consumes it. The body of
+    -- each splice in the quote is code of the current stage, and the type
+    -- checker connects its monad to the monad of the quote. Thus, the
+    -- splice bodies get the resolutions of the scope of the quote.
     -- The body of an expression quote is code for a later stage, but its
     -- names have the scope of the quote. The change of a quote into an
     -- expression that builds its syntax tree reads their resolutions.
     ETHExpQuote inner ->
       ETHExpQuote <$> resolveExpr inner
     ETHTypedQuote {} -> pure expr
-    ETHDeclQuote {} -> pure expr
-    ETHTypeQuote {} -> pure expr
-    ETHPatQuote {} -> pure expr
+    ETHDeclQuote decls ->
+      ETHDeclQuote <$> resolveQuoteSplices decls
+    ETHTypeQuote ty ->
+      ETHTypeQuote <$> resolveQuoteSplices ty
+    ETHPatQuote pat ->
+      ETHPatQuote <$> resolveQuoteSplices pat
     -- A name quote gives the name of a term or of a type. The change of
     -- the quote into a Template Haskell name reads the resolution.
     ETHNameQuote inner ->
@@ -1158,6 +1168,36 @@ resolveExpr expr =
     ETHTypeNameQuote ty ->
       ETHTypeNameQuote <$> resolveType ty
     EProc {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EProc" <*> pure expr
+
+-- | Resolve the body of each splice in the quoted syntax of a quote. The
+-- rest of the quoted syntax stays as the parser gave it.
+resolveQuoteSplices :: forall value. (Data value) => value -> ResolveM value
+resolveQuoteSplices value =
+  case eqT @value @Expr of
+    Just Refl ->
+      case value of
+        ETHSplice inner -> ETHSplice <$> resolveExpr inner
+        ETHTypedSplice inner -> ETHTypedSplice <$> resolveExpr inner
+        _ -> gmapM resolveQuoteSplices value
+    Nothing ->
+      case eqT @value @Decl of
+        Just Refl ->
+          case value of
+            DeclSplice inner -> DeclSplice <$> resolveExpr inner
+            _ -> gmapM resolveQuoteSplices value
+        Nothing ->
+          case eqT @value @Type of
+            Just Refl ->
+              case value of
+                TSplice inner -> TSplice <$> resolveExpr inner
+                _ -> gmapM resolveQuoteSplices value
+            Nothing ->
+              case eqT @value @Pattern of
+                Just Refl ->
+                  case value of
+                    PSplice inner -> PSplice <$> resolveExpr inner
+                    _ -> gmapM resolveQuoteSplices value
+                Nothing -> gmapM resolveQuoteSplices value
 
 -- | An overloaded integer literal applies fromInteger to an Integer.
 --
