@@ -50,7 +50,7 @@ import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplify
 import Aihc.Tc.Types (Unique (..))
 import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, guard)
+import Control.Monad (foldM, guard, zipWithM)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -539,7 +539,7 @@ applyFamilyEquations env equations source = snd <$> select equations
     -- A pattern variable that occurs more than once, as @d@ in @d / d@,
     -- binds types that must unify with each other.
     couldUnifyAll patterns targets =
-      case concat <$> sequence (zipWith bindings patterns targets) of
+      case concat <$> zipWithM bindings patterns targets of
         Nothing -> False
         Just bound ->
           all

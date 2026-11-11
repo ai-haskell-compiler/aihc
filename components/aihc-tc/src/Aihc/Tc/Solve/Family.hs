@@ -27,7 +27,7 @@ import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyEqu
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
-import Control.Monad ((>=>))
+import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
@@ -383,7 +383,7 @@ equationArguments info =
 -- from @d / d@.
 couldUnifyAll :: (TyCon -> Bool) -> [TcType] -> [TcType] -> Bool
 couldUnifyAll family patterns targets =
-  case concat <$> sequence (zipWith (patternBindings family) patterns targets) of
+  case concat <$> zipWithM (patternBindings family) patterns targets of
     Nothing -> False
     Just bindings ->
       all
@@ -411,7 +411,7 @@ patternBindings family = go
         (_, TcTyCon targetTyCon _) | family targetTyCon -> Just []
         (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
           | tyCon == targetTyCon && length arguments == length targetArguments ->
-              concat <$> sequence (zipWith go arguments targetArguments)
+              concat <$> zipWithM go arguments targetArguments
           | otherwise -> Nothing
         -- The kind arguments are kinds, and a kind can still change.
         (TcKindedTyCon tyCon _, TcKindedTyCon targetTyCon _) -> sameTyCon tyCon targetTyCon
