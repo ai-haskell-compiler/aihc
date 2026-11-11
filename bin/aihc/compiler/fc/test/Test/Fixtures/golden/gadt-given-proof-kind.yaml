@@ -1,0 +1,43 @@
+extensions:
+  - GADTs
+  - DataKinds
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE GADTs, DataKinds, PolyKinds, KindSignatures #-}
+    module Test where
+    import GHC.Types (Type)
+    data Shape :: [k] -> Type where
+      ShapeNil :: Shape '[]
+    same :: Shape xs -> Shape xs
+    same ShapeNil = ShapeNil
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tShape (k : sType) ($parameter : t[] k) :: sType {
+    pub 1.cShapeNil :: ∀(k : sType) ($parameter : t[] k). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep ($parameter ~ c[] k) (tShape k $parameter)
+  }
+
+  pub val 1.vsame :: ∀(k0 : sType) (xs : t[] k0). tShape k0 xs → tShape k0 xs
+    = Λ(k0 : sType) (xs : t[] k0). λ(x : tShape k0 xs).
+      let! cShapeNil ($co : xs ~ c[] k0) = x;
+      (cShapeNil @k0 @(c[] k0) (coercion (refl (c[] k0)))) ▷ sym (tycon-co tShape (refl k0) ($co))
+status: pass
+reason: 'The result ShapeNil gets the kind k of xs. The given xs ~ [] proves Shape [] ~ Shape xs up to kinds, and the proof now also unifies the open kind. Before the fix, the kind defaulted and the System FC lint rejected the cast.'
