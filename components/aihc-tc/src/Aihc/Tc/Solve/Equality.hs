@@ -20,7 +20,7 @@ import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (unless)
+import Control.Monad (unless, zipWithM_)
 import Data.Map.Strict qualified as Map
 
 -- | Preserve a proof from the current signature or pattern scope.
@@ -71,11 +71,11 @@ alignProvedKinds left right
     go (TcTyCon leftCon leftArgs) (TcTyCon rightCon rightArgs)
       | leftCon == rightCon,
         length leftArgs == length rightArgs =
-          sequence_ (zipWith go leftArgs rightArgs)
+          zipWithM_ go leftArgs rightArgs
     go (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
       | leftCon == rightCon,
         length leftKinds == length rightKinds =
-          sequence_ (zipWith unifyOpen leftKinds rightKinds)
+          zipWithM_ unifyOpen leftKinds rightKinds
     go (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       go leftArg rightArg >> go leftResult rightResult
     go leftLeaf rightLeaf
