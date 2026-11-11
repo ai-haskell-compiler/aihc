@@ -33,15 +33,17 @@ module Aihc.Th.Quote
   ( moduleHasQuote,
     quoteImports,
     desugarModuleQuotes,
+    bindSpliceNameQuotes,
   )
 where
 
 import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Syntax
-import Aihc.Resolve.Types (Entity (..), GlobalName (..), PackageId (..), binderEntity, nameEntity)
+import Aihc.Resolve.Types (Entity (..), GlobalName (..), PackageId (..), ResolutionNamespace (..), binderEntity, nameEntity)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT (..), evalState, evalStateT, execState, modify', state)
 import Data.Data (Data, gmapM, gmapQ)
+import Data.Functor.Identity (Identity (..))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -108,6 +110,56 @@ desugarModuleQuotes parsed resolved
         Just expr : rest -> (expr, rest)
         _ : rest -> (original, rest)
         [] -> (original, [])
+
+-- | Bind each name quote in the body of a splice to its package and its
+-- module. The compiler runs a splice before it resolves the module, and
+-- the module that runs the splice does not import the modules of its own
+-- package. Thus, the function gives the top-level entity of a name in the
+-- scope of the original module. A quote of a name that the function does
+-- not know stays, and a quote in an expression quote stays.
+bindSpliceNameQuotes :: (ResolutionNamespace -> Name -> Maybe GlobalName) -> Module -> Module
+bindSpliceNameQuotes lookupName = runIdentity . outside
+  where
+    outside :: forall value. (Data value) => value -> Identity value
+    outside value =
+      case eqT @value @Expr of
+        Just Refl ->
+          case value of
+            ETHSplice body -> pure (ETHSplice (runIdentity (inside body)))
+            _ -> gmapM outside value
+        Nothing ->
+          case eqT @value @Decl of
+            Just Refl ->
+              case value of
+                DeclSplice body -> pure (DeclSplice (runIdentity (inside body)))
+                _ -> gmapM outside value
+            Nothing -> gmapM outside value
+    inside :: forall value. (Data value) => value -> Identity value
+    inside value =
+      case eqT @value @Expr of
+        Just Refl ->
+          case value of
+            ETHNameQuote target | Just bound <- boundName target -> pure bound
+            ETHTypeNameQuote target | Just bound <- boundTypeName target -> pure bound
+            ETHExpQuote {} -> pure value
+            ETHTypedQuote {} -> pure value
+            ETHDeclQuote {} -> pure value
+            ETHTypeQuote {} -> pure value
+            ETHPatQuote {} -> pure value
+            _ -> gmapM inside value
+        Nothing -> gmapM inside value
+    boundName expr =
+      case expr of
+        EAnn _ inner -> boundName inner
+        EParen inner -> boundName inner
+        EVar name -> addExprParens . globalName name <$> lookupName ResolutionNamespaceTerm name
+        _ -> Nothing
+    boundTypeName ty =
+      case ty of
+        TAnn _ inner -> boundTypeName inner
+        TParen inner -> boundTypeName inner
+        TCon name _ -> addExprParens . call "mkNameG_tc" . globalNameParts <$> lookupName ResolutionNamespaceType name
+        _ -> Nothing
 
 -- | Each quote of a module that is not in an expression quote. The parsed
 -- form and the resolved form of a module give the quotes in the same

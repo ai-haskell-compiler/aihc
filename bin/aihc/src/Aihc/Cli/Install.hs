@@ -214,6 +214,7 @@ import Aihc.Resolve
     moduleExportKeys,
     moduleExportsFromList,
     moduleExportsWithOrigins,
+    moduleTopLevelName,
     modulesInPackage,
     resolveUnit,
   )
@@ -249,12 +250,13 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (desugarModuleQuotes, moduleHasQuote, quoteImports)
-import Aihc.Th.Splices (SpliceRequest (..), SpliceResult, moduleSplices, replaceModuleSplices)
+import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote, quoteImports)
+import Aihc.Th.Reify (reifyInfo)
+import Aihc.Th.Splices (RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
-import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar, withMVar)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
@@ -321,7 +323,11 @@ data SourceModule = SourceModule
     -- | The package qualifier and name of each import.
     sourceModuleImports :: ![(Maybe Text, Text)],
     sourceModuleExtensions :: ![Extension],
-    sourceModuleParseDiagnostics :: [Diagnostic]
+    sourceModuleParseDiagnostics :: [Diagnostic],
+    -- | The request that runs the splices of the module, with no imports,
+    -- pragmas, or splices yet. The resolve task of the unit adds them and
+    -- runs the splices. A module with no splice to run has 'Nothing'.
+    sourceModuleSpliceRequest :: !(Maybe SpliceRequest)
   }
 
 data InstalledPackage = InstalledPackage
@@ -547,9 +553,11 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- output of each phase, such as @aihc-dev explore@, sets it. The build
     -- gives the values only and does no other work for it.
     compileObserver :: !(Maybe (CompileObservation -> IO ())),
-    -- | Runs the splices of a module and gives one result for each. "Aihc.Cli.Splice" supplies it. Without it, the build
-    -- does not run splices.
-    compileSplices :: !(Maybe (SpliceRequest -> IO [SpliceResult]))
+    -- | Prepares the splices of a module, and gives a function that runs
+    -- one splice, to the action. The action runs the splices in source
+    -- order and gives the module with their results. "Aihc.Cli.Splice"
+    -- supplies it. Without it, the build does not run splices.
+    compileSplices :: !(Maybe (SpliceRequest -> (RunSplice -> IO Module) -> IO Module))
   }
 
 -- | What 'compileObserver' receives.
@@ -1911,8 +1919,9 @@ addModuleBuild graph shared build = do
               taskDependencies = Set.empty,
               taskAction = do
                 parsedSource <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
-                expandModuleSplices shared build file parsedSource
-                source <- addQuoteImports file parsedSource
+                quoted <- addQuoteImports file parsedSource
+                spliceRequest <- moduleSpliceRequest shared build file quoted
+                let source = quoted {sourceModuleSpliceRequest = spliceRequest}
                 -- The header fields of the module are strict, so the import
                 -- list is known once the source exists. The tree is forced
                 -- here, in the parse task, and not by the first task that
@@ -1933,19 +1942,20 @@ addModuleBuild graph shared build = do
           }
   addTasks graph (parseTasks <> [partitionTask])
 
--- | Run the splices of a module and put their results into its parse tree. This comes before name resolution, so the phases after the
--- parse see the results as source text. The body of a splice can only use
--- imported names, so the run does not need the other modules of the unit.
-expandModuleSplices :: InstallShared -> ModuleBuild -> HackageCabal.FileInfo -> SourceModule -> IO ()
-expandModuleSplices shared build file source =
+-- | The request that runs the splices of a module, when the build runs
+-- splices and the module has a splice. The resolve task of the unit adds
+-- the splices and runs them, after the units below it have their type
+-- facts: a splice can ask for the facts of a name with @reify@.
+moduleSpliceRequest :: InstallShared -> ModuleBuild -> HackageCabal.FileInfo -> SourceModule -> IO (Maybe SpliceRequest)
+moduleSpliceRequest shared build file source =
   case compileSplices (moduleBuildConfig build) of
-    Just run | Syntax.TemplateHaskell `elem` sourceModuleExtensions source -> do
+    Just _ | Syntax.TemplateHaskell `elem` sourceModuleExtensions source -> do
       modu <- readMVar (sourceModuleParsed source)
-      let splices = moduleSplices modu
-      unless (null splices) $ do
-        results <-
-          withMVar (sharedSpliceLock shared) $ \_ ->
-            run
+      pure $
+        if null (moduleSplices modu)
+          then Nothing
+          else
+            Just
               SpliceRequest
                 { spliceRequestPackage = ownName,
                   spliceRequestModule = sourceModuleName source,
@@ -1961,15 +1971,14 @@ expandModuleSplices shared build file source =
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
                   spliceRequestImports = filter (not . isOwnModule . importDeclModule) (Syntax.moduleImports modu),
-                  spliceRequestSplices = splices
+                  spliceRequestSplices = []
                 }
-        void (swapMVar (sourceModuleParsed source) (replaceModuleSplices results modu))
-    _ -> pure ()
+    _ -> pure Nothing
   where
     locations = sharedLocations shared
     ownName = packageName (moduleBuildPackage build)
     -- A module of the package is a file whose path ends with the path of
-    -- the module name. A splice cannot use such a module at this time.
+    -- the module name. The splice package cannot import such a module.
     isOwnModule name =
       any
         (\other -> splitDirectories (T.unpack (T.replace "." "/" name)) `isSuffixOf` splitDirectories (dropExtension (HackageCabal.fileInfoPath other)))
@@ -2083,6 +2092,7 @@ partitionModules graph shared build sourceSlots = do
           Just runtime <- [Map.lookup origin (Map.unions (map dependencyUnits dependencies))]
         ]
       unitDependencies unit = nub (concatMap sourceDependencies (sourceUnitSources unit) <> map (Nothing,) wiredInterfaceModules)
+      unitHasSplices unit = any (isJust . sourceModuleSpliceRequest) (sourceUnitSources unit)
       -- The type-check task of a unit says that the package compiles, and
       -- the last task of a unit reports its modules as compiled.
       reportCompiling = progressReport (compileProgress config) (ProgressCompile (moduleBuildItem build))
@@ -2099,7 +2109,9 @@ partitionModules graph shared build sourceSlots = do
                 { taskId = runtimeResolveTask runtime,
                   taskKind = TaskResolve,
                   taskOrder = unitOrder,
-                  taskDependencies = Set.fromList (map runtimeResolveTask below),
+                  -- A splice can ask for the type facts of the modules
+                  -- below, so a unit with a splice waits for their types.
+                  taskDependencies = Set.fromList (map runtimeResolveTask below <> [runtimeTypeTask dependency | unitHasSplices unit, dependency <- below]),
                   taskAction = inItem (runResolveUnit context runtimeMap runtime)
                 },
               Task
@@ -2535,7 +2547,8 @@ parseSource headerDir root versions fileInfo = do
         sourceModuleDirectory = moduleNameDirectory name,
         sourceModuleImports = imports,
         sourceModuleExtensions = extensions,
-        sourceModuleParseDiagnostics = parseDiagnostics
+        sourceModuleParseDiagnostics = parseDiagnostics,
+        sourceModuleSpliceRequest = Nothing
       }
 
 -- | The units of the modules of a package. The argument is the name of
@@ -2852,7 +2865,7 @@ runResolveUnit context runtimes runtime = do
       dependenciesSucceeded = all resolveUnitSuccess dependencyResults && all (resolvedModuleSuccess . snd) externalResolved
   -- This task owns the parse trees from here: they leave with the type
   -- input, and nothing else holds them.
-  packageModules <- takePackageModuleUnits resolvePackage sources
+  packageModules <- takePackageModuleUnits resolvePackage sources >>= expandUnitSplices context runtimes unit availableExports sources
   reused <-
     if parseSuccess && dependenciesSucceeded
       then reuseResolveUnit storePath stampPath inputs resolvePackage (map resolvePath sources)
@@ -2901,6 +2914,116 @@ runResolveUnit context runtimes runtime = do
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
+
+-- | Run the splices of the modules of a unit and put their results into
+-- the modules.
+--
+-- The splices of a module run one at a time, in source order. A top-level
+-- declaration splice ends a declaration group. For @reify@, a splice gets
+-- the facts of the declarations above it: of the groups above it, and,
+-- for a top-level declaration splice, of all the declarations above it.
+-- The compiler resolves and checks these declarations as a module of
+-- their own, only when a splice asks for the facts of a name of the
+-- module. The facts of the other modules come from the type facts of the
+-- units below.
+expandUnitSplices :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> SourceUnit -> ModuleExports -> [SourceModule] -> [ModuleUnit] -> IO [ModuleUnit]
+expandUnitSplices context runtimes unit availableExports sources modules =
+  case compileSplices config of
+    Just run | any (isJust . sourceModuleSpliceRequest) sources -> do
+      importedTypes <- unitImportedTypes context runtimes unit
+      zipWithM (expand run importedTypes) sources modules
+    _ -> pure modules
+  where
+    config = taskModuleCompileConfig context
+    resolvePackage = taskResolvePackage context
+    ownPackage = packageId resolvePackage
+    expand run importedTypes source moduleUnit =
+      case sourceModuleSpliceRequest source of
+        Nothing -> pure moduleUnit
+        Just template -> do
+          let original = moduleUnitAst moduleUnit
+              -- A name quote in a splice body gets its package and its
+              -- module from the scope of this module.
+              bound = bindSpliceNameQuotes (moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit) original
+              splices = moduleSplices bound
+              request = template {spliceRequestSplices = splices}
+          prefixFacts <- newIORef Map.empty
+          let facts prefix global
+                | globalNamePackage global == ownPackage && globalNameModule global == sourceModuleName source = do
+                    known <- Map.lookup (length prefix) <$> readIORef prefixFacts
+                    checked <- case known of
+                      Just result -> pure result
+                      Nothing -> do
+                        result <- evaluate (checkPrefix importedTypes moduleUnit bound prefix)
+                        modifyIORef' prefixFacts (Map.insert (length prefix) result)
+                        pure result
+                    pure (Just (checked >>= \interface -> reifyInfo interface global))
+                | otherwise =
+                    pure $ case reifyInfo importedTypes global of
+                      Right info -> Just (Right info)
+                      Left message
+                        | globalNamePackage global == ownPackage -> Just (Left message)
+                        | otherwise -> Nothing
+              loop runSplice index boundary modu
+                | index >= length splices = pure modu
+                | otherwise =
+                    case firstSplicePosition modu of
+                      Nothing -> pure modu
+                      Just (position, isDeclaration) -> do
+                        let prefix = take (if isDeclaration then position else boundary) (Syntax.moduleDecls modu)
+                        result <- runSplice index (facts prefix)
+                        let boundary'
+                              | isDeclaration = position + resultLength result
+                              | otherwise = boundary
+                        loop runSplice (index + 1) boundary' (replaceFirstSplice result modu)
+          expanded <- run request (\runSplice -> loop runSplice (0 :: Int) 0 bound)
+          pure moduleUnit {moduleUnitAst = expanded}
+    resultLength result =
+      case result of
+        DeclarationResult decls -> length decls
+        ExpressionResult _ -> 0
+    -- The declarations above a splice as a module of their own, with no
+    -- export list: the export list can name a declaration below.
+    checkPrefix importedTypes moduleUnit modu prefix =
+      let prefixUnit = moduleUnit {moduleUnitAst = modu {Syntax.moduleHead = fmap (\header -> header {Syntax.moduleHeadExports = Nothing}) (Syntax.moduleHead modu), Syntax.moduleDecls = prefix}}
+          unitExports = collectUnitExports context availableExports [prefixUnit]
+          visibleExports = localReexportExports context (unitExports <> availableExports)
+       in case resolveUnitQuotes (builtinFunctionScope resolvePackage visibleExports) visibleExports [prefixUnit] of
+            Left failure -> Left (T.pack ("The compiler cannot resolve the declarations above the splice. " <> renderResolveErrors mempty (failureErrors failure)))
+            Right resolved ->
+              let (checked, interface) = typecheckModuleSccWithInterface (primTcConfig (taskPrimIdentity context)) importedTypes (resolvedModules resolved)
+                  errors = [("", diagnostic) | modu' <- checked, diagnostic <- tcModuleDiagnostics modu', diagSeverity diagnostic == TcError]
+               in if null errors
+                    then Right interface
+                    else Left (T.pack ("The compiler cannot check the declarations above the splice. " <> renderTypeErrors mempty errors))
+
+-- | The type facts that the modules of a unit import: the facts of the
+-- units below it and of the dependency packages.
+unitImportedTypes :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> SourceUnit -> IO TcInterface
+unitImportedTypes context runtimes unit = do
+  dependencyResults <- readDependencyResults runtimeTypeResult runtimes (sourceUnitDependencies unit)
+  let provider = taskModuleProvider context
+      resolvePackage = taskResolvePackage context
+      sources = sourceUnitSources unit
+      unitNames = map sourceName sources
+      dependencies = nub (concatMap sourceDependencies sources <> map (Nothing,) wiredInterfaceModules)
+  externalTyped <- externalTypedFacts provider resolvePackage unitNames dependencies
+  externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
+  let dependencyTypes = byModuleFromList [(key, typedModuleInterface facts) | (key, facts) <- externalTyped]
+      availableTypes = localReexportFacts context (byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes]))
+  pure $
+    mergeTcInterfaces
+      (configMergeCheck (taskModuleCompileConfig context))
+      ( mergeTcInterfaces TrustMergedFacts (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
+          : Map.elems
+            ( Map.fromList
+                [ ((package, name), interface)
+                | dependency@(_, name) <- dependencies,
+                  (package, interface) <- byModuleLookupName name availableTypes,
+                  importSelects resolvePackage unitNames dependency package
+                ]
+            )
+      )
 
 -- | The exports and scope digests of a unit whose resolve artifacts were
 -- built from the same inputs, if the artifacts are the ones the stamp
