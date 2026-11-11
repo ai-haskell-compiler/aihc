@@ -74,6 +74,7 @@ reifyInfo interface global =
   case globalNameNamespace global of
     ResolutionNamespaceType -> typeInfo interface global
     ResolutionNamespaceTerm -> termInfo interface global
+    ResolutionNamespaceModule -> Left ("The compiler cannot give the facts of the module " <> globalNameText global <> ".")
 
 typeInfo :: TcInterface -> GlobalName -> Either Text Tree
 typeInfo interface global
