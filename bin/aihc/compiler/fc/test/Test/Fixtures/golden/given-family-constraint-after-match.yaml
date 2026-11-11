@@ -1,0 +1,68 @@
+extensions:
+  - GADTs
+  - DataKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE GADTs, DataKinds, KindSignatures, TypeFamilies, ConstraintKinds, TypeOperators #-}
+    module Test where
+    import GHC.Types (Type, Constraint)
+    data L :: [Type] -> Type where
+      Nil :: L '[]
+      Cons :: x -> L xs -> L (x ': xs)
+    type family SameShapeAs (xs :: [Type]) (ys :: [Type]) :: Constraint where
+      SameShapeAs '[] ys = (ys ~ '[])
+      SameShapeAs (x ': xs) ys = (ys ~ '[])
+    nil :: SameShapeAs xs ys => L xs -> L ys
+    nil Nil = Nil
+    nil (Cons x _) = nil (Cons x Nil)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.c$Dict$~] 2.t$Dict$~ :: ∀(k : sType) (a : k) (b : k). sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c$Dict$~ :: ∀(k : sType) (a : k) (b : k). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ b) (t$Dict$~ k a b);
+    2.c: :: ∀(a : sType). a → t[] a → t[] a;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tL ($parameter : t[] sType) :: sType {
+    pub 1.cNil :: ∀($parameter : t[] sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep ($parameter ~ c[] sType) (tL $parameter);
+    pub 1.cCons :: ∀($parameter : t[] sType) (x : sType) (xs : t[] sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep ($parameter ~ c: sType x xs) (x → tL xs → tL $parameter)
+  }
+
+  pub type 1.tSameShapeAs (xs : t[] sType) (ys : t[] sType) :: sType @N @N {}
+
+  axiom 1.$ax$SameShapeAs$0 (ys : t[] sType) : tSameShapeAs (c[] sType) ys ~N t$Dict$~ (t[] sType) ys (c[] sType)
+
+  axiom 1.$ax$SameShapeAs$1 (x : sType) (xs : t[] sType) (ys : t[] sType) : tSameShapeAs (c: sType x xs) ys ~N t$Dict$~ (t[] sType) ys (c[] sType)
+
+  pub val 1.vnil :: ∀(xs : t[] sType) (ys : t[] sType). tSameShapeAs xs ys → tL xs → tL ys
+    = Λ(xs : t[] sType) (ys : t[] sType). λ($d : tSameShapeAs xs ys) (x : tL xs).
+      case x of {
+        cNil ($co : xs ~ c[] sType) →
+          let $co{1} : ys ~ c[] sType =
+            let! c$Dict$~ ($co{2} : ys ~ c[] sType) = $d ▷ tycon-co tSameShapeAs ($co) (refl ys);
+            $co{2};
+          (cNil @(c[] sType) (coercion (refl (c[] sType)))) ▷ sym (tycon-co tL ($co{1}));
+        cCons @(x{1} : sType) @(xs{1} : t[] sType) ($co : xs ~ c: sType x{1} xs{1}) (x{2} : x{1}) (unused _pat : tL xs{1}) →
+          let $co{1} : ys ~ c[] sType =
+            let! c$Dict$~ ($co{2} : ys ~ c[] sType) = $d ▷ tycon-co tSameShapeAs ($co) (refl ys);
+            $co{2};
+          (vnil @(c: sType x{1} (c[] sType)) @(c[] sType) (c$Dict$~ @(t[] sType) @(c[] sType) @(c[] sType) (coercion (refl (c[] sType)))) (cCons @(c: sType x{1} (c[] sType)) @x{1} @(c[] sType) (coercion (refl (c: sType x{1} (c[] sType)))) x{2} (cNil @(c[] sType) (coercion (refl (c[] sType)))))) ▷ sym (tycon-co tL ($co{1}))
+      }
+status: pass
+reason: 'The given SameShapeAs xs ys is stuck. A match on Nil gives xs ~ [], and the rewritten given reduces to ys ~ []. The evidence casts the given dictionary to the rewritten constraint and selects the equality. Before the fix, the type checker could not match [] with ys.'

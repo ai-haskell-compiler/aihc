@@ -15,7 +15,7 @@ import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Congruence (applyGivenSubst, givenEqualities, proveFromEqualities, proveGivenEquality)
+import Aihc.Tc.Solve.Congruence (allGivenEqualities, applyGivenSubst, proveFromEqualities, proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
@@ -39,7 +39,7 @@ solveGivenEquality givens ct = case ctPred ct of
     result <- case asWritten of
       Just proof -> pure (Just proof)
       Nothing -> do
-        equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) predicates
+        equalities <- allGivenEqualities predicates
         reduced <- traverse (\(givenLeft, givenRight, proof) -> (,,proof) <$> reduceTypeFamilies givenLeft <*> reduceTypeFamilies givenRight) equalities
         reducedLeft <- reduceTypeFamilies left'
         reducedRight <- reduceTypeFamilies right'
@@ -101,7 +101,7 @@ solveRewrittenByGivens givens ct = case ctPred ct of
 -- type that replaces it.
 givenRewrites :: [Pred] -> TcM [(TcType, TcType)]
 givenRewrites givens = do
-  equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
+  equalities <- allGivenEqualities givens
   -- A given is oriented in its reduced form. The given @bool ~ BooleanOf
   -- (z -> a)@ reduces to @bool ~ (z -> BooleanOf a)@. As written it only
   -- rewrites the family application, but the wanted @(z -> t0) ~ bool@
