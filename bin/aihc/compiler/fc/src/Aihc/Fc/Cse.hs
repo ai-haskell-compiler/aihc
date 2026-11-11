@@ -30,11 +30,15 @@ import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad (foldM)
 import Control.Monad.Trans.State.Strict (State, modify', runState, state)
+import Data.Foldable (foldMap')
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Ord (Down (..))
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -196,22 +200,22 @@ mentionsStateToken ty =
 -- how often each occurs on one path. The count of a case is the count of
 -- its scrutinee and the largest count of one alternative, so a call that
 -- each of two alternatives has once is not shared: no path runs it two
--- times. A call that uses a name that the expression binds is not in the
--- map.
-type Calls = Map Expr Int
+-- times. A call that uses a name that the expression binds has a count of
+-- zero.
+type Calls = MonoidMap Expr (Sum Int)
 
 -- | Share the safe primitive calls of each body position. The result
 -- gives the calls of the rewritten expression.
 share :: TypeEnv -> Expr -> Cse (Expr, Calls)
 share env expr =
   case expr of
-    ExVar {} -> pure (expr, Map.empty)
-    ExLit {} -> pure (expr, Map.empty)
-    ExCoercion {} -> pure (expr, Map.empty)
+    ExVar {} -> pure (expr, MonoidMap.empty)
+    ExLit {} -> pure (expr, MonoidMap.empty)
+    ExCoercion {} -> pure (expr, MonoidMap.empty)
     ExApp function argument -> do
       (function', c1) <- share env function
       (argument', c2) <- share env argument
-      pure (ExApp function' argument', Map.unionWith (+) c1 c2)
+      pure (ExApp function' argument', c1 <> c2)
     ExTyApp function ty -> do
       (function', calls) <- share env function
       pure (ExTyApp function' ty, calls)
@@ -224,11 +228,11 @@ share env expr =
     ExForeignCall call types arguments -> do
       results <- mapM (share env) arguments
       let expr' = ExForeignCall call types (map fst results)
-          calls = Map.unionsWith (+) (map snd results)
+          calls = foldMap' snd results
       pure
         ( expr',
           if isJust (safePrimitiveCall env expr')
-            then Map.insertWith (+) expr' 1 calls
+            then MonoidMap.adjust (+ 1) expr' calls
             else calls
         )
     ExLam binder body -> do
@@ -240,14 +244,14 @@ share env expr =
     ExLet bind body -> do
       (rhs, c1) <- sharePosition env [] (bindRhs bind)
       (body', c2) <- sharePosition env [bindBinder bind] body
-      pure (ExLet bind {bindRhs = rhs} body', Map.unionWith (+) c1 c2)
+      pure (ExLet bind {bindRhs = rhs} body', c1 <> c2)
     ExRec binds body -> do
       let binders = map bindBinder binds
       results <- mapM (sharePosition env binders . bindRhs) binds
       (body', c2) <- sharePosition env binders body
       pure
         ( ExRec (zipWith (\bind (rhs, _) -> bind {bindRhs = rhs}) binds results) body',
-          Map.unionsWith (+) (c2 : map snd results)
+          List.foldl' (<>) MonoidMap.empty (c2 : map snd results)
         )
     ExCase scrutinee binder alternatives -> do
       (scrutinee', c1) <- share env scrutinee
@@ -257,7 +261,7 @@ share env expr =
           alternatives
       pure
         ( ExCase scrutinee' binder (NE.zipWith (\alternative (rhs, _) -> alternative {altRhs = rhs}) alternatives results),
-          Map.unionWith (+) c1 (Map.unionsWith max (map snd (NE.toList results)))
+          c1 <> List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map snd (NE.toList results))
         )
 
 -- | Share the calls of a body position that occur more than once there,
@@ -265,7 +269,7 @@ share env expr =
 sharePosition :: TypeEnv -> [Binder] -> Expr -> Cse (Expr, Calls)
 sharePosition env binders body = do
   (body', calls) <- share env body
-  let repeated = [call | (call, count) <- Map.toList calls, count > 1]
+  let repeated = [call | (call, count) <- MonoidMap.toList calls, count > 1]
   body'' <-
     if null repeated
       then pure body'
@@ -274,11 +278,11 @@ sharePosition env binders body = do
         | null repeated = calls
         | otherwise = countCalls env body''
       names = Set.fromList (map binderName binders)
-  pure (body'', Map.filterWithKey (\call _ -> Set.disjoint names (exprValueNames call)) calls')
+  pure (body'', MonoidMap.filterWithKey (\call _ -> Set.disjoint names (exprValueNames call)) calls')
   where
     -- A larger call is bound first, so a smaller call inside it counts
     -- once for each remaining copy of the larger call.
-    callSize = Map.size . countWhere (const True)
+    callSize = MonoidMap.nonNullCount . countWhere (const True)
 
 -- | Bind one call with a strict let at the head of a body, when the body
 -- still has it more than once.
@@ -294,8 +298,8 @@ bindCall env body call
     freshName = state (\st -> (Name "shared" SortValue (OriginLocal (Unique (cseSupply st))), st {cseSupply = cseSupply st + 1}))
 
 -- | How often a call occurs where its names keep their meaning.
-replaceCount :: Expr -> Expr -> Int
-replaceCount call = Map.findWithDefault 0 call . countOne
+replaceCount :: Expr -> Expr -> Sum Int
+replaceCount call = MonoidMap.get call . countOne
   where
     countOne = countWhere (== call)
 
@@ -309,37 +313,35 @@ countWhere wanted = go
   where
     go expr =
       case expr of
-        ExVar {} -> Map.empty
-        ExLit {} -> Map.empty
-        ExCoercion {} -> Map.empty
-        ExApp function argument -> Map.unionWith (+) (go function) (go argument)
+        ExVar {} -> MonoidMap.empty
+        ExLit {} -> MonoidMap.empty
+        ExCoercion {} -> MonoidMap.empty
+        ExApp function argument -> go function <> go argument
         ExTyApp function _ -> go function
         ExCast body _ -> go body
         ExAbsurd scrutinee _ -> go scrutinee
         ExForeignCall _ _ arguments ->
-          let inner = Map.unionsWith (+) (map go arguments)
-           in if wanted expr then Map.insertWith (+) expr 1 inner else inner
+          let inner = foldMap' go arguments
+           in if wanted expr then MonoidMap.adjust (+ 1) expr inner else inner
         ExLam binder body -> under [binder] (go body)
         ExTyLam binder body -> under [binder] (go body)
-        ExLet bind body -> Map.unionWith (+) (go (bindRhs bind)) (under [bindBinder bind] (go body))
+        ExLet bind body -> go (bindRhs bind) <> under [bindBinder bind] (go body)
         ExRec binds body ->
           let binders = map bindBinder binds
-           in under binders (Map.unionsWith (+) (go body : map (go . bindRhs) binds))
+           in under binders (List.foldl' (<>) MonoidMap.empty (go body : map (go . bindRhs) binds))
         ExCase scrutinee binder alternatives ->
-          Map.unionWith
-            (+)
-            (go scrutinee)
-            ( Map.unionsWith
-                max
-                [ under (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative) (go (altRhs alternative))
-                | alternative <- NE.toList alternatives
-                ]
-            )
+          go scrutinee
+            <> List.foldl'
+              (MonoidMap.unionWith max)
+              MonoidMap.empty
+              [ under (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative) (go (altRhs alternative))
+              | alternative <- NE.toList alternatives
+              ]
     under binders calls
       | null binders = calls
       | otherwise =
           let names = Set.fromList (map binderName binders)
-           in Map.filterWithKey (\call _ -> Set.disjoint names (exprValueNames call)) calls
+           in MonoidMap.filterWithKey (\call _ -> Set.disjoint names (exprValueNames call)) calls
 
 -- | Replace a call with a name, except under a binder that gives one of
 -- the names of the call a different meaning.

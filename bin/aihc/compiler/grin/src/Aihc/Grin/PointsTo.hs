@@ -89,6 +89,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad (forM, forM_, guard, unless, when, zipWithM_)
 import Control.Monad.ST (ST, runST)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
@@ -99,6 +100,9 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -1080,28 +1084,28 @@ capturesContinuation expression =
 -- expression. Alternatives of a case add the largest count of any of them.
 -- A case binder and the binders of a default alternative are other names for
 -- the scrutinee, so their uses are uses of the scrutinee.
-useCounts :: GrinExpr -> Map GrinVar Int
+useCounts :: GrinExpr -> MonoidMap GrinVar (Sum Int)
 useCounts expression =
   case expression of
-    GrinBind _ valueExpression body -> Map.unionWith (+) (useCounts valueExpression) (useCounts body)
-    GrinStoreRec bindings body -> Map.unionWith (+) (valueUses (concatMap (grinNodeFields . snd) bindings)) (useCounts body)
+    GrinBind _ valueExpression body -> useCounts valueExpression <> useCounts body
+    GrinStoreRec bindings body -> valueUses (concatMap (grinNodeFields . snd) bindings) <> useCounts body
     GrinCase scrutinee binder alternatives ->
       let alternativeCounts = [(alternative, useCounts (grinAltRhs alternative)) | alternative <- alternatives]
           aliasUses (alternative, counts) =
-            Map.findWithDefault 0 binder counts
+            MonoidMap.get binder counts
               + case grinAltCon alternative of
-                GrinDefaultAlt -> sum [Map.findWithDefault 0 var counts | var <- grinAltBinders alternative]
+                GrinDefaultAlt -> sum [MonoidMap.get var counts | var <- grinAltBinders alternative]
                 _ -> 0
           scrutineeUses = 1 + maximum (0 : map aliasUses alternativeCounts)
-          branches = Map.unionsWith max (map snd alternativeCounts)
-       in Map.unionWith (+) (valueUsesTimes scrutineeUses scrutinee) branches
+          branches = List.foldl' (MonoidMap.unionWith max) MonoidMap.empty (map snd alternativeCounts)
+       in valueUsesTimes scrutineeUses scrutinee <> branches
     _ -> valueUses (exprOperands expression)
   where
-    valueUses values = Map.fromListWith (+) [(var, 1) | GrinVarValue var <- values]
+    valueUses values = Occurrences.count [var | GrinVarValue var <- values]
     valueUsesTimes count value =
       case value of
-        GrinVarValue var -> Map.singleton var count
-        _ -> Map.empty
+        GrinVarValue var -> MonoidMap.singleton var count
+        _ -> MonoidMap.empty
 
 -- | The operands of an expression that has no nested expression.
 exprOperands :: GrinExpr -> [GrinValue]
@@ -1144,7 +1148,7 @@ sharedLocations ::
   Map FunctionName FunctionInfo ->
   Map FunctionName Int ->
   Map FunctionName (Map GrinVar Int) ->
-  Map FunctionName (Map GrinVar Int) ->
+  Map FunctionName (MonoidMap GrinVar (Sum Int)) ->
   IntSet ->
   IntSet
 sharedLocations sets locationNodes functions evalNodes variables uses statics =
@@ -1169,7 +1173,7 @@ sharedLocations sets locationNodes functions evalNodes variables uses statics =
             : [ setOf node
               | (functionName, counts) <- Map.toList uses,
                 let nodes = Map.findWithDefault Map.empty functionName variables,
-                (var, count) <- Map.toList counts,
+                (var, count) <- MonoidMap.toList counts,
                 count >= 2,
                 Just node <- [Map.lookup var nodes]
               ]
