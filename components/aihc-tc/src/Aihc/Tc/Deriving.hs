@@ -7,6 +7,7 @@
 -- contexts and validating their class-specific rules.
 module Aihc.Tc.Deriving
   ( annotateAttachedDerivingTc,
+    annotateDataFamilyInstDerivingTc,
     annotateStandaloneDerivingTc,
   )
 where
@@ -42,7 +43,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
   )
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, isAutomaticTypeableClass)
-import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Monad
@@ -109,8 +110,97 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
           specializedParams = map specialize params
           tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- specializedParams]
       (plan, hadErrors) <-
-        withErrorTracking (checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType specializedParams tvEnv strategy classHead)
+        withErrorTracking (checkDerivingPlanFor extensions targetFlavor (\classSpan -> attachedTargetType classSpan targetInfo specializedParams) dataType specializedParams tvEnv strategy classHead)
       pure (if hadErrors then Nothing else plan)
+
+-- | Plan the deriving clauses of a data family instance. The target is the
+-- family applied to the instance arguments, as in GHC. The planner takes
+-- the constructors of the instance through a datatype record whose
+-- parameters stand for the instance arguments ('familyInstanceDataType').
+annotateDataFamilyInstDerivingTc :: [Extension] -> DataFamilyInstanceInfo -> [DerivingClause] -> Decl -> TcM Decl
+annotateDataFamilyInstDerivingTc extensions info clauses decl = do
+  dataType <- familyInstanceDataType info
+  let targetFlavor = if dfiiIsNewtype info then NewtypeTyCon else DataTyCon
+      params = [ParamInfo {paramName = tvName tyVar, paramTyVar = tyVar, paramKind = tvKind tyVar} | tyVar <- dfiiTyVars info]
+      tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
+  plans <- concat <$> mapM (checkClause dataType targetFlavor params tvEnv) clauses
+  pure (annotateDerivingPlans plans decl)
+  where
+    checkClause dataType targetFlavor params tvEnv clause = do
+      classHeads <- attachedDerivingClassHeads clause
+      catMaybes <$> mapM (checkOne dataType targetFlavor params tvEnv (derivingStrategy clause)) classHeads
+    checkOne dataType targetFlavor params tvEnv strategy classHead = do
+      (plan, hadErrors) <-
+        withErrorTracking (checkDerivingPlanFor extensions targetFlavor (familyInstanceTargetType info) (Just dataType) params tvEnv strategy classHead)
+      pure (if hadErrors then Nothing else plan)
+
+-- | The target type of a family instance plan: the family applied to the
+-- instance arguments. A class of a higher kind, as @Functor@, takes the
+-- application without its last arguments. Each argument it leaves out must
+-- be a type variable that no other argument mentions, as in GHC.
+familyInstanceTargetType :: DataFamilyInstanceInfo -> Maybe SourceSpan -> TcType -> TcM TcType
+familyInstanceTargetType info sourceSpan expectedKind =
+  case dfiiFamilyType info of
+    TcTyCon family arguments -> do
+      let candidates =
+            [ TcTyCon family kept
+            | count <- [length arguments, length arguments - 1 .. 0],
+              let (kept, dropped) = splitAt count arguments,
+              all (droppable kept dropped) dropped
+            ]
+      matching <- filterM (fmap (kindAccepts expectedKind) . tcTypeKind) candidates
+      case matching of
+        target : _ -> do
+          actualKind <- tcTypeKind target
+          case expectedKind of
+            KTYPE (TcTyVar _) -> pure ()
+            _ -> unifyKinds expectedKind actualKind
+          pure target
+        [] -> do
+          actualKind <- tcTypeKind (dfiiFamilyType info)
+          emitError sourceSpan (KindMismatch expectedKind actualKind)
+          pure (dfiiFamilyType info)
+    other -> pure other
+  where
+    droppable kept dropped argument =
+      case argument of
+        TcTyVar tyVar ->
+          not (any (typeMentionsTyVar tyVar) kept)
+            && length (filter (== argument) dropped) == 1
+        _ -> False
+
+-- | A datatype record for the constructors of a data family instance. Each
+-- instance argument that is a distinct type variable is a parameter. Each
+-- other argument gets a fresh parameter that no field mentions. Thus the
+-- substitution of the parameters by the instance arguments leaves the
+-- fields as they are.
+familyInstanceDataType :: DataFamilyInstanceInfo -> TcM DataTypeInfo
+familyInstanceDataType info = do
+  resultKind <- tcTypeKind (dfiiFamilyType info)
+  case dfiiFamilyType info of
+    TcTyCon family arguments -> do
+      parameters <- zipWithM (parameterFor arguments) [0 :: Int ..] arguments
+      let resultType = TcTyCon family (map TcTyVar parameters)
+      pure
+        DataTypeInfo
+          { dtiName = dfiiFamilyName info,
+            dtiTyCon = family,
+            dtiTyVars = parameters,
+            dtiResultKind = resultKind,
+            dtiFlavor = if dfiiIsNewtype info then NewtypeTyCon else DataTyCon,
+            dtiConstructors = [constructor {dciResTy = resultType} | constructor <- dfiiConstructors info],
+            dtiNominalRoles = [],
+            dtiCType = Nothing
+          }
+    _ -> missingTypeInfo ("data family instance head of " <> T.unpack (dfiiFamilyName info))
+  where
+    parameterFor arguments index argument =
+      case argument of
+        TcTyVar tyVar
+          | length (filter (typeMentionsTyVar tyVar) arguments) == 1 -> pure tyVar
+        _ -> do
+          kind <- tcTypeKind argument
+          freshSkolemTvOfKind (T.pack ("p" <> show index)) kind
 
 data AttachedDerivingClassHead = AttachedDerivingClassHead
   { attachedClassName :: !Name,
@@ -140,8 +230,10 @@ attachedDerivingClassHeads clause =
           emitError (typeSpan classType) (OtherError "invalid class in deriving clause")
           pure Nothing
 
-checkAttachedDerivingPlan :: [Extension] -> TyConFlavor -> TyConInfo -> Maybe DataTypeInfo -> [ParamInfo] -> TvKindEnv -> Maybe DerivingStrategy -> AttachedDerivingClassHead -> TcM (Maybe TcDerivingPlan)
-checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvEnv strategy classHead = do
+-- | Check one class of a deriving clause. The function gives the target
+-- type for the span of the class and the kind that the class expects.
+checkDerivingPlanFor :: [Extension] -> TyConFlavor -> (Maybe SourceSpan -> TcType -> TcM TcType) -> Maybe DataTypeInfo -> [ParamInfo] -> TvKindEnv -> Maybe DerivingStrategy -> AttachedDerivingClassHead -> TcM (Maybe TcDerivingPlan)
+checkDerivingPlanFor extensions targetFlavor targetTypeFor dataType params tvEnv strategy classHead = do
   let className = nameText (attachedClassName classHead)
       classSpan = attachedClassSpan classHead
       suppliedArguments = attachedClassArguments classHead
@@ -180,7 +272,7 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                 checkedArguments <- mapM defaultTypeKinds =<< zipWithM (checkSurfaceType argumentEnv) suppliedArguments (map (instantiateClassKind . tvKind) prefixClassVars)
                 argumentParams <- mapM defaultArgumentParam extraParams
                 declaredTargetKind <- instantiateClassKind <$> defaultKindMetas (tvKind targetClassVar)
-                targetType <- attachedTargetType classSpan targetInfo params declaredTargetKind
+                targetType <- targetTypeFor classSpan declaredTargetKind
                 targetKind <- defaultKindMetas =<< zonkKind declaredTargetKind
                 -- A poly-kinded via type, as @Wrap (Modify s)@ for
                 -- @newtype Wrap (a :: k -> Type) (es :: k)@, leaves kind

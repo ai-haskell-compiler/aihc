@@ -125,7 +125,7 @@ import Aihc.Tc.Annotations
     renderTcType,
   )
 import Aihc.Tc.Constraint
-import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
+import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateDataFamilyInstDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
@@ -1307,7 +1307,7 @@ annotateModuleTc checkedValueTypes m = do
 
 annotateModuleDerivingTc :: [Extension] -> Module -> TcM Module
 annotateModuleDerivingTc extensions modu = do
-  declarations <- mapM (annotateDeclDerivingTc extensions) (moduleDecls modu)
+  declarations <- mapM (annotateDeclDerivingTc extensions (resolvedModuleOrigin modu)) (moduleDecls modu)
   pure modu {moduleDecls = declarations}
 
 -- | Append the instance declarations that the deriving plans of a module
@@ -1321,8 +1321,8 @@ registerDerivedInstances selected modu = do
   where
     origin = resolvedModuleOrigin modu
 
-annotateDeclDerivingTc :: [Extension] -> Decl -> TcM Decl
-annotateDeclDerivingTc extensions = go Nothing
+annotateDeclDerivingTc :: [Extension] -> (Text, Text) -> Decl -> TcM Decl
+annotateDeclDerivingTc extensions origin = go Nothing
   where
     go declSpan decl =
       case decl of
@@ -1332,14 +1332,14 @@ annotateDeclDerivingTc extensions = go Nothing
         DeclNewtype newtypeDecl ->
           annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
         DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
-        -- Deriving works from a datatype header with parameters; a data
-        -- instance has an applied head instead, which the planner does not
-        -- take yet. The instances are missing, so a use of one is an
-        -- unsolved constraint at the use site.
         DeclDataFamilyInst familyInst
           | not (null (dataFamilyInstDeriving familyInst)) -> do
-              emitWarning declSpan (OtherError "deriving clauses on data family instances are not supported yet; no instance is derived")
-              pure decl
+              maybeInfo <- lookupDataFamilyInstanceInfo origin familyInst
+              case maybeInfo of
+                Just info -> annotateDataFamilyInstDerivingTc extensions info (dataFamilyInstDeriving familyInst) decl
+                Nothing -> do
+                  emitWarning declSpan (OtherError "the data family instance has no checked metadata; no instance is derived")
+                  pure decl
         _ -> pure decl
 
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Bool -> Decl -> TcM Decl
@@ -1523,19 +1523,24 @@ annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
     Nothing -> pure (DeclTypeFamilyInst familyInst)
 
 annotateDataFamilyInstTc :: (Text, Text) -> DataFamilyInst -> TcM Decl
-annotateDataFamilyInstTc origin@(packageName, moduleName') familyInst = do
+annotateDataFamilyInstTc origin familyInst = do
   -- 'registerDataFamilyInstance' keys the constructors by the checked
   -- head, which is the data family itself.
   parent <- dataFamilyInstHeadTyCon familyInst
   constructors <- mapM (annotateRegisteredDataConDeclTc parent) (dataFamilyInstConstructors familyInst)
   let annotated = DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors})
-  constructorNames <- concat <$> mapM dataConNames constructors
+  maybeInfo <- lookupDataFamilyInstanceInfo origin familyInst
+  pure (maybe annotated (\familyInstance -> DeclAnn (mkAnnotation familyInstance) annotated) maybeInfo)
+
+-- | The registered metadata of a data family instance of this module.
+lookupDataFamilyInstanceInfo :: (Text, Text) -> DataFamilyInst -> TcM (Maybe DataFamilyInstanceInfo)
+lookupDataFamilyInstanceInfo origin@(packageName, moduleName') familyInst = do
+  parent <- dataFamilyInstHeadTyCon familyInst
+  constructorNames <- concat <$> mapM dataConNames (dataFamilyInstConstructors familyInst)
   familyInstances <- getDataFamilyInstances
   let instanceTag = dataFamilyInstanceTag origin familyInst constructorNames
       expectedKey = TcAxiomKey (PackageId packageName) moduleName' (dataFamilyAxiomName (tyConName parent) instanceTag)
-  case find ((== expectedKey) . dataFamilyAxiomKey) familyInstances of
-    Just familyInstance -> pure (DeclAnn (mkAnnotation familyInstance) annotated)
-    Nothing -> pure annotated
+  pure (find ((== expectedKey) . dataFamilyAxiomKey) familyInstances)
 
 annotateRegisteredDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRegisteredDataConDeclTc parent dataConDecl = do
