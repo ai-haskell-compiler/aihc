@@ -14,12 +14,21 @@
 -- names. For each splice, it has one closure that applies
 -- @Aihc.TH.Splice.runExpressionSplice@ or
 -- @Aihc.TH.Splice.runDeclarationsSplice@ to the body.
+--
+-- The compiler runs the splices one at a time, in source order. Each top-level
+-- declaration splice ends a declaration group. A splice can get the facts of
+-- the declaration groups above it with @reify@. A top-level declaration
+-- splice also gets the facts of the declarations directly above it.
 module Aihc.Th.Splices
   ( SpliceRequest (..),
     Splice (..),
     SpliceResult (..),
     moduleSplices,
     replaceModuleSplices,
+    replaceFirstSplice,
+    firstSplicePosition,
+    LocalFacts,
+    RunSplice,
     spliceModuleName,
     spliceClosureName,
     spliceModuleText,
@@ -28,6 +37,9 @@ where
 
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
+import Aihc.Resolve.Types (GlobalName)
+import Aihc.Th.Quote (quoteImports)
+import Aihc.Th.Wire (Tree)
 import Control.Monad.Trans.State.Strict (evalState, execState, modify', state)
 import Data.Data (Data, gmapM)
 import Data.Text (Text)
@@ -105,6 +117,34 @@ replaceModuleSplices results modu = evalState (traverseSplices expression declar
         _ : rest -> ([decl], rest)
         [] -> ([decl], [])
 
+-- | Put the result of the first splice of 'moduleSplices' in its position.
+-- The other splices stay.
+replaceFirstSplice :: SpliceResult -> Module -> Module
+replaceFirstSplice result = replaceModuleSplices [result]
+
+-- | The position of the first top-level declaration that has a splice, and
+-- whether that declaration is a declaration splice itself.
+firstSplicePosition :: Module -> Maybe (Int, Bool)
+firstSplicePosition modu =
+  case [(index, isDeclarationSplice decl) | (index, decl) <- zip [0 ..] (moduleDecls modu), not (null (moduleSplices modu {moduleDecls = [decl]}))] of
+    first : _ -> Just first
+    [] -> Nothing
+  where
+    isDeclarationSplice decl =
+      case decl of
+        DeclAnn _ inner -> isDeclarationSplice inner
+        DeclSplice _ -> True
+        _ -> False
+
+-- | The facts that the compiler gives for @reify@ of a name of the module
+-- of a splice, or of a module of its own package. 'Nothing' sends the
+-- request to the facts of the store.
+type LocalFacts = GlobalName -> IO (Maybe (Either Text Tree))
+
+-- | Run one splice of a request: its position in 'spliceRequestSplices',
+-- with the local facts for that splice.
+type RunSplice = Int -> LocalFacts -> IO SpliceResult
+
 -- | Visit each splice that 'moduleSplices' gives, and replace it. The
 -- function for a declaration splice gets the declaration and its body, and
 -- it gives the declarations that take the position of the splice.
@@ -173,9 +213,18 @@ spliceModuleText request =
         { moduleAnns = [],
           moduleHead = Just (ModuleHead [] spliceModuleName Nothing Nothing),
           moduleLanguagePragmas = spliceRequestPragmas request,
-          moduleImports = spliceRequestImports request <> [runnerImport],
+          -- A name quote in a splice body can be a call of the quote
+          -- library. The splice package always depends on
+          -- @template-haskell@, so the module always has the imports of the
+          -- library.
+          moduleImports = spliceRequestImports request <> missingQuoteImports <> [runnerImport],
           moduleDecls = []
         }
+    missingQuoteImports =
+      [ quoteImport
+      | quoteImport <- quoteImports,
+        (importDeclModule quoteImport, importDeclAs quoteImport) `notElem` [(importDeclModule existing, importDeclAs existing) | existing <- spliceRequestImports request]
+      ]
     runnerImport =
       ImportDecl
         { importDeclAnns = [],

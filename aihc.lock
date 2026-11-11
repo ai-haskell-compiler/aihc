@@ -1,7 +1,7 @@
 {
   "format": 1,
   "compiler": "ghc-9.12.4",
-  "index-state": "2026-10-15T19:40:02Z",
+  "index-state": "2026-11-11T09:17:33Z",
   "platforms": {
     "osx-aarch64": [
       {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
@@ -14,17 +14,46 @@
       {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0}
     ],
     "wasi-wasm32": [
+      {"name": "Boolean", "version": "0.2.4", "source": "hackage", "revision": 1},
       {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
       {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
       {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
       {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
       {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
       {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
+      {"name": "base-compat", "version": "0.15.0", "source": "hackage", "revision": 0},
+      {"name": "base64-bytestring", "version": "1.2.1.0", "source": "hackage", "revision": 1},
       {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
       {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
-      {"name": "containers", "version": "0.8", "source": "hackage", "revision": 0},
+      {"name": "cereal", "version": "0.5.8.3", "source": "hackage", "revision": 0, "flags": {"bytestring-builder":false}},
+      {"name": "cereal-text", "version": "0.1.0.2", "source": "hackage", "revision": 0},
+      {"name": "containers", "version": "0.8.1", "source": "hackage", "revision": 0},
+      {"name": "cryptohash-sha256", "version": "0.11.102.1", "source": "hackage", "revision": 6},
+      {"name": "data-default", "version": "0.8.0.2", "source": "hackage", "revision": 0},
+      {"name": "data-fix", "version": "0.3.4", "source": "hackage", "revision": 2},
+      {"name": "data-fix-cse", "version": "0.0.3", "source": "hackage", "revision": 0},
       {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
-      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0, "flags": {"pure-haskell":true,"simdutf":false}}
+      {"name": "deriving-compat", "version": "0.6.8", "source": "hackage", "revision": 0},
+      {"name": "dlist", "version": "1.0", "source": "hackage", "revision": 2},
+      {"name": "exceptions", "version": "0.10.12", "source": "hackage", "revision": 2},
+      {"name": "filepath", "version": "1.5.5.0", "source": "hackage", "revision": 0},
+      {"name": "ghc-boot-th", "version": "9.12.4", "source": "hackage", "revision": 0},
+      {"name": "hashable", "version": "1.5.1.0", "source": "hackage", "revision": 0},
+      {"name": "haskell-lexer", "version": "1.2.1", "source": "hackage", "revision": 0},
+      {"name": "mtl", "version": "2.3.2", "source": "hackage", "revision": 1},
+      {"name": "os-string", "version": "2.0.11", "source": "hackage", "revision": 0},
+      {"name": "pretty", "version": "1.1.3.6", "source": "hackage", "revision": 0},
+      {"name": "pretty-show", "version": "1.10", "source": "hackage", "revision": 0},
+      {"name": "primitive", "version": "0.9.1.0", "source": "hackage", "revision": 1},
+      {"name": "safe", "version": "0.3.21", "source": "hackage", "revision": 1},
+      {"name": "stm", "version": "2.5.3.1", "source": "hackage", "revision": 1},
+      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0, "flags": {"pure-haskell":true,"simdutf":false}},
+      {"name": "th-abstraction", "version": "0.7.2.0", "source": "hackage", "revision": 0},
+      {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2},
+      {"name": "unordered-containers", "version": "0.2.21", "source": "hackage", "revision": 2},
+      {"name": "vector", "version": "0.13.2.0", "source": "hackage", "revision": 5},
+      {"name": "vector-stream", "version": "0.1.0.1", "source": "hackage", "revision": 4},
+      {"name": "wl-pprint-text", "version": "1.2.0.2", "source": "hackage", "revision": 4}
     ]
   }
 }

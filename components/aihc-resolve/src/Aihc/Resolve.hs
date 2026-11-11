@@ -69,6 +69,9 @@ module Aihc.Resolve
     -- * Builtins
     Builtins,
     builtins,
+
+    -- * Names in the scope of a module
+    moduleTopLevelName,
   )
 where
 
@@ -215,6 +218,28 @@ resolveUnit (Builtins builtinScope) exports packageModules
         (\unit (_, visibleTerms, modu) -> ResolvedModule unit {moduleUnitAst = modu} visibleTerms)
         packageModules
         resolved
+
+-- | The top-level entity of a name in the scope of a module: a declaration
+-- of the module or a name that the module imports. A Template Haskell name
+-- quote in the body of a splice uses it, because the compiler runs the
+-- splice before it resolves the module. The result is 'Nothing' for a name
+-- that the scope does not have. The function makes the scope of the module
+-- one time, for all the names.
+moduleTopLevelName :: Builtins -> ModuleExports -> ModuleUnit -> ResolutionNamespace -> Name -> Maybe GlobalName
+moduleTopLevelName (Builtins builtinScope) exports unit =
+  \namespace name ->
+    case resolve namespace scope name of
+      Resolved (EntityGlobal global) -> Just global
+      _ -> Nothing
+  where
+    package = moduleUnitPackage unit
+    modu = moduleUnitAst unit
+    (imports, _) = resolveModuleImports package exports (moduleImports modu)
+    scope = moduleScope builtinScope package exports (moduleUnitExtensions unit) modu {moduleImports = imports}
+    resolve namespace =
+      case namespace of
+        ResolutionNamespaceType -> resolveTypeName
+        _ -> resolveTermName
 
 resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, ([ResolveError], [GlobalName], Module))
 resolveModule builtinScope package exports extensions nextLocal modu =

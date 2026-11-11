@@ -45,6 +45,23 @@ $( pure
 -- A declaration splice without the splice syntax, with no declarations.
 pure []
 
+-- A type of this module, above a declaration splice.
+data Shape = Circle Int | Square Int Int
+  deriving (Show)
+
+-- A declaration splice reads the facts of a type of its own module with
+-- reify, and makes declarations that use the type and its constructors.
+$( do
+     TyConI (DataD _ _ _ _ constructors _) <- reify ''Shape
+     let names = [nameBase name | NormalC name _ <- constructors]
+     pure
+       [ SigD (mkName "shapeNames") (AppT ListT (ConT ''String)),
+         ValD (VarP (mkName "shapeNames")) (NormalB (ListE (map (LitE . StringL) names))) [],
+         SigD (mkName "firstShape") (ConT ''Shape),
+         ValD (VarP (mkName "firstShape")) (NormalB (AppE (ConE 'Circle) (LitE (IntegerL 3)))) []
+       ]
+ )
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -82,4 +99,9 @@ main = do
              fieldVariables = [name | NormalC _ [(_, VarT name)] <- constructors]
          litE (stringL (unwords ([show (length binders)] ++ map describe constructors ++ [show (fieldVariables == variables), nameBase parent, nameBase element])))
      )
+  -- The declarations of this module above it, and the results of the
+  -- splice above, are in the declaration group before this splice.
+  print shapeNames
+  print firstShape
+  print ($(do TyConI (DataD _ _ _ _ constructors _) <- reify ''Shape; litE (integerL (fromIntegral (length constructors)))) :: Int)
   showTriple

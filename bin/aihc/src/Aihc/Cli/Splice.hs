@@ -12,16 +12,18 @@
 --    "Aihc.Th.Splices", and install it with the position-independent code
 --    model.
 -- 3. Link the package as a shared module and load it into the image.
--- 4. Run the closure of each splice, answer its requests, and convert
---    each result to the surface syntax.
+-- 4. Give the caller a function that runs the closure of one splice,
+--    answers its requests, and converts its result to the surface syntax.
+--    The caller runs the splices in source order.
 --
 -- The splice code has no access to the build machine. See
 -- "Aihc.Wasm.Engine".
 --
--- A splice cannot use a module of its own package at this time. Thus,
--- @reify@ gives the facts of the names of the packages that the splice
--- package depends on. The facts come from the type artifacts of these
--- packages in the store.
+-- The body of a splice cannot use a module of its own package. For
+-- @reify@, the build gives the facts of the names of the module and of
+-- its own package. The facts of the other names come from the type
+-- artifacts of the packages that the splice package depends on, in the
+-- store.
 module Aihc.Cli.Splice
   ( withSplices,
     runSplices,
@@ -40,11 +42,11 @@ import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
 import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
+import Aihc.Th.Splices (RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
-import Control.Monad (forM, forM_)
+import Control.Monad (forM_)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, toLower)
@@ -66,9 +68,11 @@ import System.IO.Error (ioeGetErrorString)
 withSplices :: ModuleCompileConfig -> ModuleCompileConfig
 withSplices config = config {compileSplices = Just runSplices}
 
--- | The result of each splice of a request, in the order of the request.
-runSplices :: SpliceRequest -> IO [SpliceResult]
-runSplices request =
+-- | Prepare the splices of a request, and give a function that runs one
+-- splice to the action. The action runs the splices in the order of the
+-- request.
+runSplices :: SpliceRequest -> (RunSplice -> IO a) -> IO a
+runSplices request action =
   run `catch` \failure ->
     ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> ioeGetErrorString (failure :: IOException)))
   where
@@ -84,11 +88,13 @@ runSplices request =
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
-      reify <- newReifier packages
+      storeFacts <- newReifier packages
       withEngine image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
-        forM (zip [0 ..] (spliceRequestSplices request)) $ \(index, splice) -> do
+        action $ \index localFacts -> do
+          splice <- maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
+          let reify global = localFacts global >>= maybe (storeFacts global) pure
           requests <- newIORef []
           outcome <- try (runClosure engine (answerRequest reify requests) (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
