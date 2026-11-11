@@ -60,8 +60,8 @@ expected: |-
 
   pub val 2.vm :: tUnit
     = let! cM =
-      (Λ(f : sType → sType) (a : sType).
-        cM @sType @f @a) @(tAny (sType → sType)) @tUnit;
+      (Λ(k0 : sType) (f : k0 → sType) (a : k0).
+        cM @k0 @f @a) @sType @(tAny (sType → sType)) @tUnit;
     c()
 status: pass
-reason: With PolyKinds, the open kind of a local signature is settled after the component, as the kinds of a generalized local binding are. Before the fix, the desugarer found the open kind and stopped.
+reason: 'With PolyKinds, a local signature quantifies the open kind of its type variables, as in GHC. Thus, x has the type forall k0 (f :: k0 -> Type) (a :: k0). M f a. Before an earlier fix, the desugarer found the open kind and stopped.'

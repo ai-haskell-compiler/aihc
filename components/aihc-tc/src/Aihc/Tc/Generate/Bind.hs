@@ -48,12 +48,12 @@ import Aihc.Resolve.Traverse (Collect, Walk (..), Walkable, collected, idWalk, r
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcPatternInstantiation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generalize (GroupQuantification (..), environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme)
+import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -65,7 +65,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (defaultTypeSchemeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM_, when)
+import Control.Monad (filterM, foldM, forM, forM_, when)
 import Data.Either (isRight)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
@@ -75,6 +75,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 
 type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
 
@@ -128,23 +129,61 @@ localSignatureBinders decls = do
 -- after its check, thus the kind meta-variables that it leaves open are
 -- settled now. In @let x :: M f a@ with @M (f :: k -> Type) (a :: k)@,
 -- the kind @k@ stays open. Without PolyKinds it defaults to 'Type', as in
--- GHC. With PolyKinds it is settled after the component, as the kinds of
--- a generalized local binding are.
+-- GHC. With PolyKinds the signature quantifies the kind, as in GHC: @go ::
+-- forall xs. Shape xs -> Int@ is @forall {k} (xs :: [k]). Shape xs -> Int@.
+-- Each use of the binding can then use a different kind. A kind meta that
+-- the environment can reach does not belong to the signature. It is
+-- settled after the component, as the kinds of a generalized local
+-- binding are.
 localSigToScheme :: Type -> TcM TypeScheme
 localSigToScheme ty = do
   scheme <- sigToScheme ty
   polyKinds <- getPolyKinds
   if polyKinds
-    then deferSchemeKinds scheme
+    then generalizeLocalSigKinds scheme
     else defaultTypeSchemeKinds scheme
+
+generalizeLocalSigKinds :: TypeScheme -> TcM TypeScheme
+generalizeLocalSigKinds (Scheme inferred specified predicates body) = do
+  kinds <- getKinds
+  scoped <- getScopedTyVars
+  scopedKinds <- mapM (zonkKind . snd) (Map.elems scoped)
+  termMetas <- environmentMetaVars Set.empty
+  environment <- reachableKindMetas (termMetas <> concatMap collectMetaVars scopedKinds)
+  ownKinds <- mapM (zonkKind . tvKind) (inferred <> specified)
+  own <- reachableKindMetas (concatMap collectMetaVars ownKinds)
+  kindVariables <- fmap concat . forM (zip [0 :: Int ..] (filter (`notElem` environment) own)) $ \(index, meta) -> do
+    solution <- readMetaTv meta
+    metaKind <- readMetaTvKind meta >>= zonkKind
+    case solution of
+      Nothing
+        | metaKind == typeKind kinds -> do
+            variable <- freshSkolemTv ("k" <> T.pack (show index))
+            let kindVariable = setTyVarKind metaKind variable
+            writeMetaTv meta (TcTyVar kindVariable)
+            pure [kindVariable]
+      _ -> pure []
+  inferred' <- mapM deferTyVarKind inferred
+  specified' <- mapM deferTyVarKind specified
+  predicates' <- mapM zonkPred predicates
+  body' <- zonkType body
+  pure (Scheme (kindVariables <> inferred') specified' predicates' body')
   where
-    deferSchemeKinds (Scheme inferred specified predicates body) = do
-      inferred' <- mapM deferTyVarKind inferred
-      specified' <- mapM deferTyVarKind specified
-      pure (Scheme inferred' specified' predicates body)
     deferTyVarKind tyVar = do
       kind <- deferKindMetas deferKindMeta (tvKind tyVar)
       pure (setTyVarKind kind tyVar)
+
+-- | The given kind meta-variables and each meta-variable that their kinds
+-- mention, transitively.
+reachableKindMetas :: [Unique] -> TcM [Unique]
+reachableKindMetas = go []
+  where
+    go seen [] = pure (reverse seen)
+    go seen (unique : rest)
+      | unique `elem` seen = go seen rest
+      | otherwise = do
+          kind <- readMetaTvKind unique >>= zonkKind
+          go (unique : seen) (collectMetaVars kind ++ rest)
 
 -- | Split the declarations of a local group into its strongly connected
 -- components, in dependency order. A binding is generalized before the
