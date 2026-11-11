@@ -34,12 +34,13 @@ import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, looku
 import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Equality (givenRewrites)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication)
+import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (filterM, foldM, forM, forM_, void, when, zipWithM_)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 
 -- | Improve the given dictionary constraints against each other, the givens
 -- in scope, and the instances of their classes.
@@ -126,9 +127,13 @@ superClassesOf predicate =
         Nothing -> pure []
         Just info -> do
           kinds <- getKinds
-          let substitution =
+          -- The superclass types can mention the kind variables of the
+          -- class, as @Forall (ComposeC \@k2 \@k1 p f)@ does. Match the
+          -- kinds of the arguments to substitute them too.
+          let visibleSubstitution =
                 Map.fromList
                   [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) arguments]
+          substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
           pure (mapMaybe (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info))
     _ -> pure []
 
