@@ -1,0 +1,17 @@
+extensions:
+  - GADTs
+  - StandaloneDeriving
+modules:
+  - |
+    module Test where
+    import GHC.Classes (Eq, Ord)
+    import GHC.Types (Int)
+    deriving instance Eq Int
+    deriving instance Ord Int
+    data Request a where
+      Query :: Int -> Request a
+      Paged :: (a ~ t b, Eq b) => Int -> Request a
+    deriving instance Eq (Request a)
+    deriving instance Ord (Request a)
+status: pass
+reason: Standalone Ord accepts existential constructors with constraints.

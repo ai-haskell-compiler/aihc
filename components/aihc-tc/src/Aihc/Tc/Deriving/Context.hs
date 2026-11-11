@@ -645,7 +645,7 @@ targetTypeArguments mechanism dataType plan =
           Right arguments
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
--- | Standalone Eq and Show methods use constructor evidence through the
+-- | Standalone Eq, Ord, and Show methods use constructor evidence through the
 -- ordinary instance checker. Standalone Functor, Foldable, and Traversable
 -- methods do the same for existential and constrained constructors. A
 -- refined GADT result stays unsupported for them, because a derived method
@@ -671,7 +671,7 @@ validateStockDataType plan dataType
     mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
     checksConstructorEvidence =
       tcDerivingStandalone plan
-        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockShowMethods]
+        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods, Just StockShowMethods]
     checksExistentialEvidence =
       checksConstructorEvidence
         || ( tcDerivingStandalone plan
