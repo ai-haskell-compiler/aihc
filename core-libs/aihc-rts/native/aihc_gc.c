@@ -377,6 +377,13 @@ static AihcSrtWorklist aihc_srt_worklist;
 static AihcSrt aihc_srt_list_end;
 static AihcSrt *aihc_srt_stamped;
 
+/* The static objects that became indirections after a call of
+   aihc_keep_cafs. Each collection of gen2 takes them as roots. */
+static int aihc_keeping_cafs;
+static AihcValue **aihc_kept_cafs;
+static size_t aihc_kept_caf_count;
+static size_t aihc_kept_caf_capacity;
+
 static size_t aihc_static_slot_of(uintptr_t address, size_t capacity) {
   /* Object addresses are word-aligned, so the low bits carry no information. */
   uintptr_t mixed = address >> 3;
@@ -1741,13 +1748,44 @@ static void aihc_write_barrier_update_unlocked(AihcCapability *capability,
   aihc_remember_unique(capability, object);
 }
 
+/* Keep the values of all evaluated CAFs. Without this call, a full
+   collection traces static objects through the static reference tables
+   alone, so an evaluated CAF that no live code reaches gives its value up.
+   That is correct when all code is linked before the program starts. An
+   engine loads code into a running instance, and new code can refer to a
+   CAF that the old code evaluated. Thus the guest of an engine calls this
+   function before it runs code, as GHCi sets keepCAFs. */
+void aihc_keep_cafs(void) { aihc_keeping_cafs = 1; }
+
+/* Whether the update of an object makes a CAF that the collector must
+   keep. */
+static int aihc_keeps_caf(AihcValue *object) {
+  return aihc_keeping_cafs && object != NULL &&
+         aihc_region_kind(object) == AIHC_REGION_OUTSIDE &&
+         !aihc_outside_is_pinned(object);
+}
+
+/* Add a CAF to the kept CAFs. A static thunk is updated once, so the list
+   holds each object once. The caller holds the heap lock. */
+static void aihc_keep_caf_unlocked(AihcValue *object) {
+  if (aihc_kept_caf_count == aihc_kept_caf_capacity) {
+    aihc_kept_cafs = aihc_worklist_grow(aihc_kept_cafs, &aihc_kept_caf_capacity,
+                                        sizeof(*aihc_kept_cafs));
+  }
+  aihc_kept_cafs[aihc_kept_caf_count++] = object;
+}
+
 void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
   object = aihc_untag_pointer(object);
-  int locked = capability->machine->gen2_cycle_active != 0;
+  int keep = aihc_keeps_caf(object);
+  int locked = capability->machine->gen2_cycle_active != 0 || keep;
   if (locked) {
     aihc_heap_lock(capability->machine);
   }
   aihc_write_barrier_update_unlocked(capability, object);
+  if (keep) {
+    aihc_keep_caf_unlocked(object);
+  }
   if (locked) {
     aihc_heap_unlock(capability->machine);
   }
@@ -3577,6 +3615,9 @@ static void aihc_cycle_start(AihcCapability *capability, uint64_t root_count,
     }
   }
   aihc_walk_srt(srt);
+  for (size_t index = 0; index < aihc_kept_caf_count; ++index) {
+    aihc_mark_old(capability, aihc_kept_cafs[index]);
+  }
   for (uint64_t index = 0; index < machine->capability_count; ++index) {
     for (AihcForeignFrame *frame = machine->capabilities[index]->foreign_frames;
          frame != NULL; frame = frame->previous) {
@@ -4147,6 +4188,9 @@ static int aihc_collect_stopped(AihcCapability *capability, AihcGcReason reason,
            frame != NULL; frame = frame->previous) {
         aihc_walk_srt(frame->srt);
       }
+    }
+    for (size_t index = 0; index < aihc_kept_caf_count; ++index) {
+      aihc_mark_static(context.work, aihc_kept_cafs[index]);
     }
   }
   if (escape_value != 0 || promote_thread_count != 0) {

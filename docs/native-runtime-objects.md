@@ -952,6 +952,9 @@ MVars and waiters count toward managed allocation statistics and the `-M` limit.
 Static objects occupy an object-file data section and never move.
 An evaluated CAF contains an indirection into the managed heap.
 The collector retains its target only while the CAF remains reachable.
+An engine guest calls `aihc_keep_cafs` before it runs code, because code that the engine loads later can refer to an old CAF.
+After that call, the runtime records each static thunk that becomes an indirection.
+Each full collection and each gen2 cycle then marks the recorded CAFs as roots.
 
 Each info table contains a static reference table (SRT).
 The SRT names static objects that the code can reach directly.

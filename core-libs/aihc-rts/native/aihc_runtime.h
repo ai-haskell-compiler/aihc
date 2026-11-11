@@ -959,6 +959,10 @@ int64_t aihc_io_handle_size(void *handle);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);
+/* Keep the value of each CAF that a later evaluation updates. An engine
+   guest calls it, because the engine loads code that can refer to an old
+   CAF. */
+void aihc_keep_cafs(void);
 /* The number of capabilities of the machine, for getNumCapabilities. */
 int64_t aihc_capability_count(void);
 /* The number of processors of the machine, for getNumProcessors. */
