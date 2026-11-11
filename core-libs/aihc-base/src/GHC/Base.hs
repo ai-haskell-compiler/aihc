@@ -56,6 +56,7 @@ where
 import GHC.CString (unpackCString#, unpackCStringUtf8#, unpackFoldrCString#)
 import GHC.Classes
 import GHC.Int (Int (..))
+import GHC.Magic (oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim
 import GHC.Prim.Base
@@ -269,10 +270,3 @@ iShiftRL# value count =
   case count >=# 64# of
     1# -> 0#
     _ -> uncheckedIShiftRL# value count
-
--- | The function is returned unchanged. Arity hints do not apply.
---
--- The argument and the result may have any runtime representation: a
--- worker that takes an @Int#@ index is the common caller.
-oneShot :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). (a -> b) -> a -> b
-oneShot function = function

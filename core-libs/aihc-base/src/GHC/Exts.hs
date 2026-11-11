@@ -137,11 +137,12 @@ import Data.Coerce (coerce)
 import Data.List (groupBy, sortBy)
 import Data.Ord (Down (..), comparing)
 import Data.String (IsString (..))
-import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, oneShot, shiftL#, shiftRL#)
+import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
 import GHC.CString (cstringLength#, unpackAppendCString#, unpackAppendCStringUtf8#, unpackCString#, unpackCStringUtf8#, unpackFoldrCString#, unpackFoldrCStringUtf8#, unpackNBytes#)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
+import GHC.Magic (inline, lazy, oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
@@ -156,10 +157,6 @@ import Prelude (Eq (..), Ord, all, errorWithoutStackTrace, otherwise)
 -- 'True' that the optimiser is not told about.
 considerAccessible :: Bool
 considerAccessible = True
-
--- | The value is returned unchanged. Strictness analysis does not apply.
-lazy :: a -> a
-lazy value = value
 
 -- | Return the element of a list in which all elements are equal.
 -- Call 'errorWithoutStackTrace' when the list is empty or two elements differ.
@@ -178,10 +175,6 @@ sortWith key = sortBy (comparing key)
 -- Then, put adjacent elements with equal results into the same group.
 groupWith :: (Ord b) => (a -> b) -> [a] -> [[a]]
 groupWith key values = groupBy (\left right -> key left == key right) (sortWith key values)
-
--- | The value is returned unchanged. Inlining hints do not apply.
-inline :: a -> a
-inline value = value
 
 -- | Replace the contents of a mutable variable with the first component of
 -- what the function gives, and return the second. GHC compiles this to an
