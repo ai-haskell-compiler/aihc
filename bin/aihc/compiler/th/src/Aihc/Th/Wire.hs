@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The message that a splice sends to the compiler.
+-- | The messages between a splice and the compiler.
 --
 -- A splice runs in a WebAssembly instance, and its result is a value of
 -- the Template Haskell syntax tree. The module @Aihc.TH.Splice@ of the
 -- @template-haskell@ package encodes that value as a tree of constructor
 -- names, and this module decodes the tree. That module gives the encoding.
+-- The reply to a request of a splice has the same encoding, and this
+-- module encodes it.
 --
 -- The message comes from code that the compiler does not trust. The decoder
 -- reads only the bytes of the message, and it rejects a message that is
@@ -13,14 +15,17 @@
 module Aihc.Th.Wire
   ( Tree (..),
     decodeTree,
+    encodeTree,
   )
 where
 
-import Data.Bits (shiftL, (.&.), (.|.))
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.Char (chr)
-import Data.Ratio ((%))
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as BL
+import Data.Char (chr, ord)
+import Data.Ratio (denominator, numerator, (%))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -35,6 +40,24 @@ data Tree
   | TreeString !Text
   | TreeRatio !Rational
   deriving (Eq, Show)
+
+-- | The bytes of a tree, in the encoding that the decoder reads.
+encodeTree :: Tree -> ByteString
+encodeTree = BL.toStrict . Builder.toLazyByteString . go
+  where
+    go tree =
+      case tree of
+        TreeNode name fields -> Builder.word8 0 <> text name <> count (length fields) <> foldMap go fields
+        TreeInteger number -> Builder.word8 1 <> text (T.pack (show number))
+        TreeChar char -> Builder.word8 2 <> count (ord char)
+        TreeString string -> Builder.word8 3 <> text string
+        TreeRatio ratio -> Builder.word8 4 <> text (T.pack (show (numerator ratio))) <> text (T.pack (show (denominator ratio)))
+    text string =
+      let bytes = TE.encodeUtf8 string
+       in count (BS.length bytes) <> Builder.byteString bytes
+    count number
+      | number < 128 = Builder.word8 (fromIntegral number)
+      | otherwise = Builder.word8 (fromIntegral ((number .&. 127) .|. 128)) <> count (number `shiftR` 7)
 
 -- | A decoder gives a value and the bytes after it.
 type Decoder value = ByteString -> Either Text (value, ByteString)

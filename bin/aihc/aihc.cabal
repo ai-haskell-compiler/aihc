@@ -260,6 +260,7 @@ library
     Aihc.Prim.Wiring
     Aihc.Th.Convert
     Aihc.Th.Quote
+    Aihc.Th.Reify
     Aihc.Th.Request
     Aihc.Th.Splices
     Aihc.Th.Wire

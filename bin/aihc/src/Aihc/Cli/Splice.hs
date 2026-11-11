@@ -18,7 +18,10 @@
 -- The splice code has no access to the build machine. See
 -- "Aihc.Wasm.Engine".
 --
--- A splice cannot use a module of its own package at this time.
+-- A splice cannot use a module of its own package at this time. Thus,
+-- @reify@ gives the facts of the names of the packages that the splice
+-- package depends on. The facts come from the type artifacts of these
+-- packages in the store.
 module Aihc.Cli.Splice
   ( withSplices,
     runSplices,
@@ -27,25 +30,32 @@ where
 
 import Aihc.Cli.Build (buildWithConfig)
 import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig)
+import Aihc.Cli.ModuleProvider (moduleNameDirectory, readTypeArtifactFile)
 import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), defaultPlanOptions)
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Progress (quietProgress)
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..))
+import Aihc.Cli.TypeArtifact (TypeArtifact (..))
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
+import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
-import Aihc.Th.Wire (decodeTree)
+import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
 import Control.Monad (forM, forM_)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, toLower)
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr, stdout)
 import System.IO.Error (ioeGetErrorString)
@@ -73,12 +83,14 @@ runSplices request =
       installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withSplices
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
+      packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
+      reify <- newReifier packages
       withEngine image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
         forM (zip [0 ..] (spliceRequestSplices request)) $ \(index, splice) -> do
           requests <- newIORef []
-          outcome <- try (runClosure engine (answerRequest requests) (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index))
+          outcome <- try (runClosure engine (answerRequest reify requests) (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -94,13 +106,71 @@ runSplices request =
             (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
 
--- | Do the request of a splice and give the bytes of the reply. A report
--- goes to the list, and its reply has no bytes.
-answerRequest :: IORef [Request] -> ByteString -> IO ByteString
-answerRequest requests bytes =
+-- | Do the request of a splice and give the bytes of the reply. Each
+-- request goes to the list. The reply to a report has no bytes. The reply
+-- to @reify@ is an @Either String Info@ value.
+answerRequest :: (GlobalName -> IO (Either Text Tree)) -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest reify requests bytes =
   case decodeTree bytes >>= requestFromTree of
-    Right made -> BS.empty <$ modifyIORef' requests (made :)
+    Right made -> do
+      modifyIORef' requests (made :)
+      case made of
+        RequestReport {} -> pure BS.empty
+        RequestReify name global -> do
+          answer <- maybe (pure (Left ("The compiler can only give the facts of a name with a package and a module, and " <> name <> " does not have them."))) reify global
+          pure . encodeTree $ case answer of
+            Right info -> TreeNode "Right" [info]
+            Left message -> TreeNode "Left" [TreeString message]
     Left message -> ioError (userError (T.unpack message))
+
+-- | The store directory of each package below a package, by the package
+-- id that names of the package have. The manifest of a package names the
+-- store directories of the packages that it depends on. A package that is
+-- not in the store, such as a local package, is not in the result.
+packageDirectories :: FilePath -> FilePath -> IO (Map PackageId FilePath)
+packageDirectories storeRoot root = do
+  manifest <- readManifest root
+  go Map.empty (maybe [] packageManifestDependencies manifest)
+  where
+    go found [] = pure found
+    go found (identity : rest) = do
+      let directory = storeRoot </> T.unpack identity
+      manifest <- readManifest directory
+      case manifest of
+        Just dependency
+          | not (Map.member (PackageId (packageManifestUnitId dependency)) found) ->
+              go (Map.insert (PackageId (packageManifestUnitId dependency)) directory found) (packageManifestDependencies dependency <> rest)
+        _ -> go found rest
+    readManifest directory = do
+      let path = packageManifestPath directory
+      exists <- doesFileExist path
+      if exists
+        then readPackageManifest path >>= either (\message -> ioError (userError ("Invalid package manifest " <> path <> ": " <> message))) (pure . Just)
+        else pure Nothing
+
+-- | Give the facts of a name from the type artifact of its module. The
+-- reifier reads each artifact one time.
+newReifier :: Map PackageId FilePath -> IO (GlobalName -> IO (Either Text Tree))
+newReifier packages = do
+  artifacts <- newIORef Map.empty
+  let artifactOf directory home = do
+        cached <- Map.lookup (directory, home) <$> readIORef artifacts
+        case cached of
+          Just artifact -> pure artifact
+          Nothing -> do
+            let path = directory </> moduleNameDirectory home </> "type.cbor"
+            exists <- doesFileExist path
+            artifact <- if exists then Just <$> readTypeArtifactFile path else pure Nothing
+            atomicModifyIORef' artifacts (\known -> (Map.insert (directory, home) artifact known, ()))
+            pure artifact
+  pure $ \global ->
+    case Map.lookup (globalNamePackage global) packages of
+      Nothing -> pure (Left ("The splice cannot use the package " <> packageIdText (globalNamePackage global) <> " of " <> globalNameText global <> "."))
+      Just directory -> do
+        artifact <- artifactOf directory (globalNameModule global)
+        pure $ case artifact of
+          Nothing -> Left ("The package " <> packageIdText (globalNamePackage global) <> " has no type facts of the module " <> globalNameModule global <> ".")
+          Just found -> reifyInfo (typeArtifactInterface found) global
 
 -- | Build the image of a request and give its path.
 buildImage :: SpliceRequest -> IO FilePath
