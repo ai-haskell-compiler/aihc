@@ -1,0 +1,29 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, KindSignatures, StandaloneDeriving, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  import GHC.Classes (Eq)
+  import GHC.Types (Type)
+  data P (f :: k -> Type) (a :: [k]) = P
+  newtype W (f :: k -> Type) (a :: [[k]]) = W (P (P f) a)
+  deriving instance Eq (P (P f) a) => Eq (W f a)
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, KindSignatures, StandaloneDeriving, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  import GHC.Classes (Eq)
+  import GHC.Types (Type)
+  data P (f :: k -> Type) (a :: [k]) = P
+       │                               └─ type: ∀ k f a. P f a
+       └─ type: (k → Type) → [k] → Type
+  newtype W (f :: k -> Type) (a :: [[k]]) = W (P (P f) a)
+          │                                 └─ type: ∀ k f a. P (P f) a → W f a
+          └─ type: (k → Type) → [[k]] → Type
+  deriving instance Eq (P (P f) a) => Eq (W f a)
+  │                                   └─ $fEqWfa ∷ ∀ k0 f a. (Eq (P (P f) a)) ⇒ Eq (W f a)
+  └─ deriving plans: newtype Eq (W f a) [context: Eq P (P f) a] [methods: ==, /=]
+reason: a derived instance for a poly-kinded newtype uses the kind variable of
+  the instance, not the kind variable of the declaration, in the representation
+  type and in its coercion
+status: pass
