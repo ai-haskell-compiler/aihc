@@ -54,6 +54,7 @@ import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (substType, substTypes, typeEnvFromProgram)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, execState, get, modify', put, runState, state)
@@ -61,6 +62,9 @@ import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Monoid (Sum (..))
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -119,7 +123,7 @@ specialiseProgram program =
 -- dictionaries name, see 'dictionaryTypes'.
 specialiseTopProgram :: PackageId -> Home -> Program -> (Program, SpecialiseReport)
 specialiseTopProgram primPackage home program =
-  let initial = TopState (maxLocalUnique program + 1) names Map.empty Map.empty Set.empty allowance mempty
+  let initial = TopState (maxLocalUnique program + 1) names Map.empty MonoidMap.empty Set.empty allowance mempty
       (decls, final) = runState (rounds 3 (programDecls program)) initial
    in if topReport final == mempty then (program, topReport final) else (tidyProgram program {programDecls = decls}, topReport final)
   where
@@ -133,18 +137,18 @@ specialiseTopProgram primPackage home program =
     rounds 0 decls = pure decls
     rounds remaining decls = do
       current <- get
-      let full = execState (mapM_ (onValue (walkCalls (collect (const False)))) decls) Map.empty
+      let full = execState (mapM_ (onValue (walkCalls (collect (const False)))) decls) MonoidMap.empty
           -- A function whose new prefixes do not fit its remaining copies
           -- gets copies for the types that its dictionaries name.
           crowded =
-            Map.keysSet
-              ( Map.filterWithKey
-                  (\name count -> count + Map.findWithDefault 0 name (topCounts current) > specialisationLimit)
-                  (Map.fromListWith (+) [(name, 1 :: Int) | (key@(name, _), _) <- Map.toList full, Map.notMember key (topCopies current)])
+            MonoidMap.nonNullKeys
+              ( MonoidMap.filterWithKey
+                  (\name count -> count + MonoidMap.get name (topCounts current) > Sum specialisationLimit)
+                  (Occurrences.count [name | (key@(name, _), _) <- MonoidMap.toList full, Map.notMember key (topCopies current)])
               )
           reduced = topReduced current <> crowded
-          calls = execState (mapM_ (onValue (walkCalls (collect (`Set.member` reduced)))) decls) Map.empty
-          requests = List.sortOn (\(key, count) -> (negate count, key)) (Map.toList calls)
+          calls = execState (mapM_ (onValue (walkCalls (collect (`Set.member` reduced)))) decls) MonoidMap.empty
+          requests = List.sortOn (\(key, count) -> (negate count, key)) (MonoidMap.toList calls)
           unseen = filter (\(key, _) -> Map.notMember key (topCopies current)) requests
       put current {topReduced = reduced}
       copies <- concat <$> mapM (makeCopy . fst) unseen
@@ -153,7 +157,7 @@ specialiseTopProgram primPackage home program =
         else do
           rewritten <- mapM (onValue (walkCalls rewrite)) (decls <> copies)
           rounds (remaining - 1) rewritten
-    collect :: (Name -> Bool) -> Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map (Name, [Arg]) Int) Expr
+    collect :: (Name -> Bool) -> Map.Map Name Expr -> Expr -> [Arg] -> State (MonoidMap (Name, [Arg]) (Sum Int)) Expr
     collect reduced aliases function arguments = do
       case function of
         ExVar name
@@ -162,7 +166,7 @@ specialiseTopProgram primPackage home program =
             length arguments >= count,
             let key = staticArguments (staticTypes (reduced name) prefix) prefix (map (fmap (substExpr aliases)) (take count arguments)),
             staticKey Set.empty key ->
-              modify' (Map.insertWith (+) (name, key) (1 :: Int))
+              modify' (MonoidMap.adjust (+ 1) (name, key))
         _ -> pure ()
       pure (rebuildCall function arguments)
     makeCopy :: (Name, [Arg]) -> State TopState [Decl]
@@ -170,7 +174,7 @@ specialiseTopProgram primPackage home program =
       current <- get
       case Map.lookup name candidates of
         Just (declaration, prefix, inner)
-          | Map.findWithDefault 0 name (topCounts current) < specialisationLimit,
+          | MonoidMap.get name (topCounts current) < Sum specialisationLimit,
             -- A key with fewer types than the prefix is for the types that
             -- the dictionaries name.
             let static = staticTypes (length (lefts arguments) < length (prefixTypes prefix)) prefix,
@@ -191,13 +195,13 @@ specialiseTopProgram primPackage home program =
                 else do
                   let copyName = freshTopName home (topNames current) name 0
                       (body', supply) = freshenExprFrom (topSupply current) body
-                      first = Map.notMember name (topCounts current)
+                      first = MonoidMap.nullKey name (topCounts current)
                   put
                     current
                       { topSupply = supply,
                         topNames = Set.insert copyName (topNames current),
                         topCopies = Map.insert key copyName (topCopies current),
-                        topCounts = Map.insertWith (+) name 1 (topCounts current),
+                        topCounts = MonoidMap.adjust (+ 1) name (topCounts current),
                         topBudget = topBudget current - cost,
                         topReport = topReport current <> SpecialiseReport (if first then 1 else 0) 1 0
                       }
@@ -225,7 +229,7 @@ data TopState = TopState
   { topSupply :: Int,
     topNames :: Set Name,
     topCopies :: Map.Map (Name, [Arg]) Name,
-    topCounts :: Map.Map Name Int,
+    topCounts :: MonoidMap Name (Sum Int),
     -- | The functions whose copies are for the types that their
     -- dictionaries name.
     topReduced :: Set Name,
