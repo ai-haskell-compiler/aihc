@@ -333,7 +333,7 @@ spliceModuleTest = do
           }
   assertEqual
     "one closure for each splice"
-    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 = Aihc.TH.Splice.runDeclarationsSplice (h)"
+    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Language.Haskell.TH.Lib as AihcQuoteLibrary import qualified Language.Haskell.TH.Syntax as AihcQuoteLibrary import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 = Aihc.TH.Splice.runDeclarationsSplice (h)"
     (T.unwords (T.words (spliceModuleText request)))
 
 name :: Text -> Tree
