@@ -17,5 +17,5 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: A group qualifier must collect each generator variable into a list. The type checker rejects the group qualifier.
+status: pass
+reason: A group qualifier collects each earlier variable into a list for each group.
