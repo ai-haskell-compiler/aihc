@@ -11,4 +11,4 @@ unsafeCoerce :: a -> b
 unsafeCoerce = unsafeCoerce#
 
 unsafeCoerceUnlifted :: forall (a :: UnliftedType) (b :: UnliftedType). a -> b
-unsafeCoerceUnlifted value = unsafeCoerce# value
+unsafeCoerceUnlifted = unsafeCoerce#

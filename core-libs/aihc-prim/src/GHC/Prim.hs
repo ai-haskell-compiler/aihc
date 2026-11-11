@@ -4,7 +4,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
@@ -1929,8 +1928,9 @@ addWeakCellFinalizer :: WeakCell# -> (State# RealWorld -> State# RealWorld) -> S
 addWeakCellFinalizer weak action state = case readMutVar# weak state of
   (# next, content #) -> case content of
     WeakLive value finalizer foreignFinalizers ->
-      case writeMutVar# weak (WeakLive value finalizer (\current -> foreignFinalizers (action current))) next of
-        written -> (# written, 1# #)
+      let runAll current = foreignFinalizers (action current)
+       in case writeMutVar# weak (WeakLive value finalizer runAll) next of
+            written -> (# written, 1# #)
     WeakDead -> (# next, 0# #)
 
 foreign import prim newDelayTVar# :: Int# -> a -> a -> State# RealWorld -> (# State# RealWorld, TVar# RealWorld a #)
