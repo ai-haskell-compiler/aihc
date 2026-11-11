@@ -2620,8 +2620,11 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
   -- the wanteds that the implications deferred, which are not.
   let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
   -- The residual holds the equalities that wait on a type family
-  -- application.
-  stuck <- (srResidual solveResult <>) . concat <$> mapM attemptClassCt (cts <> deferred)
+  -- application. An implication can also defer an equality. Give it another
+  -- attempt, because the enclosing solve can have solved its meta variables.
+  flatStuck <- concat <$> mapM attemptClassCt cts
+  deferredStuck <- concat <$> mapM attemptStuckCt deferred
+  let stuck = srResidual solveResult <> flatStuck <> deferredStuck
   -- The signature makes every type variable of the binding rigid, so a
   -- meta-variable that survives the solve is ambiguous. Defaulting may make
   -- it concrete, which lets a second attempt discharge the constraint.

@@ -10,6 +10,7 @@ module Aihc.Tc.TypeLitFamily
     TypeLitValue (..),
     evaluateTypeLitFamily,
     simplifyTypeLitFamily,
+    cancellableTypeLitFamily,
   )
 where
 
@@ -91,3 +92,11 @@ simplifyTypeLitFamily family literal build arguments =
     _ -> Nothing
   where
     natural value number = literal value == Just (TyLitNat number)
+
+-- | Whether equal applications of a built-in family with one argument in
+-- common also have the other argument in common. Addition on naturals has
+-- this property: @a + b ~ a + c@ gives @b ~ c@, and @a + c ~ b + c@ gives
+-- @a ~ b@. GHC uses the same rule for improvement. Multiplication does not
+-- have it, because zero absorbs the other argument.
+cancellableTypeLitFamily :: Text -> Bool
+cancellableTypeLitFamily family = family == "+"

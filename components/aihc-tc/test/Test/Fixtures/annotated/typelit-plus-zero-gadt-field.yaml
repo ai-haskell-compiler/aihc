@@ -1,0 +1,78 @@
+extensions:
+- DataKinds
+- GADTs
+- KindSignatures
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeNats where
+  import GHC.Prim.Natural (Natural)
+  type family (+) (a :: Natural) (b :: Natural) :: Natural
+  infixl 6 +
+- |
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeOperators, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+  import GHC.TypeNats (type (+))
+  infix 4 <, <=
+  data (<) :: Natural -> Natural -> Type where
+    Lt :: a < b
+  data (<=) :: Natural -> Natural -> Type where
+    Lte :: a <= b
+  data Fin :: Natural -> Type where
+    Fin :: forall m n. !(m < n) -> Fin n
+  plus :: (a < b) -> (c <= d) -> (a + c < b + d)
+  plus Lt Lte = Lt
+  zero :: 0 <= a
+  zero = Lte
+  weakenR :: forall n m. Fin n -> Fin (n + m)
+  weakenR (Fin pf) = Fin (plus pf zero)
+status: pass
+reason: The equality n + t0 ~ n + m gives t0 ~ m, as in GHC. Thus the solver finds the bound of the Fin value.
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeNats where
+  import GHC.Prim.Natural (Natural)
+  type family (+) (a :: Natural) (b :: Natural) :: Natural
+               └─ type: GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural
+  infixl 6 +
+- |-
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeOperators, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+  import GHC.TypeNats (type (+))
+  infix 4 <, <=
+  data (<) :: Natural -> Natural -> Type where
+        └─ type: GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural → Type
+    Lt :: a < b
+    └─ type: ∀ a b. < a b
+  data (<=) :: Natural -> Natural -> Type where
+        └─ type: GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural → Type
+    Lte :: a <= b
+    └─ type: ∀ a b. <= a b
+  data Fin :: Natural -> Type where
+       └─ type: GHC.Prim.Natural.Natural → Type
+    Fin :: forall m n. !(m < n) -> Fin n
+    └─ type: ∀ n m. < m n → Fin n
+  plus :: (a < b) -> (c <= d) -> (a + c < b + d)
+  plus Lt Lte = Lt
+  │    │  │     └─ type: < (GHC.TypeNats.+ a c) (GHC.TypeNats.+ b d); type-args: + a c, + b d
+  │    │  └─ type: <= c d
+  │    └─ type: < a b
+  └─ type: ∀ a b c d. < a b → <= c d → < (GHC.TypeNats.+ a c) (GHC.TypeNats.+ b d)
+  zero :: 0 <= a
+  zero = Lte
+  │      └─ type: <= 0 a; type-args: 0, a
+  └─ type: ∀ a. <= 0 a
+  weakenR :: forall n m. Fin n -> Fin (n + m)
+  weakenR (Fin pf) = Fin (plus pf zero)
+  │        │   │     │    │       └─ type: <= 0 m; type-args: m
+  │        │   │     │    └─ type: < m n → <= 0 m → < (GHC.TypeNats.+ m 0) (GHC.TypeNats.+ n m); type-args: m, n, 0, m
+  │        │   │     └─ type: < m (GHC.TypeNats.+ n m) → Fin (GHC.TypeNats.+ n m); type-args: + n m, m
+  │        │   └─ type: < m n
+  │        └─ type: < m n → Fin n; type-args: n, m
+  └─ type: ∀ n m. Fin n → Fin (GHC.TypeNats.+ n m)
