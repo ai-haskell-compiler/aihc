@@ -1,9 +1,8 @@
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 -- | The legacy @integer-gmp@ interface to 'Integer'.  Packages still using it
 -- get the operations from here; new code should use "GHC.Num.Integer".
-{-# LANGUAGE MagicHash #-}
-
 module GHC.Integer
   ( Integer,
     smallInteger,
