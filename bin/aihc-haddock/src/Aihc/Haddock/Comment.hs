@@ -220,9 +220,9 @@ buildCommentIndex comments =
 -- offset.
 claimNextAt :: Int -> CommentIndex -> ([DocComment], CommentIndex)
 claimNextAt offset index =
-  case Map.lookup offset (indexNext index) of
-    Nothing -> ([], index)
-    Just comments -> (comments, index {indexNext = Map.delete offset (indexNext index)})
+  ( Map.findWithDefault [] offset (indexNext index),
+    index {indexNext = Map.delete offset (indexNext index)}
+  )
 
 -- | Claim the @-- ^@ comments whose preceding token lies inside the node span
 -- and that are indented past the enclosing item's column. Call this for
