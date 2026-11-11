@@ -1,0 +1,27 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, PolyKinds #-}
+  module Main where
+  class K f where
+  └─ class methods: k ∷ ∀ k0 f a. (K f) ⇒ f a → f a
+    k :: f a -> f a
+  newtype Alt f a = Alt (f a)
+          │         └─ type: ∀ k0 f a. f a → Alt f a
+          └─ type: (k0 → Type) → k0 → Type
+  deriving instance K f => K (Alt f)
+  │                        └─ $fKAltf ∷ ∀ k0 f. (K f) ⇒ K (Alt f)
+  └─ deriving plans: newtype K (Alt f) [context: K f] [methods: k]
+extensions:
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, PolyKinds #-}
+  module Main where
+  class K f where
+    k :: f a -> f a
+  newtype Alt f a = Alt (f a)
+  deriving instance K f => K (Alt f)
+reason: newtype deriving eta-reduces a field type whose dropped parameter has a kind variable
+status: pass

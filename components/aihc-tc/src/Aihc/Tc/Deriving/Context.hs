@@ -597,7 +597,14 @@ newtypeRepresentation plan = do
   targetArguments <- targetTypeArguments "newtype deriving" dataType plan
   let supplied = length targetArguments
       substitution = headSubstitution dataType targetArguments
-      dropped = drop supplied (dtiTyVars dataType)
+      -- The substitution also changes the kinds of the parameters in the
+      -- field type. In @newtype Rec1 (f :: k -> Type) (p :: k)@, the
+      -- dropped @p@ gets the kind of the instance. Give the dropped
+      -- parameters the same kinds, so that they match the field type.
+      dropped =
+        [ setTyVarKind (applySubst substitution (tvKind tyVar)) tyVar
+        | tyVar <- drop supplied (dtiTyVars dataType)
+        ]
   case etaReduce dropped (applySubst substitution field) of
     Just representation
       | not (any (`elem` typeTyVars representation) dropped) -> Right representation
