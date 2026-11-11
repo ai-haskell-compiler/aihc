@@ -224,7 +224,18 @@ requestTest = do
   let report isError message = TreeNode "Report" [TreeNode isError [], TreeString message]
   assertEqual "a warning" (Right (RequestReport False "w")) (requestFromTree (report "False" "w"))
   assertEqual "an error" (Right (RequestReport True "e")) (requestFromTree (report "True" "e"))
-  assertEqual "an unknown request" (Left "The compiler does not know the splice request Reify.") (requestFromTree (TreeNode "Reify" []))
+  assertEqual "an unknown request" (Left "The compiler does not know the splice request Lookup.") (requestFromTree (TreeNode "Lookup" []))
+  let reify flavour = TreeNode "Reify" [TreeNode "Name" [TreeNode "OccName" [TreeString "T"], flavour]]
+      bound space = TreeNode "NameG" [TreeNode space [], TreeNode "PkgName" [TreeString "p-1"], TreeNode "ModName" [TreeString "M"]]
+  assertEqual
+    "the facts of a type"
+    (Right (RequestReify "T" (Just (GlobalName "T" (PackageId "p-1") "M" ResolutionNamespaceType))))
+    (requestFromTree (reify (bound "TcClsName")))
+  assertEqual
+    "the facts of a data constructor"
+    (Right (RequestReify "T" (Just (GlobalName "T" (PackageId "p-1") "M" ResolutionNamespaceTerm))))
+    (requestFromTree (reify (bound "DataName")))
+  assertEqual "the facts of a name with no module" (Right (RequestReify "T" Nothing)) (requestFromTree (reify (TreeNode "NameS" [])))
   assertEqual "only warnings" Nothing (reportedFailure [RequestReport False "w"])
   assertEqual
     "two errors and a warning"

@@ -23,6 +23,7 @@ module Aihc.Cli.ModuleProvider
     providerInstanceFacts,
     providerReadInterface,
     moduleNameDirectory,
+    readTypeArtifactFile,
   )
 where
 

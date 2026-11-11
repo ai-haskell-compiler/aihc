@@ -66,4 +66,20 @@ main = do
   -- A splice makes a unique name, and a splice recovers from a failure.
   print ($(do x <- newName "x"; lamE [varP x] (varE x)) (7 :: Int))
   print ($(recover (litE (integerL 1)) (fail "no")) :: Int)
+  -- A splice reads the facts of imported names with reify: a data type, a
+  -- data constructor, and a type synonym. The fields of the constructors
+  -- use the type variables of the data type.
+  putStrLn
+    $( do
+         TyConI (DataD _ _ binders _ constructors _) <- reify ''Either
+         DataConI _ _ parent <- reify 'Just
+         TyConI (TySynD _ [] (AppT ListT (ConT element))) <- reify ''String
+         let describe constructor =
+               case constructor of
+                 NormalC name fields -> nameBase name ++ "/" ++ show (length fields)
+                 _ -> "?"
+             variables = [name | KindedTV name _ _ <- binders]
+             fieldVariables = [name | NormalC _ [(_, VarT name)] <- constructors]
+         litE (stringL (unwords ([show (length binders)] ++ map describe constructors ++ [show (fieldVariables == variables), nameBase parent, nameBase element])))
+     )
   showTriple
