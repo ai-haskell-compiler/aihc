@@ -1,0 +1,25 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, KindSignatures #-}
+  module Test where
+  data Proxy (a :: k) = Proxy
+  class Top (x :: k)
+  topP :: Proxy Top
+  topP = Proxy
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, KindSignatures #-}
+  module Test where
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+  class Top (x :: k)
+  └─ class methods:
+  topP :: Proxy Top
+  topP = Proxy
+  │      └─ type: Proxy Top; type-args: k0 → Constraint, Top
+  └─ type: ∀ k0. Proxy Top
+reason: a signature quantifies the open kind of a bare poly-kinded constructor,
+  as in GHC, thus topP has the type forall k. Proxy (Top @k)
+status: pass

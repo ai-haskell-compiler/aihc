@@ -641,19 +641,53 @@ generalizeKindMetas = generalizeKindMetasExcept []
 -- stay open.
 generalizeKindMetasExcept :: [Unique] -> GeneralizedKindMetas -> [TyVarId] -> TcM ()
 generalizeKindMetasExcept excluded scope variables = do
-  kinds <- getKinds
   variableKinds <- mapM (zonkKind . tvKind) variables
-  let candidates = zip [0 :: Int ..] (filter (`notElem` excluded) (nub (concatMap collectMetaVars variableKinds)))
+  void (generalizeMetasOfKinds excluded scope variableKinds)
+
+-- | Skolemize the open kind metas of these kinds and return the new kind
+-- variables.
+generalizeMetasOfKinds :: [Unique] -> GeneralizedKindMetas -> [TcType] -> TcM [TyVarId]
+generalizeMetasOfKinds excluded scope kindTypes = do
+  kinds <- getKinds
+  let candidates = zip [0 :: Int ..] (filter (`notElem` excluded) (nub (concatMap collectMetaVars kindTypes)))
   -- An empty candidate list needs no scan of the component's kinds.
-  unless (null candidates) $ do
-    reserved <- reservedKindMetas
-    forM_ candidates $ \(index, Unique meta) -> do
-      metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
-      tracked <- isTrackedKindMeta (Unique meta)
-      let quantified = tracked || scope == AllKindMetas
-      when (quantified && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
-        variable <- freshSkolemTv ("k" <> T.pack (show index))
-        writeMetaTv (Unique meta) (TcTyVar variable)
+  if null candidates
+    then pure []
+    else do
+      reserved <- reservedKindMetas
+      fmap concat . forM candidates $ \(index, Unique meta) -> do
+        metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
+        tracked <- isTrackedKindMeta (Unique meta)
+        let quantified = tracked || scope == AllKindMetas
+        if quantified && metaKind == typeKind kinds && not (IntSet.member meta reserved)
+          then do
+            variable <- freshSkolemTv ("k" <> T.pack (show index))
+            writeMetaTv (Unique meta) (TcTyVar variable)
+            pure [variable]
+          else pure []
+
+-- | The kind arguments of the kinded type constructors in a type. A bare
+-- poly-kinded constructor, as the class @Top@ in @Proxy Top@, keeps its
+-- kind there, and no type variable of the signature mentions it.
+kindedTyConKinds :: TcType -> [TcType]
+kindedTyConKinds ty =
+  case ty of
+    TcKindedTyCon _ kindArguments -> kindArguments
+    TcTyCon _ arguments -> concatMap kindedTyConKinds arguments
+    TcFunTy argument result -> kindedTyConKinds argument <> kindedTyConKinds result
+    TcAppTy function argument -> kindedTyConKinds function <> kindedTyConKinds argument
+    TcForAllTy _ body -> kindedTyConKinds body
+    TcQualTy predicates body -> concatMap predKindedTyConKinds predicates <> kindedTyConKinds body
+    _ -> []
+
+predKindedTyConKinds :: Pred -> [TcType]
+predKindedTyConKinds predicate =
+  case predicate of
+    ClassPred _ arguments -> concatMap kindedTyConKinds arguments
+    EqPred left right -> kindedTyConKinds left <> kindedTyConKinds right
+    IParamPred _ payload -> kindedTyConKinds payload
+    IrredPred constraint -> kindedTyConKinds constraint
+    QuantifiedPred _ antecedents consequent -> concatMap predKindedTyConKinds (consequent : antecedents)
 
 -- | Quantify implicit kind variables before the signature enters the environment.
 generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
@@ -662,11 +696,18 @@ generalizeSignatureKinds signature = do
   -- A top-level signature is complete after its check, as an instance
   -- head is.
   generalizeKindMetas AllKindMetas (inferred <> specified)
+  -- The kind of a bare constructor in the signature is also a kind of
+  -- the signature: @topP :: Proxy Top@ is @forall {k}. Proxy (Top \@k)@,
+  -- as in GHC.
+  openBody <- zonkType body
+  openPredicates <- mapM zonkPred predicates
+  constructorKinds <- mapM zonkKind (kindedTyConKinds openBody <> concatMap predKindedTyConKinds openPredicates)
+  constructorKindVariables <- generalizeMetasOfKinds [] AllKindMetas constructorKinds
   inferred' <- mapM defaultTyVarKinds inferred
   specified' <- mapM defaultTyVarKinds specified
   body' <- zonkType body
   predicates' <- mapM defaultPredKinds predicates
-  pure signature {checkedSigScheme = withInventedKindVariables (Scheme inferred' specified' predicates' body')}
+  pure signature {checkedSigScheme = withInventedKindVariables (Scheme (constructorKindVariables <> inferred') specified' predicates' body')}
 
 registerCheckedSig :: Entity -> CheckedSig -> TcM ()
 registerCheckedSig key sig = extendTermKeyEnvPermanent key binder
