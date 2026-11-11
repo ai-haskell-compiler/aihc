@@ -2,15 +2,18 @@
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim
+- DataKinds
 - MagicHash
+- PolyKinds
 - UnboxedTuples
 modules:
 - |
   module Test where
 
   import GHC.Prim (MutVar#, State#)
+  import GHC.Types (Levity, RuntimeRep (BoxedRep), TYPE)
 
-  foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
+  foreign import prim newMutVar# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. a -> State# d -> (# State# d, MutVar# d a #)
 
   new x s = newMutVar# x s
 expected: |-
@@ -19,12 +22,12 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    newMutVar# = 1.vnewMutVar# :: ∀(a : sType) (b : sType). a → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# b) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# b) (tMutVar# b a))
+    newMutVar# = 1.vnewMutVar# :: ∀(a : tLevity) (b : tTYPE (cBoxedRep a)) (c : sType). FUN @(cBoxedRep a) @sLiftedRep b (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# c) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# c) (tMutVar# a c b)))
 
   import headers
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
     3.sLiftedRep :: tRuntimeRep;
-    2.tMutVar# :: ∀(d : sType) (a : sType). tTYPE sUnliftedRep;
+    2.tMutVar# :: ∀(l : tLevity) (d : sType) (a : tTYPE (cBoxedRep l)). tTYPE sUnliftedRep;
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
@@ -44,8 +47,8 @@ expected: |-
     3.sType = tTYPE sLiftedRep;
     3.sUnliftedRep = cBoxedRep cUnlifted
 
-  pub val 1.vnew :: ∀(a : sType) (b : sType). a → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# b) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# b) (tMutVar# b a))
+  pub val 1.vnew :: ∀(a : sType) (b : sType). a → FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# b) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# b) (tMutVar# cLifted b a))
     = Λ(a : sType) (b : sType). λ(x : a) (y : tState# b).
-      prim newMutVar# @a @b x y
+      prim newMutVar# @cLifted @a @b x y
 status: pass
 reason:
