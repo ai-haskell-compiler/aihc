@@ -1,0 +1,39 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    -- Each container holds the same unlifted byte array.
+    fromSmallArray :: ByteArray# -> State# RealWorld -> (# State# RealWorld, ByteArray# #)
+    fromSmallArray bytes state = case newSmallArray# 1# bytes state of
+      (# next, array #) -> readSmallArray# array 0# next
+
+    fromMutVar :: ByteArray# -> State# RealWorld -> (# State# RealWorld, ByteArray# #)
+    fromMutVar bytes state = case newMutVar# bytes state of
+      (# next, reference #) -> readMutVar# reference next
+
+    fromMVar :: ByteArray# -> State# RealWorld -> (# State# RealWorld, ByteArray# #)
+    fromMVar bytes state = case newMVar# state of
+      (# next, variable #) -> case putMVar# variable bytes next of
+        filled -> takeMVar# variable filled
+
+    test :: IO Int
+    test = IO (\state -> case newByteArray# 8# state of
+      (# state1, mutable #) -> case writeIntArray# mutable 0# 14# state1 of
+       state2 -> case unsafeFreezeByteArray# mutable state2 of
+        (# state3, bytes #) -> case fromSmallArray bytes state3 of
+         (# state4, small #) -> case fromMutVar bytes state4 of
+          (# state5, reference #) -> case fromMVar bytes state5 of
+           (# state6, variable #) ->
+             (# state6, I# (indexIntArray# small 0# +# indexIntArray# reference 0# +# indexIntArray# variable 0#) #))
+expression: test
+output: |
+  I# 42
+status: pass
+reason: As in GHC, SmallArray#, MutVar#, and MVar# can hold an unlifted element.

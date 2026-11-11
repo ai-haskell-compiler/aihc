@@ -3757,6 +3757,9 @@ desugarOrdinaryTermReference variable types evidence termArgumentTypes = do
         (package, moduleName') == (primitivePackage, "GHC.Prim") -> do
           unless (null evidence) (failValue "GHC.Prim.seq has unexpected evidence arguments")
           desugarPrimitiveSeq termArgumentTypes
+      | nameText variable == "coerce",
+        (package, moduleName') == (primitivePackage, "GHC.Prim") ->
+          desugarPrimitiveCoerce variable (GlobalTerm package moduleName' (nameText variable)) types
       | otherwise -> do
           foreignImports <- gets vsForeignImports
           case Map.lookup (GlobalTerm package moduleName' (nameText variable)) foreignImports of
@@ -3765,6 +3768,45 @@ desugarOrdinaryTermReference variable types evidence termArgumentTypes = do
     _ -> pure ordinaryReference
   where
     ordinaryReference = foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence
+
+-- | Desugar a use of @GHC.Prim.coerce@. Its argument can have any runtime
+-- representation, and no function can bind such an argument. Thus, as GHC
+-- does with a compulsory unfolding, each use becomes a saturated
+-- @unsafeCoerce#@ under one lambda, at the representation of the use. The
+-- run time does not need the 'Coercible' evidence, so the use drops it.
+desugarPrimitiveCoerce :: Name -> Entity -> [Type] -> ValueM Expr
+desugarPrimitiveCoerce variable key types = do
+  coerceType <- lookupBindingType key >>= convertCheckedType
+  case (coerceType, types) of
+    (TyForAll repBinder (TyForAll sourceBinder (TyForAll targetBinder _)), [rep, source, target]) -> do
+      sourceRepUnique <- freshUnique
+      let repName = binderName repBinder
+          sourceRepName = Name "q" SortTypeVariable (OriginLocal sourceRepUnique)
+          renameRep ty =
+            case ty of
+              TyVar name | name == repName -> TyVar sourceRepName
+              TyApp function argument -> TyApp (renameRep function) (renameRep argument)
+              _ -> ty
+          sourceName = binderName sourceBinder
+          targetName = binderName targetBinder
+          -- The type of @unsafeCoerce#@: two representations, then a value
+          -- at each of them.
+          unsafeCoerceType =
+            TyForAll (Binder sourceRepName (binderType repBinder)) $
+              TyForAll repBinder $
+                TyForAll (Binder sourceName (renameRep (binderType sourceBinder))) $
+                  TyForAll targetBinder $
+                    TyFun (TyVar sourceRepName) (TyVar repName) (TyVar sourceName) (TyVar targetName)
+          call =
+            ForeignCall
+              { foreignCallName = variable {nameText = "unsafeCoerce#"},
+                foreignCallConvention = Prim,
+                foreignCallDependencies = [],
+                foreignCallType = unsafeCoerceType
+              }
+      value <- freshBinderFromType "coerce_value" source
+      pure (ExLam value (ExForeignCall call [rep, rep, source, target] [ExVar (binderName value)]))
+    _ -> failValue "GHC.Prim.coerce needs a representation, a source type, and a target type"
 
 desugarPrimitiveSeq :: [TcType] -> ValueM Expr
 desugarPrimitiveSeq termArgumentTypes =

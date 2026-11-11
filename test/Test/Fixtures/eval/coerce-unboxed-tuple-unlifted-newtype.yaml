@@ -1,0 +1,28 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+  - UnliftedNewtypes
+modules:
+  - |
+    module Test where
+
+    import Data.Coerce (coerce)
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    newtype Bytes = Bytes ByteArray#
+
+    freeze :: MutableByteArray# RealWorld -> State# RealWorld -> (# State# RealWorld, Bytes #)
+    freeze mutable state = coerce (unsafeFreezeByteArray# mutable state)
+
+    test :: IO Int
+    test = IO (\state -> case newByteArray# 8# state of
+      (# state1, mutable #) -> case writeIntArray# mutable 0# 42# state1 of
+       state2 -> case freeze mutable state2 of
+        (# state3, Bytes bytes #) -> (# state3, I# (indexIntArray# bytes 0#) #))
+expression: test
+output: |
+  I# 42
+status: pass
+reason: As in GHC, coerce accepts a value of each runtime representation, such as an unboxed tuple.

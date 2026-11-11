@@ -60,7 +60,7 @@ import GHC.Err
 import GHC.Int (Int (..))
 import GHC.Magic (oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
-import GHC.Prim
+import GHC.Prim hiding (aihcAddWeakFinalizer#)
 import GHC.Prim.Base
 import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, Word (..), isTrue#)
 

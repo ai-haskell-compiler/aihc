@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -5,6 +6,7 @@ module GHC.Exts
   ( WithDict (withDict),
     module GHC.Prim,
     atomicModifyMutVar#,
+    addCFinalizerToWeak#,
     dataToTag#,
     IsList (..),
     Item,
@@ -144,9 +146,10 @@ import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
 import GHC.Magic (inline, lazy, oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
-import GHC.Prim
+import GHC.Prim hiding (aihcAddWeakFinalizer#)
+import qualified GHC.Prim as Prim (aihcAddWeakFinalizer#)
 import GHC.Ptr (FunPtr (..), Ptr (..))
-import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
+import GHC.Types (Any, Bool (..), IO (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 import Prelude (Eq (..), Ord, all, errorWithoutStackTrace, otherwise)
 
@@ -194,6 +197,28 @@ atomicModifyMutVar# reference modify state =
           extra = case pair of (_, second) -> second
        in case writeMutVar# reference replacement readState of
             writtenState -> (# writtenState, extra #)
+
+-- | Attach a C function to a weak pointer as a finalizer.
+-- The arguments are the function, its argument, a flag, the environment, and
+-- the weak pointer. When the flag is @1#@, the function gets the environment
+-- and then the argument. When the flag is @0#@, it gets only the argument.
+-- The result is @1#@ on success and @0#@ when the weak pointer is dead.
+-- 'finalizeWeak#' calls the function. The collector does not call it.
+addCFinalizerToWeak# :: forall {l :: Levity} (b :: TYPE ('BoxedRep l)). Addr# -> Addr# -> Int# -> Addr# -> Weak# b -> State# RealWorld -> (# State# RealWorld, Int# #)
+addCFinalizerToWeak# function argument withEnvironment environment weak =
+  Prim.aihcAddWeakFinalizer# weak finalize
+  where
+    finalize state = case withEnvironment of
+      0# -> runForeignFinalizer (callCFinalizer (FunPtr function) (Ptr argument)) state
+      _ -> runForeignFinalizer (callCFinalizerEnvironment (FunPtr function) (Ptr environment) (Ptr argument)) state
+
+runForeignFinalizer :: IO () -> State# RealWorld -> State# RealWorld
+runForeignFinalizer (IO action) state = case action state of
+  (# next, _ #) -> next
+
+foreign import ccall "dynamic" callCFinalizer :: FunPtr (Ptr () -> IO ()) -> Ptr () -> IO ()
+
+foreign import ccall "dynamic" callCFinalizerEnvironment :: FunPtr (Ptr () -> Ptr () -> IO ()) -> Ptr () -> Ptr () -> IO ()
 
 -- | Return the constructor index after the value is evaluated.
 dataToTag# :: forall a. a -> Int#

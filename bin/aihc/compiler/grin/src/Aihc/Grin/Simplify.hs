@@ -272,8 +272,13 @@ simplifyExpr env expression =
           (inlined, freeExprVars inlined)
     GrinStore node
       | Just var <- knownPointer env node -> (GrinConstant [GrinVarValue var], Set.singleton var)
-    GrinEval _ _ value
-      | isEvaluated env value -> (GrinConstant [value], freeValueVars value)
+    -- The value is lifted. An evaluation for an unlifted result, as of a
+    -- nullary constructor of an unlifted data type, also changes the layout
+    -- of the pointer, so it stays.
+    GrinEval _ runtimeRep value
+      | isEvaluated env value,
+        isLiftedRuntimeRep runtimeRep ->
+          (GrinConstant [value], freeValueVars value)
     -- Single-entry evaluation has no update frame and returns a value.
     -- A known thunk can thus call its function without a heap object.
     GrinEval EvalSingleEntry runtimeRep value
