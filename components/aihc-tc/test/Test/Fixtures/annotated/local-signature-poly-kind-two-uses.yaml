@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Test where
+  import GHC.Types (Type)
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+  data T = T
+       │   └─ type: T
+       └─ type: Type
+  data U (a :: Type) = U
+       │               └─ type: ∀ a. U a
+       └─ type: Type → Type
+  both :: Proxy T -> Proxy U -> (Proxy T, Proxy U)
+  both a b = (go a, go b)
+  │    │ │   ││     └─ type: Proxy U → Proxy U; type-args: Type → Type, U
+  │    │ │   │└─ type: Proxy T → Proxy T; type-args: Type, T
+  │    │ │   └─ type: (Proxy T, Proxy U); type-args: Proxy T, Proxy U
+  │    │ └─ type: Proxy U
+  │    └─ type: Proxy T
+  └─ type: Proxy T → Proxy U → (Proxy T, Proxy U)
+    where
+      go :: forall x. Proxy x -> Proxy x
+      go p = p
+      │  └─ type: Proxy x
+      └─ type: ∀ k0 x. Proxy x → Proxy x
+extensions: []
+modules:
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Test where
+  import GHC.Types (Type)
+  data Proxy (a :: k) = Proxy
+  data T = T
+  data U (a :: Type) = U
+  both :: Proxy T -> Proxy U -> (Proxy T, Proxy U)
+  both a b = (go a, go b)
+    where
+      go :: forall x. Proxy x -> Proxy x
+      go p = p
+reason: with PolyKinds, a local signature quantifies its open kind, as in GHC,
+  thus the binding can be used at two kinds
+status: pass
