@@ -13,5 +13,5 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: Stock deriving generates an Ix instance.
+status: pass
+reason: stock deriving generates an Ix instance for an enumeration

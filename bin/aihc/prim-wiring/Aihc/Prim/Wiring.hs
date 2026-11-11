@@ -184,6 +184,9 @@ primDerivingReferences prim =
       derivingIntPrimType = primType "Int#",
       derivingDataToTag = term "GHC.Prim" NameVarId "dataToTagLarge#",
       derivingIntLess = term "GHC.Prim" NameVarSym "<#",
+      derivingIntMinus = term "GHC.Prim" NameVarSym "-#",
+      derivingIntPlus = term "GHC.Prim" NameVarSym "+#",
+      derivingIntTimes = term "GHC.Prim" NameVarSym "*#",
       derivingUnliftedFields =
         [ unliftedField "Int#" NameVarSym "==#" "<#",
           unliftedField "Word#" NameVarId "eqWord#" "ltWord#",
@@ -340,7 +343,8 @@ coreStockClasses prim =
     coreClass "GHC.Internal.TH.Lift" "Lift",
     coreClass "GHC.Generics" "Generic",
     coreClass "GHC.Generics" "Generic1",
-    coreClass "Data.Data" "Data"
+    coreClass "Data.Data" "Data",
+    coreClass "GHC.Ix" "Ix"
   ]
   where
     primClass = StockClassLocation (Just prim)
@@ -351,8 +355,7 @@ coreStockClasses prim =
 -- no package.
 coreRecognizedClasses :: [(Text, Text)]
 coreRecognizedClasses =
-  [ ("GHC.Ix", "Ix"),
-    ("Type.Reflection", "Typeable"),
+  [ ("Type.Reflection", "Typeable"),
     ("Type.Reflection.Internal", "Typeable")
   ]
 

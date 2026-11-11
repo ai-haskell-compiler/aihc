@@ -127,6 +127,15 @@ data DerivingReferences = DerivingReferences
     -- | The @(<#)@ operator of @Int#@, which compares two constructor
     -- indices.
     derivingIntLess :: !DerivingReference,
+    -- | The @(-#)@ operator of @Int#@, which gives the distance between
+    -- two constructor indices in a derived @Ix@ instance.
+    derivingIntMinus :: !DerivingReference,
+    -- | The @(+#)@ operator of @Int#@, which adds the parts of the index
+    -- of a derived @Ix@ instance for a product.
+    derivingIntPlus :: !DerivingReference,
+    -- | The @(*#)@ operator of @Int#@, which scales the parts of the index
+    -- of a derived @Ix@ instance for a product.
+    derivingIntTimes :: !DerivingReference,
     -- | The unlifted field types that a derived @Eq@ or @Ord@ compares
     -- with primitive operators, because no instance exists at them.
     derivingUnliftedFields :: ![UnliftedFieldReferences],
@@ -426,6 +435,9 @@ derivingReferenceList references =
     derivingIntPrimType references,
     derivingDataToTag references,
     derivingIntLess references,
+    derivingIntMinus references,
+    derivingIntPlus references,
+    derivingIntTimes references,
     derivingGreaterOrEqual references,
     derivingCons references,
     derivingBind references,
