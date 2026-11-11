@@ -156,7 +156,7 @@ import Aihc.Tc.Unpack (decideConstructorRepresentations)
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (<=<), (>=>))
+import Control.Monad (filterM, foldM, foldM_, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
@@ -5788,6 +5788,7 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
     gadtResTy <- checkSurfaceType constructorEnv resultSurfTy writtenResultKind
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
     writtenPredicates <- surfaceContextToPreds constructorEnv context
+    claimResultKinds resTy gadtResTy
     -- Under PolyKinds, the signature can leave the kind of a variable open.
     -- An example is @GEQ :: GOrdering t t@ for
     -- @type GOrdering :: k -> k -> Type@. GHC quantifies such a kind as an
@@ -5883,6 +5884,53 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
               _ -> abortTc ("a built-in constructor form declares no type constructor: " <> T.unpack name)
       zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult constructorKey name zonkedTy)
+
+-- | Give the open kinds of a written GADT result the kind variables of the
+-- declared result, as GHC does. In @SCons :: SList (x ': xs)@ for @data
+-- SList :: [k] -> Type@, the written result is @SList \@k1 (x ': xs)@ with
+-- an open @k1@. The kind argument is a variable, thus it is the kind
+-- variable @k@ of the declaration, and @x :: k@. Otherwise the constructor
+-- gets a kind variable of its own and the kind equality @[k] ~ [k1]@. A
+-- match then gives a heterogeneous equality, and the type of a recursive
+-- call in the alternative is ill-kinded.
+--
+-- Only an open kind meta takes a declared kind variable, and each declared
+-- kind variable is taken one time. In @HRefl :: a :~~: a@ for @data (a ::
+-- k1) :~~: (b :: k2)@, the first @a@ takes @k1@. The second position then
+-- has the kind @k1@, not a meta, and the kind equality @k2 ~ k1@ stays.
+claimResultKinds :: TcType -> TcType -> TcM ()
+claimResultKinds declaredResTy writtenResTy =
+  case (declaredResTy, writtenResTy) of
+    (TcTyCon declaredCon declaredArgs, TcTyCon writtenCon writtenArgs)
+      | declaredCon == writtenCon,
+        length declaredArgs == length writtenArgs ->
+          foldM_ claimArgument Set.empty (zip declaredArgs writtenArgs)
+    _ -> pure ()
+  where
+    claimArgument claimed (declaredArg, writtenArg) = do
+      declaredKind <- tcTypeKind declaredArg >>= zonkKind
+      writtenKind <- tcTypeKind writtenArg >>= zonkKind
+      claimKind claimed declaredKind writtenKind
+    claimKind claimed declared written =
+      case (declared, written) of
+        (TcTyVar kindVariable, TcMetaTv meta)
+          | tvUnique kindVariable `Set.notMember` claimed -> do
+              writeMetaTv meta declared
+              pure (Set.insert (tvUnique kindVariable) claimed)
+        (TcTyCon left leftArgs, TcTyCon right rightArgs)
+          | left == right,
+            length leftArgs == length rightArgs ->
+              foldM (\current (leftArg, rightArg) -> claimKind current leftArg rightArg) claimed (zip leftArgs rightArgs)
+        (TcKindedTyCon left leftArgs, TcKindedTyCon right rightArgs)
+          | left == right,
+            length leftArgs == length rightArgs ->
+              foldM (\current (leftArg, rightArg) -> claimKind current leftArg rightArg) claimed (zip leftArgs rightArgs)
+        (TcFunTy leftArg leftResult, TcFunTy rightArg rightResult) -> do
+          afterArg <- claimKind claimed leftArg rightArg
+          left' <- zonkKind leftResult
+          right' <- zonkKind rightResult
+          claimKind afterArg left' right'
+        _ -> pure claimed
 
 -- | Give a GADT constructor the GHC representation: the result type is the
 -- data type applied to distinct universal variables, and every index that the

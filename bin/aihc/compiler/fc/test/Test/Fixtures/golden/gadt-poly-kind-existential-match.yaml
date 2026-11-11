@@ -1,0 +1,54 @@
+extensions:
+  - GADTs
+  - DataKinds
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE GADTs, DataKinds, PolyKinds #-}
+    module Test where
+    import GHC.Types (Type)
+    data Shape :: [k] -> Type where
+      ShapeNil  :: Shape '[]
+      ShapeCons :: Shape xs -> Shape (x ': xs)
+    len :: Shape xs -> ()
+    len ShapeNil = ()
+    len (ShapeCons s) = len s
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c() :: tUnit;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tShape (k : sType) ($parameter : t[] k) :: sType {
+    pub 1.cShapeNil :: ∀(k : sType) ($parameter : t[] k). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep ($parameter ~ c[] k) (tShape k $parameter);
+    pub 1.cShapeCons :: ∀(k : sType) ($parameter : t[] k) (x : k) (xs : t[] k). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep ($parameter ~ c: k x xs) (tShape k xs → tShape k $parameter)
+  }
+
+  pub val 1.vlen :: ∀(k0 : sType) (xs : t[] k0). tShape k0 xs → tUnit
+    = Λ(k0 : sType) (xs : t[] k0). λ(x : tShape k0 xs).
+      case x of {
+        cShapeNil (unused $co : xs ~ c[] k0) →
+          c();
+        cShapeCons @(x{1} : k0) @(xs{1} : t[] k0) (unused $co : xs ~ c: k0 x{1} xs{1}) (s : tShape k0 xs{1}) →
+          vlen @k0 @xs{1} s
+      }
+status: pass
+reason: A GADT constructor of a poly-kinded type uses the kind variable of the declaration, as in GHC. Before the fix, ShapeCons got its own kind variable and a kind equality, and a recursive match gave an ill-kinded binder that the System FC lint rejected.
