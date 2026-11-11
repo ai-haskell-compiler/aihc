@@ -69,6 +69,7 @@ import Control.Monad (filterM, forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (dropWhileEnd, nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
@@ -507,18 +508,35 @@ moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
   concatMap (tcModuleBindings evalWiring)
 
--- | Typecheck the core library modules, which must arrive in dependency
--- order. The wired-in modules are checked first as one group.
+-- | Typecheck the core library modules. The wired-in modules are checked
+-- first as one group. Then each import cycle is checked as one group, in
+-- dependency order.
 typecheckCoreModules :: [ResolvedModule] -> ([Module], TcInterface)
 typecheckCoreModules units =
   let (checkedPrim, primInterface) =
         typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)
       (checkedOther, localInterface) =
-        typecheckModulesWithInterface evalTcConfig primInterface orderedOtherModules
-   in (checkedPrim <> checkedOther, mergeTcInterfaces CheckMergedFacts [primInterface, localInterface])
+        foldl checkComponent ([], primInterface) otherComponents
+   in (checkedPrim <> checkedOther, localInterface)
   where
     primModules = filter (isWired . resolvedAst) units
-    orderedOtherModules = filter (not . isWired . resolvedAst) units
+    otherModules = filter (not . isWired . resolvedAst) units
+    -- The install driver checks each import cycle as one group. Do the same
+    -- here: a cycle has no order in which each module follows its imports.
+    otherComponents =
+      [ modules
+      | component <- stronglyConnComp [(unit, moduleKey (resolvedAst unit), map importDeclModule (moduleImports (resolvedAst unit))) | unit <- otherModules],
+        let modules = case component of
+              AcyclicSCC unit -> [unit]
+              CyclicSCC cycleUnits -> sortOn (moduleKey . resolvedAst) cycleUnits
+      ]
+    checkComponent (checked, interface) component
+      | [unit] <- component =
+          let (checkedUnit, unitInterface) = typecheckModulesWithInterface evalTcConfig interface [unit]
+           in (checked <> checkedUnit, mergeTcInterfaces CheckMergedFacts [interface, unitInterface])
+      | otherwise =
+          let (checkedUnits, unitInterface) = typecheckModuleSccWithInterface evalTcConfig interface component
+           in (checked <> checkedUnits, mergeTcInterfaces CheckMergedFacts [interface, unitInterface])
     resolvedAst = moduleUnitAst . resolvedModuleUnit
     isWired = (`elem` wiredTypeModules) . moduleKey
     moduleOrder unit =
