@@ -16,6 +16,10 @@
 --     @rhs@, so @F t1 t2 ~ rhs@ equates @t1@ with the pattern @p1@ under
 --     the substitution that matches @rhs@.
 --
+-- Addition on naturals has no annotation, but it is injective in each
+-- argument when the other argument is fixed. Thus @n + t0 ~ n + m@ equates
+-- @t0@ and @m@, as in GHC.
+--
 -- Like functional dependency improvement this produces equalities, never
 -- evidence: the equality constraint itself is still solved afterwards, by
 -- reduction or by a given.
@@ -32,13 +36,15 @@ where
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, getWiring, lookupTyConByIdentity)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (familyEquations, isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.TypeLitFamily (cancellableTypeLitFamily)
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (forM_, unless, void, zipWithM_)
+import Control.Monad (forM_, unless, void, when, zipWithM_)
 
 -- | Improve the wanted predicates from the injectivity annotations of the
 -- families they mention, reading them in the light of the givens.
@@ -119,6 +125,32 @@ injectiveApplication ty =
 
 improvePair :: TcType -> TcType -> TcM ()
 improvePair left right = do
+  cancelled <- improveCancellation left right
+  unless cancelled (improveInjectivePair left right)
+
+-- | Improve two applications of a built-in family that cancels, such as
+-- @+@ on naturals, when one argument is the same on the two sides. The
+-- result says whether the two sides were such applications.
+improveCancellation :: TcType -> TcType -> TcM Bool
+improveCancellation left right =
+  case (left, right) of
+    (TcTyCon leftTyCon [leftFirst, leftSecond], TcTyCon rightTyCon [rightFirst, rightSecond])
+      | leftTyCon == rightTyCon,
+        cancellableTypeLitFamily (tyConName leftTyCon) -> do
+          wiring <- getWiring
+          if tyConModuleName leftTyCon `elem` tcWiringTypeLitFamilyModules wiring
+            then do
+              if sameType leftFirst rightFirst
+                then improveEqualities [leftSecond] [rightSecond]
+                else
+                  when (sameType leftSecond rightSecond) $
+                    improveEqualities [leftFirst] [rightFirst]
+              pure True
+            else pure False
+    _ -> pure False
+
+improveInjectivePair :: TcType -> TcType -> TcM ()
+improveInjectivePair left right = do
   leftFamily <- injectiveApplication left
   rightFamily <- injectiveApplication right
   case (leftFamily, rightFamily) of

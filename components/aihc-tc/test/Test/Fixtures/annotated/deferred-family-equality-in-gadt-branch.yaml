@@ -1,0 +1,41 @@
+extensions:
+- DataKinds
+- GADTs
+- KindSignatures
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeFamilies, AllowAmbiguousTypes, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  type family F a
+  data Some :: Type -> Type where
+    Some :: forall e a. e -> Some a
+  data Box a = Box
+  mk :: forall b. Box (F b)
+  mk = Box
+  open :: forall a b. Some a -> Box (F b)
+  open (Some _) = mk
+status: pass
+reason: An equality that a GADT branch defers to the binding is an error when it stays unsolved. The checker must report it and must not drop it.
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeFamilies, AllowAmbiguousTypes, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  type family F a
+              └─ type: Type → Type
+  data Some :: Type -> Type where
+       └─ type: Type → Type
+    Some :: forall e a. e -> Some a
+    └─ type: ∀ a e. e → Some a
+  data Box a = Box
+       │       └─ type: ∀ a. Box a
+       └─ type: Type → Type
+  mk :: forall b. Box (F b)
+  mk = Box
+  │    └─ type: Box (F b); type-args: F b
+  └─ type: ∀ b. Box (F b)
+  open :: forall a b. Some a -> Box (F b)
+  open (Some _) = mk
+                  └─ error: unsolved constraint Box (F t0) ~ Box (F b)
