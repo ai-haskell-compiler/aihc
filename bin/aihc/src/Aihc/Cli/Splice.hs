@@ -108,9 +108,16 @@ runSplices request action =
           -- so the report comes before the failure itself.
           case (reportedFailure made, outcome) of
             (Just message, _) -> ioError (userError (T.unpack message))
-            (Nothing, Left failure) -> ioError (failure :: IOException)
+            (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> ioeGetErrorString (failure :: IOException)))
             (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+
+-- | The names that a splice asked @reify@ for, for a failure message.
+describeRequests :: [Request] -> String
+describeRequests made =
+  case [name | RequestReify name _ <- made] of
+    [] -> ""
+    names -> " (after reify of " <> intercalate ", " (map T.unpack names) <> ")"
 
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply

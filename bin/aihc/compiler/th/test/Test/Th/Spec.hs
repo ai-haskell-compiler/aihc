@@ -30,6 +30,7 @@ tests =
       testCase "converts expressions to the surface syntax" convertTest,
       testCase "gives a package-bound name its term or its type" exactNameTest,
       testCase "converts declarations to the surface syntax" declarationsTest,
+      testCase "converts an instance declaration to the surface syntax" instanceTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -241,6 +242,59 @@ requestTest = do
     "two errors and a warning"
     (Just "first\nsecond")
     (reportedFailure [RequestReport True "first", RequestReport False "w", RequestReport True "second"])
+
+-- | An instance as a derived instance of a library gives it: a method with
+-- a case expression, a record pattern, a guard, and a primitive literal,
+-- and an @INLINE@ pragma that the conversion leaves out.
+instanceTest :: IO ()
+instanceTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      applyE function argument = TreeNode "AppE" [function, argument]
+      clause patterns body = TreeNode "Clause" [list patterns, body, list []]
+      match pattern' body = TreeNode "Match" [pattern', body, list []]
+      tree =
+        list
+          [ TreeNode
+              "InstanceD"
+              [ TreeNode "Nothing" [],
+                list [apply (TreeNode "ConT" [name "Eq"]) (TreeNode "VarT" [name "a"])],
+                apply (TreeNode "ConT" [name "Eq"]) (apply (TreeNode "ConT" [name "Box"]) (TreeNode "VarT" [name "a"])),
+                list
+                  [ TreeNode "PragmaD" [TreeNode "InlineP" [name "==", TreeNode "Inline" [], TreeNode "FunLike" [], TreeNode "AllPhases" []]],
+                    TreeNode
+                      "FunD"
+                      [ name "==",
+                        list
+                          [ clause
+                              [TreeNode "RecP" [name "Box", list [TreeNode "(,)" [name "unBox", TreeNode "VarP" [name "x"]]]], TreeNode "VarP" [name "y"]]
+                              ( TreeNode
+                                  "NormalB"
+                                  [ TreeNode
+                                      "CaseE"
+                                      [ variable "y",
+                                        list
+                                          [ match
+                                              (TreeNode "ConP" [name "Box", list [], list [TreeNode "VarP" [name "z"]]])
+                                              (TreeNode "GuardedB" [list [TreeNode "(,)" [TreeNode "NormalG" [applyE (applyE (variable "==") (variable "x")) (variable "z")], TreeNode "ConE" [name "True"]]]]),
+                                            match (TreeNode "WildP" []) (TreeNode "NormalB" [TreeNode "ConE" [name "False"]])
+                                          ]
+                                      ]
+                                  ]
+                              )
+                          ]
+                      ]
+                  ]
+              ],
+            TreeNode "ValD" [TreeNode "VarP" [name "zero"], TreeNode "NormalB" [TreeNode "LitE" [TreeNode "IntPrimL" [TreeInteger 0]]], list []]
+          ]
+  assertEqual
+    "an instance with a case expression, a record pattern, and a guard"
+    (Right "instance Eq a => Eq (Box a) where (==) Box {unBox = x} y = case y of Box z | (==) x z -> True _ -> False zero = 0#")
+    (T.unwords . map render <$> declarationsFromTree tree)
+  assertEqual
+    "an instance with an overlap pragma"
+    (Left "The compiler does not support the overlap pragma Just in a splice result.")
+    (declarationsFromTree (list [TreeNode "InstanceD" [TreeNode "Just" [TreeNode "Overlapping" []], list [], TreeNode "ConT" [name "C"], list []]]))
 
 unsupportedTest :: IO ()
 unsupportedTest = do

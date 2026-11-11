@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Cli.Install
@@ -218,6 +219,7 @@ import Aihc.Resolve
     modulesInPackage,
     resolveUnit,
   )
+import Aihc.Resolve.Types (exactTerm, exactType)
 import Aihc.Tc
   ( ClassInfo (..),
     DataConInfo (..),
@@ -265,6 +267,8 @@ import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
+import Data.Char (isDigit)
+import Data.Data (Data, gmapQ)
 import Data.Either (fromRight)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
@@ -278,6 +282,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Text.IO qualified as TIO
+import Data.Typeable (eqT, (:~:) (Refl))
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
@@ -2954,7 +2959,9 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                     checked <- case known of
                       Just result -> pure result
                       Nothing -> do
-                        result <- evaluate (checkPrefix importedTypes moduleUnit bound prefix)
+                        exactTyped <- exactTypedFacts (taskModuleProvider context) (exactModuleKeys resolvePackage prefix)
+                        let types = mergeTcInterfaces TrustMergedFacts (importedTypes : map (typedModuleInterface . snd) exactTyped)
+                        result <- evaluate (checkPrefix types moduleUnit bound prefix)
                         modifyIORef' prefixFacts (Map.insert (length prefix) result)
                         pure result
                     pure (Just (checked >>= \interface -> reifyInfo interface global))
@@ -2996,6 +3003,49 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                in if null errors
                     then Right interface
                     else Left (T.pack ("The compiler cannot check the declarations above the splice. " <> renderTypeErrors mempty errors))
+
+-- | The modules of the other packages that the names of a syntax tree name
+-- with an exact mark, as the result of a splice names them.
+exactModuleKeys :: (Data syntax) => Package -> syntax -> [ModuleKey]
+exactModuleKeys own syntax =
+  nub
+    [ ModuleKey (packageOfId (globalNamePackage global)) (globalNameModule global)
+    | name <- names syntax,
+      Just global <- [exactTerm name, exactType name],
+      globalNamePackage global /= packageId own
+    ]
+  where
+    names :: forall value. (Data value) => value -> [Syntax.Name]
+    names value =
+      case eqT @value @Syntax.Name of
+        Just Refl -> [value]
+        Nothing -> concat (gmapQ names value)
+    -- A package id is the name and the version of the package.
+    packageOfId identity =
+      case T.breakOnEnd "-" (packageIdText identity) of
+        (prefix, version)
+          | not (T.null prefix),
+            not (T.null version),
+            T.all (\char -> isDigit char || char == '.') version ->
+              Package (T.dropEnd 1 prefix) identity
+        _ -> Package (packageIdText identity) identity
+
+-- | The type facts of modules that the provider has. A module that the
+-- provider does not have is not in the result.
+exactTypedFacts :: ModuleProvider -> [ModuleKey] -> IO [(ModuleKey, TypedModuleFacts)]
+exactTypedFacts provider keys =
+  fmap catMaybes . forM keys $ \key -> do
+    result <- try (providerTyped provider key)
+    pure $ case result of
+      Right facts -> Just (key, facts)
+      Left (_ :: SomeException) -> Nothing
+
+-- | The modules of a type input.
+typeInputModules :: TypeInput -> [Syntax.Module]
+typeInputModules typeInput =
+  case typeInput of
+    TypeInputResolved (ResolvedUnit modules) -> map (moduleUnitAst . resolvedModuleUnit) modules
+    TypeInputParsed modules -> map moduleUnitAst modules
 
 -- | The type facts that the modules of a unit import: the facts of the
 -- units below it and of the dependency packages.
@@ -3071,8 +3121,15 @@ runTypeUnit context runtimes runtime = do
   -- providers of the modules it imports, which can be in packages below
   -- the dependencies.
   externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
+  -- The result of a splice can name a module that the unit does not
+  -- import, with its package. The check needs the facts of that module.
+  exactTyped <-
+    if any (isJust . sourceModuleSpliceRequest) sources
+      then exactTypedFacts provider (exactModuleKeys resolvePackage (typeInputModules typeInput))
+      else pure []
   let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
+      exactInputs = [("exact:" <> packageIdText (packageId package) <> ":" <> name, typedModuleTypeDigest facts) | (ModuleKey package name, facts) <- exactTyped]
       dependencyTypes = byModuleFromList [(key, typedModuleInterface facts) | (key, facts) <- externalTyped]
       dependencyTypeHashes = byModuleFromList [(key, typedModuleTypeDigest facts) | (key, facts) <- externalTyped]
       dependencyFactsDigests = byModuleFromList [(key, typedModuleFactsDigest facts) | (key, facts) <- externalTyped]
@@ -3100,6 +3157,7 @@ runTypeUnit context runtimes runtime = do
             <> typeInputs
             <> factsInputs
             <> packageFactsInputs
+            <> exactInputs
             <> [ ("options:reexports", T.pack (show (taskLocalReexports context))),
                  ("options:frontend", T.pack (frontendOptionsKey config)),
                  ("options:extensions", T.pack (show (map sourceModuleExtensions sources)))
@@ -3139,6 +3197,7 @@ runTypeUnit context runtimes runtime = do
                       importSelects resolvePackage unitNames dependency package
                     ]
                 )
+                <> map (typedModuleInterface . snd) exactTyped
           )
       checkUnit = do
         let resolved =
