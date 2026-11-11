@@ -6,13 +6,13 @@ annotated:
   data Some :: (k -> Type) -> Type where
        └─ type: (k → Type) → Type
     Some :: f i -> Some f
-    └─ type: ∀ k0 f i. f i → Some f
+    └─ type: ∀ k f i. f i → Some f
   data All :: (x -> Type) -> [x] -> Type where
        └─ type: (x → Type) → [x] → Type
     Nil :: All p '[]
-    └─ type: ∀ k0 p $parameter. ($parameter ~ 'GHC.Types.[]) ⇒ All p $parameter
+    └─ type: ∀ x p $parameter. ($parameter ~ 'GHC.Types.[]) ⇒ All p $parameter
     Cons :: p x -> All p xs -> All p (x ': xs)
-    └─ type: ∀ k0 p $parameter x xs. ($parameter ~ ('GHC.Types.: x xs)) ⇒ p x → All p xs → All p $parameter
+    └─ type: ∀ x p $parameter x xs. ($parameter ~ ('GHC.Types.: x xs)) ⇒ p x → All p xs → All p $parameter
   makeAll :: (a -> Some b) -> [a] -> Some (All b)
   makeAll f [] = Some Nil
   │       │ │    │    └─ type: All b 'GHC.Types.[]; type-args: k0, b, '[]; evidence: refl '[]
@@ -41,7 +41,7 @@ annotated:
   data Index :: [x] -> x -> Type where
        └─ type: [x] → x → Type
     Zero :: Index (x ': xs) x
-    └─ type: ∀ k0 $parameter x xs. ($parameter ~ ('GHC.Types.: x xs)) ⇒ Index $parameter x
+    └─ type: ∀ x $parameter x xs. ($parameter ~ ('GHC.Types.: x xs)) ⇒ Index $parameter x
   forget :: Index xs x -> Index xs x
   forget Zero = Zero
   │      │      └─ type: Index ('GHC.Types.: x xs) x; type-args: k0, ': x xs, x, xs; evidence: refl ': x xs

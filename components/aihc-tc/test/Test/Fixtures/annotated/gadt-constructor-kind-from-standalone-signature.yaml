@@ -9,7 +9,7 @@ annotated:
     GLT :: GOrdering a b
     └─ type: ∀ k a b. GOrdering a b
     GEQ :: GOrdering t t
-    └─ type: ∀ k0 t b. (b ~ t) ⇒ GOrdering t b
+    └─ type: ∀ k t b. (b ~ t) ⇒ GOrdering t b
   same :: GOrdering 'True 'True
   same = GEQ
   │      └─ type: GOrdering 'GHC.Types.True 'GHC.Types.True; type-args: Bool, 'True, 'True; evidence: refl 'True
