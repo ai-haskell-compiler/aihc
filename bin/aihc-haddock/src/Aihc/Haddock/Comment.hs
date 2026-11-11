@@ -252,7 +252,7 @@ claimBetween sp index =
       (sections, sections') = partition inside (indexSections index)
       (named, named') = partition inside (indexNamed index)
       nextsInside = foldMap (filter inside) (indexNext index)
-      nexts' = MonoidMap.filter (not . null) (MonoidMap.map (filter (not . inside)) (indexNext index))
+      nexts' = MonoidMap.map (filter (not . inside)) (indexNext index)
       claimed = sortBySpan (sections <> named <> nextsInside)
    in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
   where
