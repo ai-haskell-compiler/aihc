@@ -47,6 +47,7 @@ import Control.Monad (MonadPlus (..))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Typeable
+import Data.Void (Void, absurd)
 import GHC.Base (Monad (..), String, const, id, otherwise)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Float ()
@@ -631,6 +632,15 @@ unitConstr = mkConstr unitDataType "()" [] Prefix
 
 unitDataType :: DataType
 unitDataType = mkDataType "Prelude.()" [unitConstr]
+
+-- | 'Void' has no constructors. Thus 'gunfold' always fails.
+instance Data Void where
+  toConstr = absurd
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Void)"
+  dataTypeOf _ = voidDataType
+
+voidDataType :: DataType
+voidDataType = mkDataType "Data.Void.Void" []
 
 instance Data Ordering where
   toConstr LT = ltConstr
