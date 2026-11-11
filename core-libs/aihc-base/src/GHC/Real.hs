@@ -17,11 +17,13 @@ module GHC.Real
     even,
     fromIntegral,
     gcd,
+    infinity,
     integralEnumFrom,
     integralEnumFromThen,
     integralEnumFromThenTo,
     integralEnumFromTo,
     lcm,
+    notANumber,
     numerator,
     numericEnumFrom,
     numericEnumFromThen,
@@ -649,6 +651,14 @@ reduce _ 0 = ratioZeroDenominatorError
 reduce valueNumerator valueDenominator =
   case gcd valueNumerator valueDenominator of
     divisor -> quot valueNumerator divisor :% quot valueDenominator divisor
+
+-- | The 'Rational' value @1 :% 0@. GHC uses it for an infinite value.
+infinity :: Rational
+infinity = 1 :% 0
+
+-- | The 'Rational' value @0 :% 0@. GHC uses it for a NaN value.
+notANumber :: Rational
+notANumber = 0 :% 0
 
 numerator :: Ratio a -> a
 numerator (value :% _) = value
