@@ -281,6 +281,50 @@ failure_reason() {
 echo "Updating the cabal package index..."
 cabal update -v0
 
+# The packages that stay installed, with the packages they depend on. cabal
+# cannot build the runtime and template-haskell from source, and a source copy
+# of a dependency of template-haskell conflicts with its installed copy.
+pinned_seed=" base ghc-bignum ghc-internal ghc-prim integer-gmp rts system-cxx-std-lib template-haskell ghc-boot-th "
+
+# Print the names of the installed packages that the packages in $1 depend on,
+# including $1 itself. The names are separated by spaces.
+installed_closure() {
+	local queue seen=" " name dep
+	read -r -a queue <<<"$1"
+	while [ "${#queue[@]}" -gt 0 ]; do
+		name="${queue[0]}"
+		queue=("${queue[@]:1}")
+		case "$seen" in
+		*" $name "*) continue ;;
+		esac
+		seen="$seen$name "
+		# A dependency has the form NAME-VERSION-HASH. The hash is removed.
+		for dep in $(ghc-pkg field "$name" depends --simple-output 2>/dev/null |
+			tr ' ' '\n' | sed -E 's/-[0-9][0-9.]*(-[0-9a-f]+)?$//'); do
+			queue+=("$dep")
+		done
+	done
+	echo "$seen"
+}
+
+pinned="$(installed_closure "$pinned_seed")"
+
+# The constraints that make cabal build each other library shipped with GHC
+# from its Hackage source, for example text, time and containers. Without
+# them, cabal prefers the installed copy, for example containers-0.7, even
+# when a package allows a newer one.
+shipped_constraints=()
+while read -r name; do
+	case "$pinned" in
+	*" $name "*) continue ;;
+	esac
+	shipped_constraints+=("--constraint=any.$name source")
+done < <(ghc-pkg list --global --simple-output --names-only | tr ' ' '\n')
+if [ "${#shipped_constraints[@]}" -eq 0 ]; then
+	echo "Found no shipped libraries to build from source." >&2
+	exit 1
+fi
+
 # Compile one package with GHC and then with aihc, and add its row to the
 # table that gives its result.
 survey_package() {
@@ -309,7 +353,8 @@ survey_package() {
 	echo "Compiling $name-$version with GHC"
 	status=0
 	(cd "$source_directory" && run_with_timeout cabal build -v1 \
-		--disable-tests --disable-benchmarks --disable-documentation) \
+		--disable-tests --disable-benchmarks --disable-documentation \
+		"${shipped_constraints[@]}") \
 		>>"$ghc_log" 2>&1 || status=$?
 	if [ "$status" -ne 0 ]; then
 		echo "  failed, last lines of the log:"
