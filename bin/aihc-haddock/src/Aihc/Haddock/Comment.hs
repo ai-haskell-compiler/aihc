@@ -39,6 +39,7 @@ import Aihc.Parser.Token
     lexModuleTokensWithSourceNameAndExtensions,
   )
 import Data.Char (isAlphaNum)
+import Data.Foldable (fold)
 import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -270,4 +271,4 @@ namedChunkComments index =
 -- | Everything that never found a node.
 unclaimedComments :: CommentIndex -> [DocComment]
 unclaimedComments index =
-  concat (Map.elems (indexNext index)) <> indexPrev index <> indexSections index
+  fold (indexNext index) <> indexPrev index <> indexSections index
