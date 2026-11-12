@@ -1,0 +1,38 @@
+extensions:
+- DerivingStrategies
+- GeneralizedNewtypeDeriving
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, TypeFamilies, UndecidableInstances #-}
+  module Main where
+  class Control m where
+    type St m a
+  data Box m a = Box (m a)
+  instance Control (Box m) where
+    type St (Box m) a = m a
+  newtype Action m a = Action (Box m a)
+    deriving newtype Control
+status: pass
+reason: newtype deriving forwards an associated type that has a parameter which is not a class parameter
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, TypeFamilies, UndecidableInstances #-}
+  module Main where
+  class Control m where
+  └─ class methods:
+    type St m a
+         └─ type: (Type → Type) → Type → Type
+  data Box m a = Box (m a)
+       │         └─ type: ∀ m a. m a → Box m a
+       └─ type: (Type → Type) → Type → Type
+  instance Control (Box m) where
+  └─ $fControlBoxm ∷ ∀ m. () ⇒ Control (Box m) [associated types: St (Box m) a = m a]
+    type St (Box m) a = m a
+  newtype Action m a = Action (Box m a)
+  │       │            └─ type: ∀ m a. Box m a → Action m a
+  │       └─ type: (Type → Type) → Type → Type
+  └─ deriving plans: newtype Control (Action m) [context: ()]
+    deriving newtype Control
+                     └─ $fControlActionm ∷ ∀ m. () ⇒ Control (Action m) [associated types: St (Action m) t1 = St (Box m) t1]

@@ -489,6 +489,12 @@ simplifyReducedPredicate kinds environment owner predicate
       pure $ Right $ case result of
         Right context -> filter (not . mentionsBound) context
         Left _ -> []
+  -- An instance context can hold an equality, as in @instance (a ~ Char)
+  -- => IsString [a]@. When the head match makes the two sides the same
+  -- type, the equality needs no context.
+  | EqPred left right <- predicate,
+    left == right =
+      pure (Right [])
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)
@@ -621,9 +627,9 @@ stockFieldTypes plan = do
       Right
       (tcDerivingDataType plan)
   targetArguments <- targetTypeArguments mechanism dataType plan
-  -- An empty datatype has a Generic representation, @V1@, and a Data
-  -- instance with no constructors, as in GHC.
-  unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockGenericMethods, Just StockDataMethods]) $
+  -- An empty datatype has a Generic representation, @V1@, a Data instance
+  -- with no constructors, and a Lift instance with an empty case, as in GHC.
+  unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockGenericMethods, Just StockDataMethods, Just StockLiftMethods]) $
     validateStockDataType plan dataType
   let substitution = headSubstitution dataType targetArguments
   pure
@@ -729,8 +735,8 @@ targetTypeArguments mechanism dataType plan =
           Right arguments
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
--- | Standalone Eq, Ord, and Show methods use constructor evidence through the
--- ordinary instance checker. Standalone Functor, Foldable, and Traversable
+-- | Standalone Eq, Ord, Show, and Lift methods use constructor evidence
+-- through the ordinary instance checker. Standalone Functor, Foldable, and Traversable
 -- methods do the same for existential and constrained constructors. A
 -- refined GADT result stays unsupported for them, because a derived method
 -- cannot change a refined index. Other plans keep the constructor
@@ -755,7 +761,7 @@ validateStockDataType plan dataType
     mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
     checksConstructorEvidence =
       tcDerivingStandalone plan
-        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods, Just StockShowMethods]
+        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods, Just StockShowMethods, Just StockLiftMethods]
     checksExistentialEvidence =
       checksConstructorEvidence
         || ( tcDerivingStandalone plan

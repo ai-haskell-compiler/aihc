@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
     ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
+    Decl (..),
     DoFlavor (..),
     DoStmt (..),
     Expr (..),
@@ -34,10 +35,11 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan,
     TupleFlavor (..),
-    Type,
+    Type (..),
     UnqualifiedName (..),
     fromAnnotation,
     mkAnnotation,
+    peelExprAnn,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
@@ -55,15 +57,16 @@ import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (mfilter, when, zipWithM)
+import Control.Monad (forM_, mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Char (isLower)
+import Data.Char (isLower, isUpper)
+import Data.Data (Data, cast, gmapQ)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -201,8 +204,9 @@ inferExprAt ambient expr = case expr of
   EDo stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
   -- A Template Haskell quote or a quasi-quote compiles to a runtime
-  -- error, so it has any type the context wants.
-  _ | isTemplateHaskellQuote expr -> literalResult expr freshMetaTv
+  -- error, so it has any type the context wants. The splices in an
+  -- untyped quote must use the monad of the quote.
+  _ | isTemplateHaskellQuote expr -> inferTemplateHaskellQuote (exprSpan expr <|> ambient) expr
   EQuasiQuote {} -> literalResult expr freshMetaTv
   other -> do
     emitError (exprSpan expr <|> ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
@@ -221,6 +225,57 @@ isTemplateHaskellQuote expr =
     ETHNameQuote {} -> True
     ETHTypeNameQuote {} -> True
     _ -> False
+
+-- | Infer the type of a Template Haskell quote.
+--
+-- The type checker does not check the body of a quote. But each splice in
+-- the body of an untyped quote is an expression at the level of the quote.
+-- GHC gives the quote the type @m t@ and gives each splice a type @m s@ with
+-- the same @m@. Thus a splice can fix the monad of a local binding that only
+-- the splice uses.
+inferTemplateHaskellQuote :: Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
+inferTemplateHaskellQuote sp expr =
+  case untypedQuoteSplices expr of
+    [] -> literalResult expr freshMetaTv
+    splices -> do
+      monad <- freshMetaTv
+      quoteTy <- TcAppTy monad <$> freshMetaTv
+      spliceCts <- concat <$> mapM (spliceConstraints monad) splices
+      pure (annotatePendingExpr (pendingAnnotation quoteTy [] [] []) expr, quoteTy, spliceCts)
+  where
+    spliceConstraints monad splice = do
+      (_, spliceTy, cts) <- inferExprAt sp splice
+      resultTy <- freshMetaTv
+      ev <- freshEvVar
+      pure (mkWantedCt (EqPred spliceTy (TcAppTy monad resultTy)) ev (AppOrigin sp) sp : cts)
+
+-- | The splice expressions in the body of an untyped quote.
+--
+-- The search does not go into a nested quote, because the splices of a
+-- nested quote are at a different level.
+untypedQuoteSplices :: Expr -> [Expr]
+untypedQuoteSplices expr =
+  case peelExprAnn expr of
+    ETHExpQuote body -> quoteBodySplices body
+    ETHDeclQuote decls -> concatMap quoteBodySplices decls
+    ETHTypeQuote ty -> quoteBodySplices ty
+    ETHPatQuote pat -> quoteBodySplices pat
+    _ -> []
+
+quoteBodySplices :: (Data a) => a -> [Expr]
+quoteBodySplices node
+  | Just expr <- cast node =
+      case expr of
+        ETHSplice inner -> [inner]
+        _
+          | isTemplateHaskellQuote expr -> []
+          | otherwise -> descend
+  | Just ty <- cast node, TSplice inner <- ty = [inner]
+  | Just pat <- cast node, PSplice inner <- pat = [inner]
+  | Just decl <- cast node, DeclSplice inner <- decl = [inner]
+  | otherwise = descend
+  where
+    descend = concat (gmapQ quoteBodySplices node)
 
 literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
 literalResult expr typeAction = do
@@ -936,8 +991,14 @@ applicationSpine expected ambient expr = do
   case (expected, spineResultType headTy frames) of
     (Just expectedTy, Just resultType)
       | not (isPolyType expectedTy),
-        any frameNeedsExpectedType frames ->
+        any frameNeedsExpectedType frames -> do
           quickLookUnify instantiationVariables expectedTy resultType
+          -- A GADT constructor relates its result to its fields by an
+          -- equality: @(:*) :: (ys ~ (x ': xs)) => f x -> NP f xs -> NP f
+          -- ys@. The result type only fixes @ys@. A look at the equality
+          -- then fixes @x@ and @xs@ before a field is checked.
+          forM_ [(left, right) | ct <- headCts, EqPred left right <- [ctPred ct]] $
+            uncurry (quickLookUnify instantiationVariables)
     _ -> pure ()
   (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
   case expected of
@@ -968,9 +1029,25 @@ guidedArgument (StepArg plan) = case argPlanArgument plan of
 guidedArgument _ = False
 
 frameNeedsExpectedType :: SpineFrame -> Bool
-frameNeedsExpectedType (SpineValueArg _ argument) = checksExpectedResult argument
-frameNeedsExpectedType (SpineInfixRhs _ argument) = checksExpectedResult argument
+frameNeedsExpectedType (SpineValueArg _ argument) = containsCheckedArgument argument
+frameNeedsExpectedType (SpineInfixRhs _ argument) = containsCheckedArgument argument
 frameNeedsExpectedType _ = False
+
+-- | Whether an argument checks against its expected type, or is an
+-- application that has such an argument. In @Comp . (\ns -> case ns of Z
+-- fx -> Some fx) . unK@, the operand @(\ns -> ...) . unK@ is an
+-- application, but its lambda checks a case under the givens of @Z@.
+-- Thus the result type must fix the types before that lambda.
+containsCheckedArgument :: Expr -> Bool
+containsCheckedArgument expression
+  | checksExpectedResult expression = True
+  | otherwise = case expression of
+      EInfix lhs _ rhs -> containsCheckedArgument lhs || containsCheckedArgument rhs
+      EApp function argument -> containsCheckedArgument function || containsCheckedArgument argument
+      EParen inner -> containsCheckedArgument inner
+      EPragma _ inner -> containsCheckedArgument inner
+      EAnn _ inner -> containsCheckedArgument inner
+      _ -> False
 
 spineResultType :: TcType -> [SpineFrame] -> Maybe TcType
 spineResultType ty [] = Just ty
@@ -983,6 +1060,31 @@ spineResultType ty (frame : rest) = case frame of
     resultAfterArgument = case ty of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
+
+-- | Whether an argument is a bare data constructor, as @Comp@. The name
+-- of a data constructor starts with an upper-case letter or a colon.
+isConstructorArgument :: Expr -> Bool
+isConstructorArgument expr =
+  case expr of
+    EVar name -> case T.uncons (nameText name) of
+      Just (first, _) -> isUpper first || first == ':'
+      Nothing -> False
+    EParen inner -> isConstructorArgument inner
+    EPragma _ inner -> isConstructorArgument inner
+    EAnn _ inner -> isConstructorArgument inner
+    _ -> False
+
+-- | Whether a type family application is part of a type.
+mentionsFamily :: (TyCon -> Bool) -> TcType -> Bool
+mentionsFamily family = go
+  where
+    go ty = case ty of
+      TcTyCon tyCon arguments -> family tyCon || any go arguments
+      TcFunTy argument result -> go argument || go result
+      TcAppTy function argument -> go function || go argument
+      TcForAllTy _ body -> go body
+      TcQualTy _ body -> go body
+      _ -> False
 
 -- | Whether a polytype is part of a type.
 mentionsPolyType :: TcType -> Bool
@@ -1112,10 +1214,21 @@ planSpine = go
             -- Only an argument with a polytype in its type needs this. Any
             -- other argument leaves its variables to the solver, which
             -- reduces a type family before it binds one.
+            --
+            -- A data constructor without a type family application in
+            -- either type also gives its variables. In @Comp . (\ns -> case
+            -- ns of Z fx -> Some fx)@, the result type then fixes @Comp@ at
+            -- @f (g x)@. Thus the branch @Z fx@, checked later under its
+            -- givens, does not fix the open @x@ of @Comp@ at the
+            -- existential of @Z@. A variable keeps its old behavior: its
+            -- type can relate to a given of the enclosing scope.
             zonkedArgTy <- zonkType argTy
+            zonkedExpectedArgTy <- zonkType expectedArgTy
+            family <- isTypeFamilyTyCon
             let Unique boundaryKey = boundary
+                familyFree = isConstructorArgument arg && not (mentionsFamily family zonkedArgTy || mentionsFamily family zonkedExpectedArgTy)
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
+                  | mentionsPolyType zonkedArgTy || familyFree = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
                   | otherwise = IntSet.empty
                 extended = IntSet.union instantiationVariables' argumentVariables
             quickLookUnify extended expectedArgTy argTy

@@ -148,6 +148,7 @@ import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
@@ -2300,7 +2301,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
             | associated <- ciAssociatedTypes info,
               tyConName (atiTyCon associated) `notElem` explicitNames,
               Just _ <- [atiDefault associated],
-              Just equation <- [lookupEquation (associatedDefaultAxiomName kinds associated headTys)]
+              Just equation <- [lookupEquation (associatedDefaultAxiomName associated dictName)]
             ]
           annotateItem item =
             case item of
@@ -2378,6 +2379,12 @@ classMethodFromInfo info index (methodName, scheme) =
 -- meta variable. In @(Functor f, Element (f a) ~ a, f a ~ mono)@, the last
 -- equality chooses @f@ and @a@. Thus, the solver tries the stuck constraints
 -- again while one round solves a constraint or a meta variable.
+--
+-- A variable of the default signature that the method type does not
+-- mention is a meta variable here. A functional dependency can determine
+-- it from a given: in @(Sat s0, State s0 m)@ with the given @State s m@
+-- and @m -> s@, the dependency gives @s0 := s@. Thus each round first
+-- improves the pending constraints against the givens.
 solveInstanceDefaultSignature :: Text -> [Pred] -> [Pred] -> TcM [EvTerm]
 solveInstanceDefaultSignature className givens predicates = do
   _ <- improveInjectivity givens [predicate | predicate@EqPred {} <- predicates]
@@ -2385,6 +2392,8 @@ solveInstanceDefaultSignature className givens predicates = do
   pure (Map.elems solved)
   where
     go solved pending = do
+      improvable <- mapM (\(_, predicate) -> (\evidence -> mkWantedCt predicate evidence (InstOrigin className) Nothing) <$> freshEvVar) pending
+      _ <- improveFunDeps givens improvable
       before <- mapM (zonkPred . snd) pending
       attempts <- mapM (\(index, predicate) -> (index,predicate,) <$> attemptInstanceConstraint className givens predicate) pending
       after <- mapM (zonkPred . snd) pending
@@ -2470,15 +2479,20 @@ tcClassDefaultValue classTyCon valueDecl =
           case valueDecl of
             FunctionBind name matches -> do
               (argumentTypes, resultType, arityMatches, arityCts) <- splitMatchType methodTy matches
+              -- The class and the default signature give the givens of the
+              -- body. A pattern-match implication inside the body can then
+              -- discharge a wanted against them, as in an instance method.
               results <-
                 withScopedTyVars (tyVarScope methodTyVars) $
-                  mapM (tcMatchEquation Nothing argumentTypes resultType) arityMatches
+                  withGivenPredicates givens $
+                    mapM (tcMatchEquation Nothing argumentTypes resultType) arityMatches
               solveInstanceBodyConstraints givens ((arityCts, []) : [(constraints, implications) | (_, constraints, implications) <- results])
               pure (FunctionBind name [match | (match, _, _) <- results])
             PatternBind annotations pattern' rhs -> do
               results <-
                 withScopedTyVars (tyVarScope methodTyVars) $
-                  mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
+                  withGivenPredicates givens $
+                    mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
               solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
               case results of
                 [(match, _, _)] -> pure (PatternBind annotations pattern' (matchRhs match))
@@ -2643,8 +2657,12 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
   residual <- filterM (fmap not . solveGivenEquality givens) cts
   solveResult <- solveWithImpls residual implications
   -- The inert set holds the stuck flat wanteds, which are in @cts@, and
-  -- the wanteds that the implications deferred, which are not.
-  let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
+  -- the wanteds that the implications deferred, which are not. An
+  -- equality in the inert set always gets another attempt, also when it
+  -- is in @cts@: a branch can give an equality outward to wait for a meta
+  -- variable of its givens (see 'Aihc.Tc.Solve.solveWantedWithGivens'),
+  -- and 'attemptClassCt' does not examine equalities.
+  let deferred = filter (\ct -> isEqualityCt ct || ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
   -- The residual holds the equalities that wait on a type family
   -- application. An implication can also defer an equality. Give it another
   -- attempt, because the enclosing solve can have solved its meta variables.
@@ -2693,6 +2711,10 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
                   emitError (ctLoc errCt) (UnsolvedWanted predicate (ctOrigin errCt))
               pure []
       | otherwise = attemptClassCt ct
+    isEqualityCt ct =
+      case ctPred ct of
+        EqPred {} -> True
+        _ -> False
     isDictionaryPred predicate =
       case predicate of
         ClassPred {} -> True
@@ -3460,7 +3482,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                     (Just _, Nothing) -> pure failedResult
                     _ -> do
                       (selectorMatches, selectorResults) <-
-                        tcPatSynRecordSelectors package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
+                        tcPatSynRecordSelectors sigs package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
                       addPatSyn
                         PatSynInfo
                           { psiName = name,
@@ -3733,8 +3755,13 @@ patSynFieldTermKey key field =
 -- the universal variables and keeps the required context, so it has the
 -- type @req => scrutinee -> field@. A field whose type mentions an
 -- existential variable has no selector.
-tcPatSynRecordSelectors :: PackageId -> Text -> Maybe SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
-tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders = do
+--
+-- A field can also have a type signature of its own, as
+-- @bytes :: Integral n => Size -> n@ for @pattern B {bytes} <- ...@. Then
+-- the selector has the type of that signature, which the module
+-- registered with its other signatures.
+tcPatSynRecordSelectors :: Map Entity CheckedSig -> PackageId -> Text -> Maybe SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
+tcPatSynRecordSelectors sigs package moduleName' nameSpan layout args pat argBinders = do
   checked <- sequence (zipWith3 selector (patSynRecordFields args) argBinders (patSynLayoutArgTypes layout))
   pure (concatMap fst checked, concatMap snd checked)
   where
@@ -3745,8 +3772,12 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
       | otherwise = do
           let key = GlobalTerm package moduleName' field
               scheme = specifiedScheme (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
-              sig = CheckedSig field scheme nameSpan [] False
-          registerCheckedSig key sig
+          sig <- case Map.lookup key sigs of
+            Just userSig -> pure userSig
+            Nothing -> do
+              let sig = CheckedSig field scheme nameSpan [] False
+              registerCheckedSig key sig
+              pure sig
           (maybeMatches, results) <- tcFunctionWithSig key field sig [patSynSelectorMatch pat argBinder]
           commitCheckedHelper key results
           case maybeMatches of
@@ -4541,13 +4572,13 @@ registerAssociatedTypeFamily origin classParamNames defaults familyDecl =
 -- | Register the associated type family equations of an instance: the
 -- explicit items first, then the class default of each family that the
 -- instance does not define.
-registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> [TyVarId] -> [TcType] -> InstanceDecl -> TcM ()
-registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instanceDecl = do
+registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> Text -> [TyVarId] -> [TcType] -> InstanceDecl -> TcM ()
+registerInstanceAssociatedTypes origin classInfo dictName instanceTyVars headTys instanceDecl = do
   let explicit = instanceDeclTypeFamilyInsts instanceDecl
       explicitNames = mapMaybe typeFamilyInstName explicit
   mapM_ (registerTypeFamilyInstance origin) explicit
   mapM_
-    (\(info, defaultEquation) -> instantiateAssociatedDefault origin instanceTyVars headTys info defaultEquation >>= addTypeFamilyInstance)
+    (\(info, defaultEquation) -> instantiateAssociatedDefault origin dictName instanceTyVars headTys info defaultEquation >>= addTypeFamilyInstance)
     [ (info, defaultEquation)
     | info <- ciAssociatedTypes classInfo,
       tyConName (atiTyCon info) `notElem` explicitNames,
@@ -4557,9 +4588,8 @@ registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instance
 -- | Instantiate the default equation of an associated type family at the
 -- head types of an instance. A family parameter that is not a class
 -- parameter becomes a fresh type variable.
-instantiateAssociatedDefault :: (Text, Text) -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
-instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys info defaultEquation = do
-  kinds <- getKinds
+instantiateAssociatedDefault :: (Text, Text) -> Text -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
+instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars headTys info defaultEquation = do
   let defaultArguments = typeArguments (tfiiLeft defaultEquation)
   -- The class arguments fix the kind variables of the default equation:
   -- @type AllB (c :: k -> Constraint) b = ...@ at @b := Unit@ fixes @k@.
@@ -4582,7 +4612,7 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
   pure
     TypeFamilyInstanceInfo
       { tfiiFamilyName = tyConName (atiTyCon info),
-        tfiiAxiomName = associatedDefaultAxiomName kinds info headTys,
+        tfiiAxiomName = associatedDefaultAxiomName info dictName,
         tfiiOrigin = (PackageId packageName, moduleName'),
         tfiiTyVars = axiomTyVars <> freshTyVars,
         tfiiLeft = TcTyCon (atiTyCon info) args,
@@ -4605,14 +4635,21 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
 associatedClassArgument :: [TcType] -> Maybe Int -> Maybe TcType
 associatedClassArgument headTys maybeIndex = maybeIndex >>= \index -> listToMaybe (drop index headTys)
 
--- | The axiom name of an instantiated associated type default. The name
--- depends only on the class head types, so the header and body passes
--- agree on it.
-associatedDefaultAxiomName :: TcKinds -> AssociatedTypeInfo -> [TcType] -> Text
-associatedDefaultAxiomName kinds info headTys =
-  "$ax$"
-    <> tyConName (atiTyCon info)
-    <> T.concat ["$" <> maybe "a" (typeSuffix kinds) (associatedClassArgument headTys maybeIndex) | maybeIndex <- atiClassParams info]
+-- | The axiom name of an instantiated associated type default. Each
+-- instance gives its own equation, thus the name comes from the
+-- dictionary name of the instance. The dictionary name is unique in its
+-- module, and the header and body passes agree on it.
+--
+-- The head types alone do not give a unique name. Two instances can have
+-- head types with the same constructor name from different modules, as
+-- @Ixed (Data.Vector.Vector a)@ and @Ixed (Data.Vector.Storable.Vector a)@.
+-- Two instances can also differ only in a class parameter that the family
+-- does not take, as @RecElem Rec r r' rs rs' 'Z@ and @RecElem Rec ... ('S
+-- i)@ for @RecElemFCtx record f@. Their equations are the same up to the
+-- open kinds of each instance, and GHC accepts these compatible equations.
+associatedDefaultAxiomName :: AssociatedTypeInfo -> Text -> Text
+associatedDefaultAxiomName info dictName =
+  "$ax$" <> tyConName (atiTyCon info) <> "$" <> fromMaybe dictName (T.stripPrefix "$f" dictName)
 
 typeArguments :: TcType -> [TcType]
 typeArguments ty =
@@ -4704,7 +4741,7 @@ registerInstanceDecl origin instanceDecl =
       -- type lambdas.
       tvIds <- resolveInstanceTyVars origin rawTvIds headTys
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
+      registerInstanceAssociatedTypes origin classInfo dictName tvIds headTys instanceDecl
       checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys context
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance

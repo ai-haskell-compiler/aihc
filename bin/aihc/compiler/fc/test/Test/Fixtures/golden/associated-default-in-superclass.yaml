@@ -51,7 +51,7 @@ expected: |-
     pub 1.cZ :: tNat
   }
 
-  axiom 1.$ax$Storage$Nat : tStorage tNat ~N tBox tNat
+  axiom 1.$ax$Storage$ComponentmNat : tStorage tNat ~N tBox tNat
 
   pub val 1.v$fStoreaBoxa :: ∀(a : sType). t$Dict$Store a (tBox a)
     = Λ(a : sType).

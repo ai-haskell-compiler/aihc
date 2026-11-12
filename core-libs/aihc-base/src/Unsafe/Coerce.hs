@@ -2,7 +2,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 
-module Unsafe.Coerce (unsafeCoerce, unsafeCoerceUnlifted) where
+module Unsafe.Coerce (unsafeCoerce, unsafeCoerceUnlifted, unsafeCoerce#) where
 
 import GHC.Prim (unsafeCoerce#)
 import GHC.Types (UnliftedType)

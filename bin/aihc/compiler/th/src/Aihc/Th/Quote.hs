@@ -90,7 +90,15 @@ data Quote
 -- same module. The result is the parsed form with the new expressions. A
 -- quote in an expression quote stays, with the quote that contains it.
 desugarModuleQuotes :: Module -> Module -> Module
-desugarModuleQuotes parsed resolved
+desugarModuleQuotes = desugarQuotes Set.empty
+
+-- | Change each quote of a syntax tree that is in the subset, as
+-- 'desugarModuleQuotes' does. The set has the binders of the quotes that
+-- contain the syntax tree. A quote in the body of a splice of a quote can
+-- use a variable that the outer quote binds. Such a variable becomes a
+-- name with no module, as in the outer quote.
+desugarQuotes :: (Data syntax) => Set Entity -> syntax -> syntax -> syntax
+desugarQuotes outerBinders parsed resolved
   | length parsedQuotes == length resolvedQuotes = evalState (traverseQuotes replace parsed) replacements
   | otherwise = parsed
   where
@@ -101,7 +109,7 @@ desugarModuleQuotes parsed resolved
       addExprParens
         <$> case (parsedQuote, resolvedQuote) of
           (ExpressionQuote parsedBody, ExpressionQuote resolvedBody) ->
-            evalStateT (quoted (localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
+            evalStateT (quoted (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           (_, NameQuote expr) -> quotedName expr
           (_, TypeNameQuote ty) -> quotedTypeName ty
           _ -> Nothing
@@ -161,11 +169,11 @@ bindSpliceNameQuotes lookupName = runIdentity . outside
         TCon name _ -> addExprParens . call "mkNameG_tc" . globalNameParts <$> lookupName ResolutionNamespaceType name
         _ -> Nothing
 
--- | Each quote of a module that is not in an expression quote. The parsed
--- form and the resolved form of a module give the quotes in the same
--- order: the resolver changes the structure of infix expressions only, and
--- it keeps their operands in source order.
-moduleQuotes :: Module -> [Quote]
+-- | Each quote of a syntax tree that is not in an expression quote. The
+-- parsed form and the resolved form of a module give the quotes in the
+-- same order: the resolver changes the structure of infix expressions
+-- only, and it keeps their operands in source order.
+moduleQuotes :: (Data syntax) => syntax -> [Quote]
 moduleQuotes modu = reverse (execState (traverseQuotes collectQuote modu) [])
   where
     collectQuote original quote = do
@@ -174,7 +182,7 @@ moduleQuotes modu = reverse (execState (traverseQuotes collectQuote modu) [])
 
 -- | Visit each quote that 'moduleQuotes' gives, and replace it. The
 -- function gets the expression of the quote and the quote.
-traverseQuotes :: forall m. (Monad m) => (Expr -> Quote -> m Expr) -> Module -> m Module
+traverseQuotes :: forall m syntax. (Monad m, Data syntax) => (Expr -> Quote -> m Expr) -> syntax -> m syntax
 traverseQuotes onQuote = go
   where
     go :: forall value. (Data value) => value -> m value
@@ -276,10 +284,11 @@ quoted binders = go
           pure (call "tupE" [EList fields'])
         EList elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
         EIf condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
-        -- A splice in a quote gives the syntax tree itself.
-        ETHSplice _ ->
+        -- A splice in a quote gives the syntax tree itself. A quote in the
+        -- body of the splice also changes, with the binders of this quote.
+        ETHSplice resolvedBody ->
           StateT $ \case
-            body : rest -> Just (EParen body, rest)
+            body : rest -> Just (EParen (desugarQuotes binders body resolvedBody), rest)
             [] -> Nothing
         _ -> lift Nothing
     variable name =
