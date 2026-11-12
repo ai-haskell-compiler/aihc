@@ -1,0 +1,27 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.Fingerprint (Fingerprint (..))
+    import GHC.StaticPtr (StaticKey, StaticPtr, deRefStaticPtr, staticKey, staticPtrKeys, unsafeLookupStaticPtr)
+    import Prelude
+
+    key :: StaticKey
+    key = Fingerprint 1 2
+
+    main :: IO ()
+    main = do
+      keys <- staticPtrKeys
+      print (length keys)
+      found <- unsafeLookupStaticPtr key :: IO (Maybe (StaticPtr Int))
+      print (fmap deRefStaticPtr found)
+      print (fmap staticKey found)
+stdout: |
+  0
+  Nothing
+  Nothing
+expression: main
+output: |
+  ()
+status: pass
+reason: GHC.StaticPtr exports the static pointer API of GHC, and a program without a static form has an empty static pointer table

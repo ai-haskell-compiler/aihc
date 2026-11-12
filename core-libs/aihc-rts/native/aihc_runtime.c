@@ -1406,6 +1406,12 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
   return capability->current_thread;
 }
 
+/* The thread can run on a different capability, and that capability can
+   change the state at the same time. The result is a snapshot, as in GHC. */
+int64_t aihc_thread_status(AihcThread *thread) {
+  return (int64_t)__atomic_load_n(&thread->blocked_kind, __ATOMIC_RELAXED);
+}
+
 /* Append a list of threads to a queue. Thread records are global, and the
    link replaces a null link, so it needs no barrier: an append into an
    inbox runs under the inbox lock, which a barrier must not wait under. */

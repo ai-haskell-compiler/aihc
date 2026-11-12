@@ -31,6 +31,8 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq, ViewL (..), (|>))
 import Data.Sequence qualified as Seq
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -241,6 +243,8 @@ data Machine = Machine
     -- | The thread that runs now. The value is the location of its cell.
     machineCurrentThread :: !RuntimeValue,
     machineNextThreadId :: !Word64,
+    -- | The numbers of the forked threads that ended.
+    machineFinishedThreads :: !(Set Word64),
     machineStreams :: !ProgramStreams,
     machineAllocations :: !(IORef [Ptr ()])
   }
@@ -404,7 +408,8 @@ initialMachine streams program allocations =
       machineWaitingThreads = [],
       -- The program starts on the main thread, which has the first number.
       machineCurrentThread = RuntimeLocation mainThreadLocation,
-      machineNextThreadId = mainThreadId + 1
+      machineNextThreadId = mainThreadId + 1,
+      machineFinishedThreads = Set.empty
     }
   where
     mainThreadLocation = length globalNodes
@@ -548,7 +553,7 @@ evalScheduledPrimitive "fork#" [action] continue = do
       ( -- The child thread enters its own closure. Forking a thunk is legal, and
         -- an already forced action may sit behind an indirection, so neither is
         -- a value 'applyScheduledValue' can consume directly.
-        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const scheduleNextThread))
+        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const endChild))
           `catchE` finishChild
       )
   continue [threadId]
@@ -815,8 +820,18 @@ finishChild :: EvalFailure -> EvalM [RuntimeValue]
 finishChild failure =
   case failure of
     -- An uncaught Haskell exception terminates only the forked thread.
-    EvalRaised _ -> scheduleNextThread
+    EvalRaised _ -> endChild
     EvalInterpret _ -> throwE failure
+
+-- | Record that the forked thread that runs now ended, and run the next
+-- thread.
+endChild :: EvalM [RuntimeValue]
+endChild = do
+  current <- getsMachine machineCurrentThread
+  threadId <- expectThreadPrimitiveArgument "fork#" current
+  modifyMachine $ \machine ->
+    machine {machineFinishedThreads = Set.insert threadId (machineFinishedThreads machine)}
+  scheduleNextThread
 
 -- | Suspend the thread that runs now, and keep its identity and its control
 -- stack.
@@ -1465,6 +1480,20 @@ evalPrimitive "getMaskingState#" [] = do
 evalPrimitive "myThreadId#" [] = do
   thread <- getsMachine machineCurrentThread
   pure [thread]
+-- The values agree with the AIHC_BLOCKED_ values of the native runtime.
+-- The interpreter blocks a thread only on an MVar.
+evalPrimitive "aihcThreadStatus#" [thread] = do
+  threadId <- expectThreadPrimitiveArgument "aihcThreadStatus#" thread
+  current <- getsMachine machineCurrentThread
+  runnable <- getsMachine machineRunQueue
+  finished <- getsMachine machineFinishedThreads
+  let status :: Integer
+      status
+        | Set.member threadId finished = 6
+        | thread == current = 0
+        | thread `elem` [owner | ThreadAction owner _ _ <- Foldable.toList runnable] = 0
+        | otherwise = 1
+  pure [intRuntimeValue status]
 evalPrimitive "aihcThreadIdNumber#" [thread] = do
   threadId <- expectThreadPrimitiveArgument "aihcThreadIdNumber#" thread
   pure [RuntimeLit (GrinLitInt Word64Rep (toInteger threadId))]
