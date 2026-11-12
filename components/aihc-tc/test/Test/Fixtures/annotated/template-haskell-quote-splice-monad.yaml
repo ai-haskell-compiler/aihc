@@ -1,0 +1,70 @@
+annotated:
+- |-
+  {-# LANGUAGE TemplateHaskell #-}
+  module Test where
+  data Exp = Exp
+       │     └─ type: Exp
+       └─ type: Type
+  data Pat = Pat
+       │     └─ type: Pat
+       └─ type: Type
+  data Dec = Dec
+       │     └─ type: Dec
+       └─ type: Type
+  newtype Q a = Q a
+          │     └─ type: ∀ a. a → Q a
+          └─ type: Type → Type
+  class Quote m where
+  └─ class methods: newName ∷ ∀ m. (Quote m) ⇒ m Exp, newPat ∷ ∀ m. (Quote m) ⇒ m Pat
+    newName :: m Exp
+    newPat :: m Pat
+  instance Quote Q where
+  └─ $fQuoteQ ∷ () ⇒ Quote Q
+    newName = Q Exp
+    │         └─ type: Exp → Q Exp; type-args: Exp
+    └─ newName ∷ Q Exp
+    newPat = Q Pat
+    │        └─ type: Pat → Q Pat; type-args: Pat
+    └─ newPat ∷ Q Pat
+  quoted :: Q Exp
+  quoted = [| Exp $(spliced) |]
+  │        └─ type: Q Exp
+  └─ type: Q Exp
+    where
+      spliced = newName
+      │         └─ type: Q Exp; type-args: Q; evidence: $fQuoteQ
+      └─ type: Q Exp
+  declared :: Q [Dec]
+  declared = [d| $(bound) = Exp |]
+  │          └─ type: Q [Dec]
+  └─ type: Q [Dec]
+    where
+      bound = newPat
+      │       └─ type: Q Pat; type-args: Q; evidence: $fQuoteQ
+      └─ type: Q Pat
+extensions:
+- TemplateHaskell
+modules:
+- |
+  {-# LANGUAGE TemplateHaskell #-}
+  module Test where
+  data Exp = Exp
+  data Pat = Pat
+  data Dec = Dec
+  newtype Q a = Q a
+  class Quote m where
+    newName :: m Exp
+    newPat :: m Pat
+  instance Quote Q where
+    newName = Q Exp
+    newPat = Q Pat
+  quoted :: Q Exp
+  quoted = [| Exp $(spliced) |]
+    where
+      spliced = newName
+  declared :: Q [Dec]
+  declared = [d| $(bound) = Exp |]
+    where
+      bound = newPat
+reason: A splice in an untyped quote uses the monad of the quote
+status: pass
