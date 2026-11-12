@@ -1,0 +1,27 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module A where
+  data B = B
+       │   └─ type: B
+       └─ type: Type
+  data C = C
+       │   └─ type: C
+       └─ type: Type
+  type family F a
+              └─ type: Type → Type
+  type instance F B = B
+  type instance F B = C
+  └─ error: conflicting family instance declarations: F has two instances with the same left side and different right sides
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module A where
+  data B = B
+  data C = C
+  type family F a
+  type instance F B = B
+  type instance F B = C
+reason: Two instances of an open family with the same left side and different right sides conflict, as in GHC. The second one gets a diagnostic.
+status: pass
