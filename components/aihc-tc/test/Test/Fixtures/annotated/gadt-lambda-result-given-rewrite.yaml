@@ -1,0 +1,52 @@
+extensions:
+  - GADTs
+  - DataKinds
+  - KindSignatures
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE GADTs, DataKinds, KindSignatures, TypeOperators #-}
+    module Test where
+    import GHC.Types (Type)
+    data HList (as :: [Type]) where
+      Nil :: HList '[]
+      (:>) :: a -> HList as -> HList (a ': as)
+    data Lens s t a b where
+      Lens :: (s -> (c, a)) -> ((c, b) -> t) -> Lens s t a b
+    headLens :: (as ~ (a ': rest), bs ~ (b ': rest)) => Lens (HList as) (HList bs) a b
+    headLens = Lens (\(x :> xs) -> (xs, x)) (\(xs, x') -> x' :> xs)
+annotated:
+- |-
+  {-# LANGUAGE GADTs, DataKinds, KindSignatures, TypeOperators #-}
+  module Test where
+  import GHC.Types (Type)
+  data HList (as :: [Type]) where
+       └─ type: [Type] → Type
+    Nil :: HList '[]
+    └─ type: ∀ as. (as ~ 'GHC.Types.[]) ⇒ HList as
+    (:>) :: a -> HList as -> HList (a ': as)
+    └─ type: ∀ as as a. (as ~ ('GHC.Types.: a as)) ⇒ a → HList as → HList as
+  data Lens s t a b where
+       └─ type: Type → Type → Type → Type → Type
+    Lens :: (s -> (c, a)) -> ((c, b) -> t) -> Lens s t a b
+    └─ type: ∀ s t a b c. (s → (c, a)) → ((c, b) → t) → Lens s t a b
+  headLens :: (as ~ (a ': rest), bs ~ (b ': rest)) => Lens (HList as) (HList bs) a b
+  headLens = Lens (\(x :> xs) -> (xs, x)) (\(xs, x') -> x' :> xs)
+  │          │     │││ │  │      │         ││││   │         └─ type: b → HList rest → HList ('GHC.Types.: b rest); type-args: ': b rest, rest, b; evidence: refl ': b rest
+  │          │     │││ │  │      │         ││││   └─ type: b
+  │          │     │││ │  │      │         ││└─ type: HList rest
+  │          │     │││ │  │      │         │└─ type: (HList rest, b)
+  │          │     │││ │  │      │         │└─ type: (HList rest, b)
+  │          │     │││ │  │      │         └─ type: (HList rest, b) → HList bs
+  │          │     │││ │  │      └─ type: (HList as, a); type-args: HList as, a
+  │          │     │││ │  └─ type: HList as
+  │          │     │││ └─ type: a → HList as → HList as; type-args: as, as, a; evidence: given as ~ ': a as
+  │          │     ││└─ type: a
+  │          │     │└─ type: HList as
+  │          │     └─ type: HList as → (HList rest, a)
+  │          └─ type: (HList as → (HList rest, a)) → ((HList rest, b) → HList bs) → Lens (HList as) (HList bs) a b; type-args: HList as, HList bs, a, b, HList rest
+  └─ type: ∀ as a rest bs b. (as ~ ('GHC.Types.: a rest), bs ~ ('GHC.Types.: b rest)) ⇒ Lens (HList as) (HList bs) a b
+reason: the givens make the existential types of a constructor match equal to
+  types of the enclosing scope, thus a lambda can return the fields of the
+  match at those types and no existential type escapes
+status: pass
