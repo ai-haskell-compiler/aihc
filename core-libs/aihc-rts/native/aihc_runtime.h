@@ -901,6 +901,7 @@ const AihcResume *aihc_unmask_async_exceptions(AihcCapability *capability,
                                                AihcValue *action,
                                                AihcValue *continuation);
 int64_t aihc_get_masking_state(AihcCapability *capability);
+int64_t aihc_thread_status(AihcCapability *capability, AihcThread *thread);
 /* The entry of a restore-mask frame, which takes the value of the action. */
 const AihcResume *aihc_restore_mask(AihcCapability *capability,
                                     AihcValue *frame, AihcSlot value);

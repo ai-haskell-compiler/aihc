@@ -12,6 +12,9 @@ module GHC.Conc.Sync
     myThreadId,
     showThreadId,
     threadLabel,
+    ThreadStatus (..),
+    BlockReason (..),
+    threadStatus,
     throwTo,
     yield,
     STM (..),
@@ -48,6 +51,7 @@ import GHC.IO.Handle.Text (hPutStrLn)
 import GHC.IO.StdHandles (stderr)
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Prim
+import GHC.Types (Int (..))
 import GHC.Word (Word64 (..))
 import Prelude
 
@@ -156,6 +160,70 @@ labelThread _ _ = return ()
 -- 'Nothing'. GHC gives the same result for a thread without a label.
 threadLabel :: ThreadId -> IO (Maybe String)
 threadLabel _ = return Nothing
+
+-- | The reason that a thread waits.
+data BlockReason
+  = -- | The thread waits on an MVar.
+    BlockedOnMVar
+  | -- | The thread waits for a thunk that another thread evaluates.
+    BlockedOnBlackHole
+  | -- | The thread waits until a 'throwTo' delivers its exception.
+    BlockedOnException
+  | -- | The thread waits in a transaction that called 'retry'.
+    BlockedOnSTM
+  | -- | The thread waits for a foreign call.
+    BlockedOnForeignCall
+  | -- | The thread waits for another reason, for example for IO.
+    BlockedOnOther
+  deriving (Eq, Ord, Show)
+
+-- | The status of a thread.
+data ThreadStatus
+  = -- | The thread runs or can run.
+    ThreadRunning
+  | -- | The thread ended.
+    ThreadFinished
+  | -- | The thread waits.
+    ThreadBlocked BlockReason
+  | -- | The thread ended because of an exception that it did not catch.
+    ThreadDied
+  deriving (Eq, Ord, Show)
+
+-- | Read the status of a thread.
+--
+-- The status can change after the read. As in GHC, a thread that 'forkIO'
+-- started catches each exception, thus its status is 'ThreadFinished' and
+-- not 'ThreadDied' when it ends.
+--
+-- On one capability without workers, a transaction that calls 'retry' and
+-- has no timer does not wait. Its thread runs the transaction again after the
+-- other threads, so its status is 'ThreadRunning' and not 'BlockedOnSTM'.
+threadStatus :: ThreadId -> IO ThreadStatus
+threadStatus (ThreadId threadId) =
+  IO
+    ( \state -> case aihcThreadStatus# threadId state of
+        (# nextState, status #) -> (# nextState, statusFromNumber (I# status) #)
+    )
+  where
+    -- The numbers of the threadStatus# primitive of GHC.
+    statusFromNumber :: Int -> ThreadStatus
+    statusFromNumber number = case number of
+      0 -> ThreadRunning
+      1 -> ThreadBlocked BlockedOnMVar
+      2 -> ThreadBlocked BlockedOnBlackHole
+      6 -> ThreadBlocked BlockedOnSTM
+      10 -> ThreadBlocked BlockedOnForeignCall
+      11 -> ThreadBlocked BlockedOnForeignCall
+      12 -> ThreadBlocked BlockedOnException
+      14 -> ThreadBlocked BlockedOnMVar
+      16 -> ThreadFinished
+      17 -> ThreadDied
+      _ -> ThreadBlocked BlockedOnOther
+
+-- | Read the status of a green thread. The result has the numbers of the
+-- threadStatus# primitive of GHC. The runtime keeps no capability or bound
+-- state for a thread, so this primitive gives only the status.
+foreign import prim aihcThreadStatus# :: ThreadId# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
 -- | Raise 'ThreadKilled' in a thread.
 killThread :: ThreadId -> IO ()

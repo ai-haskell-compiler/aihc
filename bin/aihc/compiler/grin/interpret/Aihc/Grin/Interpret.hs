@@ -240,6 +240,10 @@ data Machine = Machine
     machineWaitingThreads :: ![RuntimeValue],
     -- | The thread that runs now. The value is the location of its cell.
     machineCurrentThread :: !RuntimeValue,
+    -- | The status of each thread that waits or ended, by the location of
+    -- its cell, with the numbers of aihcThreadStatus#. A thread that is not
+    -- in the map runs or can run.
+    machineThreadStatuses :: !(IntMap Integer),
     machineNextThreadId :: !Word64,
     machineStreams :: !ProgramStreams,
     machineAllocations :: !(IORef [Ptr ()])
@@ -404,6 +408,7 @@ initialMachine streams program allocations =
       machineWaitingThreads = [],
       -- The program starts on the main thread, which has the first number.
       machineCurrentThread = RuntimeLocation mainThreadLocation,
+      machineThreadStatuses = IntMap.empty,
       machineNextThreadId = mainThreadId + 1
     }
   where
@@ -548,7 +553,7 @@ evalScheduledPrimitive "fork#" [action] continue = do
       ( -- The child thread enters its own closure. Forking a thunk is legal, and
         -- an already forced action may sit behind an indirection, so neither is
         -- a value 'applyScheduledValue' can consume directly.
-        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const scheduleNextThread))
+        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const finishThread))
           `catchE` finishChild
       )
   continue [threadId]
@@ -589,6 +594,7 @@ evalScheduledPrimitive "readMVar#" [mvarValue] continue = do
       stack <- getsMachine machineControlStack
       let waiter = MVarValueWaiter (\value -> ThreadAction owner stack (continue [value]))
       writeMVarState identifier mvar {grinMVarReaders = grinMVarReaders mvar |> waiter}
+      setCurrentThreadStatus threadBlockedOnMVar
       scheduleNextThread
 evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
   (identifier, mvar) <- expectMVarPrimitiveArgument "takeMVar#" mvarValue
@@ -598,6 +604,7 @@ evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
       stack <- getsMachine machineControlStack
       let waiter = MVarValueWaiter (\value -> ThreadAction owner stack (continue [value]))
       writeMVarState identifier mvar {grinMVarTakers = grinMVarTakers mvar |> waiter}
+      setCurrentThreadStatus threadBlockedOnMVar
       scheduleNextThread
     Just value -> do
       case Seq.viewl (grinMVarPutters mvar) of
@@ -619,6 +626,7 @@ evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
       stack <- getsMachine machineControlStack
       let putter = ThreadAction owner stack (continue [])
       writeMVarState identifier mvar {grinMVarPutters = grinMVarPutters mvar |> (value, putter)}
+      setCurrentThreadStatus threadBlockedOnMVar
       scheduleNextThread
     Nothing -> do
       mapM_ (enqueueValueWaiter value) (grinMVarReaders mvar)
@@ -815,8 +823,32 @@ finishChild :: EvalFailure -> EvalM [RuntimeValue]
 finishChild failure =
   case failure of
     -- An uncaught Haskell exception terminates only the forked thread.
-    EvalRaised _ -> scheduleNextThread
+    EvalRaised _ -> finishThread
     EvalInterpret _ -> throwE failure
+
+-- | End the thread that runs now, and run the next thread.
+finishThread :: EvalM [RuntimeValue]
+finishThread = do
+  setCurrentThreadStatus threadFinished
+  scheduleNextThread
+
+-- | The numbers of aihcThreadStatus#, as the native runtime gives them.
+threadRunning, threadBlockedOnMVar, threadBlockedOnSTM, threadFinished :: Integer
+threadRunning = 0
+threadBlockedOnMVar = 1
+threadBlockedOnSTM = 6
+threadFinished = 16
+
+-- | Record why the thread that runs now stops. 'scheduleNextThread' clears
+-- the record when the thread runs again.
+setCurrentThreadStatus :: Integer -> EvalM ()
+setCurrentThreadStatus status = do
+  current <- getsMachine machineCurrentThread
+  case current of
+    RuntimeLocation location ->
+      modifyMachine $ \machine ->
+        machine {machineThreadStatuses = IntMap.insert location status (machineThreadStatuses machine)}
+    _ -> pure ()
 
 -- | Suspend the thread that runs now, and keep its identity and its control
 -- stack.
@@ -845,7 +877,14 @@ scheduleNextThread = do
     EmptyL -> throwInterpret InterpretNoRunnableThreads
     ThreadAction owner stack action :< remaining -> do
       modifyMachine $ \machine ->
-        machine {machineRunQueue = remaining, machineCurrentThread = owner, machineControlStack = stack}
+        machine
+          { machineRunQueue = remaining,
+            machineCurrentThread = owner,
+            machineControlStack = stack,
+            machineThreadStatuses = case owner of
+              RuntimeLocation location -> IntMap.delete location (machineThreadStatuses machine)
+              _ -> machineThreadStatuses machine
+          }
       action
 
 callScheduledFunction :: FunctionName -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
@@ -1465,6 +1504,13 @@ evalPrimitive "getMaskingState#" [] = do
 evalPrimitive "myThreadId#" [] = do
   thread <- getsMachine machineCurrentThread
   pure [thread]
+evalPrimitive "aihcThreadStatus#" [thread] = do
+  _ <- expectThreadPrimitiveArgument "aihcThreadStatus#" thread
+  statuses <- getsMachine machineThreadStatuses
+  let status = case thread of
+        RuntimeLocation location -> IntMap.findWithDefault threadRunning location statuses
+        _ -> threadRunning
+  pure [intRuntimeValue status]
 evalPrimitive "aihcThreadIdNumber#" [thread] = do
   threadId <- expectThreadPrimitiveArgument "aihcThreadIdNumber#" thread
   pure [RuntimeLit (GrinLitInt Word64Rep (toInteger threadId))]
@@ -1539,9 +1585,10 @@ evalPrimitive "stmWaitRequest#" [] = do
   current <- lift (gets machineCurrentThread)
   waiting <- lift (gets machineWaitingThreads)
   let canWake = any (`notElem` (current : waiting)) [thread | ThreadAction thread _ _ <- Foldable.toList runnable]
-  when canWake $
+  when canWake $ do
     lift $
       modify' (\machine -> machine {machineWaitingThreads = current : waiting})
+    setCurrentThreadStatus threadBlockedOnSTM
   let state
         | canWake = GrinIOSubmitted GrinWaitYield
         | otherwise = case timers of
