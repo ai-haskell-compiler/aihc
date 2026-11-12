@@ -828,7 +828,7 @@ instance Generic1 Semigroup.Min where
     Rep1 Semigroup.Min =
       D1
         ('MetaData "Min" "Data.Semigroup" "base" 'True :: Meta)
-        (C1 ('MetaCons "Min" 'PrefixI 'True :: Meta) (S1 (MetaField "getMin") (Par1)))
+        (C1 ('MetaCons "Min" 'PrefixI 'True :: Meta) (S1 (MetaField "getMin") Par1))
   from1 (Semigroup.Min x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Semigroup.Min (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -837,7 +837,7 @@ instance Generic1 Semigroup.Max where
     Rep1 Semigroup.Max =
       D1
         ('MetaData "Max" "Data.Semigroup" "base" 'True :: Meta)
-        (C1 ('MetaCons "Max" 'PrefixI 'True :: Meta) (S1 (MetaField "getMax") (Par1)))
+        (C1 ('MetaCons "Max" 'PrefixI 'True :: Meta) (S1 (MetaField "getMax") Par1))
   from1 (Semigroup.Max x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Semigroup.Max (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -846,7 +846,7 @@ instance Generic1 Semigroup.First where
     Rep1 Semigroup.First =
       D1
         ('MetaData "First" "Data.Semigroup" "base" 'True :: Meta)
-        (C1 ('MetaCons "First" 'PrefixI 'True :: Meta) (S1 (MetaField "getFirst") (Par1)))
+        (C1 ('MetaCons "First" 'PrefixI 'True :: Meta) (S1 (MetaField "getFirst") Par1))
   from1 (Semigroup.First x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Semigroup.First (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -855,7 +855,7 @@ instance Generic1 Semigroup.Last where
     Rep1 Semigroup.Last =
       D1
         ('MetaData "Last" "Data.Semigroup" "base" 'True :: Meta)
-        (C1 ('MetaCons "Last" 'PrefixI 'True :: Meta) (S1 (MetaField "getLast") (Par1)))
+        (C1 ('MetaCons "Last" 'PrefixI 'True :: Meta) (S1 (MetaField "getLast") Par1))
   from1 (Semigroup.Last x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Semigroup.Last (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -864,7 +864,7 @@ instance Generic1 Semigroup.WrappedMonoid where
     Rep1 Semigroup.WrappedMonoid =
       D1
         ('MetaData "WrappedMonoid" "Data.Semigroup" "base" 'True :: Meta)
-        (C1 ('MetaCons "WrapMonoid" 'PrefixI 'True :: Meta) (S1 (MetaField "unwrapMonoid") (Par1)))
+        (C1 ('MetaCons "WrapMonoid" 'PrefixI 'True :: Meta) (S1 (MetaField "unwrapMonoid") Par1))
   from1 (Semigroup.WrapMonoid x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Semigroup.WrapMonoid (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -873,7 +873,7 @@ instance Generic1 Monoid.Dual where
     Rep1 Monoid.Dual =
       D1
         ('MetaData "Dual" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
-        (C1 ('MetaCons "Dual" 'PrefixI 'True :: Meta) (S1 (MetaField "getDual") (Par1)))
+        (C1 ('MetaCons "Dual" 'PrefixI 'True :: Meta) (S1 (MetaField "getDual") Par1))
   from1 (Monoid.Dual x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Monoid.Dual (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -882,7 +882,7 @@ instance Generic1 Monoid.Sum where
     Rep1 Monoid.Sum =
       D1
         ('MetaData "Sum" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
-        (C1 ('MetaCons "Sum" 'PrefixI 'True :: Meta) (S1 (MetaField "getSum") (Par1)))
+        (C1 ('MetaCons "Sum" 'PrefixI 'True :: Meta) (S1 (MetaField "getSum") Par1))
   from1 (Monoid.Sum x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Monoid.Sum (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -891,7 +891,7 @@ instance Generic1 Monoid.Product where
     Rep1 Monoid.Product =
       D1
         ('MetaData "Product" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
-        (C1 ('MetaCons "Product" 'PrefixI 'True :: Meta) (S1 (MetaField "getProduct") (Par1)))
+        (C1 ('MetaCons "Product" 'PrefixI 'True :: Meta) (S1 (MetaField "getProduct") Par1))
   from1 (Monoid.Product x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Monoid.Product (unPar1 (unM1 (unM1 (unM1 r))))
 
@@ -927,7 +927,7 @@ instance Generic1 Down where
     Rep1 Down =
       D1
         ('MetaData "Down" "GHC.Internal.Data.Ord" "ghc-internal" 'True :: Meta)
-        (C1 ('MetaCons "Down" 'PrefixI 'True :: Meta) (S1 (MetaField "getDown") (Par1)))
+        (C1 ('MetaCons "Down" 'PrefixI 'True :: Meta) (S1 (MetaField "getDown") Par1))
   from1 (Down x) = M1 (M1 (M1 (Par1 x)))
   to1 r = Down (unPar1 (unM1 (unM1 (unM1 r))))
 
