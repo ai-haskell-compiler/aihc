@@ -1,0 +1,26 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.Arr (Array, array, (!))
+    import Prelude
+
+    data Shape a = Leaf Int (Array Int a) | Both (Shape a) (Shape a)
+      deriving (Read, Show)
+
+    firstElement :: Shape Char -> Char
+    firstElement (Leaf _ values) = values ! 0
+    firstElement (Both left _) = firstElement left
+
+    result :: Bool
+    result =
+      firstElement (read "Both (Leaf 1 (array (0,1) [(0,'x'),(1,'y')])) (Leaf 2 (array (0,0) [(0,'z')]))") == 'x'
+        && (read "array (0,1) [(0,True),(1,False)]" :: Array Int Bool) ! 1 == False
+        && show (Leaf 2 (array (0, 0) [(0, 'z')])) == "Leaf 2 (array (0,0) [(0,'z')])"
+        && firstElement (read (show (Both (Leaf 2 (array (0, 0) [(0, 'z')])) (Leaf 3 (array (0, 0) [(0, 'w')]))))) == 'z'
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: aihc-base has the Read instance of Array, and Show puts an Array argument in parentheses, as GHC does. Thus a derived Read instance reads what a derived Show instance writes for an Array field.
