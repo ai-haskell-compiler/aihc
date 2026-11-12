@@ -1,0 +1,53 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveAnyClass, DefaultSignatures, FlexibleInstances, TypeFamilies, DataKinds, KindSignatures #-}
+  module Test where
+  import GHC.Types (Symbol)
+  data Bool = True
+       │      └─ type: Bool
+       └─ type: Type
+  data Meta (name :: Symbol)
+       └─ type: GHC.Types.Symbol → Type
+  class KnownSymbol (n :: Symbol)
+  └─ class methods:
+  class Named a
+  └─ class methods:
+  instance KnownSymbol n => Named (Meta n)
+  └─ $fNamedMetan ∷ ∀ n. (KnownSymbol n) ⇒ Named (Meta n)
+  type family Rep a
+              └─ type: Type → Type
+  class FromJ a where
+  └─ class methods: parse ∷ ∀ a. (FromJ a) ⇒ a → Bool
+    parse :: a -> Bool
+    default parse :: Named (Rep a) => a -> Bool
+    parse _ = True
+    │     └─ type: a
+    └─ parse ∷ ∀ a. (FromJ a, Named (Rep a)) ⇒ a → Bool
+  data T = T
+  │    │   └─ type: T
+  │    └─ type: Type
+  └─ deriving plans: anyclass FromJ T [context: ()] [methods: parse]
+    deriving (FromJ)
+              └─ $fFromJT ∷ () ⇒ FromJ T
+  type instance Rep T = Meta "T"
+extensions: [DeriveAnyClass, DefaultSignatures, FlexibleInstances, TypeFamilies, DataKinds, KindSignatures]
+reason: DeriveAnyClass infers an empty context when an instance in the obligation needs KnownSymbol of a literal
+modules:
+- |
+  {-# LANGUAGE DeriveAnyClass, DefaultSignatures, FlexibleInstances, TypeFamilies, DataKinds, KindSignatures #-}
+  module Test where
+  import GHC.Types (Symbol)
+  data Bool = True
+  data Meta (name :: Symbol)
+  class KnownSymbol (n :: Symbol)
+  class Named a
+  instance KnownSymbol n => Named (Meta n)
+  type family Rep a
+  class FromJ a where
+    parse :: a -> Bool
+    default parse :: Named (Rep a) => a -> Bool
+    parse _ = True
+  data T = T
+    deriving (FromJ)
+  type instance Rep T = Meta "T"
+status: pass

@@ -498,6 +498,11 @@ simplifyReducedPredicate kinds environment owner predicate
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)
+  -- The solver solves @KnownNat@, @KnownSymbol@, and @KnownChar@ for a
+  -- literal of the matching sort without an instance. The metadata
+  -- instances of a generic representation need them, as in @instance
+  -- (KnownSymbol n, ...) => Datatype ('MetaData n m p nt)@.
+  | isTypeLiteralPredicate predicate = pure (Right [])
   | otherwise = do
       existing <- mapM withInstanceKinds matchingExisting
       matched <- firstSuccessful (map simplifyExisting (concat existing) <> map simplifyDerived matchingDerived)
@@ -813,6 +818,19 @@ predArguments predicate =
     QuantifiedPred _ antecedents consequent -> concatMap predArguments antecedents <> predArguments consequent
     IParamPred _ payload -> [payload]
     IrredPred constraint -> [constraint]
+
+-- | A @KnownNat@, @KnownSymbol@, or @KnownChar@ predicate on a literal of
+-- the matching sort.
+isTypeLiteralPredicate :: Pred -> Bool
+isTypeLiteralPredicate predicate =
+  case predicate of
+    ClassPred classTyCon [TcTyLit literal] ->
+      case (tyConName classTyCon, literal) of
+        ("KnownNat", TyLitNat {}) -> True
+        ("KnownSymbol", TyLitSymbol {}) -> True
+        ("KnownChar", TyLitChar {}) -> True
+        _ -> False
+    _ -> False
 
 typeableArguments :: Pred -> Maybe [TcType]
 typeableArguments predicate =
