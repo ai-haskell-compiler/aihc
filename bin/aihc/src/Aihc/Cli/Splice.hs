@@ -33,7 +33,7 @@ where
 import Aihc.Cli.Build (buildWithConfig)
 import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig)
 import Aihc.Cli.ModuleProvider (moduleNameDirectory, readTypeArtifactFile)
-import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), defaultPlanOptions)
+import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
@@ -218,7 +218,7 @@ buildImage request = do
           buildPrintTimings = False,
           buildOutput = Just (spliceRequestBuildRoot request </> "image.wasm"),
           buildExecutables = [],
-          buildPlanOptions = defaultPlanOptions
+          buildPlanOptions = splicePlanOptions
         }
       withSplices
   case images of
@@ -249,8 +249,15 @@ packageOptions request directory =
       installPrintTimings = False,
       installTarget = Wasm32Wasip3,
       installWorkspace = Nothing,
-      installPlanOptions = defaultPlanOptions
+      installPlanOptions = splicePlanOptions
     }
+
+-- | The plan options of the image build and of the splice package install.
+-- The constraints pin the version of each package, so the builds use no
+-- lock. A lock would be in the working directory of the user, and the
+-- modules of a package run their splices at the same time.
+splicePlanOptions :: PlanOptions
+splicePlanOptions = defaultPlanOptions {planUseLock = False}
 
 -- | The name of the splice package. Each module has its own package, so
 -- the symbols of two splice modules in one image are different.

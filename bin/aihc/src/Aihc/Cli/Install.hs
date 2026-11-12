@@ -876,7 +876,8 @@ parsePackageTarget target = do
 -- | The plan request the command-line plan options describe, without its
 -- roots and goals. The packages and the constraints of a project come
 -- before the workspaces and the command-line constraints. A local target
--- uses @aihc.lock@ in the given directory.
+-- uses @aihc.lock@ in the given directory, unless the options do not use a
+-- lock.
 planRequestFor :: Maybe HackageSource -> PlanOptions -> (OS, Arch) -> Maybe Project -> [FilePath] -> Maybe FilePath -> (String -> IO ()) -> IO PlanRequest
 planRequestFor hackage options platform project workspaces lockDirectory verbose = do
   constraints <- forM (planConstraints options) $ \text ->
@@ -900,7 +901,7 @@ planRequestFor hackage options platform project workspaces lockDirectory verbose
         requestHackage = hackage,
         requestPlatform = platform,
         requestConstraints = concat constraints,
-        requestLockFile = (</> lockFileName) <$> lockDirectory,
+        requestLockFile = if planUseLock options then (</> lockFileName) <$> lockDirectory else Nothing,
         requestLockMode = lockMode,
         requestVerbose = verbose
       }

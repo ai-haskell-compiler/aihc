@@ -145,14 +145,18 @@ data PlanOptions = PlanOptions
     -- | Where the project of the input is found. The packages and the
     -- constraints of the project apply when the input is one of its
     -- packages.
-    planProject :: !ProjectSelection
+    planProject :: !ProjectSelection,
+    -- | Read and write @aihc.lock@. A caller whose constraints pin each
+    -- version, such as the Template Haskell build, sets 'False', so it
+    -- does not change a lock file of the user.
+    planUseLock :: !Bool
   }
   deriving (Eq, Show)
 
 -- | Take the lock as it is, or solve and write it. A library caller gets
 -- no project: only the command line looks for @cabal.project@.
 defaultPlanOptions :: PlanOptions
-defaultPlanOptions = PlanOptions [] False False [] ProjectIgnored
+defaultPlanOptions = PlanOptions [] False False [] ProjectIgnored True
 
 -- | Link an executable from a bundle that @build --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
@@ -440,6 +444,7 @@ planOptionsParser =
           )
       )
     <*> projectOption
+    <*> pure True
 
 linkExeOptionsParser :: OA.Parser LinkExeOptions
 linkExeOptionsParser =
