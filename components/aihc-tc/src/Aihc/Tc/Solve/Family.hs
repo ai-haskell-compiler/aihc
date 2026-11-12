@@ -209,14 +209,24 @@ isTypeFamilyApplication ty =
 occursOutsideFamilies :: TcM (Unique -> TcType -> Bool)
 occursOutsideFamilies = do
   outside <- leafOutsideFamilies
-  pure (\u -> outside (\leaf -> case leaf of TcMetaTv u' -> u == u'; _ -> False))
+  pure (outside . isMeta)
+  where
+    isMeta u leaf =
+      case leaf of
+        TcMetaTv u' -> u == u'
+        _ -> False
 
 -- | Whether a rigid type variable occurs in a type outside every saturated
 -- type family application. See 'occursOutsideFamilies'.
 tyVarOccursOutsideFamilies :: TcM (TyVarId -> TcType -> Bool)
 tyVarOccursOutsideFamilies = do
   outside <- leafOutsideFamilies
-  pure (\tyVar -> outside (\leaf -> case leaf of TcTyVar tyVar' -> tvUnique tyVar == tvUnique tyVar'; _ -> False))
+  pure (outside . isTyVar)
+  where
+    isTyVar tyVar leaf =
+      case leaf of
+        TcTyVar tyVar' -> tvUnique tyVar == tvUnique tyVar'
+        _ -> False
 
 -- | Whether a type has a leaf that the test accepts outside every
 -- saturated type family application.
