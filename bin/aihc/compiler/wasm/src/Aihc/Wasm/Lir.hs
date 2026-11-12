@@ -603,7 +603,7 @@ compileFunction ctx input = do
             fnDeferred = deferredInstructions uses candidates blocks,
             fnBlocks = Map.fromList [(blockLabel block, block) | block <- blocks],
             fnBlockIndex = Map.fromList (zip (map blockLabel blocks) [0 ..]),
-            fnBlockParameters = MonoidMap.fromListWith (flip const) [(blockLabel block, blockParameters block) | block <- blocks],
+            fnBlockParameters = MonoidMap.fromList [(blockLabel block, blockParameters block) | block <- blocks],
             fnFrame =
               if hasFrame
                 then
