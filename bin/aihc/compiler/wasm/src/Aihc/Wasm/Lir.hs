@@ -585,7 +585,7 @@ compileFunction ctx input = do
       frameSize = ((frameEnd + 15) `div` 16) * 16
       hasFrame = not (null allocations)
       readers = valueReaders blocks
-      uses = MonoidMap.fromMapWith (Sum . fst) readers
+      uses = MonoidMap.fromMapWith fst readers
       candidates =
         Set.fromList
           [ var
@@ -646,7 +646,7 @@ compileFunction ctx input = do
 -- | The number of reads of each value and the blocks that read it. The
 -- result of a compare-and-swap or of an atomic operation is also read by
 -- the code of its own instruction.
-valueReaders :: [Block] -> Map Var (Int, Set Label)
+valueReaders :: [Block] -> Map Var (Sum Int, Set Label)
 valueReaders blocks =
   Map.fromListWith
     (\(count, labels) (count', labels') -> (count + count', Set.union labels labels'))
