@@ -49,7 +49,7 @@ expected: |-
 
   axiom 1.$ax$Elem$Bag : tElem tBag ~N tBag
 
-  axiom 1.$ax$Elem$List (a : sType) : tElem (t[] a) ~N tNat
+  axiom 1.$ax$Elem$ContainerList (a : sType) : tElem (t[] a) ~N tNat
 
   pub val 1.vsize :: ∀(c : sType). t$Dict$Container c → c → tNat
     = Λ(c : sType). λ($dContainer : t$Dict$Container c).

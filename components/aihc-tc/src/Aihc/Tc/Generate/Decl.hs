@@ -2300,7 +2300,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
             | associated <- ciAssociatedTypes info,
               tyConName (atiTyCon associated) `notElem` explicitNames,
               Just _ <- [atiDefault associated],
-              Just equation <- [lookupEquation (associatedDefaultAxiomName kinds associated headTys)]
+              Just equation <- [lookupEquation (associatedDefaultAxiomName associated dictName)]
             ]
           annotateItem item =
             case item of
@@ -4541,13 +4541,13 @@ registerAssociatedTypeFamily origin classParamNames defaults familyDecl =
 -- | Register the associated type family equations of an instance: the
 -- explicit items first, then the class default of each family that the
 -- instance does not define.
-registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> [TyVarId] -> [TcType] -> InstanceDecl -> TcM ()
-registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instanceDecl = do
+registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> Text -> [TyVarId] -> [TcType] -> InstanceDecl -> TcM ()
+registerInstanceAssociatedTypes origin classInfo dictName instanceTyVars headTys instanceDecl = do
   let explicit = instanceDeclTypeFamilyInsts instanceDecl
       explicitNames = mapMaybe typeFamilyInstName explicit
   mapM_ (registerTypeFamilyInstance origin) explicit
   mapM_
-    (\(info, defaultEquation) -> instantiateAssociatedDefault origin instanceTyVars headTys info defaultEquation >>= addTypeFamilyInstance)
+    (\(info, defaultEquation) -> instantiateAssociatedDefault origin dictName instanceTyVars headTys info defaultEquation >>= addTypeFamilyInstance)
     [ (info, defaultEquation)
     | info <- ciAssociatedTypes classInfo,
       tyConName (atiTyCon info) `notElem` explicitNames,
@@ -4557,9 +4557,8 @@ registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instance
 -- | Instantiate the default equation of an associated type family at the
 -- head types of an instance. A family parameter that is not a class
 -- parameter becomes a fresh type variable.
-instantiateAssociatedDefault :: (Text, Text) -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
-instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys info defaultEquation = do
-  kinds <- getKinds
+instantiateAssociatedDefault :: (Text, Text) -> Text -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
+instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars headTys info defaultEquation = do
   let defaultArguments = typeArguments (tfiiLeft defaultEquation)
   -- The class arguments fix the kind variables of the default equation:
   -- @type AllB (c :: k -> Constraint) b = ...@ at @b := Unit@ fixes @k@.
@@ -4582,7 +4581,7 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
   pure
     TypeFamilyInstanceInfo
       { tfiiFamilyName = tyConName (atiTyCon info),
-        tfiiAxiomName = associatedDefaultAxiomName kinds info headTys,
+        tfiiAxiomName = associatedDefaultAxiomName info dictName,
         tfiiOrigin = (PackageId packageName, moduleName'),
         tfiiTyVars = axiomTyVars <> freshTyVars,
         tfiiLeft = TcTyCon (atiTyCon info) args,
@@ -4605,14 +4604,21 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
 associatedClassArgument :: [TcType] -> Maybe Int -> Maybe TcType
 associatedClassArgument headTys maybeIndex = maybeIndex >>= \index -> listToMaybe (drop index headTys)
 
--- | The axiom name of an instantiated associated type default. The name
--- depends only on the class head types, so the header and body passes
--- agree on it.
-associatedDefaultAxiomName :: TcKinds -> AssociatedTypeInfo -> [TcType] -> Text
-associatedDefaultAxiomName kinds info headTys =
-  "$ax$"
-    <> tyConName (atiTyCon info)
-    <> T.concat ["$" <> maybe "a" (typeSuffix kinds) (associatedClassArgument headTys maybeIndex) | maybeIndex <- atiClassParams info]
+-- | The axiom name of an instantiated associated type default. Each
+-- instance gives its own equation, thus the name comes from the
+-- dictionary name of the instance. The dictionary name is unique in its
+-- module, and the header and body passes agree on it.
+--
+-- The head types alone do not give a unique name. Two instances can have
+-- head types with the same constructor name from different modules, as
+-- @Ixed (Data.Vector.Vector a)@ and @Ixed (Data.Vector.Storable.Vector a)@.
+-- Two instances can also differ only in a class parameter that the family
+-- does not take, as @RecElem Rec r r' rs rs' 'Z@ and @RecElem Rec ... ('S
+-- i)@ for @RecElemFCtx record f@. Their equations are the same up to the
+-- open kinds of each instance, and GHC accepts these compatible equations.
+associatedDefaultAxiomName :: AssociatedTypeInfo -> Text -> Text
+associatedDefaultAxiomName info dictName =
+  "$ax$" <> tyConName (atiTyCon info) <> "$" <> fromMaybe dictName (T.stripPrefix "$f" dictName)
 
 typeArguments :: TcType -> [TcType]
 typeArguments ty =
@@ -4704,7 +4710,7 @@ registerInstanceDecl origin instanceDecl =
       -- type lambdas.
       tvIds <- resolveInstanceTyVars origin rawTvIds headTys
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
+      registerInstanceAssociatedTypes origin classInfo dictName tvIds headTys instanceDecl
       checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys context
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
