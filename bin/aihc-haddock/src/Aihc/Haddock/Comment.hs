@@ -39,9 +39,11 @@ import Aihc.Parser.Token
     lexModuleTokensWithSourceNameAndExtensions,
   )
 import Data.Char (isAlphaNum)
+import Data.Foldable (fold)
 import Data.List (partition)
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -196,7 +198,7 @@ spanStartColumn = sourceSpanStartCol
 -- parent that claims a @-- |@ comment hides it from its children, and a child
 -- that claims a @-- ^@ comment hides it from its parent.
 data CommentIndex = CommentIndex
-  { indexNext :: Map Int [DocComment],
+  { indexNext :: MonoidMap Int [DocComment],
     indexPrev :: [DocComment],
     indexNamed :: [DocComment],
     indexSections :: [DocComment]
@@ -205,7 +207,7 @@ data CommentIndex = CommentIndex
 buildCommentIndex :: [DocComment] -> CommentIndex
 buildCommentIndex comments =
   CommentIndex
-    { indexNext = Map.fromListWith (flip (<>)) [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
+    { indexNext = MonoidMap.fromList [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
       indexPrev = prevs,
       indexNamed = named,
       indexSections = sections
@@ -220,9 +222,9 @@ buildCommentIndex comments =
 -- offset.
 claimNextAt :: Int -> CommentIndex -> ([DocComment], CommentIndex)
 claimNextAt offset index =
-  case Map.lookup offset (indexNext index) of
-    Nothing -> ([], index)
-    Just comments -> (comments, index {indexNext = Map.delete offset (indexNext index)})
+  ( MonoidMap.get offset (indexNext index),
+    index {indexNext = MonoidMap.nullify offset (indexNext index)}
+  )
 
 -- | Claim the @-- ^@ comments whose preceding token lies inside the node span
 -- and that are indented past the enclosing item's column. Call this for
@@ -249,8 +251,8 @@ claimBetween sp index =
          in start <= cStart && cEnd <= end
       (sections, sections') = partition inside (indexSections index)
       (named, named') = partition inside (indexNamed index)
-      nextsInside = [c | cs <- Map.elems (indexNext index), c <- cs, inside c]
-      nexts' = Map.filter (not . null) (Map.map (filter (not . inside)) (indexNext index))
+      nextsInside = foldMap (filter inside) (indexNext index)
+      nexts' = MonoidMap.map (filter (not . inside)) (indexNext index)
       claimed = sortBySpan (sections <> named <> nextsInside)
    in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
   where
@@ -270,4 +272,4 @@ namedChunkComments index =
 -- | Everything that never found a node.
 unclaimedComments :: CommentIndex -> [DocComment]
 unclaimedComments index =
-  concat (Map.elems (indexNext index)) <> indexPrev index <> indexSections index
+  fold (indexNext index) <> indexPrev index <> indexSections index
