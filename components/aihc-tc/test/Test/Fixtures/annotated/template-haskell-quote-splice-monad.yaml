@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE TemplateHaskell #-}
+  module Test where
+  data Exp = Exp
+       │     └─ type: Exp
+       └─ type: Type
+  newtype Q a = Q a
+          │     └─ type: ∀ a. a → Q a
+          └─ type: Type → Type
+  class Quote m where
+  └─ class methods: newName ∷ ∀ m. (Quote m) ⇒ m Exp
+    newName :: m Exp
+  instance Quote Q where
+  └─ $fQuoteQ ∷ () ⇒ Quote Q
+    newName = Q Exp
+    │         └─ type: Exp → Q Exp; type-args: Exp
+    └─ newName ∷ Q Exp
+  quoted :: Q Exp
+  quoted = [| Exp $(spliced) |]
+  │        └─ type: Q Exp
+  └─ type: Q Exp
+    where
+      spliced = newName
+      │         └─ type: Q Exp; type-args: Q; evidence: $fQuoteQ
+      └─ type: Q Exp
+extensions:
+- TemplateHaskell
+modules:
+- |
+  {-# LANGUAGE TemplateHaskell #-}
+  module Test where
+  data Exp = Exp
+  newtype Q a = Q a
+  class Quote m where
+    newName :: m Exp
+  instance Quote Q where
+    newName = Q Exp
+  quoted :: Q Exp
+  quoted = [| Exp $(spliced) |]
+    where
+      spliced = newName
+reason: A splice in an untyped quote uses the monad of the quote
+status: pass
