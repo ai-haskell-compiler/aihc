@@ -165,6 +165,9 @@ data ValueState = ValueState
     -- fields of its dictionary. A dictionary match names its binders
     -- after them.
     vsClassMethods :: !(Map GlobalName [Text]),
+    -- | The superclass types of each class in scope, as the class declares
+    -- them. They tell which superclass fields are bare equality proofs.
+    vsClassSuperClasses :: !(Map GlobalName [TcType]),
     -- | A match argument that is in scope everywhere in the current match.
     -- A shared failure takes it as the parameter of its join point.
     vsJoinArgument :: !(Maybe (Binder, TcType)),
@@ -184,7 +187,9 @@ data PreparedValueInterface = PreparedValueInterface
     -- | Data types for constructor tag operations, by type constructor identity.
     preparedTagDataTypes :: !(Map (PackageId, Text, Text) DataTypeInfo),
     -- | Class method names by class type-constructor identity.
-    preparedClassMethods :: !(Map GlobalName [Text])
+    preparedClassMethods :: !(Map GlobalName [Text]),
+    -- | Declared superclass types by class type-constructor identity.
+    preparedClassSuperClasses :: !(Map GlobalName [TcType])
   }
 
 type ValueM = StateT ValueState (Either String)
@@ -277,6 +282,11 @@ prepareValueInterface interface =
         Map.fromList
           [ (Tc.tyConKey (ciTyCon info), map fst (ciMethods info))
           | info <- tcInterfaceClasses interface
+          ],
+      preparedClassSuperClasses =
+        Map.fromList
+          [ (Tc.tyConKey (ciTyCon info), ciSuperClassTypes info)
+          | info <- tcInterfaceClasses interface
           ]
     }
   where
@@ -363,6 +373,7 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsForeignImports = preparedForeignImports interface,
             vsTagDataTypes = preparedTagDataTypes interface,
             vsClassMethods = preparedClassMethods interface,
+            vsClassSuperClasses = preparedClassSuperClasses interface,
             vsJoinArgument = Nothing,
             vsMatchers = Set.empty
           }
@@ -5860,12 +5871,9 @@ desugarEvidence evidence =
       withCoercion proof $ \coercion ->
         pure (ExApp (foldl ExTyApp (ExVar (classDictConName constructor)) arguments) (ExCoercion coercion))
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
-    Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
-      resultPredicateType <-
-        case drop fieldIndex fieldTypes of
-          fieldType : _ -> pure fieldType
-          [] -> failValue "superclass field type index is outside the dictionary layout"
-      shareSuperClass evidence resultPredicateType (desugarSuperClass evidence)
+    Ev.EvSuperClass _ _ sourcePredicate fieldTypes fieldIndex -> do
+      resultType <- superClassResultType sourcePredicate fieldTypes fieldIndex
+      shareSuperClass evidence resultType (desugarSuperClass evidence)
     Ev.EvCast inner coercion -> do
       expression <- desugarEvidence inner
       withCoercion coercion (pure . ExCast expression)
@@ -5914,10 +5922,7 @@ desugarSuperClass evidence =
         case drop fieldIndex fieldBinders of
           field : _ -> pure field
           [] -> failValue "superclass field index is outside the dictionary layout"
-      resultType <-
-        case drop fieldIndex fieldTypes of
-          fieldType : _ -> convertCheckedType fieldType
-          [] -> failValue "superclass field type index is outside the dictionary layout"
+      resultType <- superClassResultType sourcePredicate fieldTypes fieldIndex
       pure
         ( caseFromList
             sourceExpression
@@ -5926,6 +5931,41 @@ desugarSuperClass evidence =
             [Alt (AltData (classDictConName classTyCon)) [] fieldBinders (ExVar (binderName selected))]
         )
     _ -> failValue "superclass projection expects superclass evidence"
+
+-- | The type of the superclass field that a projection selects.
+superClassResultType :: Pred -> [TcType] -> Int -> ValueM Type
+superClassResultType sourcePredicate fieldTypes fieldIndex = do
+  fields <-
+    case sourcePredicate of
+      ClassPred classTyCon _ -> dictionaryFieldTypes classTyCon fieldTypes
+      _ -> mapM convertCheckedType fieldTypes
+  case drop fieldIndex fields of
+    fieldType : _ -> pure fieldType
+    [] -> failValue "superclass field type index is outside the dictionary layout"
+
+-- | The System FC types of the fields of a class dictionary.
+--
+-- A superclass that the class declares as an equality, such as @a ~ b@ in
+-- @class (a ~ b) => C a b@, is a bare proof. A superclass that the class
+-- declares in a different form, such as @c1@ of the constraint tuple
+-- @(c1, c2)@, is a lifted value of the type that the class argument
+-- gives. When that argument is @a ~ b@, the field is the dictionary of the
+-- class @~@, and not the proof itself.
+dictionaryFieldTypes :: TyCon -> [TcType] -> ValueM [Type]
+dictionaryFieldTypes classTyCon fieldTypes = do
+  declared <- gets (Map.findWithDefault [] (Tc.tyConKey classTyCon) . vsClassSuperClasses)
+  env <- gets vsConvertEnv
+  let isEquality ty =
+        case Tc.collectTypeApplications ty of
+          (TcTyCon tyCon _, _) -> Tc.isEqualityTyCon (ceKinds env) tyCon
+          _ -> False
+      convert (Just declaredType) fieldType
+        | not (isEquality declaredType) =
+            case convertNestedType env fieldType of
+              Left message -> failValue (message <> " while converting " <> show fieldType)
+              Right converted -> pure converted
+      convert _ fieldType = convertCheckedType fieldType
+  zipWithM convert (map Just declared <> repeat Nothing) fieldTypes
 
 -- | One entry of the call stack of an occurrence with @HasCallStack@.
 desugarCallStackPush :: (Text, Text) -> Text -> Ev.CallSite -> Ev.EvTerm -> ValueM Expr
@@ -6623,11 +6663,11 @@ freshDictionaryFields classTyCon fieldTypes = do
       methodNames
         | superClassCount >= 0 = replicate superClassCount Nothing <> map Just methods
         | otherwise = map (const Nothing) fieldTypes
-  zipWithM field [0 :: Int ..] (zip fieldTypes methodNames)
+  convertedTypes <- dictionaryFieldTypes classTyCon fieldTypes
+  zipWithM field [0 :: Int ..] (zip convertedTypes methodNames)
   where
-    field index (fieldType, methodName) = do
+    field index (converted, methodName) = do
       unique <- freshUnique
-      converted <- convertCheckedType fieldType
       let text =
             case methodName of
               Just name -> "$c" <> name
@@ -7051,7 +7091,7 @@ closedDictionary expression =
 
 -- | Give a superclass projection a name, and reuse the name when the same
 -- projection appears again in the same scope.
-shareSuperClass :: Ev.EvTerm -> TcType -> ValueM Expr -> ValueM Expr
+shareSuperClass :: Ev.EvTerm -> Type -> ValueM Expr -> ValueM Expr
 shareSuperClass evidence resultType build = do
   scope <- gets vsEvidenceScope
   case scope of
@@ -7061,7 +7101,8 @@ shareSuperClass evidence resultType build = do
         Just binder -> pure (ExVar (binderName binder))
         Nothing -> do
           expression <- build
-          binder <- freshEvidenceBinder resultType
+          unique <- freshUnique
+          let binder = Binder (Name (evidenceBinderText resultType) SortValue (OriginLocal unique)) resultType
           -- The build step can open and close scopes of its own, so read the
           -- scope again rather than extending the one from before.
           modify' $ \state ->

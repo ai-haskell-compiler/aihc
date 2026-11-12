@@ -24,7 +24,7 @@ import Aihc.Parser.Syntax (pattern SourceSpan)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
@@ -425,7 +425,7 @@ solveNormalizedDict visited givens ct
                   let visibleSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                   substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
                   let fieldTypes = classFieldTypes info substitution
-                  case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
+                  case traverse (superClassPred kinds substitution) (ciSuperClassTypes info) of
                     Just superClasses -> do
                       -- A superclass is compared in the same normal form as
                       -- the wanted: families reduced, and a family-headed
@@ -704,7 +704,7 @@ solveNormalizedDict visited givens ct
                               ]
                       classSubstitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
                       let fieldTypes = classFieldTypes info classSubstitution
-                      case traverse (constraintTypeToPred kinds . applySubst classSubstitution) (ciSuperClassTypes info) of
+                      case traverse (superClassPred kinds classSubstitution) (ciSuperClassTypes info) of
                         Nothing -> pure Nothing
                         Just superClasses -> do
                           normalized <- mapM normalizeGiven superClasses
