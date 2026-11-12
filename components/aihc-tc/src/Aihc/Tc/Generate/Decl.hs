@@ -1293,11 +1293,18 @@ defaultGlobalKindMetas initialKeys = do
       -- already instantiates each kind variable of the family. The
       -- equation then does not use the variable of the family, and an
       -- axiom binder that no side uses never matches.
+      -- The right-hand side can give the result kind, as @x :: Type@ in
+      -- @Fst (x, y) = x@ for @Fst :: forall k k'. k -> k'@. The equation then
+      -- instantiates @k'@ at that kind, as in GHC, and does not bind it.
+      kinds <- getKinds
+      kindEnv <- lift (gets (Map.map tciKindScheme . tcsGlobalTyCons))
       let bound = map tvUnique tyVars
+          rightGivesResultKind = isJust (familyEquationRightKind kinds kindEnv (closeKindVariables tyVars) right)
           resultOnly =
             case familyInfo of
               Just tyConInfo
                 | hasExplicitKindArguments (tfiiLeft info) -> []
+                | rightGivesResultKind -> []
                 | ForAll variables _ body <- tciKindScheme tyConInfo ->
                     let (parameters, result) = splitKindArrows (tyConArity (tciTyCon tyConInfo)) body
                         parameterVariables = map tvUnique (concatMap freeKindVariables parameters)

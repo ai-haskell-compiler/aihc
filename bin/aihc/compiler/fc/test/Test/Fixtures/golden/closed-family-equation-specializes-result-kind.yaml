@@ -1,0 +1,38 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    type family Fst (t :: k) :: k' where
+      Fst '(x, y) = x
+      Fst (x, y) = x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tFst (k : sType) (k' : sType) (t : k) :: k' @N @N @N {}
+
+  axiom 1.$ax$Fst$0 (k0 : sType) (k1 : sType) (x : k0) (y : k1) : tFst (tTuple2 k0 k1) k0 (c(,) k0 k1 x y) ~N x
+
+  axiom 1.$ax$Fst$1 (x : sType) (y : sType) : tFst sType sType (tTuple2 x y) ~N x
+status: pass
+reason: Fst has the result kind k', which no argument determines. Each equation instantiates k' at the kind of its right-hand side, as GHC does. Before the fix, each equation bound k' as a new variable, and the FC lint found a kind mismatch between the two sides of the axiom.
