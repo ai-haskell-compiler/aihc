@@ -57,15 +57,15 @@ import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (mfilter, when, zipWithM)
+import Control.Monad (forM_, mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Char (isLower)
+import Data.Char (isLower, isUpper)
 import Data.Data (Data, cast, gmapQ)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
@@ -915,6 +915,8 @@ isGuardedArgument expr =
     EApp fun _ -> isGuardedArgument fun
     ETypeApp fun _ -> isGuardedArgument fun
     EInfix {} -> True
+    ESectionL {} -> True
+    ESectionR {} -> True
     EParen inner -> isGuardedArgument inner
     EPragma _ inner -> isGuardedArgument inner
     EAnn ann inner
@@ -991,8 +993,14 @@ applicationSpine expected ambient expr = do
   case (expected, spineResultType headTy frames) of
     (Just expectedTy, Just resultType)
       | not (isPolyType expectedTy),
-        any frameNeedsExpectedType frames ->
+        any frameNeedsExpectedType frames -> do
           quickLookUnify instantiationVariables expectedTy resultType
+          -- A GADT constructor relates its result to its fields by an
+          -- equality: @(:*) :: (ys ~ (x ': xs)) => f x -> NP f xs -> NP f
+          -- ys@. The result type only fixes @ys@. A look at the equality
+          -- then fixes @x@ and @xs@ before a field is checked.
+          forM_ [(left, right) | ct <- headCts, EqPred left right <- [ctPred ct]] $
+            uncurry (quickLookUnify instantiationVariables)
     _ -> pure ()
   (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
   case expected of
@@ -1023,9 +1031,25 @@ guidedArgument (StepArg plan) = case argPlanArgument plan of
 guidedArgument _ = False
 
 frameNeedsExpectedType :: SpineFrame -> Bool
-frameNeedsExpectedType (SpineValueArg _ argument) = checksExpectedResult argument
-frameNeedsExpectedType (SpineInfixRhs _ argument) = checksExpectedResult argument
+frameNeedsExpectedType (SpineValueArg _ argument) = containsCheckedArgument argument
+frameNeedsExpectedType (SpineInfixRhs _ argument) = containsCheckedArgument argument
 frameNeedsExpectedType _ = False
+
+-- | Whether an argument checks against its expected type, or is an
+-- application that has such an argument. In @Comp . (\ns -> case ns of Z
+-- fx -> Some fx) . unK@, the operand @(\ns -> ...) . unK@ is an
+-- application, but its lambda checks a case under the givens of @Z@.
+-- Thus the result type must fix the types before that lambda.
+containsCheckedArgument :: Expr -> Bool
+containsCheckedArgument expression
+  | checksExpectedResult expression = True
+  | otherwise = case expression of
+      EInfix lhs _ rhs -> containsCheckedArgument lhs || containsCheckedArgument rhs
+      EApp function argument -> containsCheckedArgument function || containsCheckedArgument argument
+      EParen inner -> containsCheckedArgument inner
+      EPragma _ inner -> containsCheckedArgument inner
+      EAnn _ inner -> containsCheckedArgument inner
+      _ -> False
 
 spineResultType :: TcType -> [SpineFrame] -> Maybe TcType
 spineResultType ty [] = Just ty
@@ -1038,6 +1062,48 @@ spineResultType ty (frame : rest) = case frame of
     resultAfterArgument = case ty of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
+
+-- | Whether an argument gives its fresh type variables to the quick look of
+-- the spine: a bare data constructor, as @Comp@, or an operator section,
+-- as @(<$ ctx)@. In @(<$ ctx) <$> case accum of Add w -> ...@ of
+-- @fused-effects@, the section fixes the element type of @<$>@ at the
+-- type @a@ of the result before the GADT branches are checked. The name
+-- of a data constructor starts with an upper-case letter or a colon.
+isConstructorArgument :: Expr -> Bool
+isConstructorArgument expr =
+  case expr of
+    EVar name -> case T.uncons (nameText name) of
+      Just (first, _) -> isUpper first || first == ':'
+      Nothing -> False
+    ESectionL {} -> True
+    ESectionR {} -> True
+    EParen inner -> isConstructorArgument inner
+    EPragma _ inner -> isConstructorArgument inner
+    EAnn _ inner -> isConstructorArgument inner
+    _ -> False
+
+-- | Whether an argument is an operator section.
+isSectionArgument :: Expr -> Bool
+isSectionArgument expr =
+  case expr of
+    ESectionL {} -> True
+    ESectionR {} -> True
+    EParen inner -> isSectionArgument inner
+    EPragma _ inner -> isSectionArgument inner
+    EAnn _ inner -> isSectionArgument inner
+    _ -> False
+
+-- | Whether a type family application is part of a type.
+mentionsFamily :: (TyCon -> Bool) -> TcType -> Bool
+mentionsFamily family = go
+  where
+    go ty = case ty of
+      TcTyCon tyCon arguments -> family tyCon || any go arguments
+      TcFunTy argument result -> go argument || go result
+      TcAppTy function argument -> go function || go argument
+      TcForAllTy _ body -> go body
+      TcQualTy _ body -> go body
+      _ -> False
 
 -- | Whether a polytype is part of a type.
 mentionsPolyType :: TcType -> Bool
@@ -1167,13 +1233,37 @@ planSpine = go
             -- Only an argument with a polytype in its type needs this. Any
             -- other argument leaves its variables to the solver, which
             -- reduces a type family before it binds one.
+            --
+            -- A data constructor without a type family application in
+            -- either type also gives its variables. In @Comp . (\ns -> case
+            -- ns of Z fx -> Some fx)@, the result type then fixes @Comp@ at
+            -- @f (g x)@. Thus the branch @Z fx@, checked later under its
+            -- givens, does not fix the open @x@ of @Comp@ at the
+            -- existential of @Z@. A variable keeps its old behavior: its
+            -- type can relate to a given of the enclosing scope.
             zonkedArgTy <- zonkType argTy
+            zonkedExpectedArgTy <- zonkType expectedArgTy
+            family <- isTypeFamilyTyCon
             let Unique boundaryKey = boundary
+                familyFree =
+                  isConstructorArgument arg
+                    && not (any (mentionsFamily family) (zonkedArgTy : zonkedExpectedArgTy : concat [[left, right] | (left, right) <- sectionEqualities]))
+                sectionEqualities = [(left, right) | isSectionArgument arg, ct <- argCts, EqPred left right <- [ctPred ct]]
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
+                  | mentionsPolyType zonkedArgTy || familyFree =
+                      IntSet.fromList
+                        [ key
+                        | Unique key <- typeMetaVariables zonkedArgTy <> concat [typeMetaVariables left <> typeMetaVariables right | (left, right) <- sectionEqualities],
+                          key >= boundaryKey
+                        ]
                   | otherwise = IntSet.empty
                 extended = IntSet.union instantiationVariables' argumentVariables
             quickLookUnify extended expectedArgTy argTy
+            -- An operator section gets its type from equality wanteds, as
+            -- @(<$ ctx)@ has the type @t1 -> t2@ with @f t1 ~ t2@. A look
+            -- at them gives the structure of that type.
+            when familyFree $
+              forM_ sectionEqualities (uncurry (quickLookUnify extended))
             pure (ArgInferred boundary arg' argTy argCts, extended)
           else pure (ArgDeferred arg, instantiationVariables')
       let plan =
@@ -1298,6 +1388,14 @@ checkHigherRankArgument sp expectedTy arg
       (arg', actualTy, argCts) <- inferExpr arg
       checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts
 
+-- | Whether a given is an equality. Only an equality can prove that two
+-- types that do not unify are equal.
+isEqualityGiven :: Pred -> Bool
+isEqualityGiven predicate =
+  case predicate of
+    EqPred {} -> True
+    _ -> False
+
 -- | Check an already inferred argument against a polytype. The boundary
 -- was taken before the inference: a meta-variable older than it must not
 -- mention the skolems.
@@ -1313,15 +1411,22 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- An equality that a stuck type family application leaves undecided
   -- becomes a wanted: the meta variable that blocks the reduction may
   -- only be solved by a later part of the enclosing binding.
+  --
+  -- A given of the enclosing scope can also be necessary. In @instance
+  -- (pty ~ Basic) => Mask (Program pty n)@, the argument @f :: forall b.
+  -- Program Basic n b -> ...@ of @mb :: (forall a. Program pty n a -> ...)
+  -- -> ...@ needs the given @pty ~ Basic@.
+  outerGivens <- getGivenPredicates
+  let underGivens = not (null predicates) || any isEqualityGiven outerGivens
   deferred <-
-    if null predicates
-      then unifyDeferring sp (AppOrigin sp) actualTy expectedBody
-      else unifyDeferringUnderGivens sp actualTy expectedBody
+    if underGivens
+      then unifyDeferringUnderGivens sp actualTy expectedBody
+      else unifyDeferring sp (AppOrigin sp) actualTy expectedBody
   -- Under givens, a deferred equality can need them, as @StM m a ~ a@
   -- needs the given @Pure m a@. Then the argument gets a cast to the
   -- expected type, and the proof of the cast can use the givens.
   (castArg, deferredCts) <-
-    if null predicates || null deferred
+    if not underGivens || null deferred
       then (arg',) <$> mapM deferredConstraint deferred
       else do
         evidence <- freshEvVar

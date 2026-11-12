@@ -1,0 +1,59 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (ZipList (..))
+    import Data.Complex (Complex (..))
+    import Data.Functor.Const (Const (..))
+    import Data.Functor.Identity (Identity (..))
+    import Data.Functor.Product (Product (..))
+    import Data.Functor.Sum (Sum (..))
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Data.Monoid (Alt (..), Dual (..))
+    import Data.Ord (Down (..))
+    import Data.Semigroup (Arg (..), Max (..))
+    import Data.Version (Version (..))
+    import GHC.Generics
+    import Prelude
+    import System.Exit (ExitCode (..))
+
+    -- Each map goes through the Generic1 representation of the type.
+    bump :: (Generic1 f, Functor (Rep1 f)) => f Int -> f Int
+    bump value = case fmap (+ 1) (Generically1 value) of Generically1 result -> result
+
+    roundTrip :: (Generic a) => a -> a
+    roundTrip value = to (from value)
+
+    constructorName :: (Generic a, Constructor c, Rep a ~ D1 d (C1 c f)) => a -> String
+    constructorName value = conName (unM1 (from value))
+
+    result :: Bool
+    result =
+      bump ('a', 1) == ('a', 2)
+        && bump ('a', 'b', 'c', 'd', 'e', 'f', 1) == ('a', 'b', 'c', 'd', 'e', 'f', 2)
+        && bump [1, 2] == [2, 3]
+        && bump (Just 1) == Just 2
+        && bump (Right 1 :: Either Char Int) == Right 2
+        && bump (1 :| [2]) == (2 :| [3])
+        && runIdentity (bump (Identity 1)) == 2
+        && getDown (bump (Down 1)) == 2
+        && getDual (bump (Dual 1)) == 2
+        && getMax (bump (Max 1)) == 2
+        && getZipList (bump (ZipList [1])) == [2]
+        && getAlt (bump (Alt (Just 1))) == Just 2
+        && bump (Arg 'x' 1) == Arg 'x' 2
+        && bump (1 :+ 2) == (2 :+ 3)
+        && (case bump (Pair [1] (Just 2)) of Pair xs m -> xs == [2] && m == Just 3)
+        && (case bump (InR (Just 1) :: Sum [] Maybe Int) of InR m -> m == Just 2; InL _ -> False)
+        && getConst (roundTrip (Const 5 :: Const Int Bool)) == 5
+        && getZipList (roundTrip (ZipList "z")) == "z"
+        && versionBranch (roundTrip (Version [1, 2] [])) == [1, 2]
+        && roundTrip (ExitFailure 3) == ExitFailure 3
+        && roundTrip RightAssociative == RightAssociative
+        && constructorName (Down 'd') == "Down"
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: aihc-base has the Generic and Generic1 instances that GHC base gives for its types.

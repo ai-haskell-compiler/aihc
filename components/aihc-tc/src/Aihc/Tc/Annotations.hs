@@ -39,6 +39,7 @@ module Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcDerivedInstance (..),
+    TcDerivingClauseInstance (..),
     TcCoercedDeriving (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
@@ -445,6 +446,14 @@ newtype TcCoercedDeriving = TcCoercedDeriving TcDerivingPlan
 -- | An instance that @deriving@ generated rather than the source. Such an
 -- instance may leave methods to the desugarer without a warning.
 data TcDerivedInstance = TcDerivedInstance
+  deriving (Eq, Show)
+
+-- | An instance that a @deriving@ clause of a data declaration generated.
+-- A standalone @deriving instance@ does not have it. GHC checks the
+-- functional dependencies of such an instance with the liberal coverage
+-- condition, also without UndecidableInstances, because the user did not
+-- write its context.
+data TcDerivingClauseInstance = TcDerivingClauseInstance
   deriving (Eq, Show)
 
 -- | Checked evidence and casts for a derived instance that reuses another

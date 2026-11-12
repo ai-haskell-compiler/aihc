@@ -1,0 +1,36 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, PolyKinds, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances #-}
+  module A where
+  import GHC.Types (Type, Constraint)
+  data B = T | F
+       │   │   └─ type: B
+       │   └─ type: B
+       └─ type: Type
+  class C (record :: (k -> Type) -> Type) (i :: B) where
+  └─ class methods:
+    type Ctx record (f :: k -> Type) :: Constraint
+         └─ type: ((k → Type) → Type) → (k0 → Type) → GHC.Types.Constraint
+    type Ctx record f = ()
+  data R (f :: k -> Type) = R
+       │                    └─ type: ∀ k f. R f
+       └─ type: (k → Type) → Type
+  instance C R 'T
+  └─ $fCRT ∷ ∀ k0. () ⇒ C R 'T [associated types: Ctx R a = CTuple0]
+  instance C R 'F
+  └─ $fCRF ∷ ∀ k0. () ⇒ C R 'F [associated types: Ctx R a = CTuple0]
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, PolyKinds, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances #-}
+  module A where
+  import GHC.Types (Type, Constraint)
+  data B = T | F
+  class C (record :: (k -> Type) -> Type) (i :: B) where
+    type Ctx record (f :: k -> Type) :: Constraint
+    type Ctx record f = ()
+  data R (f :: k -> Type) = R
+  instance C R 'T
+  instance C R 'F
+reason: Two instances with the same head type give the same class default equation of a poly-kinded associated type. Each instance gets its own axiom, and GHC accepts the two compatible equations.
+status: pass

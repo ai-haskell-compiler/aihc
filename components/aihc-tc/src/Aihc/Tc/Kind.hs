@@ -3,6 +3,7 @@
 
 module Aihc.Tc.Kind
   ( TvKindEnv,
+    quantifiableKind,
     typeVariableUniques,
     instanceHeadArguments,
     ParamInfo (..),
@@ -205,9 +206,15 @@ explicitForallNames ty = map tyVarBinderName (fst (splitForalls ty))
 -- variables of an explicit outer @forall@ scope, as in GHC. The given
 -- variables are the opened variables of the checked scheme; they keep the
 -- source names.
+--
+-- The scheme can also hold a variable with the same name after the outer
+-- variables. The prenex form floats it out of a synonym, as the @i@ of
+-- @type Lens s t a b = forall p i. ...@ in @forall i. C i => Lens s t a
+-- b@. The outer variable comes first, and only it scopes.
 scopedSigTyVars :: [Text] -> [TyVarId] -> Map Text (TyVarId, TcType)
 scopedSigTyVars explicitNames tyVars =
-  Map.fromList
+  Map.fromListWith
+    (\_ outer -> outer)
     [ (tvName tyVar, (tyVar, tvKind tyVar))
     | tyVar <- tyVars,
       tvName tyVar `elem` explicitNames
@@ -363,7 +370,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TStar {} ->
       knownType tcWiringTypeTyCon
     TApp f a -> do
-      function <- convertSurfaceTypeWithKinds tvEnv f
+      function <- convertApplicationHead tvEnv f
       applyOneArgument tvEnv function a
     TTypeApp {}
       | (TCon name _, kindArguments@(_ : _)) <- kindApplicationSpine ty -> do
@@ -432,7 +439,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       -- it otherwise.
       nil <- wiredTyConIdentity tcWiringNilDataCon
       list <- wiredTyConIdentity tcWiringListTyCon
-      expected' <- zonkKind expected
+      expected' <- zonkKind expected >>= refineGivenKind
       let kept = case (innerTy, expected') of
             (TcTyCon tyCon [], TcTyCon listTyCon [element])
               | tyCon == nil, listTyCon == list -> kindedTyCon tyCon [element]
@@ -638,6 +645,19 @@ applyKindArgument tvEnv instantiated argument = do
   expectedKind <- tcTypeKind instantiated
   argumentType <- checkSurfaceType tvEnv argument expectedKind
   unifyKindsAt (surfaceTypeSpan argument) instantiated argumentType
+
+-- | Convert the head of a type application.
+--
+-- A wildcard head, as in @LookupParam (a (_ m)) n@, stands for a type
+-- function. Its kind is not a kind of values, thus it gets a fresh kind
+-- and not the open @TYPE rep@ of a wildcard without an expectation.
+convertApplicationHead :: TvKindEnv -> Type -> TcM (TcType, TcType)
+convertApplicationHead tvEnv function
+  | isWildcardArgument function = do
+      kind <- freshKindMeta
+      meta <- checkSurfaceType tvEnv function kind
+      pure (meta, kind)
+  | otherwise = convertSurfaceTypeWithKinds tvEnv function
 
 -- | Whether an argument is a bare wildcard, once parentheses and source
 -- annotations are peeled off.
@@ -978,7 +998,7 @@ kindedTyConUse info = do
   forM_ (instTypeArgs instantiation) $ \case
     TcMetaTv unique -> do
       kind <- readMetaTvKind unique >>= zonkKind
-      when (kind == typeKind kinds) (trackKindMeta unique)
+      when (quantifiableKind kinds kind) (trackKindMeta unique)
     _ -> pure ()
   pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
 
@@ -1013,6 +1033,17 @@ kindedPartialTyCon ty =
               pure (Just (applied, resultKind))
         _ -> pure Nothing
     _ -> pure Nothing
+
+-- | Whether an open kind meta of this kind becomes a kind variable. A
+-- kind variable of kind 'Type' does, and so does a higher-kinded one, as
+-- the @f :: Type -> Type -> Type@ of @data First :: (a -> Exp b) -> f a c
+-- -> Exp (f b c)@ in an equation for @First f x@. A runtime
+-- representation or a levity defaults instead.
+quantifiableKind :: TcKinds -> TcType -> Bool
+quantifiableKind kinds kind =
+  case kind of
+    TcFunTy argument result -> quantifiableKind kinds argument && quantifiableKind kinds result
+    _ -> kind == typeKind kinds
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = snd <$> kindedTyConUse info
@@ -1195,11 +1226,60 @@ unifyKindsAt sp expected actual = do
       unifyKindsAt sp leftArgument rightArgument >> unifyKindsAt sp leftResult rightResult
     (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
       unifyKindsAt sp leftFunction rightFunction >> unifyKindsAt sp leftArgument rightArgument
+    -- An application @f a@ unifies with a saturated constructor application
+    -- @[] Type@: the head takes all arguments but the last one. A kind
+    -- variable @f :: Type -> Type@ in @data Map :: (a -> Exp b) -> f a ->
+    -- Exp (f b)@ gets the kind @f a@, and a use site gives @[Type]@.
+    --
+    -- The split is homogeneous, as in GHC: the two arguments must have the
+    -- same kind. @f a ~ Type@ is @f a ~ TYPE LiftedRep@, and @a :: Type@
+    -- cannot be @LiftedRep :: RuntimeRep@. Thus the kinds of the arguments
+    -- unify first, and a mismatch there rejects the split.
+    (TcAppTy function argument, TcTyCon tyCon arguments@(_ : _)) ->
+      splitApplication function argument (TcTyCon tyCon (init arguments)) (last arguments)
+    (TcTyCon tyCon arguments@(_ : _), TcAppTy function argument) ->
+      splitApplication function argument (TcTyCon tyCon (init arguments)) (last arguments)
     (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody)
       | leftVar == rightVar -> unifyKindsAt sp leftBody rightBody
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
       | leftPredicates == rightPredicates -> unifyKindsAt sp leftBody rightBody
-    _ -> emitError sp (KindMismatch expected' actual')
+    _ -> mismatch
+  where
+    mismatch = do
+      expected' <- zonkKind expected >>= refineGivenKind
+      actual' <- zonkKind actual >>= refineGivenKind
+      emitError sp (KindMismatch expected' actual')
+    -- Unify @function argument@ with @tyConHead lastArgument@.
+    splitApplication function argument tyConHead lastArgument = do
+      argumentKind <- tcTypeKind argument >>= zonkKind
+      lastKind <- tcTypeKind lastArgument >>= zonkKind
+      if kindsCanAgree argumentKind lastKind
+        then do
+          unifyKindsAt sp argumentKind lastKind
+          unifyKindsAt sp function tyConHead
+          unifyKindsAt sp argument lastArgument
+        else mismatch
+
+-- | Whether two kinds can unify: no rigid part of one differs from the
+-- same part of the other. A meta variable on either side can take any
+-- kind. This is a check before a split, so that a split that cannot be
+-- well kinded reports the kinds that the caller unified.
+kindsCanAgree :: TcType -> TcType -> Bool
+kindsCanAgree left right =
+  case (left, right) of
+    (TcMetaTv {}, _) -> True
+    (_, TcMetaTv {}) -> True
+    (TcTyCon leftTyCon leftArguments, TcTyCon rightTyCon rightArguments) ->
+      leftTyCon == rightTyCon
+        && length leftArguments == length rightArguments
+        && and (zipWith kindsCanAgree leftArguments rightArguments)
+    (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+      kindsCanAgree leftArgument rightArgument && kindsCanAgree leftResult rightResult
+    (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+      kindsCanAgree leftFunction rightFunction && kindsCanAgree leftArgument rightArgument
+    (TcAppTy {}, TcTyCon _ (_ : _)) -> True
+    (TcTyCon _ (_ : _), TcAppTy {}) -> True
+    _ -> left == right
 
 -- | Use scoped equality evidence when a pattern refines a kind variable.
 -- With no equality in scope there is nothing to rewrite with, and the walk
@@ -1504,11 +1584,20 @@ settleKindMetas defer kind =
           pure defaulted
         Nothing -> do
           tracked <- isTrackedKindMeta unique
+          kinds <- getKinds
+          metaKind <- readMetaTvKind unique >>= zonkKind
           case (tracked, defer) of
             (False, _) -> pure kind
+            -- A meta of a higher kind, as the @f :: Type -> Type@ of a bare
+            -- poly-kinded constructor, cannot be 'Type'. It settles to
+            -- @Any@ at its own kind, as in GHC.
+            (True, _)
+              | metaKind /= typeKind kinds -> do
+                  settledKind <- recur metaKind
+                  undetermined <- undeterminedTypeOfKind settledKind
+                  writeMetaTv unique undetermined >> pure undetermined
             (True, Just onDefer) -> onDefer unique >> pure kind
-            (True, Nothing) -> do
-              kinds <- getKinds
+            (True, Nothing) ->
               writeMetaTv unique (typeKind kinds) >> pure (typeKind kinds)
     TcTyVar tyVar -> do
       kind' <- recur (tvKind tyVar)

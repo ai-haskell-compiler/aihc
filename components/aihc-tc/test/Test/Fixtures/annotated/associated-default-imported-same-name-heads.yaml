@@ -1,0 +1,49 @@
+annotated:
+- |-
+  module A where
+  data Vector a = Vector
+       │          └─ type: ∀ a. Vector a
+       └─ type: Type → Type
+- |-
+  module B where
+  data Vector a = Vector
+       │          └─ type: ∀ a. Vector a
+       └─ type: Type → Type
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module C where
+  import qualified A
+  import qualified B
+  class Ixed m where
+  └─ class methods:
+    type IxKind m
+         └─ type: Type → Type
+    type IxKind m = Int
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  instance Ixed (A.Vector a)
+  └─ $fIxedVectora ∷ ∀ a. () ⇒ Ixed (Vector a) [associated types: IxKind (Vector a) = Int]
+  instance Ixed (B.Vector a)
+  └─ $fIxedVectora$B ∷ ∀ a. () ⇒ Ixed (Vector a) [associated types: IxKind (Vector a) = Int]
+extensions: []
+modules:
+- |
+  module A where
+  data Vector a = Vector
+- |
+  module B where
+  data Vector a = Vector
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module C where
+  import qualified A
+  import qualified B
+  class Ixed m where
+    type IxKind m
+    type IxKind m = Int
+  data Int = Int
+  instance Ixed (A.Vector a)
+  instance Ixed (B.Vector a)
+reason: The class default of an associated type gives one equation for each instance. Two instance heads with the same type constructor name from different modules get different axioms.
+status: pass

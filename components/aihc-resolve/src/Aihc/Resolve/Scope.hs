@@ -519,12 +519,44 @@ exportedScopeFor package exports extensions modu = \case
     -- constructors in this module, so @U.Vector (BitVec)@ names the family
     -- through the qualifier and the constructor unqualified. The scope of
     -- the qualifier comes first, so the type resolves as in 'exportSource'.
+    --
+    -- A member can also be in scope only qualified. @import M (T)@ with
+    -- @import qualified M as Q@ puts the constructors of @T@ in scope as
+    -- @Q.C@ only, and an item @T (..)@ exports them, as in GHC. The
+    -- qualified scopes come last, thus an unqualified member wins.
     bundledMemberScope name =
-      case nameQualifier name of
-        Nothing -> availableScope
-        Just qualifier
-          | qualifier == moduleKey modu -> availableScope
-          | otherwise -> exportSource name `unionScope` availableScope
+      List.foldl' unionScope directMemberScope (qualifiedMemberScopes name)
+      where
+        directMemberScope =
+          case nameQualifier name of
+            Nothing -> importedTypeFirst availableScope
+            Just qualifier
+              | qualifier == moduleKey modu -> importedTypeFirst availableScope
+              | otherwise -> exportSource name `unionScope` availableScope
+        -- The fields of an imported type are entities of the module that
+        -- declares the type. The module can declare duplicate fields with
+        -- the same labels: @Data.Bytes.Types@ of @byteslice@ re-exports
+        -- @Bytes (..)@ and declares @array@ for @MutableBytes@ too. The
+        -- label then names the selector of this module. Thus the members
+        -- that the imports give for a type that the module imports come
+        -- first. Only those members: a local data instance of an imported
+        -- family has its own fields, and an imported term with the name of
+        -- such a field must not replace it.
+        importedTypeFirst scope
+          | Map.notMember (nameText name) (scopeTypes ownScope),
+            Map.member (nameText name) (scopeTypes imported) =
+              emptyScope {scopeTerms = Map.restrictKeys (scopeTerms imported) (Set.fromList (allTypeMembers (nameText name) imported))}
+                `unionScope` scope
+          | otherwise = scope
+
+    qualifiedMemberScopes name =
+      case Map.lookup (nameText name) (scopeTypes (exportSource name)) of
+        Nothing -> []
+        Just resolvedType ->
+          [ qualifiedScope
+          | qualifiedScope <- Map.elems (scopeQualifiedModules availableScope),
+            Map.lookup (nameText name) (scopeTypes qualifiedScope) == Just resolvedType
+          ]
 
 -- | The part of a qualified scope that a @module X@ export item names: the
 -- entries that the unqualified scope resolves to the same entity. A name

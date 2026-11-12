@@ -311,8 +311,26 @@ instance (Ix i, Ord e) => Ord (Array i e) where
       _ -> left
 
 instance (Ix i, Show i, Show e) => Show (Array i e) where
-  showsPrec _ array' =
-    showString "array " . shows (bounds array') . showChar ' ' . shows (assocs array')
+  showsPrec precedence array' =
+    showParen (precedence > 10)
+      $ showString "array "
+      . showsPrec 11 (bounds array')
+      . showChar ' '
+      . showsPrec 11 (assocs array')
+
+-- | The text is the output of 'show': @array@, the bounds, and the
+-- associations, as in GHC.
+instance (Ix i, Read i, Read e) => Read (Array i e) where
+  readsPrec precedence =
+    readParen
+      (precedence > 10)
+      ( \input ->
+          [ (array bounds' associations, rest)
+          | ("array", afterName) <- lex input,
+            (bounds', afterBounds) <- readsPrec 11 afterName,
+            (associations, rest) <- readsPrec 11 afterBounds
+          ]
+      )
 
 newSTArray :: (Ix i) => (i, i) -> e -> ST s (STArray s i e)
 newSTArray bounds' = newRawSTArray bounds' (safeRangeSize bounds')

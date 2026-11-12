@@ -1,0 +1,35 @@
+extensions:
+  - MagicHash
+  - TypeFamilies
+  - FlexibleContexts
+modules:
+  - |
+    {-# LANGUAGE MagicHash, TypeFamilies, FlexibleContexts #-}
+    module Test where
+    import GHC.Types (Coercible, Type)
+    import GHC.Prim (unsafeCoerce#)
+    coerce :: Coercible a b => a -> b
+    coerce = unsafeCoerce#
+    type family R (a :: Type) :: Type -> Type
+    coerceRep :: Coercible (R a) (R b) => R a x -> R b x
+    coerceRep = coerce
+annotated:
+- |-
+  {-# LANGUAGE MagicHash, TypeFamilies, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Coercible, Type)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  type family R (a :: Type) :: Type -> Type
+              └─ type: Type → Type → Type
+  coerceRep :: Coercible (R a) (R b) => R a x -> R b x
+  coerceRep = coerce
+  │           └─ type: R a x → R b x; type-args: R a x, R b x; evidence: coercible @R a x @R b x
+  └─ type: ∀ a b x. (GHC.Types.Coercible (R a) (R b)) ⇒ R a x → R b x
+reason: a type family applied to more arguments than its arity is an
+  application of the saturated family, thus the given Coercible (R a) (R b)
+  solves the wanted Coercible (R a x) (R b x)
+status: pass

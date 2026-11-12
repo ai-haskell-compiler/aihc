@@ -52,8 +52,8 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
             [ congruence seen source target,
               if unwrap then unwrapTarget seen source target else pure Nothing,
               if unwrap then unwrapSource seen source target else pure Nothing,
-              familyProof source target,
-              fmap mkSym <$> familyProof target source
+              familyTarget seen source target,
+              familySource seen source target
             ]
       where
         seen = (source, target) : visited
@@ -76,6 +76,25 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
             length sourceArguments == length targetArguments -> do
               proofs <- sequence <$> zipWithM (argumentProof visited sourceConstructor) [0 ..] (zip sourceArguments targetArguments)
               pure ((\argumentProofs -> TyConAppCo sourceConstructor sourceArguments argumentProofs []) <$> proofs)
+        -- An application of a type variable, as the @b (StM m a)@ of
+        -- @RunInBase m b@. The argument of an unknown function has the
+        -- nominal role, thus it gets a proof without newtype axioms.
+        (TcAppTy sourceFunction sourceArgument, TcAppTy targetFunction targetArgument) -> do
+          function <- go visited sourceFunction targetFunction
+          argument <-
+            if unwrap
+              then nominalCoercionBetween equations sourceArgument targetArgument
+              else go visited sourceArgument targetArgument
+          pure (AppCo <$> function <*> argument)
+        -- A qualified type with the same class predicates on both sides, as
+        -- the @Monad n => t n b -> n (StT t b)@ of @Run t@. System FC passes
+        -- a dictionary as a function argument, thus each predicate is the
+        -- reflexive domain of a function coercion.
+        (TcQualTy sourcePredicates sourceBody, TcQualTy targetPredicates targetBody)
+          | sourcePredicates == targetPredicates,
+            Just dictionaryTypes <- mapM dictionaryType sourcePredicates -> do
+              body <- go visited sourceBody targetBody
+              pure (flip (foldr (FunCo . Refl)) dictionaryTypes <$> body)
         _ -> pure Nothing
 
     -- An axiom proves @target ~ representation@, so a proof of
@@ -96,22 +115,33 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
         Nothing -> pure Nothing
         Just (representation, axiom) -> use representation axiom
 
+    -- An axiom proves @target ~ reduct@. The search continues from the
+    -- reduct, because the other side can need a reduction too, as in
+    -- @Element [Output] ~ Element Outputs@, where both sides reduce to
+    -- @Output@.
+    familyTarget visited source target = do
+      reductions <- familyReductions target
+      firstJustM [fmap (\inner -> mkTrans inner (mkSym axiom)) <$> go visited source reduct | (reduct, axiom) <- reductions]
+
+    familySource visited source target = do
+      reductions <- familyReductions source
+      firstJustM [fmap (mkTrans axiom) <$> go visited reduct target | (reduct, axiom) <- reductions]
+
     -- The equations are the associated types of the instance and the open
-    -- equations of the target's family, such as a top-level
+    -- equations of the family, such as a top-level
     -- @type instance Element (NonNull mono) = Element mono@. A closed
     -- equation is not used, because its match also needs an apartness check.
-    familyProof source target = do
-      openEquations <- case target of
+    -- Each reduction comes with the axiom that proves @ty ~ reduct@.
+    familyReductions ty = do
+      openEquations <- case ty of
         TcTyCon family _ -> filter (not . tfiiClosed) . Map.elems <$> getTypeFamilyEquations family
         _ -> pure []
-      pure $ case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
-                  | equation <- equations <> openEquations,
-                    Just substitution <- [matchTypes [tfiiLeft equation] [target]],
-                    normalize (applySubst substitution (tfiiRight equation)) == source,
-                    let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
-                  ] of
-        proof : _ -> Just proof
-        [] -> Nothing
+      pure
+        [ (normalize (applySubst substitution (tfiiRight equation)), AxiomInstCo (typeFamilyAxiomKey equation) arguments)
+        | equation <- equations <> openEquations,
+          Just substitution <- [matchTypes [tfiiLeft equation] [ty]],
+          let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
+        ]
 
     -- A representation parameter carries an argument coercion. A nominal one
     -- admits only the argument it already has.
@@ -120,6 +150,13 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
       if representational
         then go visited sourceArgument targetArgument
         else pure (if sourceArgument == targetArgument then Just (Refl sourceArgument) else Nothing)
+
+-- | The type of the dictionary of a class predicate.
+dictionaryType :: Pred -> Maybe TcType
+dictionaryType predicate =
+  case predicate of
+    ClassPred classTyCon arguments -> Just (TcTyCon classTyCon arguments)
+    _ -> Nothing
 
 coercionFuel :: Int
 coercionFuel = 100

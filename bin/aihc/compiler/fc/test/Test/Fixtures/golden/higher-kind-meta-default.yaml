@@ -1,0 +1,45 @@
+extensions:
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+    import GHC.Types (Type)
+    -- The kind variable f has the kind Type -> Type.
+    data Map :: (a -> b -> Type) -> f a -> f b -> Type
+    data Proxy (x :: k) = Proxy
+    -- Nothing gives the kind arguments of Map. The kind of f is not Type.
+    data D = D (Proxy Map)
+    g = D Proxy
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tAny :: ∀(k : sType). k;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tMap (a : sType) (b : sType) (f : sType → sType) ($parameter : a → b → sType) ($parameter{1} : f a) ($parameter{2} : f b) :: sType {}
+
+  pub type 1.tProxy (k : sType) (x : k) :: sType {
+    pub 1.cProxy :: ∀(k : sType) (x : k). tProxy k x
+  }
+
+  pub type 1.tD :: sType {
+    pub 1.cD :: tProxy ((sType → sType → sType) → tAny (sType → sType) sType → tAny (sType → sType) sType → sType) (tMap sType sType (tAny (sType → sType))) → tD
+  }
+
+  pub val 1.vg :: tD
+    = cD (cProxy @((sType → sType → sType) → tAny (sType → sType) sType → tAny (sType → sType) sType → sType) @(tMap sType sType (tAny (sType → sType))))
+status: pass
+reason: 'Nothing gives the kind arguments of Map in Proxy Map. The kind variable f has the kind Type -> Type, thus it cannot default to Type. As in GHC, it defaults to Any at the kind Type -> Type, and the FC lint accepts the kind argument.'

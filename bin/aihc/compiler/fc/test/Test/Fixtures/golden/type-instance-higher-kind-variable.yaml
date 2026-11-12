@@ -1,0 +1,44 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Type)
+    type Exp a = a -> Type
+    type family Eval (e :: Exp a) :: a
+    -- The kind variable f has the kind Type -> Type.
+    data Map :: (a -> Exp b) -> f a -> Exp (f b)
+    -- The argument kind [k0] gives f := [] and a := k0.
+    type instance Eval (Map g '[]) = '[]
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.sExp (a : sType) :: sType =
+    a → sType
+
+  pub type 1.tEval (a : sType) (e : a → sType) :: a @N @N {}
+
+  pub type 1.tMap (a : sType) (b : sType) (f : sType → sType) ($parameter : a → b → sType) ($parameter{1} : f a) ($parameter{2} : f b) :: sType {}
+
+  axiom 1.$ax$Eval$Map$g$T (_ : sType) (k0 : sType) (g : _ → k0 → sType) : tEval (t[] k0) (tMap _ k0 t[] g (c[] _)) ~N c[] k0
+status: pass
+reason: 'The kind variable f of Map has the kind Type -> Type. The instance head gives the argument kind [k0] for the formal kind f a. The type checker and the invisible kind arguments of FC must split [k0] into f := [] and a := k0, as GHC does.'

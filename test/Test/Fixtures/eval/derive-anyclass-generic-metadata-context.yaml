@@ -1,0 +1,35 @@
+extensions:
+  - DefaultSignatures
+  - DeriveAnyClass
+  - DeriveGeneric
+  - FlexibleContexts
+modules:
+  - |
+    {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DeriveGeneric, FlexibleContexts #-}
+    module Test where
+
+    import GHC.Generics
+    import Prelude
+
+    class GName f where
+      gname :: f p -> String
+
+    instance (Datatype d) => GName (M1 D d f) where
+      gname = datatypeName
+
+    class Named a where
+      name :: a -> String
+      default name :: (Generic a, GName (Rep a)) => a -> String
+      name = gname . from
+
+    data Rule = Rule Int
+      deriving (Generic)
+      deriving anyclass (Named)
+
+    result :: Bool
+    result = name (Rule 1) == "Rule"
+expression: result
+output: |
+  True
+status: pass
+reason: Anyclass deriving infers an empty context when the default method needs the Datatype instance of Generic metadata, which needs KnownSymbol of type-level literals.

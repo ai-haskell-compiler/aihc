@@ -1,0 +1,48 @@
+extensions:
+- DerivingStrategies
+- GeneralizedNewtypeDeriving
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, RankNTypes #-}
+  module Main where
+  data Unit = Unit
+  class Mon n where
+    unit :: n
+  class Ctl m where
+    ctl :: (forall n. Mon n => m n -> n) -> m Unit
+  data Box a = Box a
+  instance Ctl Box where
+    ctl _ = Box Unit
+  newtype Act a = Act (Box a)
+    deriving newtype Ctl
+status: pass
+reason: newtype deriving proves a method coercion through a qualified type inside a quantifier, as the Run t argument of liftWith has
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, RankNTypes #-}
+  module Main where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  class Mon n where
+  └─ class methods: unit ∷ ∀ n. (Mon n) ⇒ n
+    unit :: n
+  class Ctl m where
+  └─ class methods: ctl ∷ ∀ m. (Ctl m) ⇒ (∀ n. (Mon n) ⇒ m n → n) → m ()
+    ctl :: (forall n. Mon n => m n -> n) -> m Unit
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  instance Ctl Box where
+  └─ $fCtlBox ∷ () ⇒ Ctl Box
+    ctl _ = Box Unit
+    │   │   └─ type: () → Box (); type-args: ()
+    │   └─ type: ∀ n. (Mon n) ⇒ Box n → n
+    └─ ctl ∷ (∀ n. (Mon n) ⇒ Box n → n) → Box ()
+  newtype Act a = Act (Box a)
+  │       │       └─ type: ∀ a. Box a → Act a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Ctl Act [context: ()] [methods: ctl]
+    deriving newtype Ctl
+                     └─ $fCtlAct ∷ () ⇒ Ctl Act

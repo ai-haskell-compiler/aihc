@@ -31,6 +31,8 @@ module GHC.Conc.Sync
     writeTVar,
     unsafeIOToSTM,
     getNumCapabilities,
+    setNumCapabilities,
+    threadCapability,
     getNumProcessors,
     numCapabilities,
     par,
@@ -392,6 +394,18 @@ writeTVar (TVar variable) value = STM $ \state ->
 -- option @-N@ sets this number. The default is one.
 getNumCapabilities :: IO Int
 getNumCapabilities = capabilityCount
+
+-- | Set the number of capabilities. The runtime cannot change the number of
+-- capabilities after it starts. Thus this function does nothing.
+setNumCapabilities :: Int -> IO ()
+setNumCapabilities _ = return ()
+
+-- | Give the capability of a thread, and whether the thread stays on that
+-- capability. The runtime does not tell the capability of a thread, thus
+-- this gives capability 0. The runtime can move each thread to a different
+-- capability, thus no thread stays on its capability.
+threadCapability :: ThreadId -> IO (Int, Bool)
+threadCapability _ = return (0, False)
 
 foreign import ccall unsafe "aihc_capability_count"
   capabilityCount :: IO Int

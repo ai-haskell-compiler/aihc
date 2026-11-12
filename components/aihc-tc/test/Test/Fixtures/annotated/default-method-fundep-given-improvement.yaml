@@ -1,0 +1,15 @@
+extensions: [FlexibleContexts, DefaultSignatures, MultiParamTypeClasses, FunctionalDependencies]
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts, DefaultSignatures, MultiParamTypeClasses, FunctionalDependencies, NoImplicitPrelude #-}
+    module Main where
+    data Int = I
+    class State s m | m -> s
+    class Sat s
+    class Variable t where
+      literally :: (Sat s, State s m) => m Int -> m t
+      default literally :: (Sat s, State s m) => m Int -> m t
+      literally m = literally m
+    instance Variable Int
+status: pass
+reason: an instance method from a default signature takes the variables of a functional dependency from the givens of the method
