@@ -238,12 +238,26 @@ improveFromInstances givens siblings depth info dependency constraint = do
         pure $ do
           substitution <- matchTypes (determiners instanceHead) (determiners arguments')
           pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
-      forM_ candidates $ \(instanceInfo, instanceDetermined) ->
-        if any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
-          then case candidates of
-            [_] -> improveThroughContext givens siblings depth instanceInfo arguments
-            _ -> pure ()
-          else improveEqualities givens instanceDetermined (determined dependency arguments')
+      forM_ candidates $ \(instanceInfo, instanceDetermined) -> do
+        let open = filter (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
+        if null open
+          then improveEqualities givens instanceDetermined (determined dependency arguments')
+          else do
+            -- The head still gives the shape of a dependent parameter,
+            -- as in GHC: @instance Idiomatic f g => Idiomatic ((a -> b) ->
+            -- f) ((a -> b) -> g)@ says that the second parameter is a
+            -- function type, and the match gives @a@ and @b@. Each
+            -- variable that the match left open becomes a fresh meta
+            -- variable. The instance side is on the left, so that a
+            -- unification binds such a fresh variable to the type of the
+            -- wanted, and not a meta variable of the wanted to it.
+            fresh <- forM open $ \tyVar -> do
+              meta <- freshMetaTvOfKind (tvKind tyVar)
+              pure (tvUnique tyVar, meta)
+            improveEqualities givens (map (applySubst (Map.fromList fresh)) instanceDetermined) (determined dependency arguments')
+            case candidates of
+              [_] -> improveThroughContext givens siblings depth instanceInfo arguments
+              _ -> pure ()
     _ -> pure ()
 
 -- | Improve a wanted from the context of the one instance that its
