@@ -37,6 +37,7 @@ module Aihc.Tc.Env
     FunDep (..),
     classInfoKey,
     classFieldTypes,
+    superClassPred,
 
     -- * Instance info
     InstanceInfo (..),
@@ -388,6 +389,28 @@ data ClassInfo = ClassInfo
   deriving (Eq, Show, Read, Generic)
 
 instance NFData ClassInfo
+
+-- | The predicate of a superclass under a substitution for the class
+-- variables.
+--
+-- A superclass that the class declares as an equality is a bare proof. A
+-- superclass that the class declares in a different form, such as @c1@ of
+-- the constraint tuple @(c1, c2)@, is a dictionary field. When the
+-- substitution makes it an equality, the field holds the dictionary of the
+-- class @~@. Then the predicate is irreducible, and the proof is the
+-- superclass of that dictionary.
+superClassPred :: TcKinds -> Map Unique TcType -> TcType -> Maybe Pred
+superClassPred kinds substitution declared =
+  case constraintTypeToPred kinds substituted of
+    Just EqPred {}
+      | not declaredEquality -> Just (IrredPred substituted)
+    other -> other
+  where
+    substituted = applySubst substitution declared
+    declaredEquality =
+      case constraintTypeToPred kinds declared of
+        Just EqPred {} -> True
+        _ -> False
 
 -- | The field types of a class dictionary, in layout order: the superclass
 -- dictionaries followed by the methods, under a substitution for the class

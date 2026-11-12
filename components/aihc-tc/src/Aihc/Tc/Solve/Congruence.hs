@@ -8,7 +8,7 @@ module Aihc.Tc.Solve.Congruence
   )
 where
 
-import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes)
+import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, typeVariableUniques)
 import Aihc.Tc.Monad
@@ -176,7 +176,7 @@ stuckGivenConstraints visited (predicate, evidence) = case predicate of
             let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
             substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
             let fields = classFieldTypes info substitution
-                supers = map (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info)
+                supers = map (superClassPred kinds substitution) (ciSuperClassTypes info)
                 -- A superclass that is not a class or an equality is the
                 -- constraint type itself.
                 superItems =
@@ -227,7 +227,7 @@ givenEqualities visited (predicate, evidence) = case predicate of
             let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
             substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
             let fields = classFieldTypes info substitution
-                supers = map (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info)
+                supers = map (superClassPred kinds substitution) (ciSuperClassTypes info)
             concat
               <$> traverse
                 (\(index, super) -> givenEqualities (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
