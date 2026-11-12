@@ -59,6 +59,7 @@ import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..),
 import Aihc.Tc.Annotations
   ( TcCoercedDeriving (..),
     TcDerivedInstance (..),
+    TcDerivingClauseInstance (..),
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
@@ -154,7 +155,7 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                   surfaceContext = headerContext <> maybe [] snd polyKinded
               pure $
                 items <&> \generated ->
-                  markCoerced $
+                  markCoerced . markClause $
                     DeclAnn (mkAnnotation TcDerivedInstance) $
                       maybe id (DeclAnn . mkAnnotation) (genSpan gen) $
                         DeclInstance
@@ -167,6 +168,11 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                               instanceDeclItems = generated
                             }
   where
+    -- An instance from a deriving clause, not from a standalone deriving
+    -- declaration, gets the liberal coverage condition.
+    markClause declaration
+      | tcDerivingStandalone plan = declaration
+      | otherwise = DeclAnn (mkAnnotation TcDerivingClauseInstance) declaration
     -- Both strategies that coerce another instance need the plan again when
     -- the generated header is checked, to prove the casts of its methods.
     markCoerced declaration =

@@ -105,6 +105,7 @@ import Aihc.Tc.Annotations
     TcClassMethodAnnotation (..),
     TcCoercedDeriving (..),
     TcDerivedInstance (..),
+    TcDerivingClauseInstance (..),
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
@@ -4324,14 +4325,15 @@ registerStructuralDecl origin (DeclTypeFamilyDecl familyDecl) = registerClosedTy
 registerStructuralDecl origin (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance origin familyInst
 registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
 registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
--- A derived instance takes its context from the instance that it coerces
--- or from the fields of the type. GHC checks the functional dependencies
--- of such an instance with the liberal coverage condition, also without
--- UndecidableInstances: @newtype MFSolverT v n m a = ... deriving
--- (MonadReader s)@ has the context @MonadReader s m@, which gives @s@ from
--- @m@.
+-- An instance of a deriving clause takes its context from the instance
+-- that it coerces or from the fields of the type. GHC checks the
+-- functional dependencies of such an instance with the liberal coverage
+-- condition, also without UndecidableInstances: @newtype MFSolverT v n m
+-- a = ... deriving (MonadReader s)@ has the context @MonadReader s m@,
+-- which gives @s@ from @m@. A standalone deriving declaration states its
+-- context, and GHC checks it as a written instance.
 registerStructuralDecl origin (DeclAnn ann inner)
-  | isDerivedInstanceAnn ann = withUndecidableInstances (registerStructuralDecl origin inner)
+  | isJust (fromAnnotation @TcDerivingClauseInstance ann) = withUndecidableInstances (registerStructuralDecl origin inner)
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl _ _ = pure []
 
