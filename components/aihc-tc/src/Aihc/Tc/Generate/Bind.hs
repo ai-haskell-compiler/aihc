@@ -907,20 +907,16 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
       Just scheme -> do
         let ForAll _ sigPredicates _ = scheme
             sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
-            nArgs =
-              case matches of
-                m : _ -> length (matchPats m)
-                [] -> 0
-            (argTys, resTy) = splitFunTy sigTy nArgs
+        (argTys, resTy, arityMatches, arityCts) <- splitMatchType sigTy matches
         -- The signature's context is a given for the body, so a
         -- pattern-match implication inside it can discharge a wanted
         -- against it.
         results <-
           withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
             withGivenPredicates sigPredicates $
-              mapM (tcMatchEquation argTys resTy) matches
+              mapM (tcMatchEquation argTys resTy) arityMatches
         let matches' = map fst results
-            matchCts = concatMap snd results
+            matchCts = arityCts <> concatMap snd results
         residualCts <- solveWithSigGivens scheme matchCts
         pure (matches', sigTy, residualCts)
       Nothing ->
@@ -1211,13 +1207,6 @@ collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
       mapM (fmap (,ty) . resolvedLocalTermKey) names
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = pure []
-
-splitFunTy :: TcType -> Int -> ([TcType], TcType)
-splitFunTy ty 0 = ([], ty)
-splitFunTy (TcFunTy a rest) n =
-  let (args, res) = splitFunTy rest (n - 1)
-   in (a : args, res)
-splitFunTy ty _ = ([], ty)
 
 patternBinderName :: Pattern -> Maybe UnqualifiedName
 patternBinderName (PVar n) = Just n
