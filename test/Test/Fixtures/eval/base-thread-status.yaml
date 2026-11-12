@@ -1,0 +1,38 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (ThreadId, forkIO, myThreadId, yield)
+    import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+    import GHC.Conc (BlockReason (..), ThreadStatus (..), threadStatus)
+    import Prelude
+
+    -- Yield until the thread has the expected state. The bound stops the
+    -- loop when the state does not come.
+    waitFor :: ThreadStatus -> ThreadId -> IO ThreadStatus
+    waitFor expected thread = go (1000 :: Int)
+      where
+        go remaining = do
+          status <- threadStatus thread
+          if status == expected || remaining == 0
+            then return status
+            else yield >> go (remaining - 1)
+
+    main :: IO ()
+    main = do
+      self <- myThreadId
+      threadStatus self >>= print
+      gate <- newEmptyMVar
+      child <- forkIO (takeMVar gate)
+      waitFor (ThreadBlocked BlockedOnMVar) child >>= print
+      putMVar gate ()
+      waitFor ThreadFinished child >>= print
+stdout: |
+  ThreadRunning
+  ThreadBlocked BlockedOnMVar
+  ThreadFinished
+expression: main
+output: |
+  ()
+status: pass
+reason: GHC.Conc.threadStatus gives the state of a thread that runs, waits on an MVar, and ended, as in GHC
