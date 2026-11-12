@@ -746,6 +746,10 @@ typeKindInEnv kinds kindEnv = go
         (KTYPE formalRep, KTYPE actualRep) -> recur formalRep actualRep
         (TcFunTy left right, TcFunTy left' right') ->
           Map.union <$> recur left left' <*> recur right right'
+        -- Two applied kind variables match part by part: the formal kind
+        -- @f a c@ of @First@ and the kind @k2 k0 k3@ of an argument.
+        (TcAppTy function argument, TcAppTy function' argument') ->
+          Map.union <$> recur function function' <*> recur argument argument'
         (TcTyCon left leftArguments, TcTyCon right rightArguments)
           | left == right,
             length leftArguments == length rightArguments ->
@@ -1218,6 +1222,10 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) runtimeRep
     matchKind quantifiedUniques (KFun left right) (KFun left' right') =
       matchKind quantifiedUniques left left' <> matchKind quantifiedUniques right right'
+    -- Two applied kind variables match part by part: the formal kind @f b
+    -- c@ of a family result and the kind @k2 k1 k3@ of an equation.
+    matchKind quantifiedUniques (TcAppTy function argument) (TcAppTy function' argument') =
+      matchKind quantifiedUniques function function' <> matchKind quantifiedUniques argument argument'
     matchKind quantifiedUniques (TcTyCon left formalArguments) (TcTyCon right actualArguments)
       | left == right,
         length formalArguments == length actualArguments =
