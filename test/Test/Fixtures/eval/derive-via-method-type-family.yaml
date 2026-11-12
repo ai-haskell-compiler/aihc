@@ -36,5 +36,5 @@ stdout: |
   [3]
 output: |
   ()
-status: xfail
+status: pass
 reason: a method type that mentions a type family applied to the class variable is coercible once the family reduces on both sides
