@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Finalize type-checker annotations after constraint solving.
@@ -29,17 +30,42 @@ import Aihc.Tc.Annotations
     TcPatSynAnnotation (..),
     renderTcType,
   )
-import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TypeFamilyInstanceInfo (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
+import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
 import Aihc.Tc.Tidy (tidyType)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind)
+import Aihc.Tc.Types
+  ( GlobalName,
+    Pred (..),
+    TcKinds,
+    TcType (..),
+    TcTypeApplicationKinds (..),
+    TyCon,
+    TyVarId,
+    TypeScheme (..),
+    Unique (..),
+    constraintKind,
+    isEqualityTyCon,
+    tvKind,
+    tvUnique,
+    tyConKey,
+    typeApplicationKinds,
+    typeKind,
+    typeKindInEnv,
+    typeMentionsMeta,
+    typeMentionsTyVar,
+    pattern KFun,
+  )
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad ((>=>))
-import Data.Maybe (mapMaybe)
+import Control.DeepSeq (rnf)
+import Control.Monad (zipWithM, (>=>))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (gets)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust, mapMaybe)
 
 -- | Convert every pending type-checker annotation in a module to a final
 -- annotation. The walk covers every syntax constructor, so a pending
@@ -54,7 +80,7 @@ finalizeAnnotationTc ann =
       evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
       case evidence of
         EvCoercion (Refl _) -> do
-          target <- zonkType ty
+          target <- zonkType ty >>= recordKindArguments Nothing
           pure $ case firstMetaType target of
             Nothing -> mkAnnotation (TcCastAnnotation Nothing target)
             Just {} -> mkAnnotation ()
@@ -62,7 +88,7 @@ finalizeAnnotationTc ann =
           let oriented = case direction of
                 CastToRight -> proof
                 CastToLeft -> symmetric proof
-          target <- zonkType ty
+          target <- zonkType ty >>= recordKindArguments Nothing
           rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
           pure (mkAnnotation (TcCastAnnotation (Just oriented) target))
         EvVarTerm _ -> pure (mkAnnotation ())
@@ -134,7 +160,10 @@ finalizeOtherCheckedAnnotationTc ann =
       pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
     Nothing -> do
       rejectMetaFinalAnnotation ann
-      pure ann
+      -- The checker writes the types of declarations as final annotations.
+      case fromAnnotation @TcAnnotation ann of
+        Just annotation -> mkAnnotation <$> recordAnnotationKindArguments annotation
+        Nothing -> pure ann
 
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do
@@ -147,7 +176,16 @@ annotationForPendingTc pending = do
   let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms evidenceBinders termArgTypes
   defaulted <- defaultUnsolvedAnnotationMetas ann
   rejectMetaTcAnnotation defaulted
-  pure defaulted
+  recordAnnotationKindArguments defaulted
+
+-- | Record the kind arguments that no visible argument gives in the types
+-- of an annotation. See 'recordKindArguments'.
+recordAnnotationKindArguments :: TcAnnotation -> TcM TcAnnotation
+recordAnnotationKindArguments annotation = do
+  ty <- recordKindArguments Nothing (tcAnnType annotation)
+  typeArgs <- mapM (recordKindArguments Nothing) (tcAnnTypeArgs annotation)
+  termArgTypes <- mapM (recordKindArguments Nothing) (tcAnnTermArgTypes annotation)
+  pure annotation {tcAnnType = ty, tcAnnTypeArgs = typeArgs, tcAnnTermArgTypes = termArgTypes}
 
 defaultUnsolvedAnnotationMetas :: TcAnnotation -> TcM TcAnnotation
 defaultUnsolvedAnnotationMetas annotation =
@@ -259,7 +297,129 @@ zonkEvTerm evTerm =
       pure (EvExceptionContextEmpty origin)
 
 finalizeType :: TcType -> TcM TcType
-finalizeType = zonkType >=> defaultTypeKinds
+finalizeType = zonkType >=> defaultTypeKinds >=> recordKindArguments Nothing
+
+-- | Record the kind arguments of a saturated type constructor application
+-- when its visible arguments do not give them.
+--
+-- The kind of a type constructor can have a variable that only its result
+-- kind mentions, as @k'@ in @Fst :: forall k k'. k -> k'@. 'mkAppTy'
+-- drops the kind arguments of a saturated application, because the
+-- visible arguments usually give them. For @Fst (T, T)@ they do not give
+-- @k'@, and the desugarer cannot find it. Then this function writes the
+-- application with its kind arguments, as @Fst \@Type \@Type (T, T)@.
+--
+-- The reduct of the application gives the kind when the application
+-- reduces: @Fst (T, T)@ is @T@, of kind 'Type'. Otherwise the place of the
+-- type gives the kind: a side of an arrow, a side of an equality, or a
+-- constraint. If neither gives the kind, the application stays as it is.
+--
+-- The type must be zonked and its kinds defaulted. A type with no such
+-- application is given back as it is.
+recordKindArguments :: Maybe TcType -> TcType -> TcM TcType
+recordKindArguments expected ty = do
+  globals <- lift (gets tcsGlobalTyCons)
+  if typeHasOpenResultKind globals ty
+    then do
+      kinds <- getKinds
+      recordKindArgumentsIn kinds globals expected ty
+    else pure ty
+
+recordKindArgumentsIn :: TcKinds -> Map.Map GlobalName TyConInfo -> Maybe TcType -> TcType -> TcM TcType
+recordKindArgumentsIn kinds globals = go
+  where
+    kindEnv = Map.map tciKindScheme globals
+    go expected ty =
+      case ty of
+        TcTyCon tyCon arguments -> do
+          -- The two sides of an equality have one kind, and each side can
+          -- give it.
+          let argumentKinds
+                | isEqualityTyCon kinds tyCon,
+                  [left, right] <- arguments =
+                    [kindOf right, kindOf left]
+                | otherwise = []
+          arguments' <- zipWithM go (argumentKinds <> repeat Nothing) arguments
+          let application = TcTyCon tyCon arguments'
+          case openResultKindScheme globals tyCon (length arguments') of
+            Just variables
+              | not (determined tyCon arguments' variables) -> do
+                  reduced <- reduceTypeFamilies application
+                  let reducedKind
+                        | reduced /= application = kindOf reduced
+                        | otherwise = Nothing
+                  -- Calculate the result now. A lazy result keeps the kind
+                  -- environment in memory until a consumer reads the type.
+                  case mapMaybe (kindArguments tyCon arguments' variables) [reducedKind, expected] of
+                    kindArguments' : _ -> rnf kindArguments' `seq` pure (foldl TcAppTy (TcKindedTyCon tyCon kindArguments') arguments')
+                    [] -> pure application
+            _ -> pure application
+        -- A side of an arrow has a kind @TYPE r@. The type checker
+        -- defaults an open representation to the lifted one.
+        TcFunTy argument result -> TcFunTy <$> go (Just (typeKind kinds)) argument <*> go (Just (typeKind kinds)) result
+        TcForAllTy tyVar body -> TcForAllTy tyVar <$> go expected body
+        TcQualTy predicates body -> TcQualTy <$> mapM (recordPredKindArguments go anyKindOf kinds) predicates <*> go expected body
+        TcAppTy function argument -> TcAppTy <$> go Nothing function <*> go Nothing argument
+        _ -> pure ty
+    kindOf argument =
+      case anyKindOf argument of
+        Just kind | not (typeMentionsMeta kind) -> Just kind
+        _ -> Nothing
+    anyKindOf argument = either (const Nothing) Just (typeKindInEnv kinds kindEnv argument)
+    determined tyCon arguments variables =
+      case typeApplicationKinds kinds kindEnv tyCon arguments Nothing of
+        Right checked -> all (\variable -> Map.member (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
+        Left _ -> False
+    kindArguments tyCon arguments variables maybeKind = do
+      kind <- maybeKind
+      checked <- either (const Nothing) Just (typeApplicationKinds kinds kindEnv tyCon arguments (Just kind))
+      mapM (\variable -> Map.lookup (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
+
+recordPredKindArguments :: (Maybe TcType -> TcType -> TcM TcType) -> (TcType -> Maybe TcType) -> TcKinds -> Pred -> TcM Pred
+recordPredKindArguments record kindOf kinds predicate =
+  case predicate of
+    EqPred left right ->
+      EqPred <$> record (kindOf right) left <*> record (kindOf left) right
+    IrredPred constraint -> IrredPred <$> record (Just (constraintKind kinds)) constraint
+    _ -> pure predicate
+
+-- | The kind variables of a type constructor, when its kind has a variable
+-- that only the result kind mentions, for an application to this number
+-- of visible arguments.
+openResultKindScheme :: Map.Map GlobalName TyConInfo -> TyCon -> Int -> Maybe [TyVarId]
+openResultKindScheme globals tyCon arity = do
+  info <- Map.lookup (tyConKey tyCon) globals
+  let ForAll variables _ resultKind = tciKindScheme info
+      formals = take arity (formalKinds resultKind)
+  if any (\variable -> not (any (typeMentionsTyVar variable) formals)) variables
+    then Just variables
+    else Nothing
+  where
+    formalKinds kind =
+      case kind of
+        KFun argument result -> argument : formalKinds result
+        _ -> []
+
+-- | Whether a type has an application that 'recordKindArguments' can
+-- change. The walk allocates nothing.
+typeHasOpenResultKind :: Map.Map GlobalName TyConInfo -> TcType -> Bool
+typeHasOpenResultKind globals = go
+  where
+    go ty =
+      case ty of
+        TcTyCon tyCon arguments -> isJust (openResultKindScheme globals tyCon (length arguments)) || any go arguments
+        TcFunTy argument result -> go argument || go result
+        TcForAllTy _ body -> go body
+        TcQualTy predicates body -> any (predHasOpenResultKind globals) predicates || go body
+        TcAppTy function argument -> go function || go argument
+        _ -> False
+
+predHasOpenResultKind :: Map.Map GlobalName TyConInfo -> Pred -> Bool
+predHasOpenResultKind globals predicate =
+  case predicate of
+    EqPred left right -> typeHasOpenResultKind globals left || typeHasOpenResultKind globals right
+    IrredPred constraint -> typeHasOpenResultKind globals constraint
+    _ -> False
 
 finalizePred :: Pred -> TcM Pred
 finalizePred = zonkPred >=> reclassifyIrreduciblePred >=> defaultPredKinds
@@ -271,7 +431,7 @@ zonkCoercion coercion =
       pure (CoVar ev)
     GivenCo predicate -> GivenCo <$> finalizePred predicate
     Refl ty ->
-      Refl <$> zonkType ty
+      Refl <$> (zonkType ty >>= recordKindArguments Nothing)
     Sym inner ->
       Sym <$> zonkCoercion inner
     Trans left right ->
