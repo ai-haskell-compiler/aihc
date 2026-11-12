@@ -38,7 +38,7 @@ import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (filterM, foldM, forM, forM_, void, when, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM_)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 
@@ -240,6 +240,7 @@ improveFromInstances givens siblings depth info dependency constraint = do
           pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
       forM_ candidates $ \(instanceInfo, instanceDetermined) -> do
         let open = filter (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
+        recursive <- recursesOnDeterminers info dependency instanceInfo
         if null open
           then improveEqualities givens instanceDetermined (determined dependency arguments')
           else do
@@ -251,14 +252,40 @@ improveFromInstances givens siblings depth info dependency constraint = do
             -- variable. The instance side is on the left, so that a
             -- unification binds such a fresh variable to the type of the
             -- wanted, and not a meta variable of the wanted to it.
-            fresh <- forM open $ \tyVar -> do
-              meta <- freshMetaTvOfKind (tvKind tyVar)
-              pure (tvUnique tyVar, meta)
-            improveEqualities givens (map (applySubst (Map.fromList fresh)) instanceDetermined) (determined dependency arguments')
+            --
+            -- An instance whose context has a constraint of the same class
+            -- with the same determining parameters, as @instance C a b =>
+            -- C a [b]@, does not make them smaller. Its improvement only
+            -- makes the wanted larger at each step: @C U t0@ gives @t0 :=
+            -- [t1]@, and the solver then makes the wanted @C U t1@ from
+            -- the context. GHC stops this chain with its reduction depth
+            -- limit. Here, such an instance gives no improvement, and the
+            -- wanted stays unsolved with a diagnostic.
+            unless recursive $ do
+              fresh <- forM open $ \tyVar -> do
+                meta <- freshMetaTvOfKind (tvKind tyVar)
+                pure (tvUnique tyVar, meta)
+              improveEqualities givens (map (applySubst (Map.fromList fresh)) instanceDetermined) (determined dependency arguments')
             case candidates of
               [_] -> improveThroughContext givens siblings depth instanceInfo arguments
               _ -> pure ()
     _ -> pure ()
+
+-- | Whether the context of an instance has a constraint of the same class
+-- with the same determining parameters as the head of the instance.
+recursesOnDeterminers :: ClassInfo -> FunDep -> InstanceInfo -> TcM Bool
+recursesOnDeterminers info dependency instanceInfo = do
+  positions <- dependencyDeterminers info dependency
+  headArguments <- classDependencyArguments info (iiHead instanceInfo)
+  let headDeterminers = atPositions positions headArguments
+      sameClass predicate =
+        case predicate of
+          ClassPred className arguments
+            | tyConKey className == tyConKey (ciTyCon info) -> Just arguments
+          _ -> Nothing
+  contextDeterminers <- forM (mapMaybe sameClass (iiContext instanceInfo)) $ \arguments ->
+    atPositions positions <$> classDependencyArguments info arguments
+  pure (any (sameTypes headDeterminers) contextDeterminers)
 
 -- | Improve a wanted from the context of the one instance that its
 -- determining parameters select, when the head of that instance does not
