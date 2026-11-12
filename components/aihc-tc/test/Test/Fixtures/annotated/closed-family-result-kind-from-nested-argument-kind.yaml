@@ -1,0 +1,53 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, TypeOperators, KindSignatures, ScopedTypeVariables, AllowAmbiguousTypes, TypeApplications, FlexibleInstances, UndecidableInstances, FlexibleContexts #-}
+  module Test where
+  newtype Row a = R [a]
+          │       └─ type: ∀ a. [a] → Row a
+          └─ type: Type → Type
+  type family ApSingle (fs :: Row (a -> b)) (x :: a) :: Row b where
+              └─ type: Row (a → b) → a → Row b
+    ApSingle (R fs) x = R (ApSingleR fs x)
+  type family ApSingleR (fs :: [a -> b]) (x :: a) :: [b] where
+              └─ type: [a → b] → a → [b]
+    ApSingleR '[] _ = '[]
+    ApSingleR (f ': fs) x = f x ': ApSingleR fs x
+  class C (r :: Row k)
+  └─ class methods:
+  instance C (R '[])
+  └─ $fCR[] ∷ ∀ k0. () ⇒ C ('R '[])
+  instance C (R ρ) => C (R (t ': ρ))
+  └─ $fCR:tρ ∷ ∀ k0 ρ t. (C ('R ρ)) ⇒ C ('R (': t ρ))
+  g :: forall k k' (a :: k) (h :: k -> k'). C (ApSingle (R '[h]) a) => ()
+  g = ()
+  │   └─ type: ()
+  └─ type: ∀ k k' a h. (C (ApSingle ('R ('GHC.Types.: h 'GHC.Types.[])) a)) ⇒ ()
+  use :: forall k k' (a :: k) (h :: k -> k'). ()
+  use = g @k @k' @a @h
+  │     └─ type: (); type-args: k, k', a, h; evidence: $fCR:tρ @k' @'[] @h a ($fCR[] @k')
+  └─ type: ∀ k k' a h. ()
+extensions:
+- DataKinds
+- PolyKinds
+- TypeFamilies
+- TypeOperators
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, TypeOperators, KindSignatures, ScopedTypeVariables, AllowAmbiguousTypes, TypeApplications, FlexibleInstances, UndecidableInstances, FlexibleContexts #-}
+  module Test where
+  newtype Row a = R [a]
+  type family ApSingle (fs :: Row (a -> b)) (x :: a) :: Row b where
+    ApSingle (R fs) x = R (ApSingleR fs x)
+  type family ApSingleR (fs :: [a -> b]) (x :: a) :: [b] where
+    ApSingleR '[] _ = '[]
+    ApSingleR (f ': fs) x = f x ': ApSingleR fs x
+  class C (r :: Row k)
+  instance C (R '[])
+  instance C (R ρ) => C (R (t ': ρ))
+  g :: forall k k' (a :: k) (h :: k -> k'). C (ApSingle (R '[h]) a) => ()
+  g = ()
+  use :: forall k k' (a :: k) (h :: k -> k'). ()
+  use = g @k @k' @a @h
+reason: "a closed family equation variable that binds a bare '[] from '[h] keeps the kind [k -> k'], so the next reduction of ApSingleR '[] a has the result kind [k'] and not the family kind variable b"
+status: pass

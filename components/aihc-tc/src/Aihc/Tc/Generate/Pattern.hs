@@ -12,6 +12,7 @@ module Aihc.Tc.Generate.Pattern
     checkPattern,
     checkPatterns,
     checkFunctionPatterns,
+    splitMatchType,
     checkedPattern,
     patternBinderNames,
     patternCanFail,
@@ -31,6 +32,7 @@ import Aihc.Parser.Syntax
     Expr (..),
     FloatType (..),
     Literal (..),
+    Match (..),
     Name (..),
     NumericType (..),
     Pattern (..),
@@ -48,7 +50,7 @@ import Aihc.Parser.Syntax
     peelPatternAnn,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderEntity)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcAnnotation, TcPatternInstantiation (..), pendingAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), TcAnnotation, TcPatternInstantiation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -1234,3 +1236,40 @@ patternNameText name =
   case nameQualifier name of
     Nothing -> nameText name
     Just qualifier -> qualifier <> "." <> nameText name
+
+-- | Split the checked type of function equations into one type for each
+-- argument pattern and a result type.
+--
+-- The checked type can show fewer arrows than the equations have patterns.
+-- Its result is then equal to an arrow type, but it is not an arrow. An
+-- example is an associated family application: with
+-- @type D Unit = Unit -> Unit@, the method @f :: a -> D a@ can have the
+-- equation @f u x = x@. The other arguments get fresh types, and a wanted
+-- equality relates their arrow type to the result that the checked type
+-- shows. The first equation gets the pending cast for the FC desugarer.
+splitMatchType :: TcType -> [Match] -> TcM ([TcType], TcType, [Match], [Ct])
+splitMatchType ty matches =
+  case matches of
+    first : rest
+      | missing > 0 -> do
+          hidden <- mapM (const freshMetaTv) [1 .. missing]
+          result <- freshMetaTv
+          evidence <- freshEvVar
+          let arrow = foldr TcFunTy result hidden
+              location = listToMaybe (mapMaybe (fromAnnotation @SourceSpan) (matchAnns first))
+              wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
+              annotation = mkAnnotation (PendingTcMatchArityCast arrow evidence)
+          pure (shown <> hidden, result, first {matchAnns = annotation : matchAnns first} : rest, [wanted])
+    _ -> pure (shown, shownResult, matches, [])
+  where
+    arity =
+      case matches of
+        first : _ -> length (matchPats first)
+        [] -> 0
+    (shown, shownResult) = peel arity ty
+    missing = arity - length shown
+    peel count (TcFunTy argument rest)
+      | count > 0 =
+          let (arguments, result) = peel (count - 1) rest
+           in (argument : arguments, result)
+    peel _ other = ([], other)

@@ -1,0 +1,55 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, NoImplicitPrelude #-}
+  module Main where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  class C a where
+  └─ class methods: f ∷ ∀ a. (C a) ⇒ a → D a
+    type D a
+         └─ type: Type → Type
+    f :: a -> D a
+  instance C Unit where
+  └─ $fCUnit ∷ () ⇒ C () [associated types: D () = () → ()]
+    type D Unit = Unit -> Unit
+    f u x = x
+    │ │ └─ type: ()
+    │ └─ type: ()
+    └─ f ∷ () → D ()
+  g :: Unit -> D Unit
+  g u x = x
+  │ │ └─ type: ()
+  │ └─ type: ()
+  └─ type: () → D ()
+  h :: Unit -> Unit
+  h = k Unit
+  └─ type: () → ()
+    where
+      k :: Unit -> D Unit
+      k u x = x
+      │ │ └─ type: ()
+      │ └─ type: ()
+      └─ type: () → D ()
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, NoImplicitPrelude #-}
+  module Main where
+  data Unit = Unit
+  class C a where
+    type D a
+    f :: a -> D a
+  instance C Unit where
+    type D Unit = Unit -> Unit
+    f u x = x
+  g :: Unit -> D Unit
+  g u x = x
+  h :: Unit -> Unit
+  h = k Unit
+    where
+      k :: Unit -> D Unit
+      k u x = x
+status: pass
+reason: function equations can bind more arguments than the signature shows when the associated family result reduces to a function type

@@ -1,0 +1,47 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables, FlexibleContexts, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+       └─ type: GHC.Types.Constraint → Type
+    Dict :: c => Dict c
+    └─ type: ∀ c. (c) ⇒ Dict c
+  newtype Row a = R [a]
+          │       └─ type: ∀ a. [a] → Row a
+          └─ type: Type → Type
+  type family Map (f :: a -> b) (r :: Row a) :: Row b where
+              └─ type: (a → b) → Row a → Row b
+    Map f (R r) = R (MapR f r)
+  type family MapR (f :: a -> b) (r :: [a]) :: [b] where
+              └─ type: (a → b) → [a] → [b]
+    MapR f '[] = '[]
+    MapR f (x ': xs) = f x ': MapR f xs
+  class C (r :: Row k)
+  └─ class methods:
+  instance C (R ρ) => C (R (x ': ρ))
+  └─ $fCR:xρ ∷ ∀ k0 ρ x. (C ('R ρ)) ⇒ C ('R (': x ρ))
+  extend :: forall k (s :: Row k) (f :: k -> Type) (x :: k) ρ. (s ~ R ρ, C (Map f s)) => Dict (C (R (f x ': MapR f ρ)))
+  extend = Dict
+  │        └─ type: Dict (C ('R ('GHC.Types.: (f x) (MapR f ρ)))); type-args: C ('R (': (f x) (MapR f ρ))); evidence: $fCR:xρ @Type @MapR f ρ @f x (cast(given C Map f s, C Map refl f given s ~ 'R ρ))
+  └─ type: ∀ k s f x ρ. (s ~ ('R ρ), C (Map f s)) ⇒ Dict (C ('R ('GHC.Types.: (f x) (MapR f ρ))))
+extensions: [DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables, FlexibleContexts, FlexibleInstances, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables, FlexibleContexts, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+    Dict :: c => Dict c
+  newtype Row a = R [a]
+  type family Map (f :: a -> b) (r :: Row a) :: Row b where
+    Map f (R r) = R (MapR f r)
+  type family MapR (f :: a -> b) (r :: [a]) :: [b] where
+    MapR f '[] = '[]
+    MapR f (x ': xs) = f x ': MapR f xs
+  class C (r :: Row k)
+  instance C (R ρ) => C (R (x ': ρ))
+  extend :: forall k (s :: Row k) (f :: k -> Type) (x :: k) ρ. (s ~ R ρ, C (Map f s)) => Dict (C (R (f x ': MapR f ρ)))
+  extend = Dict
+reason: "the instance needs C ('R (MapR f ρ)), and the given C (Map f s) holds it after the given s ~ 'R ρ rewrites it and Map reduces"
+status: pass

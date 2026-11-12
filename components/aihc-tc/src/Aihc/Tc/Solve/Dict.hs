@@ -32,7 +32,7 @@ import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, stuckGivenConstraints)
+import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
@@ -204,7 +204,17 @@ solveNormalizedDict visited givens ct
                         Just given -> do
                           bindEvidence (ctEvVar ct) given
                           pure DictSolved
-                        Nothing -> tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
+                        Nothing -> do
+                          result <- tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
+                          case result of
+                            DictSolved -> pure DictSolved
+                            DictStuck _ -> do
+                              congruent <- congruentIrreducibleGiven givens' reduced
+                              case congruent of
+                                Just given -> do
+                                  bindEvidence (ctEvVar ct) given
+                                  pure DictSolved
+                                Nothing -> pure result
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -226,6 +236,23 @@ solveNormalizedDict visited givens ct
                 else pure (DictStuck ct)
             _ -> pure (DictStuck ct)
   where
+    -- A stuck given can be equal to the stuck wanted only through a chain
+    -- of given equalities and reductions. With the givens @s ~ 'R r@, @'R
+    -- (x ': r) ~ E x ('R r)@ and @U (Map f (E x s)) ~ U (E x s)@, the
+    -- wanted @UR (f x ': MapR f r)@ is the left side after the rewrites
+    -- and reductions, and the given @U (E x s)@ is the right side. The
+    -- congruence closure finds that chain, and the given dictionary is
+    -- cast along it.
+    congruentIrreducibleGiven givens' wanted = firstCongruent [given | given@IrredPred {} <- givens']
+      where
+        firstCongruent [] = pure Nothing
+        firstCongruent (given@(IrredPred constraint) : rest) = do
+          proof <- proveGivenEquality givens' wanted constraint
+          case proof of
+            Just coercion -> pure (Just (EvCast (EvGiven given) (Sym coercion)))
+            Nothing -> firstCongruent rest
+        firstCongruent (_ : rest) = firstCongruent rest
+
     -- A @WithDict cls meth@ wanted is solved when @cls@ is a class with one
     -- method and no superclasses, and @meth@ equals the type of that method.
     tryWithDict adapter constraintType methodType = do
@@ -303,7 +330,8 @@ solveNormalizedDict visited givens ct
       -- given @d ~ Maybe x@ a wanted @C (Maybe x)@ names no @d@, but the
       -- given @C d@ rewrites to @C (Maybe x)@ and solves it. The given
       -- dictionary is cast along the congruence of the rules.
-      case rewrittenGivenMatches rules allGivens className args of
+      matches <- rewrittenGivenMatches rules allGivens className args
+      case matches of
         (given, givenArgs, givenCoercions) : _ -> do
           bindEvidence (ctEvVar ct) (EvCast (EvGiven given) (TyConAppCo className givenArgs givenCoercions []))
           pure DictSolved
@@ -393,14 +421,23 @@ solveNormalizedDict visited givens ct
             (_, TcTyVar tyVar) | not (outside tyVar left) -> [(right, left, Sym proof)]
             _ -> []
 
+    -- The rewritten given is compared in the normal form of the wanted:
+    -- its families reduced. With the given @s ~ 'R r@, the given @C (Map
+    -- f s)@ rewrites to @C (Map f ('R r))@, which reduces to the wanted
+    -- @C ('R (MapR f r))@.
     rewrittenGivenMatches rules allGivens className args =
-      [ (given, givenArgs, givenCoercions)
-      | given@(ClassPred givenClass givenArgs) <- allGivens,
-        givenClass == className,
-        not (and (zipWith sameType givenArgs args)),
-        let (rewrittenGivenArgs, givenCoercions) = unzip (map (rewriteWithRules rules) givenArgs),
-        and (zipWith sameType rewrittenGivenArgs args)
-      ]
+      fmap concat . sequence $
+        [ do
+            reducedGivenArgs <- mapM reduceTypeFamilies rewrittenGivenArgs
+            pure
+              [ (given, givenArgs, givenCoercions)
+              | and (zipWith sameType rewrittenGivenArgs args) || and (zipWith sameType reducedGivenArgs args)
+              ]
+        | given@(ClassPred givenClass givenArgs) <- allGivens,
+          givenClass == className,
+          not (and (zipWith sameType givenArgs args)),
+          let (rewrittenGivenArgs, givenCoercions) = unzip (map (rewriteWithRules rules) givenArgs)
+        ]
 
     tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions = do
       saved <- lift get

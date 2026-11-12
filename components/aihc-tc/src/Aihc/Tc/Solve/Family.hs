@@ -303,7 +303,11 @@ reduceHead ty =
                   kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
                   let kindOf = either (const Nothing) Just . typeKindInEnv kinds kindEnv
                       argumentKinds = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKinds kinds kindEnv tyCon familyArguments Nothing)
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf equations familyArguments actualKinds extraArguments of
+                      bareKindArguments bare expectedKind = do
+                        ForAll quantified _ bareKind <- Map.lookup (tyConKey bare) kindEnv
+                        found <- matchTypes [bareKind] [expectedKind]
+                        traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments actualKinds extraArguments of
                     Just (reduced, unmatched) -> do
                       instantiated <- instantiateUnmatched unmatched reduced
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
@@ -372,8 +376,8 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 --
 -- The result also lists the variables of the equation that the match did
 -- not bind and that the reduced type still mentions.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
-firstEquation family kindOf equations arguments argumentKinds extraArguments =
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
+firstEquation family kindOf bareKindArguments equations arguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
@@ -384,12 +388,13 @@ firstEquation family kindOf equations arguments argumentKinds extraArguments =
             Just substitution <- matchTypes patterns arguments,
             let variableSubstitution = variableKinds equation substitution,
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
-              let full = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
-                  reduced = applySubst full (tfiiRight equation)
+              let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
+                  completeSubstitution = kindedBareConstructors equation fullSubstitution <> fullSubstitution
+                  reduced = applySubst completeSubstitution (tfiiRight equation)
                   unmatched =
                     [ variable
                     | variable <- tfiiTyVars equation,
-                      not (Map.member (tvUnique variable) full),
+                      not (Map.member (tvUnique variable) completeSubstitution),
                       typeMentionsTyVar variable reduced
                     ]
                in Just (reduced, unmatched)
@@ -397,8 +402,21 @@ firstEquation family kindOf equations arguments argumentKinds extraArguments =
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf bareKindArguments rest arguments argumentKinds extraArguments
   where
+    -- A poly-kinded constructor with no visible argument gets its kind
+    -- from the place where it is used. In @ApSingleR (f ': fs) x@ matched
+    -- against @'[h]@, @fs@ binds the @'[]@ that @':@ gave the kind
+    -- @[k -> k']@. Alone, that @'[]@ has the kind @[a]@ for each @a@, and
+    -- the next reduction cannot find @k'@. Thus the variable keeps the
+    -- kind arguments that its own kind gives.
+    kindedBareConstructors equation fullSubstitution =
+      Map.fromList
+        [ (tvUnique variable, kindedTyCon bare kindArguments)
+        | variable <- tfiiTyVars equation,
+          Just (TcTyCon bare []) <- [Map.lookup (tvUnique variable) fullSubstitution],
+          Just kindArguments <- [bareKindArguments bare (applySubst fullSubstitution (tvKind variable))]
+        ]
     -- A kind variable that only the kind of an equation variable names:
     -- in @Rep (C b a) = ... (b (Const a))@ with @b :: (k -> Type) -> Type@,
     -- the right-hand side applies @Const@ at @k@, but no argument kind

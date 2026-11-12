@@ -70,6 +70,7 @@ import Aihc.Tc.Annotations
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcMatchArityCast (..),
     TcPatSynAnnotation (..),
     TcPatternInstantiation (..),
   )
@@ -1899,20 +1900,44 @@ desugarMatches ty matches = do
   let (typeVariables, afterForAlls) = peelForAlls ty
       (predicates, bodyType) = peelConstraints afterForAlls
       argumentCount = maybe 1 (length . Syn.matchPats) (listToMaybe matches)
-      (argumentTypes, resultType) = peelFunctions argumentCount bodyType
+      (shownTypes, shownResult) = peelFunctions argumentCount bodyType
+      -- The equations can bind more arguments than the checked type shows.
+      -- The type checker then gives the arrow type of the other arguments
+      -- and the proof that it is equal to the result that the type shows.
+      arityCast =
+        listToMaybe
+          [ cast
+          | length shownTypes < argumentCount,
+            first <- take 1 matches,
+            cast <- mapMaybe Syn.fromAnnotation (Syn.matchAnns first)
+          ]
+      (hiddenTypes, resultType, hiddenProof) =
+        case arityCast of
+          Just (TcMatchArityCast proof arrow) ->
+            let (types, result) = peelFunctions (argumentCount - length shownTypes) arrow
+             in (types, result, proof)
+          Nothing -> ([], shownResult, Nothing)
+      argumentTypes = shownTypes <> hiddenTypes
   typeBinders <- convertTypeBinders typeVariables
-  (dictionaries, arguments, body) <-
+  (dictionaries, body) <-
     withTypeVariables typeVariables $ do
       dictionaries <- mapM freshDictionaryBinder predicates
       arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-      body <-
+      matched <-
         withDictionaryScope (zipWith Dictionary predicates dictionaries) $
           case (matches, arguments) of
             ([], [argument]) -> emptyCaseFailure resultType argument
             ([], _) -> failValue "lambda-case with no alternative does not have a function type"
             _ -> desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches)
-      pure (dictionaries, arguments, body)
-  pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
+      -- The dictionary scope stays below each argument lambda, so the
+      -- function keeps its arity.
+      let (shownArguments, hiddenArguments) = splitAt (length shownTypes) arguments
+          hiddenFunction = foldr ExLam matched hiddenArguments
+      casted <- case hiddenProof of
+        Just proof -> withCoercion proof (pure . ExCast hiddenFunction)
+        Nothing -> pure hiddenFunction
+      pure (dictionaries, foldr ExLam casted shownArguments)
+  pure (foldr ExTyLam (foldr ExLam body dictionaries) typeBinders)
 
 withTypeVariables :: [TyVarId] -> ValueM a -> ValueM a
 withTypeVariables variables action = do

@@ -1,0 +1,52 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+       └─ type: GHC.Types.Constraint → Type
+    Dict :: c => Dict c
+    └─ type: ∀ c. (c) ⇒ Dict c
+  newtype Row a = R [a]
+          │       └─ type: ∀ a. [a] → Row a
+          └─ type: Type → Type
+  type family Map (f :: a -> b) (r :: Row a) :: Row b where
+              └─ type: (a → b) → Row a → Row b
+    Map f (R r) = R (MapR f r)
+  type family MapR (f :: a -> b) (r :: [a]) :: [b] where
+              └─ type: (a → b) → [a] → [b]
+    MapR f '[] = '[]
+    MapR f (x ': xs) = f x ': MapR f xs
+  type family E (x :: k) (r :: Row k) :: Row k
+              └─ type: k → Row k → Row k
+  type family U (r :: Row k) :: Constraint where
+              └─ type: Row k → GHC.Types.Constraint
+    U (R r) = UR r
+  type family UR (r :: [k]) :: Constraint
+              └─ type: [k] → GHC.Types.Constraint
+  unique :: forall k (x :: k) (s :: Row k) (f :: k -> Type) ρ. (s ~ R ρ, R (x ': ρ) ~ E x (R ρ), U (Map f (E x s)) ~ U (E x s), UR (x ': ρ)) => Dict (UR (f x ': MapR f ρ))
+  unique = Dict
+  │        └─ type: Dict (UR ('GHC.Types.: (f x) (MapR f ρ))); type-args: UR (': (f x) (MapR f ρ)); evidence: cast(given UR (': x ρ), sym (trans (sym (trans (U Map refl f E refl x given s ~ 'R ρ) (U Map refl f sym (given 'R (': x ρ) ~ E x ('R ρ))))) (trans (trans (given U (Map f (E x s)) ~ U (E x s)) (U E refl x given s ~ 'R ρ)) (U sym (given 'R (': x ρ) ~ E x ('R ρ))))))
+  └─ type: ∀ k x s f ρ. (s ~ ('R ρ), ('R ('GHC.Types.: x ρ)) ~ (E x ('R ρ)), (U (Map f (E x s))) ~ (U (E x s)), UR ('GHC.Types.: x ρ)) ⇒ Dict (UR ('GHC.Types.: (f x) (MapR f ρ)))
+extensions: [DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+    Dict :: c => Dict c
+  newtype Row a = R [a]
+  type family Map (f :: a -> b) (r :: Row a) :: Row b where
+    Map f (R r) = R (MapR f r)
+  type family MapR (f :: a -> b) (r :: [a]) :: [b] where
+    MapR f '[] = '[]
+    MapR f (x ': xs) = f x ': MapR f xs
+  type family E (x :: k) (r :: Row k) :: Row k
+  type family U (r :: Row k) :: Constraint where
+    U (R r) = UR r
+  type family UR (r :: [k]) :: Constraint
+  unique :: forall k (x :: k) (s :: Row k) (f :: k -> Type) ρ. (s ~ R ρ, R (x ': ρ) ~ E x (R ρ), U (Map f (E x s)) ~ U (E x s), UR (x ': ρ)) => Dict (UR (f x ': MapR f ρ))
+  unique = Dict
+reason: "the stuck wanted UR (f x ': MapR f ρ) is equal to the given UR (x ': ρ) through the given constraint equality after chained rewrites and reductions"
+status: pass

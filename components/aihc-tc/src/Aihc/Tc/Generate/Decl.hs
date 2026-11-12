@@ -2469,11 +2469,11 @@ tcClassDefaultValue classTyCon valueDecl =
         Just (TcIdBinder (ForAll methodTyVars givens methodTy) _) ->
           case valueDecl of
             FunctionBind name matches -> do
-              let (argumentTypes, resultType) = splitFunTy methodTy (matchArity matches)
+              (argumentTypes, resultType, arityMatches, arityCts) <- splitMatchType methodTy matches
               results <-
                 withScopedTyVars (tyVarScope methodTyVars) $
-                  mapM (tcMatchEquation Nothing argumentTypes resultType) matches
-              solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
+                  mapM (tcMatchEquation Nothing argumentTypes resultType) arityMatches
+              solveInstanceBodyConstraints givens ((arityCts, []) : [(constraints, implications) | (_, constraints, implications) <- results])
               pure (FunctionBind name [match | (match, _, _) <- results])
             PatternBind annotations pattern' rhs -> do
               results <-
@@ -2548,9 +2548,9 @@ instanceMethodScope instanceScope signatures name givens (ForAll _ predicates ex
       scheme <- withImpliedScopedTyVars instanceScope (sigToScheme signature)
       let ForAll variables signaturePredicates signatureType = scheme
       withScopedTyVars (scopedSigTyVars (explicitForallNames signature) variables) $ do
-        let (arguments, result) = splitFunTy signatureType (matchArity matches)
-        checked <- withGivenPredicates (givens <> signaturePredicates) (mapM (tcMatchEquation Nothing arguments result) matches)
-        solveInstanceBodyConstraints (givens <> signaturePredicates) [(cts, impls) | (_, cts, impls) <- checked]
+        (arguments, result, arityMatches, arityCts) <- splitMatchType signatureType matches
+        checked <- withGivenPredicates (givens <> signaturePredicates) (mapM (tcMatchEquation Nothing arguments result) arityMatches)
+        solveInstanceBodyConstraints (givens <> signaturePredicates) ((arityCts, []) : [(cts, impls) | (_, cts, impls) <- checked])
       instantiated <- instantiateWithArgs scheme
       evidence <- freshEvVar
       let span' = surfaceTypeSpan signature
@@ -2586,14 +2586,14 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
       scheme <- instanceMethodScheme schemes (unqualifiedNameText name)
       let ForAll methodTyVars methodGivens methodTy = scheme
       scope <- instanceMethodScope instanceScope signatures (unqualifiedNameText name) givens scheme matches
-      let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       (results, failed) <-
         withErrorTracking $ withScopedTyVars scope $ do
+          (argTys, resTy, arityMatches, arityCts) <- splitMatchType methodTy matches
           -- The instance context and the method's own context are givens for
           -- the body, so a pattern-match implication inside it can discharge
           -- a wanted against them.
-          results <- withGivenPredicates (givens <> methodGivens) (mapM (tcMatchEquation Nothing argTys resTy) matches)
-          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+          results <- withGivenPredicates (givens <> methodGivens) (mapM (tcMatchEquation Nothing argTys resTy) arityMatches)
+          solveInstanceBodyConstraints (givens <> methodGivens) ((arityCts, []) : [(cts, impls) | (_match, cts, impls) <- results])
           pure results
       -- A body with a type error keeps pending annotations that have no
       -- evidence. Keep the unchecked body so finalization does not abort.
@@ -2628,10 +2628,6 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
     qualifiedType predicates ty
       | null predicates = ty
       | otherwise = TcQualTy predicates ty
-
-matchArity :: [Match] -> Int
-matchArity (match : _) = length (matchPats match)
-matchArity [] = 0
 
 solveInstanceBodyConstraints :: [Pred] -> [([Ct], [Implication])] -> TcM ()
 solveInstanceBodyConstraints givens results = do
@@ -4035,18 +4031,15 @@ tcFunctionWithSig key displayName sig matches = do
     withErrorTracking $ do
       -- Open the scheme with skolems (not metas) for checking.
       (skolems, sigPreds, sigTy) <- skolemizeQualified scheme
-      let nArgs = case matches of
-            (m : _) -> length (matchPats m)
-            [] -> 0
-          (argTys, resTy) = splitFunTy sigTy nArgs
+      (argTys, resTy, arityMatches, arityCts) <- splitMatchType sigTy matches
       -- Check each equation against the signature types. The explicit
       -- forall variables scope over the equations.
       results <-
         withGivenPredicates sigPreds $
           withScopedTyVars (scopedSigTyVars (checkedSigScopedNames sig) skolems) $
-            mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
+            mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) arityMatches
       let (_matches', ctsList, implsList) = unzip3 results
-          allCts = concat ctsList
+          allCts = arityCts <> concat ctsList
           allImpls = concat implsList
       solveBodyConstraintsWithGivens sigPreds allCts allImpls
       rejectEscapingExistentials sigTy allImpls
