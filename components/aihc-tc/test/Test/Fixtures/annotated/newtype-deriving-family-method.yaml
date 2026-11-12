@@ -1,0 +1,70 @@
+annotated:
+- |-
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Char7 = Char7
+       │       └─ type: Char7
+       └─ type: Type
+  data Arr a = Arr
+       │       └─ type: ∀ a. Arr a
+       └─ type: Type → Type
+  type family Element c
+              └─ type: Type → Type
+  type instance Element (Arr a) = a
+  newtype Ascii = Ascii (Arr Char7)
+          │       └─ type: Arr Char7 → Ascii
+          └─ type: Type
+  type instance Element Ascii = Char7
+  class Collection c where
+  └─ class methods: anyE ∷ ∀ c. (Collection c) ⇒ (Element c → Bool) → c → Bool, firstE ∷ ∀ c. (Collection c) ⇒ c → Element c, elemE ∷ ∀ c a. (Collection c, a ~ (Element c)) ⇒ a → c → Bool
+    anyE :: (Element c -> Bool) -> c -> Bool
+    firstE :: c -> Element c
+    elemE :: forall a. (a ~ Element c) => a -> c -> Bool
+  instance Collection (Arr a) where
+  └─ $fCollectionArra ∷ ∀ a. () ⇒ Collection (Arr a)
+    anyE _ _ = False
+    │    │ └─ type: Arr a
+    │    └─ type: Element (Arr a) → Bool
+    └─ anyE ∷ (Element (Arr a) → Bool) → Arr a → Bool
+    firstE _ = firstE Arr
+    │      │   │      └─ type: Arr a; type-args: a
+    │      │   └─ type: Arr a → Element (Arr a); type-args: Arr a; evidence: $fCollectionArra @a
+    │      └─ type: Arr a
+    └─ firstE ∷ Arr a → Element (Arr a)
+    elemE _ _ = True
+    │     │ └─ type: Arr a
+    │     └─ type: a
+    └─ elemE ∷ ∀ a. (a ~ (Element (Arr a))) ⇒ a → Arr a → Bool
+  deriving instance Collection Ascii
+  │                 └─ $fCollectionAscii ∷ () ⇒ Collection Ascii
+  └─ deriving plans: newtype Collection Ascii [context: ()] [methods: anyE, firstE, elemE]
+extensions:
+- TypeFamilies
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Test where
+  data Bool = True | False
+  data Char7 = Char7
+  data Arr a = Arr
+  type family Element c
+  type instance Element (Arr a) = a
+  newtype Ascii = Ascii (Arr Char7)
+  type instance Element Ascii = Char7
+  class Collection c where
+    anyE :: (Element c -> Bool) -> c -> Bool
+    firstE :: c -> Element c
+    elemE :: forall a. (a ~ Element c) => a -> c -> Bool
+  instance Collection (Arr a) where
+    anyE _ _ = False
+    firstE _ = firstE Arr
+    elemE _ _ = True
+  deriving instance Collection Ascii
+reason: newtype deriving coerces a method whose type has a type family application of the class parameter, and the two sides reduce to one type
+status: pass
