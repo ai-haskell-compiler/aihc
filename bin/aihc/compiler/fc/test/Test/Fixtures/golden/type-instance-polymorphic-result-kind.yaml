@@ -1,0 +1,58 @@
+extensions:
+  - ConstraintKinds
+  - DataKinds
+  - FlexibleInstances
+  - KindSignatures
+  - MultiParamTypeClasses
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Type)
+    data NP (f :: k -> Type) (xs :: [k]) = NP
+    -- No argument gives the result kinds k2 and l2.
+    type family Same (h :: (k1 -> Type) -> (l1 -> Type)) :: (k2 -> Type) -> (l2 -> Type)
+    -- The right side leaves k2 open. Thus, the equation holds at each k2.
+    type instance Same NP = NP
+    -- The superclass needs Same (NP @k0) ~ NP @k1 for two different kinds.
+    class (Same h1 ~ h2) => HTrans (h1 :: (k1 -> Type) -> (l1 -> Type)) (h2 :: (k2 -> Type) -> (l2 -> Type))
+    instance HTrans NP NP
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tNP (k : sType) (f : k → sType) (xs : t[] k) :: sType {
+    pub 1.cNP :: ∀(k : sType) (f : k → sType) (xs : t[] k). tNP k f xs
+  }
+
+  pub type 1.tSame (k1 : sType) (l1 : sType) (k2 : sType) (l2 : sType) (h : (k1 → sType) → l1 → sType) :: (k2 → sType) → l2 → sType @N @N @N @N @N {}
+
+  axiom 1.$ax$Same$NP (_ : sType) (k2 : sType) : tSame _ (t[] _) k2 (t[] k2) (tNP _) ~N tNP k2
+
+  pub type 1.t$Dict$HTrans (k1 : sType) (l1 : sType) (k2 : sType) (l2 : sType) (h1 : (k1 → sType) → l1 → sType) (h2 : (k2 → sType) → l2 → sType) :: sType {
+    pub 1.c$Dict$HTrans :: ∀(k1 : sType) (l1 : sType) (k2 : sType) (l2 : sType) (h1 : (k1 → sType) → l1 → sType) (h2 : (k2 → sType) → l2 → sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tSame k1 l1 k2 l2 h1 ~ h2) (t$Dict$HTrans k1 l1 k2 l2 h1 h2)
+  }
+
+  pub val 1.v$fHTransNPNP :: ∀(k0 : sType) (k1 : sType). t$Dict$HTrans k0 (t[] k0) k1 (t[] k1) (tNP k0) (tNP k1)
+    = Λ(k0 : sType) (k1 : sType).
+      c$Dict$HTrans @k0 @(t[] k0) @k1 @(t[] k1) @(tNP k0) @(tNP k1) (coercion (refl (tNP k1)))
+status: pass
+reason: 'A type instance whose right side leaves a result kind of the family open is polymorphic in that kind, as in GHC. Same NP = NP is Same @k1 @[k1] @k2 @[k2] NP = NP @k2. Before the fix, the open kind defaulted to Type, and the lint rejected the superclass evidence of HTrans NP NP.'

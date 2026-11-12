@@ -1298,23 +1298,39 @@ defaultGlobalKindMetas initialKeys = do
       -- instantiates @k'@ at that kind, as in GHC, and does not bind it.
       kinds <- getKinds
       kindEnv <- lift (gets (Map.map tciKindScheme . tcsGlobalTyCons))
+      --
+      -- The right-hand side can also stay polymorphic in a result kind, as
+      -- in @type instance Same NP = NP@ of @sop-core@ with @Same :: ((k1 ->
+      -- Type) -> l1 -> Type) -> (k2 -> Type) -> l2 -> Type@. The right side
+      -- is @NP \@k2@ (see 'bindOpenResultKindVariables'), of the kind @(k2
+      -- -> Type) -> [k2] -> Type@. The equation binds @k2@, but @l2@ is
+      -- @[k2]@ and the equation does not bind it.
       let bound = map tvUnique tyVars
-          rightGivesResultKind = isJust (familyEquationRightKind kinds kindEnv (closeKindVariables tyVars) right)
           resultOnly =
             case familyInfo of
               Just tyConInfo
                 | hasExplicitKindArguments (tfiiLeft info) -> []
-                | rightGivesResultKind -> []
                 | ForAll variables _ body <- tciKindScheme tyConInfo ->
                     let (parameters, result) = splitKindArrows (tyConArity (tciTyCon tyConInfo)) body
                         parameterVariables = map tvUnique (concatMap freeKindVariables parameters)
                         resultVariables = map tvUnique (freeKindVariables result)
-                     in [ variable
-                        | variable <- variables,
-                          tvUnique variable `elem` resultVariables,
-                          tvUnique variable `notElem` parameterVariables,
-                          tvUnique variable `notElem` bound
-                        ]
+                        candidates =
+                          [ variable
+                          | variable <- variables,
+                            tvUnique variable `elem` resultVariables,
+                            tvUnique variable `notElem` parameterVariables,
+                            tvUnique variable `notElem` bound
+                          ]
+                     in case familyEquationRightKind kinds kindEnv (closeKindVariables tyVars <> candidates) right of
+                          Nothing -> candidates
+                          Just rightKind ->
+                            let values = fromMaybe Map.empty (matchTypes [result] [rightKind])
+                                unresolved variable =
+                                  case Map.lookup (tvUnique variable) values of
+                                    Just (TcTyVar value) -> tvUnique value == tvUnique variable
+                                    Just _ -> False
+                                    Nothing -> True
+                             in filter unresolved candidates
               _ -> []
       pure
         info
@@ -5131,6 +5147,44 @@ registerClosedTypeFamilyEquations origin familyDecl =
       mapM_ (registerTypeFamilyEquation origin True []) equations
       pure []
 
+-- | Bind each open kind meta-variable at a result kind variable of the
+-- family to that variable. A kind variable that only the result kind of
+-- the family mentions gets its value from the right side, when the right
+-- side gives one. When the right side leaves it open, the equation is
+-- polymorphic in it, as in GHC: @type instance Same NP = NP@, with @Same
+-- :: ((k1 -> Type) -> l1 -> Type) -> (k2 -> Type) -> l2 -> Type@, is
+-- @Same \@k1 \@[k1] \@k2 \@[k2] NP = NP \@k2@. Without the binding, the open
+-- kind defaults to 'Type', and the equation only holds at @NP \@Type@.
+-- A representation is not bound here: it defaults to lifted, as GHC
+-- defaults it.
+bindOpenResultKindVariables :: TcType -> TcType -> TcM ()
+bindOpenResultKindVariables lhs lhsKind =
+  forM_ (typeFamilyApplicationHead lhs) $ \familyTyCon -> do
+    maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
+    case maybeFamilyInfo of
+      Just familyInfo
+        | tciFlavor familyInfo == TypeFamilyTyCon,
+          ForAll variables _ body <- tciKindScheme familyInfo -> do
+            kinds <- getKinds
+            kind <- zonkKind lhsKind
+            let (parameters, result) = splitKindArrows (tyConArity (tciTyCon familyInfo)) body
+                parameterVariables = map tvUnique (concatMap freeKindVariables parameters)
+                resultOnly =
+                  [ variable
+                  | variable <- freeKindVariables result,
+                    tvUnique variable `elem` map tvUnique variables,
+                    tvUnique variable `notElem` parameterVariables,
+                    sameType (tvKind variable) (typeKind kinds)
+                  ]
+            forM_ (matchTypes [result] [kind]) $ \values ->
+              forM_ resultOnly $ \variable ->
+                case Map.lookup (tvUnique variable) values of
+                  Just (TcMetaTv meta) -> do
+                    solution <- readMetaTv meta
+                    when (isNothing solution) (writeMetaTv meta (TcTyVar variable))
+                  _ -> pure ()
+      _ -> pure ()
+
 registerTypeFamilyInstance :: (Text, Text) -> TypeFamilyInst -> TcM [TcBindingResult]
 registerTypeFamilyInstance origin familyInst = do
   registerTypeFamilyEquation origin False (typeFamilyInstForall familyInst) (typeFamilyInstEquation familyInst)
@@ -5168,6 +5222,7 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
   -- poly-kinded family open as well.
   (rawLhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
   rawRhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) =<< zonkKind lhsKind
+  bindOpenResultKindVariables rawLhs lhsKind
   -- A wildcard on the left stands for an argument the equation does not
   -- name, which is a variable of the equation like any other: @Assert _
   -- errMsg = errMsg@ matches every @check@. It arrives as a meta, because
