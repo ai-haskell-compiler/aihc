@@ -76,6 +76,16 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
             length sourceArguments == length targetArguments -> do
               proofs <- sequence <$> zipWithM (argumentProof visited sourceConstructor) [0 ..] (zip sourceArguments targetArguments)
               pure ((\argumentProofs -> TyConAppCo sourceConstructor sourceArguments argumentProofs []) <$> proofs)
+        -- An application of a type variable, as the @b (StM m a)@ of
+        -- @RunInBase m b@. The argument of an unknown function has the
+        -- nominal role, thus it gets a proof without newtype axioms.
+        (TcAppTy sourceFunction sourceArgument, TcAppTy targetFunction targetArgument) -> do
+          function <- go visited sourceFunction targetFunction
+          argument <-
+            if unwrap
+              then nominalCoercionBetween equations sourceArgument targetArgument
+              else go visited sourceArgument targetArgument
+          pure (AppCo <$> function <*> argument)
         _ -> pure Nothing
 
     -- An axiom proves @target ~ representation@, so a proof of
