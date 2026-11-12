@@ -254,7 +254,7 @@ import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote, quoteImports)
 import Aihc.Th.Reify (reifyInfo)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -1975,6 +1975,7 @@ moduleSpliceRequest shared build file source =
                   spliceRequestImports = Syntax.moduleImports modu,
                   spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
                   spliceRequestOwnModules = [],
+                  spliceRequestUnavailableImports = [],
                   spliceRequestSplices = []
                 }
     _ -> pure Nothing
@@ -2967,13 +2968,20 @@ expandUnitSplices context runtimes unit availableExports sources modules =
         Just template -> do
           let original = moduleUnitAst moduleUnit
               -- A name quote in a splice body gets its package and its
-              -- module from the scope of this module.
-              bound = bindSpliceNameQuotes (moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit) original
+              -- module from the scope of this module. A name of this
+              -- package gets the package id of the splice package, the same
+              -- id as the names of the copied modules and of the facts that
+              -- @reify@ gives in the splice.
+              inSplicePackage global
+                | globalNamePackage global == ownPackage = global {globalNamePackage = PackageId (splicePackageId template)}
+                | otherwise = global
+              bound = bindSpliceNameQuotes (\namespace -> fmap inSplicePackage . moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit namespace) original
               splices = moduleSplices bound
               request =
                 template
                   { spliceRequestSplices = splices,
                     spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
+                    spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
                     spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
                     spliceRequestDependencies = nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- belowSources, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]])
                   }

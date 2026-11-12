@@ -49,14 +49,13 @@ import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
 import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
 import Control.Monad (forM_, when)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, toLower)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, nub)
 import Data.Map.Strict (Map)
@@ -83,13 +82,19 @@ withSplices config = config {compileSplices = Just runSplices}
 runSplices :: SpliceRequest -> (RunSplice -> IO a) -> IO a
 runSplices request action =
   run `catch` \failure ->
-    ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> describeFailure failure))
+    ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> describeFailure failure <> unavailableNote))
   where
     root = spliceRequestBuildRoot request
+    -- A splice cannot use a module of the same dependency cycle. A failure
+    -- names these modules, because the failure is often an unbound name of
+    -- such a module.
+    unavailableNote =
+      case spliceRequestUnavailableImports request of
+        [] -> ""
+        names -> "\nThe splices of the module cannot use these modules of its own package, because they are in the same import cycle as the module: " <> intercalate ", " (map T.unpack names) <> "."
     packageDirectory = root </> "package"
     package = splicePackageName request
-    splicePackageId = package <> "-" <> splicePackageVersion
-    packageIds = (splicePackageId, spliceRequestPackageId request)
+    packageIds = (splicePackageId request, spliceRequestPackageId request)
     run = do
       absolute <- absoluteRequest request
       image <- buildImage request
@@ -109,7 +114,7 @@ runSplices request action =
           splice <- maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
           let reify global = localFacts global >>= maybe (storeFacts global) pure
           requests <- newIORef []
-          outcome <- try (runClosure engine (answerRequest packageIds reify requests) splicePackageId spliceModuleName (spliceClosureName index))
+          outcome <- try (runClosure engine (answerRequest packageIds reify requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -336,18 +341,6 @@ packageOptions request directory =
 -- modules of a package run their splices at the same time.
 splicePlanOptions :: PlanOptions
 splicePlanOptions = defaultPlanOptions {planUseLock = False}
-
--- | The name of the splice package. Each module has its own package, so
--- the symbols of two splice modules in one image are different.
-splicePackageName :: SpliceRequest -> Text
-splicePackageName request =
-  T.intercalate "-" ("aihc-splice" : map part [spliceRequestPackage request, spliceRequestModule request])
-  where
-    -- A package name has letters, digits, and hyphens.
-    part = T.map (\char -> if isAlphaNum char then toLower char else '-')
-
-splicePackageVersion :: Text
-splicePackageVersion = "0"
 
 -- | The Cabal file of the splice package. The package depends on each
 -- package that the module can import, at the version that the build of the

@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Helper (Describe (..), deriveDescribe, plusHelper)
+import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
 import Language.Haskell.TH
 import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
@@ -165,3 +165,7 @@ main = do
   print $(plusHelper 1)
   putStrLn (describe (Circle 1))
   putStrLn (describe Fast)
+  -- A name from reify and a name quote of the same type are equal, in a
+  -- splice of this module and in a function of a different module.
+  print $(do TyConI (DataD _ name _ _ _ _) <- reify ''Shape; if name == ''Shape then [|True|] else [|False|])
+  print $(isMode ''Mode)

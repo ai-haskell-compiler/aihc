@@ -386,6 +386,7 @@ spliceModuleTest = do
             spliceRequestImports = take 1 (moduleImports modu),
             spliceRequestPackageFiles = mempty,
             spliceRequestOwnModules = [],
+            spliceRequestUnavailableImports = [],
             spliceRequestSplices = moduleSplices modu
           }
   assertEqual

@@ -1,10 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), deriveDescribe, helperValue, plusHelper) where
+module Helper (Describe (..), deriveDescribe, helperValue, isMode, plusHelper) where
 
 import Language.Haskell.TH
-import Lower (lowerValue)
+import Lower (Mode, lowerValue)
 
 helperValue :: Int
 helperValue = lowerValue + 3
@@ -29,3 +29,8 @@ deriveDescribe name = do
         (AppT (ConT ''Describe) (ConT name))
         [FunD 'describe [Clause [WildP] (NormalB (LitE (StringL names))) []]]
     ]
+
+-- | Whether a name is the name of 'Mode'. The name quote of this module
+-- and the name quote of the caller must give the same name.
+isMode :: Name -> Q Exp
+isMode name = if name == ''Mode then [|True|] else [|False|]
