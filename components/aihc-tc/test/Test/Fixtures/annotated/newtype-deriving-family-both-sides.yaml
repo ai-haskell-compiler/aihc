@@ -1,0 +1,47 @@
+extensions:
+- DerivingStrategies
+- FlexibleContexts
+- GeneralizedNewtypeDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, FlexibleContexts, GeneralizedNewtypeDeriving, TypeFamilies #-}
+  module Test where
+  type family Element mono
+  type instance Element [a] = a
+  class MonoFunctor mono where
+    omap :: (Element mono -> Element mono) -> mono -> mono
+  instance MonoFunctor [a] where
+    omap f xs = xs
+  data Output = Output
+  newtype Outputs = Outputs [Output]
+    deriving newtype MonoFunctor
+  type instance Element Outputs = Output
+status: pass
+reason: Newtype deriving proves a method coercion when the type family applications on both sides reduce to the same type.
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, FlexibleContexts, GeneralizedNewtypeDeriving, TypeFamilies #-}
+  module Test where
+  type family Element mono
+              └─ type: Type → Type
+  type instance Element [a] = a
+  class MonoFunctor mono where
+  └─ class methods: omap ∷ ∀ mono. (MonoFunctor mono) ⇒ (Element mono → Element mono) → mono → mono
+    omap :: (Element mono -> Element mono) -> mono -> mono
+  instance MonoFunctor [a] where
+  └─ $fMonoFunctorList ∷ ∀ a. () ⇒ MonoFunctor [a]
+    omap f xs = xs
+    │    │ └─ type: [a]
+    │    └─ type: Element [a] → Element [a]
+    └─ omap ∷ (Element [a] → Element [a]) → [a] → [a]
+  data Output = Output
+       │        └─ type: Output
+       └─ type: Type
+  newtype Outputs = Outputs [Output]
+  │       │         └─ type: [Output] → Outputs
+  │       └─ type: Type
+  └─ deriving plans: newtype MonoFunctor Outputs [context: ()] [methods: omap]
+    deriving newtype MonoFunctor
+                     └─ $fMonoFunctorOutputs ∷ () ⇒ MonoFunctor Outputs
+  type instance Element Outputs = Output
