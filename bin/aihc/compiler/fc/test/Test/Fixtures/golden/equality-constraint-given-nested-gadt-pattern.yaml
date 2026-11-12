@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+- TypeOperators
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Sigma t where
+    Sigma :: t x -> x -> Sigma t
+  data One a b where
+    One :: One a a
+  data Box a = Box a
+  mapBox :: (a -> b) -> Box a -> Box b
+  mapBox f (Box a) = Box (f a)
+  matchA :: (t ~ One x) => Box (Sigma t) -> (forall x. t x -> Box (x -> a)) -> Box x
+  matchA x pi = mapBox (\(Sigma One x) -> x) x
+  result = matchA (Box (Sigma One On)) (\One -> Box (\y -> y)) :: Box Flag
+status: pass
+reason: A given equality gives the type of a nested GADT pattern in a constructor field.

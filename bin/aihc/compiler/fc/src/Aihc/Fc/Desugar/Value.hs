@@ -3024,13 +3024,23 @@ patternFieldTypes parent children
   -- casts the field to the target. A given equality can make the two types
   -- different: a tuple pattern can get @(Int, Wrap p)@ for the field type
   -- @(Int, Key p)@ when @Key p ~ Wrap p@ is a given.
+  --
+  -- The checked pattern type supplies the universal variables. The
+  -- alternative binds the pattern type variables in the order of the
+  -- existential variables, thus these supply the existential variables. The
+  -- child types cannot supply them, because a child with a cast does not
+  -- have the field type.
   | any (isJust . patternScrutineeCast) children = do
       maybeInfo <- patternDataCon parent
+      useType <- requiredPatternType parent
+      let typeVariables = patternTypeVariables parent
       case maybeInfo of
         Just info
-          | null (dciExTyVars info),
-            length (dciFields info) == length children -> do
-              substitution <- constructorPatternSubstitution parent info
+          | length (dciFields info) == length children,
+            length (dciExTyVars info) == length typeVariables,
+            Just universals <- matchTypes [dciResTy info] [useType] -> do
+              let existentials = Map.fromList (zip (map tvUnique (dciExTyVars info)) (map TcTyVar typeVariables))
+                  substitution = Map.union universals existentials
               pure [applySubst substitution (dcfiType field) | field <- dciFields info]
         _ -> mapM requiredPatternType children
   | otherwise = mapM requiredPatternType children
