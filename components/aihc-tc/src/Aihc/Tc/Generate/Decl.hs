@@ -1278,6 +1278,7 @@ defaultGlobalKindMetas initialKeys = do
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
       left <- defaultTypeKinds (tfiiLeft info)
       right <- defaultTypeKinds (tfiiRight info)
+      rightKind <- tcTypeKind right >>= zonkKind
       -- A kind variable that only the result kind of the family mentions,
       -- as the @k@ of @type family F t where F t = TypeError ...@ (@F ::
       -- forall j k. j -> k@), is not determined by an argument. Each
@@ -1286,7 +1287,26 @@ defaultGlobalKindMetas initialKeys = do
       -- already instantiates each kind variable of the family. The
       -- equation then does not use the variable of the family, and an
       -- axiom binder that no side uses never matches.
+      --
+      -- The kind of the right side can give the value of such a variable.
+      -- In @type instance AllZipN NP c = AllZip c@ of @sop-core@, with
+      -- @AllZipN :: ... -> l1 -> l2 -> Constraint@, the right side has the
+      -- kind @[a] -> [b] -> Constraint@. Thus @l1@ is @[a]@ and @l2@ is
+      -- @[b]@, and the equation does not bind them.
       let bound = map tvUnique tyVars
+          scope = map tvUnique (closeKindVariables tyVars)
+          determinedByRight result =
+            case matchTypes [result] [rightKind] of
+              Just substitution ->
+                [ unique
+                | (unique, value) <- Map.toList substitution,
+                  not (typeMentionsMeta value),
+                  all ((`elem` scope) . tvUnique) (freeKindVariables value),
+                  case value of
+                    TcTyVar tyVar -> tvUnique tyVar /= unique
+                    _ -> True
+                ]
+              Nothing -> []
           resultOnly =
             case familyInfo of
               Just tyConInfo
@@ -1299,7 +1319,8 @@ defaultGlobalKindMetas initialKeys = do
                         | variable <- variables,
                           tvUnique variable `elem` resultVariables,
                           tvUnique variable `notElem` parameterVariables,
-                          tvUnique variable `notElem` bound
+                          tvUnique variable `notElem` bound,
+                          tvUnique variable `notElem` determinedByRight result
                         ]
               _ -> []
       pure

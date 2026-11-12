@@ -1,0 +1,49 @@
+extensions:
+  - ConstraintKinds
+  - DataKinds
+  - KindSignatures
+  - MultiParamTypeClasses
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Constraint, Type)
+    data NP (f :: k -> Type) (xs :: [k]) = NP
+    class C (c :: a -> b -> Constraint) (xs :: [a]) (ys :: [b])
+    -- No argument gives the result kinds l1 and l2.
+    type family Z (h :: (k -> Type) -> (l -> Type)) (c :: k1 -> k2 -> Constraint) :: l1 -> l2 -> Constraint
+    -- The right side has the kind [a] -> [b] -> Constraint.
+    type instance Z NP c = C c
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tNP (k : sType) (f : k → sType) (xs : t[] k) :: sType {
+    pub 1.cNP :: ∀(k : sType) (f : k → sType) (xs : t[] k). tNP k f xs
+  }
+
+  pub type 1.t$Dict$C (a : sType) (b : sType) (c : a → b → sType) (xs : t[] a) (ys : t[] b) :: sType {
+    pub 1.c$Dict$C :: ∀(a : sType) (b : sType) (c : a → b → sType) (xs : t[] a) (ys : t[] b). t$Dict$C a b c xs ys
+  }
+
+  pub type 1.tZ (k : sType) (l : sType) (k1 : sType) (k2 : sType) (l1 : sType) (l2 : sType) (h : (k → sType) → l → sType) (c : k1 → k2 → sType) :: l1 → l2 → sType @N @N @N @N @N @N @N @N {}
+
+  axiom 1.$ax$Z$NP$c (k0 : sType) (k1 : sType) (_ : sType) (c : k0 → k1 → sType) : tZ _ (t[] _) k0 k1 (t[] k0) (t[] k1) (tNP _) c ~N t$Dict$C k0 k1 c
+status: pass
+reason: 'The kind of the right side of a type instance gives the result kind variables l1 and l2 of the family as [a] and [b]. Before the fix, the axiom bound l1 and l2, and the lint found a kind mismatch between the two axiom sides.'

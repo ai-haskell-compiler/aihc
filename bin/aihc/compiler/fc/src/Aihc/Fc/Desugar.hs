@@ -888,7 +888,11 @@ convertTypeFamilyEquation env info = do
   let bindersEnv = withUnresolvedKindVars [tfiiLeft info, tfiiRight info] (withTyVars (tfiiTyVars info) env)
       TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
-  left <- convertType bindersEnv (tfiiLeft info)
+  -- The kind of the right-hand side gives the invisible kind arguments of
+  -- the family that no argument gives: @type instance AllZipN NP c =
+  -- AllZip c@ gives the result kinds @l1@ and @l2@ of @AllZipN@.
+  let leftKind = either (const Nothing) Just (typeKindInEnv bindersEnv (tfiiRight info))
+  left <- convertTypeWithExpectedKind bindersEnv leftKind (tfiiLeft info)
   -- The right-hand side has the kind of the family application. That kind
   -- gives the invisible kind argument of a partial application, as in
   -- @type Rep (Forget r) = Const r@ at the kind @Type -> Type@.
