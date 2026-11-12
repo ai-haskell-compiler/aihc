@@ -1557,6 +1557,10 @@ patternBinderSpecs pattern' =
       key <- requiredBinderKey name
       ty <- requiredPatternType pattern'
       pure [(key, Syn.unqualifiedNameText name, ty)]
+    Syn.PNPlusK name _ -> do
+      key <- requiredBinderKey name
+      ty <- requiredPatternType pattern'
+      pure [(key, Syn.unqualifiedNameText name, ty)]
     Syn.PAnn _ inner -> patternBinderSpecs inner
     Syn.PParen inner -> patternBinderSpecs inner
     Syn.PAs name inner -> do
@@ -1864,6 +1868,7 @@ patternBinderAnnotations :: Syn.Pattern -> [(Text, TcAnnotation)]
 patternBinderAnnotations pattern' =
   case pattern' of
     Syn.PVar name -> binderAnnotation name
+    Syn.PNPlusK name _ -> binderAnnotation name
     Syn.PAs name inner -> binderAnnotation name <> patternBinderAnnotations inner
     Syn.PAnn _ inner -> patternBinderAnnotations inner
     Syn.PParen inner -> patternBinderAnnotations inner
@@ -2358,6 +2363,9 @@ desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals)
       | patternIsIrrefutable pattern' = do
           extra <- patternMatchBindings pattern' argument ty
           compile (current <> matchBinderLocals extra) rest
+      | Just name <- nPlusKPatternBinder pattern' =
+          desugarNPlusKPattern resultType argument ty name pattern' failure $ \entries ->
+            compile (current <> matchBinderLocals entries) rest
       | isOverloadedLiteralPattern pattern' = do
           test <- desugarOverloadedLiteralPatternTest (ExVar (binderName argument)) pattern'
           testBinder <- literalTestBinder "_case_guard" pattern'
@@ -2390,8 +2398,70 @@ requiredArgumentTypes types =
 firstPatternIsOverloadedLiteral :: Syn.Match -> Bool
 firstPatternIsOverloadedLiteral match =
   case Syn.matchPats match of
-    pattern' : _ -> isOverloadedLiteralPattern pattern'
+    pattern' : _ -> isOverloadedLiteralPattern pattern' || isJust (nPlusKPatternBinder pattern')
     [] -> False
+
+-- | The match of an n+k pattern against a binder.
+--
+-- The continuation gets the bindings of the pattern: the variable of the
+-- pattern, and each as-pattern binder around it.
+desugarNPlusKPattern :: TcType -> Binder -> TcType -> Syn.UnqualifiedName -> Syn.Pattern -> Expr -> ([(Entity, (Binder, TcType))] -> ValueM Expr) -> ValueM Expr
+desugarNPlusKPattern resultType binder ty name pattern' failure success = do
+  let scrutinee = ExVar (binderName binder)
+  literal <- nPlusKLiteral pattern'
+  comparison <- desugarPatternMethod ">=" pattern'
+  minus <- desugarPatternMethod "-" pattern'
+  testBinder <- freshBinder "_npk_guard" =<< requiredPatternMethodResultType ">=" pattern'
+  valueBinder <- freshBinder "_npk" ty
+  resultType' <- convertCheckedType resultType
+  trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
+  falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
+  valueEntry <- binderEntry name valueBinder ty
+  aliases <- patternMatchBindings pattern' binder ty
+  body <- success (aliases <> valueEntry)
+  pure
+    ( caseFromList
+        (ExApp (ExApp comparison scrutinee) literal)
+        (Just testBinder)
+        resultType'
+        [ Alt (AltData trueName) [] [] (ExLet (Bind valueBinder (ExApp (ExApp minus scrutinee) literal)) body),
+          Alt (AltData falseName) [] [] failure
+        ]
+    )
+
+-- | The variable of an n+k pattern under the wrappers of the pattern.
+--
+-- The match of @n+k@ against @v@ is the test @v >= fromInteger k@, and then
+-- @n@ binds to @v - fromInteger k@. The type checker gave each method its
+-- checked occurrence.
+nPlusKPatternBinder :: Syn.Pattern -> Maybe Syn.UnqualifiedName
+nPlusKPatternBinder pattern' =
+  case pattern' of
+    Syn.PAnn _ inner -> nPlusKPatternBinder inner
+    Syn.PParen inner -> nPlusKPatternBinder inner
+    Syn.PStrict inner -> nPlusKPatternBinder inner
+    Syn.PAs _ inner -> nPlusKPatternBinder inner
+    Syn.PTypeSig inner _ -> nPlusKPatternBinder inner
+    Syn.PNPlusK name _ -> Just name
+    _ -> Nothing
+
+-- | The value @fromInteger k@ of an n+k pattern.
+nPlusKLiteral :: Syn.Pattern -> ValueM Expr
+nPlusKLiteral pattern' =
+  case peelLiteral pattern' of
+    Just integer -> ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
+    Nothing -> failValue ("invalid n+k pattern: " <> take 80 (show pattern'))
+  where
+    peelLiteral inner =
+      case inner of
+        Syn.PAnn _ next -> peelLiteral next
+        Syn.PParen next -> peelLiteral next
+        Syn.PStrict next -> peelLiteral next
+        Syn.PAs _ next -> peelLiteral next
+        Syn.PTypeSig next _ -> peelLiteral next
+        Syn.PNPlusK _ literal
+          | Syn.LitInt value Syn.TInteger _ <- Syn.peelLiteralAnn literal -> Just value
+        _ -> Nothing
 
 overloadedPatternFailure :: TcType -> [Binder] -> ValueM Expr
 overloadedPatternFailure resultType arguments = do
@@ -3115,6 +3185,7 @@ patternType pattern' =
     Syn.PAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> patternType inner
     Syn.PLit literal -> literalType literal
     Syn.PNegLit literal -> literalType literal
+    Syn.PNPlusK name _ -> nameTcType name
     Syn.PParen inner -> patternType inner
     Syn.PStrict inner -> patternType inner
     Syn.PIrrefutable inner -> patternType inner
@@ -5317,6 +5388,10 @@ desugarExpandedPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -
 desugarExpandedPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
     _
+      | Just name <- nPlusKPatternBinder pattern' -> do
+          resultType' <- convertCheckedType resultType
+          let failure' = fromMaybe (ExAbsurd (ExVar (binderName binder)) resultType') failure
+          desugarNPlusKPattern resultType binder ty name pattern' failure' (`withLocals` success)
       | isOverloadedLiteralPattern pattern' -> do
           -- An overloaded literal compares with the equality
           -- method of its type, as in a function equation.

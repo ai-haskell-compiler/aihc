@@ -1316,6 +1316,7 @@ collectPatVarBinders :: Scope -> Maybe SourceSpan -> Pattern -> [(Maybe SourceSp
 collectPatVarBinders fieldScope ambient pat =
   case peelPatternAnn pat of
     PVar name -> [binderAt name]
+    PNPlusK name _ -> [binderAt name]
     PAs alias inner -> binderAt alias : go inner
     PRecord conName fields wildcard ->
       concatMap (go . recordFieldValue) fields

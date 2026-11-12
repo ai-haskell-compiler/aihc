@@ -356,6 +356,7 @@ instance Walkable Pattern where
     PStrict inner -> PStrict <$> walk w inner
     PIrrefutable inner -> PIrrefutable <$> walk w inner
     PNegLit literal -> PNegLit <$> walk w literal
+    PNPlusK name literal -> PNPlusK <$> walk w name <*> walk w literal
     PParen inner -> PParen <$> walk w inner
     PRecord name fields wildcard -> PRecord <$> walk w name <*> walk w fields <*> pure wildcard
     PTypeSig inner ty -> PTypeSig <$> walk w inner <*> walk w ty

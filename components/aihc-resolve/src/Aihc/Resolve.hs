@@ -1336,6 +1336,18 @@ annotatePatternLiteral mkPattern sourceLit = do
         PNegLit {} -> [conversion, "negate", "=="]
         _ -> [conversion, "=="]
 
+-- | Annotate an n+k pattern with the names that its match uses.
+--
+-- The Haskell 98 Report gives the match of @n+k@ against @v@ as the test
+-- @v >= fromInteger k@, and then @n@ binds to @v - fromInteger k@.
+annotateNPlusKPattern :: UnqualifiedName -> Literal -> ResolveM Pattern
+annotateNPlusKPattern name sourceLit = do
+  lit <- numDecimalsLiteral sourceLit
+  sp <- (literalSpan lit <|>) <$> currentSpan
+  maybeIntegerAnn <- integerTypeAnnotation sp
+  methodAnns <- mapM (syntaxTermAnnotation sp) ["fromInteger", ">=", "-"]
+  pure (foldr PAnn (PNPlusK name lit) (maybe methodAnns (: methodAnns) maybeIntegerAnn))
+
 -- | The innermost source span a literal's annotations carry.
 literalSpan :: Literal -> Maybe SourceSpan
 literalSpan = go Nothing
@@ -1370,6 +1382,8 @@ builtinSyntaxTerm info name =
         "fromListN",
         "negate",
         "==",
+        ">=",
+        "-",
         ">>=",
         ">>",
         "return",
@@ -2025,6 +2039,13 @@ bindPattern pat =
     PNegLit lit -> do
       pat' <- annotatePatternLiteral PNegLit lit
       pure (emptyScope, pat')
+    PNPlusK name lit -> do
+      sp <- currentSpan
+      entity <- freshLocal
+      let key = renderUnqualifiedName name
+      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Resolved entity) name
+      pat' <- annotateNPlusKPattern name' lit
+      pure (termScope key entity, pat')
     PSplice expr -> do
       expr' <- resolveExpr expr
       pure (emptyScope, PSplice expr')
@@ -2079,6 +2100,10 @@ resolvePatternDefinition termDefinition pat =
     PIrrefutable inner ->
       PIrrefutable <$> resolvePatternDefinition termDefinition inner
     PNegLit lit -> annotatePatternLiteral PNegLit lit
+    PNPlusK name lit -> do
+      sp <- currentSpan
+      name' <- resolveTermDefinitionAt sp termDefinition name
+      annotateNPlusKPattern name' lit
     PParen inner ->
       PParen <$> resolvePatternDefinition termDefinition inner
     PRecord name fields wildcard -> do
