@@ -11,9 +11,12 @@ module GHC.Num.BigNat
     bigNatFromWord2#,
     bigNatFromWordArray,
     bigNatToWord#,
+    bigNatToWord,
     bigNatToInt#,
+    bigNatToInt,
     bigNatIndex#,
     bigNatSize#,
+    bigNatSize,
     bigNatSizeInBase#,
     bigNatSizeInBase,
     bigNatIsZero,
@@ -49,6 +52,11 @@ module GHC.Num.BigNat
     bigNatCompare,
     bigNatCompareWord#,
     bigNatEq,
+    bigNatNe,
+    bigNatLt,
+    bigNatLe,
+    bigNatGt,
+    bigNatGe,
     bigNatEq#,
     bigNatEqWord#,
     bigNatGtWord#,
@@ -102,7 +110,7 @@ import GHC.Prim
   )
 import GHC.Prim.Integer (Integer (..), integerAnd, integerFromMagnitude#, integerFromTwoWords#, integerFromWord#, integerLogBase#, integerOr, integerToInt#, integerXor)
 import GHC.Types (Bool (..), Int (..), Word (..), isTrue#)
-import Prelude (Eq (..), Integral (..), Num (..), Ord (..), Ordering, gcd, not, otherwise)
+import Prelude (Eq (..), Integral (..), Num (..), Ord (..), Ordering (..), gcd, not, otherwise)
 
 -- | The magnitude of an arbitrary-precision number: a canonical,
 -- little-endian sequence of 64-bit limbs with no trailing zero limb.  This is
@@ -173,6 +181,14 @@ limbsInteger limbs index accumulator =
     1# -> accumulator
     _ -> limbsInteger limbs (index -# 1#) (shiftL accumulator 64 .|. wordInteger (indexWordArray# limbs index))
 
+-- | The low limb as a word.
+bigNatToWord :: BigNat# -> Word
+bigNatToWord magnitude = W# (bigNatToWord# magnitude)
+
+-- | The low limb as an 'Int'.
+bigNatToInt :: BigNat# -> Int
+bigNatToInt magnitude = I# (bigNatToInt# magnitude)
+
 -- | The least significant limb, and zero for the magnitude zero.
 bigNatToWord# :: BigNat# -> Word#
 bigNatToWord# magnitude =
@@ -191,6 +207,10 @@ bigNatIndex# = indexWordArray#
 -- | The number of limbs.
 bigNatSize# :: BigNat# -> Int#
 bigNatSize# magnitude = quotInt# (sizeofByteArray# magnitude) 8#
+
+-- | The number of limbs.
+bigNatSize :: BigNat# -> Word
+bigNatSize magnitude = W# (int2Word# (bigNatSize# magnitude))
 
 -- | The number of digits in a base greater than one.  Zero has no digit.
 bigNatSizeInBase# :: Word# -> BigNat# -> Word#
@@ -357,6 +377,26 @@ bigNatCompareWord# left right = compare (magnitudeInteger left) (wordInteger rig
 -- compares the bytes.
 bigNatEq :: BigNat# -> BigNat# -> Bool
 bigNatEq left right = isTrue# (bigNatEq# left right)
+
+-- | Whether two magnitudes are different.
+bigNatNe :: BigNat# -> BigNat# -> Bool
+bigNatNe left right = not (bigNatEq left right)
+
+-- | Whether the first magnitude is less than the second.
+bigNatLt :: BigNat# -> BigNat# -> Bool
+bigNatLt left right = bigNatCompare left right == LT
+
+-- | Whether the first magnitude is less than or equal to the second.
+bigNatLe :: BigNat# -> BigNat# -> Bool
+bigNatLe left right = bigNatCompare left right /= GT
+
+-- | Whether the first magnitude is greater than the second.
+bigNatGt :: BigNat# -> BigNat# -> Bool
+bigNatGt left right = bigNatCompare left right == GT
+
+-- | Whether the first magnitude is greater than or equal to the second.
+bigNatGe :: BigNat# -> BigNat# -> Bool
+bigNatGe left right = bigNatCompare left right /= LT
 
 -- | Whether two magnitudes are equal, as a 'Bool#'.
 bigNatEq# :: BigNat# -> BigNat# -> Bool#

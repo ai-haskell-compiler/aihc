@@ -8,6 +8,7 @@ module GHC.Num.Integer
     integerFromBigNat#,
     integerFromBigNatNeg#,
     integerToBigNatClamp#,
+    integerToBigNatSign#,
     integerFromWordNeg#,
     integerFromWord#,
     integerFromNatural,
@@ -35,7 +36,7 @@ import GHC.Internal.Integer (Integer (..), integerFromMagnitude#, integerLog2#, 
 import GHC.Internal.Integer qualified as Internal
 import GHC.Num.BigNat (BigNat (..), BigNat#, bigNatCheck#, bigNatFromAddr#, bigNatFromByteArray#, bigNatFromWord#, bigNatSizeInBase#, bigNatToAddr#, bigNatToMutableByteArray#, bigNatZero)
 import GHC.Num.Primitives (Bool#)
-import GHC.Prim (Addr#, ByteArray#, Int#, MutableByteArray#, State#, Word#, and#, clz#, indexWordArray#, int2Word#, quotInt#, quotRemWord2#, sizeofByteArray#, timesWord2#, uncheckedShiftRL#, word2Int#, (+#), (-#), (<#), (==#))
+import GHC.Prim (Addr#, ByteArray#, Int#, MutableByteArray#, State#, Word#, and#, clz#, indexWordArray#, int2Word#, negateInt#, quotInt#, quotRemWord2#, sizeofByteArray#, timesWord2#, uncheckedShiftRL#, word2Int#, (+#), (-#), (<#), (==#))
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import GHC.Types (IO (..))
 import Prelude (Eq (..), Integral (..), Num (..), Ord (..), gcd, lcm, odd, otherwise)
@@ -74,6 +75,18 @@ integerToBigNatClamp# value =
         1# -> case bigNatZero of BN# zero -> zero
         _ -> bigNatFromWord# (int2Word# small)
     IN _ -> case bigNatZero of BN# zero -> zero
+
+-- | The sign and the magnitude of an 'Integer'. The sign is 1 for a negative
+-- value and 0 for the other values.
+integerToBigNatSign# :: Integer -> (# Int#, BigNat# #)
+integerToBigNatSign# value =
+  case value of
+    IP magnitude -> (# 0#, magnitude #)
+    IN magnitude -> (# 1#, magnitude #)
+    IS small ->
+      case small <# 0# of
+        1# -> (# 1#, bigNatFromWord# (int2Word# (negateInt# small)) #)
+        _ -> (# 0#, bigNatFromWord# (int2Word# small) #)
 
 -- | The magnitude of an 'Integer'.
 integerMagnitude# :: Integer -> BigNat#

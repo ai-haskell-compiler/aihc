@@ -34,6 +34,7 @@ module GHC.Types
     LiftedRep,
     UnliftedRep,
     Levity (..),
+    Multiplicity (..),
     RuntimeRep (..),
     VecCount (..),
     VecElem (..),
@@ -259,6 +260,10 @@ data RuntimeRep
   | WordRep
 
 data Levity = Lifted | Unlifted
+
+-- | The multiplicity of a function arrow. aihc does not check linear types, but
+-- a type can name a multiplicity.
+data Multiplicity = One | Many
 
 data VecCount = Vec16 | Vec2 | Vec32 | Vec4 | Vec64 | Vec8
 

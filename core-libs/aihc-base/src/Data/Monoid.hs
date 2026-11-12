@@ -82,6 +82,32 @@ deriving stock instance Read Any
 
 deriving stock instance Show Any
 
+deriving stock instance (Eq a) => Eq (First a)
+
+deriving stock instance (Ord a) => Ord (First a)
+
+deriving stock instance (Read a) => Read (First a)
+
+deriving stock instance (Show a) => Show (First a)
+
+deriving stock instance (Eq a) => Eq (Last a)
+
+deriving stock instance (Ord a) => Ord (Last a)
+
+deriving stock instance (Read a) => Read (Last a)
+
+deriving stock instance (Show a) => Show (Last a)
+
+deriving stock instance (Eq (f a)) => Eq (Alt f a)
+
+deriving stock instance (Ord (f a)) => Ord (Alt f a)
+
+deriving stock instance (Read (f a)) => Read (Alt f a)
+
+deriving stock instance (Show (f a)) => Show (Alt f a)
+
+deriving stock instance (Read (f a)) => Read (Ap f a)
+
 instance (Alternative f) => Semigroup (Alt f a) where
   Alt left <> Alt right = Alt (left <|> right)
 

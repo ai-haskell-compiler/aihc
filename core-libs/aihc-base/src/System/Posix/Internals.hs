@@ -49,6 +49,7 @@ module System.Posix.Internals
 
     -- * The calls and their constants
     module System.Posix.Internals.Syscalls,
+    o_BINARY,
   )
 where
 
@@ -70,6 +71,11 @@ import System.Posix.Internals.Syscalls
 import System.Posix.Internals.Types
 import System.Posix.Types (CDev (..), CIno (..), CMode (..))
 import Prelude (FilePath, IO, Int, fromIntegral, (/=), (<), (==))
+
+-- | The @O_BINARY@ flag of @open(2)@. Only Windows has this flag, thus it is
+-- zero on each target of aihc.
+o_BINARY :: CInt
+o_BINARY = 0
 
 -- | Run an action on the encoded form of a file path.
 --

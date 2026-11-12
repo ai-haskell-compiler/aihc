@@ -6,13 +6,14 @@ module GHC.Num.Natural
     naturalLog2,
     naturalCheck,
     naturalFromBigNat#,
+    naturalToBigNat#,
   )
 where
 
 import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
 import GHC.Ix (Ix (..), indexError)
-import GHC.Num.BigNat (BigNat#, bigNatCheck#, bigNatSize#)
+import GHC.Num.BigNat (BigNat#, bigNatCheck#, bigNatFromWord#, bigNatSize#)
 import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#), (>=#))
 import GHC.Prim.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, wordToInteger)
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
@@ -230,3 +231,8 @@ naturalLog2 value = count value 0
 -- | Convert a magnitude to a natural number in canonical form.
 naturalFromBigNat# :: BigNat# -> Natural
 naturalFromBigNat# magnitude = naturalFromInteger# (integerFromMagnitude# 1# magnitude)
+
+-- | The magnitude of a 'Natural'.
+naturalToBigNat# :: Natural -> BigNat#
+naturalToBigNat# (NS word) = bigNatFromWord# word
+naturalToBigNat# (NB magnitude) = magnitude
