@@ -85,7 +85,10 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
                   inner <- unwrapEither leftType rightType
                   case inner of
                     Just (leftInner, rightInner) -> go wait edges visited nested leftInner rightInner
-                    Nothing -> pure False
+                    -- A type family applied to more arguments than its
+                    -- arity, as @R a x@, is an application of @R a@. The
+                    -- given @Coercible (R a) (R b)@ then solves the pair.
+                    Nothing -> general wait edges visited nested leftType rightType
       where
         decompose =
           and
@@ -99,7 +102,8 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
                     | otherwise -> nominal argument argument'
               | (index, (argument, argument')) <- zip [0 ..] (zip args args')
               ]
-    shapes wait edges visited nested left right = do
+    shapes wait edges visited nested left right = general wait edges visited nested left right
+    general wait edges visited nested left right = do
       leftRepresentation <- representation left
       rightRepresentation <- representation right
       case (leftRepresentation, rightRepresentation) of
