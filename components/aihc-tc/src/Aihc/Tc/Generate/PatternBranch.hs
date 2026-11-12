@@ -11,6 +11,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Pattern (PatternCheck (..))
 import Aihc.Tc.Monad
+import Aihc.Tc.QuickLook (metaVariables)
 import Aihc.Tc.Solve (SolveResult (..), solveWithImpls)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
@@ -67,10 +68,20 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
       let substitution = skolemSubstitution equalities
       escapingType <- zonkType branchResultType
       let target = applySubst substitution escapingType
-      if Map.null substitution || any (`typeMentionsTyVar` target) skolems
+          -- The first solve can make fresh meta variables, for example
+          -- when it instantiates an instance, and the zonked result type
+          -- can hold them. The state before the solve has no kind and no
+          -- solution for such a variable, thus the target must not hold
+          -- one. Its unique is at or above the boundary of that state.
+          boundary = Unique (tcsNextUnique before)
+          newMeta = any (>= boundary) (metaVariables target)
+      if Map.null substitution || newMeta || any (`typeMentionsTyVar` target) skolems
         then pure Nothing
         else do
-          lift (put before)
+          -- The restored state keeps the unique supply of the failed
+          -- state. Thus a fresh unique never repeats a unique that the
+          -- first solve gave out.
+          lift (put before {tcsNextUnique = tcsNextUnique failed})
           unified <- unifyTypes branchResultType target
           case unified of
             Left _ -> Nothing <$ lift (put failed)
