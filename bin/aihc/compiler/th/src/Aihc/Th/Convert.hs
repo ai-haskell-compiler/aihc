@@ -120,7 +120,7 @@ typeFromTree tree =
       body' <- typeFromTree body
       let qualified = if null context' then body' else TContext context' body'
       pure (if null binders' then qualified else TForall (ForallTelescope ForallInvisible binders') qualified)
-    (TreeNode "ForallVisT" [binders, body], []) -> TForall <$> (ForallTelescope ForallVisible <$> (list binders >>= mapM typeVariableBinder)) <*> typeFromTree body
+    (TreeNode "ForallVisT" [binders, body], []) -> TForall . ForallTelescope ForallVisible <$> (list binders >>= mapM typeVariableBinder) <*> typeFromTree body
     (other, _) -> unsupported "type" other
   where
     -- The head of a chain of type applications, and its arguments.
