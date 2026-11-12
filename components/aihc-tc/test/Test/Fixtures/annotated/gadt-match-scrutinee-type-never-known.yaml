@@ -1,0 +1,39 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+       │       │      └─ type: ∀ a. a → Opt a
+       │       └─ type: ∀ a. Opt a
+       └─ type: Type → Type
+  data NS (f :: k -> Type) (xs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    Z :: f x -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ f x → NS f xs
+    S :: NS f xs -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ NS f xs → NS f xs
+  constOpt :: Opt () -> b -> Opt ()
+  constOpt x _ = x
+  │        │ └─ type: b
+  │        └─ type: Opt ()
+  └─ type: ∀ b. Opt () → b → Opt ()
+  never :: forall f xs . (NS f xs -> Opt ()) -> Opt ()
+  never k = constOpt None (\ns -> case ns of Z _ -> None; S s -> k s)
+                                                                 └─ error: couldn't match xs with xs
+extensions: [DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+  data NS (f :: k -> Type) (xs :: [k]) where
+    Z :: f x -> NS f (x ': xs)
+    S :: NS f xs -> NS f (x ': xs)
+  constOpt :: Opt () -> b -> Opt ()
+  constOpt x _ = x
+  never :: forall f xs . (NS f xs -> Opt ()) -> Opt ()
+  never k = constOpt None (\ns -> case ns of Z _ -> None; S s -> k s)
+reason: "no argument gives the type of the scrutinee ns, thus the given of the S branch never proves xs ~ xs1, and the wanted gets an error"
+status: pass

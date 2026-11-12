@@ -2643,8 +2643,12 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
   residual <- filterM (fmap not . solveGivenEquality givens) cts
   solveResult <- solveWithImpls residual implications
   -- The inert set holds the stuck flat wanteds, which are in @cts@, and
-  -- the wanteds that the implications deferred, which are not.
-  let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
+  -- the wanteds that the implications deferred, which are not. An
+  -- equality in the inert set always gets another attempt, also when it
+  -- is in @cts@: a branch can give an equality outward to wait for a meta
+  -- variable of its givens (see 'Aihc.Tc.Solve.solveWantedWithGivens'),
+  -- and 'attemptClassCt' does not examine equalities.
+  let deferred = filter (\ct -> isEqualityCt ct || ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
   -- The residual holds the equalities that wait on a type family
   -- application. An implication can also defer an equality. Give it another
   -- attempt, because the enclosing solve can have solved its meta variables.
@@ -2693,6 +2697,10 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
                   emitError (ctLoc errCt) (UnsolvedWanted predicate (ctOrigin errCt))
               pure []
       | otherwise = attemptClassCt ct
+    isEqualityCt ct =
+      case ctPred ct of
+        EqPred {} -> True
+        _ -> False
     isDictionaryPred predicate =
       case predicate of
         ClassPred {} -> True
