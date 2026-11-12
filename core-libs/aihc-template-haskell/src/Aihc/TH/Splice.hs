@@ -53,7 +53,7 @@ import Data.Word (Word8)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr)
-import Language.Haskell.TH.Syntax (Dec, Exp, Info, Name, Q, Quasi (..), Type, runQ)
+import Language.Haskell.TH.Syntax (Dec, Exp, Info, Name, Q, Quasi (..), Role, Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -114,6 +114,9 @@ data Request
   | -- | Give the facts of a name. The reply is an @Either String Info@
     -- value: an error message or the facts.
     Reify Name
+  | -- | Give the roles of the parameters of a type constructor. The reply
+    -- is an @Either String [Role]@ value.
+    ReifyRoles Name
   deriving (Data)
 
 -- | Send a request and give the bytes of the reply.
@@ -201,7 +204,17 @@ instance Quasi Splice where
   qReifyFixity _ = unsupported "reifyFixity"
   qReifyType _ = unsupported "reifyType"
   qReifyInstances _ _ = unsupported "reifyInstances"
-  qReifyRoles _ = unsupported "reifyRoles"
+  qReifyRoles name =
+    Splice $ do
+      reply <- sendRequest (ReifyRoles name)
+      case decodeValue reply of
+        Just (Right roles) -> pure (roles :: [Role])
+        Just (Left message) -> do
+          report (Report True message)
+          fail "Template Haskell failure"
+        Nothing -> do
+          report (Report True "The reply of the compiler to `reifyRoles' is not valid.")
+          fail "Template Haskell failure"
   qReifyAnnotations _ = unsupported "reifyAnnotations"
   qReifyModule _ = unsupported "reifyModule"
   qReifyConStrictness _ = unsupported "reifyConStrictness"

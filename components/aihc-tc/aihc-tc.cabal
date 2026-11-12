@@ -30,6 +30,7 @@ library
     Aihc.Tc.Kind
     Aihc.Tc.Match
     Aihc.Tc.Monad
+    Aihc.Tc.Roles
     Aihc.Tc.Share
     Aihc.Tc.TypeLitFamily
     Aihc.Tc.TypeScheme
