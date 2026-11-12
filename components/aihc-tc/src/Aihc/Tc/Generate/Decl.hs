@@ -5262,7 +5262,7 @@ typeFamilyInstEquation familyInst =
 
 registerTypeFamilyEquation :: (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM ()
 registerTypeFamilyEquation origin isClosed extraBinders equation =
-  checkTypeFamilyEquation origin isClosed extraBinders equation >>= mapM_ (addTypeFamilyInstance <=< distinctAxiomName)
+  checkTypeFamilyEquation origin isClosed extraBinders equation >>= mapM_ (mapM_ addTypeFamilyInstance <=< distinctAxiomName)
   where
     -- Open family instances can differ only in an invisible kind
     -- argument: @type instance MEmpty = 'EQ@ and @type instance MEmpty =
@@ -5271,16 +5271,33 @@ registerTypeFamilyEquation origin isClosed extraBinders equation =
     -- equation has the name already, the name also gets the key of the
     -- right side. 'sourceTypeFamilyAxiomNames' gives the two names in the
     -- order that a lookup tries them.
+    --
+    -- Two instances with the same checked left side and different right
+    -- sides conflict, as @type instance F B = B@ and @type instance F B =
+    -- C@. GHC reports them, and so does this check. The second instance is
+    -- not registered.
     distinctAxiomName info
-      | isClosed = pure info
+      | isClosed = pure (Just info)
       | otherwise = do
           instances <- getTypeFamilyInstances
           let taken existing = typeFamilyAxiomKey existing == typeFamilyAxiomKey info && not (sameTypeFamilyEquation existing info)
-          pure
-            ( if any taken instances
-                then info {tfiiAxiomName = tfiiAxiomName info <> "$" <> sourceTypeKey origin (typeFamilyEqRhs equation)}
-                else info
-            )
+          case filter taken instances of
+            [] -> pure (Just info)
+            existing
+              | any (sameLeftSide info) existing -> do
+                  emitError
+                    Nothing
+                    ( OtherError
+                        ( "conflicting family instance declarations: "
+                            <> T.unpack (tfiiFamilyName info)
+                            <> " has two instances with the same left side and different right sides"
+                        )
+                    )
+                  pure Nothing
+              | otherwise ->
+                  pure (Just info {tfiiAxiomName = tfiiAxiomName info <> "$" <> sourceTypeKey origin (typeFamilyEqRhs equation)})
+    sameLeftSide left right = equivalentTypeSchemes (leftScheme left) (leftScheme right)
+    leftScheme info = specifiedScheme (tfiiTyVars info) [] (tfiiLeft info)
 
 -- | Check one type family equation. The result is @Nothing@ when the
 -- equation head does not name a type family.
