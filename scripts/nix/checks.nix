@@ -456,11 +456,13 @@
       name = "cli";
       pattern = ''$2 == "spec"'';
       seedStore = true;
+      threads = 4;
     }
     {
       name = "compiler";
       pattern = ''$2 != "spec" && $2 != "grin-spec"'';
       threads = 4;
+      nursery = "64m";
     }
     {
       name = "grin";
