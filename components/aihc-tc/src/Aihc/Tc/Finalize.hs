@@ -364,9 +364,15 @@ recordKindArgumentsIn kinds globals = go
             Just variables
               | not (determined tyCon arguments' variables) -> do
                   reduced <- reduceTypeFamilies application
-                  let reducedKind
-                        | reduced /= application = kindOf reduced
-                        | otherwise = Nothing
+                  -- Only a reduct with a different head gives the kind. If
+                  -- only an argument reduces, the application stays stuck,
+                  -- and its kind is the free result kind variable of the
+                  -- scheme: @TypeError ('ShowType (F a))@ has the kind @b@.
+                  let reducedKind =
+                        case reduced of
+                          TcTyCon reducedTyCon _ | reducedTyCon == tyCon -> Nothing
+                          _ | reduced /= application -> kindOf reduced
+                          _ -> Nothing
                   -- Calculate the result now. A lazy result keeps the kind
                   -- environment in memory until a consumer reads the type.
                   case mapMaybe (kindArguments tyCon arguments' variables) [reducedKind, expected] of

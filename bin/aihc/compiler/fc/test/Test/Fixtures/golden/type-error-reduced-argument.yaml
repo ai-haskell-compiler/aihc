@@ -1,0 +1,25 @@
+extensions:
+- DataKinds
+- KindSignatures
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE PolyKinds, StandaloneKindSignatures #-}
+  module GHC.TypeError where
+  import GHC.Types (Type)
+  type ErrorMessage :: Type
+  data ErrorMessage = forall t. ShowType t
+  type TypeError :: forall b. ErrorMessage -> b
+  type family TypeError a where
+- |
+  module Test where
+  import GHC.TypeError (ErrorMessage (..), TypeError)
+  import GHC.Types (Constraint)
+  type family Id a where
+    Id a = a
+  data Box (c :: Constraint) = Box
+  -- As Data.Constraint.Nat declares 'Min a c <= Min b c'.
+  box :: Box (TypeError ('ShowType (Id a)))
+  box = Box
+status: pass
+reason: Only an argument of the TypeError application reduces, thus the application stays stuck. The finalizer must not take the free result kind variable of the TypeError scheme as the kind argument.
