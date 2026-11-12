@@ -52,7 +52,7 @@ import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations, splitLastArgument)
 import Aihc.Tc.Deriving.References (DerivingReferences (..), StockClassLocation (..), UnliftedFieldReferences (..), referenceIdentity)
 import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
@@ -76,7 +76,8 @@ inferDerivingContexts modules = do
   unlifted <- unliftedFieldTypes
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
-  trialEnvironment <- derivingEnv kinds unlifted existingInstances originalPlans
+  trialForwarded <- concat <$> mapM forwardedFamilyEquations originalPlans
+  trialEnvironment <- derivingEnv kinds unlifted existingInstances trialForwarded originalPlans
   let selectPlan plan
         -- GHC uses stock deriving when the representation type does not
         -- eta-reduce to the instance head. This applies also to a
@@ -91,7 +92,8 @@ inferDerivingContexts modules = do
             plan {tcDerivingStrategy = TcDerivingStock}
         | otherwise = plan
       selectedPlans = map selectPlan originalPlans
-  environment <- derivingEnv kinds unlifted existingInstances selectedPlans
+  forwarded <- concat <$> mapM forwardedFamilyEquations selectedPlans
+  environment <- derivingEnv kinds unlifted existingInstances forwarded selectedPlans
   contextPlans <- mapM (inferPlanContext kinds unlifted environment) selectedPlans
   pure (map (replaceModulePlans contextPlans) modules)
 
@@ -229,11 +231,16 @@ generic1FieldShapes plan = do
 data DerivingEnv = DerivingEnv
   { derivingEnvInstances :: !(Map GlobalName [InstanceInfo]),
     derivingEnvPlans :: !(Map GlobalName [TcDerivingPlan]),
-    derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred]))
+    derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred])),
+    -- | The associated type equations that the newtype and via plans of the
+    -- batch will declare. The plans register them only after context
+    -- inference, but a superclass obligation can need them, as
+    -- @Additive (Mag (Wrapped a))@ needs @Mag (Wrapped a) = Mag a@.
+    derivingEnvForwarded :: ![(TcType, TcType)]
   }
 
-derivingEnv :: TcKinds -> [UnliftedFieldType] -> [InstanceInfo] -> [TcDerivingPlan] -> TcM DerivingEnv
-derivingEnv kinds unlifted existingInstances plans = do
+derivingEnv :: TcKinds -> [UnliftedFieldType] -> [InstanceInfo] -> [(TcType, TcType)] -> [TcDerivingPlan] -> TcM DerivingEnv
+derivingEnv kinds unlifted existingInstances forwarded plans = do
   contexts <- solveContexts Map.empty
   pure base {derivingEnvContexts = contexts}
   where
@@ -241,7 +248,8 @@ derivingEnv kinds unlifted existingInstances plans = do
       DerivingEnv
         { derivingEnvInstances = groupByClass (tyConKey . iiClass) existingInstances,
           derivingEnvPlans = groupByClass (tyConKey . tcDerivingClassTyCon) plans,
-          derivingEnvContexts = Map.empty
+          derivingEnvContexts = Map.empty,
+          derivingEnvForwarded = forwarded
         }
     groupByClass classKey = Map.fromListWith (flip (<>)) . map (\value -> (classKey value, [value]))
 
@@ -397,6 +405,55 @@ inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
 inferredContext environment plan =
   Map.findWithDefault (Left (planPredicate plan)) (planKey plan) (derivingEnvContexts environment)
 
+-- | The associated type equations that a newtype or via plan declares. Each
+-- equation sends the family at the derived head to the family at the type
+-- that the methods come from, as the generated instance does.
+forwardedFamilyEquations :: TcDerivingPlan -> TcM [(TcType, TcType)]
+forwardedFamilyEquations plan =
+  case source of
+    Nothing -> pure []
+    Just sourceType -> do
+      info <- lookupClass (tcDerivingClassTyCon plan)
+      let heads = tcDerivingHeadTypes plan
+          sourceHeads = init heads <> [sourceType]
+      pure
+        [ (TcTyCon (atiTyCon associated) (map (heads !!) positions), TcTyCon (atiTyCon associated) (map (sourceHeads !!) positions))
+        | Just classInfo <- [info],
+          associated <- ciAssociatedTypes classInfo,
+          Just positions <- [sequence (atiClassParams associated)],
+          all (< length heads) positions
+        ]
+  where
+    source =
+      case tcDerivingStrategy plan of
+        TcDerivingNewtype -> either (const Nothing) Just (newtypeRepresentation plan)
+        TcDerivingVia viaType -> Just viaType
+        _ -> Nothing
+
+-- | Rewrite each family application of a predicate that an equation of the
+-- batch matches.
+forwardPredFamilies :: [(TcType, TcType)] -> Pred -> Pred
+forwardPredFamilies [] predicate = predicate
+forwardPredFamilies equations predicate =
+  case predicate of
+    ClassPred classTyCon arguments -> ClassPred classTyCon (map forward arguments)
+    EqPred left right -> EqPred (forward left) (forward right)
+    IParamPred name payload -> IParamPred name (forward payload)
+    IrredPred constraint -> IrredPred (forward constraint)
+    QuantifiedPred variables antecedents consequent ->
+      QuantifiedPred variables (map (forwardPredFamilies equations) antecedents) (forwardPredFamilies equations consequent)
+  where
+    forward ty =
+      case ty of
+        TcTyCon tyCon arguments ->
+          let ty' = TcTyCon tyCon (map forward arguments)
+           in case [applySubst substitution right | (left, right) <- equations, Just substitution <- [matchTypes [left] [ty']]] of
+                rewritten : _ -> rewritten
+                [] -> ty'
+        TcFunTy argument result -> TcFunTy (forward argument) (forward result)
+        TcAppTy function argument -> TcAppTy (forward function) (forward argument)
+        _ -> ty
+
 -- | Simplify each predicate and concatenate the contexts, stopping at the
 -- first predicate that cannot be simplified.
 simplifyPredicates :: TcKinds -> DerivingEnv -> TcDerivingPlan -> [Pred] -> TcM (Either Pred [Pred])
@@ -411,7 +468,7 @@ simplifyPredicates kinds environment owner = foldM step (Right [])
 -- for.
 simplifyPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> TcM (Either Pred [Pred])
 simplifyPredicate kinds environment owner rawPredicate = do
-  predicate <- reducePredFamilies rawPredicate
+  predicate <- reducePredFamilies (forwardPredFamilies (derivingEnvForwarded environment) rawPredicate)
   simplifyReducedPredicate kinds environment owner predicate
 
 simplifyReducedPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> TcM (Either Pred [Pred])
