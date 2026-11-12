@@ -16,7 +16,7 @@ module Aihc.Tc.QuickLook
   )
 where
 
-import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, zonkKind)
+import Aihc.Tc.Kind (kindedPartialTyCon, refineGivenTyVarKinds, tcTypeKind, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -81,12 +81,22 @@ quickLookUnify instantiationVariables expectedType actualType = do
     -- reports the mismatch. The kinds are zonked as kinds first, which
     -- gives a wired-in constructor its configured identity, so a kind from
     -- an installed interface compares equal to the wired-in kind.
+    --
+    -- A bare poly-kinded constructor gets the kind of the variable as its
+    -- kind arguments, as in 'Aihc.Tc.Unify.unifyMetaTv'. Quick Look of
+    -- @t g xs@ against @P f xs@ binds @t@ to @P@. Without its kind
+    -- arguments, a later family reduction of @Prod t@ uses the variable of
+    -- the kind scheme of @P@, and that variable leaves its scope.
     bind unique rawType = do
       metaKind <- readMetaTvKind unique
-      ty <- refineGivenTyVarKinds metaKind rawType
-      unless (unique `elem` metaVariables ty) $ do
+      refined <- refineGivenTyVarKinds metaKind rawType
+      unless (unique `elem` metaVariables refined) $ do
         declaredKind <- readMetaTvKind unique >>= zonkKind
-        solvedKind <- tcTypeKind ty >>= zonkKind
+        kinded <- kindedPartialTyCon refined
+        (ty, rawKind) <- case kinded of
+          Just found -> pure found
+          Nothing -> (refined,) <$> tcTypeKind refined
+        solvedKind <- zonkKind rawKind
         kindResult <- unifyTypes declaredKind solvedKind
         case kindResult of
           Right () -> writeMetaTv unique ty

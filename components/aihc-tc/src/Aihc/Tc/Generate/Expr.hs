@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
     ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
+    Decl (..),
     DoFlavor (..),
     DoStmt (..),
     Expr (..),
@@ -34,10 +35,11 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan,
     TupleFlavor (..),
-    Type,
+    Type (..),
     UnqualifiedName (..),
     fromAnnotation,
     mkAnnotation,
+    peelExprAnn,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
@@ -64,6 +66,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (forM_, mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Char (isLower, isUpper)
+import Data.Data (Data, cast, gmapQ)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -201,8 +204,9 @@ inferExprAt ambient expr = case expr of
   EDo stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
   -- A Template Haskell quote or a quasi-quote compiles to a runtime
-  -- error, so it has any type the context wants.
-  _ | isTemplateHaskellQuote expr -> literalResult expr freshMetaTv
+  -- error, so it has any type the context wants. The splices in an
+  -- untyped quote must use the monad of the quote.
+  _ | isTemplateHaskellQuote expr -> inferTemplateHaskellQuote (exprSpan expr <|> ambient) expr
   EQuasiQuote {} -> literalResult expr freshMetaTv
   other -> do
     emitError (exprSpan expr <|> ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
@@ -221,6 +225,57 @@ isTemplateHaskellQuote expr =
     ETHNameQuote {} -> True
     ETHTypeNameQuote {} -> True
     _ -> False
+
+-- | Infer the type of a Template Haskell quote.
+--
+-- The type checker does not check the body of a quote. But each splice in
+-- the body of an untyped quote is an expression at the level of the quote.
+-- GHC gives the quote the type @m t@ and gives each splice a type @m s@ with
+-- the same @m@. Thus a splice can fix the monad of a local binding that only
+-- the splice uses.
+inferTemplateHaskellQuote :: Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
+inferTemplateHaskellQuote sp expr =
+  case untypedQuoteSplices expr of
+    [] -> literalResult expr freshMetaTv
+    splices -> do
+      monad <- freshMetaTv
+      quoteTy <- TcAppTy monad <$> freshMetaTv
+      spliceCts <- concat <$> mapM (spliceConstraints monad) splices
+      pure (annotatePendingExpr (pendingAnnotation quoteTy [] [] []) expr, quoteTy, spliceCts)
+  where
+    spliceConstraints monad splice = do
+      (_, spliceTy, cts) <- inferExprAt sp splice
+      resultTy <- freshMetaTv
+      ev <- freshEvVar
+      pure (mkWantedCt (EqPred spliceTy (TcAppTy monad resultTy)) ev (AppOrigin sp) sp : cts)
+
+-- | The splice expressions in the body of an untyped quote.
+--
+-- The search does not go into a nested quote, because the splices of a
+-- nested quote are at a different level.
+untypedQuoteSplices :: Expr -> [Expr]
+untypedQuoteSplices expr =
+  case peelExprAnn expr of
+    ETHExpQuote body -> quoteBodySplices body
+    ETHDeclQuote decls -> concatMap quoteBodySplices decls
+    ETHTypeQuote ty -> quoteBodySplices ty
+    ETHPatQuote pat -> quoteBodySplices pat
+    _ -> []
+
+quoteBodySplices :: (Data a) => a -> [Expr]
+quoteBodySplices node
+  | Just expr <- cast node =
+      case expr of
+        ETHSplice inner -> [inner]
+        _
+          | isTemplateHaskellQuote expr -> []
+          | otherwise -> descend
+  | Just ty <- cast node, TSplice inner <- ty = [inner]
+  | Just pat <- cast node, PSplice inner <- pat = [inner]
+  | Just decl <- cast node, DeclSplice inner <- decl = [inner]
+  | otherwise = descend
+  where
+    descend = concat (gmapQ quoteBodySplices node)
 
 literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
 literalResult expr typeAction = do

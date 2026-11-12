@@ -31,6 +31,8 @@ where
 
 import Aihc.Hackage.Package (Arch, FlagAssignment, OS, PackageName, Version, archName, mkFlagAssignment, mkFlagName, mkPackageName, osName, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..), Preference (..), Solution)
+import Control.Exception (bracket)
+import Control.Monad (when)
 import Data.Aeson ((.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -43,7 +45,9 @@ import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, removeFile, renameFile)
+import System.FilePath (takeDirectory, takeFileName)
+import System.IO (hClose, openBinaryTempFileWithDefaultPermissions)
 
 -- | The file is called @aihc.lock@ wherever it lives.
 lockFileName :: FilePath
@@ -94,8 +98,19 @@ readLockFile path = do
     -- plan changes, and a lazy read would still hold it open.
     else Just . parseLockFile . BL.fromStrict <$> BS.readFile path
 
+-- | Write the lock to a temporary file in the same directory, then rename
+-- it. A rename replaces the file in one step, so a process that reads the
+-- lock gets the old file or the new file, and never a part of a file.
 writeLockFile :: FilePath -> LockFile -> IO ()
-writeLockFile path = BL.writeFile path . renderLockFile
+writeLockFile path lock =
+  bracket (openBinaryTempFileWithDefaultPermissions (takeDirectory path) (takeFileName path <> ".tmp")) (\(temporary, handle) -> hClose handle >> removeIfPresent temporary) $ \(temporary, handle) -> do
+    BL.hPut handle (renderLockFile lock)
+    hClose handle
+    renameFile temporary path
+  where
+    removeIfPresent temporary = do
+      exists <- doesFileExist temporary
+      when exists (removeFile temporary)
 
 -- | Render the file with one package per line, in name order.
 renderLockFile :: LockFile -> BL.ByteString
