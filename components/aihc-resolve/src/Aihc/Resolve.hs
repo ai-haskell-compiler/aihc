@@ -1491,9 +1491,22 @@ resolveRecordFields :: [RecordField Expr] -> ResolveM [RecordField Expr]
 resolveRecordFields =
   mapM
     ( \field -> do
-        value' <- resolveExpr (recordFieldValue field)
+        value' <- resolveExpr (recordFieldPunValue field)
         pure field {recordFieldValue = value'}
     )
+
+-- | The value of a record field. A pun @{ M.x }@ uses the variable @x@, as
+-- in GHC. The qualifier selects only the field.
+recordFieldPunValue :: RecordField Expr -> Expr
+recordFieldPunValue field
+  | recordFieldPun field = unqualify (recordFieldValue field)
+  | otherwise = recordFieldValue field
+  where
+    unqualify expr =
+      case expr of
+        EAnn annotation inner -> EAnn annotation (unqualify inner)
+        EVar name -> EVar name {nameQualifier = Nothing}
+        _ -> expr
 
 -- | A record update names the field selectors that it writes, and the
 -- selector must be in scope. The resolution of each label tells the type
@@ -1504,7 +1517,7 @@ resolveRecordUpdateFields =
   mapM
     ( \field -> do
         name' <- resolveTermUseAtName (recordFieldName field)
-        value' <- resolveExpr (recordFieldValue field)
+        value' <- resolveExpr (recordFieldPunValue field)
         pure field {recordFieldName = name', recordFieldValue = value'}
     )
 
