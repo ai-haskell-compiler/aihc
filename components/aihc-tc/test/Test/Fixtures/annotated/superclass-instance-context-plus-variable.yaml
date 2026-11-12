@@ -1,0 +1,20 @@
+extensions: [DataKinds, KindSignatures, TypeFamilies, TypeOperators, FlexibleInstances, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeNats where
+  import GHC.Prim.Natural (Natural)
+  type family (+) (a :: Natural) (b :: Natural) :: Natural
+  infixl 6 +
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.TypeNats (type (+))
+  data Vec (n :: Natural) a = Vec
+  class Extract w
+  class Extract w => Combine w
+  instance (n ~ (1 + m)) => Extract (Vec n)
+  instance (n ~ (1 + m)) => Combine (Vec n)
+status: pass
+reason: The superclass Extract (Vec n) of the second instance uses the first instance. Its context n ~ 1 + m0 gets m0 ~ m from the given n ~ 1 + m, as in GHC.

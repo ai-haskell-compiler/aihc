@@ -37,6 +37,7 @@ import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassClosure)
+import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds, matchKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring)
@@ -608,16 +609,22 @@ solveNormalizedDict visited givens ct
     -- any of them is solved. One constraint can fix a meta variable that
     -- another needs to select its instance. This has no effect on a
     -- context without metas or without functional dependencies.
+    --
+    -- An equality of the context can also fix a meta variable through
+    -- injectivity, read with the givens: the context @n ~ 1 + m0@ with the
+    -- given @n ~ 1 + m@ gives @m0 ~ m@, as in GHC.
     improveContext predicates = do
       let dictionaries = [predicate | predicate@ClassPred {} <- predicates]
+          equalities = [predicate | predicate@EqPred {} <- predicates]
       cts <- mapM (\predicate -> (\ev -> ct {ctPred = predicate, ctEvVar = ev}) <$> freshEvVar) dictionaries
-      improveRounds (8 :: Int) cts
+      improveRounds (8 :: Int) cts equalities
       where
-        improveRounds rounds cts
-          | rounds <= 0 || null cts = pure ()
+        improveRounds rounds cts equalities
+          | rounds <= 0 || (null cts && null equalities) = pure ()
           | otherwise = do
               changed <- improveFunDeps givens cts
-              when changed (improveRounds (rounds - 1) cts)
+              injective <- if null equalities then pure False else improveInjectivity givens equalities
+              when (changed || injective) (improveRounds (rounds - 1) cts equalities)
 
     -- Solve equalities first, but retain the dictionary field order.
     solveContext visited' predicates = do
