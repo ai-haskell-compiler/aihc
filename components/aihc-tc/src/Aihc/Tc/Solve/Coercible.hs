@@ -3,6 +3,7 @@
 -- | Check representation constraints before FC conversion.
 module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens, isRepresentationParameter) where
 
+import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
@@ -57,6 +58,19 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
     shapes wait edges visited nested (TcForAllTy leftBinder leftBody) (TcForAllTy rightBinder rightBody)
       | tvKind leftBinder == tvKind rightBinder =
           go wait edges visited nested leftBody (applySubst (Map.singleton (tvUnique rightBinder) (TcTyVar leftBinder)) rightBody)
+    -- A promoted data constructor has nominal kind arguments and
+    -- representational value arguments, as in GHC. The givens @Coercible r
+    -- r'@ and @Coercible rs rs'@ solve @Coercible (r ': rs) (r' ': rs')@.
+    shapes wait edges visited _ left right
+      | Just (constructor, kindArguments, arguments) <- promotedApplication left,
+        Just (constructor', kindArguments', arguments') <- promotedApplication right,
+        constructor == constructor',
+        length kindArguments == length kindArguments',
+        length arguments == length arguments' = do
+          kindsEqual <- and <$> zipWithM nominal kindArguments kindArguments'
+          if kindsEqual
+            then and <$> zipWithM (go wait edges visited True) arguments arguments'
+            else pure False
     shapes wait edges visited _ (TcFunTy a b) (TcFunTy c d) = do
       argument <- go wait edges visited True a c
       result <- go wait edges visited True b d
@@ -155,6 +169,14 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
             else do
               lift (put saved)
               tryRewrites rest
+    promotedApplication ty =
+      case collectTypeApplications ty of
+        (TcKindedTyCon constructor kindArguments, arguments)
+          | isPromoted constructor -> Just (constructor, kindArguments, arguments)
+        (TcTyCon constructor headArguments, arguments)
+          | isPromoted constructor -> Just (constructor, [], headArguments <> arguments)
+        _ -> Nothing
+    isPromoted constructor = tyConNamespace constructor == ResolutionNamespaceTerm
     isRigid TcTyVar {} = True
     isRigid _ = False
     -- A meta variable can become a newtype of a type constructor later, so

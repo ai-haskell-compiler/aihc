@@ -1,0 +1,27 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, DataKinds, PolyKinds, TypeOperators #-}
+  module Test where
+  import GHC.Types (Coercible)
+  data Coercion a b where
+       └─ type: k0 → k0 → Type
+    Coercion :: Coercible a b => Coercion a b
+    └─ type: ∀ k0 a b. (GHC.Types.Coercible a b) ⇒ Coercion a b
+  cons :: Coercion r r' -> Coercion rs rs' -> Coercion (r ': rs) (r' ': rs')
+  cons Coercion Coercion = Coercion
+  │    │        │          └─ type: Coercion ('GHC.Types.: r rs) ('GHC.Types.: r' rs'); type-args: [k0], ': r rs, ': r' rs'; evidence: coercible @': r rs @': r' rs'
+  │    │        └─ type: Coercion rs rs'; type-args: [k0], rs, rs'; evidence: given Coercible rs rs'
+  │    └─ type: Coercion r r'; type-args: k0, r, r'; evidence: given Coercible r r'
+  └─ type: ∀ k0 r r' rs rs'. Coercion r r' → Coercion rs rs' → Coercion ('GHC.Types.: r rs) ('GHC.Types.: r' rs')
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, DataKinds, PolyKinds, TypeOperators #-}
+  module Test where
+  import GHC.Types (Coercible)
+  data Coercion a b where
+    Coercion :: Coercible a b => Coercion a b
+  cons :: Coercion r r' -> Coercion rs rs' -> Coercion (r ': rs) (r' ': rs')
+  cons Coercion Coercion = Coercion
+reason: A promoted data constructor has representational value arguments, as in GHC. The givens for the head and for the tail solve the wanted for the two lists.
+status: pass
