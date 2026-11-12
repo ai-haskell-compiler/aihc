@@ -13,6 +13,7 @@
 -- special rule. Here the quick look is on for every application.
 module Aihc.Tc.QuickLook
   ( quickLookUnify,
+    metaVariables,
   )
 where
 
