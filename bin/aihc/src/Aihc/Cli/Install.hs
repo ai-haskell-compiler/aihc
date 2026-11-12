@@ -256,13 +256,13 @@ import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote,
 import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Splices (RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice)
 import Aihc.Wasm.Lir qualified as Wasm
-import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (SomeException, bracket_, evaluate, finally, throwIO, try)
+import Control.Exception (SomeException, bracket_, evaluate, finally, throwIO, try, tryJust)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -294,8 +294,8 @@ import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMis
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, stderr, stdout, withFile)
-import System.IO.Error (modifyIOError)
+import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, openFile, stderr, stdout)
+import System.IO.Error (isAlreadyInUseError, modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -4254,10 +4254,19 @@ runConfigureScript config cacheRoot inputs =
 
 -- | Run an action while this process holds the lock file. Another process
 -- that asks for the same lock waits until the action ends.
+--
+-- A different thread of this process can also hold the lock, for example
+-- in a nested build of a splice. GHC then refuses to open the file, and
+-- does not wait. Thus, the function tries to open the file again after a
+-- short time, until the other thread closes it.
 withFileLock :: FilePath -> IO a -> IO a
-withFileLock path action =
-  withFile path ReadWriteMode $ \handle ->
-    bracket_ (HandleLock.hLock handle HandleLock.ExclusiveLock) (HandleLock.hUnlock handle) action
+withFileLock path action = do
+  opened <- tryJust (\failure -> if isAlreadyInUseError failure then Just () else Nothing) (openFile path ReadWriteMode)
+  case opened of
+    Left () -> threadDelay 100000 >> withFileLock path action
+    Right handle ->
+      (`finally` hClose handle) $
+        bracket_ (HandleLock.hLock handle HandleLock.ExclusiveLock) (HandleLock.hUnlock handle) action
 
 -- | Return the sources and C inputs of a package with the outputs of its
 -- configure script in their include paths.
