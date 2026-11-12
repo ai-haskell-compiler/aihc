@@ -1,0 +1,57 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+       │       │      └─ type: ∀ a. a → Opt a
+       │       └─ type: ∀ a. Opt a
+       └─ type: Type → Type
+  data NS (f :: k -> Type) (xs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    Z :: f x -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ f x → NS f xs
+    S :: NS f xs -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ NS f xs → NS f xs
+  compose :: (b -> c) -> (a -> b) -> a -> c
+  compose f g x = f (g x)
+  │       │ │ └─ type: a
+  │       │ └─ type: a → b
+  │       └─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+  idNS :: NS f xs -> NS f xs
+  idNS x = x
+  │    └─ type: NS f xs
+  └─ type: ∀ k0 f xs. NS f xs → NS f xs
+  shift :: forall f x xs . (NS f xs -> Opt ()) -> NS f (x ': xs) -> Opt ()
+  shift k = compose (\ns -> case ns of Z _ -> None; S s -> k s) idNS
+  │     │   │        ││     │          │ │    │     │ │         └─ type: NS f ('GHC.Types.: x xs) → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs
+  │     │   │        ││     │          │ │    │     │ └─ type: NS f xs
+  │     │   │        ││     │          │ │    │     └─ type: NS f xs → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+  │     │   │        ││     │          │ │    └─ type: Opt (); type-args: ()
+  │     │   │        ││     │          │ └─ type: f x
+  │     │   │        ││     │          └─ type: f x → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+  │     │   │        ││     └─ type: Opt ()
+  │     │   │        │└─ type: NS f ('GHC.Types.: x xs)
+  │     │   │        └─ type: NS f ('GHC.Types.: x xs) → Opt ()
+  │     │   └─ type: (NS f ('GHC.Types.: x xs) → Opt ()) → (NS f ('GHC.Types.: x xs) → NS f ('GHC.Types.: x xs)) → NS f ('GHC.Types.: x xs) → Opt (); type-args: NS f (': x xs), Opt (), NS f (': x xs)
+  │     └─ type: NS f xs → Opt ()
+  └─ type: ∀ k0 f x xs. (NS f xs → Opt ()) → NS f ('GHC.Types.: x xs) → Opt ()
+extensions: [DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+  data NS (f :: k -> Type) (xs :: [k]) where
+    Z :: f x -> NS f (x ': xs)
+    S :: NS f xs -> NS f (x ': xs)
+  compose :: (b -> c) -> (a -> b) -> a -> c
+  compose f g x = f (g x)
+  idNS :: NS f xs -> NS f xs
+  idNS x = x
+  shift :: forall f x xs . (NS f xs -> Opt ()) -> NS f (x ': xs) -> Opt ()
+  shift k = compose (\ns -> case ns of Z _ -> None; S s -> k s) idNS
+reason: "the type of the scrutinee ns comes from the later argument idNS, thus the given of the S branch waits for it and then proves xs ~ xs1"
+status: pass
