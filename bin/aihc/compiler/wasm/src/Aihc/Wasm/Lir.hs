@@ -649,7 +649,7 @@ compileFunction ctx input = do
 valueReaders :: [Block] -> MonoidMap Var (Sum Int, Set Label)
 valueReaders blocks =
   MonoidMap.fromListWith
-    (flip (<>))
+    (<>)
     [ (var, (1, Set.singleton (blockLabel block)))
     | block <- blocks,
       var <-
