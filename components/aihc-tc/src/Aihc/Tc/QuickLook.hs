@@ -18,7 +18,9 @@ where
 
 import Aihc.Tc.Kind (kindedPartialTyCon, refineGivenTyVarKinds, tcTypeKind, zonkKind)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
+import Aihc.Tc.Solve.Equality (givenRewrites)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
@@ -37,10 +39,23 @@ import Data.Map.Strict qualified as Map
 -- caller emits afterwards. An ordinary meta-variable is never bound here,
 -- so a polytype cannot leak into one.
 quickLookUnify :: IntSet -> TcType -> TcType -> TcM ()
-quickLookUnify instantiationVariables = go
+quickLookUnify instantiationVariables expectedType actualType = do
+  -- A given can say what a rigid variable of the expected type is: in the
+  -- branch @SCons@ of @case sList :: SList xs of@, the given @xs ~ (x1 ':
+  -- xs1)@ makes the expected @NP g xs@ the type @NP g (x1 ': xs1)@. Only
+  -- that form matches the result @NP f (x ': ys)@ of @(:*)@. The ordinary
+  -- wanted equality still relates the two types, and its proof uses the
+  -- given.
+  -- Only a variable that a given equates with a constructor application
+  -- is rewritten. A rewrite of one variable to another variable gives no
+  -- new shape to match.
+  allRewrites <- getGivenPredicates >>= givenRewrites
+  let rewrites = [(from, to) | (from@(TcTyVar _), to@(TcTyCon _ (_ : _))) <- allRewrites]
+      rewrite = if null rewrites then id else applyGivenSubst rewrites
+  go rewrite expectedType actualType
   where
-    go expected actual = do
-      expected' <- zonkType expected >>= reduceTypeFamilies
+    go rewrite expected actual = do
+      expected' <- rewrite <$> (zonkType expected >>= reduceTypeFamilies)
       actual' <- zonkType actual >>= reduceTypeFamilies
       case (expected', actual') of
         (TcMetaTv left, TcMetaTv right)
@@ -52,12 +67,12 @@ quickLookUnify instantiationVariables = go
         (TcMetaTv _, _) -> pure ()
         (_, TcMetaTv _) -> pure ()
         (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody) ->
-          go leftBody (applySubst (Map.singleton (tvUnique rightVar) (TcTyVar leftVar)) rightBody)
+          go rewrite leftBody (applySubst (Map.singleton (tvUnique rightVar) (TcTyVar leftVar)) rightBody)
         (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
-          | length leftPredicates == length rightPredicates -> go leftBody rightBody
+          | length leftPredicates == length rightPredicates -> go rewrite leftBody rightBody
         _ -> do
           children <- decomposeNominalEquality expected' actual'
-          mapM_ (mapM_ (uncurry go)) children
+          mapM_ (mapM_ (uncurry (go rewrite))) children
 
     isInstantiationVariable (Unique key) = IntSet.member key instantiationVariables
 
