@@ -76,6 +76,25 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
             length sourceArguments == length targetArguments -> do
               proofs <- sequence <$> zipWithM (argumentProof visited sourceConstructor) [0 ..] (zip sourceArguments targetArguments)
               pure ((\argumentProofs -> TyConAppCo sourceConstructor sourceArguments argumentProofs []) <$> proofs)
+        -- An application of a type variable, as the @b (StM m a)@ of
+        -- @RunInBase m b@. The argument of an unknown function has the
+        -- nominal role, thus it gets a proof without newtype axioms.
+        (TcAppTy sourceFunction sourceArgument, TcAppTy targetFunction targetArgument) -> do
+          function <- go visited sourceFunction targetFunction
+          argument <-
+            if unwrap
+              then nominalCoercionBetween equations sourceArgument targetArgument
+              else go visited sourceArgument targetArgument
+          pure (AppCo <$> function <*> argument)
+        -- A qualified type with the same class predicates on both sides, as
+        -- the @Monad n => t n b -> n (StT t b)@ of @Run t@. System FC passes
+        -- a dictionary as a function argument, thus each predicate is the
+        -- reflexive domain of a function coercion.
+        (TcQualTy sourcePredicates sourceBody, TcQualTy targetPredicates targetBody)
+          | sourcePredicates == targetPredicates,
+            Just dictionaryTypes <- mapM dictionaryType sourcePredicates -> do
+              body <- go visited sourceBody targetBody
+              pure (flip (foldr (FunCo . Refl)) dictionaryTypes <$> body)
         _ -> pure Nothing
 
     -- An axiom proves @target ~ representation@, so a proof of
@@ -131,6 +150,13 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
       if representational
         then go visited sourceArgument targetArgument
         else pure (if sourceArgument == targetArgument then Just (Refl sourceArgument) else Nothing)
+
+-- | The type of the dictionary of a class predicate.
+dictionaryType :: Pred -> Maybe TcType
+dictionaryType predicate =
+  case predicate of
+    ClassPred classTyCon arguments -> Just (TcTyCon classTyCon arguments)
+    _ -> Nothing
 
 coercionFuel :: Int
 coercionFuel = 100

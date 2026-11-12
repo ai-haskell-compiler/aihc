@@ -1,0 +1,31 @@
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import Foreign.Ptr (IntPtr (..), WordPtr (..))
+    import GHC.Exts (Int (..))
+    import GHC.Generics
+    import Prelude
+
+    roundTrip :: (Generic a) => a -> a
+    roundTrip value = to (from value)
+
+    unboxed :: URec Int () -> Int
+    unboxed (UInt value) = I# value
+
+    constructorName :: URec Int () -> String
+    constructorName value = conName (unM1 (from value))
+
+    result :: Bool
+    result =
+      unboxed (roundTrip (UInt 4#)) == 4
+        && constructorName (UInt 1#) == "UInt"
+        && show (IntPtr 5) == "5"
+        && (read "7" :: WordPtr) == WordPtr 7
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: aihc-base has the Generic instances of URec and the Show and Read instances of IntPtr and WordPtr, as GHC base has.

@@ -1,0 +1,34 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - RankNTypes
+  - ScopedTypeVariables
+  - TypeApplications
+  - AllowAmbiguousTypes
+modules:
+  - |
+    {-# LANGUAGE DataKinds, KindSignatures, RankNTypes, ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes #-}
+    module Test where
+    import GHC.Prim.Natural (Natural)
+    type Arrow a = forall i. i -> a
+    class Known (n :: Natural) where
+      known :: Arrow ()
+    knownAt :: forall i. Known i => Arrow ()
+    knownAt = known @i
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, RankNTypes, ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  type Arrow a = forall i. i -> a
+       └─ type: Type → Type
+  class Known (n :: Natural) where
+  └─ class methods: known ∷ ∀ n i. (Known n) ⇒ i → ()
+    known :: Arrow ()
+  knownAt :: forall i. Known i => Arrow ()
+  knownAt = known @i
+  │         └─ type: i → (); type-args: i, i; evidence: given Known i
+  └─ type: ∀ i i. (Known i) ⇒ i → ()
+reason: the outer forall of a signature scopes its variable i, also when a
+  synonym in the signature binds a different variable with the same name
+status: pass

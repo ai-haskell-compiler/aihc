@@ -1,0 +1,32 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds #-}
+    module Test where
+    import GHC.Types (Type)
+    type Exp a = a -> Type
+    data Map :: (a -> Exp b) -> f a -> Exp (f b)
+    data I = I
+    -- The kind Type is TYPE LiftedRep. The argument a :: Type cannot be LiftedRep.
+    type Bad g = Map g I
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, PolyKinds #-}
+    module Test where
+    import GHC.Types (Type)
+    type Exp a = a -> Type
+         └─ type: Type → Type
+    data Map :: (a -> Exp b) -> f a -> Exp (f b)
+         └─ type: (a → b → Type) → f a → f b → Type
+    data I = I
+         │   └─ type: I
+         └─ type: Type
+    -- The kind Type is TYPE LiftedRep. The argument a :: Type cannot be LiftedRep.
+    type Bad g = Map g I
+    ││    └─ type: (k0 → k1 → Type) → k2 k1 → Type
+    └─ error: kind mismatch: expected t0 k0, got Type
+    └─ error: kind mismatch: expected k2 k0, got Type
+status: pass
+reason: 'Map g I needs f a ~ Type, and Type is TYPE LiftedRep. A split gives a := LiftedRep, but a has the kind Type. GHC rejects the program. The split must unify the kinds of the two arguments first.'

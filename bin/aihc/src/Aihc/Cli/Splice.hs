@@ -46,7 +46,7 @@ import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
-import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
 import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion)
@@ -121,6 +121,7 @@ runSplices request action =
           let convert tree =
                 case splice of
                   ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
+                  TypeSplice _ -> TypeResult <$> typeResultFromTree tree
                   DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
           -- A report of an error is the cause of a failure of the closure,
           -- so the report comes before the failure itself.

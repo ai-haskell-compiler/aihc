@@ -53,6 +53,11 @@ $( pure
 -- A declaration splice without the splice syntax, with no declarations.
 pure []
 
+-- A type splice gives the type of a signature. The module does not type
+-- check when the splice does not run.
+answer :: $(conT ''Int)
+answer = 42
+
 -- A type of this module, above a declaration splice.
 data Shape = Circle Int | Square Int Int
   deriving (Show)

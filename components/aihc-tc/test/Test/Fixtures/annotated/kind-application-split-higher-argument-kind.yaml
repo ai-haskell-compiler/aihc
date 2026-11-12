@@ -1,0 +1,30 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (Type)
+    data I = I
+    data Q :: forall (f :: (Type -> Type) -> Type) (a :: Type -> Type). f a -> Type
+    -- The argument a :: Type -> Type cannot be I :: Type.
+    type BadQ = Q '[I]
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (Type)
+    data I = I
+         │   └─ type: I
+         └─ type: Type
+    data Q :: forall (f :: (Type -> Type) -> Type) (a :: Type -> Type). f a -> Type
+         └─ type: f a → Type
+    -- The argument a :: Type -> Type cannot be I :: Type.
+    type BadQ = Q '[I]
+         │         └─ error: kind mismatch: expected t0 t1, got [Type]
+         │         └─ error: kind mismatch: expected t0 t1, got [Type]
+         └─ type: Type
+status: pass
+reason: 'Q needs f a ~ [I] with a :: Type -> Type. A split gives a := I, but I has the kind Type. GHC rejects the program. The split must unify the kinds of the two arguments first.'

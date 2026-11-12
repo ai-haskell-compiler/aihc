@@ -64,7 +64,7 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
 import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
@@ -1434,16 +1434,22 @@ associatedItems gen representation = do
     targetPosition = length heads - 1
     familyItem associated
       | Just targetPosition `notElem` atiClassParams associated = reject
-      | otherwise = case sequence (atiClassParams associated) of
-          Nothing -> reject
-          Just positions -> do
-            let sourceHeads = init heads <> [representation]
-                left = TcTyCon (atiTyCon associated) [heads !! position | position <- positions]
-                right = TcTyCon (atiTyCon associated) [sourceHeads !! position | position <- positions]
-            case (surfaceType (genSpan gen) left, surfaceType (genSpan gen) right) of
-              (Just lhs, Just rhs) -> pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix lhs rhs)))
-              _ -> reject
+      | otherwise =
+          case (familyArguments heads, familyArguments (init heads <> [representation])) of
+            (Just lhsArguments, Just rhsArguments) ->
+              pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix (familyType lhsArguments) (familyType rhsArguments))))
+            _ -> reject
       where
+        -- A family parameter that is not a class parameter, as the @a@ of
+        -- @type StM m a@, is a fresh variable on both sides of the equation.
+        familyArguments classArguments =
+          sequence
+            [ maybe (Just (TVar (mkUnqualifiedName NameVarId name))) (surfaceType (genSpan gen) . (classArguments !!)) position
+            | (position, name) <- zip (atiClassParams associated) extraNames
+            ]
+        familyType = foldl TApp (TCon (tyConNameSyntax (genSpan gen) (atiTyCon associated)) Unpromoted)
+        usedNames = map tvName (concatMap typeTyVars (representation : heads))
+        extraNames = filter (`notElem` usedNames) ["t" <> T.pack (show index) | index <- [0 :: Int ..]]
         reject = do
           emitError (genSpan gen) (OtherError "newtype deriving requires supported associated type parameters")
           pure Nothing

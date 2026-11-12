@@ -1,0 +1,11 @@
+extensions:
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Flag = Off | On
+  apply :: (Flag -> Flag) -> Flag -> Flag
+  apply f (f -> y) = y
+status: pass
+reason: A view function that is only an argument to its left has the type of that argument.

@@ -2078,9 +2078,12 @@ desugarViewPattern resultType fallback argument arguments argumentTypes (match, 
       then pure fallback
       else Just <$> desugarMatchArguments resultType fallback (argument : arguments) argumentTypes rest
   -- The view function sees the variables that the columns to its left
-  -- bind, which the row has collected.
-  function <- withLocals (matchLocalBinders locals) (desugarExpr viewFunction)
-  innerType <- viewPatternResultType viewFunction
+  -- bind, which the row has collected. Its type does too: a view function
+  -- that is only such a variable, as @f@ in @g f (f -> x)@, has the type of
+  -- that local.
+  (function, innerType) <-
+    withLocals (matchLocalBinders locals) $
+      (,) <$> desugarExpr viewFunction <*> viewPatternResultType viewFunction
   viewBinder <- freshPatternBinder inner innerType
   extra <- patternMatchBindings viewPattern argument ty
   let match' = match {Syn.matchPats = inner : drop 1 (Syn.matchPats match)}

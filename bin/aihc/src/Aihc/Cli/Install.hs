@@ -3022,6 +3022,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
       case result of
         DeclarationResult decls -> length decls
         ExpressionResult _ -> 0
+        TypeResult _ -> 0
     -- The declarations above a splice as a module of their own, with no
     -- export list: the export list can name a declaration below.
     checkPrefix importedTypes moduleUnit modu prefix =
