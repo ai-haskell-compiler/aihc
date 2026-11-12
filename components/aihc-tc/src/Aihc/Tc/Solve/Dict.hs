@@ -39,7 +39,7 @@ import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalize
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassClosure)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds, matchKinds)
 import Aihc.Tc.Types
-import Aihc.Tc.Unify (unify)
+import Aihc.Tc.Unify (unifyDeferring)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
@@ -208,9 +208,16 @@ solveNormalizedDict visited givens ct
           case [given | given@(IParamPred givenName _) <- reverse givens', givenName == name] of
             given@(IParamPred _ givenPayload) : _ -> do
               -- The name determines the type of an implicit parameter.
-              unify (ctLoc ct) (ctOrigin ct) payload' givenPayload
-              bindEvidence (ctEvVar ct) (implicitParamEvidence ct name givenPayload (EvGiven given))
-              pure DictSolved
+              -- A type family application in the payload can stay stuck
+              -- until a later improvement solves a meta variable, as
+              -- @Token s@ waits for a functional dependency to find @s@.
+              -- Then the wanted stays and the solver tries it again.
+              deferred <- unifyDeferring (ctLoc ct) (ctOrigin ct) payload' givenPayload
+              if null deferred
+                then do
+                  bindEvidence (ctEvVar ct) (implicitParamEvidence ct name givenPayload (EvGiven given))
+                  pure DictSolved
+                else pure (DictStuck ct)
             _ -> pure (DictStuck ct)
   where
     -- A @WithDict cls meth@ wanted is solved when @cls@ is a class with one
