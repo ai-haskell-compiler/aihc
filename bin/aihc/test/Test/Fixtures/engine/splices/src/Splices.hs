@@ -1,7 +1,8 @@
-module Splices (application, text, unique, recovered) where
+module Splices (application, text, unique, recovered, dependentFile) where
 
 import Aihc.TH.Splice (runSplice)
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax (addDependentFile)
 
 application :: IO ()
 application = runSplice (appE (varE (mkName "negate")) (litE (integerL (-7))))
@@ -18,3 +19,7 @@ unique =
 
 recovered :: IO ()
 recovered = runSplice (recover (litE (integerL 1)) (reportError "an error" >> fail "stop"))
+
+-- | A splice names a file that the module depends on.
+dependentFile :: IO ()
+dependentFile = runSplice (addDependentFile "data/table.txt" >> litE (integerL 2))
