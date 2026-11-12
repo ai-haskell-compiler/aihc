@@ -2084,6 +2084,11 @@ surfaceType sp ty =
           Just (TCon (tyConNameSyntax sp tyCon) Unpromoted)
       | tyConNamespace tyCon == ResolutionNamespaceTerm ->
           Just (TCon (tyConNameSyntax sp tyCon) Promoted)
+    -- A type-level literal, such as the help text of @String <?> "name"@.
+    TcTyLit literal -> Just $ case literal of
+      TyLitNat value -> natLiteral value
+      TyLitSymbol value -> symbolLiteral value
+      TyLitChar value -> TTypeLit (TypeLitChar value (T.pack (show value)))
     _ -> Nothing
 
 surfacePred :: Maybe SourceSpan -> Pred -> Maybe Type
