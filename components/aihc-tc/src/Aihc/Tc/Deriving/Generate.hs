@@ -1046,7 +1046,14 @@ productIxItems gen constructor = do
 -- coerced.
 liftItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
 liftItems gen constructors = do
-  matches <- mapM constructorMatch constructors
+  matches <-
+    if null constructors
+      then do
+        -- An empty datatype has no constructor to match. As in GHC, @lift@
+        -- takes its argument apart with an empty case.
+        emptyValue <- freshLocal gen "x"
+        pure [simpleMatch gen [atPattern gen (PVar emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
+      else mapM constructorMatch constructors
   value <- freshLocal gen "x"
   pure
     [ methodBind gen "lift" matches,
