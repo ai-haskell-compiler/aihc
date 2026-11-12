@@ -172,7 +172,7 @@ import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
-import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, map, ($), (++), (.))
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, asTypeOf, const, flip, id, map, until, ($), (++), (.))
 import GHC.Base qualified
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
@@ -192,7 +192,7 @@ import GHC.Internal.Foldable (Foldable (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
-import GHC.Num (Num (..))
+import GHC.Num (Num (..), subtract)
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#), (>#))
 import GHC.Prim.MonadFail (MonadFail (..))
 import GHC.Prim.MonadFix (MonadFix (..))
@@ -1394,18 +1394,6 @@ curry function left right = function (left, right)
 
 uncurry :: (a -> b -> c) -> (a, b) -> c
 uncurry function (left, right) = function left right
-
-until :: (a -> Bool) -> (a -> a) -> a -> a
-until done next value =
-  if done value
-    then value
-    else until done next (next value)
-
-asTypeOf :: a -> a -> a
-asTypeOf = const
-
-subtract :: (Num a) => a -> a -> a
-subtract left right = right - left
 
 splitAt :: Int -> [a] -> ([a], [a])
 splitAt count values = (take count values, drop count values)

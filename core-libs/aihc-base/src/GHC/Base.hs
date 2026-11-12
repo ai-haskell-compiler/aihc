@@ -43,6 +43,10 @@ module GHC.Base
     id,
     const,
     flip,
+    asTypeOf,
+    until,
+    maxInt,
+    minInt,
     (.),
     (++),
     foldr,
@@ -182,6 +186,27 @@ const value _ = value
 
 flip :: (a -> b -> c) -> b -> a -> c
 flip function right left = function left right
+
+-- | 'const' with the type of the second argument fixed to the type of the first.
+asTypeOf :: a -> a -> a
+asTypeOf = const
+
+-- | Apply the function until the predicate holds.
+until :: (a -> Bool) -> (a -> a) -> a -> a
+until done next value =
+  case done value of
+    True -> value
+    False -> until done next (next value)
+
+-- | The largest 'Int' value.
+maxInt :: Int
+maxInt = I# (word2Int# (uncheckedShiftRL# (not# 0##) 1#))
+
+-- | The smallest 'Int' value.
+minInt :: Int
+minInt =
+  case maxInt of
+    I# value -> I# ((-#) (negateInt# value) 1#)
 
 (.) :: (b -> c) -> (a -> b) -> a -> c
 (.) f g value = f (g value)
