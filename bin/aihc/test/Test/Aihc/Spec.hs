@@ -720,6 +720,9 @@ test_engineSplice getStore =
     (recoveredRequests, recovered) <- spliceWithRequests "recovered"
     assertEqual "no request of the code that failed" [] recoveredRequests
     assertEqual "the result of the handler" (Right (Syntax.EInt 1 Syntax.TInteger "1")) recovered
+    -- A splice can name a file that the module depends on.
+    dependentFile <- splice "dependentFile"
+    assertEqual "the result after addDependentFile" (Right (Syntax.EInt 2 Syntax.TInteger "2")) dependentFile
 
 -- | The answer to a closure that must not send a request.
 noRequest :: BS.ByteString -> IO BS.ByteString
