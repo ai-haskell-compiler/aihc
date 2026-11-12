@@ -1,0 +1,31 @@
+extensions:
+  - DeriveDataTypeable
+  - KindSignatures
+  - PolyKinds
+  - StandaloneDeriving
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE PolyKinds #-}
+    {-# LANGUAGE StandaloneDeriving #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import Data.Data (Data, showConstr, toConstr)
+    import Data.Kind (Type)
+    import Data.Typeable (Typeable)
+
+    newtype Wrap p q = Wrap (p q)
+
+    -- The context names the kind of p with its own variable k.
+    deriving instance (Typeable k, Typeable (p :: k -> Type), Typeable q, Data (p q)) => Data (Wrap p q)
+
+    result :: Bool
+    result = showConstr (toConstr (Wrap (Just 'x'))) == "Wrap"
+expression: result
+output: |
+  True
+status: pass
+reason: a standalone derived Data instance keeps its header, whose context names the kinds with its own variables

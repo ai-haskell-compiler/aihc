@@ -197,8 +197,11 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
     -- variables of the datatype, as its Rep equation does. A derived Data
     -- instance binds them as well, and asks Typeable of each, as GHC does:
     -- @Typeable (Unit f)@ for @f :: k -> Type@ needs @Typeable k@.
+    -- A standalone declaration keeps the header that the user wrote, as
+    -- in GHC. Its context can name the kinds with its own variables.
     polyKindedBinders headerBinders = do
       guard (null headerBinders)
+      guard (not (isStandalone sourceDecl))
       dataType <- tcDerivingDataType plan
       guard (not (null (datatypeKindVariables dataType)))
       case stockClassMethodsOf (tcDerivingClassName plan) of
@@ -213,6 +216,10 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                     ]
               pure (binders, kindContext)
         _ -> Nothing
+    isStandalone declaration =
+      case declaration of
+        DeclStandaloneDeriving {} -> True
+        _ -> False
     datatypeDescription = maybe "datatype" (("datatype " <>) . T.unpack . dtiName) (tcDerivingDataType plan)
     mechanism =
       case tcDerivingStrategy plan of

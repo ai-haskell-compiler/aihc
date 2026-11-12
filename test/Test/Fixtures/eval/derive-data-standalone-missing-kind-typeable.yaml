@@ -1,0 +1,25 @@
+extensions:
+  - DeriveDataTypeable
+  - PolyKinds
+  - StandaloneDeriving
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE PolyKinds #-}
+    {-# LANGUAGE StandaloneDeriving #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import Data.Data (Data)
+    import Data.Typeable (Typeable)
+
+    newtype Wrap p q = Wrap (p q)
+
+    -- GHC rejects this instance: the context does not give Typeable k.
+    deriving instance (Typeable p, Typeable q, Data (p q)) => Data (Wrap p q)
+expression: "True"
+output: ""
+error: "typecheck error: Test: unsolved constraint Typeable (Wrap p q)"
+status: fail
+reason: a standalone derived Data instance does not add Typeable of a kind variable to the context that the user wrote
