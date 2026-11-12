@@ -254,7 +254,7 @@ import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote, quoteImports)
 import Aihc.Th.Reify (reifyInfo)
-import Aihc.Th.Splices (RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -1964,31 +1964,35 @@ moduleSpliceRequest shared build file source =
             Just
               SpliceRequest
                 { spliceRequestPackage = ownName,
+                  spliceRequestPackageId = packageIdText (packageId (moduleBuildPackage build)),
                   spliceRequestModule = sourceModuleName source,
                   spliceRequestStoreRoot = takeDirectory (locationStoreRoot locations),
                   spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
-                  spliceRequestDependencies =
-                    [ (name, version)
-                    | name <- nub (HackageCabal.fileInfoDependencies file),
-                      name /= ownName,
-                      Just version <- [Map.lookup name (moduleBuildVersions build)]
-                    ],
+                  spliceRequestDependencies = packageFileDependencies (packageFile file),
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
-                  spliceRequestImports = filter (not . isOwnModule . importDeclModule) (Syntax.moduleImports modu),
+                  spliceRequestImports = Syntax.moduleImports modu,
+                  spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
+                  spliceRequestOwnModules = [],
                   spliceRequestSplices = []
                 }
     _ -> pure Nothing
   where
     locations = sharedLocations shared
     ownName = packageName (moduleBuildPackage build)
-    -- A module of the package is a file whose path ends with the path of
-    -- the module name. The splice package cannot import such a module.
-    isOwnModule name =
-      any
-        (\other -> splitDirectories (T.unpack (T.replace "." "/" name)) `isSuffixOf` splitDirectories (dropExtension (HackageCabal.fileInfoPath other)))
-        (moduleBuildFiles build)
+    packageFile other =
+      PackageFile
+        { packageFileExtensions = HackageCabal.fileInfoExtensions other,
+          packageFileCppOptions = HackageCabal.fileInfoCppOptions other,
+          packageFileIncludeDirs = HackageCabal.fileInfoIncludeDirs other,
+          packageFileDependencies =
+            [ (name, version)
+            | name <- nub (HackageCabal.fileInfoDependencies other),
+              name /= ownName,
+              Just version <- [Map.lookup name (moduleBuildVersions build)]
+            ]
+        }
 
 -- | Give a module with an expression quote the imports of "Aihc.Th.Quote".
 -- Name resolution changes the quote into an expression that uses them. The
@@ -2943,6 +2947,20 @@ expandUnitSplices context runtimes unit availableExports sources modules =
     config = taskModuleCompileConfig context
     resolvePackage = taskResolvePackage context
     ownPackage = packageId resolvePackage
+    -- The modules of the units below the unit. The splice package compiles
+    -- them again, so a splice can use them. A different module of the
+    -- package, such as a module of the same unit, is not available.
+    belowSources = concatMap (sourceUnitSources . runtimeUnit) (unitsBelow Set.empty (sourceUnitDependencies unit))
+    unitsBelow _ [] = []
+    unitsBelow seen (identity : rest)
+      | identity `Set.member` seen = unitsBelow seen rest
+      | otherwise =
+          case Map.lookup identity runtimes of
+            Just runtime -> runtime : unitsBelow (Set.insert identity seen) (sourceUnitDependencies (runtimeUnit runtime) <> rest)
+            Nothing -> unitsBelow (Set.insert identity seen) rest
+    unavailableModules =
+      Set.fromList [sourceModuleName other | runtime <- Map.elems runtimes, other <- sourceUnitSources (runtimeUnit runtime)]
+        `Set.difference` Set.fromList (map sourceModuleName belowSources)
     expand run importedTypes source moduleUnit =
       case sourceModuleSpliceRequest source of
         Nothing -> pure moduleUnit
@@ -2952,7 +2970,13 @@ expandUnitSplices context runtimes unit availableExports sources modules =
               -- module from the scope of this module.
               bound = bindSpliceNameQuotes (moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit) original
               splices = moduleSplices bound
-              request = template {spliceRequestSplices = splices}
+              request =
+                template
+                  { spliceRequestSplices = splices,
+                    spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
+                    spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
+                    spliceRequestDependencies = nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- belowSources, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]])
+                  }
           prefixFacts <- newIORef Map.empty
           let facts prefix global
                 | globalNamePackage global == ownPackage && globalNameModule global == sourceModuleName source = do

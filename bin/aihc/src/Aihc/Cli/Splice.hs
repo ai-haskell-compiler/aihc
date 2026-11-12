@@ -19,8 +19,15 @@
 -- The splice code has no access to the build machine. See
 -- "Aihc.Wasm.Engine".
 --
--- The body of a splice cannot use a module of its own package. For
--- @reify@, the build gives the facts of the names of the module and of
+-- The body of a splice can use the modules of its own package that the
+-- module imports. The splice package has a copy of each of these modules,
+-- and compiles them again. The names of the copies have the package id of
+-- the splice package. Thus, the compiler changes that package id to the
+-- package id of the original package in each message from the splice, and
+-- back in each reply. A module of the same dependency cycle as the module
+-- is not available.
+--
+-- For @reify@, the build gives the facts of the names of the module and of
 -- its own package. The facts of the other names come from the type
 -- artifacts of the packages that the splice package depends on, in the
 -- store.
@@ -42,23 +49,25 @@ import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
 import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, toLower)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
-import Data.List (intercalate)
+import Data.List (intercalate, nub)
+import Data.Maybe (mapMaybe)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (replaceExtension, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr, stdout)
 import System.IO.Error (ioeGetErrorString)
 
@@ -79,11 +88,14 @@ runSplices request action =
     root = spliceRequestBuildRoot request
     packageDirectory = root </> "package"
     package = splicePackageName request
+    splicePackageId = package <> "-" <> splicePackageVersion
+    packageIds = (splicePackageId, spliceRequestPackageId request)
     run = do
       image <- buildImage request
       createDirectoryIfMissing True (packageDirectory </> "src")
       writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription request)
       TIO.writeFile (packageDirectory </> "src" </> T.unpack spliceModuleName <> ".hs") (spliceModuleText request)
+      mapM_ (copyOwnModule request (packageDirectory </> "src")) (spliceRequestOwnModules request)
       installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withSplices
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
@@ -96,7 +108,7 @@ runSplices request action =
           splice <- maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
           let reify global = localFacts global >>= maybe (storeFacts global) pure
           requests <- newIORef []
-          outcome <- try (runClosure engine (answerRequest reify requests) (package <> "-" <> splicePackageVersion) spliceModuleName (spliceClosureName index))
+          outcome <- try (runClosure engine (answerRequest packageIds reify requests) splicePackageId spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -109,8 +121,49 @@ runSplices request action =
           case (reportedFailure made, outcome) of
             (Just message, _) -> ioError (userError (T.unpack message))
             (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> ioeGetErrorString (failure :: IOException)))
-            (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert)
+            (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert . fromSplice packageIds)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+
+-- | Change the package id of the splice package to the package id of the
+-- original package, in each name of a tree from the splice. The first id
+-- of the pair is the id of the splice package.
+fromSplice :: (Text, Text) -> Tree -> Tree
+fromSplice (splice, original) = renamePackageId splice original
+
+-- | Change the package id of the original package to the package id of the
+-- splice package, in each name of a tree to the splice.
+toSplice :: (Text, Text) -> Tree -> Tree
+toSplice (splice, original) = renamePackageId original splice
+
+renamePackageId :: Text -> Text -> Tree -> Tree
+renamePackageId from to = go
+  where
+    go tree =
+      case tree of
+        TreeNode "PkgName" [TreeString identity] | identity == from -> TreeNode "PkgName" [TreeString to]
+        TreeNode constructor fields -> TreeNode constructor (map go fields)
+        _ -> tree
+
+-- | Copy the source file of a module of the original package into the
+-- source directory of the splice package. The copy starts with the
+-- extensions of the component of the file, because the components of a
+-- package can have different default extensions. The @.hs-boot@ file of
+-- the module, if there is one, also goes into the directory.
+copyOwnModule :: SpliceRequest -> FilePath -> (Text, FilePath) -> IO ()
+copyOwnModule request directory (name, path) = do
+  let target = directory </> moduleNameDirectory name <.> drop 1 (takeExtension path)
+      extensions = maybe [] packageFileExtensions (Map.lookup path (spliceRequestPackageFiles request))
+      -- A literate source has its code in marked lines, so it gets no
+      -- extra lines.
+      pragmas
+        | takeExtension path == ".lhs" = ""
+        | otherwise = T.pack (concat ["{-# LANGUAGE " <> extension <> " #-}\n" | extension <- extensions])
+  createDirectoryIfMissing True (takeDirectory target)
+  source <- BS.readFile path
+  BS.writeFile target (TE.encodeUtf8 pragmas <> source)
+  let boot = replaceExtension path "hs-boot"
+  hasBoot <- doesFileExist boot
+  when hasBoot (BS.readFile boot >>= BS.writeFile (replaceExtension target "hs-boot"))
 
 -- | The names that a splice asked @reify@ for, for a failure message.
 describeRequests :: [Request] -> String
@@ -122,16 +175,16 @@ describeRequests made =
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply
 -- to @reify@ is an @Either String Info@ value.
-answerRequest :: (GlobalName -> IO (Either Text Tree)) -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest reify requests bytes =
-  case decodeTree bytes >>= requestFromTree of
+answerRequest :: (Text, Text) -> (GlobalName -> IO (Either Text Tree)) -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest packageIds reify requests bytes =
+  case decodeTree bytes >>= requestFromTree . fromSplice packageIds of
     Right made -> do
       modifyIORef' requests (made :)
       case made of
         RequestReport {} -> pure BS.empty
         RequestReify name global -> do
           answer <- maybe (pure (Left ("The compiler can only give the facts of a name with a package and a module, and " <> name <> " does not have them."))) reify global
-          pure . encodeTree $ case answer of
+          pure . encodeTree . toSplice packageIds $ case answer of
             Right info -> TreeNode "Right" [info]
             Left message -> TreeNode "Left" [TreeString message]
     Left message -> ioError (userError (T.unpack message))
@@ -292,9 +345,20 @@ splicePackageDescription request =
         <> ["  default-extensions:" | not (null extensions)]
         <> ["    " <> extension | extension <- extensions]
         <> ["  default-language: " <> language | Just language <- [spliceRequestLanguage request]]
+        <> ["  other-modules:" | not (null ownModules)]
+        <> ["    " <> T.unpack name | (name, _) <- ownModules]
+        <> ["  include-dirs:" | not (null includeDirs)]
+        <> ["    " <> directory | directory <- includeDirs]
+        <> ["  cpp-options:" | not (null cppOptions)]
+        <> ["    " <> option | option <- cppOptions]
     )
   where
     extensions = spliceRequestExtensions request
+    ownModules = spliceRequestOwnModules request
+    -- The settings of the files of the module and of the copied modules.
+    files = mapMaybe (\(_, path) -> Map.lookup path (spliceRequestPackageFiles request)) ownModules
+    includeDirs = nub (concatMap packageFileIncludeDirs files)
+    cppOptions = nub (concatMap packageFileCppOptions files)
 
 renderVersion :: [Int] -> String
 renderVersion = intercalate "." . map show

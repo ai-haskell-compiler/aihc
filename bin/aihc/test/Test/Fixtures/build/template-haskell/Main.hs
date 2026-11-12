@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Helper (plusHelper)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
@@ -147,3 +148,5 @@ main = do
   print ($(do TyConI (DataD _ _ _ _ constructors _) <- reify ''Shape; litE (integerL (fromIntegral (length constructors)))) :: Int)
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
+  -- A splice uses a function of a different module of the program.
+  print $(plusHelper 1)
