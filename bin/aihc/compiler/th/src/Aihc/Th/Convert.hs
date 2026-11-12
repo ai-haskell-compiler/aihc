@@ -13,11 +13,12 @@
 -- result is a message that names the construct.
 module Aihc.Th.Convert
   ( expressionFromTree,
+    typeResultFromTree,
     declarationsFromTree,
   )
 where
 
-import Aihc.Parser.Parens (addDeclParens, addExprParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (ExactTerm (..), ExactType (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
@@ -28,6 +29,10 @@ import Data.Text qualified as T
 -- | The expression of an @Exp@ tree.
 expressionFromTree :: Tree -> Either Text Expr
 expressionFromTree = fmap addExprParens . expression
+
+-- | The type of a @Type@ tree, the result of a type splice.
+typeResultFromTree :: Tree -> Either Text Type
+typeResultFromTree = fmap addTypeParens . typeFromTree
 
 -- | The declarations of a list of @Dec@ trees.
 declarationsFromTree :: Tree -> Either Text [Decl]
@@ -98,6 +103,10 @@ typeFromTree tree =
       | toInteger (length fields) == size -> TTuple Boxed Unpromoted <$> mapM typeFromTree fields
     (TreeNode "ConT" [name], arguments) -> foldl TApp . (`TCon` Unpromoted) <$> nameFromTree name <*> mapM typeFromTree arguments
     (TreeNode "VarT" [name], arguments) -> foldl TApp . TVar <$> binderFromTree name <*> mapM typeFromTree arguments
+    (TreeNode "PromotedT" [name], arguments) -> foldl TApp . (`TCon` Promoted) <$> nameFromTree name <*> mapM typeFromTree arguments
+    (TreeNode "ParensT" [inner], arguments) -> foldl TApp . TParen <$> typeFromTree inner <*> mapM typeFromTree arguments
+    (TreeNode "SigT" [inner, kind], arguments) -> foldl TApp . TParen <$> (TKindSig <$> typeFromTree inner <*> typeFromTree kind) <*> mapM typeFromTree arguments
+    (TreeNode "LitT" [value], []) -> TTypeLit <$> typeLiteral value
     (other, _) -> unsupported "type" other
   where
     -- The head of a chain of type applications, and its arguments.
@@ -105,6 +114,12 @@ typeFromTree tree =
       case applied of
         TreeNode "AppT" [function, argument] -> typeApplication function (argument : arguments)
         _ -> (applied, arguments)
+    typeLiteral value =
+      case value of
+        TreeNode "NumTyLit" [TreeInteger number] -> Right (TypeLitInteger number (T.pack (show number)))
+        TreeNode "StrTyLit" [TreeString string] -> Right (TypeLitSymbol string (T.pack (show (T.unpack string))))
+        TreeNode "CharTyLit" [TreeChar char] -> Right (TypeLitChar char (T.pack (show char)))
+        _ -> unsupported "type literal" value
 
 expression :: Tree -> Either Text Expr
 expression tree =
