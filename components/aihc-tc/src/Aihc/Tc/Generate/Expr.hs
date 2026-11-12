@@ -58,6 +58,7 @@ import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
@@ -1403,6 +1404,11 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   givenCts <- mapM makeGiven predicates
   let (equalityCts, dictionaryCts) = partition isEqualityConstraint (argCts <> deferredCts)
   residualEqualities <- concat <$> mapM (solveEqualityConstraint predicates) equalityCts
+  -- A functional dependency of a local given can fix a meta variable of
+  -- the given: in @coerce (Magic k)@ of the reflection trick, the given
+  -- @Reifies Skolem a0@ of the field of @Magic@ and the wanted @Reifies
+  -- Skolem a@ of @k@ give @a0 := a@ by the dependency @s -> a@.
+  _ <- improveFunDeps predicates dictionaryCts
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
   -- A wanted that the local givens do not solve can need them and the
   -- givens of the enclosing scope together, as an instance context does.
