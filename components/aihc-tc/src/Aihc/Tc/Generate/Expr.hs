@@ -61,7 +61,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (mfilter, when, zipWithM)
+import Control.Monad (forM_, mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Char (isLower, isUpper)
 import Data.IntSet (IntSet)
@@ -936,8 +936,14 @@ applicationSpine expected ambient expr = do
   case (expected, spineResultType headTy frames) of
     (Just expectedTy, Just resultType)
       | not (isPolyType expectedTy),
-        any frameNeedsExpectedType frames ->
+        any frameNeedsExpectedType frames -> do
           quickLookUnify instantiationVariables expectedTy resultType
+          -- A GADT constructor relates its result to its fields by an
+          -- equality: @(:*) :: (ys ~ (x ': xs)) => f x -> NP f xs -> NP f
+          -- ys@. The result type only fixes @ys@. A look at the equality
+          -- then fixes @x@ and @xs@ before a field is checked.
+          forM_ [(left, right) | ct <- headCts, EqPred left right <- [ctPred ct]] $ \(left, right) ->
+            quickLookUnify instantiationVariables left right
     _ -> pure ()
   (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
   case expected of
@@ -968,9 +974,25 @@ guidedArgument (StepArg plan) = case argPlanArgument plan of
 guidedArgument _ = False
 
 frameNeedsExpectedType :: SpineFrame -> Bool
-frameNeedsExpectedType (SpineValueArg _ argument) = checksExpectedResult argument
-frameNeedsExpectedType (SpineInfixRhs _ argument) = checksExpectedResult argument
+frameNeedsExpectedType (SpineValueArg _ argument) = containsCheckedArgument argument
+frameNeedsExpectedType (SpineInfixRhs _ argument) = containsCheckedArgument argument
 frameNeedsExpectedType _ = False
+
+-- | Whether an argument checks against its expected type, or is an
+-- application that has such an argument. In @Comp . (\ns -> case ns of Z
+-- fx -> Some fx) . unK@, the operand @(\ns -> ...) . unK@ is an
+-- application, but its lambda checks a case under the givens of @Z@.
+-- Thus the result type must fix the types before that lambda.
+containsCheckedArgument :: Expr -> Bool
+containsCheckedArgument expression
+  | checksExpectedResult expression = True
+  | otherwise = case expression of
+      EInfix lhs _ rhs -> containsCheckedArgument lhs || containsCheckedArgument rhs
+      EApp function argument -> containsCheckedArgument function || containsCheckedArgument argument
+      EParen inner -> containsCheckedArgument inner
+      EPragma _ inner -> containsCheckedArgument inner
+      EAnn _ inner -> containsCheckedArgument inner
+      _ -> False
 
 spineResultType :: TcType -> [SpineFrame] -> Maybe TcType
 spineResultType ty [] = Just ty
