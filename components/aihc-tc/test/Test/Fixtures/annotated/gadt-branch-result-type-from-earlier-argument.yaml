@@ -1,0 +1,58 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+       │       │      └─ type: ∀ a. a → Opt a
+       │       └─ type: ∀ a. Opt a
+       └─ type: Type → Type
+  data NS (f :: k -> Type) (xs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    Z :: f x -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ f x → NS f xs
+    S :: NS f xs -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ NS f xs → NS f xs
+  newtype (:.:) (f :: l -> Type) (g :: k -> l) (p :: k) = Comp (f (g p))
+           └─ type: (l → Type) → (k → l) → k → Type       └─ type: ∀ l k f g p. f (g p) → :.: f g p
+  infixr 7 :.:
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g x = f (g x)
+  │   │ │ └─ type: a
+  │   │ └─ type: a → b
+  │   └─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+  infixr 9 .
+  hd :: forall f x xs . NS f (x ': xs) -> (Opt :.: f) x
+  hd = Comp . (\ns -> case ns of Z fx -> Some fx; S _ -> None)
+  │    │    │  ││     │          │ │     │        │ │    └─ type: Opt (f x); type-args: f x
+  │    │    │  ││     │          │ │     │        │ └─ type: NS f xs
+  │    │    │  ││     │          │ │     │        └─ type: NS f xs → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+  │    │    │  ││     │          │ │     └─ type: f x → Opt (f x); type-args: f x
+  │    │    │  ││     │          │ └─ type: f x
+  │    │    │  ││     │          └─ type: f x → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+  │    │    │  ││     └─ type: Opt (f x)
+  │    │    │  │└─ type: NS f ('GHC.Types.: x xs)
+  │    │    │  └─ type: NS f ('GHC.Types.: x xs) → Opt (f x)
+  │    │    └─ type: (Opt (f x) → :.: Opt f x) → (NS f ('GHC.Types.: x xs) → Opt (f x)) → NS f ('GHC.Types.: x xs) → :.: Opt f x; type-args: Opt (f x), :.: Opt f x, NS f (': x xs)
+  │    └─ type: Opt (f x) → :.: Opt f x; type-args: Type, k0, Opt, f, x
+  └─ type: ∀ k0 f x xs. NS f ('GHC.Types.: x xs) → :.: Opt f x
+extensions: [DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+  data NS (f :: k -> Type) (xs :: [k]) where
+    Z :: f x -> NS f (x ': xs)
+    S :: NS f xs -> NS f (x ': xs)
+  newtype (:.:) (f :: l -> Type) (g :: k -> l) (p :: k) = Comp (f (g p))
+  infixr 7 :.:
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g x = f (g x)
+  infixr 9 .
+  hd :: forall f x xs . NS f (x ': xs) -> (Opt :.: f) x
+  hd = Comp . (\ns -> case ns of Z fx -> Some fx; S _ -> None)
+reason: "the expected result type fixes the constructor Comp before the case branch Z fx is checked under its givens, thus the existential x of Z does not escape"
+status: pass

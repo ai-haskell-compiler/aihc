@@ -55,7 +55,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
@@ -63,7 +63,7 @@ import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Char (isLower)
+import Data.Char (isLower, isUpper)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -984,6 +984,31 @@ spineResultType ty (frame : rest) = case frame of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
 
+-- | Whether an argument is a bare data constructor, as @Comp@. The name
+-- of a data constructor starts with an upper-case letter or a colon.
+isConstructorArgument :: Expr -> Bool
+isConstructorArgument expr =
+  case expr of
+    EVar name -> case T.uncons (nameText name) of
+      Just (first, _) -> isUpper first || first == ':'
+      Nothing -> False
+    EParen inner -> isConstructorArgument inner
+    EPragma _ inner -> isConstructorArgument inner
+    EAnn _ inner -> isConstructorArgument inner
+    _ -> False
+
+-- | Whether a type family application is part of a type.
+mentionsFamily :: (TyCon -> Bool) -> TcType -> Bool
+mentionsFamily family = go
+  where
+    go ty = case ty of
+      TcTyCon tyCon arguments -> family tyCon || any go arguments
+      TcFunTy argument result -> go argument || go result
+      TcAppTy function argument -> go function || go argument
+      TcForAllTy _ body -> go body
+      TcQualTy _ body -> go body
+      _ -> False
+
 -- | Whether a polytype is part of a type.
 mentionsPolyType :: TcType -> Bool
 mentionsPolyType ty = case ty of
@@ -1112,10 +1137,21 @@ planSpine = go
             -- Only an argument with a polytype in its type needs this. Any
             -- other argument leaves its variables to the solver, which
             -- reduces a type family before it binds one.
+            --
+            -- A data constructor without a type family application in
+            -- either type also gives its variables. In @Comp . (\ns -> case
+            -- ns of Z fx -> Some fx)@, the result type then fixes @Comp@ at
+            -- @f (g x)@. Thus the branch @Z fx@, checked later under its
+            -- givens, does not fix the open @x@ of @Comp@ at the
+            -- existential of @Z@. A variable keeps its old behavior: its
+            -- type can relate to a given of the enclosing scope.
             zonkedArgTy <- zonkType argTy
+            zonkedExpectedArgTy <- zonkType expectedArgTy
+            family <- isTypeFamilyTyCon
             let Unique boundaryKey = boundary
+                familyFree = isConstructorArgument arg && not (mentionsFamily family zonkedArgTy || mentionsFamily family zonkedExpectedArgTy)
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
+                  | mentionsPolyType zonkedArgTy || familyFree = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
                   | otherwise = IntSet.empty
                 extended = IntSet.union instantiationVariables' argumentVariables
             quickLookUnify extended expectedArgTy argTy
