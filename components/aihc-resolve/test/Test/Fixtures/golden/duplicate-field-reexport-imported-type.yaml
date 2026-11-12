@@ -1,0 +1,55 @@
+extensions:
+  - DuplicateRecordFields
+modules:
+  - |
+    module Internal (Arr (..), Bytes (..)) where
+    data Arr = Arr
+    data Bytes = Bytes { array :: Arr, offset :: Arr }
+  - |
+    {-# LANGUAGE DuplicateRecordFields #-}
+    module Types (Bytes (..), MutableBytes (..)) where
+    import Internal (Arr, Bytes (..))
+    data MutableBytes = MutableBytes { array :: Arr, offset :: Arr }
+    data BytesN = BytesN { array :: Arr, offset :: Arr }
+  - |
+    module Test where
+    import Types (Bytes (..))
+    copy b = Bytes (array b) (offset b)
+annotated:
+  - |-
+    module Internal (Arr (..), Bytes (..)) where
+    data Arr = Arr
+         │     └─ v Internal
+         └─ t Internal
+    data Bytes = Bytes { array :: Arr, offset :: Arr }
+         │       └─ v Internal    └─ t Internal  └─ t Internal
+         └─ t Internal
+  - |-
+    module Test where
+    import Types (Bytes (..))
+    copy b = Bytes (array b) (offset b)
+    │    │   │      │     │   │      └─ v 0
+    │    │   │      │     │   └─ v Internal
+    │    │   │      │     └─ v 0
+    │    │   │      └─ v Internal
+    │    │   └─ v Internal
+    │    └─ v 0
+    └─ v Test
+  - |-
+    {-# LANGUAGE DuplicateRecordFields #-}
+    module Types (Bytes (..), MutableBytes (..)) where
+    import Internal (Arr, Bytes (..))
+    data MutableBytes = MutableBytes { array :: Arr, offset :: Arr }
+         └─ t Types     └─ v Types     │        │    │         └─ t Internal
+                                       │        │    └─ v Types
+                                       │        └─ t Internal
+                                       └─ v Types
+    data BytesN = BytesN { array :: Arr, offset :: Arr }
+         │        │        │        │    │         └─ t Internal
+         │        │        │        │    └─ v Types
+         │        │        │        └─ t Internal
+         │        │        └─ v Types
+         │        └─ v Types
+         └─ t Types
+status: pass
+reason: a type that a module imports and re-exports with its fields keeps its own field selectors, also when the module declares duplicate fields with the same labels; reduced from byteslice Data.Bytes.Types
