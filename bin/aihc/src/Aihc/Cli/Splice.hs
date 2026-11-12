@@ -59,9 +59,9 @@ import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, toLower)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, nub)
-import Data.Maybe (mapMaybe)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
