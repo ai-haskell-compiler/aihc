@@ -1,0 +1,47 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Type)
+    data N = Z
+    -- No visible argument gives the result kind k. The instance gives k := Type.
+    data family Param :: N -> j -> k
+    newtype instance Param n (a :: Type) = StarParam { getStarParam :: a }
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tN :: sType {
+    pub 1.cZ :: tN
+  }
+
+  pub type 1.tParam (j : sType) (k : sType) :: tN → j → k @N @N {}
+
+  type 1.t$R$Param$StarParam (n : tN) (a : sType) :: sType {}
+
+  axiom 1.$ax$R$Param$StarParam (n : tN) (a : sType) : t$R$Param$StarParam n a ~R a
+
+  axiom 1.$ax$Param$StarParam (n : tN) (a : sType) : tParam sType sType n a ~R t$R$Param$StarParam n a
+
+  pub val 1.vgetStarParam :: ∀(n : tN) (a : sType). tParam sType sType n a → a
+    = Λ(n : tN) (a : sType). λ($record : tParam sType sType n a).
+      $record ▷ trans (axiom-co $ax$Param$StarParam @n @a) (axiom-co $ax$R$Param$StarParam @n @a)
+status: pass
+reason: 'The data family Param has the result kind k, and no visible argument of Param n a gives it. The instance axiom must spell the family side at the kind of the representation type, Type. Before the fix, the FC conversion could not infer k. This stopped generic-lens-core in Data.Generics.Internal.GenericN.'

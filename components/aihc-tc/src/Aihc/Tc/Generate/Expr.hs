@@ -916,6 +916,8 @@ isGuardedArgument expr =
     EApp fun _ -> isGuardedArgument fun
     ETypeApp fun _ -> isGuardedArgument fun
     EInfix {} -> True
+    ESectionL {} -> True
+    ESectionR {} -> True
     EParen inner -> isGuardedArgument inner
     EPragma _ inner -> isGuardedArgument inner
     EAnn ann inner
@@ -1062,7 +1064,11 @@ spineResultType ty (frame : rest) = case frame of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
 
--- | Whether an argument is a bare data constructor, as @Comp@. The name
+-- | Whether an argument gives its fresh type variables to the quick look of
+-- the spine: a bare data constructor, as @Comp@, or an operator section,
+-- as @(<$ ctx)@. In @(<$ ctx) <$> case accum of Add w -> ...@ of
+-- @fused-effects@, the section fixes the element type of @<$>@ at the
+-- type @a@ of the result before the GADT branches are checked. The name
 -- of a data constructor starts with an upper-case letter or a colon.
 isConstructorArgument :: Expr -> Bool
 isConstructorArgument expr =
@@ -1070,9 +1076,22 @@ isConstructorArgument expr =
     EVar name -> case T.uncons (nameText name) of
       Just (first, _) -> isUpper first || first == ':'
       Nothing -> False
+    ESectionL {} -> True
+    ESectionR {} -> True
     EParen inner -> isConstructorArgument inner
     EPragma _ inner -> isConstructorArgument inner
     EAnn _ inner -> isConstructorArgument inner
+    _ -> False
+
+-- | Whether an argument is an operator section.
+isSectionArgument :: Expr -> Bool
+isSectionArgument expr =
+  case expr of
+    ESectionL {} -> True
+    ESectionR {} -> True
+    EParen inner -> isSectionArgument inner
+    EPragma _ inner -> isSectionArgument inner
+    EAnn _ inner -> isSectionArgument inner
     _ -> False
 
 -- | Whether a type family application is part of a type.
@@ -1227,12 +1246,25 @@ planSpine = go
             zonkedExpectedArgTy <- zonkType expectedArgTy
             family <- isTypeFamilyTyCon
             let Unique boundaryKey = boundary
-                familyFree = isConstructorArgument arg && not (mentionsFamily family zonkedArgTy || mentionsFamily family zonkedExpectedArgTy)
+                familyFree =
+                  isConstructorArgument arg
+                    && not (any (mentionsFamily family) (zonkedArgTy : zonkedExpectedArgTy : concat [[left, right] | (left, right) <- sectionEqualities]))
+                sectionEqualities = [(left, right) | isSectionArgument arg, ct <- argCts, EqPred left right <- [ctPred ct]]
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy || familyFree = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
+                  | mentionsPolyType zonkedArgTy || familyFree =
+                      IntSet.fromList
+                        [ key
+                        | Unique key <- typeMetaVariables zonkedArgTy <> concat [typeMetaVariables left <> typeMetaVariables right | (left, right) <- sectionEqualities],
+                          key >= boundaryKey
+                        ]
                   | otherwise = IntSet.empty
                 extended = IntSet.union instantiationVariables' argumentVariables
             quickLookUnify extended expectedArgTy argTy
+            -- An operator section gets its type from equality wanteds, as
+            -- @(<$ ctx)@ has the type @t1 -> t2@ with @f t1 ~ t2@. A look
+            -- at them gives the structure of that type.
+            when familyFree $
+              forM_ sectionEqualities (uncurry (quickLookUnify extended))
             pure (ArgInferred boundary arg' argTy argCts, extended)
           else pure (ArgDeferred arg, instantiationVariables')
       let plan =

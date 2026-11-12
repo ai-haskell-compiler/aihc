@@ -385,6 +385,7 @@ spliceModuleTest = do
   let request =
         SpliceRequest
           { spliceRequestPackage = "demo",
+            spliceRequestPackageId = "demo-0",
             spliceRequestModule = "M",
             spliceRequestStoreRoot = "store",
             spliceRequestBuildRoot = "build",
@@ -393,6 +394,9 @@ spliceModuleTest = do
             spliceRequestLanguage = Nothing,
             spliceRequestPragmas = [EnableExtension TemplateHaskell],
             spliceRequestImports = take 1 (moduleImports modu),
+            spliceRequestPackageFiles = mempty,
+            spliceRequestOwnModules = [],
+            spliceRequestUnavailableImports = [],
             spliceRequestSplices = moduleSplices modu
           }
   assertEqual

@@ -905,7 +905,7 @@ resolveInstanceDeclItem headClass instanceDeclItem =
     InstanceItemTypeFamilyInst familyInst -> do
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (typeFamilyInstLhs familyInst)
-      InstanceItemTypeFamilyInst <$> extendScope familyScope (resolveTypeFamilyInst familyInst)
+      InstanceItemTypeFamilyInst <$> resolveTypeFamilyInstWithLhsScope familyScope familyInst
     InstanceItemDataFamilyInst familyInst -> do
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (dataFamilyInstHead familyInst)
@@ -1491,9 +1491,22 @@ resolveRecordFields :: [RecordField Expr] -> ResolveM [RecordField Expr]
 resolveRecordFields =
   mapM
     ( \field -> do
-        value' <- resolveExpr (recordFieldValue field)
+        value' <- resolveExpr (recordFieldPunValue field)
         pure field {recordFieldValue = value'}
     )
+
+-- | The value of a record field. A pun @{ M.x }@ uses the variable @x@, as
+-- in GHC. The qualifier selects only the field.
+recordFieldPunValue :: RecordField Expr -> Expr
+recordFieldPunValue field
+  | recordFieldPun field = unqualify (recordFieldValue field)
+  | otherwise = recordFieldValue field
+  where
+    unqualify expr =
+      case expr of
+        EAnn annotation inner -> EAnn annotation (unqualify inner)
+        EVar name -> EVar name {nameQualifier = Nothing}
+        _ -> expr
 
 -- | A record update names the field selectors that it writes, and the
 -- selector must be in scope. The resolution of each label tells the type
@@ -1504,7 +1517,7 @@ resolveRecordUpdateFields =
   mapM
     ( \field -> do
         name' <- resolveTermUseAtName (recordFieldName field)
-        value' <- resolveExpr (recordFieldValue field)
+        value' <- resolveExpr (recordFieldPunValue field)
         pure field {recordFieldName = name', recordFieldValue = value'}
     )
 
@@ -2250,12 +2263,22 @@ resolveTypeFamilyEq equation = do
       }
 
 resolveTypeFamilyInst :: TypeFamilyInst -> ResolveM TypeFamilyInst
-resolveTypeFamilyInst familyInst = do
+resolveTypeFamilyInst = resolveTypeFamilyInstWithLhsScope emptyScope
+
+-- | Resolve a type family equation. The extra scope applies to the left
+-- side only. An associated type instance names its family there without
+-- the qualifier of the class. The right side resolves in the scope of the
+-- module: in @instance C.MonadConc (Program pty n) where type ThreadId
+-- (Program pty n) = ThreadId@ of @dejafu@, the right side is the data type
+-- @ThreadId@ that the module imports, and the family is only in scope as
+-- @C.ThreadId@.
+resolveTypeFamilyInstWithLhsScope :: Scope -> TypeFamilyInst -> ResolveM TypeFamilyInst
+resolveTypeFamilyInstWithLhsScope lhsScope familyInst = do
   (forallScope, forallBinders') <- bindTyVarBinders (typeFamilyInstForall familyInst)
   (lhs', rhs') <-
     extendScope forallScope $
       (,)
-        <$> resolveType (typeFamilyInstLhs familyInst)
+        <$> extendScope lhsScope (resolveType (typeFamilyInstLhs familyInst))
         <*> resolveType (typeFamilyInstRhs familyInst)
   pure
     familyInst

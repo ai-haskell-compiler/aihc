@@ -279,9 +279,19 @@ withBranchGivens impl ct = ct {ctBranchGivens = implGivenCts impl <> ctBranchGiv
 
 -- | Improve the dictionary wanteds of a branch from the givens of the
 -- branch until improvement solves no further meta variable.
+--
+-- The equality superclasses of a wanted improve it in a branch too, as
+-- at the top level (see 'improveSuperClassEqualities'). In @lensC f (x :&
+-- xs) = fmap (x :&) (lensC f xs)@ of @class (i ~ Idx r rs) => Elem r r'
+-- rs rs' i@, the wanted @Elem r r' rs1 rs' t0@ entails @t0 ~ Idx r rs1@.
+-- The given of the instance then solves it.
 improveImplicationWanteds :: [Pred] -> [Ct] -> TcM ()
 improveImplicationWanteds givenPredicates constraints = do
-  improved <- improveFunDeps givenPredicates constraints
+  improvedFunDeps <- improveFunDeps givenPredicates constraints
+  improved <-
+    if improvedFunDeps
+      then pure True
+      else improveSuperClassEqualities constraints
   when improved (improveImplicationWanteds givenPredicates constraints)
 
 -- | Retry equalities after argument constraints solve meta variables.
