@@ -827,10 +827,10 @@ assignLocals fn consumed body = (map snd declared, map render resolved)
       LocalTee -> "local.tee"
 
 -- | The arguments of the jumps to each block parameter, and the reverse.
-copyPartners :: [Block] -> Map Var [Var]
+copyPartners :: [Block] -> MonoidMap Var [Var]
 copyPartners blocks =
-  Map.fromListWith
-    (<>)
+  MonoidMap.fromListWith
+    (flip (<>))
     ( concat
         [ [(parameter, [argument]), (argument, [parameter])]
         | block <- blocks,
@@ -848,7 +848,7 @@ copyPartners blocks =
 -- takes the local of a copy partner when it can, so that the copy does
 -- nothing. The result maps each value to a local and each local to its
 -- type.
-colorLocals :: MonoidMap Var (Set Var) -> Map Var [Var] -> [(Var, Text)] -> [(Var, Text)] -> Set Var -> (Map Var Int, Map Int Text)
+colorLocals :: MonoidMap Var (Set Var) -> MonoidMap Var [Var] -> [(Var, Text)] -> [(Var, Text)] -> Set Var -> (Map Var Int, Map Int Text)
 colorLocals adjacency partners parameters values unique =
   let (coloring, slots) = foldl' place (Map.fromList initial, Map.fromList [(index, (ty, Set.singleton var, False)) | (var, index, ty) <- numbered]) values
    in (coloring, Map.map (\(ty, _, _) -> ty) slots)
@@ -860,7 +860,7 @@ colorLocals adjacency partners parameters values unique =
       | otherwise =
           let neighbours = MonoidMap.get var adjacency
               fits (ty', members, closed) = ty' == ty && not closed && Set.disjoint members neighbours
-              preferred = [index | partner <- Map.findWithDefault [] var partners, Just index <- [Map.lookup partner coloring], Just slot <- [Map.lookup index slots], fits slot]
+              preferred = [index | partner <- MonoidMap.get var partners, Just index <- [Map.lookup partner coloring], Just slot <- [Map.lookup index slots], fits slot]
               free = [index | not (Set.member var unique), index <- preferred <> [index | (index, slot) <- Map.toList slots, fits slot]]
            in case free of
                 index : _ -> (Map.insert var index coloring, Map.adjust (\(ty', members, closed) -> (ty', Set.insert var members, closed)) index slots)
