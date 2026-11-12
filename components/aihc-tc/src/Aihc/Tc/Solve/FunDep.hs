@@ -237,11 +237,17 @@ improveFromInstances givens siblings depth info dependency constraint = do
         instanceHead <- classDependencyArguments info (iiHead instanceInfo)
         pure $ do
           substitution <- matchTypes (determiners instanceHead) (determiners arguments')
-          pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
-      forM_ candidates $ \(instanceInfo, instanceDetermined) ->
+          pure (instanceInfo, substitution, determined dependency instanceHead)
+      forM_ candidates $ \(instanceInfo, substitution, headDetermined) -> do
+        let instanceDetermined = map (applySubst substitution) headDetermined
         if any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
           then case candidates of
-            [_] -> improveThroughContext givens siblings depth instanceInfo arguments
+            [_]
+              | Just _ <- matchTypes (iiHead instanceInfo) arguments ->
+                  improveThroughContext givens siblings depth instanceInfo arguments
+              | otherwise -> do
+                  instantiation <- instantiateUnbound substitution instanceInfo
+                  improveEqualities givens (map (applySubst instantiation) headDetermined) (determined dependency arguments')
             _ -> pure ()
           else improveEqualities givens instanceDetermined (determined dependency arguments')
     _ -> pure ()
@@ -291,14 +297,8 @@ improveThroughContext givens siblings depth instanceInfo arguments
       case matchTypes (iiHead instanceInfo) arguments of
         Nothing -> pure ()
         Just substitution -> do
-          let bound tyVar = Map.member (tvUnique tyVar) substitution
-              unbound = filter (not . bound) (iiTyVars instanceInfo)
-          fresh <-
-            forM unbound $ \tyVar -> do
-              meta <- freshMetaTvOfKind (applySubst substitution (tvKind tyVar))
-              pure (tvUnique tyVar, meta)
-          let instantiation = substitution <> Map.fromList fresh
-              context = [applySubstPred instantiation contextPredicate | contextPredicate <- iiContext instanceInfo]
+          instantiation <- instantiateUnbound substitution instanceInfo
+          let context = [applySubstPred instantiation contextPredicate | contextPredicate <- iiContext instanceInfo]
               improveContext :: Int -> TcM ()
               improveContext passes = do
                 before <- mapM zonkPred context
@@ -307,6 +307,18 @@ improveThroughContext givens siblings depth instanceInfo arguments
                 after <- mapM zonkPred context
                 when (before /= after && passes > 1) (improveContext (passes - 1))
           improveContext contextPassLimit
+
+-- | Extend a match of an instance with a fresh meta variable for each
+-- variable of the instance that the match does not bind.
+instantiateUnbound :: Map.Map Unique TcType -> InstanceInfo -> TcM (Map.Map Unique TcType)
+instantiateUnbound substitution instanceInfo = do
+  let bound tyVar = Map.member (tvUnique tyVar) substitution
+      unbound = filter (not . bound) (iiTyVars instanceInfo)
+  fresh <-
+    forM unbound $ \tyVar -> do
+      meta <- freshMetaTvOfKind (applySubst substitution (tvKind tyVar))
+      pure (tvUnique tyVar, meta)
+  pure (substitution <> Map.fromList fresh)
 
 -- | The most passes over an instance context that one improvement makes.
 contextPassLimit :: Int

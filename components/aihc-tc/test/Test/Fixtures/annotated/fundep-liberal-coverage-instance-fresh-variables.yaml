@@ -1,0 +1,81 @@
+annotated:
+- |-
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: Type → Type
+  data Bool = True
+       │      └─ type: Bool
+       └─ type: Type
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g x = f (g x)
+  │   │ │ └─ type: a
+  │   │ └─ type: a → b
+  │   └─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+  class Sel a r | a -> r, r -> a where
+  └─ class methods: count ∷ ∀ a r. (Sel a r) ⇒ Proxy a → Bool, row ∷ ∀ a r. (Sel a r) ⇒ Bool → r; fundeps: a → r, r → a
+    count :: Proxy a -> Bool
+    row :: Bool -> r
+  instance (Sel a ra, Sel b rb) => Sel (a, b) (ra, rb) where
+  └─ $fSelTuple2abTuple2rarb ∷ ∀ a ra b rb. (Sel a ra, Sel b rb) ⇒ Sel (a, b) (ra, rb)
+    count _ = True
+    │     └─ type: Proxy (a, b)
+    └─ count ∷ Proxy (a, b) → Bool
+    row b = (row b, row b)
+    │   │   ││      └─ type: Bool → rb; type-args: b, rb; evidence: given Sel b rb
+    │   │   │└─ type: Bool → ra; type-args: a, ra; evidence: given Sel a ra
+    │   │   └─ type: (ra, rb); type-args: ra, rb
+    │   └─ type: Bool
+    └─ row ∷ Bool → (ra, rb)
+  instance (Sel a ra, Sel b rb, Sel c rc) => Sel (a, b, c) (ra, rb, rc) where
+  └─ $fSelTuple3abcTuple3rarbrc ∷ ∀ a ra b rb c rc. (Sel a ra, Sel b rb, Sel c rc) ⇒ Sel (a, b, c) (ra, rb, rc)
+    count = count . from3P
+    │       │     │ └─ type: Proxy (a, b, c) → Proxy ((a, b), c); type-args: a, b, c
+    │       │     └─ type: (Proxy ((a, b), c) → Bool) → (Proxy (a, b, c) → Proxy ((a, b), c)) → Proxy (a, b, c) → Bool; type-args: Proxy ((a, b), c), Bool, Proxy (a, b, c)
+    │       └─ type: Proxy ((a, b), c) → Bool; type-args: ((a, b), c), ((ra, rb), rc); evidence: $fSelTuple2abTuple2rarb @(a, b) @(ra, rb) @c @rc ($fSelTuple2abTuple2rarb @a @ra @b @rb (given Sel a ra, given Sel b rb), given Sel c rc)
+    └─ count ∷ Proxy (a, b, c) → Bool
+    row = to3 . row
+    │     │   │ └─ type: Bool → ((ra, rb), rc); type-args: ((a, b), c), ((ra, rb), rc); evidence: $fSelTuple2abTuple2rarb @(a, b) @(ra, rb) @c @rc ($fSelTuple2abTuple2rarb @a @ra @b @rb (given Sel a ra, given Sel b rb), given Sel c rc)
+    │     │   └─ type: (((ra, rb), rc) → (ra, rb, rc)) → (Bool → ((ra, rb), rc)) → Bool → (ra, rb, rc); type-args: ((ra, rb), rc), (ra, rb, rc), Bool
+    │     └─ type: ((ra, rb), rc) → (ra, rb, rc); type-args: ra, rb, rc
+    └─ row ∷ Bool → (ra, rb, rc)
+  from3P :: Proxy (a, b, c) -> Proxy ((a, b), c)
+  from3P _ = Proxy
+  │      │   └─ type: Proxy ((a, b), c); type-args: ((a, b), c)
+  │      └─ type: Proxy (a, b, c)
+  └─ type: ∀ a b c. Proxy (a, b, c) → Proxy ((a, b), c)
+  to3 :: ((a, b), c) -> (a, b, c)
+  to3 ((a, b), c) = (a, b, c)
+  │   │││  │   │    └─ type: (a, b, c); type-args: a, b, c
+  │   │││  │   └─ type: c
+  │   │││  └─ type: b
+  │   ││└─ type: a
+  │   │└─ type: (a, b)
+  │   └─ type: ((a, b), c)
+  └─ type: ∀ a b c. ((a, b), c) → (a, b, c)
+extensions: [FunctionalDependencies, FlexibleInstances, UndecidableInstances]
+reason: A wanted improves from an instance that takes its dependent parameters from its context
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data Proxy a = Proxy
+  data Bool = True
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g x = f (g x)
+  class Sel a r | a -> r, r -> a where
+    count :: Proxy a -> Bool
+    row :: Bool -> r
+  instance (Sel a ra, Sel b rb) => Sel (a, b) (ra, rb) where
+    count _ = True
+    row b = (row b, row b)
+  instance (Sel a ra, Sel b rb, Sel c rc) => Sel (a, b, c) (ra, rb, rc) where
+    count = count . from3P
+    row = to3 . row
+  from3P :: Proxy (a, b, c) -> Proxy ((a, b), c)
+  from3P _ = Proxy
+  to3 :: ((a, b), c) -> (a, b, c)
+  to3 ((a, b), c) = (a, b, c)
+status: pass
