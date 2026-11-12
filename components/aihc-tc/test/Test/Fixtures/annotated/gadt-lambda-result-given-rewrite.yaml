@@ -37,14 +37,14 @@ annotated:
   │          │     │││ │  │      │         ││└─ type: HList rest
   │          │     │││ │  │      │         │└─ type: (HList rest, b)
   │          │     │││ │  │      │         │└─ type: (HList rest, b)
-  │          │     │││ │  │      │         └─ type: (HList rest, b) → HList bs
+  │          │     │││ │  │      │         └─ type: (HList rest, b) → HList ('GHC.Types.: b rest)
   │          │     │││ │  │      └─ type: (HList as, a); type-args: HList as, a
   │          │     │││ │  └─ type: HList as
-  │          │     │││ └─ type: a → HList as → HList as; type-args: as, as, a; evidence: given as ~ ': a as
+  │          │     │││ └─ type: a → HList as → HList ('GHC.Types.: a rest); type-args: ': a rest, as, a; evidence: given ': a rest ~ ': a as
   │          │     ││└─ type: a
-  │          │     │└─ type: HList as
-  │          │     └─ type: HList as → (HList rest, a)
-  │          └─ type: (HList as → (HList rest, a)) → ((HList rest, b) → HList bs) → Lens (HList as) (HList bs) a b; type-args: HList as, HList bs, a, b, HList rest
+  │          │     │└─ type: HList ('GHC.Types.: a rest)
+  │          │     └─ type: HList ('GHC.Types.: a rest) → (HList rest, a)
+  │          └─ type: (HList ('GHC.Types.: a rest) → (HList rest, a)) → ((HList rest, b) → HList ('GHC.Types.: b rest)) → Lens (HList ('GHC.Types.: a rest)) (HList ('GHC.Types.: b rest)) a b; type-args: HList (': a rest), HList (': b rest), a, b, HList rest
   └─ type: ∀ as a rest bs b. (as ~ ('GHC.Types.: a rest), bs ~ ('GHC.Types.: b rest)) ⇒ Lens (HList as) (HList bs) a b
 reason: the givens make the existential types of a constructor match equal to
   types of the enclosing scope, thus a lambda can return the fields of the
