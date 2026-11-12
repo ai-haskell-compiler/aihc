@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+       └─ type: GHC.Types.Constraint → Type
+    Dict :: c => Dict c
+    └─ type: ∀ c. (c) ⇒ Dict c
+  newtype Row a = R [a]
+          │       └─ type: ∀ a. [a] → Row a
+          └─ type: Type → Type
+  type family Map (f :: a -> b) (r :: Row a) :: Row b where
+              └─ type: (a → b) → Row a → Row b
+    Map f (R r) = R (MapR f r)
+  type family MapR (f :: a -> b) (r :: [a]) :: [b] where
+              └─ type: (a → b) → [a] → [b]
+    MapR f '[] = '[]
+    MapR f (x ': xs) = f x ': MapR f xs
+  type family E (x :: k) (r :: Row k) :: Row k
+              └─ type: k → Row k → Row k
+  swap :: forall k (x :: k) (s :: Row k) (f :: k -> Type) ρ. (s ~ R ρ, R (x ': ρ) ~ E x (R ρ), E (f x) (Map f s) ~ Map f (E x s)) => Dict (R (f x ': MapR f ρ) ~ E (f x) (R (MapR f ρ)))
+  swap = Dict
+  │      └─ type: Dict (GHC.Types.~ ('R ('GHC.Types.: (f x) (MapR f ρ))) (E (f x) ('R (MapR f ρ)))); type-args: ~ ('R (': (f x) (MapR f ρ))) (E (f x) ('R (MapR f ρ))); evidence: equality @'R (': (f x) (MapR f ρ)) @E (f x) ('R (MapR f ρ))
+  └─ type: ∀ k x s f ρ. (s ~ ('R ρ), ('R ('GHC.Types.: x ρ)) ~ (E x ('R ρ)), (E (f x) (Map f s)) ~ (Map f (E x s))) ⇒ Dict (GHC.Types.~ ('R ('GHC.Types.: (f x) (MapR f ρ))) (E (f x) ('R (MapR f ρ))))
+extensions: [DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, GADTs, ConstraintKinds, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+    Dict :: c => Dict c
+  newtype Row a = R [a]
+  type family Map (f :: a -> b) (r :: Row a) :: Row b where
+    Map f (R r) = R (MapR f r)
+  type family MapR (f :: a -> b) (r :: [a]) :: [b] where
+    MapR f '[] = '[]
+    MapR f (x ': xs) = f x ': MapR f xs
+  type family E (x :: k) (r :: Row k) :: Row k
+  swap :: forall k (x :: k) (s :: Row k) (f :: k -> Type) ρ. (s ~ R ρ, R (x ': ρ) ~ E x (R ρ), E (f x) (Map f s) ~ Map f (E x s)) => Dict (R (f x ': MapR f ρ) ~ E (f x) (R (MapR f ρ)))
+  swap = Dict
+reason: "the given E (f x) (Map f s) ~ Map f (E x s) proves the wanted after two rewrites by the other givens and a reduction of Map on each side"
+status: pass

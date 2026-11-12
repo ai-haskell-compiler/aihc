@@ -303,7 +303,11 @@ reduceHead ty =
                   kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
                   let kindOf = either (const Nothing) Just . typeKindInEnv kinds kindEnv
                       argumentKinds = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKinds kinds kindEnv tyCon familyArguments Nothing)
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf equations familyArguments actualKinds extraArguments of
+                      bareKindArguments bare expectedKind = do
+                        ForAll quantified _ bareKind <- Map.lookup (tyConKey bare) kindEnv
+                        found <- matchTypes [bareKind] [expectedKind]
+                        traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments actualKinds extraArguments of
                     Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
                     Nothing -> pure ty
         _ -> pure ty
@@ -346,8 +350,8 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 -- arguments either: it may still match once a stuck family application
 -- or a type variable in them is known, and the equations after it are
 -- only reached when it cannot.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe TcType
-firstEquation family kindOf equations arguments argumentKinds extraArguments =
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe TcType
+firstEquation family kindOf bareKindArguments equations arguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
@@ -358,13 +362,27 @@ firstEquation family kindOf equations arguments argumentKinds extraArguments =
             Just substitution <- matchTypes patterns arguments,
             let variableSubstitution = variableKinds equation substitution,
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
-              Just (applySubst (substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution) (tfiiRight equation))
+              let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
+               in Just (applySubst (kindedBareConstructors equation fullSubstitution <> fullSubstitution) (tfiiRight equation))
           | tfiiClosed equation,
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf bareKindArguments rest arguments argumentKinds extraArguments
   where
+    -- A poly-kinded constructor with no visible argument gets its kind
+    -- from the place where it is used. In @ApSingleR (f ': fs) x@ matched
+    -- against @'[h]@, @fs@ binds the @'[]@ that @':@ gave the kind
+    -- @[k -> k']@. Alone, that @'[]@ has the kind @[a]@ for each @a@, and
+    -- the next reduction cannot find @k'@. Thus the variable keeps the
+    -- kind arguments that its own kind gives.
+    kindedBareConstructors equation fullSubstitution =
+      Map.fromList
+        [ (tvUnique variable, kindedTyCon bare kindArguments)
+        | variable <- tfiiTyVars equation,
+          Just (TcTyCon bare []) <- [Map.lookup (tvUnique variable) fullSubstitution],
+          Just kindArguments <- [bareKindArguments bare (applySubst fullSubstitution (tvKind variable))]
+        ]
     -- A kind variable that only the kind of an equation variable names:
     -- in @Rep (C b a) = ... (b (Const a))@ with @b :: (k -> Type) -> Type@,
     -- the right-hand side applies @Const@ at @k@, but no argument kind

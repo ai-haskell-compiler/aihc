@@ -96,14 +96,44 @@ proveFromEqualities equalities left right
     addGiven graph (a, b, proof) = addProof a b proof graph
 
 -- | A given can expose a family equation inside a larger type.
+--
+-- One rewrite can leave the type stuck, and a second rewrite then lets it
+-- reduce. With the givens @s ~ 'R r@ and @'R (x ': r) ~ E x ('R r)@, the
+-- type @Map f (E x s)@ rewrites to @Map f (E x ('R r))@, which is stuck.
+-- The second given rewrites it to @Map f ('R (x ': r))@, which reduces.
+-- Thus a stuck rewrite is rewritten again, up to 'rewriteDepth' rewrites.
+-- The proof composes the proofs of the rewrites in turn.
 reduceRewritten :: [(TcType, TcType, Coercion)] -> TcType -> TcM [(TcType, TcType, Coercion)]
-reduceRewritten equalities ty =
-  concat <$> traverse reduceOne (equalities <> [(b, a, Sym proof) | (a, b, proof) <- equalities])
+reduceRewritten equalities ty = go rewriteDepth [ty] [(ty, Nothing)]
   where
-    reduceOne rule = do
-      let (rewritten, proof) = rewrite rule ty
-      reduced <- reduceTypeFamilies rewritten
-      pure [(ty, reduced, proof) | not (sameType rewritten ty), not (sameType reduced rewritten)]
+    rules = equalities <> [(b, a, Sym proof) | (a, b, proof) <- equalities]
+    go :: Int -> [TcType] -> [(TcType, Maybe Coercion)] -> TcM [(TcType, TcType, Coercion)]
+    go depth seen frontier
+      | depth <= 0 || null frontier = pure []
+      | otherwise = do
+          steps <- concat <$> traverse (\(current, before) -> traverse (reduceOne current before) rules) frontier
+          let found = [(ty, reduced, proof) | Just (_, Just reduced, proof) <- steps]
+              stuck = unique seen [(rewritten, Just proof) | Just (rewritten, Nothing, proof) <- steps]
+          rest <- go (depth - 1) (seen <> map fst stuck) stuck
+          pure (found <> rest)
+    unique _ [] = []
+    unique seen ((candidate, proof) : rest)
+      | any (sameType candidate) seen = unique seen rest
+      | otherwise = (candidate, proof) : unique (candidate : seen) rest
+    reduceOne current before rule = do
+      let (rewritten, step) = rewrite rule current
+          proof = maybe step (`Trans` step) before
+      if sameType rewritten current
+        then pure Nothing
+        else do
+          reduced <- reduceTypeFamilies rewritten
+          pure
+            ( Just
+                ( rewritten,
+                  if sameType reduced rewritten then Nothing else Just reduced,
+                  proof
+                )
+            )
     rewrite rule@(from, to, proof) current
       | sameType from current = (to, proof)
       | otherwise = case current of
@@ -125,6 +155,11 @@ reduceRewritten equalities ty =
                   then (current, Refl current)
                   else (mkAppTy function' argument', AppCo functionProof argumentProof)
           _ -> (current, Refl current)
+
+-- | The largest number of given rewrites in one chain of
+-- 'reduceRewritten'.
+rewriteDepth :: Int
+rewriteDepth = 3
 
 -- | The equalities of the givens. A given constraint that is a stuck
 -- family application can reduce after the other givens rewrite it. In
