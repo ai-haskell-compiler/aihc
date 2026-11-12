@@ -942,8 +942,8 @@ applicationSpine expected ambient expr = do
           -- equality: @(:*) :: (ys ~ (x ': xs)) => f x -> NP f xs -> NP f
           -- ys@. The result type only fixes @ys@. A look at the equality
           -- then fixes @x@ and @xs@ before a field is checked.
-          forM_ [(left, right) | ct <- headCts, EqPred left right <- [ctPred ct]] $ \(left, right) ->
-            quickLookUnify instantiationVariables left right
+          forM_ [(left, right) | ct <- headCts, EqPred left right <- [ctPred ct]] $
+            uncurry (quickLookUnify instantiationVariables)
     _ -> pure ()
   (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
   case expected of
