@@ -80,5 +80,5 @@ expression: |
   failures
 output: |
   []
-status: xfail
+status: pass
 reason: indexing and measuring a heterogeneous list through dependencies whose recursive instances satisfy only the liberal coverage condition
