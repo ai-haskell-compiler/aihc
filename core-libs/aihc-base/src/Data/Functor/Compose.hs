@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 
@@ -14,10 +15,24 @@ import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
 import Data.Traversable (Traversable (..))
+import Data.Type.Equality (TestEquality (..), (:~:) (..))
 import Prelude
 
 newtype Compose (f :: k -> Type) (g :: l -> k) (a :: l) = Compose {getCompose :: f (g a)}
-  deriving newtype (Eq, Ord, Bounded, Enum, Monoid)
+  deriving newtype
+    ( Eq,
+      Ord,
+      Bounded,
+      Enum,
+      Monoid,
+      Num,
+      Real,
+      Integral,
+      Fractional,
+      RealFrac,
+      Floating,
+      RealFloat
+    )
 
 infixr 9 `Compose`
 
@@ -52,6 +67,16 @@ instance (Applicative f, Applicative g) => Applicative (Compose f g) where
 instance (Alternative f, Applicative g) => Alternative (Compose f g) where
   empty = Compose empty
   Compose left <|> Compose right = Compose (left <|> right)
+  some (Compose value) = Compose (fmap sequenceA (some value))
+  many (Compose value) = Compose (fmap sequenceA (many value))
+
+-- | If @g x@ and @g y@ are equal, then @x@ and @y@ are equal, because @g@ is
+-- generative.
+instance (TestEquality f) => TestEquality (Compose f g) where
+  testEquality (Compose left) (Compose right) =
+    case testEquality left right of
+      Just Refl -> Just Refl
+      Nothing -> Nothing
 
 instance (Semigroup (f (g a))) => Semigroup (Compose f g a) where
   Compose left <> Compose right = Compose (left <> right)
