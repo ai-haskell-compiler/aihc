@@ -24,7 +24,7 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), typeFamilyAxiomIndex)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), freshMetaTvOfKind, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, trackKindMeta)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
@@ -308,10 +308,33 @@ reduceHead ty =
                         found <- matchTypes [bareKind] [expectedKind]
                         traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
                   case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments actualKinds extraArguments of
-                    Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
+                    Just (reduced, unmatched) -> do
+                      instantiated <- instantiateUnmatched unmatched reduced
+                      reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
                     Nothing -> pure ty
         _ -> pure ty
     _ -> pure ty
+
+-- | Give each equation variable that the match left without a value a
+-- fresh kind meta-variable. Such a variable is a result kind of the
+-- family that no argument gives: the equation @Same NP = NP \@k2@ of
+-- @sop-core@ is polymorphic in the result kind @k2@. A family application
+-- does not keep its kind arguments, so the place where the reduced type is
+-- used gives @k2@ its value, as unification does for any other kind
+-- meta-variable. Without this step, the variable of the equation would
+-- leave its scope.
+instantiateUnmatched :: [TyVarId] -> TcType -> TcM TcType
+instantiateUnmatched [] reduced = pure reduced
+instantiateUnmatched unmatched reduced = do
+  metas <- mapM fresh unmatched
+  pure (applySubst (Map.fromList (zip (map tvUnique unmatched) metas)) reduced)
+  where
+    fresh variable = do
+      meta <- freshMetaTvOfKind (tvKind variable)
+      case meta of
+        TcMetaTv unique -> trackKindMeta unique
+        _ -> pure ()
+      pure meta
 
 -- | The value of a built-in type-literal family, when the family is one
 -- and every argument is a literal.
@@ -350,7 +373,10 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 -- arguments either: it may still match once a stuck family application
 -- or a type variable in them is known, and the equations after it are
 -- only reached when it cannot.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe TcType
+--
+-- The result also lists the variables of the equation that the match did
+-- not bind and that the reduced type still mentions.
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
 firstEquation family kindOf bareKindArguments equations arguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
@@ -363,7 +389,15 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
             let variableSubstitution = variableKinds equation substitution,
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
               let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
-               in Just (applySubst (kindedBareConstructors equation fullSubstitution <> fullSubstitution) (tfiiRight equation))
+                  completeSubstitution = kindedBareConstructors equation fullSubstitution <> fullSubstitution
+                  reduced = applySubst completeSubstitution (tfiiRight equation)
+                  unmatched =
+                    [ variable
+                    | variable <- tfiiTyVars equation,
+                      not (Map.member (tvUnique variable) completeSubstitution),
+                      typeMentionsTyVar variable reduced
+                    ]
+               in Just (reduced, unmatched)
           | tfiiClosed equation,
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->

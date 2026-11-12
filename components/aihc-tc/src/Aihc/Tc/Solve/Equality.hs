@@ -37,16 +37,22 @@ solveGivenEquality givens ct = case ctPred ct of
     -- form. Each proof still names its given as written, and the System FC
     -- lint compares the types up to the same reductions.
     result <- case asWritten of
-      Just proof -> pure (Just proof)
+      Just proof -> pure (Just (proof, left', right'))
       Nothing -> do
         equalities <- allGivenEqualities predicates
         reduced <- traverse (\(givenLeft, givenRight, proof) -> (,,proof) <$> reduceTypeFamilies givenLeft <*> reduceTypeFamilies givenRight) equalities
         reducedLeft <- reduceTypeFamilies left'
         reducedRight <- reduceTypeFamilies right'
-        proveFromEqualities reduced reducedLeft reducedRight
+        fmap (,reducedLeft,reducedRight) <$> proveFromEqualities reduced reducedLeft reducedRight
     case result of
-      Just proof -> do
+      Just (proof, provedLeft, provedRight) -> do
         alignProvedKinds left' right'
+        -- A reduction can give a fresh kind meta-variable for a result
+        -- kind of the family (see 'reduceTypeFamilies'). The proof
+        -- compares the reduced sides up to their kinds, so align them too:
+        -- @Same NP@ reduces to @NP \@k@, and the proof of @NP \@k ~ NP
+        -- \@k1@ must make @k@ be @k1@.
+        alignProvedKinds provedLeft provedRight
         bindEvidence (ctEvVar ct) (EvCoercion proof)
         pure True
       Nothing -> pure False
