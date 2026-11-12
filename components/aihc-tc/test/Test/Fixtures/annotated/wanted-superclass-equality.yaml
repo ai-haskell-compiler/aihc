@@ -1,0 +1,71 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, TypeFamilies, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, UndecidableInstances, AllowAmbiguousTypes, PolyKinds, KindSignatures, TypeOperators, ScopedTypeVariables, FunctionalDependencies, GADTs, TypeApplications #-}
+  module A where
+  import GHC.Types (Type)
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Rec (f :: k -> Type) (rs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    RNil :: Rec f '[]
+    └─ type: ∀ k f rs. (rs ~ 'GHC.Types.[]) ⇒ Rec f rs
+    (:&) :: f r -> Rec f rs -> Rec f (r ': rs)
+    └─ type: ∀ k f rs rs r. (rs ~ ('GHC.Types.: r rs)) ⇒ f r → Rec f rs → Rec f rs
+  class Functor g where
+  └─ class methods: fmap ∷ ∀ g a b. (Functor g) ⇒ (a → b) → g a → g b
+    fmap :: (a -> b) -> g a -> g b
+  type family Idx (r :: k) (rs :: [k]) :: Nat where
+              └─ type: k → [k] → Nat
+    Idx r (r ': rs) = 'Z
+    Idx r (s ': rs) = 'S (Idx r rs)
+  class (i ~ Idx r rs) => Elem (r :: k) (r' :: k) (rs :: [k]) (rs' :: [k]) (i :: Nat) | r r' rs i -> rs' where
+  └─ class methods: lensC ∷ ∀ k r r' rs rs' i g f. (Elem r r' rs rs' i, Functor g) ⇒ (f r → g (f r')) → Rec f rs → g (Rec f rs'); fundeps: r r' rs i → rs'
+    lensC :: Functor g => (f r -> g (f r')) -> Rec f rs -> g (Rec f rs')
+  instance Elem r r' (r ': rs) (r' ': rs) 'Z where
+  └─ $fElemrr':rrs:r'rsZ ∷ ∀ k0 r r' rs. () ⇒ Elem r r' (': r rs) (': r' rs) 'Z [superclasses: refl 'Z]
+    lensC f (x :& xs) = fmap (:& xs) (f x)
+    │     │  │ │  │     │    │└─ type: f r' → Rec f rs → Rec f ('GHC.Types.: r' rs); type-args: k0, f, ': r' rs, rs, r'; evidence: refl ': r' rs
+    │     │  │ │  │     │    └─ type: f r' → Rec f ('GHC.Types.: r' rs); term-args: f r'
+    │     │  │ │  │     └─ type: (f r' → Rec f ('GHC.Types.: r' rs)) → g (f r') → g (Rec f ('GHC.Types.: r' rs)); type-args: g, f r', Rec f (': r' rs); evidence: given Functor g
+    │     │  │ │  └─ type: Rec f rs
+    │     │  │ └─ type: f r → Rec f rs → Rec f ('GHC.Types.: r rs); type-args: k0, f, ': r rs, rs, r; evidence: given ': r rs ~ ': r rs
+    │     │  └─ type: f r
+    │     └─ type: f r → g (f r')
+    └─ lensC ∷ ∀ g f. (Functor g) ⇒ (f r → g (f r')) → Rec f (': r rs) → g (Rec f (': r' rs))
+  instance (Idx r (s ': rs) ~ 'S i, Elem r r' rs rs' i) => Elem r r' (s ': rs) (s ': rs') ('S i) where
+  └─ $fElemrr':srs:srs'Si ∷ ∀ k0 i r s rs r' rs'. ((Idx r (': s rs)) ~ ('S i), Elem r r' rs rs' i) ⇒ Elem r r' (': s rs) (': s rs') ('S i) [superclasses: sym (given Idx r (': s rs) ~ 'S i)]
+    lensC f (x :& xs) = fmap (x :&) (lensC f xs)
+    │     │  │ │  │     │    │  │    └─ type: (f r → g (f r')) → Rec f rs → g (Rec f rs'); type-args: k0, r, r', rs, rs', Idx r rs, g, f; evidence: cast(cast(given Elem r r' rs rs' i, sym (Elem refl r refl r' refl rs refl rs' sym (super[0](given Elem r r' rs rs' i)))), sym (Elem refl r refl r' sym (nth[0](given ': s rs ~ ': r rs)) refl rs' Idx refl r sym (nth[0](given ': s rs ~ ': r rs)))), given Functor g
+    │     │  │ │  │     │    │  └─ type: f r → Rec f rs' → Rec f ('GHC.Types.: r rs'); type-args: k0, f, ': r rs', rs', r; evidence: refl ': r rs'
+    │     │  │ │  │     │    └─ type: Rec f rs' → Rec f ('GHC.Types.: r rs'); term-args: Rec f rs'
+    │     │  │ │  │     └─ type: (Rec f rs' → Rec f ('GHC.Types.: r rs')) → g (Rec f rs') → g (Rec f ('GHC.Types.: r rs')); type-args: g, Rec f rs', Rec f (': r rs'); evidence: given Functor g
+    │     │  │ │  └─ type: Rec f rs
+    │     │  │ └─ type: f r → Rec f rs → Rec f ('GHC.Types.: s rs); type-args: k0, f, ': s rs, rs, r; evidence: given ': s rs ~ ': r rs
+    │     │  └─ type: f r
+    │     └─ type: f r → g (f r')
+    └─ lensC ∷ ∀ g f. (Functor g) ⇒ (f r → g (f r')) → Rec f (': s rs) → g (Rec f (': s rs'))
+extensions: []
+modules:
+- |
+  {-# LANGUAGE DataKinds, TypeFamilies, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, UndecidableInstances, AllowAmbiguousTypes, PolyKinds, KindSignatures, TypeOperators, ScopedTypeVariables, FunctionalDependencies, GADTs, TypeApplications #-}
+  module A where
+  import GHC.Types (Type)
+  data Nat = Z | S Nat
+  data Rec (f :: k -> Type) (rs :: [k]) where
+    RNil :: Rec f '[]
+    (:&) :: f r -> Rec f rs -> Rec f (r ': rs)
+  class Functor g where
+    fmap :: (a -> b) -> g a -> g b
+  type family Idx (r :: k) (rs :: [k]) :: Nat where
+    Idx r (r ': rs) = 'Z
+    Idx r (s ': rs) = 'S (Idx r rs)
+  class (i ~ Idx r rs) => Elem (r :: k) (r' :: k) (rs :: [k]) (rs' :: [k]) (i :: Nat) | r r' rs i -> rs' where
+    lensC :: Functor g => (f r -> g (f r')) -> Rec f rs -> g (Rec f rs')
+  instance Elem r r' (r ': rs) (r' ': rs) 'Z where
+    lensC f (x :& xs) = fmap (:& xs) (f x)
+  instance (Idx r (s ': rs) ~ 'S i, Elem r r' rs rs' i) => Elem r r' (s ': rs) (s ': rs') ('S i) where
+    lensC f (x :& xs) = fmap (x :&) (lensC f xs)
+reason: The superclass equality of a wanted class constraint determines its index, as in GHC. The given then solves the wanted.
+status: pass

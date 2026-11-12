@@ -85,6 +85,7 @@ tests = do
           testCase "a position-independent module reads a symbol address from the Global Offset Table" positionIndependentTest,
           testCase "an engine loads shared modules into a live image" (sharedModuleTest tools),
           testCase "an image links an object that uses a thread function of the libc" (imageThreadTest tools),
+          testCase "an image that reads the environment gets an empty environment" (imageEnvironmentTest tools),
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -255,6 +256,34 @@ imageThreadTest tools = do
         linkImage image [object, shimObject] [] []
         result <- withEngine image $ \engine -> callFunction engine "image_thread" []
         assertEqual "the thread of the engine" (Just 1) result
+    _ -> pure ()
+
+-- | The libc of an image asks the host for the environment when code
+-- reads it. The engine gives an empty environment, and not the environment
+-- of the build machine.
+imageEnvironmentTest :: Maybe WasmTools -> IO ()
+imageEnvironmentTest tools = do
+  node <- engineNodeCommand >>= findExecutable
+  case tools of
+    Just available | isJust node ->
+      withTempDirectory "aihc-wasm-environment" $ \directory -> do
+        sysroot <- wasmSysroot
+        runtimeRoot <- runtimeSourceRoot
+        let image = directory </> "image.wasm"
+            source = directory </> "environment.c"
+            object = directory </> "environment.o"
+            shimObject = directory </> "libc-shims.o"
+        writeFile source "#include <stdlib.h>\nextern char **environ;\nint image_environment(void) { return getenv(\"HOME\") == 0 && environ != 0 && environ[0] == 0; }\n"
+        (_, backendArguments) <- backendCompiler Wasm32Wasip3
+        runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-isystem", wasmSysrootInclude sysroot, "-c", source, "-o", object])
+        runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-c", runtimeRoot </> "wasm" </> "aihc_wasip3_libc.c", "-o", shimObject])
+        linkImage image [object, shimObject] [] []
+        -- The constructors of the libc read the environment, as at the
+        -- start of the guest.
+        result <- withEngine image $ \engine -> do
+          _ <- callFunction engine "__wasm_call_ctors" []
+          callFunction engine "image_environment" []
+        assertEqual "an empty environment" (Just 1) result
     _ -> pure ()
 
 wordScaledModule :: Address -> Alignment -> Module
