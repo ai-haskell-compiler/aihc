@@ -1,0 +1,43 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, RankNTypes, TypeFamilies, FlexibleInstances, ExistentialQuantification #-}
+  module Test where
+  data Basic
+       └─ type: Type
+  data Action n = AStop | forall a. AMask ((forall b. Program Basic n b -> Program Basic n b) -> Program Basic n a) (a -> Action n)
+       │          │       └─ type: ∀ n a. ((∀ b. Program Basic n b → Program Basic n b) → Program Basic n a) → (a → Action n) → Action n
+       │          └─ type: ∀ n. Action n
+       └─ type: Type → Type
+  data Program pty n a where
+       └─ type: Type → Type → Type → Type
+    ModelConc :: ((a -> Action n) -> Action n) -> Program Basic n a
+    └─ type: ∀ pty n a. (pty ~ Basic) ⇒ ((a → Action n) → Action n) → Program pty n a
+  class Mask m where
+  └─ class methods: mask ∷ ∀ m b. (Mask m) ⇒ ((∀ a. m a → m a) → m b) → m b
+    mask :: ((forall a. m a -> m a) -> m b) -> m b
+  instance (pty ~ Basic) => Mask (Program pty n) where
+  └─ $fMaskProgramptyn ∷ ∀ pty n. (pty ~ Basic) ⇒ Mask (Program pty n)
+    mask mb = ModelConc (AMask (\f -> mb f))
+    │    │    │          │      ││    └─ type: Program Basic n a → Program Basic n a; type-args: a
+    │    │    │          │      ││    └─ type: ∀ a. Program pty n a → Program pty n a
+    │    │    │          │      │└─ type: ∀ b. Program Basic n b → Program Basic n b
+    │    │    │          │      └─ type: (∀ b. Program Basic n b → Program Basic n b) → Program Basic n b
+    │    │    │          └─ type: ((∀ b. Program Basic n b → Program Basic n b) → Program Basic n b) → (b → Action n) → Action n; type-args: n, b
+    │    │    └─ type: ((b → Action n) → Action n) → Program Basic n b; type-args: Basic, n, b; evidence: refl Basic
+    │    └─ type: (∀ a. Program pty n a → Program pty n a) → Program pty n b
+    └─ mask ∷ ∀ b. ((∀ a. Program pty n a → Program pty n a) → Program pty n b) → Program pty n b
+extensions: [GADTs, RankNTypes, TypeFamilies, FlexibleInstances, ExistentialQuantification]
+modules:
+- |
+  {-# LANGUAGE GADTs, RankNTypes, TypeFamilies, FlexibleInstances, ExistentialQuantification #-}
+  module Test where
+  data Basic
+  data Action n = AStop | forall a. AMask ((forall b. Program Basic n b -> Program Basic n b) -> Program Basic n a) (a -> Action n)
+  data Program pty n a where
+    ModelConc :: ((a -> Action n) -> Action n) -> Program Basic n a
+  class Mask m where
+    mask :: ((forall a. m a -> m a) -> m b) -> m b
+  instance (pty ~ Basic) => Mask (Program pty n) where
+    mask mb = ModelConc (AMask (\f -> mb f))
+reason: "the argument f of mb has the polytype forall b. Program Basic n b -> Program Basic n b, and the expected polytype names pty; the enclosing given pty ~ Basic of the instance proves them equal; reduced from dejafu Test.DejaFu.Conc.Internal.Program"
+status: pass

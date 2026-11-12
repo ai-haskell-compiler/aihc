@@ -1356,6 +1356,14 @@ checkHigherRankArgument sp expectedTy arg
       (arg', actualTy, argCts) <- inferExpr arg
       checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts
 
+-- | Whether a given is an equality. Only an equality can prove that two
+-- types that do not unify are equal.
+isEqualityGiven :: Pred -> Bool
+isEqualityGiven predicate =
+  case predicate of
+    EqPred {} -> True
+    _ -> False
+
 -- | Check an already inferred argument against a polytype. The boundary
 -- was taken before the inference: a meta-variable older than it must not
 -- mention the skolems.
@@ -1371,15 +1379,22 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- An equality that a stuck type family application leaves undecided
   -- becomes a wanted: the meta variable that blocks the reduction may
   -- only be solved by a later part of the enclosing binding.
+  --
+  -- A given of the enclosing scope can also be necessary. In @instance
+  -- (pty ~ Basic) => Mask (Program pty n)@, the argument @f :: forall b.
+  -- Program Basic n b -> ...@ of @mb :: (forall a. Program pty n a -> ...)
+  -- -> ...@ needs the given @pty ~ Basic@.
+  outerGivens <- getGivenPredicates
+  let underGivens = not (null predicates) || any isEqualityGiven outerGivens
   deferred <-
-    if null predicates
-      then unifyDeferring sp (AppOrigin sp) actualTy expectedBody
-      else unifyDeferringUnderGivens sp actualTy expectedBody
+    if underGivens
+      then unifyDeferringUnderGivens sp actualTy expectedBody
+      else unifyDeferring sp (AppOrigin sp) actualTy expectedBody
   -- Under givens, a deferred equality can need them, as @StM m a ~ a@
   -- needs the given @Pure m a@. Then the argument gets a cast to the
   -- expected type, and the proof of the cast can use the givens.
   (castArg, deferredCts) <-
-    if null predicates || null deferred
+    if not underGivens || null deferred
       then (arg',) <$> mapM deferredConstraint deferred
       else do
         evidence <- freshEvVar
