@@ -84,8 +84,8 @@ import Data.Semigroup qualified as Semigroup
 import Data.Tuple (Solo (..))
 import Data.Version (Version (..))
 import Data.Void (Void)
-import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, Word#)
 import GHC.IO.Exception (ExitCode (..))
+import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, Word#)
 import GHC.Ptr (Ptr)
 import GHC.TypeLits (KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal)
 import Prelude
