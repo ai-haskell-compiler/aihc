@@ -1,0 +1,39 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, MagicHash #-}
+  module A where
+  import GHC.Prim ((+#))
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  class Sh a where
+  └─ class methods: sh ∷ ∀ a. (Sh a) ⇒ a → ()
+    sh :: a -> Unit
+  instance Sh Unit where
+  └─ $fShUnit ∷ () ⇒ Sh ()
+    sh _ = Unit
+    │  └─ type: ()
+    └─ sh ∷ () → ()
+  g y = let h z = case sh z of Unit -> y in h Unit +# 1#
+  │ │       │ │   │    │       └─ type: ()  │         └─ type: GHC.Prim.Int#
+  │ │       │ │   │    │                    └─ type: () → GHC.Prim.Int#; type-args: (); evidence: $fShUnit
+  │ │       │ │   │    └─ type: a → (); type-args: a; evidence: given Sh a
+  │ │       │ │   └─ type: GHC.Prim.Int#
+  │ │       │ └─ type: a
+  │ │       └─ type: ∀ a. (Sh a) ⇒ a → GHC.Prim.Int#
+  │ └─ type: GHC.Prim.Int#
+  └─ type: GHC.Prim.Int# → GHC.Prim.Int#
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, MagicHash #-}
+  module A where
+  import GHC.Prim ((+#))
+  data Unit = Unit
+  class Sh a where
+    sh :: a -> Unit
+  instance Sh Unit where
+    sh _ = Unit
+  g y = let h z = case sh z of Unit -> y in h Unit +# 1#
+reason: A local binding with a class predicate does not fix the kind of a type from the environment. The later use of y gives it an unlifted kind.
+status: pass
