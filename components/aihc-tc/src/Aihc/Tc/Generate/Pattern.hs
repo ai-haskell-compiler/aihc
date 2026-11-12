@@ -98,6 +98,7 @@ patternBinderNames pat =
     PStrict inner -> patternBinderNames inner
     PIrrefutable inner -> patternBinderNames inner
     PNegLit _ -> []
+    PNPlusK name _ -> [name]
     PParen inner -> patternBinderNames inner
     PRecord _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
     PTypeSig inner _ -> patternBinderNames inner
@@ -342,6 +343,7 @@ patternNeedsCheckedType pat =
     PParen inner -> patternNeedsCheckedType inner
     PLit {} -> False
     PNegLit {} -> False
+    PNPlusK {} -> False
     PStrict inner -> patternNeedsCheckedType inner
     PIrrefutable inner -> patternNeedsCheckedType inner
     PTypeSig inner _ -> patternNeedsCheckedType inner
@@ -648,16 +650,18 @@ plainLiteralPatternType literal =
 -- A string pattern has them only under OverloadedStrings.
 -- A primitive literal pattern uses the resolved primitive type.
 literalPatternCheck :: Maybe SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
-literalPatternCheck sp pat scrutTy =
-  case patternLiteral pat of
-    Just (isNegative, lit)
-      | isOverloadedIntegerLiteral lit -> Just (checkOverloadedIntegerPattern sp pat isNegative scrutTy)
-      | isOverloadedFractionalLiteral lit -> Just (checkOverloadedLiteralPattern sp pat "fromRational" Nothing isNegative scrutTy)
-      | isStringLiteral lit,
-        hasPatternSyntaxTerm "fromString" pat ->
-          Just (checkOverloadedLiteralPattern sp pat "fromString" Nothing isNegative scrutTy)
-      | isPrimitiveLiteral lit -> Just (checkPrimitiveLiteralPattern sp pat scrutTy)
-    _ -> Nothing
+literalPatternCheck sp pat scrutTy
+  | PNPlusK name _ <- peelPatternAnn pat = Just (checkNPlusKPattern sp pat name scrutTy)
+  | otherwise =
+      case patternLiteral pat of
+        Just (isNegative, lit)
+          | isOverloadedIntegerLiteral lit -> Just (checkOverloadedIntegerPattern sp pat isNegative scrutTy)
+          | isOverloadedFractionalLiteral lit -> Just (checkOverloadedLiteralPattern sp pat "fromRational" Nothing isNegative scrutTy)
+          | isStringLiteral lit,
+            hasPatternSyntaxTerm "fromString" pat ->
+              Just (checkOverloadedLiteralPattern sp pat "fromString" Nothing isNegative scrutTy)
+          | isPrimitiveLiteral lit -> Just (checkPrimitiveLiteralPattern sp pat scrutTy)
+        _ -> Nothing
 
 -- | The literal of a literal pattern, with a flag for a negated literal.
 patternLiteral :: Pattern -> Maybe (Bool, Literal)
@@ -790,6 +794,40 @@ checkOverloadedLiteralPattern sp pat conversion literalTy isNegative scrutTy = d
         pcPatterns = [pat']
       }
 
+-- | Check an n+k pattern.
+--
+-- The Haskell 98 Report gives the match of @n+k@ against @v@ as the test
+-- @v >= fromInteger k@, and then @n@ binds to @v - fromInteger k@. Thus the
+-- three methods have the scrutinee type, and @n@ has the scrutinee type.
+-- GHC also wants an @Integral@ instance. The built-in scope has no
+-- @Integral@ class, so this check does not want it.
+checkNPlusKPattern :: Maybe SourceSpan -> Pattern -> UnqualifiedName -> TcType -> TcM PatternCheck
+checkNPlusKPattern sp pat name scrutTy = do
+  integerTy <- resolvedIntegerPatternType pat
+  (conversionPending, conversionCts) <-
+    checkPatternMethodWithExpected sp pat "fromInteger" $ \case
+      TcFunTy argumentTy _ -> pure (scrutTy, TcFunTy (fromMaybe argumentTy integerTy) scrutTy)
+      _ -> abortTc "fromInteger does not have a function type"
+  (compPending, compCts) <-
+    checkPatternMethodWithExpected sp pat ">=" $ \case
+      TcFunTy _ (TcFunTy _ boolTy) ->
+        let expectedTy = TcFunTy scrutTy (TcFunTy scrutTy boolTy)
+         in pure (expectedTy, expectedTy)
+      _ -> abortTc ">= does not have a binary function type"
+  let minusTy = TcFunTy scrutTy (TcFunTy scrutTy scrutTy)
+  (minusPending, minusCts) <- checkPatternMethod sp pat "-" minusTy minusTy
+  let methodAnnotations = [("fromInteger", conversionPending), (">=", compPending), ("-", minusPending)]
+      pat' = foldr (uncurry attachPendingPatternAnnotation) pat methodAnnotations
+  pure
+    PatternCheck
+      { pcBindings = [(name, scrutTy)],
+        pcWantedCts = conversionCts <> compCts <> minusCts,
+        pcGivenCts = [],
+        pcSkolems = [],
+        pcTyVars = [],
+        pcPatterns = [pat']
+      }
+
 checkPatternMethod :: Maybe SourceSpan -> Pattern -> Text -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
 checkPatternMethod sp pat name annotationTy expectedTy =
   checkPatternMethodWithExpected sp pat name (const (pure (annotationTy, expectedTy)))
@@ -910,6 +948,7 @@ mapPatternBinderNames annotateBinder =
       case pat of
         PAnn ann inner -> PAnn ann (go inner)
         PVar name -> PVar (annotateBinder name)
+        PNPlusK name literal -> PNPlusK (annotateBinder name) literal
         PParen inner -> PParen (go inner)
         PAs name inner -> PAs (annotateBinder name) (go inner)
         PStrict inner -> PStrict (go inner)

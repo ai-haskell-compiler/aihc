@@ -300,8 +300,8 @@ in rec {
           } {});
           aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-parser";
-            ver = "5.0.0.0";
-            sha256 = "0zbbk7nncmypkr50hpmm74c4fnkhl8lfyiwcs6m3m4amczg3z5kr";
+            ver = "6.0.0.0";
+            sha256 = "1cl7bj83bakag817p6xlaymvcpkwjnpm4i3cb17k3bd0hy174nn4";
           } {});
           aihc-cabal-syntax = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-cabal-syntax";
