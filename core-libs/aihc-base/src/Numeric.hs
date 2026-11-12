@@ -27,15 +27,10 @@ where
 import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit, isSpace)
 import GHC.Float (FFFormat (..), Floating (..), floatToDigits, formatRealFloat, showFloat)
 import GHC.Read.Lex (Lexeme (..), lexP, numberToRational)
+import GHC.Real (showSigned)
 import GHC.Show (intToDigit)
 import Text.ParserCombinators.ReadPrec (readPrec_to_S)
 import Prelude (Bool (..), Char, Eq (..), Fractional (..), Int, Integral (..), Maybe, Num (..), Ord (..), Rational, ReadS, Real (..), RealFloat (..), RealFrac, Show (..), ShowS, String, dropWhile, errorWithoutStackTrace, fromIntegral, id, negate, otherwise, readParen, showChar, showParen, showString, span, (&&), (++), (.), (||))
-
-showSigned :: (Real a) => (a -> ShowS) -> Int -> a -> ShowS
-showSigned showPositive precedence value =
-  if value < 0
-    then showParen (precedence > 6) (showChar '-' . showPositive (negate value))
-    else showPositive value
 
 showInt :: (Integral a) => a -> ShowS
 showInt = showIntAtBase 10 intToDigit

@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -27,6 +28,8 @@ module GHC.TypeLits
     fromSNat,
     withSomeSNat,
     withKnownNat,
+    SomeNat (..),
+    someNatVal,
     KnownSymbol,
     symbolSing,
     symbolVal,
@@ -36,6 +39,8 @@ module GHC.TypeLits
     fromSSymbol,
     withSomeSSymbol,
     withKnownSymbol,
+    SomeSymbol (..),
+    someSymbolVal,
     KnownChar,
     charSing,
     charVal,
@@ -65,19 +70,21 @@ module GHC.TypeLits
   )
 where
 
+import Data.Proxy (Proxy (..))
 import Data.Type.Equality (TestEquality (..), (:~:) (..))
 import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Integer (Integer)
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
+import GHC.Prim.Natural (naturalFromInteger#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, SomeNat (..), fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Any, Char, Constraint, Ordering, Symbol, Type)
 import Unsafe.Coerce (unsafeCoerce)
-import Prelude (Bool (..), Eq (..), Maybe (..), Ord (..), Show (..), showParen, showString, (.))
+import Prelude (Bool (..), Eq (..), Maybe (..), Num (..), Ord (..), Show (..), showParen, showString, (.))
 
 -- | The value of a known type-level natural, as an 'Integer'.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Integer
@@ -146,6 +153,27 @@ instance TestEquality SSymbol where
 {-# NOINLINE withSomeSSymbol #-}
 withSomeSSymbol :: [Char] -> (forall s. SSymbol s -> r) -> r
 withSomeSSymbol value continuation = continuation (UnsafeSSymbol value :: SSymbol Any)
+
+-- | Give a runtime natural number its type index and dictionary.
+-- A negative number gives 'Nothing'.
+someNatVal :: Integer -> Maybe SomeNat
+someNatVal value =
+  case value < 0 of
+    True -> Nothing
+    False -> Just (Nats.someNatVal (naturalFromInteger# value))
+
+-- | A symbol with its type index and dictionary.
+data SomeSymbol where
+  SomeSymbol :: (KnownSymbol s) => Proxy s -> SomeSymbol
+
+-- | Give a runtime symbol its type index and dictionary.
+someSymbolVal :: [Char] -> SomeSymbol
+someSymbolVal value =
+  withSomeSSymbol
+    value
+    ( \(singleton :: SSymbol s) ->
+        withKnownSymbol singleton (SomeSymbol (Proxy :: Proxy s))
+    )
 
 -- | Supply the dictionary for a singleton symbol.
 withKnownSymbol :: forall s r. SSymbol s -> ((KnownSymbol s) => r) -> r
