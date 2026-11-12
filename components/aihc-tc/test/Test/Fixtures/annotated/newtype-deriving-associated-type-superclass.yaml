@@ -1,0 +1,34 @@
+extensions:
+- GeneralizedNewtypeDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies #-}
+  module Test where
+  class Additive a where
+    zero :: a
+  class Additive (Mag a) => Basis a where
+    type Mag a
+    magnitude :: a -> Mag a
+  newtype Wrapped a = Wrapped a
+    deriving (Basis)
+status: pass
+reason: Newtype deriving reduces an associated type in a superclass constraint to the associated type of the wrapped type.
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies #-}
+  module Test where
+  class Additive a where
+  └─ class methods: zero ∷ ∀ a. (Additive a) ⇒ a
+    zero :: a
+  class Additive (Mag a) => Basis a where
+  └─ class methods: magnitude ∷ ∀ a. (Basis a) ⇒ a → Mag a
+    type Mag a
+         └─ type: Type → Type
+    magnitude :: a -> Mag a
+  newtype Wrapped a = Wrapped a
+  │       │           └─ type: ∀ a. a → Wrapped a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Basis (Wrapped a) [context: Additive Mag a, Basis a] [methods: magnitude]
+    deriving (Basis)
+              └─ $fBasisWrappeda ∷ ∀ a. (Additive (Mag a), Basis a) ⇒ Basis (Wrapped a) [superclasses: given Additive Mag a] [associated types: Mag (Wrapped a) = Mag a]

@@ -786,11 +786,11 @@ nativeRuntimePrimitiveCalls =
     -- The thread that runs now is a field of the machine, so this call takes
     -- the machine. It only reads that field, and it allocates nothing.
     machineCall "myThreadId#" "aihc_my_thread_id" [] GrinForeignAddr,
+    -- The call reads the wait fields of a thread record under the object
+    -- lock, so it takes the machine. It allocates nothing.
+    machineCall "aihcThreadStatus#" "aihc_thread_status" [GrinForeignAddr] GrinForeignInt64,
     -- The masking state is a field of the thread that runs now.
     machineCall "getMaskingState#" "aihc_get_masking_state" [] GrinForeignInt64,
-    -- The status of a thread is a field of its record. The object lock
-    -- guards it, so this call takes the machine.
-    machineCall "aihcThreadStatus#" "aihc_thread_status" [GrinForeignAddr] GrinForeignInt64,
     machineProcedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineProcedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,

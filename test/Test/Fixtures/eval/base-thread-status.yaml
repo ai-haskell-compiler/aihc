@@ -7,15 +7,15 @@ modules:
     import GHC.Conc (BlockReason (..), ThreadStatus (..), atomically, newTVarIO, readTVar, retry, threadStatus, writeTVar)
     import Prelude
 
-    -- Read the status until it agrees with the predicate. The bound stops
-    -- the loop, and the last status then shows the defect.
-    awaitStatus :: (ThreadStatus -> Bool) -> ThreadId -> IO ThreadStatus
-    awaitStatus wanted thread = go (1000 :: Int)
+    -- Yield until the thread has the expected state. The bound stops the
+    -- loop when the state does not come.
+    waitFor :: ThreadStatus -> ThreadId -> IO ThreadStatus
+    waitFor expected thread = go (1000 :: Int)
       where
         go remaining = do
           status <- threadStatus thread
-          if wanted status || remaining == 0
-            then pure status
+          if status == expected || remaining == 0
+            then return status
             else yield >> go (remaining - 1)
 
     main :: IO ()
@@ -23,25 +23,23 @@ modules:
       self <- myThreadId
       threadStatus self >>= print
       gate <- newEmptyMVar
-      done <- newEmptyMVar
-      waiter <- forkIO (takeMVar gate >> putMVar done ())
-      awaitStatus (/= ThreadRunning) waiter >>= print
+      child <- forkIO (takeMVar gate)
+      waitFor (ThreadBlocked BlockedOnMVar) child >>= print
       putMVar gate ()
-      takeMVar done
-      awaitStatus (== ThreadFinished) waiter >>= print
+      waitFor ThreadFinished child >>= print
       flag <- newTVarIO False
-      transaction <- forkIO (atomically (readTVar flag >>= \value -> if value then pure () else retry))
-      awaitStatus (/= ThreadRunning) transaction >>= print
+      transaction <- forkIO (atomically (readTVar flag >>= \value -> if value then return () else retry))
+      waitFor (ThreadBlocked BlockedOnSTM) transaction >>= print
       atomically (writeTVar flag True)
-      awaitStatus (== ThreadFinished) transaction >>= print
+      waitFor ThreadFinished transaction >>= print
 stdout: |
   ThreadRunning
   ThreadBlocked BlockedOnMVar
   ThreadFinished
   ThreadBlocked BlockedOnSTM
   ThreadFinished
+expression: main
 output: |
   ()
-expression: main
 status: pass
-reason: GHC.Conc.threadStatus gives the status of a thread that runs, waits on an MVar, waits in an STM retry, or ends, as in GHC
+reason: GHC.Conc.threadStatus gives the state of a thread that runs, waits on an MVar, waits in an STM retry, and ended, as in GHC

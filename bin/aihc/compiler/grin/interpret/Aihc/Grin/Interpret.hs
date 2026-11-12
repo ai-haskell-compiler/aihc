@@ -31,6 +31,8 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq, ViewL (..), (|>))
 import Data.Sequence qualified as Seq
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -240,11 +242,9 @@ data Machine = Machine
     machineWaitingThreads :: ![RuntimeValue],
     -- | The thread that runs now. The value is the location of its cell.
     machineCurrentThread :: !RuntimeValue,
-    -- | The status of each thread that waits or ended, by the location of
-    -- its cell, with the numbers of aihcThreadStatus#. A thread that is not
-    -- in the map runs or can run.
-    machineThreadStatuses :: !(IntMap Integer),
     machineNextThreadId :: !Word64,
+    -- | The numbers of the forked threads that ended.
+    machineFinishedThreads :: !(Set Word64),
     machineStreams :: !ProgramStreams,
     machineAllocations :: !(IORef [Ptr ()])
   }
@@ -408,8 +408,8 @@ initialMachine streams program allocations =
       machineWaitingThreads = [],
       -- The program starts on the main thread, which has the first number.
       machineCurrentThread = RuntimeLocation mainThreadLocation,
-      machineThreadStatuses = IntMap.empty,
-      machineNextThreadId = mainThreadId + 1
+      machineNextThreadId = mainThreadId + 1,
+      machineFinishedThreads = Set.empty
     }
   where
     mainThreadLocation = length globalNodes
@@ -553,7 +553,7 @@ evalScheduledPrimitive "fork#" [action] continue = do
       ( -- The child thread enters its own closure. Forking a thunk is legal, and
         -- an already forced action may sit behind an indirection, so neither is
         -- a value 'applyScheduledValue' can consume directly.
-        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const finishThread))
+        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const endChild))
           `catchE` finishChild
       )
   continue [threadId]
@@ -594,7 +594,6 @@ evalScheduledPrimitive "readMVar#" [mvarValue] continue = do
       stack <- getsMachine machineControlStack
       let waiter = MVarValueWaiter (\value -> ThreadAction owner stack (continue [value]))
       writeMVarState identifier mvar {grinMVarReaders = grinMVarReaders mvar |> waiter}
-      setCurrentThreadStatus threadBlockedOnMVar
       scheduleNextThread
 evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
   (identifier, mvar) <- expectMVarPrimitiveArgument "takeMVar#" mvarValue
@@ -604,7 +603,6 @@ evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
       stack <- getsMachine machineControlStack
       let waiter = MVarValueWaiter (\value -> ThreadAction owner stack (continue [value]))
       writeMVarState identifier mvar {grinMVarTakers = grinMVarTakers mvar |> waiter}
-      setCurrentThreadStatus threadBlockedOnMVar
       scheduleNextThread
     Just value -> do
       case Seq.viewl (grinMVarPutters mvar) of
@@ -626,7 +624,6 @@ evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
       stack <- getsMachine machineControlStack
       let putter = ThreadAction owner stack (continue [])
       writeMVarState identifier mvar {grinMVarPutters = grinMVarPutters mvar |> (value, putter)}
-      setCurrentThreadStatus threadBlockedOnMVar
       scheduleNextThread
     Nothing -> do
       mapM_ (enqueueValueWaiter value) (grinMVarReaders mvar)
@@ -823,32 +820,18 @@ finishChild :: EvalFailure -> EvalM [RuntimeValue]
 finishChild failure =
   case failure of
     -- An uncaught Haskell exception terminates only the forked thread.
-    EvalRaised _ -> finishThread
+    EvalRaised _ -> endChild
     EvalInterpret _ -> throwE failure
 
--- | End the thread that runs now, and run the next thread.
-finishThread :: EvalM [RuntimeValue]
-finishThread = do
-  setCurrentThreadStatus threadFinished
-  scheduleNextThread
-
--- | The numbers of aihcThreadStatus#, as the native runtime gives them.
-threadRunning, threadBlockedOnMVar, threadBlockedOnSTM, threadFinished :: Integer
-threadRunning = 0
-threadBlockedOnMVar = 1
-threadBlockedOnSTM = 6
-threadFinished = 16
-
--- | Record why the thread that runs now stops. 'scheduleNextThread' clears
--- the record when the thread runs again.
-setCurrentThreadStatus :: Integer -> EvalM ()
-setCurrentThreadStatus status = do
+-- | Record that the forked thread that runs now ended, and run the next
+-- thread.
+endChild :: EvalM [RuntimeValue]
+endChild = do
   current <- getsMachine machineCurrentThread
-  case current of
-    RuntimeLocation location ->
-      modifyMachine $ \machine ->
-        machine {machineThreadStatuses = IntMap.insert location status (machineThreadStatuses machine)}
-    _ -> pure ()
+  threadId <- expectThreadPrimitiveArgument "fork#" current
+  modifyMachine $ \machine ->
+    machine {machineFinishedThreads = Set.insert threadId (machineFinishedThreads machine)}
+  scheduleNextThread
 
 -- | Suspend the thread that runs now, and keep its identity and its control
 -- stack.
@@ -877,14 +860,7 @@ scheduleNextThread = do
     EmptyL -> throwInterpret InterpretNoRunnableThreads
     ThreadAction owner stack action :< remaining -> do
       modifyMachine $ \machine ->
-        machine
-          { machineRunQueue = remaining,
-            machineCurrentThread = owner,
-            machineControlStack = stack,
-            machineThreadStatuses = case owner of
-              RuntimeLocation location -> IntMap.delete location (machineThreadStatuses machine)
-              _ -> machineThreadStatuses machine
-          }
+        machine {machineRunQueue = remaining, machineCurrentThread = owner, machineControlStack = stack}
       action
 
 callScheduledFunction :: FunctionName -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
@@ -1504,12 +1480,22 @@ evalPrimitive "getMaskingState#" [] = do
 evalPrimitive "myThreadId#" [] = do
   thread <- getsMachine machineCurrentThread
   pure [thread]
+-- The values agree with the AIHC_BLOCKED_ values of the native runtime.
+-- The interpreter blocks a thread on an MVar. A thread in an STM retry
+-- yields in a loop, and machineWaitingThreads names it.
 evalPrimitive "aihcThreadStatus#" [thread] = do
-  _ <- expectThreadPrimitiveArgument "aihcThreadStatus#" thread
-  statuses <- getsMachine machineThreadStatuses
-  let status = case thread of
-        RuntimeLocation location -> IntMap.findWithDefault threadRunning location statuses
-        _ -> threadRunning
+  threadId <- expectThreadPrimitiveArgument "aihcThreadStatus#" thread
+  current <- getsMachine machineCurrentThread
+  runnable <- getsMachine machineRunQueue
+  finished <- getsMachine machineFinishedThreads
+  waiting <- getsMachine machineWaitingThreads
+  let status :: Integer
+      status
+        | Set.member threadId finished = 6
+        | thread == current = 0
+        | thread `elem` waiting = 4
+        | thread `elem` [owner | ThreadAction owner _ _ <- Foldable.toList runnable] = 0
+        | otherwise = 1
   pure [intRuntimeValue status]
 evalPrimitive "aihcThreadIdNumber#" [thread] = do
   threadId <- expectThreadPrimitiveArgument "aihcThreadIdNumber#" thread
@@ -1585,10 +1571,9 @@ evalPrimitive "stmWaitRequest#" [] = do
   current <- lift (gets machineCurrentThread)
   waiting <- lift (gets machineWaitingThreads)
   let canWake = any (`notElem` (current : waiting)) [thread | ThreadAction thread _ _ <- Foldable.toList runnable]
-  when canWake $ do
+  when canWake $
     lift $
       modify' (\machine -> machine {machineWaitingThreads = current : waiting})
-    setCurrentThreadStatus threadBlockedOnSTM
   let state
         | canWake = GrinIOSubmitted GrinWaitYield
         | otherwise = case timers of

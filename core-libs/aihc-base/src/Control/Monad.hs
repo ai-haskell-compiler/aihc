@@ -183,8 +183,11 @@ foldM combine initial values = foldr step return values initial
 foldM_ :: (Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m ()
 foldM_ combine initial values = void (foldM combine initial values)
 
-forever :: (Monad m) => m a -> m b
-forever action = action >> forever action
+-- | Repeat an action without end. As in GHC, an 'Applicative' is sufficient.
+forever :: (Applicative f) => f a -> f b
+forever action = loop
+  where
+    loop = action *> loop
 
 join :: (Monad m) => m (m a) -> m a
 join action = action >>= id

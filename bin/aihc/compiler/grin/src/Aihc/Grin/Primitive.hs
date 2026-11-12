@@ -183,8 +183,8 @@ concurrencyPrimitives =
     "unmaskAsyncExceptions#",
     "getMaskingState#",
     "killThread#",
-    -- aihcThreadStatus# only reads a field of a thread record. It takes the
-    -- machine for the object lock.
+    -- aihcThreadStatus# only reads the wait fields of a thread record. It
+    -- takes the machine for the object lock.
     "aihcThreadStatus#"
   ]
 

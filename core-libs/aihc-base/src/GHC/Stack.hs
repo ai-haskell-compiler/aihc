@@ -12,6 +12,7 @@ module GHC.Stack
     pushCallStack,
     popCallStack,
     callStack,
+    currentCallStack,
     withFrozenCallStack,
     prettyCallStack,
     prettySrcLoc,
@@ -19,6 +20,7 @@ module GHC.Stack
 where
 
 import GHC.Internal.Stack (popCallStack, prettyCallStack, prettySrcLoc)
+import GHC.Stack.CCS (currentCallStack)
 import GHC.Stack.Types
   ( CallStack (..),
     HasCallStack,

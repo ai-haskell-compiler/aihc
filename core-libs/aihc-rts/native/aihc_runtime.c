@@ -1406,6 +1406,25 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
   return capability->current_thread;
 }
 
+/* The thread can run on a different capability, and that capability can
+   change the state at the same time. The result is a snapshot, as in GHC.
+
+   A transaction that retries waits in a timer request, and only such a wait
+   makes a timer request. Thus an IO wait on a timer request is an STM wait.
+   The object lock guards the wait fields, so the request stays the request
+   of the wait while the call reads it. */
+int64_t aihc_thread_status(AihcCapability *capability, AihcThread *thread) {
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
+  int64_t kind = (int64_t)thread->blocked_kind;
+  if (kind == AIHC_BLOCKED_IO &&
+      ((const AihcIoRequest *)thread->blocked_on)->kind == AIHC_IO_TIMER) {
+    kind = AIHC_BLOCKED_STM;
+  }
+  aihc_object_unlock(machine);
+  return kind;
+}
+
 /* Append a list of threads to a queue. Thread records are global, and the
    link replaces a null link, so it needs no barrier: an append into an
    inbox runs under the inbox lock, which a barrier must not wait under. */
@@ -3878,45 +3897,6 @@ const AihcResume *aihc_unmask_async_exceptions(AihcCapability *capability,
 
 int64_t aihc_get_masking_state(AihcCapability *capability) {
   return (int64_t)capability->current_thread->mask_state;
-}
-
-/* The status of a thread, with the numbers of the threadStatus# primitive
-   of GHC: 0 for a thread that runs or can run, 1 for an MVar wait, 2 for a
-   blackhole wait, 6 for an STM wait, 12 for a throwTo wait, 16 for a thread
-   that ended, and 20 for another wait. GHC.Conc.Sync converts the number.
-   The object lock guards the wait fields.
-
-   A transaction that retries waits in a timer request, and only such a wait
-   makes a timer request. Thus an IO wait on a timer request is an STM wait.
-   On one capability without workers, a retry without a timer does not wait:
-   the thread runs the transaction again after the other threads, and its
-   status is 0. */
-int64_t aihc_thread_status(AihcCapability *capability, AihcThread *thread) {
-  AihcMachine *machine = capability->machine;
-  aihc_object_lock(machine);
-  uint8_t kind = thread->blocked_kind;
-  if (kind == AIHC_BLOCKED_IO &&
-      ((const AihcIoRequest *)thread->blocked_on)->kind == AIHC_IO_TIMER) {
-    kind = AIHC_BLOCKED_STM;
-  }
-  aihc_object_unlock(machine);
-  switch (kind) {
-  case AIHC_BLOCKED_NONE:
-    return 0;
-  case AIHC_BLOCKED_MVAR:
-    return 1;
-  case AIHC_BLOCKED_BLACKHOLE:
-    return 2;
-  case AIHC_BLOCKED_STM:
-    return 6;
-  case AIHC_BLOCKED_THROW_TO:
-    return 12;
-  case AIHC_BLOCKED_FINISHED:
-    return 16;
-  default:
-    /* An IO wait. */
-    return 20;
-  }
 }
 
 /* The entry of a restore-mask frame: the action returned a value. */
