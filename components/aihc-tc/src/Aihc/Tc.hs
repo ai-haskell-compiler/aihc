@@ -93,6 +93,7 @@ module Aihc.Tc
     TypeFamilyInstanceInfo (..),
     typeFamilyAxiomKey,
     typeFamilyAxiomName,
+    typeFamilyAxiomIndex,
     ClassInfo (..),
     AssociatedTypeInfo (..),
     FunDep (..),
@@ -128,7 +129,7 @@ import Aihc.Resolve (ModuleUnit (..), ResolvedModule (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
 import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, collectTcDiagnostics, internalAbortDiagnostic)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), applySubstRep, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, patSynKey, repHasUnpack, repLeaves, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), applySubstRep, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, patSynKey, repHasUnpack, repLeaves, typeFamilyAxiomIndex, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
