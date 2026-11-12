@@ -940,7 +940,7 @@ interference fn locals = foldl' blockEdges MonoidMap.empty blocks
     addEdge others acc var
       | Set.member var locals =
           let others' = Set.delete var others
-           in Set.foldl' (\acc' other -> MonoidMap.adjust (Set.union (Set.singleton var)) other acc') (MonoidMap.adjust (Set.union others') var acc) others'
+           in Set.foldl' (\acc' other -> MonoidMap.adjust (Set.insert var) other acc') (MonoidMap.adjust (Set.union others') var acc) others'
       | otherwise = acc
 
 -- | The blocks that use the stack allocations, when each of them can make
