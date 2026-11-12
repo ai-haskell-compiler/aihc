@@ -69,15 +69,22 @@ module GHC.Generics
   )
 where
 
+import Control.Applicative (Const (..), WrappedMonad (..), ZipList (..))
+import Data.Complex (Complex (..))
 import Data.Functor.Identity (Identity (..))
+import Data.Functor.Product qualified as Functor
+import Data.Functor.Sum qualified as Functor
 import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Monoid qualified as Monoid
+import Data.Ord (Down (..))
 import Data.Proxy (Proxy (..))
 import Data.Semigroup (Arg (..))
 import Data.Semigroup qualified as Semigroup
 import Data.Tuple (Solo (..))
+import Data.Version (Version (..))
 import Data.Void (Void)
+import GHC.IO.Exception (ExitCode (..))
 import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, Word#)
 import GHC.Ptr (Ptr)
 import GHC.TypeLits (KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal)
@@ -713,6 +720,405 @@ instance Generic Monoid.Any where
         (C1 ('MetaCons "Any" 'PrefixI 'True :: Meta) (S1 (MetaField "getAny") (Rec0 Bool)))
   from (Monoid.Any x) = M1 (M1 (M1 (K1 x)))
   to r = Monoid.Any (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Const a b) where
+  type
+    Rep (Const a b) =
+      D1
+        ('MetaData "Const" "GHC.Internal.Data.Functor.Const" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Const" 'PrefixI 'True :: Meta) (S1 (MetaField "getConst") (Rec0 a)))
+  from (Const x) = M1 (M1 (M1 (K1 x)))
+  to r = Const (unK1 (unM1 (unM1 (unM1 r))))
+
+-- * Generic1 instances
+
+--
+-- The representations are the ones that stock deriving of @Generic1@
+-- gives: the last parameter is 'Par1', and a field that applies a type to
+-- the last parameter is 'Rec1'.
+
+instance Generic1 Maybe where
+  type Rep1 Maybe = D1 (MetaD "Maybe" "GHC.Internal.Maybe" "ghc-internal") (C1 (MetaC "Nothing") U1 :+: C1 (MetaC "Just") (S1 MetaS Par1))
+  from1 Nothing = M1 (L1 (M1 U1))
+  from1 (Just a) = M1 (R1 (M1 (M1 (Par1 a))))
+  to1 r = case unM1 r of
+    L1 _ -> Nothing
+    R1 just -> Just (unPar1 (unM1 (unM1 just)))
+
+instance Generic1 (Either a) where
+  type Rep1 (Either a) = D1 (MetaD "Either" "GHC.Internal.Data.Either" "ghc-internal") (C1 (MetaC "Left") (S1 MetaS (Rec0 a)) :+: C1 (MetaC "Right") (S1 MetaS Par1))
+  from1 (Left a) = M1 (L1 (M1 (M1 (K1 a))))
+  from1 (Right b) = M1 (R1 (M1 (M1 (Par1 b))))
+  to1 r = case unM1 r of
+    L1 left -> Left (unK1 (unM1 (unM1 left)))
+    R1 right -> Right (unPar1 (unM1 (unM1 right)))
+
+instance Generic1 [] where
+  type
+    Rep1 [] =
+      D1
+        (MetaD "List" "GHC.Types" "ghc-prim")
+        ( C1 (MetaC "[]") U1
+            :+: C1 ('MetaCons ":" ('InfixI 'RightAssociative 5) 'False :: Meta) (S1 MetaS Par1 :*: S1 MetaS (Rec1 []))
+        )
+  from1 [] = M1 (L1 (M1 U1))
+  from1 (a : as) = M1 (R1 (M1 (M1 (Par1 a) :*: M1 (Rec1 as))))
+  to1 r = case unM1 r of
+    L1 _ -> []
+    R1 cons -> case unM1 cons of
+      a :*: as -> unPar1 (unM1 a) : unRec1 (unM1 as)
+
+instance Generic1 NonEmpty where
+  type
+    Rep1 NonEmpty =
+      D1
+        (MetaD "NonEmpty" "GHC.Internal.Base" "ghc-internal")
+        (C1 ('MetaCons ":|" ('InfixI 'RightAssociative 5) 'False :: Meta) (S1 MetaS Par1 :*: S1 MetaS (Rec1 [])))
+  from1 (a :| as) = M1 (M1 (M1 (Par1 a) :*: M1 (Rec1 as)))
+  to1 r = case unM1 (unM1 r) of
+    a :*: as -> unPar1 (unM1 a) :| unRec1 (unM1 as)
+
+instance Generic1 Identity where
+  type
+    Rep1 Identity =
+      D1
+        ('MetaData "Identity" "GHC.Internal.Data.Functor.Identity" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Identity" 'PrefixI 'True :: Meta) (S1 (MetaField "runIdentity") Par1))
+  from1 (Identity a) = M1 (M1 (M1 (Par1 a)))
+  to1 r = Identity (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 ((,) a) where
+  type Rep1 ((,) a) = D1 (MetaD "Tuple2" "GHC.Tuple" "ghc-prim") (C1 (MetaC "(,)") (S1 MetaS (Rec0 a) :*: S1 MetaS Par1))
+  from1 (a, b) = M1 (M1 (M1 (K1 a) :*: M1 (Par1 b)))
+  to1 r = case unM1 (unM1 r) of
+    a :*: b -> (unK1 (unM1 a), unPar1 (unM1 b))
+
+instance Generic1 ((,,) a b) where
+  type Rep1 ((,,) a b) = D1 (MetaD "Tuple3" "GHC.Tuple" "ghc-prim") (C1 (MetaC "(,,)") (S1 MetaS (Rec0 a) :*: (S1 MetaS (Rec0 b) :*: S1 MetaS Par1)))
+  from1 (a, b, c) = M1 (M1 (M1 (K1 a) :*: (M1 (K1 b) :*: M1 (Par1 c))))
+  to1 r = case unM1 (unM1 r) of
+    a :*: (b :*: c) -> (unK1 (unM1 a), unK1 (unM1 b), unPar1 (unM1 c))
+
+instance Generic1 ((,,,) a b c) where
+  type Rep1 ((,,,) a b c) = D1 (MetaD "Tuple4" "GHC.Tuple" "ghc-prim") (C1 (MetaC "(,,,)") ((S1 MetaS (Rec0 a) :*: S1 MetaS (Rec0 b)) :*: (S1 MetaS (Rec0 c) :*: S1 MetaS Par1)))
+  from1 (a, b, c, d) = M1 (M1 ((M1 (K1 a) :*: M1 (K1 b)) :*: (M1 (K1 c) :*: M1 (Par1 d))))
+  to1 r = case unM1 (unM1 r) of
+    (a :*: b) :*: (c :*: d) -> (unK1 (unM1 a), unK1 (unM1 b), unK1 (unM1 c), unPar1 (unM1 d))
+
+instance Generic1 ((,,,,) a b c d) where
+  type Rep1 ((,,,,) a b c d) = D1 (MetaD "Tuple5" "GHC.Tuple" "ghc-prim") (C1 (MetaC "(,,,,)") ((S1 MetaS (Rec0 a) :*: S1 MetaS (Rec0 b)) :*: (S1 MetaS (Rec0 c) :*: (S1 MetaS (Rec0 d) :*: S1 MetaS Par1))))
+  from1 (a, b, c, d, e) = M1 (M1 ((M1 (K1 a) :*: M1 (K1 b)) :*: (M1 (K1 c) :*: (M1 (K1 d) :*: M1 (Par1 e)))))
+  to1 r = case unM1 (unM1 r) of
+    (a :*: b) :*: (c :*: (d :*: e)) -> (unK1 (unM1 a), unK1 (unM1 b), unK1 (unM1 c), unK1 (unM1 d), unPar1 (unM1 e))
+
+instance Generic1 ((,,,,,) a b c d e) where
+  type Rep1 ((,,,,,) a b c d e) = D1 (MetaD "Tuple6" "GHC.Tuple" "ghc-prim") (C1 (MetaC "(,,,,,)") ((S1 MetaS (Rec0 a) :*: (S1 MetaS (Rec0 b) :*: S1 MetaS (Rec0 c))) :*: (S1 MetaS (Rec0 d) :*: (S1 MetaS (Rec0 e) :*: S1 MetaS Par1))))
+  from1 (a, b, c, d, e, f) = M1 (M1 ((M1 (K1 a) :*: (M1 (K1 b) :*: M1 (K1 c))) :*: (M1 (K1 d) :*: (M1 (K1 e) :*: M1 (Par1 f)))))
+  to1 r = case unM1 (unM1 r) of
+    (a :*: (b :*: c)) :*: (d :*: (e :*: f)) -> (unK1 (unM1 a), unK1 (unM1 b), unK1 (unM1 c), unK1 (unM1 d), unK1 (unM1 e), unPar1 (unM1 f))
+
+instance Generic1 ((,,,,,,) a b c d e f) where
+  type Rep1 ((,,,,,,) a b c d e f) = D1 (MetaD "Tuple7" "GHC.Tuple" "ghc-prim") (C1 (MetaC "(,,,,,,)") ((S1 MetaS (Rec0 a) :*: (S1 MetaS (Rec0 b) :*: S1 MetaS (Rec0 c))) :*: ((S1 MetaS (Rec0 d) :*: S1 MetaS (Rec0 e)) :*: (S1 MetaS (Rec0 f) :*: S1 MetaS Par1))))
+  from1 (a, b, c, d, e, f, g) = M1 (M1 ((M1 (K1 a) :*: (M1 (K1 b) :*: M1 (K1 c))) :*: ((M1 (K1 d) :*: M1 (K1 e)) :*: (M1 (K1 f) :*: M1 (Par1 g)))))
+  to1 r = case unM1 (unM1 r) of
+    (a :*: (b :*: c)) :*: ((d :*: e) :*: (f :*: g)) -> (unK1 (unM1 a), unK1 (unM1 b), unK1 (unM1 c), unK1 (unM1 d), unK1 (unM1 e), unK1 (unM1 f), unPar1 (unM1 g))
+
+instance Generic1 Semigroup.Min where
+  type
+    Rep1 Semigroup.Min =
+      D1
+        ('MetaData "Min" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "Min" 'PrefixI 'True :: Meta) (S1 (MetaField "getMin") Par1))
+  from1 (Semigroup.Min x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Semigroup.Min (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Semigroup.Max where
+  type
+    Rep1 Semigroup.Max =
+      D1
+        ('MetaData "Max" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "Max" 'PrefixI 'True :: Meta) (S1 (MetaField "getMax") Par1))
+  from1 (Semigroup.Max x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Semigroup.Max (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Semigroup.First where
+  type
+    Rep1 Semigroup.First =
+      D1
+        ('MetaData "First" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "First" 'PrefixI 'True :: Meta) (S1 (MetaField "getFirst") Par1))
+  from1 (Semigroup.First x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Semigroup.First (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Semigroup.Last where
+  type
+    Rep1 Semigroup.Last =
+      D1
+        ('MetaData "Last" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "Last" 'PrefixI 'True :: Meta) (S1 (MetaField "getLast") Par1))
+  from1 (Semigroup.Last x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Semigroup.Last (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Semigroup.WrappedMonoid where
+  type
+    Rep1 Semigroup.WrappedMonoid =
+      D1
+        ('MetaData "WrappedMonoid" "Data.Semigroup" "base" 'True :: Meta)
+        (C1 ('MetaCons "WrapMonoid" 'PrefixI 'True :: Meta) (S1 (MetaField "unwrapMonoid") Par1))
+  from1 (Semigroup.WrapMonoid x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Semigroup.WrapMonoid (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Monoid.Dual where
+  type
+    Rep1 Monoid.Dual =
+      D1
+        ('MetaData "Dual" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Dual" 'PrefixI 'True :: Meta) (S1 (MetaField "getDual") Par1))
+  from1 (Monoid.Dual x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Monoid.Dual (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Monoid.Sum where
+  type
+    Rep1 Monoid.Sum =
+      D1
+        ('MetaData "Sum" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Sum" 'PrefixI 'True :: Meta) (S1 (MetaField "getSum") Par1))
+  from1 (Monoid.Sum x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Monoid.Sum (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Monoid.Product where
+  type
+    Rep1 Monoid.Product =
+      D1
+        ('MetaData "Product" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Product" 'PrefixI 'True :: Meta) (S1 (MetaField "getProduct") Par1))
+  from1 (Monoid.Product x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Monoid.Product (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Monoid.First where
+  type
+    Rep1 Monoid.First =
+      D1
+        ('MetaData "First" "GHC.Internal.Data.Monoid" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "First" 'PrefixI 'True :: Meta) (S1 (MetaField "getFirst") (Rec1 Maybe)))
+  from1 (Monoid.First x) = M1 (M1 (M1 (Rec1 x)))
+  to1 r = Monoid.First (unRec1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Monoid.Last where
+  type
+    Rep1 Monoid.Last =
+      D1
+        ('MetaData "Last" "GHC.Internal.Data.Monoid" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Last" 'PrefixI 'True :: Meta) (S1 (MetaField "getLast") (Rec1 Maybe)))
+  from1 (Monoid.Last x) = M1 (M1 (M1 (Rec1 x)))
+  to1 r = Monoid.Last (unRec1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Down a) where
+  type
+    Rep (Down a) =
+      D1
+        ('MetaData "Down" "GHC.Internal.Data.Ord" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Down" 'PrefixI 'True :: Meta) (S1 (MetaField "getDown") (Rec0 a)))
+  from (Down x) = M1 (M1 (M1 (K1 x)))
+  to r = Down (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 Down where
+  type
+    Rep1 Down =
+      D1
+        ('MetaData "Down" "GHC.Internal.Data.Ord" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Down" 'PrefixI 'True :: Meta) (S1 (MetaField "getDown") Par1))
+  from1 (Down x) = M1 (M1 (M1 (Par1 x)))
+  to1 r = Down (unPar1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (ZipList a) where
+  type
+    Rep (ZipList a) =
+      D1
+        ('MetaData "ZipList" "GHC.Internal.Functor.ZipList" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "ZipList" 'PrefixI 'True :: Meta) (S1 (MetaField "getZipList") (Rec0 [a])))
+  from (ZipList x) = M1 (M1 (M1 (K1 x)))
+  to r = ZipList (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 ZipList where
+  type
+    Rep1 ZipList =
+      D1
+        ('MetaData "ZipList" "GHC.Internal.Functor.ZipList" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "ZipList" 'PrefixI 'True :: Meta) (S1 (MetaField "getZipList") (Rec1 [])))
+  from1 (ZipList x) = M1 (M1 (M1 (Rec1 x)))
+  to1 r = ZipList (unRec1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (Monoid.Alt f a) where
+  type
+    Rep (Monoid.Alt f a) =
+      D1
+        ('MetaData "Alt" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Alt" 'PrefixI 'True :: Meta) (S1 (MetaField "getAlt") (Rec0 (f a))))
+  from (Monoid.Alt x) = M1 (M1 (M1 (K1 x)))
+  to r = Monoid.Alt (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 (Monoid.Alt f) where
+  type
+    Rep1 (Monoid.Alt f) =
+      D1
+        ('MetaData "Alt" "GHC.Internal.Data.Semigroup.Internal" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Alt" 'PrefixI 'True :: Meta) (S1 (MetaField "getAlt") (Rec1 f)))
+  from1 (Monoid.Alt x) = M1 (M1 (M1 (Rec1 x)))
+  to1 r = Monoid.Alt (unRec1 (unM1 (unM1 (unM1 r))))
+
+instance Generic (WrappedMonad m a) where
+  type
+    Rep (WrappedMonad m a) =
+      D1
+        ('MetaData "WrappedMonad" "Control.Applicative" "base" 'True :: Meta)
+        (C1 ('MetaCons "WrapMonad" 'PrefixI 'True :: Meta) (S1 (MetaField "unwrapMonad") (Rec0 (m a))))
+  from (WrapMonad x) = M1 (M1 (M1 (K1 x)))
+  to r = WrapMonad (unK1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 (WrappedMonad m) where
+  type
+    Rep1 (WrappedMonad m) =
+      D1
+        ('MetaData "WrappedMonad" "Control.Applicative" "base" 'True :: Meta)
+        (C1 ('MetaCons "WrapMonad" 'PrefixI 'True :: Meta) (S1 (MetaField "unwrapMonad") (Rec1 m)))
+  from1 (WrapMonad x) = M1 (M1 (M1 (Rec1 x)))
+  to1 r = WrapMonad (unRec1 (unM1 (unM1 (unM1 r))))
+
+instance Generic1 (Arg a) where
+  type Rep1 (Arg a) = D1 (MetaD "Arg" "Data.Semigroup" "base") (C1 (MetaC "Arg") (S1 MetaS (Rec0 a) :*: S1 MetaS Par1))
+  from1 (Arg a b) = M1 (M1 (M1 (K1 a) :*: M1 (Par1 b)))
+  to1 r = case unM1 (unM1 r) of
+    a :*: b -> Arg (unK1 (unM1 a)) (unPar1 (unM1 b))
+
+instance Generic (Proxy t) where
+  type Rep (Proxy t) = D1 (MetaD "Proxy" "GHC.Internal.Data.Proxy" "ghc-internal") (C1 (MetaC "Proxy") U1)
+  from Proxy = M1 (M1 U1)
+  to _ = Proxy
+
+instance Generic1 Proxy where
+  type Rep1 Proxy = D1 (MetaD "Proxy" "GHC.Internal.Data.Proxy" "ghc-internal") (C1 (MetaC "Proxy") U1)
+  from1 Proxy = M1 (M1 U1)
+  to1 _ = Proxy
+
+-- | The fields of 'Complex' are strict.
+type MetaStrict = ('MetaSel 'Nothing 'NoSourceUnpackedness 'SourceStrict 'DecidedStrict :: Meta)
+
+type MetaComplex = ('MetaCons ":+" ('InfixI 'NotAssociative 6) 'False :: Meta)
+
+instance Generic (Complex a) where
+  type Rep (Complex a) = D1 (MetaD "Complex" "Data.Complex" "base") (C1 MetaComplex (S1 MetaStrict (Rec0 a) :*: S1 MetaStrict (Rec0 a)))
+  from (a :+ b) = M1 (M1 (M1 (K1 a) :*: M1 (K1 b)))
+  to r = case unM1 (unM1 r) of
+    a :*: b -> unK1 (unM1 a) :+ unK1 (unM1 b)
+
+instance Generic1 Complex where
+  type Rep1 Complex = D1 (MetaD "Complex" "Data.Complex" "base") (C1 MetaComplex (S1 MetaStrict Par1 :*: S1 MetaStrict Par1))
+  from1 (a :+ b) = M1 (M1 (M1 (Par1 a) :*: M1 (Par1 b)))
+  to1 r = case unM1 (unM1 r) of
+    a :*: b -> unPar1 (unM1 a) :+ unPar1 (unM1 b)
+
+instance Generic (Functor.Sum f g a) where
+  type Rep (Functor.Sum f g a) = D1 (MetaD "Sum" "Data.Functor.Sum" "base") (C1 (MetaC "InL") (S1 MetaS (Rec0 (f a))) :+: C1 (MetaC "InR") (S1 MetaS (Rec0 (g a))))
+  from (Functor.InL x) = M1 (L1 (M1 (M1 (K1 x))))
+  from (Functor.InR x) = M1 (R1 (M1 (M1 (K1 x))))
+  to r = case unM1 r of
+    L1 left -> Functor.InL (unK1 (unM1 (unM1 left)))
+    R1 right -> Functor.InR (unK1 (unM1 (unM1 right)))
+
+instance Generic1 (Functor.Sum f g) where
+  type Rep1 (Functor.Sum f g) = D1 (MetaD "Sum" "Data.Functor.Sum" "base") (C1 (MetaC "InL") (S1 MetaS (Rec1 f)) :+: C1 (MetaC "InR") (S1 MetaS (Rec1 g)))
+  from1 (Functor.InL x) = M1 (L1 (M1 (M1 (Rec1 x))))
+  from1 (Functor.InR x) = M1 (R1 (M1 (M1 (Rec1 x))))
+  to1 r = case unM1 r of
+    L1 left -> Functor.InL (unRec1 (unM1 (unM1 left)))
+    R1 right -> Functor.InR (unRec1 (unM1 (unM1 right)))
+
+instance Generic (Functor.Product f g a) where
+  type Rep (Functor.Product f g a) = D1 (MetaD "Product" "Data.Functor.Product" "base") (C1 (MetaC "Pair") (S1 MetaS (Rec0 (f a)) :*: S1 MetaS (Rec0 (g a))))
+  from (Functor.Pair x y) = M1 (M1 (M1 (K1 x) :*: M1 (K1 y)))
+  to r = case unM1 (unM1 r) of
+    x :*: y -> Functor.Pair (unK1 (unM1 x)) (unK1 (unM1 y))
+
+instance Generic1 (Functor.Product f g) where
+  type Rep1 (Functor.Product f g) = D1 (MetaD "Product" "Data.Functor.Product" "base") (C1 (MetaC "Pair") (S1 MetaS (Rec1 f) :*: S1 MetaS (Rec1 g)))
+  from1 (Functor.Pair x y) = M1 (M1 (M1 (Rec1 x) :*: M1 (Rec1 y)))
+  to1 r = case unM1 (unM1 r) of
+    x :*: y -> Functor.Pair (unRec1 (unM1 x)) (unRec1 (unM1 y))
+
+instance Generic ExitCode where
+  type Rep ExitCode = D1 (MetaD "ExitCode" "GHC.Internal.IO.Exception" "ghc-internal") (C1 (MetaC "ExitSuccess") U1 :+: C1 (MetaC "ExitFailure") (S1 MetaS (Rec0 Int)))
+  from ExitSuccess = M1 (L1 (M1 U1))
+  from (ExitFailure code) = M1 (R1 (M1 (M1 (K1 code))))
+  to r = case unM1 r of
+    L1 _ -> ExitSuccess
+    R1 failure -> ExitFailure (unK1 (unM1 (unM1 failure)))
+
+instance Generic Version where
+  type
+    Rep Version =
+      D1
+        (MetaD "Version" "GHC.Internal.Data.Version" "ghc-internal")
+        ( C1
+            ('MetaCons "Version" 'PrefixI 'True :: Meta)
+            (S1 (MetaField "versionBranch") (Rec0 [Int]) :*: S1 (MetaField "versionTags") (Rec0 [String]))
+        )
+  from (Version branch tags) = M1 (M1 (M1 (K1 branch) :*: M1 (K1 tags)))
+  to r = case unM1 (unM1 r) of
+    branch :*: tags -> Version (unK1 (unM1 branch)) (unK1 (unM1 tags))
+
+instance Generic Associativity where
+  type Rep Associativity = D1 (MetaGenerics "Associativity" 'False) (C1 (MetaC "LeftAssociative") U1 :+: (C1 (MetaC "RightAssociative") U1 :+: C1 (MetaC "NotAssociative") U1))
+  from LeftAssociative = M1 (L1 (M1 U1))
+  from RightAssociative = M1 (R1 (L1 (M1 U1)))
+  from NotAssociative = M1 (R1 (R1 (M1 U1)))
+  to r = case unM1 r of
+    L1 _ -> LeftAssociative
+    R1 rest -> case rest of
+      L1 _ -> RightAssociative
+      R1 _ -> NotAssociative
+
+instance Generic SourceUnpackedness where
+  type Rep SourceUnpackedness = D1 (MetaGenerics "SourceUnpackedness" 'False) (C1 (MetaC "NoSourceUnpackedness") U1 :+: (C1 (MetaC "SourceNoUnpack") U1 :+: C1 (MetaC "SourceUnpack") U1))
+  from NoSourceUnpackedness = M1 (L1 (M1 U1))
+  from SourceNoUnpack = M1 (R1 (L1 (M1 U1)))
+  from SourceUnpack = M1 (R1 (R1 (M1 U1)))
+  to r = case unM1 r of
+    L1 _ -> NoSourceUnpackedness
+    R1 rest -> case rest of
+      L1 _ -> SourceNoUnpack
+      R1 _ -> SourceUnpack
+
+instance Generic SourceStrictness where
+  type Rep SourceStrictness = D1 (MetaGenerics "SourceStrictness" 'False) (C1 (MetaC "NoSourceStrictness") U1 :+: (C1 (MetaC "SourceLazy") U1 :+: C1 (MetaC "SourceStrict") U1))
+  from NoSourceStrictness = M1 (L1 (M1 U1))
+  from SourceLazy = M1 (R1 (L1 (M1 U1)))
+  from SourceStrict = M1 (R1 (R1 (M1 U1)))
+  to r = case unM1 r of
+    L1 _ -> NoSourceStrictness
+    R1 rest -> case rest of
+      L1 _ -> SourceLazy
+      R1 _ -> SourceStrict
+
+instance Generic DecidedStrictness where
+  type Rep DecidedStrictness = D1 (MetaGenerics "DecidedStrictness" 'False) (C1 (MetaC "DecidedLazy") U1 :+: (C1 (MetaC "DecidedStrict") U1 :+: C1 (MetaC "DecidedUnpack") U1))
+  from DecidedLazy = M1 (L1 (M1 U1))
+  from DecidedStrict = M1 (R1 (L1 (M1 U1)))
+  from DecidedUnpack = M1 (R1 (R1 (M1 U1)))
+  to r = case unM1 r of
+    L1 _ -> DecidedLazy
+    R1 rest -> case rest of
+      L1 _ -> DecidedStrict
+      R1 _ -> DecidedUnpack
+
+instance Generic Fixity where
+  type Rep Fixity = D1 (MetaGenerics "Fixity" 'False) (C1 (MetaC "Prefix") U1 :+: C1 (MetaC "Infix") (S1 MetaS (Rec0 Associativity) :*: S1 MetaS (Rec0 Int)))
+  from Prefix = M1 (L1 (M1 U1))
+  from (Infix associativity precedence) = M1 (R1 (M1 (M1 (K1 associativity) :*: M1 (K1 precedence))))
+  to r = case unM1 r of
+    L1 _ -> Prefix
+    R1 infixed -> case unM1 infixed of
+      associativity :*: precedence -> Infix (unK1 (unM1 associativity)) (unK1 (unM1 precedence))
 
 -- * Generic instances for the representation types
 

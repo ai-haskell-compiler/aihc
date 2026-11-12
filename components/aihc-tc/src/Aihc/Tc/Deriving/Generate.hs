@@ -1046,7 +1046,14 @@ productIxItems gen constructor = do
 -- coerced.
 liftItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
 liftItems gen constructors = do
-  matches <- mapM constructorMatch constructors
+  matches <-
+    if null constructors
+      then do
+        -- An empty datatype has no constructor to match. As in GHC, @lift@
+        -- takes its argument apart with an empty case.
+        emptyValue <- freshLocal gen "x"
+        pure [simpleMatch gen [atPattern gen (PVar emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
+      else mapM constructorMatch constructors
   value <- freshLocal gen "x"
   pure
     [ methodBind gen "lift" matches,
@@ -2084,6 +2091,11 @@ surfaceType sp ty =
           Just (TCon (tyConNameSyntax sp tyCon) Unpromoted)
       | tyConNamespace tyCon == ResolutionNamespaceTerm ->
           Just (TCon (tyConNameSyntax sp tyCon) Promoted)
+    -- A type-level literal, such as the help text of @String <?> "name"@.
+    TcTyLit literal -> Just $ case literal of
+      TyLitNat value -> natLiteral value
+      TyLitSymbol value -> symbolLiteral value
+      TyLitChar value -> TTypeLit (TypeLitChar value (T.pack (show value)))
     _ -> Nothing
 
 surfacePred :: Maybe SourceSpan -> Pred -> Maybe Type

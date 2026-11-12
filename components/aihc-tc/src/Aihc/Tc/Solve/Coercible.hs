@@ -6,7 +6,7 @@ module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercible
 import Aihc.Tc.Env
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
@@ -85,8 +85,21 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
                   inner <- unwrapEither leftType rightType
                   case inner of
                     Just (leftInner, rightInner) -> go wait edges visited nested leftInner rightInner
-                    Nothing -> pure False
+                    Nothing -> overApplied
       where
+        -- A type family applied to more arguments than its arity, as
+        -- @R a x@, is an application of @R a@ to @x@. Thus the given
+        -- @Coercible (R a) (R b)@ solves @Coercible (R a x) (R b x)@.
+        -- Only a family head takes this path. For a data type the
+        -- decomposition above is already complete.
+        overApplied = do
+          isFamily <- isTypeFamilyTyCon
+          case (splitApplication leftType, splitApplication rightType) of
+            (Just (leftFunction, leftArgument), Just (rightFunction, rightArgument))
+              | isFamily left,
+                leftArgument == rightArgument ->
+                  go wait edges visited True leftFunction rightFunction
+            _ -> pure False
         decompose =
           and
             <$> sequence

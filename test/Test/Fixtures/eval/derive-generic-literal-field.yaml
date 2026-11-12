@@ -1,0 +1,30 @@
+extensions:
+  - DataKinds
+  - DeriveGeneric
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE KindSignatures #-}
+    module Test where
+
+    import GHC.Generics
+    import GHC.TypeLits (Symbol)
+
+    newtype Help (s :: Symbol) = Help Int
+
+    data Holder = Holder (Help "count")
+      deriving (Generic)
+
+    roundTrip :: Holder -> Int
+    roundTrip value = case to (from value) of
+      Holder (Help n) -> n
+
+    result :: Bool
+    result = roundTrip (Holder (Help 7)) == 7
+expression: result
+output: |
+  True
+status: pass
+reason: Stock Generic deriving accepts a field type that contains a type-level literal.

@@ -1,0 +1,35 @@
+extensions: []
+modules:
+  - |
+    module Mode (Mode (..)) where
+    data Mode = ReadMode | WriteMode
+  - |
+    module File (Mode (..)) where
+    import Mode (Mode)
+    import qualified Mode as M
+  - |
+    module Use where
+    import File (Mode (..))
+    mode :: Mode
+    mode = ReadMode
+annotated:
+  - |-
+    module File (Mode (..)) where
+    import Mode (Mode)
+    import qualified Mode as M
+  - |-
+    module Mode (Mode (..)) where
+    data Mode = ReadMode | WriteMode
+         │      └─ v Mode  └─ v Mode
+         └─ t Mode
+  - |-
+    module Use where
+    import File (Mode (..))
+    mode :: Mode
+    │       └─ t Mode
+    └─ v Use
+    mode = ReadMode
+    │      └─ v Mode
+    └─ v Use
+reason: an export item T (..) exports each constructor of T that is in scope, also a constructor that is in scope only qualified
+status: pass
