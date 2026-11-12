@@ -61,10 +61,10 @@ import Foreign.C.Error (Errno (..), eINVAL, errnoToIOError, throwErrnoIfMinus1Re
 import Foreign.C.String (CString, CStringLen, newCString, peekCString, peekCStringLen, withCString)
 import Foreign.C.Types (CInt (..), CTime (..))
 import Foreign.Ptr (Ptr)
-import GHC.Base (Monad (..), (>>))
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Runtime (decodeError, descriptorMode)
 import GHC.Int (Int64 (..))
+import GHC.Internal.Base (Monad (..), (>>))
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..), ioError)
 import System.Posix.Internals.Syscalls
 import System.Posix.Internals.Types

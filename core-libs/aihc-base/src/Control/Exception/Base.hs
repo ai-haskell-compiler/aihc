@@ -59,7 +59,6 @@ module Control.Exception.Base
   )
 where
 
-import GHC.Base (assert)
 import GHC.Conc.Sync (throwTo)
 import GHC.Exception (ArithException (..), ErrorCall (..), Exception (..), SomeException (..), throw)
 import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
@@ -80,6 +79,7 @@ import GHC.IO.Exception
     ioError,
   )
 import GHC.IO.Unsafe (unsafePerformIO)
+import GHC.Internal.Base (assert)
 import GHC.Show (Show (..), showString)
 import Prelude (Either (..), IO, Maybe (..), String, const, pure, (.), (>>=))
 

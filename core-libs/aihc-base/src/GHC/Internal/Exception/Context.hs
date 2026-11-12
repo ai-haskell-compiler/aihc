@@ -18,7 +18,7 @@ module GHC.Internal.Exception.Context
 where
 
 import Data.Typeable.Internal (Typeable, cast)
-import GHC.Base (Maybe (..), String, (++))
+import GHC.Internal.Base (Maybe (..), String, (++))
 import GHC.Prim.Show (Show (..))
 
 data ExceptionContext = ExceptionContext [SomeExceptionAnnotation]

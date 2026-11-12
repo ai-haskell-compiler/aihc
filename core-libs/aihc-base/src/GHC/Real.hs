@@ -47,11 +47,11 @@ module GHC.Real
 where
 
 import Data.Bool (Bool (..), not, (&&))
-import GHC.Base ((.))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException, underflowException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Base ((.))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerMul, integerQuotRem, integerRem, magnitudeRemWord#, wordToInteger)
 import GHC.Num (Num (..))

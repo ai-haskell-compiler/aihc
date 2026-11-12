@@ -65,8 +65,8 @@ module GHC.List
   )
 where
 
-import GHC.Base (build)
-import GHC.Base qualified
+import GHC.Internal.Base (build)
+import GHC.Internal.Base qualified as GHC.Base
 import GHC.Internal.Foldable (listFoldl', listLength)
 import Prelude hiding (all, and, any, concat, concatMap, elem, foldl', length, notElem, or)
 

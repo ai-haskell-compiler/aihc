@@ -18,9 +18,9 @@ where
 
 import Data.Either (Either (..))
 import Data.Proxy (Proxy (..))
-import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Float (Double, Float)
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
+import GHC.Internal.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Internal.Integer (Integer)
 import GHC.Num (Num (..))

@@ -1646,7 +1646,7 @@ returnedExpr info expr =
     isDollar op =
       case nameTarget op of
         Just (EntityGlobal global) ->
-          globalNameText global == "$" && globalNameModule global == "GHC.Base"
+          globalNameText global == "$" && globalNameModule global `elem` ["GHC.Base", "GHC.Internal.Base"]
         _ -> False
     nameTarget name =
       listToMaybe [resolutionTarget resolved | Just resolved <- map annotationResolution (nameAnns name)]

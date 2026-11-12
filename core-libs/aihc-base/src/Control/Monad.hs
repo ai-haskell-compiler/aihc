@@ -45,7 +45,7 @@ import Control.Applicative (Alternative (..), WrappedMonad (..))
 import Control.Arrow (ArrowPlus (..), ArrowZero (..), Kleisli (..))
 import Control.Monad.Fail (MonadFail (..))
 import Data.Functor (void)
-import GHC.Base (MonadPlus (..))
+import GHC.Internal.Base (MonadPlus (..))
 import Prelude
   ( Applicative (..),
     Bool (..),

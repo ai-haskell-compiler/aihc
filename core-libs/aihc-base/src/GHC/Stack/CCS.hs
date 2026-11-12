@@ -3,7 +3,7 @@ module GHC.Stack.CCS
   )
 where
 
-import GHC.Base (Monad (..), String)
+import GHC.Internal.Base (Monad (..), String)
 import GHC.Types (IO)
 
 -- | Get the cost-centre stack of the current thread.

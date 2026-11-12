@@ -27,10 +27,10 @@ module GHC.Float
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
-import GHC.Base (Maybe (..), String, (++), (.))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
+import GHC.Internal.Base (Maybe (..), String, (++), (.))
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)

@@ -7,10 +7,10 @@ module Foreign.Storable
 where
 
 import Foreign.Storable.Repr (PtrRep, ptrFromRep, ptrToRep)
-import GHC.Base (Monad (..))
 import GHC.Err (undefined)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Base (Monad (..))
 import GHC.Internal.Classes (Eq (..))
 import GHC.Num (Num (..))
 import GHC.Prim

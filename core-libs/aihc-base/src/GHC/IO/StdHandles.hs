@@ -14,7 +14,6 @@ where
 
 import Data.Bool (Bool (..))
 import Data.Maybe (Maybe (..))
-import GHC.Base (Monad (..))
 import GHC.IO (FilePath, IO, bracket)
 import GHC.IO.Encoding (utf8)
 import GHC.IO.FD qualified as FD
@@ -22,6 +21,7 @@ import GHC.IO.Handle.Internals (hClose_help, mkFileHandle, mkHandle, withHandle'
 import GHC.IO.Handle.Types (BufferMode (..), Handle (..), HandleType (..), Handle__ (..), nativeNewlineMode, noNewlineTranslation)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Unsafe (unsafePerformIO)
+import GHC.Internal.Base (Monad (..))
 import GHC.Internal.IO.Types (ioe_unsupportedOperation)
 import GHC.MVar (MVar)
 

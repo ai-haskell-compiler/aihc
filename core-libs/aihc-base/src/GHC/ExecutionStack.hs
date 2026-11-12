@@ -6,8 +6,8 @@ module GHC.ExecutionStack
   )
 where
 
-import GHC.Base (Maybe (..), Monad (..), String)
 import GHC.ExecutionStack.Internal (Location (..), SrcLoc (..))
+import GHC.Internal.Base (Maybe (..), Monad (..), String)
 import GHC.Types (IO)
 
 -- | Get the execution stack of the current thread.

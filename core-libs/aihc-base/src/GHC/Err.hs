@@ -8,8 +8,8 @@ module GHC.Err
   )
 where
 
-import GHC.Base (String)
 import GHC.Exception (errorCallException, errorCallWithCallStackException)
+import GHC.Internal.Base (String)
 import GHC.Prim (raise#)
 import GHC.Stack.Types (HasCallStack)
 import GHC.Types (RuntimeRep, TYPE)

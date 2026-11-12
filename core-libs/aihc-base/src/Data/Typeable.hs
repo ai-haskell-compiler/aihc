@@ -46,9 +46,9 @@ where
 
 import Data.Type.Equality ((:~~:) (..))
 import Data.Typeable.Internal
-import GHC.Base (Maybe (..), (++))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Fingerprint (Fingerprint)
+import GHC.Internal.Base (Maybe (..), (++))
 import GHC.Show (show)
 import GHC.Types (Type)
 import Type.Reflection (SomeTypeRep (..), pattern Fun)

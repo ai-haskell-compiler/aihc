@@ -8,8 +8,8 @@ module Data.Bool
   )
 where
 
-import GHC.Base (otherwise)
 import GHC.Classes (not, (&&), (||))
+import GHC.Internal.Base (otherwise)
 import GHC.Types (Bool (..))
 
 bool :: a -> a -> Bool -> a

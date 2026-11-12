@@ -13,9 +13,9 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
-import GHC.Base (build, maxInt, (++))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Base (build, maxInt, (++))
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)

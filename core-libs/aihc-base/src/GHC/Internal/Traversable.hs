@@ -9,7 +9,7 @@ module GHC.Internal.Traversable
 where
 
 import Data.Kind (Type)
-import GHC.Base (Applicative, Functor (..), Monad, id, (.))
+import GHC.Internal.Base (Applicative, Functor (..), Monad, id, (.))
 import GHC.Internal.Foldable (Foldable)
 
 class (Functor t, Foldable t) => Traversable (t :: Type -> Type) where

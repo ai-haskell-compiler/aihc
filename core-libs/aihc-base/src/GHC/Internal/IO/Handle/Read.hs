@@ -10,12 +10,12 @@ where
 
 import Data.Bool (Bool (..), (&&))
 import Data.Maybe (Maybe (..))
-import GHC.Base (Monad (..))
 import GHC.Char (chr)
 import GHC.IO (IO)
 import GHC.IO.Buffer (Buffer (..), isEmptyBuffer, readWord8Buf)
 import GHC.IORef (readIORef, writeIORef)
 import GHC.Int (Int)
+import GHC.Internal.Base (Monad (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (Handle__ (..))
 import GHC.Internal.IO.Types qualified as Buffered (fillReadBuffer)

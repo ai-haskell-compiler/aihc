@@ -39,8 +39,8 @@ import Foreign.C.Types (CChar (..), CSChar (..), CUChar (..), CWchar (..))
 import Foreign.Marshal.Alloc (allocaBytes, mallocBytes)
 import Foreign.Marshal.Array (peekArray, peekArray0, pokeArray, pokeArray0)
 import Foreign.Ptr (Ptr, castPtr)
-import GHC.Base (ord)
 import GHC.Char (chr)
+import GHC.Internal.Base (ord)
 import GHC.Internal.Utf8 (decodeUtf8, encodeUtf8)
 import Prelude
 

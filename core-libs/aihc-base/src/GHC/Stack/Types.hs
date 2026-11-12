@@ -14,7 +14,7 @@ module GHC.Stack.Types
 where
 
 import Data.Bool ((&&))
-import GHC.Base (String)
+import GHC.Internal.Base (String)
 import GHC.Internal.Classes (Eq (..))
 import GHC.Types (Int, List (..))
 

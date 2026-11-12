@@ -9,8 +9,8 @@ module GHC.Exception.Type
   )
 where
 
-import GHC.Base (String, (++))
 import GHC.Int (Int)
+import GHC.Internal.Base (String, (++))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Exception.Type (Exception (..), SomeException (..))
 import GHC.Prim.Show (Show (..), ShowS)

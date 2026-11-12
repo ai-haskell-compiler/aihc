@@ -27,6 +27,9 @@ import Aihc.Parser.Syntax
     GadtBody (..),
     IEBundledMember (..),
     IEEntityNamespace (..),
+    ImportDecl (..),
+    ImportItem (..),
+    ImportSpec (..),
     Module (..),
     NewtypeDecl (..),
     Pattern (..),
@@ -75,7 +78,8 @@ extractPackage pkgName = do
 extractSourcePackage :: FilePath -> String -> IO PackageInterface
 extractSourcePackage root pkgName = do
   exposedMods <- exposedSourceModules root
-  modules <- mapM (extractSourceModule (root </> "src")) exposedMods
+  cache <- newIORef Map.empty
+  modules <- mapM (extractSourceModule (root </> "src") cache [] . T.pack . map pathSepToDot) exposedMods
   pure
     PackageInterface
       { piPackage = T.pack pkgName,
@@ -345,10 +349,47 @@ genericPackageExposedModules gpd =
     modName <- exposedModules (unconditional libTree)
   ]
 
-extractSourceModule :: FilePath -> String -> IO ModuleInterface
-extractSourceModule srcRoot modPath = do
-  let sourcePath = srcRoot </> modPath <.> "hs"
-      modName = T.pack (map pathSepToDot modPath)
+-- | The export interface of a source module.
+--
+-- A module can export names that it imports from other modules of the same
+-- source package, with an explicit export item or with a @module M@ export.
+-- The interface contains these names. Names that come from other packages
+-- are not in the interface.
+extractSourceModule :: FilePath -> IORef (Map Text ModuleInterface) -> [Text] -> Text -> IO ModuleInterface
+extractSourceModule srcRoot cache visiting modName = do
+  cached <- Map.lookup modName <$> readIORef cache
+  case cached of
+    Just iface -> pure iface
+    Nothing -> do
+      modu <- parseSourceModule srcRoot modName
+      local <- sourceModuleInterface modName modu
+      reexported <- case moduleExports modu of
+        Nothing -> pure []
+        Just specs -> concat <$> mapM (importReexports specs) (moduleImports modu)
+      let iface = unionInterfaces local reexported
+      modifyIORef' cache (Map.insert modName iface)
+      pure iface
+  where
+    importReexports specs importDecl = do
+      let imported = importDeclModule importDecl
+      known <- doesFileExist (sourceModulePath srcRoot imported)
+      if not known || imported == modName || imported `elem` visiting
+        then pure []
+        else do
+          iface <- extractSourceModule srcRoot cache (modName : visiting) imported
+          let visible = applyImportSpec (importDeclSpec importDecl) iface
+              alias = fromMaybe imported (importDeclAs importDecl)
+              unqualified = not (importDeclQualified importDecl || importDeclQualifiedPost importDecl)
+              wholeModule = unqualified && alias `elem` exportedModuleNames specs
+          pure [if wholeModule then visible else restrictInterface (exportFilter specs) visible]
+
+sourceModulePath :: FilePath -> Text -> FilePath
+sourceModulePath srcRoot modName =
+  srcRoot </> map dotToSlash (T.unpack modName) <.> "hs"
+
+parseSourceModule :: FilePath -> Text -> IO Module
+parseSourceModule srcRoot modName = do
+  let sourcePath = sourceModulePath srcRoot modName
   exists <- doesFileExist sourcePath
   if not exists
     then ioError (userError ("source module " <> T.unpack modName <> " not found at " <> sourcePath))
@@ -359,8 +400,20 @@ extractSourceModule srcRoot modPath = do
               (defaultConfig {parserSourceName = sourcePath})
               source
       if null errs
-        then sourceModuleInterface modName parsed
+        then pure parsed
         else ioError (userError ("source module " <> T.unpack modName <> " parse failed: " <> show errs))
+
+-- | Add the re-exported names to the interface. A local name has priority.
+unionInterfaces :: ModuleInterface -> [ModuleInterface] -> ModuleInterface
+unionInterfaces local others =
+  local
+    { miTypes = unionBy etName (miTypes local : map miTypes others),
+      miValues = unionBy evName (miValues local : map miValues others),
+      miClasses = unionBy ecName (miClasses local : map miClasses others),
+      miFixities = unionBy fiName (miFixities local : map miFixities others)
+    }
+  where
+    unionBy key groups = Map.elems (Map.fromListWith (\_ older -> older) [(key item, item) | item <- concat groups])
 
 sourceModuleInterface :: Text -> Module -> IO ModuleInterface
 sourceModuleInterface fallbackName modu =
@@ -519,42 +572,103 @@ applySourceExports :: Module -> ModuleInterface -> ModuleInterface
 applySourceExports modu iface =
   case moduleExports modu of
     Nothing -> iface
-    Just specs ->
-      iface
-        { miValues = filter (exportedValue allowedValues) (miValues iface),
-          miTypes = mapMaybe (filterExportedType allowedTypes allowedConstructors) (miTypes iface),
-          miClasses = mapMaybe (filterExportedClass allowedTypes allowedMethods) (miClasses iface),
-          miFixities = filter (exportedFixity allowedValues allowedTypes) (miFixities iface)
-        }
-      where
-        allowedValues = Map.fromList [(name, ()) | name <- concatMap exportValueNames specs]
-        allowedTypes = Map.fromList [(name, exportMembers spec) | spec <- specs, name <- exportTypeNames spec]
-        allowedConstructors = Map.unionsWith (<>) [Map.singleton parent members | spec <- specs, (parent, members) <- exportTypeMemberNames spec]
-        allowedMethods = Map.unionsWith (<>) [Map.singleton parent members | spec <- specs, (parent, members) <- exportTypeMemberNames spec]
+    Just specs
+      | miModule iface `elem` exportedModuleNames specs -> iface
+      | otherwise -> restrictInterface (exportFilter specs) iface
+
+-- | The names that an export list or an import list gives.
+-- A type name maps to its member names. 'Nothing' means no members.
+-- An empty list means all members.
+data NameFilter = NameFilter
+  { nfValues :: Map Text (),
+    nfTypes :: Map Text (Maybe [Text])
+  }
+
+exportFilter :: [ExportSpec] -> NameFilter
+exportFilter specs =
+  NameFilter
+    { nfValues = Map.fromList [(name, ()) | name <- concatMap exportValueNames specs],
+      nfTypes = Map.fromList [(name, exportMembers spec) | spec <- specs, name <- exportTypeNames spec]
+    }
+
+exportedModuleNames :: [ExportSpec] -> [Text]
+exportedModuleNames = mapMaybe go
+  where
+    go spec =
+      case spec of
+        ExportAnn _ inner -> go inner
+        ExportModule _ name -> Just name
+        _ -> Nothing
+
+importFilter :: [ImportItem] -> NameFilter
+importFilter items =
+  NameFilter
+    { nfValues = Map.fromList [(name, ()) | ImportItemVar namespace item <- peeled, namespace /= Just IEEntityNamespaceType, let name = renderUnqualifiedName item],
+      nfTypes = Map.fromList (mapMaybe importType peeled)
+    }
+  where
+    peeled = map peelImportItem items
+    importType item =
+      case item of
+        ImportItemVar (Just IEEntityNamespaceType) name -> Just (renderUnqualifiedName name, Nothing)
+        ImportItemAbs _ name -> Just (renderUnqualifiedName name, Nothing)
+        ImportItemAll _ name -> Just (renderUnqualifiedName name, Just [])
+        ImportItemWith _ name members -> Just (renderUnqualifiedName name, Just (map (renderName . ieBundledMemberName) members))
+        ImportItemAllWith _ name _ _ -> Just (renderUnqualifiedName name, Just [])
+        _ -> Nothing
+
+peelImportItem :: ImportItem -> ImportItem
+peelImportItem item =
+  case item of
+    ImportAnn _ inner -> peelImportItem inner
+    _ -> item
+
+applyImportSpec :: Maybe ImportSpec -> ModuleInterface -> ModuleInterface
+applyImportSpec mSpec iface =
+  case mSpec of
+    Nothing -> iface
+    Just spec
+      | importSpecHiding spec -> hideInterface (importFilter (importSpecItems spec)) iface
+      | otherwise -> restrictInterface (importFilter (importSpecItems spec)) iface
+
+restrictInterface :: NameFilter -> ModuleInterface -> ModuleInterface
+restrictInterface names iface =
+  iface
+    { miValues = filter (exportedValue (nfValues names)) (miValues iface),
+      miTypes = mapMaybe (filterExportedType (nfTypes names)) (miTypes iface),
+      miClasses = mapMaybe (filterExportedClass (nfTypes names)) (miClasses iface),
+      miFixities = filter (exportedFixity (nfValues names) (nfTypes names)) (miFixities iface)
+    }
+
+-- | Remove the hidden names. A hidden type or class goes with all its members.
+hideInterface :: NameFilter -> ModuleInterface -> ModuleInterface
+hideInterface names iface =
+  iface
+    { miValues = filter (not . exportedValue (nfValues names)) (miValues iface),
+      miTypes = filter (\typ -> Map.notMember (etName typ) (nfTypes names)) (miTypes iface),
+      miClasses = filter (\klass -> Map.notMember (ecName klass) (nfTypes names)) (miClasses iface),
+      miFixities = filter (not . exportedFixity (nfValues names) (nfTypes names)) (miFixities iface)
+    }
 
 exportedValue :: Map Text () -> ExportedValue -> Bool
 exportedValue allowed value =
   Map.member (evName value) allowed
 
-filterExportedType :: Map Text (Maybe [Text]) -> Map Text [Text] -> ExportedType -> Maybe ExportedType
-filterExportedType allowedTypes allowedConstructors typ =
+filterExportedType :: Map Text (Maybe [Text]) -> ExportedType -> Maybe ExportedType
+filterExportedType allowedTypes typ =
   case Map.lookup (etName typ) allowedTypes of
     Nothing -> Nothing
     Just Nothing -> Just (typ {etConstructors = []})
     Just (Just []) -> Just typ
     Just (Just names) -> Just (typ {etConstructors = filter (`elem` names) (etConstructors typ)})
-  where
-    _ = allowedConstructors
 
-filterExportedClass :: Map Text (Maybe [Text]) -> Map Text [Text] -> ExportedClass -> Maybe ExportedClass
-filterExportedClass allowedTypes allowedMethods klass =
+filterExportedClass :: Map Text (Maybe [Text]) -> ExportedClass -> Maybe ExportedClass
+filterExportedClass allowedTypes klass =
   case Map.lookup (ecName klass) allowedTypes of
     Nothing -> Nothing
     Just Nothing -> Just (klass {ecMethods = []})
     Just (Just []) -> Just klass
     Just (Just names) -> Just (klass {ecMethods = filter ((`elem` names) . cmName) (ecMethods klass)})
-  where
-    _ = allowedMethods
 
 exportedFixity :: Map Text () -> Map Text (Maybe [Text]) -> FixityInfo -> Bool
 exportedFixity allowedValues allowedTypes fixity =
@@ -576,14 +690,6 @@ exportTypeNames spec =
     ExportAll _ _ name -> [renderName name]
     ExportWith _ _ name _ -> [renderName name]
     ExportWithAll _ _ name _ _ -> [renderName name]
-    _ -> []
-
-exportTypeMemberNames :: ExportSpec -> [(Text, [Text])]
-exportTypeMemberNames spec =
-  case spec of
-    ExportAnn _ inner -> exportTypeMemberNames inner
-    ExportWith _ _ name members -> [(renderName name, map (renderName . ieBundledMemberName) members)]
-    ExportWithAll _ _ name _ members -> [(renderName name, map (renderName . ieBundledMemberName) members)]
     _ -> []
 
 exportMembers :: ExportSpec -> Maybe [Text]

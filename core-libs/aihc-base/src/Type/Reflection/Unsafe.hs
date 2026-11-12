@@ -21,8 +21,8 @@ module Type.Reflection.Unsafe
 where
 
 import Data.Maybe (Maybe (..))
-import GHC.Base (List (..), String, map, unpackCString#, (++))
 import GHC.Fingerprint (Fingerprint, fingerprintFingerprints, fingerprintString)
+import GHC.Internal.Base (List (..), String, map, unpackCString#, (++))
 import GHC.Types (Int, KindBndr, KindRep (..), Module (..), TrName (..), TyCon (..), TypeLitSort (..))
 import Type.Reflection.Internal (SomeTypeRep (..), TypeRep, mkTrApp, mkTrCon, splitApps, tyConModule, tyConName, tyConPackage, typeRepKindArguments)
 

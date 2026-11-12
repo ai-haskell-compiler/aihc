@@ -3,7 +3,7 @@ module GHC.Internal.Data.NonEmpty
   )
 where
 
-import GHC.Base (List)
+import GHC.Internal.Base (List)
 
 data NonEmpty a = (:|) a [a]
 

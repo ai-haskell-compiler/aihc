@@ -28,7 +28,7 @@ listFusionProgram primPackage program =
     _ -> (program, 0)
   where
     env = typeEnvFromProgram primPackage program
-    library text = [value | DeclVal value <- programDecls program, nameText (valName value) == text, OriginTop _ "GHC.Base" <- [nameOrigin (valName value)]]
+    library text = [value | DeclVal value <- programDecls program, nameText (valName value) == text, OriginTop _ moduleName <- [nameOrigin (valName value)], moduleName `elem` ["GHC.Base", "GHC.Internal.Base"]]
     -- Check the definitions. A module name alone does not establish semantics.
     libraryPair = listToMaybe $ do
       foldValue <- library "foldr"

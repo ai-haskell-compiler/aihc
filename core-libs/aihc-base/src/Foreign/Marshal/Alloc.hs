@@ -17,10 +17,10 @@ module Foreign.Marshal.Alloc
 where
 
 import Foreign.Storable (Storable (..))
-import GHC.Base (Monad (..))
 import GHC.ForeignPtr (FinalizerPtr)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
+import GHC.Internal.Base (Monad (..))
 import GHC.Prim (MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, touch#)
 import GHC.Ptr (Ptr (..))
 import Prelude (error, undefined)

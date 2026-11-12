@@ -12,7 +12,7 @@ module GHC.Internal.Stack
   )
 where
 
-import GHC.Base (String)
+import GHC.Internal.Base (String)
 import GHC.Prim (Word#, chr#, eqWord#, int2Word#, minusWord#, quotRemWord#, word2Int#, (+#), (<#))
 import GHC.Stack.Types (CallStack (..), SrcLoc (..), getCallStack)
 import GHC.Types (Char (..), Int (..), List (..))

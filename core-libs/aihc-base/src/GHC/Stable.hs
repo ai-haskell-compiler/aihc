@@ -24,10 +24,10 @@ module GHC.Stable
 where
 
 import Data.Bool ((||))
-import GHC.Base (Monad (..))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.IO (IO (..), mask_, onException, unsafePerformIO)
 import GHC.Int (Int (..))
+import GHC.Internal.Base (Monad (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.MVar (MVar, newMVar, putMVar, takeMVar)
 import GHC.Num (Num (..))

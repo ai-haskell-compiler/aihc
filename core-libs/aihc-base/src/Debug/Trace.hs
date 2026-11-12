@@ -20,11 +20,11 @@ module Debug.Trace
   )
 where
 
-import GHC.Base (Applicative (..), String, seq, (.))
 import GHC.IO (IO)
 import GHC.IO.Handle.Text (hPutStrLn)
 import GHC.IO.StdHandles (stderr)
 import GHC.IO.Unsafe (unsafePerformIO)
+import GHC.Internal.Base (Applicative (..), String, seq, (.))
 import GHC.Show (Show (..))
 
 -- | Write the message to the standard error stream.

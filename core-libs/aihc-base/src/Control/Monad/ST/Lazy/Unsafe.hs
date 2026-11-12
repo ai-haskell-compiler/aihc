@@ -9,8 +9,8 @@ where
 
 import Control.Monad.ST.Lazy (ST, lazyToStrictST, strictToLazyST)
 import Control.Monad.ST.Unsafe qualified as Strict
-import GHC.Base ((.))
 import GHC.IO (IO)
+import GHC.Internal.Base ((.))
 
 -- | Defer a lazy state action until its result is demanded.
 unsafeInterleaveST :: ST s a -> ST s a

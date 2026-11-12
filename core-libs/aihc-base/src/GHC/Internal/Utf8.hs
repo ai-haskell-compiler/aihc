@@ -8,8 +8,8 @@ module GHC.Internal.Utf8
 where
 
 import Data.Foldable (foldr)
-import GHC.Base (ord)
 import GHC.Char (chr)
+import GHC.Internal.Base (ord)
 import Prelude
 
 encodeUtf8 :: String -> [Int]
