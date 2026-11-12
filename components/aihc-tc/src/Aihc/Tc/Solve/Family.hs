@@ -425,9 +425,9 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
     -- A variable whose kind cannot match the kind of its type, with no
     -- meta variable in the two kinds, makes the equation not match. In
     -- @Reduced (Switcher c r xs) = r@ the variable @r@ has the kind
-    -- 'Type'. A type @r@ of a rigid kind @k@ does not match it, as in GHC.
-    -- A bare poly-kinded constructor, such as @'[]@, has a kind with a
-    -- free variable of its own, so its kind does not cause a mismatch.
+    -- 'Type'. A type variable @r@ of a rigid kind @k@ does not match it, as
+    -- in GHC. Only a type variable is checked. The kind of another type can
+    -- have a free variable of its signature: a bare @'[]@ or @TypeError m@.
     variableKinds equation substitution =
       let pairs =
             [ (tvKind variable, actual, actualKind)
@@ -441,13 +441,12 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
               | any rigidMismatch pairs -> Nothing
               | otherwise -> Just Map.empty
     rigidMismatch (patternKind, actual, actualKind) =
-      not (bareConstructor actual)
+      isTyVar actual
         && not (typeMentionsMeta patternKind || typeMentionsMeta actualKind)
         && isNothing (matchTypes [patternKind] [actualKind])
-    bareConstructor ty =
+    isTyVar ty =
       case ty of
-        TcTyCon _ [] -> True
-        TcKindedTyCon {} -> True
+        TcTyVar _ -> True
         _ -> False
     matchResultKinds _ _ | null extraArguments = Just Map.empty
     matchResultKinds equation substitution = do
