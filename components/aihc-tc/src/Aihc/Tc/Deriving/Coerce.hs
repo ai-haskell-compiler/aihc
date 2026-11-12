@@ -52,8 +52,8 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
             [ congruence seen source target,
               if unwrap then unwrapTarget seen source target else pure Nothing,
               if unwrap then unwrapSource seen source target else pure Nothing,
-              familyProof source target,
-              fmap mkSym <$> familyProof target source
+              familyTarget seen source target,
+              familySource seen source target
             ]
       where
         seen = (source, target) : visited
@@ -96,22 +96,33 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
         Nothing -> pure Nothing
         Just (representation, axiom) -> use representation axiom
 
+    -- An axiom proves @target ~ reduct@. The search continues from the
+    -- reduct, because the other side can need a reduction too, as in
+    -- @Element [Output] ~ Element Outputs@, where both sides reduce to
+    -- @Output@.
+    familyTarget visited source target = do
+      reductions <- familyReductions target
+      firstJustM [fmap (\inner -> mkTrans inner (mkSym axiom)) <$> go visited source reduct | (reduct, axiom) <- reductions]
+
+    familySource visited source target = do
+      reductions <- familyReductions source
+      firstJustM [fmap (mkTrans axiom) <$> go visited reduct target | (reduct, axiom) <- reductions]
+
     -- The equations are the associated types of the instance and the open
-    -- equations of the target's family, such as a top-level
+    -- equations of the family, such as a top-level
     -- @type instance Element (NonNull mono) = Element mono@. A closed
     -- equation is not used, because its match also needs an apartness check.
-    familyProof source target = do
-      openEquations <- case target of
+    -- Each reduction comes with the axiom that proves @ty ~ reduct@.
+    familyReductions ty = do
+      openEquations <- case ty of
         TcTyCon family _ -> filter (not . tfiiClosed) . Map.elems <$> getTypeFamilyEquations family
         _ -> pure []
-      pure $ case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
-                  | equation <- equations <> openEquations,
-                    Just substitution <- [matchTypes [tfiiLeft equation] [target]],
-                    normalize (applySubst substitution (tfiiRight equation)) == source,
-                    let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
-                  ] of
-        proof : _ -> Just proof
-        [] -> Nothing
+      pure
+        [ (normalize (applySubst substitution (tfiiRight equation)), AxiomInstCo (typeFamilyAxiomKey equation) arguments)
+        | equation <- equations <> openEquations,
+          Just substitution <- [matchTypes [tfiiLeft equation] [ty]],
+          let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
+        ]
 
     -- A representation parameter carries an argument coercion. A nominal one
     -- admits only the argument it already has.
