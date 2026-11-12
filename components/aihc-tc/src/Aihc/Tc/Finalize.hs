@@ -60,6 +60,7 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
+import Control.DeepSeq (rnf)
 import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
@@ -347,21 +348,24 @@ recordKindArgumentsIn kinds globals = go
                   let reducedKind
                         | reduced /= application = kindOf reduced
                         | otherwise = Nothing
-                  pure $ case mapMaybe (kindArguments tyCon arguments' variables) [reducedKind, expected] of
-                    kindArguments' : _ -> foldl TcAppTy (TcKindedTyCon tyCon kindArguments') arguments'
-                    [] -> application
+                  -- Calculate the result now. A lazy result keeps the kind
+                  -- environment in memory until a consumer reads the type.
+                  case mapMaybe (kindArguments tyCon arguments' variables) [reducedKind, expected] of
+                    kindArguments' : _ -> rnf kindArguments' `seq` pure (foldl TcAppTy (TcKindedTyCon tyCon kindArguments') arguments')
+                    [] -> pure application
             _ -> pure application
         -- A side of an arrow has a kind @TYPE r@. The type checker
         -- defaults an open representation to the lifted one.
         TcFunTy argument result -> TcFunTy <$> go (Just (typeKind kinds)) argument <*> go (Just (typeKind kinds)) result
         TcForAllTy tyVar body -> TcForAllTy tyVar <$> go expected body
-        TcQualTy predicates body -> TcQualTy <$> mapM (recordPredKindArgumentsIn kinds globals) predicates <*> go expected body
+        TcQualTy predicates body -> TcQualTy <$> mapM (recordPredKindArguments go anyKindOf kinds) predicates <*> go expected body
         TcAppTy function argument -> TcAppTy <$> go Nothing function <*> go Nothing argument
         _ -> pure ty
     kindOf argument =
-      case typeKindInEnv kinds kindEnv argument of
-        Right kind | not (typeMentionsMeta kind) -> Just kind
+      case anyKindOf argument of
+        Just kind | not (typeMentionsMeta kind) -> Just kind
         _ -> Nothing
+    anyKindOf argument = either (const Nothing) Just (typeKindInEnv kinds kindEnv argument)
     determined tyCon arguments variables =
       case typeApplicationKinds kinds kindEnv tyCon arguments Nothing of
         Right checked -> all (\variable -> Map.member (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
@@ -371,16 +375,13 @@ recordKindArgumentsIn kinds globals = go
       checked <- either (const Nothing) Just (typeApplicationKinds kinds kindEnv tyCon arguments (Just kind))
       mapM (\variable -> Map.lookup (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
 
-recordPredKindArgumentsIn :: TcKinds -> Map.Map GlobalName TyConInfo -> Pred -> TcM Pred
-recordPredKindArgumentsIn kinds globals predicate =
+recordPredKindArguments :: (Maybe TcType -> TcType -> TcM TcType) -> (TcType -> Maybe TcType) -> TcKinds -> Pred -> TcM Pred
+recordPredKindArguments record kindOf kinds predicate =
   case predicate of
     EqPred left right ->
       EqPred <$> record (kindOf right) left <*> record (kindOf left) right
     IrredPred constraint -> IrredPred <$> record (Just (constraintKind kinds)) constraint
     _ -> pure predicate
-  where
-    record = recordKindArgumentsIn kinds globals
-    kindOf side = either (const Nothing) Just (typeKindInEnv kinds (Map.map tciKindScheme globals) side)
 
 -- | The kind variables of a type constructor, when its kind has a variable
 -- that only the result kind mentions, for an application to this number
