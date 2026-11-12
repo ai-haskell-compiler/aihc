@@ -16,6 +16,8 @@ module GHC.Float
     float2Int,
     int2Double,
     int2Float,
+    rationalToDouble,
+    rationalToFloat,
     floatToDigits,
     formatRealFloat,
     roundTo,
@@ -338,6 +340,14 @@ instance Fractional Float where
   F# left / F# right = F# (divideFloat# left right)
   recip (F# value) = F# (divideFloat# (int2Float# 1#) value)
   fromRational value = fromInteger (numerator value) / fromInteger (denominator value)
+
+-- | The 'Float' nearest to a numerator divided by a denominator.
+rationalToFloat :: Integer -> Integer -> Float
+rationalToFloat numerator' denominator' = fromInteger numerator' / fromInteger denominator'
+
+-- | The 'Double' nearest to a numerator divided by a denominator.
+rationalToDouble :: Integer -> Integer -> Double
+rationalToDouble numerator' denominator' = fromInteger numerator' / fromInteger denominator'
 
 instance Fractional Double where
   D# left / D# right = D# ((/##) left right)
