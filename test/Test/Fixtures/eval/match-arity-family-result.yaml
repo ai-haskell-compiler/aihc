@@ -1,0 +1,40 @@
+extensions: [TypeFamilies]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+
+    import Prelude
+
+    class Shape a where
+      type Fn a
+      apply :: a -> Fn a
+
+    data Pick = Pick
+
+    -- The class signature shows one argument. The family result gives the
+    -- other two arguments.
+    instance Shape Pick where
+      type Fn Pick = Bool -> Bool -> Bool
+      apply Pick True y = y
+      apply Pick False _ = False
+
+    type family Flip a where
+      Flip Bool = Bool -> Bool
+
+    top :: a -> Flip Bool
+    top _ True = False
+    top _ False = True
+
+    result :: Bool
+    result = apply Pick True True && top () False && neg False
+      where
+        neg :: Flip Bool
+        neg True = False
+        neg False = True
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: function equations can bind more arguments than the signature shows when the family result reduces to a function type, as in the singletons package

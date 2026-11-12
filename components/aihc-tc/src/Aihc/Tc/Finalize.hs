@@ -13,6 +13,7 @@ import Aihc.Tc.Annotations
   ( CastDirection (..),
     PendingTcAnnotation (..),
     PendingTcCastAnnotation (..),
+    PendingTcMatchArityCast (..),
     TcAnnotation (..),
     TcCastAnnotation (..),
     TcClassAnnotation (..),
@@ -26,6 +27,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcMatchArityCast (..),
     TcPatSynAnnotation (..),
     renderTcType,
   )
@@ -67,6 +69,23 @@ finalizeAnnotationTc ann =
           pure (mkAnnotation (TcCastAnnotation (Just oriented) target))
         EvVarTerm _ -> pure (mkAnnotation ())
         _ -> abortTc "a result cast requires equality evidence"
+    Nothing -> finalizeMatchArityCastTc ann
+
+finalizeMatchArityCastTc :: Annotation -> TcM Annotation
+finalizeMatchArityCastTc ann =
+  case fromAnnotation @PendingTcMatchArityCast ann of
+    Just (PendingTcMatchArityCast ty ev) -> do
+      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+      arrow <- zonkType ty
+      case evidence of
+        EvCoercion (Refl _) -> do
+          rejectMeta "match arity cast annotation" (firstMetaType arrow)
+          pure (mkAnnotation (TcMatchArityCast Nothing arrow))
+        EvCoercion proof -> do
+          rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
+          pure (mkAnnotation (TcMatchArityCast (Just proof) arrow))
+        EvVarTerm _ -> pure (mkAnnotation ())
+        _ -> abortTc "a match arity cast requires equality evidence"
     Nothing -> finalizeOtherAnnotationTc ann
 
 finalizeOtherAnnotationTc :: Annotation -> TcM Annotation

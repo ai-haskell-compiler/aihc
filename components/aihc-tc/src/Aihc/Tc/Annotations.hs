@@ -18,6 +18,8 @@ module Aihc.Tc.Annotations
     annotateSigCast,
     annotateBranchCast,
     annotateDoStmtCast,
+    TcMatchArityCast (..),
+    PendingTcMatchArityCast (..),
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -153,6 +155,23 @@ annotateBranchCast ty evidence =
 annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
 annotateDoStmtCast ty evidence =
   DoAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | Function equations that bind more arguments than the checked type
+-- shows. The annotation is on the first equation. The result of the
+-- checked type is then not an arrow, but it is equal to one. An example is
+-- an associated family application: with @type D Unit = Unit -> Unit@, the
+-- method @f :: a -> D a@ can have the equation @f u x = x@.
+--
+-- The type is the arrow type of the arguments that the checked type does
+-- not show. The proof runs from that arrow type to the result of the
+-- checked type. A reflexive proof has no coercion.
+data TcMatchArityCast = TcMatchArityCast (Maybe Coercion) TcType
+  deriving (Eq, Show)
+
+-- | The solver must supply the proof before FC desugaring. The wanted is
+-- @arrow ~ result@.
+data PendingTcMatchArityCast = PendingTcMatchArityCast TcType EvVar
+  deriving (Eq, Show)
 
 -- | The next type annotation describes an application of the scrutinee.
 data TcPatternInstantiation = TcPatternInstantiation
