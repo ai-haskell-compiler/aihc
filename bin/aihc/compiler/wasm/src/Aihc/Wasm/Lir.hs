@@ -977,18 +977,18 @@ blockFrameLabels sizes blocks
     isStackAlloc operation = case operation of
       StackAlloc _ _ -> True
       _ -> False
-    selfContained = go Map.empty
+    selfContained = go MonoidMap.empty
     go _ [] = True
     go written (Instruction _ operation : rest) =
       case operation of
         StackAlloc _ _ -> go written rest
         Load ty address _
           | Just (var, bytes) <- allocationBytes ty address ->
-              all (`Set.member` Map.findWithDefault Set.empty var written) bytes && go written rest
+              all (`Set.member` MonoidMap.get var written) bytes && go written rest
         Store ty value address _
           | Just (var, bytes) <- allocationBytes ty address,
             not (any isAllocation (operandVars value)) ->
-              go (Map.insertWith Set.union var (Set.fromList bytes) written) rest
+              go (MonoidMap.adjust (Set.union (Set.fromList bytes)) var written) rest
         _ ->
           let escaped = filter isAllocation (operationVars operation)
            in all (complete written) escaped && go (foldr fill written escaped) rest
@@ -999,8 +999,8 @@ blockFrameLabels sizes blocks
               let start = addressByteOffset wordBytes address
                in Just (var, [start .. start + accessBytes ty - 1])
         _ -> Nothing
-    complete written var = Set.fromList [0 .. sizes Map.! var - 1] `Set.isSubsetOf` Map.findWithDefault Set.empty var written
-    fill var = Map.insert var (Set.fromList [0 .. sizes Map.! var - 1])
+    complete written var = Set.fromList [0 .. sizes Map.! var - 1] `Set.isSubsetOf` MonoidMap.get var written
+    fill var = MonoidMap.set var (Set.fromList [0 .. sizes Map.! var - 1])
     operationVars = getConst . forOperationOperands (Const . operandVars)
     terminatorVars = getConst . forTerminatorOperands (Const . operandVars)
 
