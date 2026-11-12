@@ -108,6 +108,7 @@ module Aihc.Tc.Monad
     getDefaultTypes,
     getOverloadedStrings,
     getUndecidableInstances,
+    withUndecidableInstances,
     deferKindMeta,
     takeDeferredKindMetas,
     isPolyKindOrigin,
@@ -1170,6 +1171,10 @@ getOverloadedStrings = asks tcEnvOverloadedStrings
 -- | Whether UndecidableInstances is on.
 getUndecidableInstances :: TcM Bool
 getUndecidableInstances = asks tcEnvUndecidableInstances
+
+-- | Check an action as if UndecidableInstances were on.
+withUndecidableInstances :: TcM a -> TcM a
+withUndecidableInstances = local (\env -> env {tcEnvUndecidableInstances = True})
 
 -- | Record a kind meta-variable whose defaulting is put off until the
 -- component is checked.
