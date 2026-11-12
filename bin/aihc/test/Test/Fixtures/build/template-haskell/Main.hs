@@ -21,6 +21,11 @@ showTriple =
     tree <- runQ triple
     print tree
 
+-- A quote in the body of a splice of a quote uses a variable that the
+-- outer quote binds.
+nested :: Q Exp
+nested = [|\y -> $([|y|])|]
+
 -- A declaration splice gives a signature and a function. The function has
 -- a local declaration.
 $( pure
@@ -147,3 +152,4 @@ main = do
   print ($(do TyConI (DataD _ _ _ _ constructors _) <- reify ''Shape; litE (integerL (fromIntegral (length constructors)))) :: Int)
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
+  runQ nested >>= print
