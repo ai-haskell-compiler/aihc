@@ -237,13 +237,15 @@ processEq (wl, inerts) ct = do
       -- Cannot solve yet. The loop retries it when the worklist is empty.
       pure (wl, addInertEq stuckCt inerts)
     EqError errCt -> do
-      -- Report the error.
-      case ctPred errCt of
-        EqPred t1 t2 ->
-          emitError (ctLoc errCt) . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
-        p ->
-          emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
-      pure (wl, inerts)
+      -- A wanted that left a branch keeps its givens. When one of them
+      -- still waits for a meta variable, the wanted waits too (see
+      -- 'solveWantedWithGivens').
+      givens <- mapM (zonkPred . ctPred) (ctBranchGivens ct)
+      if any (not . null . predMetaVars) givens
+        then pure (wl, addInertDict ct inerts)
+        else do
+          _ <- reportEqError errCt
+          pure (wl, inerts)
 
 -- | Solve an implication constraint.
 --
@@ -337,12 +339,17 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
       EqSolved -> pure []
       EqStuck stuck -> deferOrReport skolems givenPredicates stuck
       EqError errCt -> do
-        case ctPred errCt of
-          EqPred et1 et2 ->
-            emitError (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
-          p ->
-            emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
-        pure []
+        -- A given of the branch can still wait for a meta variable of the
+        -- enclosing scope: a match on @ns@ in @(\ns -> case ns of S s ->
+        -- k s) . unK@ gives @t0 ~ (x1 ': xs1)@, and only the later use
+        -- of @.@ gives @t0@ the value @x ': xs@. The wanted @xs ~ xs1@
+        -- then follows from the given. The wanted leaves the branch with
+        -- its givens, and the enclosing scope solves it again when the
+        -- givens change.
+        givens <- mapM zonkPred givenPredicates
+        if any (not . null . predMetaVars) givens
+          then pure [ct]
+          else reportEqError errCt
   ClassPred {} -> do
     result <- solveDictWithGivens givenPredicates ct
     case result of
@@ -382,6 +389,16 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     case result of
       DictSolved -> pure []
       DictStuck stuck -> deferOrReport skolems givenPredicates stuck
+
+-- | Report an equality wanted that does not hold.
+reportEqError :: Ct -> TcM [Ct]
+reportEqError errCt = do
+  case ctPred errCt of
+    EqPred et1 et2 ->
+      emitError (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
+    p ->
+      emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
+  pure []
 
 -- | A stuck dictionary wanted that mentions no skolem of the implication
 -- can still be solved by the enclosing scope when it or one of its givens
