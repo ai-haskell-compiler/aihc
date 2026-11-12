@@ -17,7 +17,7 @@ import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, applyGivenSubst, proveFromEqualities, proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (unless, zipWithM_)
@@ -146,7 +146,8 @@ givenRewrites givens = do
   -- rewrites the family application, but the wanted @(z -> t0) ~ bool@
   -- needs the rewrite of @bool@ to bind @t0@.
   reduced <- traverse (\(left, right, proof) -> (,,proof) <$> reduceTypeFamilies left <*> reduceTypeFamilies right) equalities
-  concat <$> mapM orient reduced
+  outside <- tyVarOccursOutsideFamilies
+  concat <$> mapM (orient outside) reduced
   where
     -- A rigid variable equal to a family application names that
     -- application: with the given @Sub n m ~ d@ the wanted @Proxy t0 ~
@@ -154,14 +155,20 @@ givenRewrites givens = do
     -- @KnownNat d@ still solves the wanted @KnownNat t0@. So the family
     -- application rewrites to the variable, the way every other given
     -- rewrites a family application to its other side.
-    orient (a, b, _) = do
+    --
+    -- A variable can occur in a family argument of the other side. The
+    -- given @ys ~ (Head ys ': Tail ys)@, which @SameShapeAs (x ': xs) ys@
+    -- of @sop-core@ reduces to, rewrites @ys@ in the wanted @(t0 ': t1) ~
+    -- ys@ and binds @t0@ to @Head ys@. A rewrite replaces each occurrence
+    -- once, so the occurrence in the family argument stays as it is.
+    orient outside (a, b, _) = do
       aIsFamily <- isTypeFamilyApplication a
       bIsFamily <- isTypeFamilyApplication b
       pure $ case (a, b) of
         (TcTyVar tyVar, _)
-          | not (typeMentionsTyVar tyVar b) -> if bIsFamily then [(b, a)] else [(a, b)]
+          | not (outside tyVar b) -> if bIsFamily then [(b, a)] else [(a, b)]
         (_, TcTyVar tyVar)
-          | not (typeMentionsTyVar tyVar a) -> if aIsFamily then [(a, b)] else [(b, a)]
+          | not (outside tyVar a) -> if aIsFamily then [(a, b)] else [(b, a)]
         _ | aIsFamily && not bIsFamily -> [(a, b)]
         _ | bIsFamily && not aIsFamily -> [(b, a)]
         _ -> []

@@ -1,0 +1,128 @@
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, FlexibleInstances, GADTs, KindSignatures, PolyKinds, RankNTypes, TypeFamilies, TypeOperators, UndecidableInstances, UndecidableSuperClasses, MultiParamTypeClasses, ScopedTypeVariables #-}
+  module Test where
+
+  import GHC.Types (Constraint, Type)
+
+  type family Head (xs :: [a]) :: a where
+              └─ type: [a] → a
+    Head (x ': xs) = x
+
+  type family Tail (xs :: [a]) :: [a] where
+              └─ type: [a] → [a]
+    Tail (x ': xs) = xs
+
+  type family SameShapeAs (xs :: [a]) (ys :: [b]) :: Constraint where
+              └─ type: [a] → [b] → GHC.Types.Constraint
+    SameShapeAs '[] ys = (ys ~ '[])
+    SameShapeAs (x ': xs) ys = (ys ~ (Head ys ': Tail ys))
+
+  type family AllZipF (c :: a -> b -> Constraint) (xs :: [a]) (ys :: [b]) :: Constraint where
+              └─ type: (a → b → GHC.Types.Constraint) → [a] → [b] → GHC.Types.Constraint
+    AllZipF _c '[] '[] = ()
+    AllZipF c (x ': xs) (y ': ys) = (c x y, AllZip c xs ys)
+
+  class (SameShapeAs xs ys, SameShapeAs ys xs, AllZipF c xs ys) => AllZip (c :: a -> b -> Constraint) (xs :: [a]) (ys :: [b])
+  └─ class methods:
+  instance (SameShapeAs xs ys, SameShapeAs ys xs, AllZipF c xs ys) => AllZip c xs ys
+  └─ $fAllZipcxsys ∷ ∀ k0 k1 xs ys c. (SameShapeAs xs ys, SameShapeAs ys xs, AllZipF c xs ys) ⇒ AllZip c xs ys [superclasses: given SameShapeAs xs ys, given SameShapeAs ys xs, given AllZipF c xs ys]
+
+  data NP :: (k -> Type) -> [k] -> Type where
+       └─ type: (k → Type) → [k] → Type
+    Nil :: NP f '[]
+    └─ type: ∀ k f $parameter. ($parameter ~ 'GHC.Types.[]) ⇒ NP f $parameter
+    (:*) :: f x -> NP f xs -> NP f (x ': xs)
+    └─ type: ∀ k f $parameter x xs. ($parameter ~ ('GHC.Types.: x xs)) ⇒ f x → NP f xs → NP f $parameter
+
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+
+  -- The given reduces as it stands, with no other given equality.
+  nil :: SameShapeAs '[] ys => Proxy ys -> Proxy '[]
+  nil p = p
+  │   └─ type: Proxy ys
+  └─ type: ∀ k0 k1 k0 ys. (SameShapeAs 'GHC.Types.[] ys) ⇒ Proxy ys → Proxy 'GHC.Types.[]
+
+  -- The match on @x :* xs@ gives @xs ~ (x ': xs')@. Then the superclass
+  -- @SameShapeAs xs ys@ gives @ys ~ (Head ys ': Tail ys)@. With both, the
+  -- superclass @AllZipF c xs ys@ gives @c x (Head ys)@ and @AllZip c xs'
+  -- (Tail ys)@.
+  trans_NP :: AllZip c xs ys => proxy c -> (forall x y . c x y => f x -> g y) -> NP f xs -> NP g ys
+  trans_NP _ _t Nil = Nil
+  │        │ │  │     └─ type: NP g 'GHC.Types.[]; type-args: k1, g, '[]; evidence: refl '[]
+  │        │ │  └─ type: NP f xs; type-args: k0, f, xs; evidence: given xs ~ '[]
+  │        │ └─ type: ∀ x y. (c x y) ⇒ f x → g y
+  │        └─ type: proxy c
+  └─ type: ∀ k0 k1 c xs ys proxy f g. (AllZip c xs ys) ⇒ proxy c → (∀ x y. (c x y) ⇒ f x → g y) → NP f xs → NP g ys
+  trans_NP p t (x :* xs) = t x :* trans_NP p t xs
+  │        │ │  │ │  │     │   │  └─ type: f x → g y; type-args: x, y; evidence: given c x y
+  │        │ │  │ │  │     │   │  └─ type: ∀ x y. (c x y) ⇒ f x → g y
+  │        │ │  │ │  │     │   │  └─ type: proxy c → (∀ x y. (c x y) ⇒ f x → g y) → NP f xs → NP g (Tail ys); type-args: k0, k1, c, xs, Tail ys, proxy, f, g; evidence: $fAllZipcxsys @k0 @k1 @xs @Tail ys @c (super[0](super[1](cast(super[2](given AllZip c xs ys), AllZipF refl c given xs ~ ': x xs super[0](cast(super[0](given AllZip c xs ys), SameShapeAs given xs ~ ': x xs refl ys))))), super[1](super[1](cast(super[2](given AllZip c xs ys), AllZipF refl c given xs ~ ': x xs super[0](cast(super[0](given AllZip c xs ys), SameShapeAs given xs ~ ': x xs refl ys))))), super[2](super[1](cast(super[2](given AllZip c xs ys), AllZipF refl c given xs ~ ': x xs super[0](cast(super[0](given AllZip c xs ys), SameShapeAs given xs ~ ': x xs refl ys))))))
+  │        │ │  │ │  │     │   └─ type: g (Head ys) → NP g (Tail ys) → NP g ('GHC.Types.: (Head ys) (Tail ys)); type-args: k1, g, ': (Head ys) (Tail ys), Head ys, Tail ys; evidence: refl ': (Head ys) (Tail ys)
+  │        │ │  │ │  │     └─ type: f x → g (Head ys); type-args: x, Head ys; evidence: super[0](cast(super[2](given AllZip c xs ys), AllZipF refl c given xs ~ ': x xs super[0](cast(super[0](given AllZip c xs ys), SameShapeAs given xs ~ ': x xs refl ys))))
+  │        │ │  │ │  └─ type: NP f xs
+  │        │ │  │ └─ type: f x → NP f xs → NP f xs; type-args: k0, f, xs, x, xs; evidence: given xs ~ ': x xs
+  │        │ │  └─ type: f x
+  │        │ └─ type: ∀ x y. (c x y) ⇒ f x → g y
+  │        └─ type: proxy c
+  └─ type: ∀ k0 k1 c xs ys proxy f g. (AllZip c xs ys) ⇒ proxy c → (∀ x y. (c x y) ⇒ f x → g y) → NP f xs → NP g ys
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- FlexibleInstances
+- GADTs
+- KindSignatures
+- MultiParamTypeClasses
+- PolyKinds
+- RankNTypes
+- ScopedTypeVariables
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+- UndecidableSuperClasses
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, FlexibleInstances, GADTs, KindSignatures, PolyKinds, RankNTypes, TypeFamilies, TypeOperators, UndecidableInstances, UndecidableSuperClasses, MultiParamTypeClasses, ScopedTypeVariables #-}
+  module Test where
+
+  import GHC.Types (Constraint, Type)
+
+  type family Head (xs :: [a]) :: a where
+    Head (x ': xs) = x
+
+  type family Tail (xs :: [a]) :: [a] where
+    Tail (x ': xs) = xs
+
+  type family SameShapeAs (xs :: [a]) (ys :: [b]) :: Constraint where
+    SameShapeAs '[] ys = (ys ~ '[])
+    SameShapeAs (x ': xs) ys = (ys ~ (Head ys ': Tail ys))
+
+  type family AllZipF (c :: a -> b -> Constraint) (xs :: [a]) (ys :: [b]) :: Constraint where
+    AllZipF _c '[] '[] = ()
+    AllZipF c (x ': xs) (y ': ys) = (c x y, AllZip c xs ys)
+
+  class (SameShapeAs xs ys, SameShapeAs ys xs, AllZipF c xs ys) => AllZip (c :: a -> b -> Constraint) (xs :: [a]) (ys :: [b])
+  instance (SameShapeAs xs ys, SameShapeAs ys xs, AllZipF c xs ys) => AllZip c xs ys
+
+  data NP :: (k -> Type) -> [k] -> Type where
+    Nil :: NP f '[]
+    (:*) :: f x -> NP f xs -> NP f (x ': xs)
+
+  data Proxy (a :: k) = Proxy
+
+  -- The given reduces as it stands, with no other given equality.
+  nil :: SameShapeAs '[] ys => Proxy ys -> Proxy '[]
+  nil p = p
+
+  -- The match on @x :* xs@ gives @xs ~ (x ': xs')@. Then the superclass
+  -- @SameShapeAs xs ys@ gives @ys ~ (Head ys ': Tail ys)@. With both, the
+  -- superclass @AllZipF c xs ys@ gives @c x (Head ys)@ and @AllZip c xs'
+  -- (Tail ys)@.
+  trans_NP :: AllZip c xs ys => proxy c -> (forall x y . c x y => f x -> g y) -> NP f xs -> NP g ys
+  trans_NP _ _t Nil = Nil
+  trans_NP p t (x :* xs) = t x :* trans_NP p t xs
+status: pass
+reason: a given type family constraint gives the equality that it reduces to. After a cons match, the superclass equalities of the given rewrite a stuck superclass family constraint until it reduces, as in trans_NP of sop-core.
