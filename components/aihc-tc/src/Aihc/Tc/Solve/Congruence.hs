@@ -42,8 +42,39 @@ proveGivenEquality predicates left right = do
 
 -- | Prove an equality from given equalities that are already taken apart.
 -- Each equality keeps the proof of the given it came from.
+--
+-- The congruence graph does not look under a type quantifier. When it
+-- finds no proof and both sides are function types, applications, or
+-- quantified types, the parts are proved one by one. In @dejafu@, the
+-- given @pty ~ Basic@ proves @(forall a. Program pty n a -> Program pty n
+-- a) -> ...@ equal to the same type at @Basic@ in this way.
 proveFromEqualities :: [(TcType, TcType, Coercion)] -> TcType -> TcType -> TcM (Maybe Coercion)
-proveFromEqualities equalities left right
+proveFromEqualities equalities left right = do
+  direct <- proveFromEqualitiesDirect equalities left right
+  case direct of
+    Just proof -> pure (Just proof)
+    Nothing
+      | null equalities -> pure Nothing
+      | otherwise ->
+          case (left, right) of
+            (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+              fmap (fmap (uncurry FunCo)) (both leftArgument rightArgument leftResult rightResult)
+            (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+              fmap (fmap (uncurry AppCo)) (both leftFunction rightFunction leftArgument rightArgument)
+            (TcForAllTy leftVariable leftBody, TcForAllTy rightVariable rightBody)
+              | sameType (tvKind leftVariable) (tvKind rightVariable) ->
+                  fmap (ForAllCo leftVariable)
+                    <$> proveFromEqualities equalities leftBody (applySubst (Map.singleton (tvUnique rightVariable) (TcTyVar leftVariable)) rightBody)
+            _ -> pure Nothing
+  where
+    both firstLeft firstRight secondLeft secondRight = do
+      first <- proveFromEqualities equalities firstLeft firstRight
+      case first of
+        Nothing -> pure Nothing
+        Just firstProof -> fmap (firstProof,) <$> proveFromEqualities equalities secondLeft secondRight
+
+proveFromEqualitiesDirect :: [(TcType, TcType, Coercion)] -> TcType -> TcType -> TcM (Maybe Coercion)
+proveFromEqualitiesDirect equalities left right
   | sameType left right = pure (Just (Refl (reflexiveWitness left right)))
   | null equalities = pure Nothing
   | otherwise = prove
