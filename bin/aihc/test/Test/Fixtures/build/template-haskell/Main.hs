@@ -26,6 +26,19 @@ showTriple =
 nested :: Q Exp
 nested = [|\y -> $([|y|])|]
 
+-- | A type quote with a forall, a context, and a type variable that the
+-- forall binds. The names of the tree are the names of the program.
+forallQuote :: Q Type
+forallQuote = [t|forall a. Show a => Maybe a -> [a]|]
+
+-- | Whether the tree of 'forallQuote' has the expected form.
+forallQuoteForm :: Type -> Bool
+forallQuoteForm ty =
+  case ty of
+    ForallT [PlainTV binder SpecifiedSpec] [AppT (ConT showClass) (VarT inContext)] (AppT (AppT ArrowT (AppT (ConT maybeType) (VarT argument))) (AppT ListT (VarT element))) ->
+      showClass == ''Show && maybeType == ''Maybe && all (== binder) [inContext, argument, element]
+    _ -> False
+
 -- A declaration splice gives a signature and a function. The function has
 -- a local declaration.
 $( pure
@@ -113,6 +126,14 @@ $( do
        ]
  )
 
+$( do
+     signature <- [t|Int -> (Int, String)|]
+     pure
+       [ SigD (mkName "pairWithText") signature,
+         FunD (mkName "pairWithText") [Clause [VarP (mkName "n")] (NormalB (TupE [Just (VarE (mkName "n")), Just (AppE (VarE 'show) (VarE (mkName "n")))])) []]
+       ]
+ )
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -158,3 +179,6 @@ main = do
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
   runQ nested >>= print
+  -- A type quote in a splice gives the type of a signature.
+  print (pairWithText 4)
+  runQ forallQuote >>= print . forallQuoteForm
