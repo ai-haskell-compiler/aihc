@@ -537,12 +537,16 @@ exportedScopeFor package exports extensions modu = \case
         -- declares the type. The module can declare duplicate fields with
         -- the same labels: @Data.Bytes.Types@ of @byteslice@ re-exports
         -- @Bytes (..)@ and declares @array@ for @MutableBytes@ too. The
-        -- label then names the selector of this module. Thus the imported
-        -- scope comes first for a type that the module imports.
+        -- label then names the selector of this module. Thus the members
+        -- that the imports give for a type that the module imports come
+        -- first. Only those members: a local data instance of an imported
+        -- family has its own fields, and an imported term with the name of
+        -- such a field must not replace it.
         importedTypeFirst scope
           | Map.notMember (nameText name) (scopeTypes ownScope),
             Map.member (nameText name) (scopeTypes imported) =
-              imported `unionScope` scope
+              emptyScope {scopeTerms = Map.restrictKeys (scopeTerms imported) (Set.fromList (allTypeMembers (nameText name) imported))}
+                `unionScope` scope
           | otherwise = scope
 
     qualifiedMemberScopes name =
