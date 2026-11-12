@@ -2,9 +2,7 @@
 {-# HLINT ignore "Use foldr" #-}
 
 module Data.Version
-  ( Version (Version),
-    versionBranch,
-    versionTags,
+  ( Version (..),
     showVersion,
     parseVersion,
     makeVersion,
@@ -19,13 +17,7 @@ import Text.ParserCombinators.ReadP
   )
 import Prelude
 
-data Version = Version [Int] [String]
-
-versionBranch :: Version -> [Int]
-versionBranch (Version branch _) = branch
-
-versionTags :: Version -> [String]
-versionTags (Version _ tags) = tags
+data Version = Version {versionBranch :: [Int], versionTags :: [String]}
 
 instance Eq Version where
   left == right =

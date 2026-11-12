@@ -11,10 +11,11 @@ module Text.Read.Lex
     readOctP,
     readDecP,
     readHexP,
+    isSymbolChar,
   )
 where
 
-import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit)
+import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isDigit, isHexDigit, isOctDigit)
 import GHC.Read.Lex (Lexeme (..), expectP, lexP, numberToFixed, numberToInteger, numberToRational, readLitChar)
 import Text.ParserCombinators.ReadP (ReadP, gather, look, munch1, readS_to_P, skipSpaces, string)
 import Text.ParserCombinators.ReadPrec (minPrec, readPrec_to_P)
@@ -68,3 +69,19 @@ readDecP = readIntP 10 isDigit digitToInt
 -- | Read one or more hexadecimal digits.
 readHexP :: (Eq a, Num a) => ReadP a
 readHexP = readIntP 16 isHexDigit digitToInt
+
+-- | True if the character can be in a Haskell operator symbol.
+isSymbolChar :: Char -> Bool
+isSymbolChar c =
+  not (isPuncChar c) && case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> True
+    OtherSymbol -> True
+    DashPunctuation -> True
+    OtherPunctuation -> c `notElem` "'\""
+    ConnectorPunctuation -> c /= '_'
+    _ -> False
+
+isPuncChar :: Char -> Bool
+isPuncChar c = c `elem` ",;()[]{}`"

@@ -165,13 +165,38 @@ ghcplatformHeader target =
     "GHCPLATFORM_H"
     []
     ( [ (headerOs target <> "_HOST_OS", "1"),
-        (headerArch target <> "_HOST_ARCH", "1"),
-        ("SIZEOF_VOID_P", tshow (headerPointerBytes target)),
-        ("SIZEOF_UNSIGNED_LONG", tshow (headerLongBytes target)),
-        ("SIZEOF_UNSIGNED_LONG_LONG", "8")
+        (headerArch target <> "_HOST_ARCH", "1")
       ]
+        <> concatMap sizeAndAlignment cTypeSizes
         <> [("WORDS_BIGENDIAN", "1") | headerBigEndian target]
     )
+  where
+    -- GHC's @ghcautoconf.h@ gives the size and the alignment of each C type
+    -- from @AC_CHECK_SIZEOF@ and @AC_CHECK_ALIGNOF@.  On each target of aihc,
+    -- the alignment of a C type is the same as its size.
+    cTypeSizes =
+      [ ("VOID_P", headerPointerBytes target),
+        ("LONG", headerLongBytes target),
+        ("UNSIGNED_LONG", headerLongBytes target),
+        ("LONG_LONG", 8),
+        ("UNSIGNED_LONG_LONG", 8),
+        ("CHAR", 1),
+        ("UNSIGNED_CHAR", 1),
+        ("SHORT", 2),
+        ("UNSIGNED_SHORT", 2),
+        ("INT", 4),
+        ("UNSIGNED_INT", 4),
+        ("FLOAT", 4),
+        ("DOUBLE", 8),
+        ("INT8_T", 1),
+        ("UINT8_T", 1),
+        ("INT16_T", 2),
+        ("UINT16_T", 2),
+        ("INT32_T", 4),
+        ("UINT32_T", 4),
+        ("INT64_T", 8),
+        ("UINT64_T", 8)
+      ]
 
 -- | The sizes and alignments of the Haskell types.  A pointer follows the
 -- target and everything else follows the Haskell word.

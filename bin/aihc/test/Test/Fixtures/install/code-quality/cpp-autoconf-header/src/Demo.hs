@@ -13,4 +13,10 @@ module Demo where
 #error ghcautoconf.h did not give the word size
 #endif
 
+-- GHC's ghcautoconf.h also gives the sizes of the C types. foundation reads
+-- SIZEOF_CHAR through MachDeps.h.
+#if SIZEOF_CHAR != 1 || SIZEOF_INT != 4 || SIZEOF_DOUBLE != 8
+#error ghcautoconf.h did not give the C type sizes
+#endif
+
 data Token = Token
