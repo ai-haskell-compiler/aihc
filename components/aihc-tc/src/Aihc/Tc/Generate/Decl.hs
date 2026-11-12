@@ -5715,7 +5715,10 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (typeSynHead typeSynDecl)
       arity = length params
-  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  -- A kind variable that a binder mentions, as @k@ in @type Arity (ty ::
+  -- k) = Arity' k@, is one variable of the synonym kind. Each mention of
+  -- it is the same variable, and the body can use it as a type.
+  (_, paramInfos) <- dataHeadParamInfos maybeKindScheme params Nothing
   inferredResultKind <- freshKindMeta
   let inferredKind = foldr (KFun . paramKind) inferredResultKind paramInfos
   tyCon <- mkDeclaredTyCon tyBinder tyName arity
@@ -5742,11 +5745,20 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
+              tvEnv = synonymBodyScope params
           (body, _) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
+
+-- | The type variables that the body of a synonym can use: the
+-- parameters and the kind variables that the parameter kinds mention. A
+-- parameter hides a kind variable of the same name.
+synonymBodyScope :: [TyVarId] -> TvKindEnv
+synonymBodyScope params =
+  Map.fromList [(tvName variable, (variable, tvKind variable)) | variable <- kindVariables <> params]
+  where
+    kindVariables = uniqueKindVariables (concatMap (freeKindVariables . tvKind) params)
 
 checkTypeSynonymBody :: Decl -> TcM ()
 checkTypeSynonymBody (DeclAnn _ inner) = checkTypeSynonymBody inner
@@ -5758,7 +5770,7 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
+              tvEnv = synonymBodyScope params
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
           (body, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
