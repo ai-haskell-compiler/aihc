@@ -1,0 +1,50 @@
+extensions:
+- DerivingStrategies
+- GeneralizedNewtypeDeriving
+- RankNTypes
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, RankNTypes, TypeFamilies #-}
+  module Main where
+  data Unit = Unit
+  class Run m where
+    type St m a
+    run :: (forall x. m x -> b (St m x)) -> b Unit -> m Unit
+  data Box a = Box a
+  instance Run Box where
+    type St Box a = a
+    run _ _ = Box Unit
+  newtype Act a = Act (Box a)
+    deriving newtype Run
+status: pass
+reason: newtype deriving proves a method coercion through a type variable that is applied to an associated type
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, RankNTypes, TypeFamilies #-}
+  module Main where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  class Run m where
+  └─ class methods: run ∷ ∀ m b. (Run m) ⇒ (∀ x. m x → b (St m x)) → b () → m ()
+    type St m a
+         └─ type: (Type → Type) → Type → Type
+    run :: (forall x. m x -> b (St m x)) -> b Unit -> m Unit
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  instance Run Box where
+  └─ $fRunBox ∷ () ⇒ Run Box [associated types: St Box a = a]
+    type St Box a = a
+    run _ _ = Box Unit
+    │   │ │   └─ type: () → Box (); type-args: ()
+    │   │ └─ type: b ()
+    │   └─ type: ∀ x. Box x → b (St Box x)
+    └─ run ∷ ∀ b. (∀ x. Box x → b (St Box x)) → b () → Box ()
+  newtype Act a = Act (Box a)
+  │       │       └─ type: ∀ a. Box a → Act a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Run Act [context: ()] [methods: run]
+    deriving newtype Run
+                     └─ $fRunAct ∷ () ⇒ Run Act [associated types: St Act t1 = St Box t1]
