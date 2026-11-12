@@ -252,7 +252,7 @@ quotedType = go
             _ -> Nothing
         TVar name -> Just (call "varT" [dynamicName (unqualifiedNameText name)])
         TApp function argument -> applied <$> go function <*> go argument
-        TFun ArrowUnrestricted argument result -> (\argument' result' -> applied (applied (library "arrowT") argument') result') <$> go argument <*> go result
+        TFun ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
         TList Unpromoted [element] -> applied (library "listT") <$> go element
         TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
         TTypeLit (TypeLitInteger number _) -> Just (call "litT" [call "numTyLit" [integer number]])
