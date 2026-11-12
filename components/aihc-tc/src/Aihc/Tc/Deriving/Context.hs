@@ -489,6 +489,12 @@ simplifyReducedPredicate kinds environment owner predicate
       pure $ Right $ case result of
         Right context -> filter (not . mentionsBound) context
         Left _ -> []
+  -- An instance context can hold an equality, as in @instance (a ~ Char)
+  -- => IsString [a]@. When the head match makes the two sides the same
+  -- type, the equality needs no context.
+  | EqPred left right <- predicate,
+    left == right =
+      pure (Right [])
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)

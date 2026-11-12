@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies, TypeFamilies, FlexibleInstances #-}
+  module Main where
+  data C = C
+       │   └─ type: C
+       └─ type: Type
+  data L a = Nil | Cons a (L a)
+       │     │     └─ type: ∀ a. a → L a → L a
+       │     └─ type: ∀ a. L a
+       └─ type: Type → Type
+  class IsStr a where
+  └─ class methods: fromStr ∷ ∀ a. (IsStr a) ⇒ L C → a
+    fromStr :: L C -> a
+  instance (a ~ C) => IsStr (L a) where
+  └─ $fIsStrLa ∷ ∀ a. (a ~ C) ⇒ IsStr (L a)
+    fromStr s = s
+    │       └─ type: L C
+    └─ fromStr ∷ L C → L a
+  newtype Suffix = Suffix (L C) deriving newtype IsStr
+  │       │        └─ type: L C → Suffix         └─ $fIsStrSuffix ∷ () ⇒ IsStr Suffix
+  │       └─ type: Type
+  └─ deriving plans: newtype IsStr Suffix [context: ()] [methods: fromStr]
+extensions:
+- GeneralizedNewtypeDeriving
+- DerivingStrategies
+- TypeFamilies
+- FlexibleInstances
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies, TypeFamilies, FlexibleInstances #-}
+  module Main where
+  data C = C
+  data L a = Nil | Cons a (L a)
+  class IsStr a where
+    fromStr :: L C -> a
+  instance (a ~ C) => IsStr (L a) where
+    fromStr s = s
+  newtype Suffix = Suffix (L C) deriving newtype IsStr
+reason: a newtype derivation uses an instance with an equality context
+status: pass
