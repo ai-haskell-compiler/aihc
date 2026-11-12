@@ -495,6 +495,12 @@ simplifyReducedPredicate kinds environment owner predicate
   | EqPred left right <- predicate,
     left == right =
       pure (Right [])
+  -- The solver knows a type-level literal, as the @KnownSymbol "RuleId"@
+  -- that the 'Datatype' instance of Generic metadata needs. No instance
+  -- head matches it.
+  | ClassPred classTyCon [TcTyLit literal] <- predicate,
+    isKnownLiteral (tyConName classTyCon) literal =
+      pure (Right [])
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)
@@ -539,6 +545,16 @@ simplifyReducedPredicate kinds environment owner predicate
           case Map.lookup (planKey candidate) (derivingEnvContexts environment) of
             Just context -> context
             Nothing -> Left predicate
+
+-- | Whether the solver gives the class for the literal, as it does for
+-- @KnownNat 3@, @KnownSymbol "name"@, and @KnownChar 'c'@.
+isKnownLiteral :: Text -> TyLit -> Bool
+isKnownLiteral className literal =
+  case (className, literal) of
+    ("KnownNat", TyLitNat _) -> True
+    ("KnownSymbol", TyLitSymbol _) -> True
+    ("KnownChar", TyLitChar _) -> True
+    _ -> False
 
 -- | The first alternative that succeeds, trying them in order.
 firstSuccessful :: (Monad m) => [m (Either error value)] -> m (Maybe value)
