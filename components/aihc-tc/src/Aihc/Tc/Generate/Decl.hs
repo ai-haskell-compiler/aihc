@@ -3473,7 +3473,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                     (Just _, Nothing) -> pure failedResult
                     _ -> do
                       (selectorMatches, selectorResults) <-
-                        tcPatSynRecordSelectors package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
+                        tcPatSynRecordSelectors sigs package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
                       addPatSyn
                         PatSynInfo
                           { psiName = name,
@@ -3746,8 +3746,13 @@ patSynFieldTermKey key field =
 -- the universal variables and keeps the required context, so it has the
 -- type @req => scrutinee -> field@. A field whose type mentions an
 -- existential variable has no selector.
-tcPatSynRecordSelectors :: PackageId -> Text -> Maybe SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
-tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders = do
+--
+-- A field can also have a type signature of its own, as
+-- @bytes :: Integral n => Size -> n@ for @pattern B {bytes} <- ...@. Then
+-- the selector has the type of that signature, which the module
+-- registered with its other signatures.
+tcPatSynRecordSelectors :: Map Entity CheckedSig -> PackageId -> Text -> Maybe SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
+tcPatSynRecordSelectors sigs package moduleName' nameSpan layout args pat argBinders = do
   checked <- sequence (zipWith3 selector (patSynRecordFields args) argBinders (patSynLayoutArgTypes layout))
   pure (concatMap fst checked, concatMap snd checked)
   where
@@ -3758,8 +3763,12 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
       | otherwise = do
           let key = GlobalTerm package moduleName' field
               scheme = specifiedScheme (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
-              sig = CheckedSig field scheme nameSpan [] False
-          registerCheckedSig key sig
+          sig <- case Map.lookup key sigs of
+            Just userSig -> pure userSig
+            Nothing -> do
+              let sig = CheckedSig field scheme nameSpan [] False
+              registerCheckedSig key sig
+              pure sig
           (maybeMatches, results) <- tcFunctionWithSig key field sig [patSynSelectorMatch pat argBinder]
           commitCheckedHelper key results
           case maybeMatches of
