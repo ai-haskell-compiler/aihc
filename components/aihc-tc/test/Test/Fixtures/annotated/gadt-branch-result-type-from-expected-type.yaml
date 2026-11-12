@@ -1,0 +1,134 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+       │       │      └─ type: ∀ a. a → Opt a
+       │       └─ type: ∀ a. Opt a
+       └─ type: Type → Type
+  data NS (f :: k -> Type) (xs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    Z :: f x -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ f x → NS f xs
+    S :: NS f xs -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ NS f xs → NS f xs
+  data NP (f :: k -> Type) (xs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    Nil :: NP f '[]
+    └─ type: ∀ k f xs. (xs ~ 'GHC.Types.[]) ⇒ NP f xs
+    (:*) :: f x -> NP f xs -> NP f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ f x → NP f xs → NP f xs
+  infixr 5 :*
+  data SList (xs :: [k]) where
+       └─ type: [k] → Type
+    SNil :: SList '[]
+    └─ type: ∀ k xs. (xs ~ 'GHC.Types.[]) ⇒ SList xs
+    SCons :: SList (x ': xs)
+    └─ type: ∀ k xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ SList xs
+  newtype K (a :: Type) (b :: k) = K a
+          └─ type: Type → k → Type └─ type: ∀ k a b. a → K a b
+  unK :: K a b -> a
+  unK (K a) = a
+  │    │ └─ type: a
+  │    └─ type: K a b
+  └─ type: ∀ k0 a b. K a b → a
+  newtype (f -.-> g) a = Fn (f a -> g a)
+             │           └─ type: ∀ k0 f g a. (f a → g a) → -.-> f g a
+             └─ type: (k0 → Type) → (k0 → Type) → k0 → Type
+  infixr 1 -.->
+  fn :: (f a -> f' a) -> (f -.-> f') a
+  fn = Fn
+  │    └─ type: (f a → f' a) → -.-> f f' a; type-args: k0, f, f', a
+  └─ type: ∀ k0 f a f'. (f a → f' a) → -.-> f f' a
+  newtype (:.:) (f :: l -> Type) (g :: k -> l) (p :: k) = Comp (f (g p))
+           └─ type: (l → Type) → (k → l) → k → Type       └─ type: ∀ l k f g p. f (g p) → :.: f g p
+  infixr 7 :.:
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g x = f (g x)
+  │   │ │ └─ type: a
+  │   │ └─ type: a → b
+  │   └─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+  infixr 9 .
+  hd :: forall f x xs . NS f (x ': xs) -> (Opt :.: f) x
+  hd = Comp . (\ns -> case ns of Z fx -> Some fx; S _ -> None)
+  │    │    │  ││     │          │ │     │        │ │    └─ type: Opt (f x); type-args: f x
+  │    │    │  ││     │          │ │     │        │ └─ type: NS f xs
+  │    │    │  ││     │          │ │     │        └─ type: NS f xs → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+  │    │    │  ││     │          │ │     └─ type: f x → Opt (f x); type-args: f x
+  │    │    │  ││     │          │ └─ type: f x
+  │    │    │  ││     │          └─ type: f x → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+  │    │    │  ││     └─ type: Opt (f x)
+  │    │    │  │└─ type: NS f ('GHC.Types.: x xs)
+  │    │    │  └─ type: NS f ('GHC.Types.: x xs) → Opt (f x)
+  │    │    └─ type: (Opt (f x) → :.: Opt f x) → (NS f ('GHC.Types.: x xs) → Opt (f x)) → NS f ('GHC.Types.: x xs) → :.: Opt f x; type-args: Opt (f x), :.: Opt f x, NS f (': x xs)
+  │    └─ type: Opt (f x) → :.: Opt f x; type-args: Type, k0, Opt, f, x
+  └─ type: ∀ k0 f x xs. NS f ('GHC.Types.: x xs) → :.: Opt f x
+  type Ejection (f :: k -> Type) (xs :: [k]) = K (NS f xs) -.-> Opt :.: f
+       └─ type: (k → Type) → [k] → k → Type
+  ejections :: forall xs f . SList xs -> (forall g ys . NP g ys) -> NP (Ejection f xs) xs
+  ejections sl tl = case sl of
+  │         │  │    └─ type: NP (-.-> (K (NS f xs)) (:.: Opt f)) xs
+  │         │  └─ type: ∀ g ys. NP g ys
+  │         └─ type: SList xs
+  └─ type: ∀ k0 xs f. SList xs → (∀ g ys. NP g ys) → NP (-.-> (K (NS f xs)) (:.: Opt f)) xs
+    SNil -> Nil
+    │       └─ type: NP (-.-> (K (NS f 'GHC.Types.[])) (:.: Opt f)) 'GHC.Types.[]; type-args: k0, -.-> (K (NS f '[])) (:.: Opt f), '[]; evidence: refl '[]
+    └─ type: SList xs; type-args: k0, xs; evidence: given xs ~ '[]
+    SCons -> fn (Comp . (\ns -> case ns of Z fx -> Some fx; S _ -> None) . unK) :* tl
+    │        │   │    │  ││     │          │ │     │        │ │    │     │ │    │  └─ type: NP (-.-> (K (NS f ('GHC.Types.: x xs))) (:.: Opt f)) xs; type-args: -.-> (K (NS f (': x xs))) (:.: Opt f), xs
+    │        │   │    │  ││     │          │ │     │        │ │    │     │ │    └─ type: -.-> (K (NS f ('GHC.Types.: x xs))) (:.: Opt f) x → NP (-.-> (K (NS f ('GHC.Types.: x xs))) (:.: Opt f)) xs → NP (-.-> (K (NS f ('GHC.Types.: x xs))) (:.: Opt f)) ('GHC.Types.: x xs); type-args: k0, -.-> (K (NS f (': x xs))) (:.: Opt f), ': x xs, xs, x; evidence: refl ': x xs
+    │        │   │    │  ││     │          │ │     │        │ │    │     │ └─ type: K (NS f ('GHC.Types.: x xs)) x → NS f ('GHC.Types.: x xs); type-args: k0, NS f (': x xs), x
+    │        │   │    │  ││     │          │ │     │        │ │    │     └─ type: (NS f ('GHC.Types.: x xs) → Opt (f x)) → (K (NS f ('GHC.Types.: x xs)) x → NS f ('GHC.Types.: x xs)) → K (NS f ('GHC.Types.: x xs)) x → Opt (f x); type-args: NS f (': x xs), Opt (f x), K (NS f (': x xs)) x
+    │        │   │    │  ││     │          │ │     │        │ │    └─ type: Opt (f x); type-args: f x
+    │        │   │    │  ││     │          │ │     │        │ └─ type: NS f xs
+    │        │   │    │  ││     │          │ │     │        └─ type: NS f xs → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+    │        │   │    │  ││     │          │ │     └─ type: f x → Opt (f x); type-args: f x
+    │        │   │    │  ││     │          │ └─ type: f x
+    │        │   │    │  ││     │          └─ type: f x → NS f ('GHC.Types.: x xs); type-args: k0, f, ': x xs, xs, x; evidence: given ': x xs ~ ': x xs
+    │        │   │    │  ││     └─ type: Opt (f x)
+    │        │   │    │  │└─ type: NS f ('GHC.Types.: x xs)
+    │        │   │    │  └─ type: NS f ('GHC.Types.: x xs) → Opt (f x)
+    │        │   │    └─ type: (Opt (f x) → :.: Opt f x) → (K (NS f ('GHC.Types.: x xs)) x → Opt (f x)) → K (NS f ('GHC.Types.: x xs)) x → :.: Opt f x; type-args: Opt (f x), :.: Opt f x, K (NS f (': x xs)) x
+    │        │   └─ type: Opt (f x) → :.: Opt f x; type-args: Type, k0, Opt, f, x
+    │        └─ type: (K (NS f ('GHC.Types.: x xs)) x → :.: Opt f x) → -.-> (K (NS f ('GHC.Types.: x xs))) (:.: Opt f) x; type-args: k0, K (NS f (': x xs)), x, :.: Opt f
+    └─ type: SList xs; type-args: k0, xs, xs, x; evidence: given xs ~ ': x xs
+extensions: [DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, KindSignatures, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Opt a = None | Some a
+  data NS (f :: k -> Type) (xs :: [k]) where
+    Z :: f x -> NS f (x ': xs)
+    S :: NS f xs -> NS f (x ': xs)
+  data NP (f :: k -> Type) (xs :: [k]) where
+    Nil :: NP f '[]
+    (:*) :: f x -> NP f xs -> NP f (x ': xs)
+  infixr 5 :*
+  data SList (xs :: [k]) where
+    SNil :: SList '[]
+    SCons :: SList (x ': xs)
+  newtype K (a :: Type) (b :: k) = K a
+  unK :: K a b -> a
+  unK (K a) = a
+  newtype (f -.-> g) a = Fn (f a -> g a)
+  infixr 1 -.->
+  fn :: (f a -> f' a) -> (f -.-> f') a
+  fn = Fn
+  newtype (:.:) (f :: l -> Type) (g :: k -> l) (p :: k) = Comp (f (g p))
+  infixr 7 :.:
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g x = f (g x)
+  infixr 9 .
+  hd :: forall f x xs . NS f (x ': xs) -> (Opt :.: f) x
+  hd = Comp . (\ns -> case ns of Z fx -> Some fx; S _ -> None)
+  type Ejection (f :: k -> Type) (xs :: [k]) = K (NS f xs) -.-> Opt :.: f
+  ejections :: forall xs f . SList xs -> (forall g ys . NP g ys) -> NP (Ejection f xs) xs
+  ejections sl tl = case sl of
+    SNil -> Nil
+    SCons -> fn (Comp . (\ns -> case ns of Z fx -> Some fx; S _ -> None) . unK) :* tl
+reason: "the expected type fixes the types of each case branch Z fx before the branch is checked under its givens, thus the existential x of Z does not escape; ejections is reduced from Data.SOP.NS of sop-core"
+status: pass

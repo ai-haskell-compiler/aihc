@@ -41,7 +41,7 @@ import Control.Concurrent.QSem
 import Control.Concurrent.QSemN
 import Control.Exception.Base (SomeException, mask, try)
 import GHC.Conc.IO (threadDelay, threadWaitRead, threadWaitReadSTM, threadWaitWrite, threadWaitWriteSTM)
-import GHC.Conc.Sync (ThreadId (..), forkIO, getNumCapabilities, killThread, myThreadId, throwTo, yield)
+import GHC.Conc.Sync (ThreadId (..), forkIO, getNumCapabilities, killThread, myThreadId, setNumCapabilities, threadCapability, throwTo, yield)
 import GHC.Exception (ErrorCall (..))
 import GHC.IO (IO (..), throwIO, unsafeUnmask)
 import GHC.Prim (mkWeakNoFinalizer#)
@@ -75,17 +75,6 @@ forkOS _ = throwIO (ErrorCallWithLocation "forkOS: bound threads are not support
 -- | Bound threads are not supported. See 'forkOS' and 'forkIOWithUnmask'.
 forkOSWithUnmask :: ((forall a. IO a -> IO a) -> IO ()) -> IO ThreadId
 forkOSWithUnmask action = forkOS (action unsafeUnmask)
-
--- | Set the number of capabilities. The runtime has one capability, and it
--- cannot add more. Thus this function does nothing, as in the
--- non-threaded GHC runtime.
-setNumCapabilities :: Int -> IO ()
-setNumCapabilities _ = return ()
-
--- | Give the capability of a thread, and whether the thread stays on that
--- capability. The runtime has only capability 0.
-threadCapability :: ThreadId -> IO (Int, Bool)
-threadCapability _ = return (0, False)
 
 -- | The runtime does not support bound threads.
 rtsSupportsBoundThreads :: Bool

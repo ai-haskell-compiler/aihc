@@ -746,10 +746,20 @@ typeKindInEnv kinds kindEnv = go
         (KTYPE formalRep, KTYPE actualRep) -> recur formalRep actualRep
         (TcFunTy left right, TcFunTy left' right') ->
           Map.union <$> recur left left' <*> recur right right'
+        -- Two applied kind variables match part by part: the formal kind
+        -- @f a c@ of @First@ and the kind @k2 k0 k3@ of an argument.
+        (TcAppTy function argument, TcAppTy function' argument') ->
+          Map.union <$> recur function function' <*> recur argument argument'
         (TcTyCon left leftArguments, TcTyCon right rightArguments)
           | left == right,
             length leftArguments == length rightArguments ->
               Map.unions <$> zipWithM recur leftArguments rightArguments
+        -- A kind variable of a higher kind applied to an argument, as the
+        -- @f a@ of @Map :: (a -> Exp b) -> f a -> Exp (f b)@, matches a
+        -- saturated constructor application, as @[Type]@: the head takes
+        -- all arguments but the last one.
+        (TcAppTy function argument, TcTyCon right rightArguments@(_ : _)) ->
+          Map.union <$> recur function (TcTyCon right (init rightArguments)) <*> recur argument (last rightArguments)
         _
           | formal == actual -> Right Map.empty
           | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
@@ -1218,8 +1228,16 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) runtimeRep
     matchKind quantifiedUniques (KFun left right) (KFun left' right') =
       matchKind quantifiedUniques left left' <> matchKind quantifiedUniques right right'
+    -- Two applied kind variables match part by part: the formal kind @f b
+    -- c@ of a family result and the kind @k2 k1 k3@ of an equation.
+    matchKind quantifiedUniques (TcAppTy function argument) (TcAppTy function' argument') =
+      matchKind quantifiedUniques function function' <> matchKind quantifiedUniques argument argument'
     matchKind quantifiedUniques (TcTyCon left formalArguments) (TcTyCon right actualArguments)
       | left == right,
         length formalArguments == length actualArguments =
           Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
+    -- See 'typeKindInEnv': @f a@ matches @[Type]@ with @f := []@ and @a := Type@.
+    matchKind quantifiedUniques (TcAppTy function argument) (TcTyCon right actualArguments@(_ : _)) =
+      matchKind quantifiedUniques function (TcTyCon right (init actualArguments))
+        <> matchKind quantifiedUniques argument (last actualArguments)
     matchKind _ _ _ = Map.empty

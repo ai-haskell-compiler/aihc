@@ -1,0 +1,26 @@
+extensions: [DataKinds, KindSignatures, TypeFamilies, TypeOperators, FlexibleInstances]
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeNats where
+  import GHC.Prim.Natural (Natural)
+  type family (+) (a :: Natural) (b :: Natural) :: Natural
+  infixl 6 +
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeOperators, FlexibleInstances #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.TypeNats (type (+))
+  data P (n :: Natural) = P
+  next :: P m -> P (m + 1)
+  next _ = P
+  useTwo :: P 2 -> ()
+  useTwo _ = ()
+  class Use a where
+    use :: a -> ()
+  instance Use (P 1) where
+    use _ = ()
+  x :: ()
+  x = (\p -> case useTwo (next p) of () -> use p) P
+status: pass
+reason: The equality 2 ~ m0 + 1 gives m0 ~ 1, as in GHC. Then the instance Use (P 1) solves Use (P m0).

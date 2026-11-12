@@ -1,0 +1,36 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+  module Test where
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  newtype Size = Size Int
+          │      └─ type: Int → Size
+          └─ type: Type
+  unSize :: Size -> Int
+  unSize (Size n) = n
+  │       │    └─ type: Int
+  │       └─ type: Size
+  └─ type: Size → Int
+  pattern B :: Int -> Size
+  pattern B { bytes } <- (unSize -> bytes)
+  └─ type: Int → Size     │         └─ type: Int
+                          └─ type: Size
+  bytes :: Size -> Int
+extensions:
+- PatternSynonyms
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+  module Test where
+  data Int = Int
+  newtype Size = Size Int
+  unSize :: Size -> Int
+  unSize (Size n) = n
+  pattern B :: Int -> Size
+  pattern B { bytes } <- (unSize -> bytes)
+  bytes :: Size -> Int
+reason: a field of a record pattern synonym can have a type signature of its own
+status: pass

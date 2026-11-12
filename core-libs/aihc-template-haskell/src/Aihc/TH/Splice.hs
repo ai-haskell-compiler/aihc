@@ -32,6 +32,7 @@
 module Aihc.TH.Splice
   ( runSplice,
     runExpressionSplice,
+    runTypeSplice,
     runDeclarationsSplice,
   )
 where
@@ -52,7 +53,7 @@ import Data.Word (Word8)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr)
-import Language.Haskell.TH.Syntax (Dec, Exp, Info, Name, Q, Quasi (..), runQ)
+import Language.Haskell.TH.Syntax (Dec, Exp, Info, Name, Q, Quasi (..), Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -76,6 +77,11 @@ runSplice splice = do
 -- that the body gives an expression.
 runExpressionSplice :: Q Exp -> IO ()
 runExpressionSplice = runSplice
+
+-- | 'runSplice' for the body of a type splice. The type makes sure that
+-- the body gives a type.
+runTypeSplice :: Q Type -> IO ()
+runTypeSplice = runSplice
 
 -- | 'runSplice' for the body of a declaration splice. The type makes sure
 -- that the body gives a list of declarations.

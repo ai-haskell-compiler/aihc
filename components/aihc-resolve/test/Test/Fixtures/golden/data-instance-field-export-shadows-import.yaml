@@ -1,0 +1,50 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module F (Fam) where
+    data family Fam a
+  - |
+    module B (size) where
+    data Unit = Unit
+    size = Unit
+  - |
+    module M (Fam (..)) where
+    import F (Fam)
+    import B (size)
+    data Count = Count
+    data instance Fam Count = MkI { size :: Count }
+  - |
+    module Test where
+    import M
+    get x = size x
+annotated:
+  - |-
+    module B (size) where
+    data Unit = Unit
+         └─ t B └─ v B
+    size = Unit
+    └─ v B └─ v B
+  - |-
+    module F (Fam) where
+    data family Fam a
+                └─ t F
+  - |-
+    module M (Fam (..)) where
+    import F (Fam)
+    import B (size)
+    data Count = Count
+         └─ t M  └─ v M
+    data instance Fam Count = MkI { size :: Count }
+                  │   └─ t M  └─ v M        └─ t M
+                  └─ t F
+  - |-
+    module Test where
+    import M
+    get x = size x
+    │   │   │    └─ v 0
+    │   │   └─ v M
+    │   └─ v 0
+    └─ v Test
+status: pass
+reason: a record field of a local data instance of an imported family is the field that an export of the family exports, not an imported term with the same name

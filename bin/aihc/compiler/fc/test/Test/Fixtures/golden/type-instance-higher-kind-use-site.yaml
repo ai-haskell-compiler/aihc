@@ -1,0 +1,51 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (Type)
+    type Exp a = a -> Type
+    type family Eval (e :: Exp a) :: a
+    data Pure :: a -> Exp a
+    type instance Eval (Pure x) = x
+    data Bimap :: (a -> Exp a') -> (b -> Exp b') -> f a b -> Exp (f a' b')
+    -- The kind variable f of First has the kind Type -> Type -> Type.
+    data First :: (a -> Exp b) -> f a c -> Exp (f b c)
+    type instance Eval (First f x) = Eval (Bimap f Pure x)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.sExp (a : sType) :: sType =
+    a → sType
+
+  pub type 1.tEval (a : sType) (e : a → sType) :: a @N @N {}
+
+  pub type 1.tPure (a : sType) ($parameter : a) ($parameter{1} : a) :: sType {}
+
+  axiom 1.$ax$Eval$Pure$x (k0 : sType) (x : k0) : tEval k0 (tPure k0 x) ~N x
+
+  pub type 1.tBimap (a : sType) (a' : sType) (b : sType) (b' : sType) (f : sType → sType → sType) ($parameter : a → a' → sType) ($parameter{1} : b → b' → sType) ($parameter{2} : f a b) ($parameter{3} : f a' b') :: sType {}
+
+  pub type 1.tFirst (a : sType) (b : sType) (f : sType → sType → sType) (c : sType) ($parameter : a → b → sType) ($parameter{1} : f a c) ($parameter{2} : f b c) :: sType {}
+
+  axiom 1.$ax$Eval$First$f$x (k0 : sType) (k1 : sType) (k2 : sType → sType → sType) (k3 : sType) (f : k0 → k1 → sType) (x : k2 k0 k3) : tEval (k2 k1 k3) (tFirst k0 k1 k2 k3 f x) ~N tEval (k2 k1 k3) (tBimap k0 k1 k3 k3 k2 f (tPure k3) x)
+status: pass
+reason: 'The type instance for First uses the kind variable f of First, of kind Type -> Type -> Type. The equation must bind it as a kind variable of that kind. Before the fix, it stayed an open meta-variable and the FC conversion stopped.'

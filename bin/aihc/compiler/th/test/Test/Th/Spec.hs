@@ -8,7 +8,7 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm, exactType)
-import Aihc.Th.Convert (declarationsFromTree, expressionFromTree)
+import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
@@ -29,6 +29,7 @@ tests =
       testCase "rejects a message that is not one complete tree" rejectTest,
       testCase "converts expressions to the surface syntax" convertTest,
       testCase "gives a package-bound name its term or its type" exactNameTest,
+      testCase "converts a type to the surface syntax" typeTest,
       testCase "converts declarations to the surface syntax" declarationsTest,
       testCase "converts an instance declaration to the surface syntax" instanceTest,
       testCase "names a construct that it does not support" unsupportedTest,
@@ -105,6 +106,13 @@ convertTest = do
             ]
         )
     )
+
+typeTest :: IO ()
+typeTest =
+  assertEqual
+    "a promoted constructor applied to a type-level literal"
+    (Right (TApp (TCon "Just" Promoted) (TTypeLit (TypeLitInteger 255 "255"))))
+    (typeResultFromTree (TreeNode "AppT" [TreeNode "PromotedT" [name "Just"], TreeNode "LitT" [TreeNode "NumTyLit" [TreeInteger 255]]]))
 
 -- | The declarations for:
 --
@@ -325,6 +333,7 @@ spliceSource =
       "x = $(a 1) + f $b [| $(c) |]",
       "$(g 2)",
       "y = $(d $(e))",
+      "z = 0 :: $(t)",
       "h"
     ]
 
@@ -346,23 +355,24 @@ splicesTest = do
   -- run for this module.
   assertEqual
     "the splices, in source order"
-    [("expression", "(a 1)"), ("expression", "b"), ("declaration", "(g 2)"), ("expression", "(d $(e))"), ("declaration", "h")]
+    [("expression", "(a 1)"), ("expression", "b"), ("declaration", "(g 2)"), ("expression", "(d $(e))"), ("type", "(t)"), ("declaration", "h")]
     (map kindAndBody (moduleSplices modu))
   signature <- declarationOf "s :: T"
   value <- declarationOf "s = t"
   let replaced =
         replaceModuleSplices
-          [ExpressionResult (EVar "p"), ExpressionResult (EVar "q"), DeclarationResult [signature, value], ExpressionResult (EVar "r"), DeclarationResult []]
+          [ExpressionResult (EVar "p"), ExpressionResult (EVar "q"), DeclarationResult [signature, value], ExpressionResult (EVar "r"), TypeResult (TCon "Int" Unpromoted), DeclarationResult []]
           modu
   assertEqual "no splice is left outside the quote" [] (map kindAndBody (moduleSplices replaced))
   assertEqual
-    "an expression has parentheses, declarations take the position of their splice, and the quote keeps its splice"
-    "module M where import Data.List (sort) import Own.Module x = (p) + f (q) [| $(c) |] s :: T s = t y = (r)"
+    "an expression and a type have parentheses, declarations take the position of their splice, and the quote keeps its splice"
+    "module M where import Data.List (sort) import Own.Module x = (p) + f (q) [| $(c) |] s :: T s = t y = (r) z = 0 :: (Int)"
     (render replaced)
   where
     kindAndBody splice =
       case splice of
         ExpressionSplice body -> ("expression" :: Text, render body)
+        TypeSplice body -> ("type", render body)
         DeclarationSplice body -> ("declaration", render body)
     declarationOf source =
       case parseModule defaultConfig (T.unlines ["module D where", source]) of
@@ -375,6 +385,7 @@ spliceModuleTest = do
   let request =
         SpliceRequest
           { spliceRequestPackage = "demo",
+            spliceRequestPackageId = "demo-0",
             spliceRequestModule = "M",
             spliceRequestStoreRoot = "store",
             spliceRequestBuildRoot = "build",
@@ -383,11 +394,14 @@ spliceModuleTest = do
             spliceRequestLanguage = Nothing,
             spliceRequestPragmas = [EnableExtension TemplateHaskell],
             spliceRequestImports = take 1 (moduleImports modu),
+            spliceRequestPackageFiles = mempty,
+            spliceRequestOwnModules = [],
+            spliceRequestUnavailableImports = [],
             spliceRequestSplices = moduleSplices modu
           }
   assertEqual
     "one closure for each splice"
-    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Language.Haskell.TH.Lib as AihcQuoteLibrary import qualified Language.Haskell.TH.Syntax as AihcQuoteLibrary import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 = Aihc.TH.Splice.runDeclarationsSplice (h)"
+    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified Language.Haskell.TH.Lib as AihcQuoteLibrary import qualified Language.Haskell.TH.Syntax as AihcQuoteLibrary import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 = Aihc.TH.Splice.runTypeSplice (t) aihcSplice5 = Aihc.TH.Splice.runDeclarationsSplice (h)"
     (T.unwords (T.words (spliceModuleText request)))
 
 name :: Text -> Tree

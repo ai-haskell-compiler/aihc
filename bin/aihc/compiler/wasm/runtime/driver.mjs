@@ -30,7 +30,8 @@
 // instance can also read the next command while the instance runs.
 //
 // The instance gets no access to the host. Each import of the image is
-// denied, apart from the functions in hostFunctions.
+// denied, apart from the functions in hostFunctions. These functions give
+// fixed answers, such as an empty environment.
 
 import { readFileSync, readSync, writeSync } from "node:fs";
 
@@ -106,6 +107,15 @@ let image;
 const hostFunctions = {
   // The clock gives a fixed time, so that a run is deterministic.
   "wasi:clocks/monotonic-clock@0.3.0 now": () => 0n,
+  // The environment is empty, and not the environment of the host. The C
+  // library asks for it in its constructors when the program can read the
+  // environment. The import writes the list at the address of its
+  // argument, as the address of the elements and their number.
+  "wasi:cli/environment@0.3.0 get-environment": (result) => {
+    const view = new DataView(image.memory.buffer);
+    view.setUint32(result, 0, true);
+    view.setUint32(result + 4, 0, true);
+  },
   "env aihc_engine_next": nextClosure,
   // A closure sends a message to the host.
   "env aihc_engine_send": (message, length) => {

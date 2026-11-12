@@ -147,7 +147,26 @@ improveCancellation left right =
                     improveEqualities [leftFirst] [rightFirst]
               pure True
             else pure False
+    (TcTyLit (TyLitNat total), TcTyCon tyCon [first, second]) -> literalSum total tyCon first second
+    (TcTyCon tyCon [first, second], TcTyLit (TyLitNat total)) -> literalSum total tyCon first second
     _ -> pure False
+  where
+    -- A sum with one literal argument that equals a literal gives the
+    -- other argument: @m + 1 ~ 2@ gives @m ~ 1@, as in GHC. A total that
+    -- is smaller than the literal argument gives nothing here, and the
+    -- equality itself is unsolved.
+    literalSum total tyCon first second
+      | cancellableTypeLitFamily (tyConName tyCon) = do
+          wiring <- getWiring
+          if tyConModuleName tyCon `elem` tcWiringTypeLitFamilyModules wiring
+            then case (first, second) of
+              (_, TcTyLit (TyLitNat known))
+                | known <= total -> improveEqualities [first] [TcTyLit (TyLitNat (total - known))] >> pure True
+              (TcTyLit (TyLitNat known), _)
+                | known <= total -> improveEqualities [second] [TcTyLit (TyLitNat (total - known))] >> pure True
+              _ -> pure False
+            else pure False
+      | otherwise = pure False
 
 improveInjectivePair :: TcType -> TcType -> TcM ()
 improveInjectivePair left right = do
@@ -199,11 +218,18 @@ determinedByEquation positions target equation =
 -- | Equate the determined arguments. Improvement carries no evidence, so
 -- the equality is solved by unification alone. Arguments that do not unify
 -- are left to the constraint itself to report as unsolved.
+--
+-- A determined argument can itself be an application of a family that
+-- cancels. Then the two arguments get the same improvement: @(t0 + k) + 1
+-- ~ (n + k) + 1@ gives @t0 + k ~ n + k@, and that gives @t0 ~ n@.
 improveEqualities :: [TcType] -> [TcType] -> TcM ()
 improveEqualities left right
   | length left /= length right = pure ()
   | otherwise = zipWithM_ improveOne left right
   where
-    improveOne leftType rightType
-      | sameType leftType rightType = pure ()
-      | otherwise = void (unifyTypes leftType rightType)
+    improveOne rawLeft rawRight = do
+      leftType <- normalize rawLeft
+      rightType <- normalize rawRight
+      unless (sameType leftType rightType) $ do
+        cancelled <- improveCancellation leftType rightType
+        unless cancelled (void (unifyTypes leftType rightType))

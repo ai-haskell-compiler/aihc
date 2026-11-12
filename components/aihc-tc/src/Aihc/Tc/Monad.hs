@@ -72,6 +72,7 @@ module Aihc.Tc.Monad
     resolvedLocalTermKey,
     extendTermEnv,
     withRecBinders,
+    isRecBinder,
     rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
@@ -107,6 +108,7 @@ module Aihc.Tc.Monad
     getDefaultTypes,
     getOverloadedStrings,
     getUndecidableInstances,
+    withUndecidableInstances,
     deferKindMeta,
     takeDeferredKindMetas,
     isPolyKindOrigin,
@@ -786,6 +788,11 @@ withRecBinders binders action = do
     )
     action
 
+-- | Whether a variable is a variable of an enclosing recursive @do@ group
+-- that no statement of the group bound again yet.
+isRecBinder :: Entity -> TcM Bool
+isRecBinder key = asks (Set.member key . tcEnvRecBinders)
+
 rebindTermEnv :: Entity -> TcBinder -> TcM a -> TcM a
 rebindTermEnv key binder =
   local (\env -> env {tcEnvTerms = Map.insert key binder (tcEnvTerms env)})
@@ -1164,6 +1171,10 @@ getOverloadedStrings = asks tcEnvOverloadedStrings
 -- | Whether UndecidableInstances is on.
 getUndecidableInstances :: TcM Bool
 getUndecidableInstances = asks tcEnvUndecidableInstances
+
+-- | Check an action as if UndecidableInstances were on.
+withUndecidableInstances :: TcM a -> TcM a
+withUndecidableInstances = local (\env -> env {tcEnvUndecidableInstances = True})
 
 -- | Record a kind meta-variable whose defaulting is put off until the
 -- component is checked.

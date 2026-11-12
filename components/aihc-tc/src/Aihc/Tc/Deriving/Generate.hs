@@ -60,11 +60,12 @@ import Aihc.Tc.Annotations
   ( TcCoercedDeriving (..),
     TcDerivedInstance (..),
     TcDerivingAnnotation (..),
+    TcDerivingClauseInstance (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
 import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
@@ -154,7 +155,7 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                   surfaceContext = headerContext <> maybe [] snd polyKinded
               pure $
                 items <&> \generated ->
-                  markCoerced $
+                  markCoerced . markClause $
                     DeclAnn (mkAnnotation TcDerivedInstance) $
                       maybe id (DeclAnn . mkAnnotation) (genSpan gen) $
                         DeclInstance
@@ -167,6 +168,11 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                               instanceDeclItems = generated
                             }
   where
+    -- An instance from a deriving clause, not from a standalone deriving
+    -- declaration, gets the liberal coverage condition.
+    markClause declaration
+      | tcDerivingStandalone plan = declaration
+      | otherwise = DeclAnn (mkAnnotation TcDerivingClauseInstance) declaration
     -- Both strategies that coerce another instance need the plan again when
     -- the generated header is checked, to prove the casts of its methods.
     markCoerced declaration =
@@ -1046,7 +1052,14 @@ productIxItems gen constructor = do
 -- coerced.
 liftItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
 liftItems gen constructors = do
-  matches <- mapM constructorMatch constructors
+  matches <-
+    if null constructors
+      then do
+        -- An empty datatype has no constructor to match. As in GHC, @lift@
+        -- takes its argument apart with an empty case.
+        emptyValue <- freshLocal gen "x"
+        pure [simpleMatch gen [atPattern gen (PVar emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
+      else mapM constructorMatch constructors
   value <- freshLocal gen "x"
   pure
     [ methodBind gen "lift" matches,
@@ -1427,16 +1440,22 @@ associatedItems gen representation = do
     targetPosition = length heads - 1
     familyItem associated
       | Just targetPosition `notElem` atiClassParams associated = reject
-      | otherwise = case sequence (atiClassParams associated) of
-          Nothing -> reject
-          Just positions -> do
-            let sourceHeads = init heads <> [representation]
-                left = TcTyCon (atiTyCon associated) [heads !! position | position <- positions]
-                right = TcTyCon (atiTyCon associated) [sourceHeads !! position | position <- positions]
-            case (surfaceType (genSpan gen) left, surfaceType (genSpan gen) right) of
-              (Just lhs, Just rhs) -> pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix lhs rhs)))
-              _ -> reject
+      | otherwise =
+          case (familyArguments heads, familyArguments (init heads <> [representation])) of
+            (Just lhsArguments, Just rhsArguments) ->
+              pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix (familyType lhsArguments) (familyType rhsArguments))))
+            _ -> reject
       where
+        -- A family parameter that is not a class parameter, as the @a@ of
+        -- @type StM m a@, is a fresh variable on both sides of the equation.
+        familyArguments classArguments =
+          sequence
+            [ maybe (Just (TVar (mkUnqualifiedName NameVarId name))) (surfaceType (genSpan gen) . (classArguments !!)) position
+            | (position, name) <- zip (atiClassParams associated) extraNames
+            ]
+        familyType = foldl TApp (TCon (tyConNameSyntax (genSpan gen) (atiTyCon associated)) Unpromoted)
+        usedNames = map tvName (concatMap typeTyVars (representation : heads))
+        extraNames = filter (`notElem` usedNames) ["t" <> T.pack (show index) | index <- [0 :: Int ..]]
         reject = do
           emitError (genSpan gen) (OtherError "newtype deriving requires supported associated type parameters")
           pure Nothing
@@ -2084,6 +2103,11 @@ surfaceType sp ty =
           Just (TCon (tyConNameSyntax sp tyCon) Unpromoted)
       | tyConNamespace tyCon == ResolutionNamespaceTerm ->
           Just (TCon (tyConNameSyntax sp tyCon) Promoted)
+    -- A type-level literal, such as the help text of @String <?> "name"@.
+    TcTyLit literal -> Just $ case literal of
+      TyLitNat value -> natLiteral value
+      TyLitSymbol value -> symbolLiteral value
+      TyLitChar value -> TTypeLit (TypeLitChar value (T.pack (show value)))
     _ -> Nothing
 
 surfacePred :: Maybe SourceSpan -> Pred -> Maybe Type

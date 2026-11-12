@@ -1095,9 +1095,14 @@ rhsSourceSpan rhs =
 shouldGeneralizeLocal :: Set.Set Entity -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
   monoLocal <- tcMonoLocalBinds
+  -- A let statement of a recursive do group can bind a variable of the
+  -- group. The knot of the group gives that variable one type, thus the
+  -- binding is not generalized. GHC generalizes it and instantiates it
+  -- once at the knot, which gives the same type.
+  bindsRecVariable <- anyM isRecBinder (Set.toList binderSet)
   -- A strict binding is evaluated once, before the body, so it cannot be
   -- polymorphic. GHC does not generalize a group with a strict binding.
-  if any isStrictPatternBind decls
+  if bindsRecVariable || any isStrictPatternBind decls
     then pure False
     else
       if not monoLocal || any hasPartialTypeSig decls
@@ -1128,6 +1133,9 @@ isClosedVar key = do
     case binder of
       Just (TcIdBinder _ Closed) -> True
       _ -> False
+
+anyM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
+anyM p = fmap not . allM (fmap not . p)
 
 allM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
 allM p = foldM step True

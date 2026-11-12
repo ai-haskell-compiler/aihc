@@ -529,10 +529,25 @@ exportedScopeFor package exports extensions modu = \case
       where
         directMemberScope =
           case nameQualifier name of
-            Nothing -> availableScope
+            Nothing -> importedTypeFirst availableScope
             Just qualifier
-              | qualifier == moduleKey modu -> availableScope
+              | qualifier == moduleKey modu -> importedTypeFirst availableScope
               | otherwise -> exportSource name `unionScope` availableScope
+        -- The fields of an imported type are entities of the module that
+        -- declares the type. The module can declare duplicate fields with
+        -- the same labels: @Data.Bytes.Types@ of @byteslice@ re-exports
+        -- @Bytes (..)@ and declares @array@ for @MutableBytes@ too. The
+        -- label then names the selector of this module. Thus the members
+        -- that the imports give for a type that the module imports come
+        -- first. Only those members: a local data instance of an imported
+        -- family has its own fields, and an imported term with the name of
+        -- such a field must not replace it.
+        importedTypeFirst scope
+          | Map.notMember (nameText name) (scopeTypes ownScope),
+            Map.member (nameText name) (scopeTypes imported) =
+              emptyScope {scopeTerms = Map.restrictKeys (scopeTerms imported) (Set.fromList (allTypeMembers (nameText name) imported))}
+                `unionScope` scope
+          | otherwise = scope
 
     qualifiedMemberScopes name =
       case Map.lookup (nameText name) (scopeTypes (exportSource name)) of
