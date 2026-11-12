@@ -79,6 +79,6 @@ expected: |-
       (a{1} : sType) (b : k0). λ(x : tM1 k0 (tK1 k0 a{1}) b).
         (x ▷ axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b) ▷ axiom-co $ax$K1 @k0 @a{1} @b) @sType @a @tUnit) ((Λ(k0 : sType)
       (a{1} : sType) (b : k0). λ(x : a{1}).
-        (x ▷ sym (axiom-co $ax$K1 @k0 @a{1} @b)) ▷ sym (axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b)) @sType @a @tUnit)) ▷ tycon-co tIso (app-co (trans (trans (sym (app-co (app-co (refl tM1) (refl sType)) (app-co (refl (tK1 sType)) (refl a)))) (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a)))) ($co)) (refl tUnit)) (app-co (trans (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a))) ($co)) (refl tUnit)) (refl a) (refl a))
+        (x ▷ sym (axiom-co $ax$K1 @k0 @a{1} @b)) ▷ sym (axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b)) @sType @a @tUnit)) ▷ tycon-co tIso (app-co (trans (app-co (refl (tM1 sType)) (refl (tK1 sType a))) ($co)) (refl tUnit)) (app-co (trans (app-co (refl (tM1 sType)) (refl (tK1 sType a))) ($co)) (refl tUnit)) (refl a) (refl a))
 status: pass
 reason: A given equality relates the partial application M1 (K1 a) to Rep s. The arguments of M1 do not determine its kind argument. Before the fix, the type checker gave a kind proof with the kind variable of K1, and the desugarer gave the function of an application the kind of the application. The desugarer then stopped with an unbound runtime-representation variable.
