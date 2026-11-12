@@ -362,7 +362,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TStar {} ->
       knownType tcWiringTypeTyCon
     TApp f a -> do
-      function <- convertSurfaceTypeWithKinds tvEnv f
+      function <- convertApplicationHead tvEnv f
       applyOneArgument tvEnv function a
     TTypeApp {}
       | (TCon name _, kindArguments@(_ : _)) <- kindApplicationSpine ty -> do
@@ -637,6 +637,19 @@ applyKindArgument tvEnv instantiated argument = do
   expectedKind <- tcTypeKind instantiated
   argumentType <- checkSurfaceType tvEnv argument expectedKind
   unifyKindsAt (surfaceTypeSpan argument) instantiated argumentType
+
+-- | Convert the head of a type application.
+--
+-- A wildcard head, as in @LookupParam (a (_ m)) n@, stands for a type
+-- function. Its kind is not a kind of values, thus it gets a fresh kind
+-- and not the open @TYPE rep@ of a wildcard without an expectation.
+convertApplicationHead :: TvKindEnv -> Type -> TcM (TcType, TcType)
+convertApplicationHead tvEnv function
+  | isWildcardArgument function = do
+      kind <- freshKindMeta
+      meta <- checkSurfaceType tvEnv function kind
+      pure (meta, kind)
+  | otherwise = convertSurfaceTypeWithKinds tvEnv function
 
 -- | Whether an argument is a bare wildcard, once parentheses and source
 -- annotations are peeled off.

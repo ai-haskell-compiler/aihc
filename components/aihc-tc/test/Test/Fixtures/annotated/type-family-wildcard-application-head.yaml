@@ -1,0 +1,25 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Bool (..))
+    type family HasArgument (a :: k) :: Bool where
+      HasArgument (a (_ m)) = 'True
+      HasArgument a = 'False
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  type family HasArgument (a :: k) :: Bool where
+              └─ type: k → GHC.Types.Bool
+    HasArgument (a (_ m)) = 'True
+    HasArgument a = 'False
+reason: a wildcard at the head of a type application in a family equation
+  stands for a type function, thus its kind is a function kind and not a
+  kind of values
+status: pass
