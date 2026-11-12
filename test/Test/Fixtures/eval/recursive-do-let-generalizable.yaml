@@ -1,0 +1,22 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- The let statement binds a variable of the recursive group, and its
+    -- right-hand side alone has the type forall b. b -> Int.
+    knot :: Maybe [Int]
+    knot = mdo
+      xs <- Just (1 : map g xs)
+      let g = const (head xs)
+      return (take 3 xs)
+output: |
+  True
+expression: |
+  knot == Just [1, 1, 1]
+status: pass
+reason: a let statement of a recursive do group can bind a group variable whose right-hand side alone is polymorphic
