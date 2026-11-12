@@ -5185,6 +5185,46 @@ bindOpenResultKindVariables lhs lhsKind =
                   _ -> pure ()
       _ -> pure ()
 
+-- | Bind each open kind meta-variable that an equation gives a kind
+-- variable of its family to that variable. While the equations of a closed
+-- family infer its kind, the kind is monomorphic in the equations, as in
+-- GHC. Each equation instantiates the kind of the family again, and
+-- without this binding the result kind comes from the instance and not
+-- from the family. @type family Snd (a :: (k1, k2)) where Snd '(x, y) = y@
+-- then gets the kind @(k1, k2) -> k0@ and not @(k1, k2) -> k2@.
+-- A meta that the equation solves stays as it is: the equation is at that
+-- kind.
+bindFamilyKindVariables :: TcType -> TcM ()
+bindFamilyKindVariables lhs =
+  forM_ (typeFamilyApplicationHead lhs) $ \familyTyCon -> do
+    maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
+    case maybeFamilyInfo of
+      Just familyInfo
+        | tciFlavor familyInfo == TypeFamilyTyCon,
+          ForAll variables _ body <- tciKindScheme familyInfo -> do
+            let (parameters, _) = splitKindArrows (tyConArity (tciTyCon familyInfo)) body
+                arguments = take (length parameters) (familyApplicationArguments lhs)
+            argumentKinds <- mapM (zonkKind <=< tcTypeKind) arguments
+            forM_ (matchTypes (take (length argumentKinds) parameters) argumentKinds) $ \values ->
+              forM_ variables $ \variable ->
+                forM_ (Map.lookup (tvUnique variable) values) $ \value -> do
+                  zonked <- zonkKind value
+                  case zonked of
+                    TcMetaTv meta -> do
+                      solution <- readMetaTv meta
+                      when (isNothing solution) $ do
+                        -- The kind of the family variable can still be a
+                        -- meta here. Both kinds are the same kind.
+                        unifyKinds (tvKind variable) =<< readMetaTvKind meta
+                        writeMetaTv meta (TcTyVar variable)
+                    _ -> pure ()
+      _ -> pure ()
+  where
+    familyApplicationArguments ty =
+      case collectTypeApplications ty of
+        (TcTyCon _ headArguments, arguments) -> headArguments <> arguments
+        (_, arguments) -> arguments
+
 registerTypeFamilyInstance :: (Text, Text) -> TypeFamilyInst -> TcM [TcBindingResult]
 registerTypeFamilyInstance origin familyInst = do
   registerTypeFamilyEquation origin False (typeFamilyInstForall familyInst) (typeFamilyInstEquation familyInst)
@@ -5221,7 +5261,11 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
   -- gives that kind, and reading the right-hand side against it keeps a
   -- poly-kinded family open as well.
   (rawLhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
+  -- A family kind that still has metas is a kind that its equations
+  -- infer. Read it before the right side can solve these metas.
+  inferredKindMetas <- maybe (pure []) tyConKindMetas (typeFamilyApplicationHead rawLhs)
   rawRhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) =<< zonkKind lhsKind
+  when (isClosed && not (null inferredKindMetas)) (bindFamilyKindVariables rawLhs)
   bindOpenResultKindVariables rawLhs lhsKind
   -- A wildcard on the left stands for an argument the equation does not
   -- name, which is a variable of the equation like any other: @Assert _

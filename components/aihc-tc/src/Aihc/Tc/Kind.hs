@@ -37,6 +37,7 @@ module Aihc.Tc.Kind
     runtimeRepOrLifted,
     tcTypeKind,
     kindedTyConAt,
+    kindedPartialTyCon,
     kindedTyConUse,
     refineGivenTyVarKinds,
     unifyKinds,
@@ -985,7 +986,20 @@ kindedTyConUse info = do
 -- A bare promoted data constructor without visible parameters, as @'[]@,
 -- also gets them. No argument gives its kind arguments later.
 kindedTyConAt :: TcType -> TcType -> TcM TcType
-kindedTyConAt useKind ty =
+kindedTyConAt useKind ty = do
+  found <- kindedPartialTyCon ty
+  case found of
+    Just (applied, resultKind) -> do
+      unifyKinds useKind resultKind
+      pure applied
+    Nothing -> pure ty
+
+-- | The partial type constructor application with fresh kind arguments,
+-- and its kind. The caller must unify that kind with the kind of the use.
+-- 'Nothing' when the type is not a partial application of a poly-kinded
+-- type constructor.
+kindedPartialTyCon :: TcType -> TcM (Maybe (TcType, TcType))
+kindedPartialTyCon ty =
   case ty of
     TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -996,10 +1010,9 @@ kindedTyConAt useKind ty =
               (kinded, kind) <- kindedTyConUse info
               let applied = foldl mkAppTy kinded arguments
               resultKind <- if null arguments then pure kind else tcTypeKind applied
-              unifyKinds useKind resultKind
-              pure applied
-        _ -> pure ty
-    _ -> pure ty
+              pure (Just (applied, resultKind))
+        _ -> pure Nothing
+    _ -> pure Nothing
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = snd <$> kindedTyConUse info
