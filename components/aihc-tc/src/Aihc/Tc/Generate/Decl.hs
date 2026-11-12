@@ -4324,6 +4324,14 @@ registerStructuralDecl origin (DeclTypeFamilyDecl familyDecl) = registerClosedTy
 registerStructuralDecl origin (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance origin familyInst
 registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
 registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
+-- A derived instance takes its context from the instance that it coerces
+-- or from the fields of the type. GHC checks the functional dependencies
+-- of such an instance with the liberal coverage condition, also without
+-- UndecidableInstances: @newtype MFSolverT v n m a = ... deriving
+-- (MonadReader s)@ has the context @MonadReader s m@, which gives @s@ from
+-- @m@.
+registerStructuralDecl origin (DeclAnn ann inner)
+  | isDerivedInstanceAnn ann = withUndecidableInstances (registerStructuralDecl origin inner)
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl _ _ = pure []
 
