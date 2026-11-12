@@ -88,6 +88,6 @@ expected: |-
       (a{1} : sType) (b : k0). λ(x{1} : tM1 k0 (tK1 k0 a{1}) b).
         (x{1} ▷ axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b) ▷ axiom-co $ax$K1 @k0 @a{1} @b) @sType @a @tUnit) ((Λ(k0 : sType)
       (a{1} : sType) (b : k0). λ(x{1} : a{1}).
-        (x{1} ▷ sym (axiom-co $ax$K1 @k0 @a{1} @b)) ▷ sym (axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b)) @sType @a @tUnit) x) ▷ fun-co (app-co (trans (trans (sym (app-co (app-co (refl tM1) (refl sType)) (app-co (refl (tK1 sType)) (refl a)))) (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a)))) ($co)) (refl tUnit)) (app-co (refl f) (app-co (trans (app-co (refl (tM1 sType)) (app-co (refl (tK1 sType)) (refl a))) ($co)) (refl tUnit))))
+        (x{1} ▷ sym (axiom-co $ax$K1 @k0 @a{1} @b)) ▷ sym (axiom-co $ax$M1 @k0 @(tK1 k0 a{1}) @b)) @sType @a @tUnit) x) ▷ fun-co (app-co (trans (app-co (refl (tM1 sType)) (refl (tK1 sType a))) ($co)) (refl tUnit)) (app-co (refl f) (app-co (trans (app-co (refl (tM1 sType)) (refl (tK1 sType a))) ($co)) (refl tUnit))))
 status: pass
 reason: The coercion for the given equality M1 (K1 a) ~ Rep s is under an arrow, thus the place of the coercion gives no kind. The kind arguments of M1 come from a side of the coercion. Before the fix, the desugarer stopped with an unbound runtime-representation variable.
