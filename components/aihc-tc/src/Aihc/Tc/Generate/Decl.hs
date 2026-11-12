@@ -5157,7 +5157,14 @@ registerClosedTypeFamilyEquations origin familyDecl =
 -- kind defaults to 'Type', and the equation only holds at @NP \@Type@.
 -- A representation is not bound here: it defaults to lifted, as GHC
 -- defaults it.
+--
+-- A left side with explicit kind arguments, as the nullary @F@ of @type
+-- instance F = C@ for @type family F :: k -> Constraint@, already names
+-- each kind variable of the family by its own kind argument. That
+-- argument is generalized with the other variables of the equation.
 bindOpenResultKindVariables :: TcType -> TcType -> TcM ()
+bindOpenResultKindVariables lhs _
+  | hasExplicitKindArguments lhs = pure ()
 bindOpenResultKindVariables lhs lhsKind =
   forM_ (typeFamilyApplicationHead lhs) $ \familyTyCon -> do
     maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
