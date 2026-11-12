@@ -1,0 +1,37 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Control.Monad (forever)
+    import Data.Semigroup (cycle1, mtimesDefault)
+    import GHC.Base (asTypeOf, maxInt, minInt, ($!))
+    import GHC.ExecutionStack (getStackTrace, showStackTrace)
+    import GHC.Num (subtract)
+    import GHC.Stack (currentCallStack)
+    import Prelude
+
+    infinitely :: (Applicative f) => f a -> f b
+    infinitely = forever
+
+    main = do
+      trace <- getStackTrace
+      shown <- showStackTrace
+      costCentres <- currentCallStack
+      print
+        ( mtimesDefault (3 :: Int) "ab"
+        , mtimesDefault (0 :: Int) "ab"
+        , take 5 (cycle1 "ab")
+        , subtract 3 (10 :: Int)
+        , maxInt == maxBound
+        , minInt == minBound
+        , (succ $! (1 :: Int)) `asTypeOf` 0
+        , null <$> trace
+        , shown
+        , costCentres
+        )
+expression: main
+stdout: |
+  ("ababab","","ababa",7,True,True,2,Nothing,Nothing,[])
+output: ()
+status: pass
+reason: relude imports these names from base modules. forever needs only Applicative, as in GHC.
