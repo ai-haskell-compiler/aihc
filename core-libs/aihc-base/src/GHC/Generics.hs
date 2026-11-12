@@ -1130,6 +1130,66 @@ type MetaGenerics (n :: Symbol) (newtype_ :: Bool) = ('MetaData n "GHC.Internal.
 
 type MetaField (n :: Symbol) = ('MetaSel ('Just n) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy :: Meta)
 
+instance Generic (URec (Ptr ()) p) where
+  type
+    Rep (URec (Ptr ()) p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UAddr" 'PrefixI 'True :: Meta) (S1 (MetaField "uAddr#") (URec (Ptr ()))))
+  from (UAddr value) = M1 (M1 (M1 (UAddr value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UAddr value -> UAddr value
+
+instance Generic (URec Char p) where
+  type
+    Rep (URec Char p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UChar" 'PrefixI 'True :: Meta) (S1 (MetaField "uChar#") (URec Char)))
+  from (UChar value) = M1 (M1 (M1 (UChar value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UChar value -> UChar value
+
+instance Generic (URec Double p) where
+  type
+    Rep (URec Double p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UDouble" 'PrefixI 'True :: Meta) (S1 (MetaField "uDouble#") (URec Double)))
+  from (UDouble value) = M1 (M1 (M1 (UDouble value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UDouble value -> UDouble value
+
+instance Generic (URec Float p) where
+  type
+    Rep (URec Float p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UFloat" 'PrefixI 'True :: Meta) (S1 (MetaField "uFloat#") (URec Float)))
+  from (UFloat value) = M1 (M1 (M1 (UFloat value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UFloat value -> UFloat value
+
+instance Generic (URec Int p) where
+  type
+    Rep (URec Int p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UInt" 'PrefixI 'True :: Meta) (S1 (MetaField "uInt#") (URec Int)))
+  from (UInt value) = M1 (M1 (M1 (UInt value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UInt value -> UInt value
+
+instance Generic (URec Word p) where
+  type
+    Rep (URec Word p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UWord" 'PrefixI 'True :: Meta) (S1 (MetaField "uWord#") (URec Word)))
+  from (UWord value) = M1 (M1 (M1 (UWord value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UWord value -> UWord value
+
 instance Generic (V1 p) where
   type Rep (V1 p) = D1 (MetaGenerics "V1" 'False) V1
   from x = case x of {}
