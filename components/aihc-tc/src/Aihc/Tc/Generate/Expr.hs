@@ -249,17 +249,16 @@ inferTemplateHaskellQuote sp expr =
       ev <- freshEvVar
       pure (mkWantedCt (EqPred spliceTy (TcAppTy monad resultTy)) ev (AppOrigin sp) sp : cts)
 
--- | The splice expressions in the body of an untyped quote.
+-- | The splice expressions in the body of an untyped expression quote.
 --
 -- The search does not go into a nested quote, because the splices of a
--- nested quote are at a different level.
+-- nested quote are at a different level. The resolver does not resolve the
+-- body of a declaration, type, or pattern quote. Thus the search does not
+-- examine these quotes.
 untypedQuoteSplices :: Expr -> [Expr]
 untypedQuoteSplices expr =
   case peelExprAnn expr of
     ETHExpQuote body -> quoteBodySplices body
-    ETHDeclQuote decls -> concatMap quoteBodySplices decls
-    ETHTypeQuote ty -> quoteBodySplices ty
-    ETHPatQuote pat -> quoteBodySplices pat
     _ -> []
 
 quoteBodySplices :: (Data a) => a -> [Expr]
