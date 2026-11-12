@@ -14,8 +14,8 @@ module Control.Exception
 where
 
 import Control.Exception.Base
-import GHC.Base (Applicative (..), Functor (..), (.))
 import GHC.IO (catchException)
+import GHC.Internal.Base (Applicative (..), Functor (..), (.))
 import GHC.Internal.Exception.Type (ExceptionWithContext (..), someExceptionContext)
 import GHC.Prim.IO (IO)
 import Prelude (Either (..), foldr, maybe)

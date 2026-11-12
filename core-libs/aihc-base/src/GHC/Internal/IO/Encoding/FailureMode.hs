@@ -6,9 +6,9 @@ module GHC.Internal.IO.Encoding.FailureMode
   )
 where
 
-import GHC.Base (String, (++))
 import GHC.IO.Encoding.Failure (CodingFailureMode (..), codingFailureModeSuffix)
 import GHC.IO.Encoding.Types (TextEncoding)
+import GHC.Internal.Base (String, (++))
 import GHC.Internal.IO.Encoding.Codec (nameOnlyEncoding)
 
 -- | An encoding that is only its name and the suffix of a failure mode.

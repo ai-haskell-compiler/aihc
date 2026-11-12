@@ -37,7 +37,7 @@ main =
             assertBool "the use resolves" (not ("unresolved" `T.isInfixOf` output)),
           testCase "names reaches the Prelude of aihc-base" $ do
             output <- run getSession CommandNames "double xs = map (\\x -> x + x) xs"
-            assertBool "map comes from GHC.Base" ("\"module\":\"GHC.Base\", \"name\":\"map\"" `T.isInfixOf` output),
+            assertBool "map comes from GHC.Internal.Base" ("\"module\":\"GHC.Internal.Base\", \"name\":\"map\"" `T.isInfixOf` output),
           testCase "types adds the inferred signature" $ do
             output <- run getSession CommandTypes "x = ()"
             assertBool "the signature goes above the binding" ("x :: ()\\nx = ()" `T.isInfixOf` output),

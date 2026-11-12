@@ -44,6 +44,7 @@ extractHiCompareTests =
           [ testCase "counts matching exported interface facts" test_coreLibProgressCountsMatches,
             testCase "extracts source package exports" test_coreLibProgressExtractsSourcePackage,
             testCase "rejects exported source values without signatures" test_coreLibProgressRejectsMissingSourceSignature,
+            testCase "follows source re-exports of package modules" test_coreLibProgressFollowsSourceReexports,
             testCase "resolves base re-exported value types" (test_coreLibProgressResolvesReexportedTypes getCoreLibs),
             testCase "counts missing candidate exports as failures" test_coreLibProgressCountsMissingExports,
             testCase "rejects changed value types and type kinds" test_coreLibProgressRejectsChangedSignatures,
@@ -118,6 +119,25 @@ test_coreLibProgressExtractsSourcePackage =
         assertEqual "types" [ExportedType "Bool" "<unspecified-source-kind>" ["False", "True"]] (miTypes modIface)
         assertEqual "fixities" [FixityInfo "&&" InfixR 3] (miFixities modIface)
       _ -> assertFailure ("expected one source module, got " <> show (piModules iface))
+
+test_coreLibProgressFollowsSourceReexports :: Assertion
+test_coreLibProgressFollowsSourceReexports =
+  withTempDir "core-libs-progress-source-reexports" $ \root -> do
+    let srcDir = root </> "src" </> "Data"
+    createDirectoryIfMissing True srcDir
+    writeFile (root </> "demo-base.cabal") demoReexportCabal
+    writeFile (srcDir </> "Bool.hs") demoBoolSource
+    writeFile (srcDir </> "Base.hs") (unlines ["module Data.Base (Bool (..), not) where", "import Data.Bool"])
+    writeFile (srcDir </> "Prelude.hs") (unlines ["module Data.Prelude (module Data.Bool) where", "import Data.Bool hiding (not)"])
+    iface <- extractSourcePackage root "demo-base"
+    case piModules iface of
+      [base, prelude] -> do
+        assertEqual "explicit re-export values" [ExportedValue "not" "Bool -> Bool"] (miValues base)
+        assertEqual "explicit re-export types" [ExportedType "Bool" "<unspecified-source-kind>" ["False", "True"]] (miTypes base)
+        assertEqual "explicit re-export fixities" [] (miFixities base)
+        assertEqual "module re-export values" [ExportedValue "&&" "Bool -> Bool -> Bool"] (miValues prelude)
+        assertEqual "module re-export fixities" [FixityInfo "&&" InfixR 3] (miFixities prelude)
+      _ -> assertFailure ("expected two source modules, got " <> show (piModules iface))
 
 test_coreLibProgressRejectsMissingSourceSignature :: Assertion
 test_coreLibProgressRejectsMissingSourceSignature =
@@ -367,7 +387,51 @@ knownCoreLibApiDivergences =
     "GHC.Prim.stmActive#",
     "GHC.Prim.stmBegin#",
     "GHC.Prim.stmCommit#",
-    "GHC.Prim.unsafeCoerce#"
+    "GHC.Prim.unsafeCoerce#",
+    -- The extractor follows re-exports since the GHC.Base re-export change.
+    -- These names were already exported. The extractor did not see them before.
+    "GHC.PrimopWrappers.fixity:*#",
+    "GHC.PrimopWrappers.fixity:+#",
+    "GHC.PrimopWrappers.fixity:-#",
+    "GHC.PrimopWrappers.fixity:/=#",
+    "GHC.PrimopWrappers.fixity:<#",
+    "GHC.PrimopWrappers.fixity:<=#",
+    "GHC.PrimopWrappers.fixity:==#",
+    "GHC.PrimopWrappers.fixity:>#",
+    "GHC.PrimopWrappers.fixity:>=#",
+    "Control.Exception.Base.interruptible",
+    "Data.Semigroup.:|",
+    "Data.Semigroup.NonEmpty",
+    "GHC.Conc.fromThreadId",
+    "GHC.Conc.modifyMVar_",
+    "GHC.Conc.showThreadId",
+    "GHC.Conc.threadLabel",
+    "GHC.Exts.I16#",
+    "GHC.Exts.I32#",
+    "GHC.Exts.I64#",
+    "GHC.Exts.I8#",
+    "GHC.Exts.Int16",
+    "GHC.Exts.Int32",
+    "GHC.Exts.Int64",
+    "GHC.Exts.Int8",
+    "GHC.Exts.W16#",
+    "GHC.Exts.W32#",
+    "GHC.Exts.W64#",
+    "GHC.Exts.W8#",
+    "GHC.Exts.Word16",
+    "GHC.Exts.Word32",
+    "GHC.Exts.Word64",
+    "GHC.Exts.Word8",
+    "GHC.IO.Encoding.CodeBuffer",
+    "GHC.IO.Encoding.DecodeBuffer",
+    "GHC.IO.Encoding.EncodeBuffer",
+    "GHC.IO.Encoding.latin1_checked",
+    "GHC.IO.Handle.hGetBufSome",
+    "GHC.IO.Handle.hPutStrLn",
+    "Prelude.%",
+    "Prelude.denominator",
+    "Prelude.numerator",
+    "Prelude.fixity:%"
   ]
 
 test_coreLibsHaveOnlyKnownDivergences :: IO CoreLibs -> Assertion
@@ -457,6 +521,20 @@ demoBaseCabal =
       "build-type: Simple",
       "library",
       "  exposed-modules: Data.Bool",
+      "  hs-source-dirs: src",
+      "  default-language: GHC2021"
+    ]
+
+demoReexportCabal :: String
+demoReexportCabal =
+  unlines
+    [ "cabal-version: 3.8",
+      "name: demo-base",
+      "version: 0.1.0.0",
+      "build-type: Simple",
+      "library",
+      "  exposed-modules: Data.Base, Data.Prelude",
+      "  other-modules: Data.Bool",
       "  hs-source-dirs: src",
       "  default-language: GHC2021"
     ]

@@ -21,10 +21,10 @@ import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
-import GHC.Base (Maybe (..), String, id, seq, (++), (.))
-import GHC.Base qualified
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..))
+import GHC.Internal.Base (Maybe (..), String, id, seq, (++), (.))
+import GHC.Internal.Base qualified as GHC.Base
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))

@@ -48,8 +48,8 @@ where
 import Data.Bool (Bool (..), (&&), (||))
 import Data.Proxy (Proxy (..))
 import Data.Type.Equality (TestEquality (..), (:~:) (..), (:~~:) (..))
-import GHC.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Classes qualified
+import GHC.Internal.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Magic.Dict (withDict)
 import GHC.Num qualified

@@ -9,9 +9,9 @@ module GHC.Internal.IO.Encoding.Codec
 where
 
 import Data.Maybe (Maybe (..))
-import GHC.Base (String, (++))
 import GHC.IO (IO, throwIO)
 import GHC.IO.Encoding.Types (BufferCodec, TextEncoding (..))
+import GHC.Internal.Base (String, (++))
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..))
 
 -- | An encoding that is only its name.

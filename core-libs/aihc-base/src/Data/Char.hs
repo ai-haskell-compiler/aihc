@@ -37,8 +37,8 @@ module Data.Char
   )
 where
 
-import GHC.Base (ord)
 import GHC.Char (chr)
+import GHC.Internal.Base (ord)
 import GHC.Read (lexLitChar, readLitChar)
 import GHC.Show (intToDigit, showLitChar)
 import GHC.Unicode

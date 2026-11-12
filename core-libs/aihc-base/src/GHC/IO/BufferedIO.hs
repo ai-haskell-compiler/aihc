@@ -11,10 +11,10 @@ module GHC.IO.BufferedIO
 where
 
 import Data.Maybe (Maybe (..))
-import GHC.Base (Monad (..), ($))
 import GHC.IO (IO)
 import GHC.IO.Buffer (Buffer (..), bufferAvailable, bufferElems, withBuffer)
 import GHC.Int (Int)
+import GHC.Internal.Base (Monad (..), ($))
 import GHC.Internal.IO.Types (BufferedIO (..), RawIO (..))
 import GHC.Num (Num (..))
 import GHC.Ptr (plusPtr)

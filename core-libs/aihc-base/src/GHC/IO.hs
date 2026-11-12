@@ -40,9 +40,9 @@ module GHC.IO
   )
 where
 
-import GHC.Base (Maybe (..), Monad (..), String, id)
 import GHC.Exception.Type (Exception (..), SomeException (..))
 import GHC.IO.Unsafe (unsafeDupableInterleaveIO, unsafeDupablePerformIO, unsafeInterleaveIO, unsafePerformIO)
+import GHC.Internal.Base (Maybe (..), Monad (..), String, id)
 import GHC.Prim (RealWorld, State#, catch#, getMaskingState#, maskAsyncExceptions#, maskUninterruptible#, noDuplicate#, raiseIO#, seq, unmaskAsyncExceptions#, unsafeCoerce#)
 import GHC.Prim.IO
 

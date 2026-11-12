@@ -11,9 +11,9 @@ where
 
 import Data.Data (Data (..), mkNoRepType)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (id, (.))
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Err (errorWithoutStackTrace)
+import GHC.Internal.Base (id, (.))
 import GHC.IsList (IsList (..))
 import GHC.Num (Num (..))
 import GHC.Prim (ByteArray#, Int#, MutableByteArray#, compareByteArrays#, copyByteArray#, indexWord8Array#, newByteArray#, quotInt#, remInt#, sizeofByteArray#, unsafeFreezeByteArray#, word2Int#, word8ToWord#, writeWord8Array#, (+#), (-#), (<#), (==#))

@@ -263,6 +263,7 @@ library
     GHC.IO.Handle.Lock.Descriptor
     GHC.IO.Runtime
     GHC.IO.Runtime.Open
+    GHC.Internal.Base
     GHC.Internal.Char
     GHC.Internal.Classes
     GHC.Internal.Data.NonEmpty

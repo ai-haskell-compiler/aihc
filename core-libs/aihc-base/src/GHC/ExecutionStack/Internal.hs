@@ -4,8 +4,8 @@ module GHC.ExecutionStack.Internal
   )
 where
 
-import GHC.Base (Maybe, String)
 import GHC.Int (Int)
+import GHC.Internal.Base (Maybe, String)
 
 -- | A location in the source code.
 data SrcLoc = SrcLoc

@@ -28,9 +28,9 @@ module GHC.Unicode
 where
 
 import Data.Maybe (fromMaybe)
-import GHC.Base (ord)
 import GHC.Enum (boundedEnumFrom, boundedEnumFromThen, toEnumError)
 import GHC.Int (Int (..))
+import GHC.Internal.Base (ord)
 import GHC.Ix (Ix (..), indexError)
 import GHC.Prim (Int#)
 import GHC.Prim.Unicode

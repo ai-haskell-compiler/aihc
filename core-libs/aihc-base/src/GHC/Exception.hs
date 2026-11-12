@@ -17,7 +17,6 @@ module GHC.Exception
   )
 where
 
-import GHC.Base (String, (++))
 import GHC.Exception.Type
   ( ArithException (..),
     Exception (..),
@@ -27,6 +26,7 @@ import GHC.Exception.Type
     ratioZeroDenomException,
     underflowException,
   )
+import GHC.Internal.Base (String, (++))
 import GHC.Internal.Stack (prettyCallStack, prettyCallStackLines)
 import GHC.Prim (raise#)
 import GHC.Prim.Show (Show (..), ShowS)

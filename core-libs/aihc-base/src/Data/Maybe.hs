@@ -12,8 +12,8 @@ module Data.Maybe
   )
 where
 
-import GHC.Base (Maybe (..))
 import GHC.Err (errorWithoutStackTrace)
+import GHC.Internal.Base (Maybe (..))
 import GHC.Types (Bool (..))
 
 maybe :: b -> (a -> b) -> Maybe a -> b

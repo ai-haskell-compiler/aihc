@@ -7,9 +7,9 @@ module GHC.IOArray
 where
 
 import GHC.Arr (Ix, STArray, newSTArray, unsafeReadSTArray, unsafeWriteSTArray)
-import GHC.Base (Functor (fmap))
 import GHC.IO (IO, stToIO)
 import GHC.Int (Int)
+import GHC.Internal.Base (Functor (fmap))
 import GHC.Prim (RealWorld)
 
 newtype IOArray i e = IOArray (STArray RealWorld i e)

@@ -16,9 +16,9 @@ module GHC.IO.Encoding.Types
   )
 where
 
-import GHC.Base (String)
 import GHC.IO (IO)
 import GHC.IO.Buffer (Buffer, CharBufElem)
+import GHC.Internal.Base (String)
 import GHC.Internal.Classes (Eq (..))
 import GHC.Show (Show (..))
 import GHC.Word (Word8)

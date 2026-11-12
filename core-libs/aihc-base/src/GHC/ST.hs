@@ -13,9 +13,9 @@ module GHC.ST
   )
 where
 
-import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.IO (ST (..))
+import GHC.Internal.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.Prim (RealWorld, State#, newMutVar#, noDuplicate#, readMutVar#, realWorld#, writeMutVar#)
 import GHC.Prim.MonadFix (MonadFix (..))
 import GHC.Show (Show (..), showString)

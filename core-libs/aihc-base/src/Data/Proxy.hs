@@ -2,8 +2,8 @@
 
 module Data.Proxy (Proxy (..), asProxyTypeOf) where
 
-import GHC.Base (Functor (..))
 import GHC.Classes (Eq (..), Ord (..))
+import GHC.Internal.Base (Functor (..))
 import GHC.Types (Bool (..), Ordering (..))
 
 -- | Written as GHC writes it, with the kind of @t@ left to inference: the

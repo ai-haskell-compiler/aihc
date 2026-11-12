@@ -63,7 +63,7 @@ primTcConfig prim =
 -- @GHC.Types@, which also holds the list, the arrow, the kinds, and the
 -- equality constraint. The unlifted primitives live in @GHC.Prim@, the
 -- implicit-parameter constraints in @GHC.Classes@, and the application
--- operator in @GHC.Base@. The Template Haskell @Lift@ class lives in
+-- operator in @GHC.Internal.Base@. The Template Haskell @Lift@ class lives in
 -- aihc-internal, the standin for ghc-internal, as it does in GHC 9.12
 -- and later.
 --

@@ -12,7 +12,7 @@ module Data.Either
 where
 
 import Data.Bool (Bool (..))
-import GHC.Base (List (..))
+import GHC.Internal.Base (List (..))
 
 data Either a b = Left a | Right b
 

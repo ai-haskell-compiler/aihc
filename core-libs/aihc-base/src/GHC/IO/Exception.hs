@@ -34,9 +34,9 @@ where
 import Data.Bool (Bool (..))
 import Data.Maybe (Maybe (..))
 import Data.Typeable.Internal (cast)
-import GHC.Base (String, (.))
 import GHC.Exception.Type (Exception (..), SomeException)
 import GHC.Int (Int)
+import GHC.Internal.Base (String, (.))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types
   ( IOErrorType (..),

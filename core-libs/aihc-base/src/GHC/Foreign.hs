@@ -15,9 +15,9 @@ where
 
 import Foreign.C.String (CString, CStringLen)
 import Foreign.C.String qualified as C
-import GHC.Base (String)
 import GHC.IO (IO)
 import GHC.IO.Encoding (TextEncoding, textEncodingName)
+import GHC.Internal.Base (String)
 import Prelude (Bool, Eq (..), otherwise, (||))
 
 peekCString :: TextEncoding -> CString -> IO String

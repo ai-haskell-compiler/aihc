@@ -39,7 +39,7 @@ where
 
 import Data.Proxy (Proxy (..))
 import Data.Type.Equality ((:~:) (..), (:~~:) (..))
-import GHC.Base (Maybe (..))
+import GHC.Internal.Base (Maybe (..))
 import GHC.Internal.Classes (Eq (..))
 import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Types (Bool (..), Int (..), Type)

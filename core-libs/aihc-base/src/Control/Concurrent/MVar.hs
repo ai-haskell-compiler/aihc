@@ -29,8 +29,8 @@ module Control.Concurrent.MVar
   )
 where
 
-import GHC.Base (Monad (..))
 import GHC.IO (IO (..), evaluate, mask, mask_, onException, unIO)
+import GHC.Internal.Base (Monad (..))
 import GHC.MVar
   ( MVar (..),
     addMVarFinalizer,

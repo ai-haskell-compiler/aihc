@@ -42,11 +42,11 @@ where
 
 import Data.Bool (Bool (..), (&&))
 import Foreign.Storable (Storable (..))
-import GHC.Base (Monad (..), String, ($), (++))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.ForeignPtr (ForeignPtr, castForeignPtr, mallocForeignPtrBytes, unsafeWithForeignPtr, withForeignPtr)
 import GHC.IO (IO)
 import GHC.Int (Int)
+import GHC.Internal.Base (Monad (..), String, ($), (++))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
 import GHC.Ptr (Ptr, castPtr, plusPtr)

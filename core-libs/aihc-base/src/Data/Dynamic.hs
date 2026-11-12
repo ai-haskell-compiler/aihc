@@ -25,8 +25,8 @@ module Data.Dynamic
 where
 
 import Data.Type.Equality ((:~~:) (..))
-import GHC.Base (Maybe (..), (++), (.))
 import GHC.Err (errorWithoutStackTrace)
+import GHC.Internal.Base (Maybe (..), (++), (.))
 import GHC.Internal.Exception.Type (Exception)
 import GHC.Show (Show (..), showString, shows)
 import GHC.Types (Type)

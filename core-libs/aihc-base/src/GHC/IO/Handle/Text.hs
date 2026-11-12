@@ -25,7 +25,6 @@ where
 import Data.Bool (Bool (..), not, (&&))
 import Data.Maybe (Maybe (..), maybe)
 import Foreign.Marshal.Utils (copyBytes)
-import GHC.Base (Monad (..), String, otherwise, ($), (++), (.))
 import GHC.Char (chr)
 import GHC.IO (IO (..))
 import GHC.IO.Buffer
@@ -54,6 +53,7 @@ import GHC.IO.Handle.Internals
 import GHC.IO.Unsafe (unsafeInterleaveIO)
 import GHC.IORef (readIORef, writeIORef)
 import GHC.Int (Int (..))
+import GHC.Internal.Base (Monad (..), String, otherwise, ($), (++), (.))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Handle.Read (fillIfEmpty, readByte, readUtf8Char)
 import GHC.Internal.IO.Types

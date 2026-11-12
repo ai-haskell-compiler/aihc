@@ -30,7 +30,6 @@ module GHC.IO.Encoding
   )
 where
 
-import GHC.Base (Applicative (..), String)
 import GHC.IO (IO)
 import GHC.IO.Encoding.Latin1 (latin1, latin1_checked)
 import GHC.IO.Encoding.Types
@@ -46,6 +45,7 @@ import GHC.IO.Encoding.Types
 import GHC.IO.Encoding.UTF16 (utf16, utf16be, utf16le)
 import GHC.IO.Encoding.UTF32 (utf32, utf32be, utf32le)
 import GHC.IO.Encoding.UTF8 (utf8, utf8_bom)
+import GHC.Internal.Base (Applicative (..), String)
 import GHC.Internal.IO.Encoding.Codec (nameOnlyEncoding)
 
 char8 :: TextEncoding

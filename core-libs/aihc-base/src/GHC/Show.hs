@@ -24,10 +24,10 @@ module GHC.Show
 where
 
 import Data.Bool (Bool (..), (&&))
-import GHC.Base (Maybe (..), String, id, (++), (.))
 import GHC.Char (chr)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Base (Maybe (..), String, id, (++), (.))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))

@@ -1,0 +1,15 @@
+modules:
+  - |
+    {-# LANGUAGE NoImplicitPrelude #-}
+
+    module Test where
+
+    import GHC.Base
+
+    result :: Bool
+    result = mconcat ["a", "b" <> "c", mempty] == "abc"
+expression: result
+output: |
+  True
+status: pass
+reason: GHC.Base re-exports Semigroup and Monoid, thus a NoImplicitPrelude module gets mconcat and (<>) from GHC.Base.

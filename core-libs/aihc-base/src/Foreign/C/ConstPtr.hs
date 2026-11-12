@@ -9,8 +9,8 @@ module Foreign.C.ConstPtr
   )
 where
 
-import GHC.Base ((.))
 import GHC.Classes (Eq (..), Ord (..))
+import GHC.Internal.Base ((.))
 import GHC.Ptr (Ptr)
 import GHC.Show (Show (..), showParen, showString)
 

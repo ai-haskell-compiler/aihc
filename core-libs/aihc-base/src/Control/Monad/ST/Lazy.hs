@@ -15,9 +15,9 @@ module Control.Monad.ST.Lazy
   )
 where
 
-import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.IO (IO)
 import GHC.IO qualified as Strict (stToIO)
+import GHC.Internal.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.Prim (RealWorld)
 import GHC.Prim.MonadFix (MonadFix)
 import GHC.ST qualified as Strict

@@ -24,7 +24,7 @@ import Control.Arrow (Arrow (..), ArrowPlus (..), ArrowZero (..), Kleisli (..), 
 import Data.Bits (Bits)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import Foreign.Storable (Storable (..))
-import GHC.Base (Alternative (..))
+import GHC.Internal.Base (Alternative (..))
 import GHC.List (drop)
 import GHC.Ptr (castPtr)
 import Prelude (Applicative (..), Bounded, Enum, Eq (..), Floating, Foldable (..), Fractional, Functor (..), Integral, Maybe (..), Monad (..), Num, Ord (..), Read (..), Real, RealFloat, RealFrac, Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
