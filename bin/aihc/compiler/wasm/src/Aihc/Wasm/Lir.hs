@@ -510,7 +510,7 @@ data Fn = Fn
     fnDeferred :: !(Map Var Instruction),
     fnBlocks :: !(Map Label Block),
     fnBlockIndex :: !(Map Label Int),
-    fnBlockParameters :: !(Map Label [(Var, Type)]),
+    fnBlockParameters :: !(MonoidMap Label [(Var, Type)]),
     -- | The shadow-stack frame when the function allocates stack memory.
     fnFrame :: !(Maybe Frame),
     fnAllocs :: !(Map Var Int)
@@ -585,13 +585,13 @@ compileFunction ctx input = do
       frameSize = ((frameEnd + 15) `div` 16) * 16
       hasFrame = not (null allocations)
       readers = valueReaders blocks
-      uses = MonoidMap.fromMapWith (Sum . fst) readers
+      uses = MonoidMap.map fst readers
       candidates =
         Set.fromList
           [ var
           | block <- blocks,
             Instruction [var] _ <- blockInstructions block,
-            all (== blockLabel block) (maybe Set.empty snd (Map.lookup var readers))
+            all (== blockLabel block) (snd (MonoidMap.get var readers))
           ]
       fn =
         Fn
@@ -603,7 +603,7 @@ compileFunction ctx input = do
             fnDeferred = deferredInstructions uses candidates blocks,
             fnBlocks = Map.fromList [(blockLabel block, block) | block <- blocks],
             fnBlockIndex = Map.fromList (zip (map blockLabel blocks) [0 ..]),
-            fnBlockParameters = Map.fromList [(blockLabel block, blockParameters block) | block <- blocks],
+            fnBlockParameters = MonoidMap.fromList [(blockLabel block, blockParameters block) | block <- blocks],
             fnFrame =
               if hasFrame
                 then
@@ -646,10 +646,9 @@ compileFunction ctx input = do
 -- | The number of reads of each value and the blocks that read it. The
 -- result of a compare-and-swap or of an atomic operation is also read by
 -- the code of its own instruction.
-valueReaders :: [Block] -> Map Var (Int, Set Label)
+valueReaders :: [Block] -> MonoidMap Var (Sum Int, Set Label)
 valueReaders blocks =
-  Map.fromListWith
-    (\(count, labels) (count', labels') -> (count + count', Set.union labels labels'))
+  MonoidMap.fromList
     [ (var, (1, Set.singleton (blockLabel block)))
     | block <- blocks,
       var <-
@@ -828,10 +827,10 @@ assignLocals fn consumed body = (map snd declared, map render resolved)
       LocalTee -> "local.tee"
 
 -- | The arguments of the jumps to each block parameter, and the reverse.
-copyPartners :: [Block] -> Map Var [Var]
+copyPartners :: [Block] -> MonoidMap Var [Var]
 copyPartners blocks =
-  Map.fromListWith
-    (<>)
+  MonoidMap.fromListWith
+    (flip (<>))
     ( concat
         [ [(parameter, [argument]), (argument, [parameter])]
         | block <- blocks,
@@ -849,7 +848,7 @@ copyPartners blocks =
 -- takes the local of a copy partner when it can, so that the copy does
 -- nothing. The result maps each value to a local and each local to its
 -- type.
-colorLocals :: Map Var (Set Var) -> Map Var [Var] -> [(Var, Text)] -> [(Var, Text)] -> Set Var -> (Map Var Int, Map Int Text)
+colorLocals :: MonoidMap Var (Set Var) -> MonoidMap Var [Var] -> [(Var, Text)] -> [(Var, Text)] -> Set Var -> (Map Var Int, Map Int Text)
 colorLocals adjacency partners parameters values unique =
   let (coloring, slots) = foldl' place (Map.fromList initial, Map.fromList [(index, (ty, Set.singleton var, False)) | (var, index, ty) <- numbered]) values
    in (coloring, Map.map (\(ty, _, _) -> ty) slots)
@@ -859,9 +858,9 @@ colorLocals adjacency partners parameters values unique =
     place (coloring, slots) (var, ty)
       | Map.member var coloring = (coloring, slots)
       | otherwise =
-          let neighbours = Map.findWithDefault Set.empty var adjacency
+          let neighbours = MonoidMap.get var adjacency
               fits (ty', members, closed) = ty' == ty && not closed && Set.disjoint members neighbours
-              preferred = [index | partner <- Map.findWithDefault [] var partners, Just index <- [Map.lookup partner coloring], Just slot <- [Map.lookup index slots], fits slot]
+              preferred = [index | partner <- MonoidMap.get var partners, Just index <- [Map.lookup partner coloring], Just slot <- [Map.lookup index slots], fits slot]
               free = [index | not (Set.member var unique), index <- preferred <> [index | (index, slot) <- Map.toList slots, fits slot]]
            in case free of
                 index : _ -> (Map.insert var index coloring, Map.adjust (\(ty', members, closed) -> (ty', Set.insert var members, closed)) index slots)
@@ -879,14 +878,14 @@ colorLocals adjacency partners parameters values unique =
 -- interferes with the operands. The jump to a block writes its parameters
 -- at the end of the jump, so they interfere with each value that is live
 -- into the block.
-interference :: Fn -> Set Var -> Map Var (Set Var)
-interference fn locals = foldl' blockEdges Map.empty blocks
+interference :: Fn -> Set Var -> MonoidMap Var (Set Var)
+interference fn locals = foldl' blockEdges MonoidMap.empty blocks
   where
     function = fnFunction fn
     blocks = functionBlocks function
     restrict = Set.filter (`Set.member` locals)
     readsOf = restrict . Set.fromList
-    parametersOf label = maybe [] (map fst) (Map.lookup label (fnBlockParameters fn))
+    parametersOf label = map fst (MonoidMap.get label (fnBlockParameters fn))
     liveIn = liveness Map.empty
     liveInOf label = Map.findWithDefault Set.empty label liveIn
     liveOut block = Set.unions [liveInOf (targetLabel target) | target <- terminatorTargets (blockTerminator block)]
@@ -941,7 +940,7 @@ interference fn locals = foldl' blockEdges Map.empty blocks
     addEdge others acc var
       | Set.member var locals =
           let others' = Set.delete var others
-           in Set.foldl' (\acc' other -> Map.insertWith Set.union other (Set.singleton var) acc') (Map.insertWith Set.union var others' acc) others'
+           in Set.foldl' (flip (MonoidMap.adjust (Set.insert var))) (MonoidMap.adjust (Set.union others') var acc) others'
       | otherwise = acc
 
 -- | The blocks that use the stack allocations, when each of them can make
@@ -978,18 +977,18 @@ blockFrameLabels sizes blocks
     isStackAlloc operation = case operation of
       StackAlloc _ _ -> True
       _ -> False
-    selfContained = go Map.empty
+    selfContained = go MonoidMap.empty
     go _ [] = True
     go written (Instruction _ operation : rest) =
       case operation of
         StackAlloc _ _ -> go written rest
         Load ty address _
           | Just (var, bytes) <- allocationBytes ty address ->
-              all (`Set.member` Map.findWithDefault Set.empty var written) bytes && go written rest
+              all (`Set.member` MonoidMap.get var written) bytes && go written rest
         Store ty value address _
           | Just (var, bytes) <- allocationBytes ty address,
             not (any isAllocation (operandVars value)) ->
-              go (Map.insertWith Set.union var (Set.fromList bytes) written) rest
+              go (MonoidMap.adjust (Set.union (Set.fromList bytes)) var written) rest
         _ ->
           let escaped = filter isAllocation (operationVars operation)
            in all (complete written) escaped && go (foldr fill written escaped) rest
@@ -1000,8 +999,8 @@ blockFrameLabels sizes blocks
               let start = addressByteOffset wordBytes address
                in Just (var, [start .. start + accessBytes ty - 1])
         _ -> Nothing
-    complete written var = Set.fromList [0 .. sizes Map.! var - 1] `Set.isSubsetOf` Map.findWithDefault Set.empty var written
-    fill var = Map.insert var (Set.fromList [0 .. sizes Map.! var - 1])
+    complete written var = Set.fromList [0 .. sizes Map.! var - 1] `Set.isSubsetOf` MonoidMap.get var written
+    fill var = MonoidMap.set var (Set.fromList [0 .. sizes Map.! var - 1])
     operationVars = getConst . forOperationOperands (Const . operandVars)
     terminatorVars = getConst . forTerminatorOperands (Const . operandVars)
 
@@ -1444,7 +1443,7 @@ allocationAddress offset = do
 -- that 'assignLocals' can remove them.
 assignParameters :: Fn -> Target -> M ()
 assignParameters fn (Target label arguments) = do
-  let parameters = Map.findWithDefault [] label (fnBlockParameters fn)
+  let parameters = MonoidMap.get label (fnBlockParameters fn)
   tags <- zipWithM copyArgument (map snd parameters) arguments
   forM_ (reverse (zip parameters tags)) $ \((var, _), tag) ->
     case tag of
