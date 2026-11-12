@@ -33,7 +33,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text qualified as T
 import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 
@@ -386,7 +386,7 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
           | Just patternKinds <- traverse kindOf patterns,
             Just kindSubstitution <- matchTypes patternKinds argumentKinds,
             Just substitution <- matchTypes patterns arguments,
-            let variableSubstitution = variableKinds equation substitution,
+            Just variableSubstitution <- variableKinds equation substitution,
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
               let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
                   completeSubstitution = kindedBareConstructors equation fullSubstitution <> fullSubstitution
@@ -421,14 +421,33 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
     -- in @Rep (C b a) = ... (b (Const a))@ with @b :: (k -> Type) -> Type@,
     -- the right-hand side applies @Const@ at @k@, but no argument kind
     -- mentions @k@. The kind of the type that @b@ matched gives it.
+    --
+    -- A variable whose kind cannot match the kind of its type, with no
+    -- meta variable in the two kinds, makes the equation not match. In
+    -- @Reduced (Switcher c r xs) = r@ the variable @r@ has the kind
+    -- 'Type'. A type variable @r@ of a rigid kind @k@ does not match it, as
+    -- in GHC. Only a type variable is checked. The kind of another type can
+    -- have a free variable of its signature: a bare @'[]@ or @TypeError m@.
     variableKinds equation substitution =
       let pairs =
-            [ (tvKind variable, actualKind)
+            [ (tvKind variable, actual, actualKind)
             | variable <- tfiiTyVars equation,
               Just actual <- [Map.lookup (tvUnique variable) substitution],
               Just actualKind <- [kindOf actual]
             ]
-       in fromMaybe Map.empty (matchTypes (map fst pairs) (map snd pairs))
+       in case matchTypes [patternKind | (patternKind, _, _) <- pairs] [actualKind | (_, _, actualKind) <- pairs] of
+            Just kinds -> Just kinds
+            Nothing
+              | any rigidMismatch pairs -> Nothing
+              | otherwise -> Just Map.empty
+    rigidMismatch (patternKind, actual, actualKind) =
+      isTyVar actual
+        && not (typeMentionsMeta patternKind || typeMentionsMeta actualKind)
+        && isNothing (matchTypes [patternKind] [actualKind])
+    isTyVar ty =
+      case ty of
+        TcTyVar _ -> True
+        _ -> False
     matchResultKinds _ _ | null extraArguments = Just Map.empty
     matchResultKinds equation substitution = do
       resultKind <- applySubst substitution <$> kindOf (tfiiLeft equation)
