@@ -20,6 +20,10 @@ stop the pool; containers are removed and runners de-registered on exit.
 Options:
   --repo OWNER/REPO      Repository to register against (default: current gh repo)
   --count N              Number of concurrent runners (default: 4)
+  --check-slots N        Number of flake checks that can run at the same time
+                         on this host (default: 4, 0 for no limit)
+  --check-slot-dir DIR   Host directory for the check slot files
+                         (default: /tmp/aihc-check-slots)
   --runner-label LABEL   Custom runner label (default: aihc-nix)
   --name-prefix PREFIX   Runner/container name prefix (default: aihc-nix-<host>)
   --runner-version VER   actions/runner version to bake into the image
@@ -34,6 +38,10 @@ Options:
 Note: --cpus/--memory bound the runner and the job script only. Nix builds run
 in the host nix-daemon, so throttle those with `max-jobs`/`cores` in
 /etc/nix/nix.conf or via the workflow's `nix flake check --max-jobs` flag.
+
+The workflow gets one check slot before it starts `nix flake check`. If all
+slots are in use, the job waits. All pools on one host must use the same
+check slot directory, because they share the host nix-daemon.
 
 Requirements:
   - `gh` authenticated with admin access to the repository
@@ -58,6 +66,8 @@ sanitize_name() {
 
 REPO=""
 COUNT=4
+CHECK_SLOTS=4
+CHECK_SLOT_DIR=/tmp/aihc-check-slots
 RUNNER_LABEL="${AIHC_RUNNER_LABEL:-aihc-nix}"
 NAME_PREFIX=""
 RUNNER_VERSION=""
@@ -75,6 +85,14 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--count)
 		COUNT="$2"
+		shift 2
+		;;
+	--check-slots)
+		CHECK_SLOTS="$2"
+		shift 2
+		;;
+	--check-slot-dir)
+		CHECK_SLOT_DIR="$2"
 		shift 2
 		;;
 	--runner-label)
@@ -123,6 +141,11 @@ done
 
 if ! printf '%s' "$COUNT" | grep -Eq '^[1-9][0-9]*$'; then
 	echo "--count must be a positive integer, got: $COUNT" >&2
+	exit 2
+fi
+
+if ! printf '%s' "$CHECK_SLOTS" | grep -Eq '^[0-9]+$'; then
+	echo "--check-slots must be a non-negative integer, got: $CHECK_SLOTS" >&2
 	exit 2
 fi
 
@@ -189,6 +212,31 @@ preflight_nix() {
 		echo "Note: nix trusted-users = ${trusted}"
 		echo "      Anything in that list can disable the Nix build sandbox."
 	fi
+}
+
+# Make one file for each check slot. A job locks one file while it runs the
+# flake check, so the number of files is the limit for the host. The files
+# stay after the pool stops, because a second pool on the host can use them.
+prepare_check_slots() {
+	[ "$CHECK_SLOTS" -gt 0 ] || return 0
+
+	mkdir -p "$CHECK_SLOT_DIR"
+	chmod 0755 "$CHECK_SLOT_DIR"
+
+	local slot
+	for slot in $(seq 1 "$CHECK_SLOTS"); do
+		: >>"${CHECK_SLOT_DIR}/slot-${slot}"
+		chmod 0644 "${CHECK_SLOT_DIR}/slot-${slot}"
+	done
+
+	# Remove the files of a larger limit from an earlier start.
+	local file number
+	for file in "$CHECK_SLOT_DIR"/slot-*; do
+		number="${file##*/slot-}"
+		if printf '%s' "$number" | grep -Eq '^[0-9]+$' && [ "$number" -gt "$CHECK_SLOTS" ]; then
+			rm -f "$file"
+		fi
+	done
 }
 
 resolve_runner_download() {
@@ -333,6 +381,12 @@ run_slot() {
 			--env "NIX_CONFIG=experimental-features = nix-command flakes"
 		)
 
+		# A job locks one of these files while it runs the flake check. The
+		# lock needs only read access.
+		if [ "$CHECK_SLOTS" -gt 0 ]; then
+			run_args+=(--volume "${CHECK_SLOT_DIR}:/run/aihc-check-slots:ro")
+		fi
+
 		# Share the host client config (experimental-features, substituters).
 		if [ -d /etc/nix ]; then
 			run_args+=(--volume /etc/nix:/etc/nix:ro)
@@ -360,6 +414,7 @@ run_slot() {
 }
 
 preflight_nix
+prepare_check_slots
 
 host_arch="$(uname -m)"
 case "$host_arch" in
@@ -403,6 +458,11 @@ echo "  Label:   ${RUNNER_LABEL}"
 echo "  Image:   ${IMAGE}"
 echo "  Runtime: ${CONTAINER_CMD}"
 echo "  Names:   ${NAME_PREFIX}-1 .. ${NAME_PREFIX}-${COUNT}"
+if [ "$CHECK_SLOTS" -gt 0 ]; then
+	echo "  Checks:  ${CHECK_SLOTS} at the same time (${CHECK_SLOT_DIR})"
+else
+	echo "  Checks:  no limit"
+fi
 echo
 echo "Press Ctrl-C to stop."
 echo

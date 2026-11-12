@@ -189,6 +189,28 @@ Two consequences:
   would defeat the isolation entirely. The pool prints the current value at
   startup. Do not add the account running the pool to that list.
 
+### Check Slots
+
+All runners of the pool send their builds to one host `nix-daemon`. If many
+flake checks run at the same time, each check becomes much slower. On one host
+with eight runners, a check took 6 to 7 minutes alone and 20 to 32 minutes with
+10 to 12 checks in progress.
+
+Thus, the pool limits the number of flake checks that run at the same time.
+The pool script makes one file for each check slot in `/tmp/aihc-check-slots`
+and mounts the directory read-only into each container. The workflow runs
+`nix flake check` through `scripts/with-check-slot.sh`. That script locks one
+slot file and holds the lock until the check stops. If all slots are in use,
+the job waits. After 15 minutes, the check starts without a slot.
+
+Set the limit with `--check-slots N`. The default is 4. Use `--check-slots 0`
+for no limit. The number of runners (`--count`) can be larger than the limit.
+Then, a job gets a runner immediately and waits there, and does not go to a
+hosted runner.
+
+A change of the limit applies to a container when the pool starts it. Start
+the pool again after you change the pool script.
+
 ### Security Notes
 
 - The runner is repository-scoped, so it can only ever run this repository's

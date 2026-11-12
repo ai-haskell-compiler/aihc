@@ -82,4 +82,7 @@ jobs:
           # through four slots. Hosted fallback runners have 4 cores, so they
           # keep the old cap.
           MAX_JOBS: ${{ needs.select-runner.outputs.use_self_hosted == 'true' && 12 || 4 }}
-        run: nix flake check --max-jobs "$MAX_JOBS" --print-build-logs
+        # The runners of a pool share one host. The script gets one check slot
+        # of the host first, so that only some checks run at the same time.
+        # Where there are no slots, the check starts immediately.
+        run: scripts/with-check-slot.sh nix flake check --max-jobs "$MAX_JOBS" --print-build-logs
