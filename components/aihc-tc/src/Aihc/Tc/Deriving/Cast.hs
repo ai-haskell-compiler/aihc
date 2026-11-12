@@ -90,14 +90,12 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
                       (TcTyCon sourceClass sourceArguments)
             -- A context such as @a ~ Element c@ gives an equality whose
             -- types differ only by a type family application of the head.
+            -- System FC reduces the family in the type of the equality
+            -- evidence, thus the evidence needs no cast after a proof.
             (EqPred targetLeft targetRight, EqPred sourceLeft sourceRight) -> do
-              kinds <- getKinds
-              equality <- wiredTyCon tcWiringEqualityTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (constraintKind kinds)))
-              fmap Just
-                <$> nominalCoercionBetween
-                  (tcInstanceAssociatedTypes annotation)
-                  (TcTyCon equality [targetLeft, targetRight])
-                  (TcTyCon equality [sourceLeft, sourceRight])
+              left <- nominalCoercionBetween (tcInstanceAssociatedTypes annotation) targetLeft sourceLeft
+              right <- nominalCoercionBetween (tcInstanceAssociatedTypes annotation) targetRight sourceRight
+              pure (Nothing <$ (left *> right))
             _ -> pure Nothing
     mentionsSelf term = case term of
       EvDict dictionaryOrigin name _ arguments -> (dictionaryOrigin == origin && name == tcInstanceDictName annotation) || any mentionsSelf arguments
