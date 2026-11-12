@@ -519,12 +519,29 @@ exportedScopeFor package exports extensions modu = \case
     -- constructors in this module, so @U.Vector (BitVec)@ names the family
     -- through the qualifier and the constructor unqualified. The scope of
     -- the qualifier comes first, so the type resolves as in 'exportSource'.
+    --
+    -- A member can also be in scope only qualified. @import M (T)@ with
+    -- @import qualified M as Q@ puts the constructors of @T@ in scope as
+    -- @Q.C@ only, and an item @T (..)@ exports them, as in GHC. The
+    -- qualified scopes come last, thus an unqualified member wins.
     bundledMemberScope name =
-      case nameQualifier name of
-        Nothing -> availableScope
-        Just qualifier
-          | qualifier == moduleKey modu -> availableScope
-          | otherwise -> exportSource name `unionScope` availableScope
+      List.foldl' unionScope directMemberScope (qualifiedMemberScopes name)
+      where
+        directMemberScope =
+          case nameQualifier name of
+            Nothing -> availableScope
+            Just qualifier
+              | qualifier == moduleKey modu -> availableScope
+              | otherwise -> exportSource name `unionScope` availableScope
+
+    qualifiedMemberScopes name =
+      case Map.lookup (nameText name) (scopeTypes (exportSource name)) of
+        Nothing -> []
+        Just resolvedType ->
+          [ qualifiedScope
+          | qualifiedScope <- Map.elems (scopeQualifiedModules availableScope),
+            Map.lookup (nameText name) (scopeTypes qualifiedScope) == Just resolvedType
+          ]
 
 -- | The part of a qualified scope that a @module X@ export item names: the
 -- entries that the unqualified scope resolves to the same entity. A name
