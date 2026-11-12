@@ -31,17 +31,26 @@ module GHC.Real
     numericEnumFromTo,
     odd,
     overflowError,
+    ratioPrec,
+    ratioPrec1,
+    ratioZeroDenominatorError,
     realToFrac,
+    reduce,
+    showSigned,
+    underflowError,
     (%),
     (^),
+    (^%^),
     (^^),
+    (^^%^^),
   )
 where
 
 import Data.Bool (Bool (..), not, (&&))
+import GHC.Base ((.))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (errorWithoutStackTrace)
-import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException)
+import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException, underflowException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerMul, integerQuotRem, integerRem, magnitudeRemWord#, wordToInteger)
@@ -81,6 +90,7 @@ import GHC.Prim
     (==#),
   )
 import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
+import GHC.Show (ShowS, showChar, showParen)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 class (Num a, Ord a) => Real a where
@@ -287,6 +297,9 @@ divZeroError = raise# divZeroException
 
 overflowError :: a
 overflowError = raise# overflowException
+
+underflowError :: a
+underflowError = raise# underflowException
 
 -- | 'quotRem' on 'Integer'. A zero divisor raises 'DivideByZero'. Two small
 -- values use the primops, and other values use the magnitude division. The
@@ -669,6 +682,22 @@ denominator (_ :% value) = value
 ratioZeroDenominatorError :: a
 ratioZeroDenominatorError = raise# ratioZeroDenomException
 
+-- | The precedence of the @:%@ operator in a shown 'Ratio'.
+ratioPrec :: Int
+ratioPrec = 7
+
+-- | The precedence of an argument of the @:%@ operator in a shown 'Ratio'.
+ratioPrec1 :: Int
+ratioPrec1 = ratioPrec + 1
+
+-- | Show a signed value. Put a negative value in parentheses when the
+-- precedence is more than 6.
+showSigned :: (Real a) => (a -> ShowS) -> Int -> a -> ShowS
+showSigned showPositive precedence value =
+  case value < 0 of
+    True -> showParen (precedence > 6) (showChar '-' . showPositive (negate value))
+    False -> showPositive value
+
 fromIntegral :: (Integral a, Num b) => a -> b
 fromIntegral value = fromInteger (toInteger value)
 
@@ -719,6 +748,31 @@ base ^^ exponent =
   case exponent < 0 of
     True -> recip (base ^ negate exponent)
     False -> base ^ exponent
+
+-- | The power of a 'Rational' with a non-negative exponent.
+(^%^) :: (Integral a) => Rational -> a -> Rational
+(valueNumerator :% valueDenominator) ^%^ exponent =
+  case compare exponent 0 of
+    LT -> negativeExponentError
+    EQ -> 1 :% 1
+    GT -> (valueNumerator ^ exponent) :% (valueDenominator ^ exponent)
+
+-- | The power of a 'Rational' with an exponent of each sign.
+(^^%^^) :: (Integral a) => Rational -> a -> Rational
+(valueNumerator :% valueDenominator) ^^%^^ exponent =
+  case compare exponent 0 of
+    GT -> (valueNumerator ^ exponent) :% (valueDenominator ^ exponent)
+    EQ -> 1 :% 1
+    LT ->
+      case compare valueNumerator 0 of
+        GT -> (valueDenominator ^ negate exponent) :% (valueNumerator ^ negate exponent)
+        EQ -> ratioZeroDenominatorError
+        LT ->
+          let powerNumerator = valueDenominator ^ negate exponent
+              powerDenominator = negate valueNumerator ^ negate exponent
+           in case even exponent of
+                True -> powerNumerator :% powerDenominator
+                False -> negate powerNumerator :% powerDenominator
 
 negativeExponentError :: a
 negativeExponentError = errorWithoutStackTrace "Negative exponent"

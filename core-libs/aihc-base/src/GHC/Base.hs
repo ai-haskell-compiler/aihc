@@ -42,6 +42,7 @@ module GHC.Base
     ($),
     ($!),
     asTypeOf,
+    until,
     maxInt,
     minInt,
     id,
@@ -257,6 +258,13 @@ infixr 0 $!
 -- argument.
 asTypeOf :: a -> a -> a
 asTypeOf = const
+
+-- | Apply the function until the predicate holds.
+until :: (a -> Bool) -> (a -> a) -> a -> a
+until done next value =
+  case done value of
+    True -> value
+    False -> until done next (next value)
 
 -- | The largest and the smallest 'Int'.
 maxInt, minInt :: Int

@@ -14,6 +14,9 @@ module GHC.Conc.Sync
     threadLabel,
     throwTo,
     yield,
+    ThreadStatus (..),
+    BlockReason (..),
+    threadStatus,
     STM (..),
     TVar (..),
     atomically,
@@ -48,6 +51,7 @@ import GHC.IO.Handle.Text (hPutStrLn)
 import GHC.IO.StdHandles (stderr)
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Prim
+import GHC.Types (Int (I#))
 import GHC.Word (Word64 (..))
 import Prelude
 
@@ -156,6 +160,70 @@ labelThread _ _ = return ()
 -- 'Nothing'. GHC gives the same result for a thread without a label.
 threadLabel :: ThreadId -> IO (Maybe String)
 threadLabel _ = return Nothing
+
+-- | The reason that a thread cannot run.
+data BlockReason
+  = -- | The thread waits on an MVar.
+    BlockedOnMVar
+  | -- | The thread waits for a different thread to evaluate a thunk.
+    BlockedOnBlackHole
+  | -- | The thread waits until a different thread takes its exception.
+    BlockedOnException
+  | -- | The thread waits for a change of a transaction variable.
+    BlockedOnSTM
+  | -- | The thread waits for a foreign call.
+    BlockedOnForeignCall
+  | -- | The thread waits for a different event, for example IO or a timer.
+    BlockedOnOther
+  deriving (Eq, Ord, Show)
+
+-- | The state of a thread.
+data ThreadStatus
+  = -- | The thread runs or can run.
+    ThreadRunning
+  | -- | The thread ended.
+    ThreadFinished
+  | -- | The thread waits.
+    ThreadBlocked BlockReason
+  | -- | The thread ended with an exception that it did not catch.
+    ThreadDied
+  deriving (Eq, Ord, Show)
+
+-- | Read the state of a thread. The result is a snapshot, because the
+-- thread can change its state at the same time.
+--
+-- 'forkIO' catches each exception of the new thread, thus the thread ends
+-- with 'ThreadFinished', as in GHC. The aihc runtime does not record a
+-- different end, thus the result is never 'ThreadDied'.
+-- On one capability without workers, a transaction that calls 'retry' and
+-- has no timer does not wait. Its thread runs the transaction again after
+-- the other threads, thus its status is 'ThreadRunning' and not
+-- 'ThreadBlocked BlockedOnSTM'.
+threadStatus :: ThreadId -> IO ThreadStatus
+threadStatus (ThreadId threadId) =
+  IO
+    ( \state ->
+        case aihcThreadStatus# threadId state of
+          (# nextState, code #) -> (# nextState, decodeThreadStatus (I# code) #)
+    )
+
+-- | Decode the AIHC_BLOCKED_ values of the runtime.
+decodeThreadStatus :: Int -> ThreadStatus
+decodeThreadStatus code =
+  case code of
+    0 -> ThreadRunning
+    1 -> ThreadBlocked BlockedOnMVar
+    2 -> ThreadBlocked BlockedOnBlackHole
+    4 -> ThreadBlocked BlockedOnSTM
+    5 -> ThreadBlocked BlockedOnException
+    6 -> ThreadFinished
+    _ -> ThreadBlocked BlockedOnOther
+
+-- | Read the state of a thread from the runtime.
+--
+-- GHC has the primitive threadStatus#, which gives three values. The aihc
+-- runtime gives only one value, thus aihc uses a different primitive.
+foreign import prim aihcThreadStatus# :: ThreadId# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
 -- | Raise 'ThreadKilled' in a thread.
 killThread :: ThreadId -> IO ()

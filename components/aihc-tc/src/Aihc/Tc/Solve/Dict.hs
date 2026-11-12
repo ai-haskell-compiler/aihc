@@ -24,7 +24,7 @@ import Aihc.Parser.Syntax (pattern SourceSpan)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
@@ -39,7 +39,7 @@ import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalize
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassClosure)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds, matchKinds)
 import Aihc.Tc.Types
-import Aihc.Tc.Unify (unify)
+import Aihc.Tc.Unify (unifyDeferring)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
@@ -214,9 +214,16 @@ solveNormalizedDict visited givens ct
           case [given | given@(IParamPred givenName _) <- reverse givens', givenName == name] of
             given@(IParamPred _ givenPayload) : _ -> do
               -- The name determines the type of an implicit parameter.
-              unify (ctLoc ct) (ctOrigin ct) payload' givenPayload
-              bindEvidence (ctEvVar ct) (implicitParamEvidence ct name givenPayload (EvGiven given))
-              pure DictSolved
+              -- A type family application in the payload can stay stuck
+              -- until a later improvement solves a meta variable, as
+              -- @Token s@ waits for a functional dependency to find @s@.
+              -- Then the wanted stays and the solver tries it again.
+              deferred <- unifyDeferring (ctLoc ct) (ctOrigin ct) payload' givenPayload
+              if null deferred
+                then do
+                  bindEvidence (ctEvVar ct) (implicitParamEvidence ct name givenPayload (EvGiven given))
+                  pure DictSolved
+                else pure (DictStuck ct)
             _ -> pure (DictStuck ct)
   where
     -- A @WithDict cls meth@ wanted is solved when @cls@ is a class with one
@@ -470,7 +477,7 @@ solveNormalizedDict visited givens ct
                   let visibleSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                   substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
                   let fieldTypes = classFieldTypes info substitution
-                  case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
+                  case traverse (superClassPred kinds substitution) (ciSuperClassTypes info) of
                     Just superClasses -> do
                       -- A superclass is compared in the same normal form as
                       -- the wanted: families reduced, and a family-headed
@@ -749,7 +756,7 @@ solveNormalizedDict visited givens ct
                               ]
                       classSubstitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
                       let fieldTypes = classFieldTypes info classSubstitution
-                      case traverse (constraintTypeToPred kinds . applySubst classSubstitution) (ciSuperClassTypes info) of
+                      case traverse (superClassPred kinds classSubstitution) (ciSuperClassTypes info) of
                         Nothing -> pure Nothing
                         Just superClasses -> do
                           normalized <- mapM normalizeGiven superClasses

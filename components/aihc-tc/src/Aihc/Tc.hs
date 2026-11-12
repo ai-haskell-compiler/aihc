@@ -105,6 +105,7 @@ module Aihc.Tc
     liftedRep,
     mkTcKinds,
     typeKindInEnv,
+    familyEquationRightKind,
     runtimeRepOfTypeInEnv,
     isUnliftedTypeInEnv,
     TcAnnotation (..),

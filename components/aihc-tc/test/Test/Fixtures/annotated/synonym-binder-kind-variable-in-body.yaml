@@ -1,0 +1,53 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies #-}
+  module Test where
+
+  import GHC.Types (Bool (..), Type)
+
+  data Proxy (b :: Bool) = Proxy
+       │                   └─ type: ∀ b. Proxy b
+       └─ type: GHC.Types.Bool → Type
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+
+  type family IsArrow (k :: Type) :: Bool where
+              └─ type: Type → GHC.Types.Bool
+    IsArrow (a -> b) = 'True
+    IsArrow a = 'False
+
+  -- The body uses the kind variable @k@ of the binder as a type.
+  type KindIsArrow (ty :: k) = IsArrow k
+       └─ type: k → GHC.Types.Bool
+
+  arrow :: Proxy (KindIsArrow Box) -> Proxy 'True
+  arrow p = p
+  │     └─ type: Proxy (IsArrow (Type → Type))
+  └─ type: Proxy (IsArrow (Type → Type)) → Proxy 'GHC.Types.True
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies #-}
+  module Test where
+
+  import GHC.Types (Bool (..), Type)
+
+  data Proxy (b :: Bool) = Proxy
+  data Box a = Box a
+
+  type family IsArrow (k :: Type) :: Bool where
+    IsArrow (a -> b) = 'True
+    IsArrow a = 'False
+
+  -- The body uses the kind variable @k@ of the binder as a type.
+  type KindIsArrow (ty :: k) = IsArrow k
+
+  arrow :: Proxy (KindIsArrow Box) -> Proxy 'True
+  arrow p = p
+status: pass
+reason: a kind variable that a binder of a type synonym mentions is in scope in the body, as in GHC. The expansion of @KindIsArrow Box@ is @IsArrow (Type -> Type)@, which reduces to 'True.

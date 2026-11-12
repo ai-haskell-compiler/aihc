@@ -1,0 +1,17 @@
+extensions: [ConstraintKinds, GADTs, KindSignatures, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, KindSignatures, TypeOperators #-}
+    module Test where
+    import Data.Kind (Constraint)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    cast :: Dict (a ~ b, Eq b) -> a -> b -> Bool
+    cast d x y = case d of
+      Dict -> x == y
+    result = cast Dict True True
+expression: result
+output: |
+  True
+status: pass
+reason: A constraint tuple pattern binds equality evidence as a dictionary field.

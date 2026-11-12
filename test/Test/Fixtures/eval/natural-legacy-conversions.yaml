@@ -1,0 +1,38 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Natural
+      ( bitNatural,
+        minusNaturalMaybe,
+        naturalFromInteger,
+        naturalToInteger,
+        naturalToWord,
+        naturalToWordMaybe,
+        shiftLNatural,
+        wordToNatural,
+      )
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (naturalToInteger 18446744073709551616)
+      print (naturalFromInteger 7, naturalFromInteger (-7))
+      print (naturalToWord 18446744073709551619, naturalToWordMaybe 18446744073709551616, naturalToWordMaybe 5)
+      print (wordToNatural maxBound + 1)
+      print (minusNaturalMaybe 3 5, minusNaturalMaybe 5 3)
+      print (bitNatural 3#, shiftLNatural 1 70)
+stdout: |
+  18446744073709551616
+  (7,7)
+  (3,Nothing,Just 5)
+  18446744073709551616
+  (Nothing,Just 2)
+  (8,1180591620717411303424)
+expression: main
+output: |
+  ()
+status: pass
+reason: GHC.Natural exports the legacy conversion and arithmetic functions of GHC, and naturalFromInteger gives the absolute value as in GHC

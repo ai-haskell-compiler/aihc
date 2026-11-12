@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams, TypeFamilies, FunctionalDependencies, FlexibleInstances #-}
+  module Test where
+  data Char = Char
+       │      └─ type: Char
+       └─ type: Type
+  data Text = Text
+       │      └─ type: Text
+       └─ type: Type
+  data P s = P
+       │     └─ type: ∀ s. P s
+       └─ type: Type → Type
+  type family Token s
+              └─ type: Type → Type
+  type instance Token Text = Char
+  class Stream s m | m -> s where
+  └─ class methods: char ∷ ∀ s m. (Stream s m) ⇒ Token s → m; fundeps: m → s
+    char :: Token s -> m
+  instance Stream Text (P Text) where
+  └─ $fStreamTextPText ∷ () ⇒ Stream Text (P Text)
+    char _ = P
+    │    │   └─ type: P Text; type-args: Text
+    │    └─ type: Token Text
+    └─ char ∷ Token Text → P Text
+  esc :: (?esc :: Char) => P Text
+  esc = char ?esc
+  │     │    └─ type: Token Text; evidence: given ?esc ∷ Char
+  │     └─ type: Token Text → P Text; type-args: Text, P Text; evidence: $fStreamTextPText
+  └─ type: (?esc ∷ Char) ⇒ P Text
+extensions:
+- ImplicitParams
+- TypeFamilies
+- FunctionalDependencies
+modules:
+- |
+  {-# LANGUAGE ImplicitParams, TypeFamilies, FunctionalDependencies, FlexibleInstances #-}
+  module Test where
+  data Char = Char
+  data Text = Text
+  data P s = P
+  type family Token s
+  type instance Token Text = Char
+  class Stream s m | m -> s where
+    char :: Token s -> m
+  instance Stream Text (P Text) where
+    char _ = P
+  esc :: (?esc :: Char) => P Text
+  esc = char ?esc
+reason: an implicit parameter whose wanted payload is a type family application that reduces only after fundep improvement
+status: pass

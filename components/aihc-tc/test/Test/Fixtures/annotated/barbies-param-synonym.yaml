@@ -18,10 +18,10 @@ annotated:
        └─ type: GHC.Prim.Natural.Natural → k0 → k0
 
   type Direct n (f :: k -> Type) a = Rec (Param n f a) (f a)
-       └─ type: GHC.Prim.Natural.Natural → (k0 → Type) → k0 → k1 → Type
+       └─ type: GHC.Prim.Natural.Natural → (k → Type) → k → k0 → Type
 
   type Synonym n (f :: k -> Type) a = Rec (P n f a) (f a)
-       └─ type: GHC.Prim.Natural.Natural → (k0 → Type) → k0 → k1 → Type
+       └─ type: GHC.Prim.Natural.Natural → (k → Type) → k → k0 → Type
 extensions:
 - DataKinds
 - PolyKinds
