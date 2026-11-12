@@ -1,0 +1,47 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Types (ThreadId (..)) where
+    data ThreadId = ThreadId
+  - |
+    module Class (MonadConc (..)) where
+    class MonadConc m where
+      type ThreadId m
+      myThreadId :: m (ThreadId m)
+  - |
+    module Test where
+    import qualified Class as C
+    import Types
+    data Program a = Program
+    instance C.MonadConc Program where
+      type ThreadId Program = ThreadId
+      myThreadId = Program
+annotated:
+  - |-
+    module Class (MonadConc (..)) where
+    class MonadConc m where
+          └─ t Class
+      type ThreadId m
+           └─ t Class
+      myThreadId :: m (ThreadId m)
+      └─ v Class       └─ t Class
+  - |-
+    module Test where
+    import qualified Class as C
+    import Types
+    data Program a = Program
+         └─ t Test   └─ v Test
+    instance C.MonadConc Program where
+             └─ t Class  └─ t Test
+      type ThreadId Program = ThreadId
+           │        └─ t Test └─ t Types
+           └─ t Class
+      myThreadId = Program
+      └─ v Class   └─ v Test
+  - |-
+    module Types (ThreadId (..)) where
+    data ThreadId = ThreadId
+         └─ t Types └─ v Types
+status: pass
+reason: the right side of an associated type instance resolves in the scope of the module, where the unqualified ThreadId names the data type, and the family is in scope only qualified; reduced from dejafu Test.DejaFu.Conc.Internal.Program

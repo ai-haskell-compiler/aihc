@@ -1,0 +1,45 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Ask where
+  class Ask r m | m -> r where
+  └─ class methods: ask ∷ ∀ r m. (Ask r m) ⇒ m r; fundeps: m → r
+    ask :: m r
+  newtype Inner m a = Inner (m a)
+          │           └─ type: ∀ m a. m a → Inner m a
+          └─ type: (Type → Type) → Type → Type
+  instance Ask r m => Ask r (Inner m) where
+  └─ $fAskrInnerm ∷ ∀ r m. (Ask r m) ⇒ Ask r (Inner m)
+    ask = Inner ask
+    │     │     └─ type: m r; type-args: r, m; evidence: given Ask r m
+    │     └─ type: m r → Inner m r; type-args: m, r
+    └─ ask ∷ Inner m r
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, GeneralizedNewtypeDeriving, StandaloneDeriving, FlexibleContexts #-}
+  module Test where
+  import Ask
+  newtype Outer m a = Outer (Inner m a)
+          │           └─ type: ∀ m a. Ask.Inner m a → Outer m a
+          └─ type: (Type → Type) → Type → Type
+  deriving instance Ask s m => Ask s (Outer m)
+  │                            └─ $fAsksOuterm ∷ ∀ s m. (Ask s m) ⇒ Ask s (Outer m)
+  │                            └─ error: instance Ask s Outer m does not determine r from m
+  └─ deriving plans: newtype Ask s (Outer m) [context: Ask s m] [methods: ask]
+extensions: [MultiParamTypeClasses, FunctionalDependencies, GeneralizedNewtypeDeriving, StandaloneDeriving, FlexibleContexts]
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Ask where
+  class Ask r m | m -> r where
+    ask :: m r
+  newtype Inner m a = Inner (m a)
+  instance Ask r m => Ask r (Inner m) where
+    ask = Inner ask
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, GeneralizedNewtypeDeriving, StandaloneDeriving, FlexibleContexts #-}
+  module Test where
+  import Ask
+  newtype Outer m a = Outer (Inner m a)
+  deriving instance Ask s m => Ask s (Outer m)
+reason: "a standalone deriving declaration states its context, thus it gets the strict coverage condition without UndecidableInstances, as in GHC (GHC-21572)"
+status: pass
