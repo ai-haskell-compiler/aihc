@@ -205,9 +205,15 @@ explicitForallNames ty = map tyVarBinderName (fst (splitForalls ty))
 -- variables of an explicit outer @forall@ scope, as in GHC. The given
 -- variables are the opened variables of the checked scheme; they keep the
 -- source names.
+--
+-- The scheme can also hold a variable with the same name after the outer
+-- variables. The prenex form floats it out of a synonym, as the @i@ of
+-- @type Lens s t a b = forall p i. ...@ in @forall i. C i => Lens s t a
+-- b@. The outer variable comes first, and only it scopes.
 scopedSigTyVars :: [Text] -> [TyVarId] -> Map Text (TyVarId, TcType)
 scopedSigTyVars explicitNames tyVars =
-  Map.fromList
+  Map.fromListWith
+    (\_ outer -> outer)
     [ (tvName tyVar, (tyVar, tvKind tyVar))
     | tyVar <- tyVars,
       tvName tyVar `elem` explicitNames
