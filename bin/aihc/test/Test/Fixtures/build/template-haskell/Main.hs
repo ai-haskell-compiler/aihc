@@ -2,8 +2,9 @@
 
 module Main (main) where
 
-import Helper (plusHelper)
+import Helper (Describe (..), deriveDescribe, plusHelper)
 import Language.Haskell.TH
+import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
 -- A quote in a module that also has a do block in an operand of an infix
@@ -109,6 +110,12 @@ $( do
        ]
  )
 
+-- A function of a different module of the program derives instances for
+-- a type of this module and for a type of a different module.
+$(deriveDescribe ''Shape)
+
+$(deriveDescribe ''Mode)
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -156,3 +163,5 @@ main = do
   runQ nested >>= print
   -- A splice uses a function of a different module of the program.
   print $(plusHelper 1)
+  putStrLn (describe (Circle 1))
+  putStrLn (describe Fast)

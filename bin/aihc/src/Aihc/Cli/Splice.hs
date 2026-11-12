@@ -66,7 +66,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.FilePath (replaceExtension, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr, stdout)
 import System.IO.Error (ioeGetErrorString)
@@ -91,11 +91,12 @@ runSplices request action =
     splicePackageId = package <> "-" <> splicePackageVersion
     packageIds = (splicePackageId, spliceRequestPackageId request)
     run = do
+      absolute <- absoluteRequest request
       image <- buildImage request
       createDirectoryIfMissing True (packageDirectory </> "src")
-      writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription request)
+      writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription absolute)
       TIO.writeFile (packageDirectory </> "src" </> T.unpack spliceModuleName <> ".hs") (spliceModuleText request)
-      mapM_ (copyOwnModule request (packageDirectory </> "src")) (spliceRequestOwnModules request)
+      mapM_ (copyOwnModule absolute (packageDirectory </> "src")) (spliceRequestOwnModules absolute)
       installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withSplices
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
@@ -123,6 +124,23 @@ runSplices request action =
             (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> ioeGetErrorString (failure :: IOException)))
             (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert . fromSplice packageIds)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+
+-- | The request with absolute paths for the source files and the include
+-- directories of the package. The Cabal file of the splice package names
+-- them, and a relative path in that file starts at the splice package.
+absoluteRequest :: SpliceRequest -> IO SpliceRequest
+absoluteRequest request = do
+  ownModules <- mapM (\(name, path) -> (name,) <$> makeAbsolute path) (spliceRequestOwnModules request)
+  files <-
+    Map.fromList
+      <$> mapM
+        ( \(path, file) -> do
+            absolute <- makeAbsolute path
+            includeDirs <- mapM makeAbsolute (packageFileIncludeDirs file)
+            pure (absolute, file {packageFileIncludeDirs = includeDirs})
+        )
+        [entry | entry@(path, _) <- Map.toList (spliceRequestPackageFiles request), path `elem` map snd (spliceRequestOwnModules request)]
+  pure request {spliceRequestOwnModules = ownModules, spliceRequestPackageFiles = files}
 
 -- | Change the package id of the splice package to the package id of the
 -- original package, in each name of a tree from the splice. The first id
@@ -357,7 +375,10 @@ splicePackageDescription request =
     ownModules = spliceRequestOwnModules request
     -- The settings of the files of the module and of the copied modules.
     files = mapMaybe (\(_, path) -> Map.lookup path (spliceRequestPackageFiles request)) ownModules
-    includeDirs = nub (concatMap packageFileIncludeDirs files)
+    -- A copied file can include a file beside its original with a
+    -- relative path, so the directory of each original file is also an
+    -- include directory.
+    includeDirs = nub (concatMap packageFileIncludeDirs files <> map (takeDirectory . snd) ownModules)
     cppOptions = nub (concatMap packageFileCppOptions files)
 
 renderVersion :: [Int] -> String
