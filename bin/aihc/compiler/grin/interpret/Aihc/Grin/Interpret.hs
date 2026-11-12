@@ -1481,16 +1481,19 @@ evalPrimitive "myThreadId#" [] = do
   thread <- getsMachine machineCurrentThread
   pure [thread]
 -- The values agree with the AIHC_BLOCKED_ values of the native runtime.
--- The interpreter blocks a thread only on an MVar.
+-- The interpreter blocks a thread on an MVar. A thread in an STM retry
+-- yields in a loop, and machineWaitingThreads names it.
 evalPrimitive "aihcThreadStatus#" [thread] = do
   threadId <- expectThreadPrimitiveArgument "aihcThreadStatus#" thread
   current <- getsMachine machineCurrentThread
   runnable <- getsMachine machineRunQueue
   finished <- getsMachine machineFinishedThreads
+  waiting <- getsMachine machineWaitingThreads
   let status :: Integer
       status
         | Set.member threadId finished = 6
         | thread == current = 0
+        | thread `elem` waiting = 4
         | thread `elem` [owner | ThreadAction owner _ _ <- Foldable.toList runnable] = 0
         | otherwise = 1
   pure [intRuntimeValue status]

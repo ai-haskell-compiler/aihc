@@ -182,7 +182,10 @@ concurrencyPrimitives =
     "maskUninterruptible#",
     "unmaskAsyncExceptions#",
     "getMaskingState#",
-    "killThread#"
+    "killThread#",
+    -- aihcThreadStatus# only reads the wait fields of a thread record. It
+    -- takes the machine for the object lock.
+    "aihcThreadStatus#"
   ]
 
 -- | The primitives the lowering compiles from their argument expressions

@@ -38,7 +38,7 @@
   # ticker, so they do not run there. stm-retry-timer-wake needs a commit to
   # end an STM wait that has a timer. The wasm32-wasip3 host cannot stop a
   # timer that it started, so that example does not run there either.
-  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "stm-retry-timer-wake" "workers"];
+  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "stm-retry-timer-wake" "thread-status" "workers"];
   wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.

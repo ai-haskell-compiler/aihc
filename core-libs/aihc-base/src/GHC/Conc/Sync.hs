@@ -195,8 +195,10 @@ data ThreadStatus
 -- 'forkIO' catches each exception of the new thread, thus the thread ends
 -- with 'ThreadFinished', as in GHC. The aihc runtime does not record a
 -- different end, thus the result is never 'ThreadDied'.
--- A thread in an STM 'retry' waits on a runtime IO request, thus its
--- reason is 'BlockedOnOther'.
+-- On one capability without workers, a transaction that calls 'retry' and
+-- has no timer does not wait. Its thread runs the transaction again after
+-- the other threads, thus its status is 'ThreadRunning' and not
+-- 'ThreadBlocked BlockedOnSTM'.
 threadStatus :: ThreadId -> IO ThreadStatus
 threadStatus (ThreadId threadId) =
   IO

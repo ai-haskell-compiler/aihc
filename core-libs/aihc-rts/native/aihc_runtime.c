@@ -1407,9 +1407,22 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
 }
 
 /* The thread can run on a different capability, and that capability can
-   change the state at the same time. The result is a snapshot, as in GHC. */
-int64_t aihc_thread_status(AihcThread *thread) {
-  return (int64_t)__atomic_load_n(&thread->blocked_kind, __ATOMIC_RELAXED);
+   change the state at the same time. The result is a snapshot, as in GHC.
+
+   A transaction that retries waits in a timer request, and only such a wait
+   makes a timer request. Thus an IO wait on a timer request is an STM wait.
+   The object lock guards the wait fields, so the request stays the request
+   of the wait while the call reads it. */
+int64_t aihc_thread_status(AihcCapability *capability, AihcThread *thread) {
+  AihcMachine *machine = capability->machine;
+  aihc_object_lock(machine);
+  int64_t kind = (int64_t)thread->blocked_kind;
+  if (kind == AIHC_BLOCKED_IO &&
+      ((const AihcIoRequest *)thread->blocked_on)->kind == AIHC_IO_TIMER) {
+    kind = AIHC_BLOCKED_STM;
+  }
+  aihc_object_unlock(machine);
+  return kind;
 }
 
 /* Append a list of threads to a queue. Thread records are global, and the

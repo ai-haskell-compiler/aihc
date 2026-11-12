@@ -4,7 +4,7 @@ modules:
 
     import Control.Concurrent (ThreadId, forkIO, myThreadId, yield)
     import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-    import GHC.Conc (BlockReason (..), ThreadStatus (..), threadStatus)
+    import GHC.Conc (BlockReason (..), ThreadStatus (..), atomically, newTVarIO, readTVar, retry, threadStatus, writeTVar)
     import Prelude
 
     -- Yield until the thread has the expected state. The bound stops the
@@ -27,12 +27,19 @@ modules:
       waitFor (ThreadBlocked BlockedOnMVar) child >>= print
       putMVar gate ()
       waitFor ThreadFinished child >>= print
+      flag <- newTVarIO False
+      transaction <- forkIO (atomically (readTVar flag >>= \value -> if value then return () else retry))
+      waitFor (ThreadBlocked BlockedOnSTM) transaction >>= print
+      atomically (writeTVar flag True)
+      waitFor ThreadFinished transaction >>= print
 stdout: |
   ThreadRunning
   ThreadBlocked BlockedOnMVar
+  ThreadFinished
+  ThreadBlocked BlockedOnSTM
   ThreadFinished
 expression: main
 output: |
   ()
 status: pass
-reason: GHC.Conc.threadStatus gives the state of a thread that runs, waits on an MVar, and ended, as in GHC
+reason: GHC.Conc.threadStatus gives the state of a thread that runs, waits on an MVar, waits in an STM retry, and ended, as in GHC
