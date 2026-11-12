@@ -74,6 +74,7 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     defaultMethodWorkerScheme,
+    familyEquationRightKind,
     isEqualityTyCon,
     tyConKey,
     tyConModuleName,
@@ -888,7 +889,13 @@ convertTypeFamilyEquation env info = do
   let bindersEnv = withUnresolvedKindVars [tfiiLeft info, tfiiRight info] (withTyVars (tfiiTyVars info) env)
       TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
-  left <- convertType bindersEnv (tfiiLeft info)
+  -- When the variables of the equation give the kind of the right-hand
+  -- side, that kind is also the kind of the left-hand side. It gives the
+  -- kind arguments that no argument of the family determines, as @k' :=
+  -- Type@ in @Fst (x, y) = x@ for @Fst :: forall k k'. k -> k'@. The type
+  -- checker does not bind these variables in the equation.
+  let leftKind = familyEquationRightKind (ceKinds env) (ceKindEnv env) (tfiiTyVars info) (tfiiRight info)
+  left <- convertTypeWithExpectedKind bindersEnv leftKind (tfiiLeft info)
   -- The right-hand side has the kind of the family application. That kind
   -- gives the invisible kind argument of a partial application, as in
   -- @type Rep (Forget r) = Const r@ at the kind @Type -> Type@.

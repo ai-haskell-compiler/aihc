@@ -51,6 +51,7 @@ module Aihc.Tc.Types
     tyLitKind,
     tyLitKindTyCon,
     typeKindInEnv,
+    familyEquationRightKind,
     TcTypeApplicationKinds (..),
     typeApplicationKinds,
     typeKind,
@@ -656,6 +657,32 @@ dataConstructorList kinds = foldr cons nil
   where
     nil = TcTyCon (kindsNilDataCon kinds) []
     cons field rest = TcTyCon (kindsConsDataCon kinds) [field, rest]
+
+-- | The kind of the right-hand side of a type family equation, when the
+-- variables of the equation alone give that kind. Then the right-hand side
+-- also gives the result kind of the left-hand side. For example, in
+-- @Fst (x, y) = x@ of @Fst :: forall k k'. k -> k'@, the kind of @x@
+-- gives @k'@ the value 'Type'. The type checker and the desugarer both use
+-- this function, so they agree on the kind arguments of the left-hand side.
+familyEquationRightKind :: TcKinds -> TcKindEnv -> [TyVarId] -> TcType -> Maybe TcType
+familyEquationRightKind kinds kindEnv variables right =
+  case typeKindInEnv kinds kindEnv right of
+    Right kind | closed kind -> Just kind
+    _ -> Nothing
+  where
+    bound = map tvUnique variables
+    closed ty =
+      case ty of
+        TcTyVar tyVar -> tvUnique tyVar `elem` bound
+        TcMetaTv {} -> False
+        TcArrowTy -> True
+        TcTyLit {} -> True
+        TcTyCon _ arguments -> all closed arguments
+        TcKindedTyCon _ kindArguments -> all closed kindArguments
+        TcFunTy argument result -> closed argument && closed result
+        TcAppTy function argument -> closed function && closed argument
+        TcForAllTy {} -> False
+        TcQualTy {} -> False
 
 -- | Get a type kind from the complete type-constructor identity table.
 typeKindInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
