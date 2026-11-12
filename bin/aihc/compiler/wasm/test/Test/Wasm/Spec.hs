@@ -84,6 +84,7 @@ tests = do
           testCase "a word-scaled address offset counts four bytes" wordOffsetTest,
           testCase "a position-independent module reads a symbol address from the Global Offset Table" positionIndependentTest,
           testCase "an engine loads shared modules into a live image" (sharedModuleTest tools),
+          testCase "an image links an object that uses a thread function of the libc" (imageThreadTest tools),
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -231,6 +232,30 @@ sharedModuleTest tools = do
           "  return %result",
           "}"
         ]
+
+-- | An object of a package can use a thread function of the libc, such as
+-- @pthread_self@. The linker then takes the task hook of the libc into the
+-- image, and the image link must make the globals that the hook reads.
+imageThreadTest :: Maybe WasmTools -> IO ()
+imageThreadTest tools = do
+  node <- engineNodeCommand >>= findExecutable
+  case tools of
+    Just available | isJust node ->
+      withTempDirectory "aihc-wasm-thread" $ \directory -> do
+        sysroot <- wasmSysroot
+        runtimeRoot <- runtimeSourceRoot
+        let image = directory </> "image.wasm"
+            source = directory </> "thread.c"
+            object = directory </> "thread.o"
+            shimObject = directory </> "libc-shims.o"
+        writeFile source "#include <pthread.h>\nint image_thread(void) { return pthread_self() != 0; }\n"
+        (_, backendArguments) <- backendCompiler Wasm32Wasip3
+        runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-isystem", wasmSysrootInclude sysroot, "-c", source, "-o", object])
+        runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-c", runtimeRoot </> "wasm" </> "aihc_wasip3_libc.c", "-o", shimObject])
+        linkImage image [object, shimObject] [] []
+        result <- withEngine image $ \engine -> callFunction engine "image_thread" []
+        assertEqual "the thread of the engine" (Just 1) result
+    _ -> pure ()
 
 wordScaledModule :: Address -> Alignment -> Module
 wordScaledModule address alignment =
