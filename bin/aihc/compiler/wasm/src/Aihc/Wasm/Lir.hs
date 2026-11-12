@@ -510,7 +510,7 @@ data Fn = Fn
     fnDeferred :: !(Map Var Instruction),
     fnBlocks :: !(Map Label Block),
     fnBlockIndex :: !(Map Label Int),
-    fnBlockParameters :: !(Map Label [(Var, Type)]),
+    fnBlockParameters :: !(MonoidMap Label [(Var, Type)]),
     -- | The shadow-stack frame when the function allocates stack memory.
     fnFrame :: !(Maybe Frame),
     fnAllocs :: !(Map Var Int)
@@ -603,7 +603,7 @@ compileFunction ctx input = do
             fnDeferred = deferredInstructions uses candidates blocks,
             fnBlocks = Map.fromList [(blockLabel block, block) | block <- blocks],
             fnBlockIndex = Map.fromList (zip (map blockLabel blocks) [0 ..]),
-            fnBlockParameters = Map.fromList [(blockLabel block, blockParameters block) | block <- blocks],
+            fnBlockParameters = MonoidMap.fromListWith (flip const) [(blockLabel block, blockParameters block) | block <- blocks],
             fnFrame =
               if hasFrame
                 then
@@ -885,7 +885,7 @@ interference fn locals = foldl' blockEdges MonoidMap.empty blocks
     blocks = functionBlocks function
     restrict = Set.filter (`Set.member` locals)
     readsOf = restrict . Set.fromList
-    parametersOf label = maybe [] (map fst) (Map.lookup label (fnBlockParameters fn))
+    parametersOf label = map fst (MonoidMap.get label (fnBlockParameters fn))
     liveIn = liveness Map.empty
     liveInOf label = Map.findWithDefault Set.empty label liveIn
     liveOut block = Set.unions [liveInOf (targetLabel target) | target <- terminatorTargets (blockTerminator block)]
@@ -1443,7 +1443,7 @@ allocationAddress offset = do
 -- that 'assignLocals' can remove them.
 assignParameters :: Fn -> Target -> M ()
 assignParameters fn (Target label arguments) = do
-  let parameters = Map.findWithDefault [] label (fnBlockParameters fn)
+  let parameters = MonoidMap.get label (fnBlockParameters fn)
   tags <- zipWithM copyArgument (map snd parameters) arguments
   forM_ (reverse (zip parameters tags)) $ \((var, _), tag) ->
     case tag of
