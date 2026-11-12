@@ -2470,15 +2470,20 @@ tcClassDefaultValue classTyCon valueDecl =
           case valueDecl of
             FunctionBind name matches -> do
               (argumentTypes, resultType, arityMatches, arityCts) <- splitMatchType methodTy matches
+              -- The class and the default signature give the givens of the
+              -- body. A pattern-match implication inside the body can then
+              -- discharge a wanted against them, as in an instance method.
               results <-
                 withScopedTyVars (tyVarScope methodTyVars) $
-                  mapM (tcMatchEquation Nothing argumentTypes resultType) arityMatches
+                  withGivenPredicates givens $
+                    mapM (tcMatchEquation Nothing argumentTypes resultType) arityMatches
               solveInstanceBodyConstraints givens ((arityCts, []) : [(constraints, implications) | (_, constraints, implications) <- results])
               pure (FunctionBind name [match | (match, _, _) <- results])
             PatternBind annotations pattern' rhs -> do
               results <-
                 withScopedTyVars (tyVarScope methodTyVars) $
-                  mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
+                  withGivenPredicates givens $
+                    mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
               solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
               case results of
                 [(match, _, _)] -> pure (PatternBind annotations pattern' (matchRhs match))

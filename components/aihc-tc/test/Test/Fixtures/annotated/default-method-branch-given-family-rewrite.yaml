@@ -1,0 +1,23 @@
+extensions: [DataKinds, TypeFamilies, KindSignatures, RankNTypes, ScopedTypeVariables, FlexibleContexts, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DefaultSignatures, GADTs]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, TypeFamilies, KindSignatures, RankNTypes, ScopedTypeVariables, FlexibleContexts, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DefaultSignatures, GADTs, NoImplicitPrelude #-}
+    module Main where
+    data Nat = Z | S Nat
+    data Maybe a = Nothing | Just a
+    type family Le (a :: Nat) (b :: Nat) :: Bool
+    class Small (n :: Nat) (c :: Maybe Nat)
+    instance (Le n m ~ 'True) => Small n ('Just m)
+    data Bool = False | True
+    data Is (b :: Bool) where
+      Yes :: Is 'True
+    data P (a :: Nat) = P
+    proof :: proxy n -> P m -> Is (Le n m)
+    proof p q = proof p q
+    class C a where
+      type Limit a :: Maybe Nat
+      f :: proxy n -> (Small n (Limit a) => r) -> r
+      default f :: forall n r lim proxy. (Limit a ~ 'Just lim) => proxy n -> (Small n (Limit a) => r) -> r
+      f p k = case proof p (P :: P lim) of Yes -> k
+status: pass
+reason: a default method body solves a class constraint on a family application with the default-signature given and a given from a GADT branch
