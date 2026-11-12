@@ -30,7 +30,7 @@ import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions, classDependencyArguments, dependencyDeterminers)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass)
+import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass, useFunDepFuel)
 import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Equality (givenRewrites)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication)
@@ -38,7 +38,7 @@ import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, void, when, zipWithM_)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 
@@ -261,7 +261,12 @@ improveFromInstances givens siblings depth info dependency constraint = do
             -- the context. GHC stops this chain with its reduction depth
             -- limit. Here, such an instance gives no improvement, and the
             -- wanted stays unsolved with a diagnostic.
-            unless recursive $ do
+            --
+            -- The static condition does not find a chain through two
+            -- classes, as @instance D a b => C a [b]@ with @instance C a b
+            -- => D a b@. The fuel of the declaration stops such a chain.
+            fuel <- if recursive then pure False else useFunDepFuel
+            when fuel $ do
               fresh <- forM open $ \tyVar -> do
                 meta <- freshMetaTvOfKind (tvKind tyVar)
                 pure (tvUnique tyVar, meta)

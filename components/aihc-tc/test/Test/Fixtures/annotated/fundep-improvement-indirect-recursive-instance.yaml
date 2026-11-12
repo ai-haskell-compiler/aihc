@@ -1,0 +1,38 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data U = U
+       │   └─ type: U
+       └─ type: Type
+  class C a b | a -> b where
+  └─ class methods: m ∷ ∀ a b. (C a b) ⇒ a → b; fundeps: a → b
+    m :: a -> b
+  class D a b | a -> b
+  └─ class methods:; fundeps: a → b
+  instance D a b => C a [b] where
+  └─ $fCaList ∷ ∀ a b. (D a b) ⇒ C a [b]
+    m = m
+    │   └─ type: a → [b]; type-args: a, [b]; evidence: $fCaList @a @b (given D a b)
+    └─ m ∷ a → [b]
+  instance C a b => D a b
+  └─ $fDab ∷ ∀ a b. (C a b) ⇒ D a b
+  use :: U -> ()
+  use u = case m u of _ -> ()
+               └─ error: unsolved constraint C U [[[[[[[[[[[[[[[[[t0]]]]]]]]]]]]]]]]]
+extensions: [MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data U = U
+  class C a b | a -> b where
+    m :: a -> b
+  class D a b | a -> b
+  instance D a b => C a [b] where
+    m = m
+  instance C a b => D a b
+  use :: U -> ()
+  use u = case m u of _ -> ()
+reason: "the instances D a b => C a [b] and C a b => D a b make the wanted C U t0 larger at each improvement; the fuel of the declaration stops the improvement, and the wanted gets a diagnostic"
+status: pass
