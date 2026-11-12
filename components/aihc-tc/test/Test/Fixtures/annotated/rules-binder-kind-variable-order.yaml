@@ -1,0 +1,32 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds #-}
+  module Test where
+  data M s = M s
+  data T (m :: M s) = T
+  size :: T m -> ()
+  size _ = ()
+  {-# RULES "size" forall (x :: T m). size x = () #-}
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds #-}
+  module Test where
+  data M s = M s
+       │     └─ type: ∀ s. s → M s
+       └─ type: Type → Type
+  data T (m :: M s) = T
+       │              └─ type: ∀ s m. T m
+       └─ type: M s → Type
+  size :: T m -> ()
+  size _ = ()
+  │    │   └─ type: ()
+  │    └─ type: T m
+  └─ type: ∀ k0 m. T m → ()
+  {-# RULES "size" forall (x :: T m). size x = () #-}
+            │             └─ type: T a│        └─ type: ()
+            └─ type: ∀ b a. T a → ()  └─ type: T a → (); type-args: b, a
+status: pass
+reason: The kind of the rule variable m mentions the kind variable s. The rule must quantify s before m. Before the fix, the rule quantified m first, and the FC rule had an unbound kind variable.
