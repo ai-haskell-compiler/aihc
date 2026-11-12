@@ -14,9 +14,10 @@ import Aihc.Dev.ExtractHi.Compare
     comparePackageCompatibility,
     comparePackageSubset,
     coreLibApiDivergences,
+    coreLibsApiDivergences,
+    extractCoreLibs,
     normalizeSignature,
     renderCoreLibProgressReports,
-    runCoreLibApiDivergences,
   )
 import Aihc.Dev.ExtractHi.Types
 import Control.Exception (IOException, bracket, try)
@@ -25,42 +26,48 @@ import Data.Text qualified as T
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
-import Test.Tasty (TestTree, testGroup)
+import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 
 extractHiCompareTests :: TestTree
 extractHiCompareTests =
-  testGroup
-    "extract-hi compare"
-    [ testCase "accepts empty candidate module exports" test_acceptsEmptyCandidateModuleExports,
-      testCase "rejects candidate module missing from oracle" test_rejectsMissingModule,
-      testCase "rejects changed value type" test_rejectsChangedValueType,
-      testGroup
-        "core-libs-progress"
-        [ testCase "counts matching exported interface facts" test_coreLibProgressCountsMatches,
-          testCase "extracts source package exports" test_coreLibProgressExtractsSourcePackage,
-          testCase "rejects exported source values without signatures" test_coreLibProgressRejectsMissingSourceSignature,
-          testCase "resolves base re-exported value types" test_coreLibProgressResolvesReexportedTypes,
-          testCase "counts missing candidate exports as failures" test_coreLibProgressCountsMissingExports,
-          testCase "rejects changed value types and type kinds" test_coreLibProgressRejectsChangedSignatures,
-          testCase "accepts source types without a kind signature" test_coreLibProgressAcceptsUnspecifiedKinds,
-          testCase "compares signatures up to rendering differences" test_coreLibProgressNormalizesSignatures,
-          testCase "extracts foreign imports as source values" test_coreLibProgressExtractsForeignImports,
-          testCase "extracts the wired-in GHC.Prim exports" test_coreLibProgressExtractsGhcPrim,
-          testCase "requires exports to come from the same module" test_coreLibProgressRequiresSameModule,
-          testCase "counts candidate-only exports separately" test_coreLibProgressCountsExtrasSeparately,
-          testCase "renders stable command output" test_coreLibProgressRendersStableOutput
-        ],
-      testGroup
-        "core-libs-api"
-        [ testCase "allows candidate-only modules to export anything" test_apiDivergenceAllowsNewModules,
-          testCase "rejects names that the oracle module does not export" test_apiDivergenceRejectsExtraNames,
-          testCase "compares names across namespaces and signatures" test_apiDivergenceIgnoresNamespaces,
-          testCase "rejects fixities the oracle does not declare identically" test_apiDivergenceRejectsFixities,
-          testCase "skips oracle modules without extracted exports" test_apiDivergenceSkipsEmptyOracleModules,
-          testCase "aihc-prim and aihc-base only have the known divergences" test_coreLibsHaveOnlyKnownDivergences
-        ]
-    ]
+  -- The extraction of the GHC base interface is the largest cost of this
+  -- group. One extraction serves all tests that read the core libraries.
+  withResource extractCoreLibs (const (pure ())) $ \getCoreLibs ->
+    testGroup
+      "extract-hi compare"
+      [ testCase "accepts empty candidate module exports" test_acceptsEmptyCandidateModuleExports,
+        testCase "rejects candidate module missing from oracle" test_rejectsMissingModule,
+        testCase "rejects changed value type" test_rejectsChangedValueType,
+        testGroup
+          "core-libs-progress"
+          [ testCase "counts matching exported interface facts" test_coreLibProgressCountsMatches,
+            testCase "extracts source package exports" test_coreLibProgressExtractsSourcePackage,
+            testCase "rejects exported source values without signatures" test_coreLibProgressRejectsMissingSourceSignature,
+            testCase "resolves base re-exported value types" (test_coreLibProgressResolvesReexportedTypes getCoreLibs),
+            testCase "counts missing candidate exports as failures" test_coreLibProgressCountsMissingExports,
+            testCase "rejects changed value types and type kinds" test_coreLibProgressRejectsChangedSignatures,
+            testCase "accepts source types without a kind signature" test_coreLibProgressAcceptsUnspecifiedKinds,
+            testCase "compares signatures up to rendering differences" test_coreLibProgressNormalizesSignatures,
+            testCase "extracts foreign imports as source values" test_coreLibProgressExtractsForeignImports,
+            testCase "extracts the wired-in GHC.Prim exports" (test_coreLibProgressExtractsGhcPrim getCoreLibs),
+            testCase "requires exports to come from the same module" test_coreLibProgressRequiresSameModule,
+            testCase "counts candidate-only exports separately" test_coreLibProgressCountsExtrasSeparately,
+            testCase "renders stable command output" test_coreLibProgressRendersStableOutput
+          ],
+        testGroup
+          "core-libs-api"
+          [ testCase "allows candidate-only modules to export anything" test_apiDivergenceAllowsNewModules,
+            testCase "rejects names that the oracle module does not export" test_apiDivergenceRejectsExtraNames,
+            testCase "compares names across namespaces and signatures" test_apiDivergenceIgnoresNamespaces,
+            testCase "rejects fixities the oracle does not declare identically" test_apiDivergenceRejectsFixities,
+            testCase "skips oracle modules without extracted exports" test_apiDivergenceSkipsEmptyOracleModules,
+            testCase "aihc-prim and aihc-base only have the known divergences" (test_coreLibsHaveOnlyKnownDivergences getCoreLibs)
+          ]
+      ]
+
+-- | The result of 'extractCoreLibs'.
+type CoreLibs = (PackageInterface, PackageInterface, PackageInterface, PackageInterface)
 
 -- | Subset checks against packages that must be registered with @ghc-pkg@.
 localPackageSubsetTests :: TestTree
@@ -126,9 +133,9 @@ test_coreLibProgressRejectsMissingSourceSignature =
       Right iface ->
         assertFailure ("expected missing source signature failure, got " <> show iface)
 
-test_coreLibProgressResolvesReexportedTypes :: Assertion
-test_coreLibProgressResolvesReexportedTypes = do
-  baseIface <- extractPackage "base"
+test_coreLibProgressResolvesReexportedTypes :: IO CoreLibs -> Assertion
+test_coreLibProgressResolvesReexportedTypes getCoreLibs = do
+  (_, _, _, baseIface) <- getCoreLibs
   dataEither <- findModule "Data.Either" baseIface
   assertEqual
     "Data.Either value types"
@@ -225,9 +232,9 @@ test_coreLibProgressExtractsForeignImports =
           (miValues modIface)
       _ -> assertFailure ("expected one source module, got " <> show (piModules iface))
 
-test_coreLibProgressExtractsGhcPrim :: Assertion
-test_coreLibProgressExtractsGhcPrim = do
-  ghcPrimIface <- extractPackage "ghc-prim"
+test_coreLibProgressExtractsGhcPrim :: IO CoreLibs -> Assertion
+test_coreLibProgressExtractsGhcPrim getCoreLibs = do
+  (_, ghcPrimIface, _, _) <- getCoreLibs
   ghcPrim <- findModule "GHC.Prim" ghcPrimIface
   assertEqual "+#" [ExportedValue "+#" "Int# -> Int# -> Int#"] (filter ((== "+#") . evName) (miValues ghcPrim))
   assertEqual "Int#" [ExportedType "Int#" "TYPE 'IntRep" []] (filter ((== "Int#") . etName) (miTypes ghcPrim))
@@ -363,9 +370,9 @@ knownCoreLibApiDivergences =
     "GHC.Prim.unsafeCoerce#"
   ]
 
-test_coreLibsHaveOnlyKnownDivergences :: Assertion
-test_coreLibsHaveOnlyKnownDivergences = do
-  divergences <- runCoreLibApiDivergences
+test_coreLibsHaveOnlyKnownDivergences :: IO CoreLibs -> Assertion
+test_coreLibsHaveOnlyKnownDivergences getCoreLibs = do
+  divergences <- coreLibsApiDivergences <$> getCoreLibs
   let unexpected = filter ((`notElem` knownCoreLibApiDivergences) . mismatchPath) divergences
       fixed = filter (`notElem` map mismatchPath divergences) knownCoreLibApiDivergences
   assertEqual

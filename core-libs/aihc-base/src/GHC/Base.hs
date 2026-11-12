@@ -12,6 +12,7 @@ module GHC.Base
     module GHC.Prim,
     module GHC.Classes,
     module GHC.Err,
+    module GHC.Types,
     Bool (..),
     Int (..),
     Char (..),
@@ -71,7 +72,7 @@ import GHC.Magic (oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim hiding (aihcAddWeakFinalizer#)
 import GHC.Prim.Base
-import GHC.Types (Bool (..), Char (..), Double (..), Float (..), RuntimeRep, TYPE, Type, Word (..), isTrue#)
+import GHC.Types
 
 -- | A monoid on applicative functors. GHC declares 'Alternative' and
 -- 'MonadPlus' in this module, and packages such as @STMonadTrans@ import
