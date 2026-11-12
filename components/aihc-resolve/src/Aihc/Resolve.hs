@@ -905,7 +905,7 @@ resolveInstanceDeclItem headClass instanceDeclItem =
     InstanceItemTypeFamilyInst familyInst -> do
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (typeFamilyInstLhs familyInst)
-      InstanceItemTypeFamilyInst <$> extendScope familyScope (resolveTypeFamilyInst familyInst)
+      InstanceItemTypeFamilyInst <$> resolveTypeFamilyInstWithLhsScope familyScope familyInst
     InstanceItemDataFamilyInst familyInst -> do
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (dataFamilyInstHead familyInst)
@@ -2263,12 +2263,22 @@ resolveTypeFamilyEq equation = do
       }
 
 resolveTypeFamilyInst :: TypeFamilyInst -> ResolveM TypeFamilyInst
-resolveTypeFamilyInst familyInst = do
+resolveTypeFamilyInst = resolveTypeFamilyInstWithLhsScope emptyScope
+
+-- | Resolve a type family equation. The extra scope applies to the left
+-- side only. An associated type instance names its family there without
+-- the qualifier of the class. The right side resolves in the scope of the
+-- module: in @instance C.MonadConc (Program pty n) where type ThreadId
+-- (Program pty n) = ThreadId@ of @dejafu@, the right side is the data type
+-- @ThreadId@ that the module imports, and the family is only in scope as
+-- @C.ThreadId@.
+resolveTypeFamilyInstWithLhsScope :: Scope -> TypeFamilyInst -> ResolveM TypeFamilyInst
+resolveTypeFamilyInstWithLhsScope lhsScope familyInst = do
   (forallScope, forallBinders') <- bindTyVarBinders (typeFamilyInstForall familyInst)
   (lhs', rhs') <-
     extendScope forallScope $
       (,)
-        <$> resolveType (typeFamilyInstLhs familyInst)
+        <$> extendScope lhsScope (resolveType (typeFamilyInstLhs familyInst))
         <*> resolveType (typeFamilyInstRhs familyInst)
   pure
     familyInst
