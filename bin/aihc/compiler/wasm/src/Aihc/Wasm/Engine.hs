@@ -28,7 +28,7 @@ module Aihc.Wasm.Engine
 where
 
 import Aihc.DataFiles (getDataFileName)
-import Aihc.Native (WasmSysroot (..), renderLinkedGlobalSymbol, wasmSysroot)
+import Aihc.Native (WasmSysroot (..), readWasmClangProcessWithExitCode, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
 import Control.Exception (bracket, onException)
 import Control.Monad (void)
 import Data.ByteString (ByteString)
@@ -73,12 +73,17 @@ engineNodeCommand = fromMaybe "node" <$> lookupEnv "AIHC_NODE"
 -- refer to any of them. An undefined function becomes an import, which the
 -- driver denies when the instance calls it. The arguments for the system
 -- libraries of the packages follow the archives.
+--
+-- The image also gets the globals of 'taskGlobalsAssembly'.
 linkImage :: FilePath -> [FilePath] -> [FilePath] -> [String] -> IO ()
 linkImage output objects archives libraries = do
   sysroot <- wasmSysroot
+  let globals = output <> ".globals.o"
+  assembleTaskGlobals globals
   runLinker
     ( ["-m", "wasm32", "--no-entry", "--export-all", "--export=__stack_pointer", "--export-table", "--growable-table", "--import-undefined", "--extra-features=atomics"]
         <> objects
+        <> [globals]
         <> ["--whole-archive"]
         <> archives
         <> ["--no-whole-archive"]
@@ -87,6 +92,42 @@ linkImage output objects archives libraries = do
         <> maybeToList (wasmSysrootBuiltins sysroot)
         <> ["-o", output]
     )
+
+-- | The globals that the task hook of the libc reads.
+--
+-- The libc of the sysroot keeps the thread-local storage and the stack of
+-- each component model task. Its task hook reads @__tls_size@,
+-- @__tls_align@, and @__init_stack_pointer@. Only a link with shared memory
+-- or with cooperative threads makes these globals, and the image link uses
+-- neither. An executable link removes the hook, because nothing calls it.
+-- The image link exports each symbol, so it keeps the hook, and the link
+-- fails with an undefined symbol. The linker takes the hook from the libc
+-- when an object uses a thread function, such as @pthread_self@.
+--
+-- The engine has one task and never calls the hook. Thus, each global is
+-- zero. Each definition is weak, so a global that the linker makes replaces
+-- it. The hook also calls @__wasm_init_tls@ and @__wasm_set_tls_base@,
+-- which become imports that the driver denies.
+taskGlobalsAssembly :: String
+taskGlobalsAssembly =
+  unlines
+    ( concat
+        [ ["\t.globaltype\t" <> name <> ", i32, immutable", "\t.hidden\t" <> name, "\t.weak\t" <> name, name <> ":"]
+        | name <- ["__tls_size", "__tls_align", "__init_stack_pointer"]
+        ]
+    )
+
+-- | Assemble 'taskGlobalsAssembly' into an object at the path.
+assembleTaskGlobals :: FilePath -> IO ()
+assembleTaskGlobals object = do
+  override <- lookupEnv "AIHC_WASM_CLANG"
+  let (clang, targetArguments) = wasmClangCommand override
+      source = object <> ".s"
+  writeFile source taskGlobalsAssembly
+  (exitCode, out, err) <- readWasmClangProcessWithExitCode clang (targetArguments <> ["-c", source, "-o", object])
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> ioError (userError ("clang failed (" <> show exitCode <> "): " <> if null err then out else err))
 
 -- | Link position-independent objects and each member of the archives
 -- into a shared module. Each symbol
