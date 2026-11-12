@@ -262,42 +262,70 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
 -- context asks @Typeable@ of a parameter with an open kind.
 --
 -- The instance checker reads the rendered header again and generalizes
--- such a parameter to a kind variable @k@. The representation of a type
--- at that parameter then needs @Typeable k@ too, and the header can only
--- name @k@ if it binds it. Thus the header becomes
+-- each open kind to a kind variable @k@. The representation of a type at
+-- that parameter then needs @Typeable k@ too, and the header can only name
+-- @k@ if it binds it. Thus the header becomes
 -- @forall k a (b :: k). (Typeable b, Typeable k, ...) => ...@, which is
--- the context GHC infers. A header without such a parameter stays as it
--- was, without binders.
+-- the context GHC infers. An open kind can also be a part of a kind, as
+-- the @k1@ in @g :: k1 -> Type@ of @newtype Flip g a f = Flip (g (f a))@.
+-- Each parameter with an open part gets its kind, and each open part in
+-- the kind of a @Typeable@ parameter gets @Typeable@. A header without
+-- such a parameter stays as it was, without binders.
 openKindBinders :: TcDerivingPlan -> [Pred] -> TcM ([TyVarBinder], [Type])
 openKindBinders plan context = do
   kinds <- mapM (\tyVar -> (,) tyVar <$> zonkKind (tvKind tyVar)) (tcDerivingTyVars plan)
-  let openKind tyVar =
-        case lookup tyVar kinds of
-          Just (TcMetaTv unique) -> Just unique
-          _ -> Nothing
+  let kindOf tyVar = lookup tyVar kinds
       typeableParameters =
-        [ (classTyCon, unique)
+        [ (classTyCon, kind)
         | ClassPred classTyCon [TcTyVar tyVar] <- context,
           tyConName classTyCon == "Typeable",
-          Just unique <- [openKind tyVar]
+          Just kind <- [kindOf tyVar],
+          not (null (kindMetas kind))
         ]
-      openUniques = nub (map snd typeableParameters)
+      openUniques = nub (concatMap (kindMetas . snd) kinds)
       usedNames = map (tvName . fst) kinds
       kindNames = zip openUniques (filter (`notElem` usedNames) [T.pack ("k" <> show index) | index <- [0 :: Int ..]])
       kindVariable unique = TVar . mkUnqualifiedName NameVarId <$> lookup unique kindNames
       binder name kind = TyVarBinder [] name kind TyVarBSpecified TyVarBVisible
+      parameterKind kind
+        | null (kindMetas kind) = Nothing
+        | otherwise = surfaceKind kindNames kind
   pure $
-    if null openUniques
+    if null typeableParameters
       then ([], [])
       else
         ( [binder name Nothing | (_, name) <- kindNames]
-            <> [binder (tvName tyVar) (openKind tyVar >>= kindVariable) | (tyVar, _) <- kinds],
+            <> [binder (tvName tyVar) (parameterKind kind) | (tyVar, kind) <- kinds],
           nub
             [ TApp (TCon (tyConNameSyntax (tcDerivingSourceSpan plan) classTyCon) Unpromoted) kindType
-            | (classTyCon, unique) <- typeableParameters,
+            | (classTyCon, kind) <- typeableParameters,
+              unique <- nub (kindMetas kind),
               Just kindType <- [kindVariable unique]
             ]
         )
+
+-- | The meta variables of a kind, in the order of their first occurrence.
+kindMetas :: TcType -> [Unique]
+kindMetas kind =
+  nub $ case kind of
+    TcMetaTv unique -> [unique]
+    TcTyCon _ arguments -> concatMap kindMetas arguments
+    TcKindedTyCon _ arguments -> concatMap kindMetas arguments
+    TcFunTy argument result -> kindMetas argument <> kindMetas result
+    TcAppTy function argument -> kindMetas function <> kindMetas argument
+    _ -> []
+
+-- | A kind as source syntax, with a name for each of its meta variables.
+surfaceKind :: [(Unique, Text)] -> TcType -> Maybe Type
+surfaceKind names kind =
+  case kind of
+    TcMetaTv unique -> TVar . mkUnqualifiedName NameVarId <$> lookup unique names
+    TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceKind names argument <*> surfaceKind names result
+    TcAppTy function argument -> TApp <$> surfaceKind names function <*> surfaceKind names argument
+    TcTyCon tyCon arguments
+      | not (null (concatMap kindMetas arguments)) ->
+          foldl TApp (TCon (tyConNameSyntax Nothing tyCon) Unpromoted) <$> mapM (surfaceKind names) arguments
+    _ -> surfaceType Nothing kind
 
 -- | The method equations of a plan, or 'Nothing' after reporting why the
 -- datatype cannot be derived.
