@@ -38,8 +38,15 @@ typeResultFromTree = fmap addTypeParens . typeFromTree
 declarationsFromTree :: Tree -> Either Text [Decl]
 declarationsFromTree tree = map addDeclParens <$> declarations tree
 
+-- | A pragma, such as @INLINE@ or @SPECIALISE@, does not change the
+-- meaning of the declarations. The conversion leaves it out.
 declarations :: Tree -> Either Text [Decl]
-declarations tree = list tree >>= mapM declaration
+declarations tree = list tree >>= mapM declaration . filter (not . isPragma)
+  where
+    isPragma item =
+      case item of
+        TreeNode "PragmaD" _ -> True
+        _ -> False
 
 declaration :: Tree -> Either Text Decl
 declaration tree =
@@ -107,6 +114,13 @@ typeFromTree tree =
     (TreeNode "ParensT" [inner], arguments) -> foldl TApp . TParen <$> typeFromTree inner <*> mapM typeFromTree arguments
     (TreeNode "SigT" [inner, kind], arguments) -> foldl TApp . TParen <$> (TKindSig <$> typeFromTree inner <*> typeFromTree kind) <*> mapM typeFromTree arguments
     (TreeNode "LitT" [value], []) -> TTypeLit <$> typeLiteral value
+    (TreeNode "ForallT" [binders, context, body], []) -> do
+      binders' <- list binders >>= mapM typeVariableBinder
+      context' <- list context >>= mapM typeFromTree
+      body' <- typeFromTree body
+      let qualified = if null context' then body' else TContext context' body'
+      pure (if null binders' then qualified else TForall (ForallTelescope ForallInvisible binders') qualified)
+    (TreeNode "ForallVisT" [binders, body], []) -> TForall <$> (ForallTelescope ForallVisible <$> (list binders >>= mapM typeVariableBinder)) <*> typeFromTree body
     (other, _) -> unsupported "type" other
   where
     -- The head of a chain of type applications, and its arguments.
@@ -236,6 +250,29 @@ binderFromTree tree = do
   case nameQualifier of
     Nothing -> Right (mkUnqualifiedName nameType nameText)
     Just _ -> Left "A splice result binds a qualified name."
+
+-- | A binder of a type variable: @PlainTV@ or @KindedTV@, with a flag. The
+-- flag @InferredSpec@ gives an inferred binder, and each other flag gives
+-- a specified binder.
+typeVariableBinder :: Tree -> Either Text TyVarBinder
+typeVariableBinder tree =
+  case tree of
+    TreeNode "PlainTV" [name, flag] -> binder name flag Nothing
+    TreeNode "KindedTV" [name, flag, kind] -> typeFromTree kind >>= binder name flag . Just
+    _ -> unsupported "type variable binder" tree
+  where
+    binder name flag kind = do
+      variable <- binderFromTree name
+      pure
+        TyVarBinder
+          { tyVarBinderAnns = [],
+            tyVarBinderName = unqualifiedNameText variable,
+            tyVarBinderKind = kind,
+            tyVarBinderSpecificity = case flag of
+              TreeNode "InferredSpec" [] -> TyVarBInferred
+              _ -> TyVarBSpecified,
+            tyVarBinderVisibility = TyVarBVisible
+          }
 
 -- | The name of a @Name@ tree. A name with no module, a name with a module
 -- qualifier, a unique name, and a name that is bound to its package and

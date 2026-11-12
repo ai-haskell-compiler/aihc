@@ -32,6 +32,7 @@ tests =
       testCase "converts a type to the surface syntax" typeTest,
       testCase "converts declarations to the surface syntax" declarationsTest,
       testCase "converts an instance declaration to the surface syntax" instanceTest,
+      testCase "converts a forall type and leaves out a pragma" forallTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -303,6 +304,32 @@ instanceTest = do
     "an instance with an overlap pragma"
     (Left "The compiler does not support the overlap pragma Just in a splice result.")
     (declarationsFromTree (list [TreeNode "InstanceD" [TreeNode "Just" [TreeNode "Overlapping" []], list [], TreeNode "ConT" [name "C"], list []]]))
+
+-- | A signature with an explicit forall, a binder with a kind, and a
+-- context, as a library that makes a function signature gives it. A
+-- top-level @INLINE@ pragma does not change the meaning, and the
+-- conversion leaves it out.
+forallTest :: IO ()
+forallTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      tree =
+        list
+          [ TreeNode "PragmaD" [TreeNode "InlineP" [name "f", TreeNode "Inline" [], TreeNode "FunLike" [], TreeNode "AllPhases" []]],
+            TreeNode
+              "SigD"
+              [ name "f",
+                TreeNode
+                  "ForallT"
+                  [ list [TreeNode "PlainTV" [name "a", TreeNode "SpecifiedSpec" []], TreeNode "KindedTV" [name "m", TreeNode "SpecifiedSpec" [], apply (apply (TreeNode "ArrowT" []) (TreeNode "ConT" [name "Type"])) (TreeNode "ConT" [name "Type"])]],
+                    list [apply (TreeNode "ConT" [name "Show"]) (TreeNode "VarT" [name "a"])],
+                    apply (apply (TreeNode "ArrowT" []) (TreeNode "VarT" [name "a"])) (apply (TreeNode "VarT" [name "m"]) (TreeNode "ConT" [name "String"]))
+                  ]
+              ]
+          ]
+  assertEqual
+    "a signature with a forall and a context"
+    (Right "f :: forall a (m :: Type -> Type). Show a => a -> m String")
+    (T.unwords . map render <$> declarationsFromTree tree)
 
 unsupportedTest :: IO ()
 unsupportedTest = do
