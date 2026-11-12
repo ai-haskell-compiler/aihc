@@ -1,0 +1,31 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  module Main where
+  import GHC.Types (Bool(..))
+  data Impl m = Impl (m Bool)
+       │        └─ type: ∀ m. m GHC.Types.Bool → Impl m
+       └─ type: (Type → Type) → Type
+  isImpl :: Impl m -> Bool
+  isImpl _ = True
+  │      └─ type: Impl m
+  └─ type: ∀ m. Impl m → GHC.Types.Bool
+  f :: (?impl :: Impl m) => Bool
+  f = isImpl ?impl
+  │   │      └─ type: Impl m; evidence: given ?impl ∷ Impl m
+  │   └─ type: Impl m → GHC.Types.Bool; type-args: m
+  └─ type: ∀ m. (?impl ∷ Impl m) ⇒ GHC.Types.Bool
+extensions: []
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Main where
+  import GHC.Types (Bool(..))
+  data Impl m = Impl (m Bool)
+  isImpl :: Impl m -> Bool
+  isImpl _ = True
+  f :: (?impl :: Impl m) => Bool
+  f = isImpl ?impl
+status: pass
+reason: A type variable that occurs only in an implicit parameter of a signature
+  is quantified by the signature.

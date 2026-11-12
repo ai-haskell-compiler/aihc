@@ -1682,6 +1682,9 @@ freeTypeVars = nub . go
     go (TAnn _ inner) = go inner
     go (TKindSig inner kindTy) = go inner ++ go kindTy
     go (TContext preds inner) = concatMap go preds ++ go inner
+    -- A variable can occur only in an implicit parameter, as @m@ in
+    -- @(?impl :: Impl m) => Bool@. The signature quantifies it.
+    go (TImplicitParam _ payload) = go payload
     go (TForall telescope inner) =
       filter
         (`Set.notMember` boundNames)
