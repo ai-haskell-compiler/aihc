@@ -9,6 +9,8 @@ module Aihc.Dev.ExtractHi.Compare
     comparePackageSubset,
     compatibilityPercent,
     coreLibApiDivergences,
+    coreLibsApiDivergences,
+    extractCoreLibs,
     normalizeSignature,
     coreLibProgressReports,
     renderInterfaceMismatch,
@@ -99,9 +101,12 @@ runCoreLibProgressReports = do
 -- do not provide, restricted to modules that exist in those packages.
 -- Modules that only aihc defines may export anything.
 runCoreLibApiDivergences :: IO [InterfaceMismatch]
-runCoreLibApiDivergences = do
-  (aihcPrim, ghcPrim, aihcBase, base) <- extractCoreLibs
-  pure (coreLibApiDivergences [ghcPrim, base] aihcPrim <> coreLibApiDivergences [ghcPrim, base] aihcBase)
+runCoreLibApiDivergences = coreLibsApiDivergences <$> extractCoreLibs
+
+-- | The divergences of aihc-prim and aihc-base from the result of 'extractCoreLibs'.
+coreLibsApiDivergences :: (PackageInterface, PackageInterface, PackageInterface, PackageInterface) -> [InterfaceMismatch]
+coreLibsApiDivergences (aihcPrim, ghcPrim, aihcBase, base) =
+  coreLibApiDivergences [ghcPrim, base] aihcPrim <> coreLibApiDivergences [ghcPrim, base] aihcBase
 
 extractCoreLibs :: IO (PackageInterface, PackageInterface, PackageInterface, PackageInterface)
 extractCoreLibs = do
