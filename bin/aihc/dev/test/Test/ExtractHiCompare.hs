@@ -427,11 +427,7 @@ knownCoreLibApiDivergences =
     "GHC.IO.Encoding.EncodeBuffer",
     "GHC.IO.Encoding.latin1_checked",
     "GHC.IO.Handle.hGetBufSome",
-    "GHC.IO.Handle.hPutStrLn",
-    "Prelude.%",
-    "Prelude.denominator",
-    "Prelude.numerator",
-    "Prelude.fixity:%"
+    "GHC.IO.Handle.hPutStrLn"
   ]
 
 test_coreLibsHaveOnlyKnownDivergences :: IO CoreLibs -> Assertion
