@@ -5,6 +5,7 @@ module Aihc.Tc.Solve.Congruence
     givenEqualities,
     allGivenEqualities,
     applyGivenSubst,
+    stuckGivenConstraints,
   )
 where
 
@@ -137,7 +138,7 @@ allGivenEqualities predicates = do
   let roots = [(predicate, EvGiven predicate) | predicate <- predicates]
   equalities <- concat <$> traverse (givenEqualities []) roots
   stuck <- concat <$> traverse (stuckGivenConstraints []) roots
-  if null stuck || null equalities
+  if null stuck
     then pure equalities
     else do
       kinds <- getKinds
@@ -145,18 +146,25 @@ allGivenEqualities predicates = do
       pure (equalities <> derived)
   where
     rewrittenEqualities kinds equalities (constraint, evidence) = do
-      reductions <- reduceRewritten equalities constraint
+      -- A given such as @SameShapeAs '[] ys@ can also reduce as it
+      -- stands, without a rewrite. The System FC lint compares the types
+      -- up to the same reductions, so the evidence needs no cast.
+      direct <- reduceTypeFamilies constraint
+      let directReductions = [(constraint, direct, Refl constraint) | not (sameType direct constraint)]
+      rewritten <- reduceRewritten equalities constraint
       concat
         <$> traverse
           ( \(_, reduced, proof) ->
-              let cast = EvCast evidence proof
+              let cast = case proof of
+                    Refl {} -> evidence
+                    _ -> EvCast evidence proof
                in case constraintTypeToPred kinds reduced of
                     Just equality@(EqPred left right) ->
                       pure [(left, right, EvidenceCo equality (EvSuperClass cast Nothing (IrredPred reduced) [reduced] 0))]
                     Just classPredicate@ClassPred {} -> givenEqualities [] (classPredicate, cast)
                     _ -> pure []
           )
-          reductions
+          (directReductions <> rewritten)
 
 -- | The given constraints, with their evidence, that are neither an
 -- equality nor a class: a family application that does not reduce yet.

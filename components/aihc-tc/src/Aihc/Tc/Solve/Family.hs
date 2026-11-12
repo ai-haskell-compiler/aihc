@@ -18,6 +18,7 @@ module Aihc.Tc.Solve.Family
     unsaturateFamilyApplication,
     familyEquations,
     occursOutsideFamilies,
+    tyVarOccursOutsideFamilies,
   )
 where
 
@@ -207,16 +208,30 @@ isTypeFamilyApplication ty =
 -- when @m@ is @ST s@, because @PrimState (ST s)@ reduces to @s@.
 occursOutsideFamilies :: TcM (Unique -> TcType -> Bool)
 occursOutsideFamilies = do
+  outside <- leafOutsideFamilies
+  pure (\u -> outside (\leaf -> case leaf of TcMetaTv u' -> u == u'; _ -> False))
+
+-- | Whether a rigid type variable occurs in a type outside every saturated
+-- type family application. See 'occursOutsideFamilies'.
+tyVarOccursOutsideFamilies :: TcM (TyVarId -> TcType -> Bool)
+tyVarOccursOutsideFamilies = do
+  outside <- leafOutsideFamilies
+  pure (\tyVar -> outside (\leaf -> case leaf of TcTyVar tyVar' -> tvUnique tyVar == tvUnique tyVar'; _ -> False))
+
+-- | Whether a type has a leaf that the test accepts outside every
+-- saturated type family application.
+leafOutsideFamilies :: TcM ((TcType -> Bool) -> TcType -> Bool)
+leafOutsideFamilies = do
   tyCons <- lift $ gets tcsGlobalTyCons
   let familyArity tyCon =
         case Map.lookup (tyConKey tyCon) tyCons of
           Just info | tciFlavor info == TypeFamilyTyCon -> Just (tciArity info)
           _ -> Nothing
-      occurs u = go
+      occurs isTarget = go
         where
           go ty =
             case ty of
-              TcMetaTv u' -> u == u'
+              _ | isTarget ty -> True
               TcTyCon tyCon arguments
                 | Just arity <- familyArity tyCon,
                   length arguments >= arity ->

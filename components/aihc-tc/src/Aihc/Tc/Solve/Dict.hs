@@ -32,10 +32,10 @@ import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Congruence (givenEqualities)
+import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassClosure)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds, matchKinds)
 import Aihc.Tc.Types
@@ -198,7 +198,13 @@ solveNormalizedDict visited givens ct
                     Just given -> do
                       bindEvidence (ctEvVar ct) given
                       pure DictSolved
-                    Nothing -> tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
+                    Nothing -> do
+                      rewrittenStuck <- rewrittenStuckGiven (ctPred ct : visited) (IrredPred reduced) givens'
+                      case rewrittenStuck of
+                        Just given -> do
+                          bindEvidence (ctEvVar ct) given
+                          pure DictSolved
+                        Nothing -> tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -277,7 +283,13 @@ solveNormalizedDict visited givens ct
       ruleSets <- givenRewriteRuleSets allGivens
       tryRuleSets visited' zonkedGivens allGivens className args ruleSets
 
-    tryRuleSets _ _ _ _ _ [] = pure (DictStuck ct)
+    tryRuleSets visited' _ allGivens className args [] = do
+      rewrittenStuck <- rewrittenStuckGiven visited' (ClassPred className args) allGivens
+      case rewrittenStuck of
+        Just evidence -> do
+          bindEvidence (ctEvVar ct) evidence
+          pure DictSolved
+        Nothing -> pure (DictStuck ct)
     tryRuleSets visited' zonkedGivens allGivens className args (rules : rest) = do
       let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
       -- The rules rewrite the givens as well as the wanted: with the
@@ -333,6 +345,46 @@ solveNormalizedDict visited givens ct
               found <- superclassEvidence [] visited' target evidence (ClassPred givenClass rewrittenArgs)
               maybe (rewrittenIrreducibleGiven visited' rules target rest) (pure . Just) found
         _ -> rewrittenIrreducibleGiven visited' rules target rest
+
+    -- A stuck family constraint among the givens, or among their
+    -- superclasses, can need all given equalities at once before it
+    -- reduces. In @trans_NP@ of @sop-core@, the given @AllZip c xs ys@ has
+    -- the superclass @AllZipF c xs ys@. The match on @x :* xs'@ gives @xs ~
+    -- (x ': xs')@, and the superclass @SameShapeAs xs ys@ then gives @ys ~
+    -- (Head ys ': Tail ys)@. Only with both rewrites does the superclass
+    -- reduce to @(c x (Head ys), AllZip c xs' (Tail ys))@, which holds the
+    -- wanted. A rewrite replaces a rigid variable with the other side of its
+    -- equality. The variable can occur in a family argument of that side,
+    -- because each occurrence is rewritten once. The given dictionary is
+    -- cast along the rewrite.
+    rewrittenStuckGiven visited' target givens'' = do
+      stuck <- concat <$> traverse (\given -> stuckGivenConstraints [] (given, EvGiven given)) givens''
+      if null stuck
+        then pure Nothing
+        else do
+          equalities <- allGivenEqualities givens''
+          outside <- tyVarOccursOutsideFamilies
+          let rules = concatMap (variableRewrite outside) equalities
+          if null rules then pure Nothing else searchStuck rules stuck
+      where
+        searchStuck _ [] = pure Nothing
+        searchStuck rules ((constraint, evidence) : rest) = do
+          let (rewritten, proof) = rewriteWithRules rules constraint
+          if sameType rewritten constraint
+            then searchStuck rules rest
+            else do
+              normalized <- normalizeGiven (IrredPred rewritten)
+              let castEvidence = EvCast evidence proof
+              found <-
+                if samePredicate normalized target
+                  then pure (Just castEvidence)
+                  else superclassEvidence [] visited' target castEvidence normalized
+              maybe (searchStuck rules rest) (pure . Just) found
+        variableRewrite outside (left, right, proof) =
+          case (left, right) of
+            (TcTyVar tyVar, _) | not (outside tyVar right) -> [(left, right, proof)]
+            (_, TcTyVar tyVar) | not (outside tyVar left) -> [(right, left, Sym proof)]
+            _ -> []
 
     rewrittenGivenMatches rules allGivens className args =
       [ (given, givenArgs, givenCoercions)
