@@ -882,7 +882,14 @@ tcRuleDecl rule = withAmbientSpan sp $ do
           | otherwise -> do
               let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
               Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
-              let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
+              -- A binder signature can give a variable a kind that mentions a
+              -- generalized kind variable, as @m@ in @forall (x :: T m). ...@
+              -- with @T (m :: M s)@. Put each variable after the variables
+              -- that its kind mentions. The kinds must be zonked first, because
+              -- the generalization wrote the kind metas only now.
+              quantified <- forM (typeBinders <> inferred <> specified) $ \tyVar ->
+                (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)
+              let closed = schemeToType (Scheme [] (orderTyVarsByKind quantified) predicates body)
               binders' <- forM binders $ \(binder, ty) ->
                 pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
               pure
