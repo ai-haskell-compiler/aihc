@@ -241,7 +241,7 @@ processEq (wl, inerts) ct = do
       -- still waits for a meta variable, the wanted waits too (see
       -- 'solveWantedWithGivens').
       givens <- mapM (zonkPred . ctPred) (ctBranchGivens ct)
-      if any (not . null . predMetaVars) givens
+      if not (all (null . predMetaVars) givens)
         then pure (wl, addInertDict ct inerts)
         else do
           _ <- reportEqError errCt
@@ -347,7 +347,7 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
         -- its givens, and the enclosing scope solves it again when the
         -- givens change.
         givens <- mapM zonkPred givenPredicates
-        if any (not . null . predMetaVars) givens
+        if not (all (null . predMetaVars) givens)
           then pure [ct]
           else reportEqError errCt
   ClassPred {} -> do
