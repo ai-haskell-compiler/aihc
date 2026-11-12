@@ -1,0 +1,20 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (Alternative (..))
+    import System.IO.Unsafe (unsafePerformIO)
+
+    result :: (Int, Int)
+    result =
+      unsafePerformIO
+        ( do
+            first <- ioError (userError "no") <|> return 1
+            second <- (empty <|> return 2) <|> return 3
+            return (first, second)
+        )
+expression: result
+output: |
+  ((I# 1),(I# 2))
+status: pass
+reason: the Alternative IO instance catches an IOError in the first action and runs the second action

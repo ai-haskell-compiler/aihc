@@ -177,7 +177,7 @@ import GHC.Base qualified
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
-import GHC.IO (FilePath, IO (..))
+import GHC.IO (FilePath, IO (..), catchException)
 import GHC.IO.Exception (IOError, ioError, userError)
 import GHC.IO.Handle.Text (hGetChar, hGetContents, hGetLine, hPutStr)
 import GHC.IO.IOMode (IOMode (..))
@@ -1289,6 +1289,13 @@ instance GHC.Base.Alternative Maybe where
   empty = Nothing
   Nothing <|> value = value
   value <|> _ = value
+
+-- | Match GHC: 'empty' throws a user error and '<|>' catches only an 'IOError'.
+instance GHC.Base.Alternative IO where
+  empty = ioError (userError "mzero")
+  first <|> second = first `catchException` \(_ :: IOError) -> second
+
+instance GHC.Base.MonadPlus IO
 
 instance GHC.Base.MonadPlus List
 
