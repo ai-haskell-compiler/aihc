@@ -10,9 +10,9 @@ where
 
 import Data.Bool (Bool (..))
 import Foreign.C.Types (CInt)
-import GHC.Base (Monad (..), String)
 import GHC.IO (IO)
 import GHC.Integer (Integer)
+import GHC.Internal.Base (Monad (..), String)
 import GHC.Internal.IO.Types (SeekMode, ioe_unsupportedOperation)
 
 descriptorSeekable :: CInt -> IO Bool
