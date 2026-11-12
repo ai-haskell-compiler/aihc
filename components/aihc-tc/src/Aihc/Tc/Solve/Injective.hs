@@ -199,11 +199,18 @@ determinedByEquation positions target equation =
 -- | Equate the determined arguments. Improvement carries no evidence, so
 -- the equality is solved by unification alone. Arguments that do not unify
 -- are left to the constraint itself to report as unsolved.
+--
+-- A determined argument can itself be an application of a family that
+-- cancels. Then the two arguments get the same improvement: @(t0 + k) + 1
+-- ~ (n + k) + 1@ gives @t0 + k ~ n + k@, and that gives @t0 ~ n@.
 improveEqualities :: [TcType] -> [TcType] -> TcM ()
 improveEqualities left right
   | length left /= length right = pure ()
   | otherwise = zipWithM_ improveOne left right
   where
-    improveOne leftType rightType
-      | sameType leftType rightType = pure ()
-      | otherwise = void (unifyTypes leftType rightType)
+    improveOne rawLeft rawRight = do
+      leftType <- normalize rawLeft
+      rightType <- normalize rawRight
+      unless (sameType leftType rightType) $ do
+        cancelled <- improveCancellation leftType rightType
+        unless cancelled (void (unifyTypes leftType rightType))
