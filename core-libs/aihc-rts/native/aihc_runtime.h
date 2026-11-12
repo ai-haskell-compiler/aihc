@@ -915,6 +915,9 @@ const AihcResume *aihc_ap_stack_enter(AihcCapability *capability, AihcValue *ap,
 /* The caller reserves nine heap slots. This operation must not collect. */
 AihcSlot aihc_fork(AihcCapability *capability, AihcValue *action);
 AihcThread *aihc_my_thread_id(AihcCapability *capability);
+/* The state of a thread, with the AIHC_BLOCKED_ values: zero for a thread
+   that runs or can run. GHC.Conc.Sync.threadStatus decodes the value. */
+int64_t aihc_thread_status(AihcThread *thread);
 void *aihc_mvar_new(AihcCapability *capability);
 const AihcResume *aihc_mvar_read(AihcCapability *capability, void *mvar,
                                  AihcValue *continuation);
