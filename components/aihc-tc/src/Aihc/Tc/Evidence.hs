@@ -84,6 +84,11 @@ data EvTerm
     -- body builds the dictionary from an instance. An 'EvGiven' of the
     -- same predicate in the body names the dictionary itself.
     EvRecursive !Pred !TcType !EvTerm
+  | -- | The built-in dictionary of @HasField x r a@ for a record field: the
+    -- class, the class arguments, the record type, the field type, the
+    -- field label, and the package, module, and name of each data
+    -- constructor that has the field. The dictionary selects the field.
+    EvHasField !TyCon ![TcType] !TcType !TcType !Text ![(Text, Text, Text)]
   deriving (Eq, Ord, Show, Read)
 
 -- | Checked constructor metadata for runtime reflection.

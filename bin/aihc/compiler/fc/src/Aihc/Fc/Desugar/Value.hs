@@ -6005,6 +6005,20 @@ desugarEvidence evidence =
     Ev.EvCallStackEmpty origin -> desugarCallStackEmpty origin
     Ev.EvExceptionContextEmpty (packageName, moduleName') ->
       pure (ExVar (Name "emptyExceptionContext" SortValue (OriginTop (PackageId packageName) moduleName')))
+    Ev.EvHasField classTyCon classArguments recordType fieldType label constructorKeys -> withoutEvidenceScope $ do
+      -- The dictionary of the one-method class holds a function that
+      -- selects the field from the record.
+      infos <- gets vsConstructorInfos
+      let constructors =
+            [ constructor
+            | (package, moduleName', name) <- constructorKeys,
+              constructor <- Map.findWithDefault [] name infos,
+              dciOrigin constructor == (PackageId package, moduleName')
+            ]
+      argument <- freshBinder "$record" recordType
+      selection <- desugarRecordSelection label recordType fieldType argument constructors
+      classTypes <- convertTyConApplicationArguments classTyCon classArguments
+      pure (ExApp (foldl ExTyApp (ExVar (classDictConName classTyCon)) classTypes) (ExLam argument selection))
     Ev.EvRecursive predicate dictionaryType body -> withoutEvidenceScope $ do
       -- The body names the dictionary as a given of its own predicate.
       binder <- freshEvidenceBinder dictionaryType

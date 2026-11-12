@@ -269,6 +269,8 @@ renderEvTerm ev =
       "withdict " <> T.unpack (tyConName target) <> renderTypeArgs arguments
     EvTypeLit _ ty literal ->
       "knownliteral @" <> renderTcType ty <> " " <> renderTyLit literal
+    EvHasField _ _ recordType _ label _ ->
+      "hasfield " <> T.unpack label <> " @" <> renderTcType recordType
     EvTypeLam variable body ->
       "Λ" <> T.unpack (tvName variable) <> ". " <> renderEvTerm body
     EvDictLam predicate _ body ->
