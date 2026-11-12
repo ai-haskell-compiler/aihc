@@ -31,12 +31,13 @@ import Aihc.Th.Wire (decodeTree)
 import Aihc.Wasm.Engine (Engine, engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.Async (async, cancel, waitCatch)
-import Control.Exception (IOException, bracket, displayException, try)
+import Control.Exception (IOException, SomeException, bracket, displayException, try)
 import Control.Monad (forM_, void)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
+import Data.Functor ((<&>))
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
@@ -85,84 +86,85 @@ import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, test
 -- | The core libraries are seeded once for the whole group rather than by each
 -- test; see "Test.Aihc.SeedStore". aihc-base is a separate, nested resource so
 -- that a test that does not need it never installs it.
-tests :: TestTree
+tests :: IO TestTree
 tests =
-  withResource acquirePrimStore releaseSeedStore $ \primStore ->
-    withResource (acquireCoreStore primStore) releaseSeedStore $ \coreStore ->
-      testGroup
-        "aihc"
-        [ -- Every build names its build root and output, so these run
-          -- alongside each other. A build that left either to the working
-          -- directory would need the process's one directory to itself.
-          testGroup
-            "build"
-            [ testCase "builds imported source modules and runs the executable" (test_buildModuleSourceDirectories coreStore),
-              testCase "reports the ambiguous installed module" (test_buildModuleAmbiguousModule coreStore),
-              testCase "reports the generated entry collision" (test_buildModuleEntryCollision coreStore),
-              testCase "writes a link bundle that link-exe turns into the executable" (test_buildModuleLinkBundle coreStore),
-              testCase "parses the optimization level" test_buildModuleOptimizationOption,
-              testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
-              testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
-              testCase "builds and runs the test suites of a Cabal package" (test_testSuites coreStore),
-              testCase "parses the test command" test_testCommandOptions,
-              testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
-              testCase "builds a module that imports a dependency module of its own name" (test_buildPackageImportSameName coreStore),
-              testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
-              testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
-              testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
-              testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
-              testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
-              -- The --lto builds need core libraries built with the flag,
-              -- which the other stores do not hold.
-              withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
-                testCase "compiles the merged program of each executable once" (test_lto ltoStore),
-              -- The llvm target links a --lto build through LLVM's own
-              -- link-time optimization, so its store is separate as well.
-              withResource acquireLlvmLtoStore releaseSeedStore $ \llvmLtoStore ->
-                testCase "optimizes the whole program of the llvm target at link time" (test_ltoLlvm llvmLtoStore)
-            ],
-          testGroup
-            "install"
-            -- A test whose package depends on base gets the store that holds
-            -- aihc-base. With aihc-prim alone, each such test would compile
-            -- aihc-base again. The code-quality fixtures choose per fixture.
-            [ testCase "code-quality install fixtures" (testInstallFixtures primStore coreStore),
-              withResource (acquireEngineStore primStore) (mapM_ releaseSeedStore) $ \engineStore ->
-                testGroup
-                  "engine"
-                  [ testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
-                    testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore),
-                    testCase "runs the splices and quotes of a program" (test_buildSplices coreStore engineStore)
-                  ],
-              testCase "compiles and archives capi wrappers" (test_installCapi primStore),
-              testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
-              testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
-              testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude coreStore),
-              testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi coreStore),
-              testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros coreStore),
-              testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
-              testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
-              -- This one installs aihc-prim into an empty store on purpose: it is
-              -- the test that covers the install the seed store performs.
-              testCase "parses Hackage package targets" test_parsePackageTarget
-            ],
-          testGroup
-            "tasks"
-            [ testCase "a cancelled memo owner gives no result to the tasks that wait" test_memoCancelledOwner
-            ],
-          testGroup
-            "artifacts"
-            [ testCase "resolve artifacts keep each kind of export entry" test_resolveArtifactRoundTrip
-            ],
-          testGroup
-            "sources"
-            [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
-              testCase "the sigset_t size matches the platform headers" test_sigsetSize,
-              testCase "the errno numbers match the platform headers" test_errnoNumbers,
-              testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
-              testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
-            ]
-        ]
+  installFixtureTests <&> \fixtureTests ->
+    withResource acquirePrimStore releaseSeedStore $ \primStore ->
+      withResource (acquireCoreStore primStore) releaseSeedStore $ \coreStore ->
+        testGroup
+          "aihc"
+          [ -- Every build names its build root and output, so these run
+            -- alongside each other. A build that left either to the working
+            -- directory would need the process's one directory to itself.
+            testGroup
+              "build"
+              [ testCase "builds imported source modules and runs the executable" (test_buildModuleSourceDirectories coreStore),
+                testCase "reports the ambiguous installed module" (test_buildModuleAmbiguousModule coreStore),
+                testCase "reports the generated entry collision" (test_buildModuleEntryCollision coreStore),
+                testCase "writes a link bundle that link-exe turns into the executable" (test_buildModuleLinkBundle coreStore),
+                testCase "parses the optimization level" test_buildModuleOptimizationOption,
+                testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
+                testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+                testCase "builds and runs the test suites of a Cabal package" (test_testSuites coreStore),
+                testCase "parses the test command" test_testCommandOptions,
+                testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
+                testCase "builds a module that imports a dependency module of its own name" (test_buildPackageImportSameName coreStore),
+                testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
+                testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
+                testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
+                testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
+                testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
+                -- The --lto builds need core libraries built with the flag,
+                -- which the other stores do not hold.
+                withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
+                  testCase "compiles the merged program of each executable once" (test_lto ltoStore),
+                -- The llvm target links a --lto build through LLVM's own
+                -- link-time optimization, so its store is separate as well.
+                withResource acquireLlvmLtoStore releaseSeedStore $ \llvmLtoStore ->
+                  testCase "optimizes the whole program of the llvm target at link time" (test_ltoLlvm llvmLtoStore)
+              ],
+            testGroup
+              "install"
+              -- A test whose package depends on base gets the store that holds
+              -- aihc-base. With aihc-prim alone, each such test would compile
+              -- aihc-base again. The code-quality fixtures choose per fixture.
+              [ testGroup "code-quality" (fixtureTests primStore coreStore),
+                withResource (acquireEngineStore primStore) (mapM_ releaseSeedStore) $ \engineStore ->
+                  testGroup
+                    "engine"
+                    [ testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
+                      testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore),
+                      testCase "runs the splices and quotes of a program" (test_buildSplices coreStore engineStore)
+                    ],
+                testCase "compiles and archives capi wrappers" (test_installCapi primStore),
+                testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
+                testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
+                testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude coreStore),
+                testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi coreStore),
+                testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros coreStore),
+                testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
+                testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
+                -- This one installs aihc-prim into an empty store on purpose: it is
+                -- the test that covers the install the seed store performs.
+                testCase "parses Hackage package targets" test_parsePackageTarget
+              ],
+            testGroup
+              "tasks"
+              [ testCase "a cancelled memo owner gives no result to the tasks that wait" test_memoCancelledOwner
+              ],
+            testGroup
+              "artifacts"
+              [ testCase "resolve artifacts keep each kind of export entry" test_resolveArtifactRoundTrip
+              ],
+            testGroup
+              "sources"
+              [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
+                testCase "the sigset_t size matches the platform headers" test_sigsetSize,
+                testCase "the errno numbers match the platform headers" test_errnoNumbers,
+                testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
+                testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
+              ]
+          ]
 
 -- | The suffix the backend adds beside the object file it emits.
 nativeArtifactExtension :: NativeTarget -> FilePath
@@ -522,58 +524,70 @@ instance FromJSON InstallFixture where
         2 -> pure O2
         _ -> fail "optimization must be 0, 1, or 2"
 
-testInstallFixtures :: IO SeedStore -> IO SeedStore -> Assertion
-testInstallFixtures getPrimStore getCoreStore = do
-  root <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/code-quality"
-  names <- sort <$> listDirectory root
-  forM_ names $ \name -> do
-    let directory = root </> name
-    fixture <- Y.decodeFileThrow (directory </> "fixture.yaml")
-    assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
-    let getStore = if installFixtureNeedsBase fixture then getCoreStore else getPrimStore
-    withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
-      store <- sandboxStore sandbox "store"
-      let input = if installFixtureInput fixture == "." then directory else directory </> installFixtureInput fixture
-          options =
-            (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False False buildHostTarget Nothing defaultPlanOptions)
-              { installImmutable = installFixtureImmutable fixture,
-                installOptimization = installFixtureOptimization fixture,
-                installKeepGrin = not (null (installFixtureGrin fixture)),
-                installNoCode = installFixtureNoCode fixture,
-                installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
-              }
-      -- A fixture with expected progress installs through a reporter that
-      -- writes to a file, as a redirected command does.
-      (progressPath, progressHandle) <- openTempFile (sandboxRoot sandbox) "progress.txt"
-      let run installOptions =
-            case installFixtureProgress fixture of
-              Nothing -> install installOptions
-              Just _ -> withProgress progressHandle (`installWith` installOptions)
-      outcome <- try $ withEnvironment (installFixtureEnvironment fixture) $ do
-        first <- run options
-        if installFixtureReinstall fixture
-          then run options {installReinstall = True}
-          else pure first
-      hClose progressHandle
-      forM_ (installFixtureProgress fixture) $ \expected -> do
-        actual <- lines <$> readFile progressPath
-        assertEqual (name <> ": progress output") expected (map normalizeProgressLine actual)
-      case outcome :: Either IOException InstallResult of
-        Left err -> do
-          assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
-        Right result ->
-          case installFixtureError fixture of
-            Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
-            Nothing -> do
-              forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
-                bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
-                artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
-                let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
-                forM_ expected $ \constructor ->
-                  assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
-              forM_ (installFixtureGrin fixture) $ \(moduleName, expected) -> do
-                actual <- readFile (installStorePath result </> moduleName </> "plain.grin")
-                assertBool (name <> ": missing GRIN output " <> expected) (expected `isInfixOf` actual)
+-- | One test for each code-quality fixture, so that the fixtures run in
+-- parallel. A fixture directory that cannot be read becomes one test that
+-- fails, because the test tree must not fail before the tests start.
+installFixtureTests :: IO (IO SeedStore -> IO SeedStore -> [TestTree])
+installFixtureTests = do
+  listing <- try $ do
+    root <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/code-quality"
+    names <- sort <$> listDirectory root
+    pure (root, names)
+  pure $ \getPrimStore getCoreStore ->
+    case listing :: Either SomeException (FilePath, [FilePath]) of
+      Left err -> [testCase "code-quality install fixtures" (assertFailure (displayException err))]
+      Right (root, names) ->
+        [testCase name (testInstallFixture getPrimStore getCoreStore root name) | name <- names]
+
+testInstallFixture :: IO SeedStore -> IO SeedStore -> FilePath -> FilePath -> Assertion
+testInstallFixture getPrimStore getCoreStore root name = do
+  let directory = root </> name
+  fixture <- Y.decodeFileThrow (directory </> "fixture.yaml")
+  assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
+  let getStore = if installFixtureNeedsBase fixture then getCoreStore else getPrimStore
+  withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
+    store <- sandboxStore sandbox "store"
+    let input = if installFixtureInput fixture == "." then directory else directory </> installFixtureInput fixture
+        options =
+          (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False False buildHostTarget Nothing defaultPlanOptions)
+            { installImmutable = installFixtureImmutable fixture,
+              installOptimization = installFixtureOptimization fixture,
+              installKeepGrin = not (null (installFixtureGrin fixture)),
+              installNoCode = installFixtureNoCode fixture,
+              installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
+            }
+    -- A fixture with expected progress installs through a reporter that
+    -- writes to a file, as a redirected command does.
+    (progressPath, progressHandle) <- openTempFile (sandboxRoot sandbox) "progress.txt"
+    let run installOptions =
+          case installFixtureProgress fixture of
+            Nothing -> install installOptions
+            Just _ -> withProgress progressHandle (`installWith` installOptions)
+    outcome <- try $ withEnvironment (installFixtureEnvironment fixture) $ do
+      first <- run options
+      if installFixtureReinstall fixture
+        then run options {installReinstall = True}
+        else pure first
+    hClose progressHandle
+    forM_ (installFixtureProgress fixture) $ \expected -> do
+      actual <- lines <$> readFile progressPath
+      assertEqual (name <> ": progress output") expected (map normalizeProgressLine actual)
+    case outcome :: Either IOException InstallResult of
+      Left err -> do
+        assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
+      Right result ->
+        case installFixtureError fixture of
+          Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
+          Nothing -> do
+            forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
+              bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
+              artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
+              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
+              forM_ expected $ \constructor ->
+                assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
+            forM_ (installFixtureGrin fixture) $ \(moduleName, expected) -> do
+              actual <- readFile (installStorePath result </> moduleName </> "plain.grin")
+              assertBool (name <> ": missing GRIN output " <> expected) (expected `isInfixOf` actual)
 
 -- | Run an action with the variables set in the process environment, and
 -- put back what each held before.

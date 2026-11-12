@@ -27,12 +27,13 @@ main = do
   arm64 <- Arm64.tests
   llvm <- Llvm.tests
   wasm <- Wasm.tests
+  aihc <- Aihc.tests
   -- The runtime archives that links share outlive every individual test, so
   -- they are removed once the whole suite is done.
   defaultMain
     ( testGroup
         "aihc"
-        [ testGroup "spec" [Aihc.tests],
+        [ testGroup "spec" [aihc],
           testGroup "fc-spec" [fc],
           testGroup "grin-spec" [grin],
           testGroup "lir-spec" [lir],
