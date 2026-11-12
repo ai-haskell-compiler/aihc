@@ -848,7 +848,7 @@ copyPartners blocks =
 -- takes the local of a copy partner when it can, so that the copy does
 -- nothing. The result maps each value to a local and each local to its
 -- type.
-colorLocals :: Map Var (Set Var) -> Map Var [Var] -> [(Var, Text)] -> [(Var, Text)] -> Set Var -> (Map Var Int, Map Int Text)
+colorLocals :: MonoidMap Var (Set Var) -> Map Var [Var] -> [(Var, Text)] -> [(Var, Text)] -> Set Var -> (Map Var Int, Map Int Text)
 colorLocals adjacency partners parameters values unique =
   let (coloring, slots) = foldl' place (Map.fromList initial, Map.fromList [(index, (ty, Set.singleton var, False)) | (var, index, ty) <- numbered]) values
    in (coloring, Map.map (\(ty, _, _) -> ty) slots)
@@ -858,7 +858,7 @@ colorLocals adjacency partners parameters values unique =
     place (coloring, slots) (var, ty)
       | Map.member var coloring = (coloring, slots)
       | otherwise =
-          let neighbours = Map.findWithDefault Set.empty var adjacency
+          let neighbours = MonoidMap.get var adjacency
               fits (ty', members, closed) = ty' == ty && not closed && Set.disjoint members neighbours
               preferred = [index | partner <- Map.findWithDefault [] var partners, Just index <- [Map.lookup partner coloring], Just slot <- [Map.lookup index slots], fits slot]
               free = [index | not (Set.member var unique), index <- preferred <> [index | (index, slot) <- Map.toList slots, fits slot]]
@@ -878,8 +878,8 @@ colorLocals adjacency partners parameters values unique =
 -- interferes with the operands. The jump to a block writes its parameters
 -- at the end of the jump, so they interfere with each value that is live
 -- into the block.
-interference :: Fn -> Set Var -> Map Var (Set Var)
-interference fn locals = foldl' blockEdges Map.empty blocks
+interference :: Fn -> Set Var -> MonoidMap Var (Set Var)
+interference fn locals = foldl' blockEdges MonoidMap.empty blocks
   where
     function = fnFunction fn
     blocks = functionBlocks function
@@ -940,7 +940,7 @@ interference fn locals = foldl' blockEdges Map.empty blocks
     addEdge others acc var
       | Set.member var locals =
           let others' = Set.delete var others
-           in Set.foldl' (\acc' other -> Map.insertWith Set.union other (Set.singleton var) acc') (Map.insertWith Set.union var others' acc) others'
+           in Set.foldl' (\acc' other -> MonoidMap.adjust (Set.union (Set.singleton var)) other acc') (MonoidMap.adjust (Set.union others') var acc) others'
       | otherwise = acc
 
 -- | The blocks that use the stack allocations, when each of them can make
