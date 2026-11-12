@@ -65,7 +65,7 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, when)
+import Control.Monad (foldM, when, zipWithM)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
@@ -557,18 +557,56 @@ withPatternTyVars tyVars action =
 
 checkTuplePattern :: Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern sp flavor items scrutTy = do
-  elemTys <- mapM (const freshMetaTv) items
   let arity = length items
   wired <- wiredTupleTyCon flavor arity
   -- The wiring gives the full identity of the tuple type constructor.
   -- A bare name lookup can find a different constructor with the same name.
   tupleTyCon <- registeredWiredTyCon wired
+  -- A constructor pattern of a GADT reads the type indices from its
+  -- scrutinee type. With a fresh meta variable, an index is a new meta
+  -- variable that nothing solves. Thus, a known tuple type gives its
+  -- element type to an item that contains a constructor pattern. Another
+  -- item gets a fresh meta variable, and the tuple equality relates the
+  -- two types later.
+  knownScrutTy <- zonkType scrutTy
+  let knownElemTys = case knownScrutTy of
+        TcTyCon scrutTyCon arguments
+          | scrutTyCon == tupleTyCon && length arguments == arity -> map Just arguments
+        _ -> map (const Nothing) items
+  elemTys <-
+    zipWithM
+      ( \item known -> case known of
+          Just elemTy | containsConstructorPattern item -> pure elemTy
+          _ -> freshMetaTv
+      )
+      items
+      knownElemTys
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
   let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple flavor (pcPatterns itemChecks))
       castPattern = PAnn (mkAnnotation (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
+
+-- | Whether a pattern contains a constructor pattern.
+containsConstructorPattern :: Pattern -> Bool
+containsConstructorPattern pat =
+  case pat of
+    PCon {} -> True
+    PBuiltinCon {} -> True
+    PInfix {} -> True
+    PRecord {} -> True
+    PAnn _ inner -> containsConstructorPattern inner
+    PParen inner -> containsConstructorPattern inner
+    PAs _ inner -> containsConstructorPattern inner
+    PStrict inner -> containsConstructorPattern inner
+    PIrrefutable inner -> containsConstructorPattern inner
+    PView _ inner -> containsConstructorPattern inner
+    PTypeSig inner _ -> containsConstructorPattern inner
+    PUnboxedSum _ _ inner -> containsConstructorPattern inner
+    PTuple _ inner -> any containsConstructorPattern inner
+    PList inner -> any containsConstructorPattern inner
+    _ -> False
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
