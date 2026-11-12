@@ -13,7 +13,7 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
-import GHC.Base (build, (++))
+import GHC.Base (build, maxInt, (++))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
@@ -269,9 +269,9 @@ instance Enum Char where
 
 instance Bounded Int where
   minBound =
-    case maximumInt of
+    case maxInt of
       I# value -> I# ((+#) value 1#)
-  maxBound = maximumInt
+  maxBound = maxInt
 
 instance Bounded Word where
   minBound = W# (int2Word# 0#)
@@ -307,10 +307,10 @@ instance Bounded Int32 where
 
 instance Bounded Int64 where
   minBound =
-    case maximumInt of
+    case maxInt of
       I# value -> I64# (intToInt64# ((+#) value 1#))
   maxBound =
-    case maximumInt of
+    case maxInt of
       I# value -> I64# (intToInt64# value)
 
 instance Enum Int where
@@ -612,9 +612,6 @@ enumSizedDown value step last =
             case next > value of
               True -> []
               False -> enumSizedDown next step last
-
-maximumInt :: Int
-maximumInt = I# (word2Int# (uncheckedShiftRL# (not# (int2Word# 0#)) 1#))
 
 enumIntFromTo :: Int -> Int -> [Int]
 enumIntFromTo value last =
