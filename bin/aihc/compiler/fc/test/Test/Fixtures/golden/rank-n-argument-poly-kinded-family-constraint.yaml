@@ -1,0 +1,21 @@
+extensions:
+- PolyKinds
+- RankNTypes
+- FlexibleContexts
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE PolyKinds, RankNTypes, FlexibleContexts, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  data P (f :: k -> Type) (xs :: [k]) = P
+  type family Prod (h :: (k -> Type) -> (l -> Type)) :: (k -> Type) -> (l -> Type)
+  type instance Prod P = P
+  class H (h :: (k -> Type) -> (l -> Type))
+  instance H P
+  mapD :: (H t, H (Prod t)) => (forall a. f a -> g a) -> Prod t f xs -> t g xs
+  mapD f x = mapD f x
+  idD :: P f xs -> P f xs
+  idD = mapD (\x -> x)
+status: pass
+reason: A rank-n argument of a poly-kinded function with a family constraint gets bound kind variables.

@@ -163,6 +163,7 @@ import Aihc.Resolve.Traverse (Walkable, collectAnnotations)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
+import Data.Data (Data, cast, gmapM)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -1148,9 +1149,15 @@ resolveExpr expr =
     ETHExpQuote inner ->
       ETHExpQuote <$> resolveExpr inner
     ETHTypedQuote {} -> pure expr
-    ETHDeclQuote {} -> pure expr
-    ETHTypeQuote {} -> pure expr
-    ETHPatQuote {} -> pure expr
+    -- The body of a declaration, type, or pattern quote stays unresolved.
+    -- But each splice in the body is an expression at the level of the
+    -- quote, and the type checker examines it.
+    ETHDeclQuote decls ->
+      ETHDeclQuote <$> mapM resolveQuoteSplices decls
+    ETHTypeQuote ty ->
+      ETHTypeQuote <$> resolveQuoteSplices ty
+    ETHPatQuote pat ->
+      ETHPatQuote <$> resolveQuoteSplices pat
     -- A name quote gives the name of a term or of a type. The change of
     -- the quote into a Template Haskell name reads the resolution.
     ETHNameQuote inner ->
@@ -2437,6 +2444,28 @@ resolveType ty =
       TSplice <$> withResetLocalSupply (resolveExpr expr)
     TWildcard -> pure ty
     TQuasiQuote {} -> TAnn <$> unhandledSyntax ResolutionNamespaceType "TQuasiQuote" <*> pure ty
+
+-- | Resolve the splices in the unresolved body of a quote.
+--
+-- The search does not go into a nested quote, because the splices of a
+-- nested quote are at a different level.
+resolveQuoteSplices :: (Data a) => a -> ResolveM a
+resolveQuoteSplices node
+  | Just expr <- cast node =
+      case expr of
+        ETHSplice inner -> castBack (ETHSplice <$> resolveExpr inner)
+        ETHExpQuote {} -> pure node
+        ETHTypedQuote {} -> pure node
+        ETHDeclQuote {} -> pure node
+        ETHTypeQuote {} -> pure node
+        ETHPatQuote {} -> pure node
+        _ -> gmapM resolveQuoteSplices node
+  | Just (TSplice inner) <- cast node = castBack (TSplice <$> withResetLocalSupply (resolveExpr inner))
+  | Just (PSplice inner) <- cast node = castBack (PSplice <$> withResetLocalSupply (resolveExpr inner))
+  | Just (DeclSplice inner) <- cast node = castBack (DeclSplice <$> resolveExpr inner)
+  | otherwise = gmapM resolveQuoteSplices node
+  where
+    castBack action = fromMaybe node . cast <$> action
 
 resolveArrowKind :: ArrowKind -> ResolveM ArrowKind
 resolveArrowKind arrowKind =

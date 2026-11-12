@@ -1,0 +1,31 @@
+extensions:
+- DataKinds
+- KindSignatures
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE PolyKinds, StandaloneKindSignatures #-}
+  module GHC.TypeError where
+  import GHC.Types (Type)
+  type ErrorMessage :: Type
+  data ErrorMessage = forall t. ShowType t
+  type TypeError :: forall b. ErrorMessage -> b
+  type family TypeError a where
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  import GHC.TypeError (ErrorMessage (..), TypeError)
+  import GHC.Types (Constraint)
+  type family Id a where
+    Id a = a
+  data Box (c :: Constraint) = Box
+  -- As Data.Constraint.Nat declares 'Min a c <= Min b c'.
+  box :: Box (TypeError ('ShowType (Id a)))
+  box = Box
+  -- As Optics.Internal.Generic.TypeLevel declares NoGenericError.
+  type family NoInstance t where
+    NoInstance t = TypeError ('ShowType t)
+  noInstance :: Box (NoInstance a)
+  noInstance = Box
+status: pass
+reason: A TypeError application with a reduced argument, or as the reduct of a family, stays stuck. Its kind is the result kind variable of the TypeError scheme, and the finalizer must not record that variable as a kind argument.
