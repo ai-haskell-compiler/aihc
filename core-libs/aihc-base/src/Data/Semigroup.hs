@@ -41,20 +41,19 @@ import Data.Semigroup.Internal
     stimesMonoid,
   )
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import Prelude (Applicative (..), Bool (..), Eq (..), Foldable (..), Functor (..), Integral, Monad (..), Monoid (..), Num, Ord (..), Ordering (..), Traversable (..), (.))
+import Prelude (Applicative (..), Bool (..), Eq (..), Foldable (..), Functor (..), Integral, Monad (..), Monoid (..), Num, Ord (..), Ordering (..), Traversable (..), otherwise, (.))
 
--- | Repeat a value @n@ times. Zero repeats give 'mempty'.
+-- | Repeat a value @n@ times. A count of zero gives 'mempty'.
 mtimesDefault :: (Integral b, Monoid a) => b -> a -> a
-mtimesDefault count value =
-  case count == 0 of
-    True -> mempty
-    False -> stimes count value
+mtimesDefault n x
+  | n == 0 = mempty
+  | otherwise = stimes n x
 
 -- | Repeat a value without end.
 cycle1 :: (Semigroup m) => m -> m
-cycle1 value = cycled
+cycle1 xs = xs'
   where
-    cycled = value <> cycled
+    xs' = xs <> xs'
 
 -- | Change a value into the 'Endo' that adds the value on the left.
 diff :: (Semigroup m) => m -> Endo m

@@ -172,12 +172,12 @@ import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
-import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, asTypeOf, const, flip, id, map, until, ($), (++), (.))
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, asTypeOf, const, flip, id, map, until, ($), ($!), (++), (.))
 import GHC.Base qualified
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
-import GHC.IO (FilePath, IO (..))
+import GHC.IO (FilePath, IO (..), catchException)
 import GHC.IO.Exception (IOError, ioError, userError)
 import GHC.IO.Handle.Text (hGetChar, hGetContents, hGetLine, hPutStr)
 import GHC.IO.IOMode (IOMode (..))
@@ -222,14 +222,6 @@ import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
-
--- | Function application. The result type can have any runtime
--- representation, as in GHC. The definition returns the function itself, so
--- the value that the definition returns is always lifted.
-($!) :: (a -> b) -> a -> b
-function $! argument = argument `seq` function argument
-
-infixr 0 $!
 
 (<$>) :: (Functor f) => (a -> b) -> f a -> f b
 (<$>) = fmap
@@ -1297,6 +1289,13 @@ instance GHC.Base.Alternative Maybe where
   empty = Nothing
   Nothing <|> value = value
   value <|> _ = value
+
+-- | Match GHC: 'empty' throws a user error and '<|>' catches only an 'IOError'.
+instance GHC.Base.Alternative IO where
+  empty = ioError (userError "mzero")
+  first <|> second = first `catchException` \(_ :: IOError) -> second
+
+instance GHC.Base.MonadPlus IO
 
 instance GHC.Base.MonadPlus List
 

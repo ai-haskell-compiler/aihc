@@ -9,12 +9,13 @@ module GHC.Natural
     Natural (NatS#, NatJ#),
     powModNatural,
     isValidNatural,
+    naturalFromInteger,
   )
 where
 
 import GHC.Exception (ArithException (..), throw)
 import GHC.Num.BigNat (BigNat (..))
-import GHC.Num.Integer (integerFromNatural, integerPowMod#)
+import GHC.Num.Integer (Integer, integerFromNatural, integerPowMod#, integerToNatural)
 import GHC.Num.Natural (Natural (..), naturalCheck)
 import GHC.Prim (Word#)
 import GHC.Types (Bool)
@@ -39,3 +40,7 @@ powModNatural base exponent modulus =
 -- | Whether a natural number has the canonical representation.
 isValidNatural :: Natural -> Bool
 isValidNatural = naturalCheck
+
+-- | The 'Natural' with the absolute value of an 'Integer', as in GHC.
+naturalFromInteger :: Integer -> Natural
+naturalFromInteger = integerToNatural

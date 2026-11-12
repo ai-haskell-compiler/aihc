@@ -1,8 +1,3 @@
--- | Stack traces from the execution stack.
---
--- aihc does not collect execution stack traces. 'getStackTrace' and
--- 'showStackTrace' always give 'Nothing', as they do in GHC when the
--- runtime system has no stack trace support.
 module GHC.ExecutionStack
   ( Location (..),
     SrcLoc (..),
@@ -12,27 +7,18 @@ module GHC.ExecutionStack
 where
 
 import GHC.Base (Maybe (..), Monad (..), String)
-import GHC.Int (Int)
+import GHC.ExecutionStack.Internal (Location (..), SrcLoc (..))
 import GHC.Types (IO)
 
--- | A location in the source code.
-data SrcLoc = SrcLoc
-  { sourceFile :: String,
-    sourceLine :: Int,
-    sourceColumn :: Int
-  }
-
--- | A location in the execution stack.
-data Location = Location
-  { objectName :: String,
-    functionName :: String,
-    srcLoc :: Maybe SrcLoc
-  }
-
--- | The execution stack of the current thread.
+-- | Get the execution stack of the current thread.
+--
+-- The aihc runtime has no stack trace support. Thus, the result is always
+-- 'Nothing', as in GHC without stack trace support.
 getStackTrace :: IO (Maybe [Location])
 getStackTrace = return Nothing
 
--- | The execution stack of the current thread as text.
+-- | Get the execution stack of the current thread as text.
+--
+-- The result is always 'Nothing'. Refer to 'getStackTrace'.
 showStackTrace :: IO (Maybe String)
 showStackTrace = return Nothing

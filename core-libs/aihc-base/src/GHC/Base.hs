@@ -40,13 +40,14 @@ module GHC.Base
     unpackFoldrCString#,
     oneShot,
     ($),
-    id,
-    const,
-    flip,
+    ($!),
     asTypeOf,
     until,
     maxInt,
     minInt,
+    id,
+    const,
+    flip,
     (.),
     (++),
     foldr,
@@ -187,27 +188,6 @@ const value _ = value
 flip :: (a -> b -> c) -> b -> a -> c
 flip function right left = function left right
 
--- | 'const' with the type of the second argument fixed to the type of the first.
-asTypeOf :: a -> a -> a
-asTypeOf = const
-
--- | Apply the function until the predicate holds.
-until :: (a -> Bool) -> (a -> a) -> a -> a
-until done next value =
-  case done value of
-    True -> value
-    False -> until done next (next value)
-
--- | The largest 'Int' value.
-maxInt :: Int
-maxInt = I# (word2Int# (uncheckedShiftRL# (not# 0##) 1#))
-
--- | The smallest 'Int' value.
-minInt :: Int
-minInt =
-  case maxInt of
-    I# value -> I# ((-#) (negateInt# value) 1#)
-
 (.) :: (b -> c) -> (a -> b) -> a -> c
 (.) f g value = f (g value)
 {-# INLINE (.) #-}
@@ -267,6 +247,31 @@ foldr combine initial values = go values
 ($) function = function
 
 infixr 0 $
+
+-- | Strict function application. The argument is evaluated before the call.
+($!) :: (a -> b) -> a -> b
+function $! argument = argument `seq` function argument
+
+infixr 0 $!
+
+-- | A 'const' with a restricted type. The result has the type of the second
+-- argument.
+asTypeOf :: a -> a -> a
+asTypeOf = const
+
+-- | Apply the function until the predicate holds.
+until :: (a -> Bool) -> (a -> a) -> a -> a
+until done next value =
+  case done value of
+    True -> value
+    False -> until done next (next value)
+
+-- | The largest and the smallest 'Int'.
+maxInt, minInt :: Int
+maxInt = I# (word2Int# (uncheckedShiftRL# (not# (int2Word# 0#)) 1#))
+minInt =
+  case maxInt of
+    I# value -> I# (value +# 1#)
 
 -- | Shift a word left, giving zero for a shift of the word size or more.
 -- The unchecked primop leaves such a shift undefined.

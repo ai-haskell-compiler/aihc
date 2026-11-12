@@ -5,7 +5,6 @@ module GHC.Stack
   ( SrcLoc (..),
     CallStack,
     HasCallStack,
-    currentCallStack,
     emptyCallStack,
     freezeCallStack,
     fromCallSiteList,
@@ -13,14 +12,15 @@ module GHC.Stack
     pushCallStack,
     popCallStack,
     callStack,
+    currentCallStack,
     withFrozenCallStack,
     prettyCallStack,
     prettySrcLoc,
   )
 where
 
-import GHC.Base (Monad (..), String)
 import GHC.Internal.Stack (popCallStack, prettyCallStack, prettySrcLoc)
+import GHC.Stack.CCS (currentCallStack)
 import GHC.Stack.Types
   ( CallStack (..),
     HasCallStack,
@@ -31,14 +31,6 @@ import GHC.Stack.Types
     getCallStack,
     pushCallStack,
   )
-import GHC.Types (IO)
-
--- | The cost-centre stack of the current program location.
---
--- aihc has no cost-centre profiling. The result is always empty, as it is
--- in GHC when a program is not built for profiling.
-currentCallStack :: IO [String]
-currentCallStack = return []
 
 -- | The call stack of the enclosing function.
 --
