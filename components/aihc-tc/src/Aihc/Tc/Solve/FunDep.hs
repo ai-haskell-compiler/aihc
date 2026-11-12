@@ -232,18 +232,41 @@ improveFromInstances givens siblings depth info dependency constraint = do
     ClassPred _ arguments -> do
       arguments' <- classDependencyArguments info arguments
       determinerPositions <- dependencyDeterminers info dependency
+      -- A given equality can name a family application of a determining
+      -- parameter. The instance head then matches the other side of the
+      -- given, as in GHC. In @instance (RIndex r (s ': rs) ~ 'S i, ...) =>
+      -- RecElem Rec r r' (s ': rs) (s ': rs') ('S i)@ of @vinyl@, the
+      -- wanted @RecElem Rec r r' (s ': rs) t0 (RIndex r (s ': rs))@ selects
+      -- the instance through @'S i@. Its context then gives @t0 := s ':
+      -- rs'@, thus the context sees the rewritten parameters too.
+      rewrites <- givenRewrites givens
+      familyRewrites <- filterM (isTypeFamilyApplication . fst) rewrites
       let determiners = atPositions determinerPositions
+          rewrittenDeterminers = map (applyGivenSubst familyRewrites) (determiners arguments')
       candidates <- fmap catMaybes . forM instances $ \instanceInfo -> do
         instanceHead <- classDependencyArguments info (iiHead instanceInfo)
         pure $ do
-          substitution <- matchTypes (determiners instanceHead) (determiners arguments')
-          pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
-      forM_ candidates $ \(instanceInfo, instanceDetermined) ->
-        if any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
-          then case candidates of
-            [_] -> improveThroughContext givens siblings depth instanceInfo arguments
+          substitution <- matchTypes (determiners instanceHead) rewrittenDeterminers
+          pure (instanceInfo, substitution, map (applySubst substitution) (determined dependency instanceHead))
+      forM_ candidates $ \(instanceInfo, substitution, instanceDetermined) ->
+        case filter (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo) of
+          [] -> improveEqualities givens instanceDetermined (determined dependency arguments')
+          unbound -> case candidates of
+            [_] -> do
+              -- A variable of the instance that the determiners do not
+              -- bind becomes a fresh meta variable, as in GHC. The
+              -- determined parameters then get the shape of the head:
+              -- @t0 := s ': t1@ for the head parameter @s ': rs'@. The
+              -- whole head then matches the wanted, and the context of the
+              -- instance determines @t1@.
+              fresh <-
+                forM unbound $ \tyVar -> do
+                  meta <- freshMetaTvOfKind (applySubst substitution (tvKind tyVar))
+                  pure (tvUnique tyVar, meta)
+              improveEqualities givens (map (applySubst (Map.fromList fresh)) instanceDetermined) (determined dependency arguments')
+              improved <- mapM zonkType arguments
+              improveThroughContext givens siblings depth instanceInfo (map (applyGivenSubst familyRewrites) improved)
             _ -> pure ()
-          else improveEqualities givens instanceDetermined (determined dependency arguments')
     _ -> pure ()
 
 -- | Improve a wanted from the context of the one instance that its
