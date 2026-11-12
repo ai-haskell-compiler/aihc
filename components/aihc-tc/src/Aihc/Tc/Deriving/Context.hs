@@ -48,7 +48,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     renderTcType,
   )
-import Aihc.Tc.Constraint (CtOrigin (..))
+import Aihc.Tc.Constraint (CtOrigin (..), mkWantedCt)
 import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations, splitLastArgument)
 import Aihc.Tc.Deriving.References (DerivingReferences (..), StockClassLocation (..), UnliftedFieldReferences (..), referenceIdentity)
 import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
@@ -56,10 +56,14 @@ import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (matchInstanceKinds)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Control.Monad (foldM, unless)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -295,7 +299,7 @@ derivingEnv kinds unlifted existingInstances forwarded plans = do
           let environment = base {derivingEnvContexts = contexts}
           updates <-
             mapM
-              (\(plan, obligations) -> (,) (planKey plan) . fmap nub <$> simplifyPredicates kinds environment plan obligations)
+              (\(plan, obligations) -> (,) (planKey plan) . fmap nub <$> simplifyObligations kinds environment plan obligations)
               [entry | entry@(plan, _) <- inferable, selected plan]
           let next = Map.fromList updates `Map.union` contexts
           if next == contexts then pure contexts else iterateContexts selected (fuel - 1) next
@@ -454,6 +458,40 @@ forwardPredFamilies equations predicate =
         TcAppTy function argument -> TcAppTy (forward function) (forward argument)
         _ -> ty
 
+-- | Simplify the obligations of a plan to its context.
+--
+-- An obligation without a type variable cannot add a predicate to the
+-- context. The simplifier matches instance heads only and does not improve
+-- through functional dependencies. Thus it cannot solve all of these
+-- obligations. The aeson instances for a generic sum need the dependency of
+-- @AllNullary f allNullary | f -> allNullary@, for example. When the
+-- simplifier cannot solve such an obligation, the full solver tries it. If
+-- the full solver solves it, the obligation adds nothing to the context.
+simplifyObligations :: TcKinds -> DerivingEnv -> TcDerivingPlan -> [Pred] -> TcM (Either Pred [Pred])
+simplifyObligations kinds environment owner = foldM step (Right [])
+  where
+    step (Left blocked) _ = pure (Left blocked)
+    step (Right context) predicate = do
+      result <- simplifyPredicate kinds environment owner predicate
+      case result of
+        Left _ | null (predTyVars predicate) -> do
+          solved <- solvesWithoutResidue predicate
+          pure (if solved then Right context else Left predicate)
+        _ -> pure ((context <>) <$> result)
+
+-- | Whether the full solver solves a predicate completely. The check
+-- restores the type checker state, so it binds no evidence and reports no
+-- error.
+solvesWithoutResidue :: Pred -> TcM Bool
+solvesWithoutResidue predicate = do
+  saved <- lift get
+  errorsBefore <- currentErrorCount
+  evidence <- freshEvVar
+  result <- solveConstraints [mkWantedCt predicate evidence (InstOrigin "deriving") Nothing]
+  errorsAfter <- currentErrorCount
+  lift (put saved)
+  pure (null (srResidual result) && null (inertDicts (srInerts result)) && errorsAfter == errorsBefore)
+
 -- | Simplify each predicate and concatenate the contexts, stopping at the
 -- first predicate that cannot be simplified.
 simplifyPredicates :: TcKinds -> DerivingEnv -> TcDerivingPlan -> [Pred] -> TcM (Either Pred [Pred])
@@ -498,11 +536,6 @@ simplifyReducedPredicate kinds environment owner predicate
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)
-  -- The solver solves @KnownNat@, @KnownSymbol@, and @KnownChar@ for a
-  -- literal of the matching sort without an instance. The metadata
-  -- instances of a generic representation need them, as in @instance
-  -- (KnownSymbol n, ...) => Datatype ('MetaData n m p nt)@.
-  | isTypeLiteralPredicate predicate = pure (Right [])
   | otherwise = do
       existing <- mapM withInstanceKinds matchingExisting
       matched <- firstSuccessful (map simplifyExisting (concat existing) <> map simplifyDerived matchingDerived)
@@ -818,19 +851,6 @@ predArguments predicate =
     QuantifiedPred _ antecedents consequent -> concatMap predArguments antecedents <> predArguments consequent
     IParamPred _ payload -> [payload]
     IrredPred constraint -> [constraint]
-
--- | A @KnownNat@, @KnownSymbol@, or @KnownChar@ predicate on a literal of
--- the matching sort.
-isTypeLiteralPredicate :: Pred -> Bool
-isTypeLiteralPredicate predicate =
-  case predicate of
-    ClassPred classTyCon [TcTyLit literal] ->
-      case (tyConName classTyCon, literal) of
-        ("KnownNat", TyLitNat {}) -> True
-        ("KnownSymbol", TyLitSymbol {}) -> True
-        ("KnownChar", TyLitChar {}) -> True
-        _ -> False
-    _ -> False
 
 typeableArguments :: Pred -> Maybe [TcType]
 typeableArguments predicate =
