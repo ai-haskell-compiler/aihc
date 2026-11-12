@@ -1923,19 +1923,20 @@ desugarMatches ty matches = do
     withTypeVariables typeVariables $ do
       dictionaries <- mapM freshDictionaryBinder predicates
       arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-      body <-
-        withDictionaryScope (zipWith Dictionary predicates dictionaries) $ do
-          matched <- case (matches, arguments) of
+      matched <-
+        withDictionaryScope (zipWith Dictionary predicates dictionaries) $
+          case (matches, arguments) of
             ([], [argument]) -> emptyCaseFailure resultType argument
             ([], _) -> failValue "lambda-case with no alternative does not have a function type"
             _ -> desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches)
-          let (shownArguments, hiddenArguments) = splitAt (length shownTypes) arguments
-              hiddenFunction = foldr ExLam matched hiddenArguments
-          casted <- case hiddenProof of
-            Just proof -> withCoercion proof (pure . ExCast hiddenFunction)
-            Nothing -> pure hiddenFunction
-          pure (foldr ExLam casted shownArguments)
-      pure (dictionaries, body)
+      -- The dictionary scope stays below each argument lambda, so the
+      -- function keeps its arity.
+      let (shownArguments, hiddenArguments) = splitAt (length shownTypes) arguments
+          hiddenFunction = foldr ExLam matched hiddenArguments
+      casted <- case hiddenProof of
+        Just proof -> withCoercion proof (pure . ExCast hiddenFunction)
+        Nothing -> pure hiddenFunction
+      pure (dictionaries, foldr ExLam casted shownArguments)
   pure (foldr ExTyLam (foldr ExLam body dictionaries) typeBinders)
 
 withTypeVariables :: [TyVarId] -> ValueM a -> ValueM a
