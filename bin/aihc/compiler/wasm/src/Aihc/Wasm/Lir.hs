@@ -585,13 +585,13 @@ compileFunction ctx input = do
       frameSize = ((frameEnd + 15) `div` 16) * 16
       hasFrame = not (null allocations)
       readers = valueReaders blocks
-      uses = MonoidMap.fromMapWith fst readers
+      uses = MonoidMap.map fst readers
       candidates =
         Set.fromList
           [ var
           | block <- blocks,
             Instruction [var] _ <- blockInstructions block,
-            all (== blockLabel block) (maybe Set.empty snd (Map.lookup var readers))
+            all (== blockLabel block) (snd (MonoidMap.get var readers))
           ]
       fn =
         Fn
@@ -646,10 +646,10 @@ compileFunction ctx input = do
 -- | The number of reads of each value and the blocks that read it. The
 -- result of a compare-and-swap or of an atomic operation is also read by
 -- the code of its own instruction.
-valueReaders :: [Block] -> Map Var (Sum Int, Set Label)
+valueReaders :: [Block] -> MonoidMap Var (Sum Int, Set Label)
 valueReaders blocks =
-  Map.fromListWith
-    (<>)
+  MonoidMap.fromListWith
+    (flip (<>))
     [ (var, (1, Set.singleton (blockLabel block)))
     | block <- blocks,
       var <-
