@@ -1516,11 +1516,20 @@ settleKindMetas defer kind =
           pure defaulted
         Nothing -> do
           tracked <- isTrackedKindMeta unique
+          kinds <- getKinds
+          metaKind <- readMetaTvKind unique >>= zonkKind
           case (tracked, defer) of
             (False, _) -> pure kind
+            -- A meta of a higher kind, as the @f :: Type -> Type@ of a bare
+            -- poly-kinded constructor, cannot be 'Type'. It settles to
+            -- @Any@ at its own kind, as in GHC.
+            (True, _)
+              | metaKind /= typeKind kinds -> do
+                  settledKind <- recur metaKind
+                  undetermined <- undeterminedTypeOfKind settledKind
+                  writeMetaTv unique undetermined >> pure undetermined
             (True, Just onDefer) -> onDefer unique >> pure kind
-            (True, Nothing) -> do
-              kinds <- getKinds
+            (True, Nothing) ->
               writeMetaTv unique (typeKind kinds) >> pure (typeKind kinds)
     TcTyVar tyVar -> do
       kind' <- recur (tvKind tyVar)
