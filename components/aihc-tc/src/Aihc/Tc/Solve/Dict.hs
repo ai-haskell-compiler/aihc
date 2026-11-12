@@ -143,9 +143,10 @@ solveNormalizedDict visited givens ct
                 ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
                 ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
                 ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
-                ("HasField", _) -> do
-                  solved <- solveHasField ct className args'
-                  if solved then pure DictSolved else solveFromInstances className args' givens'
+                ("HasField", _)
+                  | tyConModuleName className == "GHC.Records" -> do
+                      solved <- solveHasField ct className args'
+                      if solved then pure DictSolved else solveFromInstances className args' givens'
                 _ -> solveFromInstances className args' givens'
         IrredPred constraint -> do
           -- A stuck constraint says nothing until its families reduce. Once
