@@ -140,7 +140,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, prenexKindForalls, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, prenexKindForalls, quantifiableKind, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -660,9 +660,9 @@ generalizeMetasOfKinds excluded scope kindTypes = do
         metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
         tracked <- isTrackedKindMeta (Unique meta)
         let quantified = tracked || scope == AllKindMetas
-        if quantified && metaKind == typeKind kinds && not (IntSet.member meta reserved)
+        if quantified && quantifiableKind kinds metaKind && not (IntSet.member meta reserved)
           then do
-            variable <- freshSkolemTv ("k" <> T.pack (show index))
+            variable <- freshSkolemTvOfKind ("k" <> T.pack (show index)) metaKind
             writeMetaTv (Unique meta) (TcTyVar variable)
             pure [variable]
           else pure []
@@ -1070,8 +1070,12 @@ generalizeDataKind (ForAll variables predicates body) = do
       _ -> pure ()
   kind <- zonkKind open
   let metas = nub (collectMetaVars kind)
+  -- A kind variable keeps the kind of its meta. In @type FMap = Map@ with
+  -- @data Map :: (a -> b -> Type) -> f a -> f b -> Type@, the variable
+  -- for @f@ has the kind @Type -> Type@.
   forM_ (zip [0 :: Int ..] metas) $ \(index, meta) -> do
-    variable <- freshSkolemTv ("k" <> T.pack (show index))
+    metaKind <- readMetaTvKind meta >>= zonkKind
+    variable <- freshSkolemTvOfKind ("k" <> T.pack (show index)) metaKind
     writeMetaTv meta (TcTyVar variable)
   kind' <- zonkKind kind
   pure (specifiedScheme (uniqueKindVariables (variables <> freeKindVariables kind')) predicates kind')

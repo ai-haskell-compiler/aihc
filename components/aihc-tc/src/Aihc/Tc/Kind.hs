@@ -3,6 +3,7 @@
 
 module Aihc.Tc.Kind
   ( TvKindEnv,
+    quantifiableKind,
     typeVariableUniques,
     instanceHeadArguments,
     ParamInfo (..),
@@ -997,7 +998,7 @@ kindedTyConUse info = do
   forM_ (instTypeArgs instantiation) $ \case
     TcMetaTv unique -> do
       kind <- readMetaTvKind unique >>= zonkKind
-      when (kind == typeKind kinds) (trackKindMeta unique)
+      when (quantifiableKind kinds kind) (trackKindMeta unique)
     _ -> pure ()
   pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
 
@@ -1032,6 +1033,17 @@ kindedPartialTyCon ty =
               pure (Just (applied, resultKind))
         _ -> pure Nothing
     _ -> pure Nothing
+
+-- | Whether an open kind meta of this kind becomes a kind variable. A
+-- kind variable of kind 'Type' does, and so does a higher-kinded one, as
+-- the @f :: Type -> Type -> Type@ of @data First :: (a -> Exp b) -> f a c
+-- -> Exp (f b c)@ in an equation for @First f x@. A runtime
+-- representation or a levity defaults instead.
+quantifiableKind :: TcKinds -> TcType -> Bool
+quantifiableKind kinds kind =
+  case kind of
+    TcFunTy argument result -> quantifiableKind kinds argument && quantifiableKind kinds result
+    _ -> kind == typeKind kinds
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = snd <$> kindedTyConUse info
@@ -1572,11 +1584,20 @@ settleKindMetas defer kind =
           pure defaulted
         Nothing -> do
           tracked <- isTrackedKindMeta unique
+          kinds <- getKinds
+          metaKind <- readMetaTvKind unique >>= zonkKind
           case (tracked, defer) of
             (False, _) -> pure kind
+            -- A meta of a higher kind, as the @f :: Type -> Type@ of a bare
+            -- poly-kinded constructor, cannot be 'Type'. It settles to
+            -- @Any@ at its own kind, as in GHC.
+            (True, _)
+              | metaKind /= typeKind kinds -> do
+                  settledKind <- recur metaKind
+                  undetermined <- undeterminedTypeOfKind settledKind
+                  writeMetaTv unique undetermined >> pure undetermined
             (True, Just onDefer) -> onDefer unique >> pure kind
-            (True, Nothing) -> do
-              kinds <- getKinds
+            (True, Nothing) ->
               writeMetaTv unique (typeKind kinds) >> pure (typeKind kinds)
     TcTyVar tyVar -> do
       kind' <- recur (tvKind tyVar)
