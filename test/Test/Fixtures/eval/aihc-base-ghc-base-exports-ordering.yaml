@@ -1,0 +1,19 @@
+modules:
+  - |
+    {-# LANGUAGE NoImplicitPrelude #-}
+
+    module Test where
+
+    import GHC.Base
+
+    isGreater :: Ordering -> Bool
+    isGreater GT = True
+    isGreater _ = False
+
+    result :: Bool
+    result = isGreater (compare (2 :: Int) 1)
+expression: result
+output: |
+  True
+status: pass
+reason: GHC.Base re-exports GHC.Types, thus a NoImplicitPrelude module gets Ordering and its constructors from GHC.Base.
