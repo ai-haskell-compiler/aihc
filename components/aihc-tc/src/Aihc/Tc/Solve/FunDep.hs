@@ -283,8 +283,7 @@ recursesOnDeterminers info dependency instanceInfo = do
           ClassPred className arguments
             | tyConKey className == tyConKey (ciTyCon info) -> Just arguments
           _ -> Nothing
-  contextDeterminers <- forM (mapMaybe sameClass (iiContext instanceInfo)) $ \arguments ->
-    atPositions positions <$> classDependencyArguments info arguments
+  contextDeterminers <- forM (mapMaybe sameClass (iiContext instanceInfo)) (fmap (atPositions positions) . classDependencyArguments info)
   pure (any (sameTypes headDeterminers) contextDeterminers)
 
 -- | Improve a wanted from the context of the one instance that its
