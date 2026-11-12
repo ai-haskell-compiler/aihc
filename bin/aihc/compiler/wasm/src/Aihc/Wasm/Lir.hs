@@ -649,7 +649,7 @@ compileFunction ctx input = do
 valueReaders :: [Block] -> Map Var (Sum Int, Set Label)
 valueReaders blocks =
   Map.fromListWith
-    (\(count, labels) (count', labels') -> (count + count', Set.union labels labels'))
+    (<>)
     [ (var, (1, Set.singleton (blockLabel block)))
     | block <- blocks,
       var <-
