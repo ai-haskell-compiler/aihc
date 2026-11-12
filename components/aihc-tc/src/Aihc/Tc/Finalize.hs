@@ -34,7 +34,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
-import Aihc.Tc.Kind (defaultKindMetas)
+import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
 import Aihc.Tc.Tidy (tidyType)
@@ -63,11 +63,12 @@ import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.DeepSeq (rnf)
-import Control.Monad (zipWithM, (>=>))
+import Control.Monad (mfilter, zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, mapMaybe)
+import Data.Set qualified as Set
 
 -- | Convert every pending type-checker annotation in a module to a final
 -- annotation. The walk covers every syntax constructor, so a pending
@@ -364,15 +365,17 @@ recordKindArgumentsIn kinds globals = go
             Just variables
               | not (determined tyCon arguments' variables) -> do
                   reduced <- reduceTypeFamilies application
-                  -- Only a reduct with a different head gives the kind. If
-                  -- only an argument reduces, the application stays stuck,
-                  -- and its kind is the free result kind variable of the
-                  -- scheme: @TypeError ('ShowType (F a))@ has the kind @b@.
-                  let reducedKind =
-                        case reduced of
-                          TcTyCon reducedTyCon _ | reducedTyCon == tyCon -> Nothing
-                          _ | reduced /= application -> kindOf reduced
-                          _ -> Nothing
+                  -- The reduct can be a stuck application with an open
+                  -- result kind, as @TypeError msg@. Its kind is then the
+                  -- result kind variable of the scheme, and that variable
+                  -- is not in scope. Thus the kind of the reduct is used
+                  -- only if each variable in it is in the application or
+                  -- in the reduct.
+                  let visible = Set.fromList (typeVariableUniques application <> typeVariableUniques reduced)
+                      inScope kind = all (`Set.member` visible) (typeVariableUniques kind)
+                      reducedKind
+                        | reduced /= application = mfilter inScope (kindOf reduced)
+                        | otherwise = Nothing
                   -- Calculate the result now. A lazy result keeps the kind
                   -- environment in memory until a consumer reads the type.
                   case mapMaybe (kindArguments tyCon arguments' variables) [reducedKind, expected] of
