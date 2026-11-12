@@ -69,7 +69,7 @@ import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.FilePath (replaceExtension, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr, stdout)
-import System.IO.Error (ioeGetErrorString)
+import System.IO.Error (ioeGetErrorString, isUserError)
 
 -- | Make a build run the expression splices of its modules. The builds
 -- that 'runSplices' starts do the same, so a package of the image can also
@@ -83,7 +83,7 @@ withSplices config = config {compileSplices = Just runSplices}
 runSplices :: SpliceRequest -> (RunSplice -> IO a) -> IO a
 runSplices request action =
   run `catch` \failure ->
-    ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> ioeGetErrorString (failure :: IOException)))
+    ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> describeFailure failure))
   where
     root = spliceRequestBuildRoot request
     packageDirectory = root </> "package"
@@ -121,7 +121,7 @@ runSplices request action =
           -- so the report comes before the failure itself.
           case (reportedFailure made, outcome) of
             (Just message, _) -> ioError (userError (T.unpack message))
-            (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> ioeGetErrorString (failure :: IOException)))
+            (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
             (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert . fromSplice packageIds)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
 
@@ -182,6 +182,13 @@ copyOwnModule request directory (name, path) = do
   let boot = replaceExtension path "hs-boot"
   hasBoot <- doesFileExist boot
   when hasBoot (BS.readFile boot >>= BS.writeFile (replaceExtension target "hs-boot"))
+
+-- | The message of a failure. A failure of a file operation also names
+-- the file and the operation.
+describeFailure :: IOException -> String
+describeFailure failure
+  | isUserError failure = ioeGetErrorString failure
+  | otherwise = show failure
 
 -- | The names that a splice asked @reify@ for, for a failure message.
 describeRequests :: [Request] -> String
