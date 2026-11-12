@@ -148,6 +148,7 @@ import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
@@ -2378,6 +2379,12 @@ classMethodFromInfo info index (methodName, scheme) =
 -- meta variable. In @(Functor f, Element (f a) ~ a, f a ~ mono)@, the last
 -- equality chooses @f@ and @a@. Thus, the solver tries the stuck constraints
 -- again while one round solves a constraint or a meta variable.
+--
+-- A variable of the default signature that the method type does not
+-- mention is a meta variable here. A functional dependency can determine
+-- it from a given: in @(Sat s0, State s0 m)@ with the given @State s m@
+-- and @m -> s@, the dependency gives @s0 := s@. Thus each round first
+-- improves the pending constraints against the givens.
 solveInstanceDefaultSignature :: Text -> [Pred] -> [Pred] -> TcM [EvTerm]
 solveInstanceDefaultSignature className givens predicates = do
   _ <- improveInjectivity givens [predicate | predicate@EqPred {} <- predicates]
@@ -2385,6 +2392,8 @@ solveInstanceDefaultSignature className givens predicates = do
   pure (Map.elems solved)
   where
     go solved pending = do
+      improvable <- mapM (\(_, predicate) -> (\evidence -> mkWantedCt predicate evidence (InstOrigin className) Nothing) <$> freshEvVar) pending
+      _ <- improveFunDeps givens improvable
       before <- mapM (zonkPred . snd) pending
       attempts <- mapM (\(index, predicate) -> (index,predicate,) <$> attemptInstanceConstraint className givens predicate) pending
       after <- mapM (zonkPred . snd) pending
