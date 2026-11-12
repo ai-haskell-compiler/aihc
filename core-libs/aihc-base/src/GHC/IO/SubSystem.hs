@@ -55,4 +55,4 @@ withIoSubSystem' f = f ioSubSystem
 
 -- | Run the action only if the given I/O subsystem is in use.
 whenIoSubSystem :: IoSubSystem -> IO () -> IO ()
-whenIoSubSystem subsystem action = when (ioSubSystem == subsystem) action
+whenIoSubSystem subsystem = when (ioSubSystem == subsystem)
