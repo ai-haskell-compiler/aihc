@@ -396,13 +396,14 @@ getNumCapabilities :: IO Int
 getNumCapabilities = capabilityCount
 
 -- | Set the number of capabilities. The runtime cannot change the number of
--- capabilities after it starts. Thus this function does nothing, as in the
--- non-threaded GHC runtime.
+-- capabilities after it starts. Thus this function does nothing.
 setNumCapabilities :: Int -> IO ()
 setNumCapabilities _ = return ()
 
 -- | Give the capability of a thread, and whether the thread stays on that
--- capability. The runtime has only capability 0.
+-- capability. The runtime does not tell the capability of a thread, thus
+-- this gives capability 0. The runtime can move each thread to a different
+-- capability, thus no thread stays on its capability.
 threadCapability :: ThreadId -> IO (Int, Bool)
 threadCapability _ = return (0, False)
 
