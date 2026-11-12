@@ -2,7 +2,9 @@
 
 module Main (main) where
 
+import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
 import Language.Haskell.TH
+import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
 -- A quote in a module that also has a do block in an operand of an infix
@@ -126,6 +128,12 @@ $( do
        ]
  )
 
+-- A function of a different module of the program derives instances for
+-- a type of this module and for a type of a different module.
+$(deriveDescribe ''Shape)
+
+$(deriveDescribe ''Mode)
+
 $( do
      signature <- [t|Int -> (Int, String)|]
      pure
@@ -179,6 +187,14 @@ main = do
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
   runQ nested >>= print
+  -- A splice uses a function of a different module of the program.
+  print $(plusHelper 1)
+  putStrLn (describe (Circle 1))
+  putStrLn (describe Fast)
+  -- A name from reify and a name quote of the same type are equal, in a
+  -- splice of this module and in a function of a different module.
+  print $(do TyConI (DataD _ name _ _ _ _) <- reify ''Shape; if name == ''Shape then [|True|] else [|False|])
+  print $(isMode ''Mode)
   -- A type quote in a splice gives the type of a signature.
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
