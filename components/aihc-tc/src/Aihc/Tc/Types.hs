@@ -750,6 +750,12 @@ typeKindInEnv kinds kindEnv = go
           | left == right,
             length leftArguments == length rightArguments ->
               Map.unions <$> zipWithM recur leftArguments rightArguments
+        -- A kind variable of a higher kind applied to an argument, as the
+        -- @f a@ of @Map :: (a -> Exp b) -> f a -> Exp (f b)@, matches a
+        -- saturated constructor application, as @[Type]@: the head takes
+        -- all arguments but the last one.
+        (TcAppTy function argument, TcTyCon right rightArguments@(_ : _)) ->
+          Map.union <$> recur function (TcTyCon right (init rightArguments)) <*> recur argument (last rightArguments)
         _
           | formal == actual -> Right Map.empty
           | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
@@ -1222,4 +1228,8 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
       | left == right,
         length formalArguments == length actualArguments =
           Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
+    -- See 'typeKindInEnv': @f a@ matches @[Type]@ with @f := []@ and @a := Type@.
+    matchKind quantifiedUniques (TcAppTy function argument) (TcTyCon right actualArguments@(_ : _)) =
+      matchKind quantifiedUniques function (TcTyCon right (init actualArguments))
+        <> matchKind quantifiedUniques argument (last actualArguments)
     matchKind _ _ _ = Map.empty

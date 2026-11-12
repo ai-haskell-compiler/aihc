@@ -1195,6 +1195,14 @@ unifyKindsAt sp expected actual = do
       unifyKindsAt sp leftArgument rightArgument >> unifyKindsAt sp leftResult rightResult
     (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
       unifyKindsAt sp leftFunction rightFunction >> unifyKindsAt sp leftArgument rightArgument
+    -- An application @f a@ unifies with a saturated constructor application
+    -- @[] Type@: the head takes all arguments but the last one. A kind
+    -- variable @f :: Type -> Type@ in @data Map :: (a -> Exp b) -> f a ->
+    -- Exp (f b)@ gets the kind @f a@, and a use site gives @[Type]@.
+    (TcAppTy function argument, TcTyCon tyCon arguments@(_ : _)) ->
+      unifyKindsAt sp function (TcTyCon tyCon (init arguments)) >> unifyKindsAt sp argument (last arguments)
+    (TcTyCon tyCon arguments@(_ : _), TcAppTy function argument) ->
+      unifyKindsAt sp (TcTyCon tyCon (init arguments)) function >> unifyKindsAt sp (last arguments) argument
     (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody)
       | leftVar == rightVar -> unifyKindsAt sp leftBody rightBody
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
