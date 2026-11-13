@@ -16,7 +16,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -88,6 +88,17 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
                       (tcInstanceAssociatedTypes annotation)
                       (TcTyCon targetClass targetArguments)
                       (TcTyCon sourceClass sourceArguments)
+            -- Two equalities need no cast when their sides are equal up to
+            -- type family equations. In the method @elem :: (Eq a, a ~
+            -- Element c) => ...@ of foundation, the newtype @AsciiString@
+            -- gives @a ~ Element AsciiString@, and its representation gives
+            -- @a ~ Element (UArray Char7)@. Both families reduce to @Char7@.
+            -- The System FC lint compares types after it reduces their
+            -- families, so the target evidence also has the source type.
+            (EqPred targetLeft targetRight, EqPred sourceLeft sourceRight) -> do
+              left <- nominalCoercionBetween (tcInstanceAssociatedTypes annotation) targetLeft sourceLeft
+              right <- nominalCoercionBetween (tcInstanceAssociatedTypes annotation) targetRight sourceRight
+              pure (if isJust left && isJust right then Just Nothing else Nothing)
             _ -> pure Nothing
     mentionsSelf term = case term of
       EvDict dictionaryOrigin name _ arguments -> (dictionaryOrigin == origin && name == tcInstanceDictName annotation) || any mentionsSelf arguments

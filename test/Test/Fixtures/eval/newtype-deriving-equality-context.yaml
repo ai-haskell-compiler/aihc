@@ -1,0 +1,35 @@
+modules:
+  - |
+    {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, TypeFamilies, GADTs, ScopedTypeVariables #-}
+    module Test where
+
+    import Prelude
+
+    type family Element c
+
+    newtype Bytes = Bytes [Char]
+
+    type instance Element Bytes = Char
+
+    -- The method context has an equality with a type family. The
+    -- representation and the newtype give different families that both
+    -- reduce to Char.
+    class Collection c where
+      member :: forall a. (Eq a, a ~ Element c) => Element c -> c -> Bool
+
+    instance Collection Bytes where
+      member x (Bytes xs) = x `elem` xs
+
+    newtype Ascii = Ascii Bytes
+
+    type instance Element Ascii = Char
+
+    deriving instance Collection Ascii
+
+    result :: Bool
+    result = member 'b' (Ascii (Bytes "abc")) && not (member 'z' (Ascii (Bytes "abc")))
+output: |
+  True
+expression: |
+  result
+status: pass
