@@ -1,0 +1,55 @@
+annotated:
+- |-
+  module GHC.Internal.Foldable where
+  class Foldable t where
+  └─ class methods: foldr ∷ ∀ t a b. (Foldable t) ⇒ (a → b → b) → b → t a → b
+    foldr :: (a -> b -> b) -> b -> t a -> b
+- |-
+  {-# LANGUAGE GADTs, KindSignatures, DeriveFunctor, DeriveFoldable #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  import GHC.Internal.Foldable (Foldable)
+  import GHC.Types (Type)
+  -- The last parameter is the argument of a function field.
+  data U x y where
+  │    └─ type: Type → Type → Type
+  └─ deriving plans: stock Functor (U x) [context: infer] [methods: fmap, <$], stock Foldable (U x) [context: infer] [methods: foldr]
+    U :: (b -> a) -> U a b
+    └─ type: ∀ a b. (b → a) → U a b
+    deriving (Functor, Foldable)
+              │        └─ error: stock Foldable deriving requires y to appear only as the last argument of a type, but a constructor field has type y → x
+              └─ error: stock Functor deriving requires y to appear only as the last argument of a type or in a covariant position of a function, but a constructor field has type y → x
+  data W :: Type -> Type -> Type where
+  │    └─ type: Type → Type → Type
+  └─ deriving plans: stock Functor (W p1) [context: infer] [methods: fmap, <$], stock Foldable (W p1) [context: infer] [methods: foldr]
+    W :: (b -> a) -> W a b
+    └─ type: ∀ a b. (b → a) → W a b
+    deriving (Functor, Foldable)
+              │        └─ error: stock Foldable deriving requires b to appear only as the last argument of a type, but a constructor field has type b → p1
+              └─ error: stock Functor deriving requires b to appear only as the last argument of a type or in a covariant position of a function, but a constructor field has type b → p1
+extensions:
+- GADTs
+- KindSignatures
+- DeriveFunctor
+- DeriveFoldable
+modules:
+- |
+  module GHC.Internal.Foldable where
+  class Foldable t where
+    foldr :: (a -> b -> b) -> b -> t a -> b
+- |
+  {-# LANGUAGE GADTs, KindSignatures, DeriveFunctor, DeriveFoldable #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  import GHC.Internal.Foldable (Foldable)
+  import GHC.Types (Type)
+  -- The last parameter is the argument of a function field.
+  data U x y where
+    U :: (b -> a) -> U a b
+    deriving (Functor, Foldable)
+  data W :: Type -> Type -> Type where
+    W :: (b -> a) -> W a b
+    deriving (Functor, Foldable)
+reason: a GADT-syntax constructor names its own variables; its field b -> a uses the
+  last parameter as a function argument, so the deriving is rejected as in GHC
+status: pass
