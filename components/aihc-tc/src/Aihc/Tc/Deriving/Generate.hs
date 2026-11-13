@@ -323,7 +323,7 @@ surfaceKind names kind =
     TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceKind names argument <*> surfaceKind names result
     TcAppTy function argument -> TApp <$> surfaceKind names function <*> surfaceKind names argument
     TcTyCon tyCon arguments
-      | not (null (concatMap kindMetas arguments)) ->
+      | not (all (null . kindMetas) arguments) ->
           foldl TApp (TCon (tyConNameSyntax Nothing tyCon) Unpromoted) <$> mapM (surfaceKind names) arguments
     _ -> surfaceType Nothing kind
 
