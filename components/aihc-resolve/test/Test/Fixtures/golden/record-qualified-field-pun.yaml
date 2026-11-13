@@ -1,0 +1,28 @@
+extensions: [NamedFieldPuns]
+modules:
+- |
+  module Record where
+  data Box = Box { field :: Box }
+- |
+  module Main where
+  import qualified Record as R
+  make field = R.Box { R.field }
+  update box field = box { R.field }
+annotated:
+- |-
+  module Main where
+  import qualified Record as R
+  make field = R.Box { R.field }
+  │    └─ v 0  │       └─ v 0
+  └─ v Main    └─ v Record
+  update box field = box { R.field }
+  │      │   └─ v 2  │     └─ v 2
+  │      └─ v 1      │     └─ v Record
+  └─ v Main          └─ v 1
+- |-
+  module Record where
+  data Box = Box { field :: Box }
+       │     └─ v Record    └─ t Record
+       └─ t Record
+status: pass
+reason: A field pun with a qualified field uses the local variable that has the field name without the qualifier.

@@ -1,0 +1,20 @@
+extensions: [DataKinds, KindSignatures, TypeFamilies, TypeOperators, ScopedTypeVariables, RankNTypes]
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeNats where
+  import GHC.Prim.Natural (Natural)
+  type family (+) (a :: Natural) (b :: Natural) :: Natural
+  infixl 6 +
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeOperators, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.TypeNats (type (+))
+  data Vec (n :: Natural) = Vec
+  at :: forall n k p. Vec (n + k + 1) -> p k -> ()
+  at _ _ = ()
+  at' :: forall n k p. Vec (n + k + 1) -> p k -> ()
+  at' = at
+status: pass
+reason: The equality (t0 + k) + 1 ~ (n + k) + 1 gives t0 + k ~ n + k and then t0 ~ n, as in GHC.

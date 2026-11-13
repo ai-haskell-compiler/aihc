@@ -164,21 +164,32 @@ generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
 --
 -- A class predicate does not spell the kind arguments of its class, so a
 -- binding whose predicates mention a quantified meta keeps its kinds open:
--- they are settled with the enclosing declaration, as before.
+-- they are settled with the enclosing declaration, as before. A quantified
+-- meta at a value position is the exception. Its kind is 'Type' in each
+-- binding, and nothing settles it later if no use site tracks it: in @f x =
+-- spr x@, with @class Ty r where spr :: r@, the kind of the type of @x@
+-- stays open, and System FC gets a binder with an open kind. A meta of the
+-- environment keeps its open kind here: in @g y = let h z = case sh z of
+-- Unit -> y in h Unit +# 1#@, the type of @y@ is a value position of @h@,
+-- and the later use of @y@ gives it an unlifted kind.
 openKindVariables :: Bool -> [Unique] -> [Unique] -> [TcType] -> [Pred] -> TcM [TyVarId]
 openKindVariables settleKinds envMetaVars quantified bindingTypes predicates
   | settleKinds = pure []
-  | any (any (`elem` quantified) . predMetaVars) predicates = pure []
   | otherwise = do
       kinds <- getKinds
-      forM_ (concatMap valuePositionMetas bindingTypes) $ \meta -> do
+      let predicated = any (any (`elem` quantified) . predMetaVars) predicates
+          valueMetas = concatMap valuePositionMetas bindingTypes
+      forM_ (if predicated then filter (`elem` quantified) valueMetas else valueMetas) $ \meta -> do
         metaKind <- zonkType =<< readMetaTvKind meta
         case metaKind of
           TcMetaTv kindMeta -> writeMetaTv kindMeta (typeKind kinds)
           _ -> pure ()
-      environmentReachable <- reachableMetaVars envMetaVars
-      reachable <- reachableMetaVars quantified
-      quantifyKindMetas [meta | meta <- reachable, meta `notElem` quantified, meta `notElem` environmentReachable]
+      if predicated
+        then pure []
+        else do
+          environmentReachable <- reachableMetaVars envMetaVars
+          reachable <- reachableMetaVars quantified
+          quantifyKindMetas [meta | meta <- reachable, meta `notElem` quantified, meta `notElem` environmentReachable]
 
 -- | The metas that stand for the type of a value: the type itself, and
 -- the arguments and results of its function arrows.

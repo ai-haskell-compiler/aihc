@@ -792,7 +792,11 @@ convertDataFamilyInst env package moduleName' bindings info = do
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map TcTyVar visibleTyVars))
   result <- convertKind bindersEnv representationKind
-  familyType <- convertType bindersEnv (dfiiFamilyType info)
+  -- The family application has the kind of the representation type. That
+  -- kind gives the invisible kind arguments that no visible argument
+  -- gives, as the result kind @k := Type@ of @Param n (a :: Type)@ for
+  -- @data family Param :: Nat -> j -> k@.
+  familyType <- convertTypeWithExpectedKind bindersEnv (Just representationKind) (dfiiFamilyType info)
   let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
       -- A data family is generative, as in GHC. The instance axiom is
       -- representational, thus type equality does not reduce a data family

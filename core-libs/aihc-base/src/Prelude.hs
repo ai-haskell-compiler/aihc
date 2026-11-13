@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -22,7 +23,7 @@ module Prelude
   ( Applicative (..),
     Bounded (..),
     Bool (..),
-    Char (..),
+    Char,
     Either (..),
     Enum (..),
     Eq (..),
@@ -42,7 +43,6 @@ module Prelude
     Ord (..),
     Ordering (..),
     Rational,
-    Ratio,
     Real (..),
     RealFrac (..),
     RealFloat (..),
@@ -52,6 +52,7 @@ module Prelude
     ShowS,
     String,
     FilePath,
+    type (~),
     (&&),
     ($),
     ($!),
@@ -102,8 +103,6 @@ module Prelude
     lcm,
     not,
     odd,
-    numerator,
-    denominator,
     otherwise,
     print,
     putChar,
@@ -128,7 +127,6 @@ module Prelude
     lex,
     seq,
     realToFrac,
-    (%),
     (^),
     (^^),
     (||),
@@ -174,9 +172,10 @@ import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
+import GHC.Exception (throw)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
 import GHC.IO (FilePath, IO (..), catchException)
-import GHC.IO.Exception (IOError, ioError, userError)
+import GHC.IO.Exception (FixIOException (..), IOError, ioError, userError)
 import GHC.IO.Handle.Text (hGetChar, hGetContents, hGetLine, hPutStr)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.StdHandles (openFile, stdin, stdout, withFile)
@@ -220,7 +219,7 @@ import GHC.ST (ST (..))
 import GHC.Show (Show (..), ShowS, showChar, showLitChar, showLitString, showParen, showString, shows)
 import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Tuple (Solo (..))
-import GHC.Types (RuntimeRep, TYPE, Type)
+import GHC.Types (RuntimeRep, TYPE, Type, type (~))
 import GHC.Word (Word (..), Word8 (..))
 
 (<$>) :: (Functor f) => (a -> b) -> f a -> f b
@@ -1357,12 +1356,12 @@ instance MonadFix (Either e) where
       unRight (Right x) = x
       unRight (Left _) = errorWithoutStackTrace "mfix Either: Left"
 
--- GHC reads the result through an MVar and throws FixIOException when the
+-- GHC reads the result through an MVar and throws 'FixIOException' when the
 -- function reads its argument too early. Here, a reference holds the result,
--- and an early read gives an error.
+-- and an early read throws the same exception.
 instance MonadFix IO where
   mfix k = do
-    ref <- newIORef (errorWithoutStackTrace "fixIO: the result is not available yet")
+    ref <- newIORef (throw FixIOException)
     ans <- unsafeDupableInterleaveIO (readIORef ref)
     result <- k ans
     writeIORef ref result

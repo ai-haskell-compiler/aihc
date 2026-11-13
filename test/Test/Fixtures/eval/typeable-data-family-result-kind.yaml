@@ -1,0 +1,28 @@
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, KindSignatures #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import Data.Proxy (Proxy (..))
+    import Data.Typeable (Typeable, typeRep)
+    import GHC.TypeLits (Symbol)
+    import Prelude
+
+    -- The result kind of Tok is fixed only by the position of its use.
+    data family Tok (arg :: Symbol) :: k
+
+    data Location (a :: Type) = Location
+
+    data Path (a :: Type) (b :: Type) = Path
+
+    result :: Bool
+    result =
+      typeRep (Proxy :: Proxy (Location (Tok "base"))) == typeRep (Proxy :: Proxy (Location (Tok "base")))
+        && typeRep (Proxy :: Proxy (Location (Tok "base"))) /= typeRep (Proxy :: Proxy (Location (Tok "other")))
+        && typeRep (Proxy :: Proxy (Path (Tok "base") Int)) /= typeRep (Proxy :: Proxy (Path Int (Tok "base")))
+output: |
+  True
+expression: |
+  result
+status: pass

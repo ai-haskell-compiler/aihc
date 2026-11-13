@@ -46,16 +46,18 @@ import GHC.Ptr
     nullPtr,
     plusPtr,
   )
+import GHC.Read (Read)
 import GHC.Real (Integral (..), Real (..))
+import GHC.Show (Show)
 import GHC.Word (Word (..))
 
 foreign import ccall unsafe "aihc_free_haskell_fun_ptr" freeHaskellFunPtr :: FunPtr a -> IO ()
 
 newtype IntPtr = IntPtr Int
-  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable, Bits, FiniteBits)
+  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable, Bits, FiniteBits, Read, Show)
 
 newtype WordPtr = WordPtr Word
-  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable, Bits, FiniteBits)
+  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral, Storable, Bits, FiniteBits, Read, Show)
 
 ptrToIntPtr :: Ptr a -> IntPtr
 ptrToIntPtr (Ptr address) = IntPtr (I# (addr2Int# address))

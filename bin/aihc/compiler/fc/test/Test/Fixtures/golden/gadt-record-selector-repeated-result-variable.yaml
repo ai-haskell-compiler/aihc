@@ -1,0 +1,12 @@
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data T a b where
+    A :: { f :: x } -> T x x
+  g :: T x x -> x
+  g = f
+status: pass
+reason: The result type T x x names the universal variable twice. The selector has the type of its use, forall x. T x x -> x.

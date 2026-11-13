@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Common where
+  data Basic
+       └─ type: Type
+  data WithSetup x
+       └─ type: Type → Type
+  data Program pty a where
+       └─ type: Type → Type → Type
+    Model :: { runModel :: a } -> Program Basic a
+    └─ type: ∀ pty a. (pty ~ Basic) ⇒ a → Program pty a
+    WithSetup :: { wsSetup :: Program Basic x, wsProgram :: x -> Program Basic a } -> Program (WithSetup x) a
+    └─ type: ∀ pty a x. (pty ~ (WithSetup x)) ⇒ Program Basic x → (x → Program Basic a) → Program pty a
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  import Common
+  withSetup :: Program Basic x -> (x -> Program Basic a) -> Program (WithSetup x) a
+  withSetup setup p = WithSetup { wsSetup = setup, wsProgram = p }
+  │         │     │   └─ type: Common.Program Common.Basic x → (x → Common.Program Common.Basic a) → Common.Program (Common.WithSetup x) a; type-args: WithSetup x, a, x; evidence: refl WithSetup x
+  │         │     └─ type: x → Common.Program Common.Basic a
+  │         └─ type: Common.Program Common.Basic x
+  └─ type: ∀ x a. Common.Program Common.Basic x → (x → Common.Program Common.Basic a) → Common.Program (Common.WithSetup x) a
+  getSetup :: Program (WithSetup x) a -> Program Basic x
+  getSetup = wsSetup
+  │          └─ type: Common.Program (Common.WithSetup x) a → Common.Program Common.Basic x; type-args: a, x
+  └─ type: ∀ x a. Common.Program (Common.WithSetup x) a → Common.Program Common.Basic x
+extensions: [GADTs]
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Common where
+  data Basic
+  data WithSetup x
+  data Program pty a where
+    Model :: { runModel :: a } -> Program Basic a
+    WithSetup :: { wsSetup :: Program Basic x, wsProgram :: x -> Program Basic a } -> Program (WithSetup x) a
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  import Common
+  withSetup :: Program Basic x -> (x -> Program Basic a) -> Program (WithSetup x) a
+  withSetup setup p = WithSetup { wsSetup = setup, wsProgram = p }
+  getSetup :: Program (WithSetup x) a -> Program Basic x
+  getSetup = wsSetup
+reason: "the context equality pty ~ WithSetup x of the GADT record constructor makes x part of the result type, thus wsSetup has a selector, as in GHC; reduced from dejafu Test.DejaFu.Conc.Internal.Common"
+status: pass

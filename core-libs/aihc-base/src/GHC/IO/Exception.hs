@@ -9,6 +9,7 @@ module GHC.IO.Exception
     BlockedIndefinitelyOnSTM (..),
     blockedIndefinitelyOnSTM,
     Deadlock (..),
+    FixIOException (..),
     AllocationLimitExceeded (..),
     allocationLimitExceeded,
     AssertionFailed (..),
@@ -86,6 +87,15 @@ instance Exception Deadlock
 
 instance Show Deadlock where
   showsPrec _ Deadlock = showString "<<deadlock>>"
+
+-- | The exception that 'System.IO.fixIO' throws when the function reads its
+-- argument before the function gives its result.
+data FixIOException = FixIOException
+
+instance Exception FixIOException
+
+instance Show FixIOException where
+  showsPrec _ FixIOException = showString "cyclic evaluation in fixIO"
 
 data AllocationLimitExceeded = AllocationLimitExceeded
 

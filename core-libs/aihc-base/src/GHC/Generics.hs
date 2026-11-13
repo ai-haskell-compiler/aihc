@@ -71,6 +71,7 @@ where
 
 import Control.Applicative (Const (..), WrappedMonad (..), ZipList (..))
 import Data.Complex (Complex (..))
+import Data.Functor.Compose (Compose (..))
 import Data.Functor.Identity (Identity (..))
 import Data.Functor.Product qualified as Functor
 import Data.Functor.Sum qualified as Functor
@@ -778,6 +779,15 @@ instance Generic1 NonEmpty where
   to1 r = case unM1 (unM1 r) of
     a :*: as -> unPar1 (unM1 a) :| unRec1 (unM1 as)
 
+instance Generic1 (Const a :: k -> Type) where
+  type
+    Rep1 (Const a) =
+      D1
+        ('MetaData "Const" "GHC.Internal.Data.Functor.Const" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Const" 'PrefixI 'True :: Meta) (S1 (MetaField "getConst") (Rec0 a)))
+  from1 (Const x) = M1 (M1 (M1 (K1 x)))
+  to1 r = Const (unK1 (unM1 (unM1 (unM1 r))))
+
 instance Generic1 Identity where
   type
     Rep1 Identity =
@@ -1046,6 +1056,26 @@ instance Generic1 (Functor.Product f g) where
   to1 r = case unM1 (unM1 r) of
     x :*: y -> Functor.Pair (unRec1 (unM1 x)) (unRec1 (unM1 y))
 
+instance Generic (Compose f g a) where
+  type
+    Rep (Compose f g a) =
+      D1
+        ('MetaData "Compose" "Data.Functor.Compose" "base" 'True :: Meta)
+        (C1 ('MetaCons "Compose" 'PrefixI 'True :: Meta) (S1 (MetaField "getCompose") (Rec0 (f (g a)))))
+  from (Compose x) = M1 (M1 (M1 (K1 x)))
+  to r = Compose (unK1 (unM1 (unM1 (unM1 r))))
+
+-- | As in GHC, the outer functor has the kind @Type -> Type@, because the
+-- representation maps 'Rec1' over it.
+instance (Functor f) => Generic1 (Compose (f :: Type -> Type) g) where
+  type
+    Rep1 (Compose f g) =
+      D1
+        ('MetaData "Compose" "Data.Functor.Compose" "base" 'True :: Meta)
+        (C1 ('MetaCons "Compose" 'PrefixI 'True :: Meta) (S1 (MetaField "getCompose") (f :.: Rec1 g)))
+  from1 (Compose x) = M1 (M1 (M1 (Comp1 (fmap Rec1 x))))
+  to1 r = Compose (fmap unRec1 (unComp1 (unM1 (unM1 (unM1 r)))))
+
 instance Generic ExitCode where
   type Rep ExitCode = D1 (MetaD "ExitCode" "GHC.Internal.IO.Exception" "ghc-internal") (C1 (MetaC "ExitSuccess") U1 :+: C1 (MetaC "ExitFailure") (S1 MetaS (Rec0 Int)))
   from ExitSuccess = M1 (L1 (M1 U1))
@@ -1129,6 +1159,66 @@ instance Generic Fixity where
 type MetaGenerics (n :: Symbol) (newtype_ :: Bool) = ('MetaData n "GHC.Internal.Generics" "ghc-internal" newtype_ :: Meta)
 
 type MetaField (n :: Symbol) = ('MetaSel ('Just n) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy :: Meta)
+
+instance Generic (URec (Ptr ()) p) where
+  type
+    Rep (URec (Ptr ()) p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UAddr" 'PrefixI 'True :: Meta) (S1 (MetaField "uAddr#") (URec (Ptr ()))))
+  from (UAddr value) = M1 (M1 (M1 (UAddr value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UAddr value -> UAddr value
+
+instance Generic (URec Char p) where
+  type
+    Rep (URec Char p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UChar" 'PrefixI 'True :: Meta) (S1 (MetaField "uChar#") (URec Char)))
+  from (UChar value) = M1 (M1 (M1 (UChar value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UChar value -> UChar value
+
+instance Generic (URec Double p) where
+  type
+    Rep (URec Double p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UDouble" 'PrefixI 'True :: Meta) (S1 (MetaField "uDouble#") (URec Double)))
+  from (UDouble value) = M1 (M1 (M1 (UDouble value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UDouble value -> UDouble value
+
+instance Generic (URec Float p) where
+  type
+    Rep (URec Float p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UFloat" 'PrefixI 'True :: Meta) (S1 (MetaField "uFloat#") (URec Float)))
+  from (UFloat value) = M1 (M1 (M1 (UFloat value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UFloat value -> UFloat value
+
+instance Generic (URec Int p) where
+  type
+    Rep (URec Int p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UInt" 'PrefixI 'True :: Meta) (S1 (MetaField "uInt#") (URec Int)))
+  from (UInt value) = M1 (M1 (M1 (UInt value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UInt value -> UInt value
+
+instance Generic (URec Word p) where
+  type
+    Rep (URec Word p) =
+      D1
+        (MetaGenerics "URec" 'False)
+        (C1 ('MetaCons "UWord" 'PrefixI 'True :: Meta) (S1 (MetaField "uWord#") (URec Word)))
+  from (UWord value) = M1 (M1 (M1 (UWord value)))
+  to r = case unM1 (unM1 (unM1 r)) of
+    UWord value -> UWord value
 
 instance Generic (V1 p) where
   type Rep (V1 p) = D1 (MetaGenerics "V1" 'False) V1

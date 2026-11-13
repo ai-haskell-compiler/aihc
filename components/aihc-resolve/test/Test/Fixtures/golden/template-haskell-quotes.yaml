@@ -17,10 +17,10 @@ annotated:
     quoteExpr = [| Box |]
     └─ v Main      └─ v Main
     quoteType = [t| Box |]
-    └─ v Main
+    └─ v Main       └─ t Main
     quoteName = 'Box
     └─ v Main    └─ v Main
     quoteTypeName = ''Box
     └─ v Main         └─ t Main
 status: pass
-reason: Template Haskell quotes are accepted. The names of an expression quote and of a name quote are resolved, and the syntax of a type quote stays unresolved
+reason: Template Haskell quotes are accepted. The names of an expression quote, of a type quote, and of a name quote are resolved

@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
@@ -58,6 +58,7 @@ import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
@@ -334,8 +335,37 @@ inferNameOccurrence ambient nameSyntax = do
       cts <- mapM (predToCt sp name) predicates
       let evidenceVars = map ctEvVar cts
       pure (occurrenceAnnotation instantiatedTy typeArgs 0 evidenceVars, instantiatedTy, cts)
-    Nothing ->
-      abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+    Nothing -> do
+      -- A record field whose type has an existential variable has no
+      -- selector function. Record construction, record patterns, and
+      -- record wildcards can still name it, but a use as a function is an
+      -- error, as in GHC.
+      existentialField <- isExistentialRecordField name target
+      if existentialField
+        then do
+          emitError sp (OtherError ("Cannot use record selector " <> T.unpack name <> " as a function due to escaped type variables"))
+          ty <- freshMetaTv
+          pure (Nothing, ty, [])
+        else abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+-- | Whether a term is a record field of a constructor of the same module
+-- that has no selector function, because its type has an existential
+-- variable.
+isExistentialRecordField :: Text -> Entity -> TcM Bool
+isExistentialRecordField name target =
+  case target of
+    EntityGlobal global -> do
+      dataTypes <- getDataTypes
+      pure $
+        or
+          [ True
+          | dataType <- dataTypes,
+            constructor <- dtiConstructors dataType,
+            snd (dciOrigin constructor) == globalNameModule global,
+            field <- dciFields constructor,
+            dcfiLabel field == Just name || dcfiLabel field == Just (globalNameText global)
+          ]
+    _ -> pure False
 
 -- | A unidirectional pattern synonym has no builder. An expression cannot
 -- use it.
@@ -915,6 +945,8 @@ isGuardedArgument expr =
     EApp fun _ -> isGuardedArgument fun
     ETypeApp fun _ -> isGuardedArgument fun
     EInfix {} -> True
+    ESectionL {} -> True
+    ESectionR {} -> True
     EParen inner -> isGuardedArgument inner
     EPragma _ inner -> isGuardedArgument inner
     EAnn ann inner
@@ -1061,7 +1093,11 @@ spineResultType ty (frame : rest) = case frame of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
 
--- | Whether an argument is a bare data constructor, as @Comp@. The name
+-- | Whether an argument gives its fresh type variables to the quick look of
+-- the spine: a bare data constructor, as @Comp@, or an operator section,
+-- as @(<$ ctx)@. In @(<$ ctx) <$> case accum of Add w -> ...@ of
+-- @fused-effects@, the section fixes the element type of @<$>@ at the
+-- type @a@ of the result before the GADT branches are checked. The name
 -- of a data constructor starts with an upper-case letter or a colon.
 isConstructorArgument :: Expr -> Bool
 isConstructorArgument expr =
@@ -1069,9 +1105,22 @@ isConstructorArgument expr =
     EVar name -> case T.uncons (nameText name) of
       Just (first, _) -> isUpper first || first == ':'
       Nothing -> False
+    ESectionL {} -> True
+    ESectionR {} -> True
     EParen inner -> isConstructorArgument inner
     EPragma _ inner -> isConstructorArgument inner
     EAnn _ inner -> isConstructorArgument inner
+    _ -> False
+
+-- | Whether an argument is an operator section.
+isSectionArgument :: Expr -> Bool
+isSectionArgument expr =
+  case expr of
+    ESectionL {} -> True
+    ESectionR {} -> True
+    EParen inner -> isSectionArgument inner
+    EPragma _ inner -> isSectionArgument inner
+    EAnn _ inner -> isSectionArgument inner
     _ -> False
 
 -- | Whether a type family application is part of a type.
@@ -1226,12 +1275,25 @@ planSpine = go
             zonkedExpectedArgTy <- zonkType expectedArgTy
             family <- isTypeFamilyTyCon
             let Unique boundaryKey = boundary
-                familyFree = isConstructorArgument arg && not (mentionsFamily family zonkedArgTy || mentionsFamily family zonkedExpectedArgTy)
+                familyFree =
+                  isConstructorArgument arg
+                    && not (any (mentionsFamily family) (zonkedArgTy : zonkedExpectedArgTy : concat [[left, right] | (left, right) <- sectionEqualities]))
+                sectionEqualities = [(left, right) | isSectionArgument arg, ct <- argCts, EqPred left right <- [ctPred ct]]
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy || familyFree = IntSet.fromList [key | Unique key <- typeMetaVariables zonkedArgTy, key >= boundaryKey]
+                  | mentionsPolyType zonkedArgTy || familyFree =
+                      IntSet.fromList
+                        [ key
+                        | Unique key <- typeMetaVariables zonkedArgTy <> concat [typeMetaVariables left <> typeMetaVariables right | (left, right) <- sectionEqualities],
+                          key >= boundaryKey
+                        ]
                   | otherwise = IntSet.empty
                 extended = IntSet.union instantiationVariables' argumentVariables
             quickLookUnify extended expectedArgTy argTy
+            -- An operator section gets its type from equality wanteds, as
+            -- @(<$ ctx)@ has the type @t1 -> t2@ with @f t1 ~ t2@. A look
+            -- at them gives the structure of that type.
+            when familyFree $
+              forM_ sectionEqualities (uncurry (quickLookUnify extended))
             pure (ArgInferred boundary arg' argTy argCts, extended)
           else pure (ArgDeferred arg, instantiationVariables')
       let plan =
@@ -1356,6 +1418,14 @@ checkHigherRankArgument sp expectedTy arg
       (arg', actualTy, argCts) <- inferExpr arg
       checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts
 
+-- | Whether a given is an equality. Only an equality can prove that two
+-- types that do not unify are equal.
+isEqualityGiven :: Pred -> Bool
+isEqualityGiven predicate =
+  case predicate of
+    EqPred {} -> True
+    _ -> False
+
 -- | Check an already inferred argument against a polytype. The boundary
 -- was taken before the inference: a meta-variable older than it must not
 -- mention the skolems.
@@ -1371,15 +1441,22 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- An equality that a stuck type family application leaves undecided
   -- becomes a wanted: the meta variable that blocks the reduction may
   -- only be solved by a later part of the enclosing binding.
+  --
+  -- A given of the enclosing scope can also be necessary. In @instance
+  -- (pty ~ Basic) => Mask (Program pty n)@, the argument @f :: forall b.
+  -- Program Basic n b -> ...@ of @mb :: (forall a. Program pty n a -> ...)
+  -- -> ...@ needs the given @pty ~ Basic@.
+  outerGivens <- getGivenPredicates
+  let underGivens = not (null predicates) || any isEqualityGiven outerGivens
   deferred <-
-    if null predicates
-      then unifyDeferring sp (AppOrigin sp) actualTy expectedBody
-      else unifyDeferringUnderGivens sp actualTy expectedBody
+    if underGivens
+      then unifyDeferringUnderGivens sp actualTy expectedBody
+      else unifyDeferring sp (AppOrigin sp) actualTy expectedBody
   -- Under givens, a deferred equality can need them, as @StM m a ~ a@
   -- needs the given @Pure m a@. Then the argument gets a cast to the
   -- expected type, and the proof of the cast can use the givens.
   (castArg, deferredCts) <-
-    if null predicates || null deferred
+    if not underGivens || null deferred
       then (arg',) <$> mapM deferredConstraint deferred
       else do
         evidence <- freshEvVar
@@ -1388,6 +1465,17 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   givenCts <- mapM makeGiven predicates
   let (equalityCts, dictionaryCts) = partition isEqualityConstraint (argCts <> deferredCts)
   residualEqualities <- concat <$> mapM (solveEqualityConstraint predicates) equalityCts
+  -- A functional dependency of a local given can fix a meta variable of
+  -- the given: in @coerce (Magic k)@ of the reflection trick, the given
+  -- @Reifies Skolem a0@ of the field of @Magic@ and the wanted @Reifies
+  -- Skolem a@ of @k@ give @a0 := a@ by the dependency @s -> a@.
+  _ <- improveFunDeps predicates dictionaryCts
+  -- The improvement can give a meta variable of the enclosing scope a type
+  -- with a skolem of the polytype: the given @Reifies Skolem a0@ and the
+  -- wanted @Reifies Skolem (Proxy s)@ give @a0 := Proxy s@. The skolem
+  -- then escapes, as GHC reports. Thus the escape check runs again, also
+  -- over the givens, where such a meta variable can be.
+  rejectEscapingHigherRankMetas sp boundary skolems (TcQualTy predicates actualTy)
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
   -- A wanted that the local givens do not solve can need them and the
   -- givens of the enclosing scope together, as an instance context does.
