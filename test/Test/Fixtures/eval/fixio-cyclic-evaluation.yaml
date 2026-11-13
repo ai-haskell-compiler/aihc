@@ -2,7 +2,7 @@ modules:
   - |
     module Test where
 
-    import Control.Exception (FixIOException, catch)
+    import Control.Exception.Base (FixIOException, catch)
     import System.IO (fixIO)
     import Prelude
 
