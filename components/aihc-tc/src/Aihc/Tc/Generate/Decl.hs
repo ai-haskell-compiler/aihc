@@ -5907,8 +5907,8 @@ registerRecordSelectors origin selectorNames constructors =
         (++)
         [ (label, [(constructor, field)])
         | constructor <- constructors,
-          field <- dciFields constructor,
           let determined = determinedExistentials constructor,
+          field <- dciFields constructor,
           not (any (\tyVar -> typeMentionsTyVar tyVar (dcfiType field) && not (any (sameTyVar tyVar) determined)) (dciExTyVars constructor)),
           Just label <- [dcfiLabel field]
         ]

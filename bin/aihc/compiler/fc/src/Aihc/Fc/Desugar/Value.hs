@@ -840,7 +840,6 @@ recordSelectorAlternative label scrutineeType fieldType constructor =
             unless (null bindings) (failValue ("record selector cast needs evidence bindings: " <> T.unpack label))
             pure [Alt (AltData constructorNameOf) typeBinders (dictionaries <> leaves) (ExCast selected proof)]
 
-
 -- | The projections from the last argument that lead from two equal type
 -- constructor applications to the place where the right one has a
 -- variable. 'Ev.NthCo' counts the arguments from the last one.
