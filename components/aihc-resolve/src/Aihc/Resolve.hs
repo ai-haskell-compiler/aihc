@@ -1722,24 +1722,23 @@ applicativeExpr actions result = do
     first : rest ->
       pure (foldl (EApp . EApp apVar) (EApp (EApp fmapVar lambda) first) rest)
     [] -> pure result
+  where
+    syntaxTermVar sp kind name = do
+      ann <- syntaxTermAnnotation sp name
+      pure (EVar (Name Nothing kind name [ann]))
 
--- | A variable that names a syntax term.
-syntaxTermVar :: Maybe SourceSpan -> NameType -> Text -> ResolveM Expr
-syntaxTermVar sp kind name = do
-  ann <- syntaxTermAnnotation sp name
-  pure (EVar (Name Nothing kind name [ann]))
-
--- | Under OverloadedLists, a list pattern @[p1, ..., pn]@ is the view
--- pattern @(toList -> [p1, ..., pn])@, as in GHC. The scrutinee can then
--- have any type with an IsList instance.
+-- | Under OverloadedLists, a list pattern @[p1, ..., pn]@ matches through
+-- @toList@, as in GHC. The resolver only records the syntax terms: @toList@
+-- for a match, and @fromListN@ for the expression of a bidirectional
+-- pattern synonym. The type checker and the desugarer do the conversion.
 overloadedListPattern :: Pattern -> ResolveM Pattern
 overloadedListPattern pat = do
   info <- currentModuleInfo
   if OverloadedLists `elem` moduleInfoExtensions info
     then do
       sp <- currentSpan
-      toListVar <- syntaxTermVar sp NameVarId "toList"
-      pure (PView toListVar pat)
+      methodAnns <- mapM (syntaxTermAnnotation sp) ["toList", "fromListN"]
+      pure (foldr PAnn pat methodAnns)
     else pure pat
 
 -- | Resolve the statements of an @mdo@ block.
