@@ -344,10 +344,7 @@ encodeTree :: (Data a) => a -> [Word8] -> [Word8]
 encodeTree value =
   case cast value of
     Just string -> (3 :) . encodeText string
-    Nothing ->
-      case cast value of
-        Just bytes -> encodeBytes bytes
-        Nothing -> encodeConstructor
+    Nothing -> maybe encodeConstructor encodeBytes (cast value)
   where
     constructor = toConstr value
     fields = gmapQ encodeTree value
