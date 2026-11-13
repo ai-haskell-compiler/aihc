@@ -1,0 +1,18 @@
+extensions: [PolyKinds, TypeFamilies, DataKinds, KindSignatures, EmptyCase, MultiParamTypeClasses, FlexibleInstances]
+modules:
+- |
+  {-# LANGUAGE PolyKinds, TypeFamilies, DataKinds, KindSignatures, EmptyCase, MultiParamTypeClasses, FlexibleInstances #-}
+  module Test where
+  import GHC.Types (Type)
+  data Empty
+  absurd :: Empty -> a
+  absurd e = case e of {}
+  type family Reduced handler
+  class Reduce v handler where
+    reduce :: handler -> v -> Reduced handler
+  newtype Switcher c r (xs :: [Type]) = Switcher (c r xs)
+  type instance Reduced (Switcher c r xs) = r
+  instance Reduce Empty (Switcher c r '[]) where
+    reduce _ = absurd
+status: pass
+reason: In the instance, r has a rigid kind k. The equation Reduced (Switcher c r xs) = r needs r of kind Type, so the family application stays stuck, as in GHC.

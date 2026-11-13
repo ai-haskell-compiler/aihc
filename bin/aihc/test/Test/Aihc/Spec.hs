@@ -720,6 +720,9 @@ test_engineSplice getStore =
     (recoveredRequests, recovered) <- spliceWithRequests "recovered"
     assertEqual "no request of the code that failed" [] recoveredRequests
     assertEqual "the result of the handler" (Right (Syntax.EInt 1 Syntax.TInteger "1")) recovered
+    -- A splice can name a file that the module depends on.
+    dependentFile <- splice "dependentFile"
+    assertEqual "the result after addDependentFile" (Right (Syntax.EInt 2 Syntax.TInteger "2")) dependentFile
 
 -- | The answer to a closure that must not send a request.
 noRequest :: BS.ByteString -> IO BS.ByteString
@@ -751,7 +754,7 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\n7\nCircle Square\nFast Slow\nTrue\nTrue\n(4,\"4\")\nTrue\nTrue\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n4\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n(4,\"4\")\nTrue\nTrue\n" out
       assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an

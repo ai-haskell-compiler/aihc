@@ -108,6 +108,8 @@ module Aihc.Tc.Monad
     getDefaultTypes,
     getOverloadedStrings,
     getUndecidableInstances,
+    useFunDepFuel,
+    resetFunDepFuel,
     withUndecidableInstances,
     deferKindMeta,
     takeDeferredKindMetas,
@@ -131,6 +133,7 @@ module Aihc.Tc.Monad
     addDataFamilyInstance,
     getDataFamilyInstances,
     addTypeFamilyInstance,
+    sameTypeFamilyEquation,
     getTypeFamilyInstances,
     getTypeFamilyEquations,
     setTypeFamilyInstances,
@@ -509,6 +512,9 @@ emptyTcEnv config =
 data TcState = TcState
   { -- | Next unique identifier to allocate.
     tcsNextUnique :: !Int,
+    -- | The functional dependency improvements with fresh variables that
+    -- the current declaration can still make. See 'useFunDepFuel'.
+    tcsFunDepFuel :: !Int,
     -- | Solutions for meta (unification) variables.
     tcsMetaSolutions :: !(IntMap TcType),
     -- | Meta-variables that can default to 'Type' at a kind boundary.
@@ -580,6 +586,7 @@ initTcState :: TcState
 initTcState =
   TcState
     { tcsNextUnique = 0,
+      tcsFunDepFuel = funDepFuel,
       tcsMetaSolutions = IntMap.empty,
       tcsTrackedKindMetas = IntSet.empty,
       tcsMetaKinds = IntMap.empty,
@@ -655,6 +662,31 @@ getUniqueBoundary = Unique <$> lift (gets tcsNextUnique)
 writeMetaTv :: Unique -> TcType -> TcM ()
 writeMetaTv (Unique key) ty = lift $ modify' $ \s ->
   s {tcsMetaSolutions = IntMap.insert key ty (tcsMetaSolutions s)}
+
+-- | The functional dependency improvements with fresh variables that one
+-- declaration can make. An instance chain such as @instance D a b => C a
+-- [b]@ with @instance C a b => D a b@ makes the wanted larger at each
+-- improvement and does not end. GHC stops it with its reduction depth
+-- limit. Here, the improvement stops when the fuel is used, and the wanted
+-- stays unsolved with a diagnostic.
+funDepFuel :: Int
+funDepFuel = 100
+
+-- | Use one unit of the fuel of functional dependency improvements with
+-- fresh variables. The result says whether a unit was left.
+useFunDepFuel :: TcM Bool
+useFunDepFuel = lift $ do
+  fuel <- gets tcsFunDepFuel
+  if fuel <= 0
+    then pure False
+    else do
+      modify' (\s -> s {tcsFunDepFuel = fuel - 1})
+      pure True
+
+-- | Give the next declaration the full fuel of functional dependency
+-- improvements.
+resetFunDepFuel :: TcM ()
+resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel})
 
 -- | Look up the current solution for a meta-variable.
 readMetaTv :: Unique -> TcM (Maybe TcType)

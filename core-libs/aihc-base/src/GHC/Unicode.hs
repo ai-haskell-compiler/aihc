@@ -41,6 +41,7 @@ import GHC.Prim.Unicode
     unicodeToTitle,
     unicodeToUpper,
   )
+import GHC.Types (Char (..))
 import Prelude
 
 data GeneralCategory

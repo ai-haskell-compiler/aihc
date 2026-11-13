@@ -29,6 +29,7 @@ module Aihc.Th.Splices
     replaceModuleSplices,
     replaceFirstSplice,
     firstSplicePosition,
+    FactsAnswer,
     LocalFacts,
     RunSplice,
     spliceModuleName,
@@ -43,6 +44,7 @@ where
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (GlobalName)
+import Aihc.Tc.Interface (TcInterface)
 import Aihc.Th.Quote (quoteImports)
 import Aihc.Th.Wire (Tree)
 import Control.Monad.Trans.State.Strict (evalState, execState, modify', state)
@@ -179,10 +181,14 @@ firstSplicePosition modu =
         DeclSplice _ -> True
         _ -> False
 
--- | The facts that the compiler gives for @reify@ of a name of the module
--- of a splice, or of a module of its own package. 'Nothing' sends the
--- request to the facts of the store.
-type LocalFacts = GlobalName -> IO (Maybe (Either Text Tree))
+-- | How the compiler answers a question about a name from the type facts
+-- of the module that declares it, such as @reify@ or @reifyRoles@.
+type FactsAnswer = TcInterface -> GlobalName -> Either Text Tree
+
+-- | The facts that the compiler gives for a question about a name of the
+-- module of a splice, or of a module of its own package. 'Nothing' sends
+-- the question to the facts of the store.
+type LocalFacts = FactsAnswer -> GlobalName -> IO (Maybe (Either Text Tree))
 
 -- | Run one splice of a request: its position in 'spliceRequestSplices',
 -- with the local facts for that splice.

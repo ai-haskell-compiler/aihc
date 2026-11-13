@@ -50,6 +50,8 @@ module GHC.Exts
     Multiplicity (..),
     TYPE,
     UnliftedType,
+    ZeroBitRep,
+    ZeroBitType,
     Down (..),
     Ptr (..),
     Int (..),
@@ -225,3 +227,14 @@ foreign import ccall "dynamic" callCFinalizerEnvironment :: FunPtr (Ptr () -> Pt
 dataToTag# :: forall a. a -> Int#
 dataToTag# = dataToTagLarge#
 {-# INLINE dataToTag# #-}
+
+-- | The runtime representation of a value that has no bits, for example
+-- @(# #)@.
+--
+-- GHC defines this synonym in "GHC.Types". The aihc type checker cannot
+-- check the promoted '[]' in the module that declares 'List', thus the
+-- synonym is here.
+type ZeroBitRep = 'TupleRep '[]
+
+-- | The kind of a type whose values have no bits.
+type ZeroBitType = TYPE ZeroBitRep

@@ -7,13 +7,16 @@ import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
+import Aihc.Tc.Roles (RoleFacts (..), isPhantomParameter)
+import Aihc.Tc.Roles qualified as Roles
 import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (get, put)
+import Control.Monad.Trans.Reader (ReaderT)
+import Control.Monad.Trans.State.Strict (StateT, get, put)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 
@@ -118,8 +121,8 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
           and
             <$> sequence
               [ do
-                  phantom <- phantomParameter left index
-                  representational <- representationParameter [] left index
+                  phantom <- isPhantomParameter solverRoleFacts left index
+                  representational <- Roles.isRepresentationParameter solverRoleFacts left index
                   if
                     | phantom -> phantomPair argument argument'
                     | representational -> go wait edges visited True argument argument'
@@ -274,27 +277,6 @@ familyInstanceRepresentation constructor arguments = do
           pure (if visible then Just inner else Nothing)
         _ -> pure Nothing
 
--- | Whether one parameter of a data type is phantom: no field, context,
--- or constructor result type uses it, and no role annotation makes it
--- nominal.
-phantomParameter :: TyCon -> Int -> TcM Bool
-phantomParameter constructor index = do
-  info <- lookupDataType constructor
-  pure $ case info of
-    Just dataType
-      | index < length (dtiTyVars dataType),
-        not (or (take 1 (drop index (dtiNominalRoles dataType)))) ->
-          let parameter = dtiTyVars dataType !! index
-              expected = TcTyCon constructor (map TcTyVar (dtiTyVars dataType))
-              unused con = case matchTypes [dciResTy con] [expected] of
-                Just substitution ->
-                  not (any (mentions parameter . applySubst substitution . tvKind) (dciExTyVars con))
-                    && not (any (mentionsPred parameter . applySubstPred substitution) (dciTheta con))
-                    && not (any (mentions parameter . applySubst substitution . dcfiType) (dciFields con))
-                Nothing -> False
-           in all unused (dtiConstructors dataType)
-    _ -> False
-
 isDataFamily :: TyCon -> TcM Bool
 isDataFamily constructor = do
   info <- lookupTyConByIdentity constructor
@@ -330,106 +312,11 @@ connected edges seen frontier goal
           neighbour `notElem` seen
         ]
 
+-- | The facts of the constraint solver for the role rules.
+solverRoleFacts :: RoleFacts (ReaderT TcEnv (StateT TcState TcResult))
+solverRoleFacts = RoleFacts {roleFactsDataType = lookupDataType, roleFactsIsCoercible = isCoercibleClass}
+
 -- | Whether one parameter of a type constructor holds its representation role.
 -- Newtype deriving lifts coercions through such parameters.
 isRepresentationParameter :: TyCon -> Int -> TcM Bool
-isRepresentationParameter = representationParameter []
-
--- | A parameter can change representation only through representation positions.
--- Recursive data types use the same parameter check at each occurrence.
-representationParameter :: [(TyCon, Int)] -> TyCon -> Int -> TcM Bool
-representationParameter visited constructor index
-  | (constructor, index) `elem` visited = pure True
-  | otherwise = do
-      info <- lookupDataType constructor
-      case info of
-        Just dataType
-          | index < length (dtiTyVars dataType),
-            not (or (take 1 (drop index (dtiNominalRoles dataType)))) -> do
-              let parameter = dtiTyVars dataType !! index
-                  expected = TcTyCon constructor (map TcTyVar (dtiTyVars dataType))
-              and <$> mapM (checkConstructor parameter expected) (dtiConstructors dataType)
-          | otherwise -> pure False
-        Nothing -> pure False
-  where
-    next = (constructor, index) : visited
-    -- An existential variable is not a parameter, so the fields decide
-    -- the role as they do in a constructor without one. An existential
-    -- whose kind mentions the parameter makes it nominal.
-    checkConstructor parameter expected con
-      | Just substitution <- matchTypes [dciResTy con] [expected],
-        not (any (mentions parameter . applySubst substitution . tvKind) (dciExTyVars con)) = do
-          contextAllows <- and <$> mapM (contextPosition parameter . applySubstPred substitution) (dciTheta con)
-          fieldsAllow <- and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
-          pure (contextAllows && fieldsAllow)
-      | otherwise = pure False
-    -- Both arguments of a @Coercible@ context are representation
-    -- positions, as the role of @Coercible@ is representational. Any other
-    -- context that mentions the parameter makes it nominal.
-    contextPosition parameter predicate =
-      case predicate of
-        ClassPred className arguments@[_, _] -> do
-          coercible <- isCoercibleClass className
-          if coercible
-            then and <$> mapM (representationPosition next parameter) arguments
-            else pure (not (any (mentions parameter) arguments))
-        ClassPred _ arguments -> pure (not (any (mentions parameter) arguments))
-        EqPred left right -> pure (not (mentions parameter left || mentions parameter right))
-        IParamPred _ payload -> pure (not (mentions parameter payload))
-        IrredPred constraint -> pure (not (mentions parameter constraint))
-        QuantifiedPred {} -> pure False
-
-representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool
-representationPosition visited variable ty = case ty of
-  TcTyVar binder -> pure (not (mentions variable (tvKind binder)))
-  TcMetaTv _ -> pure False
-  TcArrowTy -> pure False
-  TcTyLit {} -> pure False
-  TcKindedTyCon {} -> pure True
-  TcFunTy argument result -> do
-    left <- representationPosition visited variable argument
-    right <- representationPosition visited variable result
-    pure (left && right)
-  TcTyCon constructor arguments ->
-    and <$> zipWithM checkArgument [0 ..] arguments
-    where
-      checkArgument index argument
-        | not (mentions variable argument) = pure True
-        | otherwise = do
-            allowed <- representationParameter visited constructor index
-            if allowed then representationPosition visited variable argument else pure False
-  TcAppTy function argument
-    | mentions variable argument -> pure False
-    | otherwise -> representationPosition visited variable function
-  TcForAllTy binder body
-    | mentions variable (tvKind binder) -> pure False
-    | otherwise -> representationPosition visited variable body
-  TcQualTy _ _ -> pure False
-
-mentions :: TyVarId -> TcType -> Bool
-mentions variable = elem (tvUnique variable) . typeVariables
-
-mentionsPred :: TyVarId -> Pred -> Bool
-mentionsPred variable = elem (tvUnique variable) . predicateVariables
-
-typeVariables :: TcType -> [Unique]
-typeVariables ty = nub $ case ty of
-  TcTyVar binder -> [tvUnique binder] <> typeVariables (tvKind binder)
-  TcMetaTv _ -> []
-  TcArrowTy -> []
-  TcTyLit {} -> []
-  TcTyCon _ arguments -> concatMap typeVariables arguments
-  TcKindedTyCon _ kindArguments -> concatMap typeVariables kindArguments
-  TcFunTy argument result -> typeVariables argument <> typeVariables result
-  TcAppTy function argument -> typeVariables function <> typeVariables argument
-  TcForAllTy binder body -> typeVariables (tvKind binder) <> filter (/= tvUnique binder) (typeVariables body)
-  TcQualTy predicates body -> concatMap predicateVariables predicates <> typeVariables body
-
-predicateVariables :: Pred -> [Unique]
-predicateVariables predicate = case predicate of
-  ClassPred _ arguments -> concatMap typeVariables arguments
-  EqPred left right -> typeVariables left <> typeVariables right
-  IParamPred _ payload -> typeVariables payload
-  IrredPred constraint -> typeVariables constraint
-  QuantifiedPred binders antecedents consequent ->
-    concatMap (filter (`notElem` map tvUnique binders) . predicateVariables) (consequent : antecedents)
+isRepresentationParameter = Roles.isRepresentationParameter solverRoleFacts

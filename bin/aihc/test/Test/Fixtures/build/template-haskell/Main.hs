@@ -151,6 +151,9 @@ $( do
 
 -- A function of a different module of the program derives instances for
 -- a type of this module and for a type of a different module.
+-- | A data type with a phantom parameter and a representational one.
+data Tagged tag value = Tagged value
+
 $(deriveDescribe ''Shape)
 
 $(deriveDescribe ''Mode)
@@ -216,6 +219,9 @@ main = do
   -- splice of this module and in a function of a different module.
   print $(do TyConI (DataD _ name _ _ _ _) <- reify ''Shape; if name == ''Shape then [|True|] else [|False|])
   print $(isMode ''Mode)
+  -- A splice reads the roles of a type of this module and of an
+  -- imported type.
+  putStrLn $(do local <- reifyRoles ''Tagged; imported <- reifyRoles ''Maybe; litE (stringL (show (local, imported))))
   -- A type quote in a splice gives the type of a signature.
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
