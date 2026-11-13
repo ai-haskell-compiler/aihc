@@ -1,3 +1,7 @@
+{-# LANGUAGE ExplicitForAll #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -45,7 +49,11 @@ where
 
 import Control.Monad (MonadPlus (..))
 import Data.Either (Either (..))
+import Data.Functor.Compose (Compose (..))
+import Data.Functor.Product (Product (..))
+import Data.Functor.Sum (Sum (..))
 import Data.Maybe (Maybe (..))
+import Data.Semigroup (Arg (..), First (..), Last (..), Max (..), Min (..), WrappedMonoid (..))
 import Data.Typeable
 import Data.Void (Void, absurd)
 import GHC.Err (errorWithoutStackTrace)
@@ -63,7 +71,7 @@ import GHC.Ptr (Ptr)
 import GHC.Read (Read)
 import GHC.Real (Integral (..), Rational, Real (..), fromIntegral, (%))
 import GHC.Show (Show (..))
-import GHC.Types (Bool (..), Char, Double, Float, Ordering (..))
+import GHC.Types (Bool (..), Char, Double, Float, Ordering (..), Type)
 import GHC.Word (Word, Word16, Word32, Word64, Word8)
 import Prelude (Fractional (..), break, dropWhile, length, reads, showParen, showString, shows, tail, (++), (.))
 
@@ -803,3 +811,128 @@ instance (Data a) => Data (ForeignPtr a) where
   gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(ForeignPtr)"
   dataTypeOf _ = mkNoRepType "GHC.ForeignPtr.ForeignPtr"
   dataCast1 f = gcast1 f
+
+-- The instances below are the instances that GHC derives. GHC gives a
+-- 'dataCast1' or a 'dataCast2' only to a type constructor of the kind
+-- @Type -> Type@ or @Type -> Type -> Type@.
+
+instance (Data a) => Data (Min a) where
+  gfoldl k z (Min x) = z Min `k` x
+  gunfold k z _ = k (z Min)
+  toConstr _ = minConstr
+  dataTypeOf _ = minDataType
+  dataCast1 f = gcast1 f
+
+minConstr :: Constr
+minConstr = mkConstr minDataType "Min" ["getMin"] Prefix
+
+minDataType :: DataType
+minDataType = mkDataType "Data.Semigroup.Min" [minConstr]
+
+instance (Data a) => Data (Max a) where
+  gfoldl k z (Max x) = z Max `k` x
+  gunfold k z _ = k (z Max)
+  toConstr _ = maxConstr
+  dataTypeOf _ = maxDataType
+  dataCast1 f = gcast1 f
+
+maxConstr :: Constr
+maxConstr = mkConstr maxDataType "Max" ["getMax"] Prefix
+
+maxDataType :: DataType
+maxDataType = mkDataType "Data.Semigroup.Max" [maxConstr]
+
+instance (Data a) => Data (First a) where
+  gfoldl k z (First x) = z First `k` x
+  gunfold k z _ = k (z First)
+  toConstr _ = firstConstr
+  dataTypeOf _ = firstDataType
+  dataCast1 f = gcast1 f
+
+firstConstr :: Constr
+firstConstr = mkConstr firstDataType "First" ["getFirst"] Prefix
+
+firstDataType :: DataType
+firstDataType = mkDataType "Data.Semigroup.First" [firstConstr]
+
+instance (Data a) => Data (Last a) where
+  gfoldl k z (Last x) = z Last `k` x
+  gunfold k z _ = k (z Last)
+  toConstr _ = lastConstr
+  dataTypeOf _ = lastDataType
+  dataCast1 f = gcast1 f
+
+lastConstr :: Constr
+lastConstr = mkConstr lastDataType "Last" ["getLast"] Prefix
+
+lastDataType :: DataType
+lastDataType = mkDataType "Data.Semigroup.Last" [lastConstr]
+
+instance (Data m) => Data (WrappedMonoid m) where
+  gfoldl k z (WrapMonoid x) = z WrapMonoid `k` x
+  gunfold k z _ = k (z WrapMonoid)
+  toConstr _ = wrapMonoidConstr
+  dataTypeOf _ = wrappedMonoidDataType
+  dataCast1 f = gcast1 f
+
+wrapMonoidConstr :: Constr
+wrapMonoidConstr = mkConstr wrappedMonoidDataType "WrapMonoid" ["unwrapMonoid"] Prefix
+
+wrappedMonoidDataType :: DataType
+wrappedMonoidDataType = mkDataType "Data.Semigroup.WrappedMonoid" [wrapMonoidConstr]
+
+instance (Data a, Data b) => Data (Arg a b) where
+  gfoldl k z (Arg a b) = z Arg `k` a `k` b
+  gunfold k z _ = k (k (z Arg))
+  toConstr _ = argConstr
+  dataTypeOf _ = argDataType
+  dataCast2 f = gcast2 f
+
+argConstr :: Constr
+argConstr = mkConstr argDataType "Arg" [] Prefix
+
+argDataType :: DataType
+argDataType = mkDataType "Data.Semigroup.Arg" [argConstr]
+
+instance forall k l (f :: k -> Type) (g :: l -> k) (a :: l). (Typeable k, Typeable l, Typeable f, Typeable g, Typeable a, Data (f (g a))) => Data (Compose f g a) where
+  gfoldl k z (Compose x) = z Compose `k` x
+  gunfold k z _ = k (z Compose)
+  toConstr _ = composeConstr
+  dataTypeOf _ = composeDataType
+
+composeConstr :: Constr
+composeConstr = mkConstr composeDataType "Compose" ["getCompose"] Prefix
+
+composeDataType :: DataType
+composeDataType = mkDataType "Data.Functor.Compose.Compose" [composeConstr]
+
+instance forall k (f :: k -> Type) (g :: k -> Type) (a :: k). (Typeable k, Typeable f, Typeable g, Typeable a, Data (f a), Data (g a)) => Data (Product f g a) where
+  gfoldl k z (Pair x y) = z Pair `k` x `k` y
+  gunfold k z _ = k (k (z Pair))
+  toConstr _ = productPairConstr
+  dataTypeOf _ = productDataType
+
+productPairConstr :: Constr
+productPairConstr = mkConstr productDataType "Pair" [] Prefix
+
+productDataType :: DataType
+productDataType = mkDataType "Data.Functor.Product.Product" [productPairConstr]
+
+instance forall k (f :: k -> Type) (g :: k -> Type) (a :: k). (Typeable k, Typeable f, Typeable g, Typeable a, Data (f a), Data (g a)) => Data (Sum f g a) where
+  gfoldl k z (InL x) = z InL `k` x
+  gfoldl k z (InR y) = z InR `k` y
+  toConstr (InL _) = inLConstr
+  toConstr (InR _) = inRConstr
+  gunfold k z c = case constrIndex c of
+    1 -> k (z InL)
+    _ -> k (z InR)
+  dataTypeOf _ = sumDataType
+
+inLConstr :: Constr
+inLConstr = mkConstr sumDataType "InL" [] Prefix
+
+inRConstr :: Constr
+inRConstr = mkConstr sumDataType "InR" [] Prefix
+
+sumDataType :: DataType
+sumDataType = mkDataType "Data.Functor.Sum.Sum" [inLConstr, inRConstr]

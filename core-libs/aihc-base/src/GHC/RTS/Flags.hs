@@ -40,6 +40,7 @@ module GHC.RTS.Flags
 where
 
 import Data.Word (Word32, Word64)
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Generics (Generic)
 import GHC.IO.SubSystem (IoSubSystem (..))
 import Prelude
@@ -55,6 +56,21 @@ data GiveGCStats
   | SummaryGCStats
   | VerboseGCStats
   deriving (Show, Generic)
+
+-- | The numbers are the C constants of the GHC runtime.
+instance Enum GiveGCStats where
+  fromEnum NoGCStats = 0
+  fromEnum CollectGCStats = 1
+  fromEnum OneLineGCStats = 2
+  fromEnum SummaryGCStats = 3
+  fromEnum VerboseGCStats = 4
+
+  toEnum 0 = NoGCStats
+  toEnum 1 = CollectGCStats
+  toEnum 2 = OneLineGCStats
+  toEnum 3 = SummaryGCStats
+  toEnum 4 = VerboseGCStats
+  toEnum e = errorWithoutStackTrace ("invalid enum for GiveGCStats: " ++ show e)
 
 -- | Flags that control the garbage collector.
 data GCFlags = GCFlags
@@ -152,6 +168,21 @@ data DoCostCentres
   | CostCentresJSON
   deriving (Show, Generic)
 
+-- | The numbers are the C constants of the GHC runtime.
+instance Enum DoCostCentres where
+  fromEnum CostCentresNone = 0
+  fromEnum CostCentresSummary = 1
+  fromEnum CostCentresVerbose = 2
+  fromEnum CostCentresAll = 3
+  fromEnum CostCentresJSON = 4
+
+  toEnum 0 = CostCentresNone
+  toEnum 1 = CostCentresSummary
+  toEnum 2 = CostCentresVerbose
+  toEnum 3 = CostCentresAll
+  toEnum 4 = CostCentresJSON
+  toEnum e = errorWithoutStackTrace ("invalid enum for DoCostCentres: " ++ show e)
+
 -- | Flags that control cost-centre profiling.
 data CCFlags = CCFlags
   { doCostCentres :: DoCostCentres,
@@ -173,6 +204,32 @@ data DoHeapProfile
   | HeapByInfoTable
   | HeapByEra
   deriving (Show, Generic)
+
+-- | The numbers are the C constants of the GHC runtime. The runtime does not
+-- use the number 3.
+instance Enum DoHeapProfile where
+  fromEnum NoHeapProfiling = 0
+  fromEnum HeapByCCS = 1
+  fromEnum HeapByMod = 2
+  fromEnum HeapByDescr = 4
+  fromEnum HeapByType = 5
+  fromEnum HeapByRetainer = 6
+  fromEnum HeapByLDV = 7
+  fromEnum HeapByClosureType = 8
+  fromEnum HeapByInfoTable = 9
+  fromEnum HeapByEra = 10
+
+  toEnum 0 = NoHeapProfiling
+  toEnum 1 = HeapByCCS
+  toEnum 2 = HeapByMod
+  toEnum 4 = HeapByDescr
+  toEnum 5 = HeapByType
+  toEnum 6 = HeapByRetainer
+  toEnum 7 = HeapByLDV
+  toEnum 8 = HeapByClosureType
+  toEnum 9 = HeapByInfoTable
+  toEnum 10 = HeapByEra
+  toEnum e = errorWithoutStackTrace ("invalid enum for DoHeapProfile: " ++ show e)
 
 -- | Flags that control heap profiling.
 data ProfFlags = ProfFlags
@@ -202,6 +259,17 @@ data DoTrace
   | TraceEventLog
   | TraceStderr
   deriving (Show, Generic)
+
+-- | The numbers are the C constants of the GHC runtime.
+instance Enum DoTrace where
+  fromEnum TraceNone = 0
+  fromEnum TraceEventLog = 1
+  fromEnum TraceStderr = 2
+
+  toEnum 0 = TraceNone
+  toEnum 1 = TraceEventLog
+  toEnum 2 = TraceStderr
+  toEnum e = errorWithoutStackTrace ("invalid enum for DoTrace: " ++ show e)
 
 -- | Flags that control tracing.
 data TraceFlags = TraceFlags
