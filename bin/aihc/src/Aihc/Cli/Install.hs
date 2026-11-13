@@ -3660,7 +3660,7 @@ wiredDerivingModules =
 -- | Every module whose type interface a compilation needs without an
 -- import.
 wiredInterfaceModules :: [Text]
-wiredInterfaceModules = wiredTypeModules <> ["GHC.IsList", "Type.Reflection.Literal"] <> wiredDerivingModules
+wiredInterfaceModules = wiredTypeModules <> ["Control.Monad", "GHC.IsList", "Type.Reflection.Literal"] <> wiredDerivingModules
 
 -- | The scope of the functions that desugaring reaches without an import.
 -- The argument is everything the unit can see, as 'resolveUnit' takes it.
