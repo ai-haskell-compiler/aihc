@@ -241,23 +241,23 @@ type UnliftedRep :: RuntimeRep
 type UnliftedRep = 'BoxedRep 'Unlifted
 
 data RuntimeRep
-  = AddrRep
+  = VecRep VecCount VecElem
+  | TupleRep [RuntimeRep]
+  | SumRep [RuntimeRep]
   | BoxedRep Levity
-  | DoubleRep
-  | FloatRep
+  | IntRep
+  | Int8Rep
   | Int16Rep
   | Int32Rep
   | Int64Rep
-  | Int8Rep
-  | IntRep
-  | SumRep [RuntimeRep]
-  | TupleRep [RuntimeRep]
-  | VecRep VecCount VecElem
+  | WordRep
+  | Word8Rep
   | Word16Rep
   | Word32Rep
   | Word64Rep
-  | Word8Rep
-  | WordRep
+  | AddrRep
+  | FloatRep
+  | DoubleRep
 
 data Levity = Lifted | Unlifted
 
@@ -265,19 +265,19 @@ data Levity = Lifted | Unlifted
 -- a type can name a multiplicity.
 data Multiplicity = One | Many
 
-data VecCount = Vec16 | Vec2 | Vec32 | Vec4 | Vec64 | Vec8
+data VecCount = Vec2 | Vec4 | Vec8 | Vec16 | Vec32 | Vec64
 
 data VecElem
-  = DoubleElemRep
-  | FloatElemRep
+  = Int8ElemRep
   | Int16ElemRep
   | Int32ElemRep
   | Int64ElemRep
-  | Int8ElemRep
+  | Word8ElemRep
   | Word16ElemRep
   | Word32ElemRep
   | Word64ElemRep
-  | Word8ElemRep
+  | FloatElemRep
+  | DoubleElemRep
 
 -- | The package and the module that a type constructor was declared in.
 data Module = Module TrName TrName

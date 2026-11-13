@@ -835,7 +835,7 @@ getClassInfo table = do
 
 putInstanceInfo :: PartIndex -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =
-  cborArray 7
+  cborArray 8
     <> putTyCon table (iiClass info)
     <> cborText (iiDictName info)
     <> putTextOrigin (iiDictOrigin info)
@@ -843,10 +843,11 @@ putInstanceInfo table info =
     <> encodeList (putTyVar table) (iiTyVars info)
     <> encodeList (putPred table) (iiContext info)
     <> encodeList (putType table) (iiHead info)
+    <> putBool (iiIncoherent info)
 
 getInstanceInfo :: PartTable -> Get.Get InstanceInfo
 getInstanceInfo table = do
-  expectArray 7
+  expectArray 8
   iiClass <- getTyCon table
   iiDictName <- getText
   iiDictOrigin <- getTextOrigin
@@ -854,7 +855,8 @@ getInstanceInfo table = do
   iiTyVars <- getList (getTyVar table)
   iiContext <- getList (getPred table)
   iiHead <- getList (getType table)
-  pure InstanceInfo {iiClass, iiDictName, iiDictOrigin, iiDictType, iiTyVars, iiContext, iiHead}
+  iiIncoherent <- getBool
+  pure InstanceInfo {iiClass, iiDictName, iiDictOrigin, iiDictType, iiTyVars, iiContext, iiHead, iiIncoherent}
 
 putDataFamilyInstanceInfo :: PartIndex -> DataFamilyInstanceInfo -> Builder.Builder
 putDataFamilyInstanceInfo table info =

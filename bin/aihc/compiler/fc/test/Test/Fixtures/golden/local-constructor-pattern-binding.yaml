@@ -24,7 +24,7 @@ expected: |-
     constructors [3.cIS, 3.cIP, 3.cIN] 3.tInteger :: sType;
     constructors [6.cLifted, 6.cUnlifted] 6.tLevity :: sType;
     6.sLiftedRep :: tRuntimeRep;
-    constructors [6.cAddrRep, 6.cBoxedRep, 6.cDoubleRep, 6.cFloatRep, 6.cInt16Rep, 6.cInt32Rep, 6.cInt64Rep, 6.cInt8Rep, 6.cIntRep, 6.cSumRep, 6.cTupleRep, 6.cVecRep, 6.cWord16Rep, 6.cWord32Rep, 6.cWord64Rep, 6.cWord8Rep, 6.cWordRep] 6.tRuntimeRep :: sType;
+    constructors [6.cVecRep, 6.cTupleRep, 6.cSumRep, 6.cBoxedRep, 6.cIntRep, 6.cInt8Rep, 6.cInt16Rep, 6.cInt32Rep, 6.cInt64Rep, 6.cWordRep, 6.cWord8Rep, 6.cWord16Rep, 6.cWord32Rep, 6.cWord64Rep, 6.cAddrRep, 6.cFloatRep, 6.cDoubleRep] 6.tRuntimeRep :: sType;
     6.tTYPE :: ∀(rep : tRuntimeRep). sType;
     6.sType :: sType;
     constructors [5.c()] 5.tUnit :: sType;

@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data A = A
+       │   └─ type: A
+       └─ type: Type
+  sh :: b -> ()
+  sh _ = ()
+  │  │   └─ type: ()
+  │  └─ type: b
+  └─ type: ∀ b. b → ()
+  class C a b | a -> b where
+  └─ class methods: op ∷ ∀ a b. (C a b) ⇒ a → b; fundeps: a → b
+    op :: a -> b
+  instance C a b => C a [b] where
+  └─ $fCaList ∷ ∀ a b. (C a b) ⇒ C a [b]
+    op x = [op x]
+    │  │   │└─ type: a → b; type-args: a, b; evidence: given C a b
+    │  │   └─ type: [b]; type-args: b
+    │  └─ type: a
+    └─ op ∷ a → [b]
+  x = sh (op A)
+  │   │   └─ type: A → a; type-args: A, a; evidence: given C A a
+  │   └─ type: a → (); type-args: a
+  └─ type: ∀ a. (C A a) ⇒ ()
+extensions: [MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data A = A
+  sh :: b -> ()
+  sh _ = ()
+  class C a b | a -> b where
+    op :: a -> b
+  instance C a b => C a [b] where
+    op x = [op x]
+  x = sh (op A)
+reason: "a binding with no signature has the wanted C A t0, and the instance C a b => C a [b] keeps the determining parameter a; the improvement from its fresh head variables must not repeat, thus the type check ends with a diagnostic"
+status: pass

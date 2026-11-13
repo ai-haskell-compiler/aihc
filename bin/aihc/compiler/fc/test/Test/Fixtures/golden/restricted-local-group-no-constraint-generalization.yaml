@@ -1,0 +1,31 @@
+extensions:
+- FunctionalDependencies
+- FlexibleInstances
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, FlexibleInstances, UndecidableInstances, ScopedTypeVariables #-}
+  module Test where
+  data Proxy a = Proxy
+  data Either a b = Left a | Right b
+  data Unit = Unit
+  class Sel a r | a -> r, r -> a where
+    count :: Proxy a -> Unit
+    row :: Unit -> Either Unit r
+  instance (Sel a ra, Sel b rb) => Sel (a, b) (ra, rb) where
+    count _ = Unit
+    row =
+      let x = getType processRow
+          getType :: Sel a r => (z -> Either y (r, x)) -> Proxy a
+          getType _ = Proxy
+          colCountFst = count x
+          processRow u = case colCountFst of
+            Unit -> case row u of
+              Left e -> Left e
+              Right ra -> case row u of
+                Left e -> Left e
+                Right rb -> Right (ra, rb)
+      in case colCountFst of
+        Unit -> processRow
+status: pass
+reason: The local bindings x, colCountFst, and processRow are one recursive group, and x has no arguments, thus the group is restricted. processRow must not abstract over the constraint Sel b a. Reduced from the SqlSelect pair instance of esqueleto.

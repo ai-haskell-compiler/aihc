@@ -61,6 +61,30 @@ module GHC.Prim
     plusWord64#,
     subWord64#,
     timesWord64#,
+    plusInt64#,
+    subInt64#,
+    timesInt64#,
+    quotInt64#,
+    remInt64#,
+    negateInt64#,
+    uncheckedIShiftL64#,
+    uncheckedIShiftRA64#,
+    uncheckedIShiftRL64#,
+    quotWord64#,
+    remWord64#,
+    eqInt64#,
+    neInt64#,
+    ltInt64#,
+    leInt64#,
+    gtInt64#,
+    geInt64#,
+    bitReverse64#,
+    indexWord8ArrayAsInt64#,
+    readWord8ArrayAsInt64#,
+    writeWord8ArrayAsInt64#,
+    indexWord8OffAddrAsInt64#,
+    readWord8OffAddrAsInt64#,
+    writeWord8OffAddrAsInt64#,
     notWord8#,
     notWord16#,
     notWord32#,
@@ -1558,6 +1582,54 @@ foreign import prim plusWord64# :: Word64# -> Word64# -> Word64#
 foreign import prim subWord64# :: Word64# -> Word64# -> Word64#
 
 foreign import prim timesWord64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim plusInt64# :: Int64# -> Int64# -> Int64#
+
+foreign import prim subInt64# :: Int64# -> Int64# -> Int64#
+
+foreign import prim timesInt64# :: Int64# -> Int64# -> Int64#
+
+foreign import prim quotInt64# :: Int64# -> Int64# -> Int64#
+
+foreign import prim remInt64# :: Int64# -> Int64# -> Int64#
+
+foreign import prim negateInt64# :: Int64# -> Int64#
+
+foreign import prim uncheckedIShiftL64# :: Int64# -> Int# -> Int64#
+
+foreign import prim uncheckedIShiftRA64# :: Int64# -> Int# -> Int64#
+
+foreign import prim uncheckedIShiftRL64# :: Int64# -> Int# -> Int64#
+
+foreign import prim quotWord64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim remWord64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim eqInt64# :: Int64# -> Int64# -> Int#
+
+foreign import prim neInt64# :: Int64# -> Int64# -> Int#
+
+foreign import prim ltInt64# :: Int64# -> Int64# -> Int#
+
+foreign import prim leInt64# :: Int64# -> Int64# -> Int#
+
+foreign import prim gtInt64# :: Int64# -> Int64# -> Int#
+
+foreign import prim geInt64# :: Int64# -> Int64# -> Int#
+
+foreign import prim bitReverse64# :: Word64# -> Word64#
+
+foreign import prim indexWord8ArrayAsInt64# :: ByteArray# -> Int# -> Int64#
+
+foreign import prim readWord8ArrayAsInt64# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int64# #)
+
+foreign import prim writeWord8ArrayAsInt64# :: MutableByteArray# d -> Int# -> Int64# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsInt64# :: Addr# -> Int# -> Int64#
+
+foreign import prim readWord8OffAddrAsInt64# :: Addr# -> Int# -> State# d -> (# State# d, Int64# #)
+
+foreign import prim writeWord8OffAddrAsInt64# :: Addr# -> Int# -> Int64# -> State# d -> State# d
 
 foreign import prim notWord8# :: Word8# -> Word8#
 

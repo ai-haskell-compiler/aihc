@@ -22,7 +22,7 @@ expected: |-
   import headers
     constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
     2.sLiftedRep :: tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     2.cBoxedRep :: tLevity → tRuntimeRep;
@@ -45,7 +45,7 @@ expected: |-
     constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: sType;
     4.sLiftedRep :: tRuntimeRep;
     constructors [1.cM] 1.tM :: ∀(k : sType) (f : k → sType) (a : k). sType;
-    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: sType;
+    constructors [4.cVecRep, 4.cTupleRep, 4.cSumRep, 4.cBoxedRep, 4.cIntRep, 4.cInt8Rep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cWordRep, 4.cWord8Rep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cAddrRep, 4.cFloatRep, 4.cDoubleRep] 4.tRuntimeRep :: sType;
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     constructors [3.c()] 3.tUnit :: sType;

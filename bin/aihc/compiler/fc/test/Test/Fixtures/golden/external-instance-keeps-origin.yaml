@@ -27,7 +27,7 @@ expected: |-
     constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
     3.sLiftedRep :: tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     2.c$Dict$Eq :: ∀(a : sType). (a → a → tBool) → (a → a → tBool) → t$Dict$Eq a;
@@ -60,7 +60,7 @@ expected: |-
     constructors [4.cFalse, 4.cTrue] 4.tBool :: sType;
     constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: sType;
     4.sLiftedRep :: tRuntimeRep;
-    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: sType;
+    constructors [4.cVecRep, 4.cTupleRep, 4.cSumRep, 4.cBoxedRep, 4.cIntRep, 4.cInt8Rep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cWordRep, 4.cWord8Rep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cAddrRep, 4.cFloatRep, 4.cDoubleRep] 4.tRuntimeRep :: sType;
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     2.v$fEqBool :: t$Dict$Eq tBool;

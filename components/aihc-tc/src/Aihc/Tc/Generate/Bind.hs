@@ -691,8 +691,18 @@ partitionLocalResiduals :: Set.Set Entity -> Map Entity TcType -> [DeclGroup] ->
 partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
   envMetaVars <- environmentMetaVars binderSet
-  restricted <- restrictedBinderKeys groups
+  restrictedBinders' <- restrictedBinderKeys groups
   typeBinderInfos <- traverse (binderMetaInfo placeholders) binders
+  -- Haskell 2010 rule 1 restricts a whole declaration group: when one
+  -- binding of the group is a pattern binding or a binding without
+  -- arguments and without a signature, no binder of the group abstracts
+  -- over a constraint. The local bindings here are one dependency
+  -- component, which is that group. In the @SqlSelect@ instance of
+  -- @esqueleto@, @x = getType processRow@ and @processRow@ are one group,
+  -- thus @processRow@ does not abstract over @SqlSelect b a@.
+  let restricted
+        | Set.null restrictedBinders' = restrictedBinders'
+        | otherwise = Set.union restrictedBinders' (Set.fromList (map fst typeBinderInfos))
   -- A constraint the group cannot abstract over, such as an equality, is
   -- left to the enclosing scope. Its meta-variables must stay
   -- meta-variables: the enclosing scope solves the constraint by fixing

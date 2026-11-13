@@ -45,6 +45,7 @@ import Aihc.Parser.Syntax
     IEBundledMember (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    InstanceOverlapPragma (..),
     Literal (..),
     Match (..),
     MatchHeadForm (..),
@@ -1291,6 +1292,7 @@ defaultGlobalKindMetas initialKeys = do
         <*> mapM defaultTyVarKinds (iiTyVars info)
         <*> mapM defaultPredKinds (iiContext info)
         <*> mapM defaultTypeKinds (iiHead info)
+        <*> pure (iiIncoherent info)
     defaultDataFamilyInstanceKinds info = do
       familyType <- defaultTypeKinds (dfiiFamilyType info)
       tyVars <- mapM defaultTyVarKinds (dfiiTyVars info)
@@ -4816,7 +4818,8 @@ registerInstanceDecl origin instanceDecl =
             iiDictType = dictTy,
             iiTyVars = tvIds,
             iiContext = context,
-            iiHead = headTys
+            iiHead = headTys,
+            iiIncoherent = PragmaInstanceOverlap Incoherent `elem` map pragmaType (instanceDeclPragmas instanceDecl)
           }
       pure [TcBindingResult (originTermKey origin dictName) dictName dictTy]
 

@@ -3440,10 +3440,14 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
       bind [result]
     -- A bit reversal is a byte swap that continues down to single bits.
-    ("bitReverse#", [value]) -> do
+    (_, [value]) | name == "bitReverse#" || name == "bitReverse64#" -> do
       operand <- word value
       result <- foldM swapStage operand [32, 16, 8, 4, 2, 1]
       bind [Typed result I64]
+    ("negateInt64#", [value]) -> do
+      operand <- word value
+      result <- emitValue "result" I64 (Binary Sub I64 (OperandLiteral (LitInt 0)) operand)
+      bind [result]
     ("negateInt#", [value]) -> do
       operand <- word value
       result <- emitValue "result" I64 (Binary Sub I64 (OperandLiteral (LitInt 0)) operand)
@@ -3967,6 +3971,17 @@ binaryPrimitives =
     ("plusWord64#", Add),
     ("subWord64#", Sub),
     ("timesWord64#", Mul),
+    ("quotWord64#", DivU),
+    ("remWord64#", RemU),
+    -- An Int64# fills a word register on each target, as an Int# does.
+    ("plusInt64#", Add),
+    ("subInt64#", Sub),
+    ("timesInt64#", Mul),
+    ("quotInt64#", DivS),
+    ("remInt64#", RemS),
+    ("uncheckedIShiftL64#", Shl),
+    ("uncheckedIShiftRA64#", ShrS),
+    ("uncheckedIShiftRL64#", ShrU),
     ("andI#", And),
     ("orI#", Or),
     ("xorI#", Xor),
@@ -4071,6 +4086,12 @@ comparisonPrimitives =
          ("leWord64#", LeU),
          ("gtWord64#", GtU),
          ("geWord64#", GeU),
+         ("eqInt64#", Eq),
+         ("neInt64#", Ne),
+         ("ltInt64#", LtS),
+         ("leInt64#", LeS),
+         ("gtInt64#", GtS),
+         ("geInt64#", GeS),
          ("eqChar#", Eq),
          ("neChar#", Ne),
          ("ltChar#", LtU),
@@ -4260,7 +4281,9 @@ byteArrayLoadPrimitives =
     ("indexWord8ArrayAsWord32#", (I32, ByteOffset, ZExt)),
     ("readWord8ArrayAsWord32#", (I32, ByteOffset, ZExt)),
     ("indexWord8ArrayAsWord64#", (I64, ByteOffset, ZExt)),
+    ("indexWord8ArrayAsInt64#", (I64, ByteOffset, ZExt)),
     ("readWord8ArrayAsWord64#", (I64, ByteOffset, ZExt)),
+    ("readWord8ArrayAsInt64#", (I64, ByteOffset, ZExt)),
     ("indexWideCharArray#", (I32, ElementIndex, ZExt)),
     ("readWideCharArray#", (I32, ElementIndex, ZExt)),
     -- A Float# value travels as its bit pattern in the low 32 bits and a
@@ -4293,6 +4316,7 @@ byteArrayStorePrimitives =
     ("writeWord8ArrayAsWord16#", (I16, ByteOffset)),
     ("writeWord8ArrayAsWord32#", (I32, ByteOffset)),
     ("writeWord8ArrayAsWord64#", (I64, ByteOffset)),
+    ("writeWord8ArrayAsInt64#", (I64, ByteOffset)),
     ("writeWideCharArray#", (I32, ElementIndex)),
     ("writeFloatArray#", (I32, ElementIndex)),
     ("writeDoubleArray#", (I64, ElementIndex)),
@@ -4327,7 +4351,9 @@ addressLoadPrimitives =
     ("indexWord8OffAddrAsWord32#", (I32, 1, ZExt)),
     ("readWord8OffAddrAsWord32#", (I32, 1, ZExt)),
     ("indexWord8OffAddrAsWord64#", (I64, 1, ZExt)),
+    ("indexWord8OffAddrAsInt64#", (I64, 1, ZExt)),
     ("readWord8OffAddrAsWord64#", (I64, 1, ZExt)),
+    ("readWord8OffAddrAsInt64#", (I64, 1, ZExt)),
     -- A Float# value travels as its bit pattern in the low 32 bits and a
     -- Double# value as its 64-bit pattern, thus the float accessors reuse
     -- the word accessors of the same width.
@@ -4370,6 +4396,7 @@ addressStorePrimitives =
     ("writeWord8OffAddrAsWord16#", (I16, 1)),
     ("writeWord8OffAddrAsWord32#", (I32, 1)),
     ("writeWord8OffAddrAsWord64#", (I64, 1)),
+    ("writeWord8OffAddrAsInt64#", (I64, 1)),
     ("writeWord8OffAddrAsFloat#", (I32, 1)),
     ("writeWord8OffAddrAsDouble#", (I64, 1)),
     ("writeInt8OffAddr#", (I8, 1)),

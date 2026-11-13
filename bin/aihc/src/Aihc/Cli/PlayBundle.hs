@@ -270,7 +270,8 @@ loadBundle bytes =
                       iiDictType = iiDictType decoded,
                       iiTyVars = iiTyVars decoded,
                       iiContext = iiContext decoded,
-                      iiHead = iiHead decoded
+                      iiHead = iiHead decoded,
+                      iiIncoherent = iiIncoherent decoded
                     }
                 )
           -- The global name of a type constructor is its key in the
