@@ -27,6 +27,9 @@ data Request
     -- it. A name that is bound to a package and a module also has its
     -- top-level entity. The compiler knows only such names.
     RequestReify !Text !(Maybe GlobalName)
+  | -- | Give the roles of the parameters of a type constructor, with the
+    -- name as for 'RequestReify'.
+    RequestReifyRoles !Text !(Maybe GlobalName)
   deriving (Eq, Show)
 
 -- | The request of a tree.
@@ -37,6 +40,8 @@ requestFromTree tree =
     TreeNode "Report" [TreeNode "False" [], TreeString message] -> Right (RequestReport False message)
     TreeNode "Reify" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
       Right (RequestReify occurrence (globalName occurrence flavour))
+    TreeNode "ReifyRoles" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
+      Right (RequestReifyRoles occurrence (globalName occurrence flavour))
     TreeNode name _ -> Left ("The compiler does not know the splice request " <> name <> ".")
     _ -> Left "A splice request is not a constructor."
 

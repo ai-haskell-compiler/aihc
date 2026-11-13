@@ -30,7 +30,7 @@ import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions, classDependencyArguments, dependencyDeterminers)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass)
+import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass, useFunDepFuel)
 import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Equality (givenRewrites)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication)
@@ -238,13 +238,58 @@ improveFromInstances givens siblings depth info dependency constraint = do
         pure $ do
           substitution <- matchTypes (determiners instanceHead) (determiners arguments')
           pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
-      forM_ candidates $ \(instanceInfo, instanceDetermined) ->
-        if any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
-          then case candidates of
-            [_] -> improveThroughContext givens siblings depth instanceInfo arguments
-            _ -> pure ()
-          else improveEqualities givens instanceDetermined (determined dependency arguments')
+      forM_ candidates $ \(instanceInfo, instanceDetermined) -> do
+        let open = filter (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
+        recursive <- recursesOnDeterminers info dependency instanceInfo
+        if null open
+          then improveEqualities givens instanceDetermined (determined dependency arguments')
+          else do
+            -- The head still gives the shape of a dependent parameter,
+            -- as in GHC: @instance Idiomatic f g => Idiomatic ((a -> b) ->
+            -- f) ((a -> b) -> g)@ says that the second parameter is a
+            -- function type, and the match gives @a@ and @b@. Each
+            -- variable that the match left open becomes a fresh meta
+            -- variable. The instance side is on the left, so that a
+            -- unification binds such a fresh variable to the type of the
+            -- wanted, and not a meta variable of the wanted to it.
+            --
+            -- An instance whose context has a constraint of the same class
+            -- with the same determining parameters, as @instance C a b =>
+            -- C a [b]@, does not make them smaller. Its improvement only
+            -- makes the wanted larger at each step: @C U t0@ gives @t0 :=
+            -- [t1]@, and the solver then makes the wanted @C U t1@ from
+            -- the context. GHC stops this chain with its reduction depth
+            -- limit. Here, such an instance gives no improvement, and the
+            -- wanted stays unsolved with a diagnostic.
+            --
+            -- The static condition does not find a chain through two
+            -- classes, as @instance D a b => C a [b]@ with @instance C a b
+            -- => D a b@. The fuel of the declaration stops such a chain.
+            fuel <- if recursive then pure False else useFunDepFuel
+            when fuel $ do
+              fresh <- forM open $ \tyVar -> do
+                meta <- freshMetaTvOfKind (tvKind tyVar)
+                pure (tvUnique tyVar, meta)
+              improveEqualities givens (map (applySubst (Map.fromList fresh)) instanceDetermined) (determined dependency arguments')
+            case candidates of
+              [_] -> improveThroughContext givens siblings depth instanceInfo arguments
+              _ -> pure ()
     _ -> pure ()
+
+-- | Whether the context of an instance has a constraint of the same class
+-- with the same determining parameters as the head of the instance.
+recursesOnDeterminers :: ClassInfo -> FunDep -> InstanceInfo -> TcM Bool
+recursesOnDeterminers info dependency instanceInfo = do
+  positions <- dependencyDeterminers info dependency
+  headArguments <- classDependencyArguments info (iiHead instanceInfo)
+  let headDeterminers = atPositions positions headArguments
+      sameClass predicate =
+        case predicate of
+          ClassPred className arguments
+            | tyConKey className == tyConKey (ciTyCon info) -> Just arguments
+          _ -> Nothing
+  contextDeterminers <- forM (mapMaybe sameClass (iiContext instanceInfo)) (fmap (atPositions positions) . classDependencyArguments info)
+  pure (any (sameTypes headDeterminers) contextDeterminers)
 
 -- | Improve a wanted from the context of the one instance that its
 -- determining parameters select, when the head of that instance does not
