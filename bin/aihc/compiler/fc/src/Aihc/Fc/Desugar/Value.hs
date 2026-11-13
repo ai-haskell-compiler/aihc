@@ -6283,7 +6283,8 @@ desugarTypeableApp origin function argument functionEvidence argumentEvidence = 
     _ -> failValue "Typeable evidence for an application has no kind arguments"
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [(TcType, Ev.EvTerm)] -> [Ev.EvTerm] -> ValueM Expr
-desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = do
+desugarTypeableEvidence origin rawTy constructor kindArguments argumentEvidence = do
+  let ty = kindedTypeableType rawTy kindArguments
   (_, _, _, argumentTypes) <- typeableTypeView ty
   unless (length argumentTypes == length argumentEvidence) (failValue "Typeable evidence argument count does not match its type")
   argumentRepresentations <- zipWithM (desugarTypeableArgument origin) argumentTypes argumentEvidence
@@ -6295,14 +6296,31 @@ desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = d
   pure (ExApp (foldl ExTyApp (ExVar dictionaryConstructor) typeArguments) representation)
 
 desugarTypeableArgument :: Maybe (Text, Text) -> TcType -> Ev.EvTerm -> ValueM Expr
-desugarTypeableArgument origin ty evidence = do
+desugarTypeableArgument origin rawTy evidence = do
   dictionary <- desugarEvidence evidence
   selector <- typeableName origin "Type.Reflection" "typeRep#" SortValue
   className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
   someTypeRepConstructor <- typeableName origin "Type.Reflection" "SomeTypeRep" SortDataConstructor
+  let ty = case evidence of
+        Ev.EvTypeable _ _ _ kindArguments _ -> kindedTypeableType rawTy kindArguments
+        _ -> rawTy
   typeArguments <- typeableTypeArguments className ty
   let typeRepValue = ExApp (foldl ExTyApp (ExVar selector) typeArguments) dictionary
   pure (ExApp (foldl ExTyApp (ExVar someTypeRepConstructor) typeArguments) typeRepValue)
+
+-- | A type constructor application with the kind arguments that the
+-- @Typeable@ evidence of the application records. A saturated application
+-- has no kind arguments of its own. Its argument types do not always fix
+-- them: in @Location (Tok "base")@ with @data family Tok (arg :: Symbol) ::
+-- k@, only the position of @Tok "base"@ fixes @k@. The type checker records
+-- that kind in the evidence.
+kindedTypeableType :: TcType -> [(TcType, Ev.EvTerm)] -> TcType
+kindedTypeableType ty kindArguments =
+  case Tc.collectTypeApplications ty of
+    (TcTyCon tyCon arguments, appliedArguments)
+      | not (null kindArguments) ->
+          foldl TcAppTy (TcKindedTyCon tyCon (map fst kindArguments)) (arguments <> appliedArguments)
+    _ -> ty
 
 desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [Expr] -> [Expr] -> ValueM Expr
 desugarTypeRepresentation origin ty constructor kindRepresentations arguments = do
