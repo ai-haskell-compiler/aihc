@@ -202,6 +202,13 @@ literal tree =
     TreeNode "StringL" [TreeString string] -> Right (EString string (T.pack (show (T.unpack string))))
     -- A primitive literal has its sign in the literal, as @-1#@ has.
     TreeNode "IntPrimL" [TreeInteger number] -> Right (EInt number TIntHash (T.pack (show number) <> "#"))
+    -- The string of a bytes literal has one character for each byte, as
+    -- the string of a primitive string literal has.
+    TreeNode "BytesPrimL" [TreeNode "Bytes" [TreeString bytes]] -> Right (EStringHash bytes (T.pack (show (T.unpack bytes)) <> "#"))
+    TreeNode "StringPrimL" [elements] -> do
+      codes <- list elements >>= mapM byteCode
+      let bytes = T.pack (map toEnum codes)
+      Right (EStringHash bytes (T.pack (show (T.unpack bytes)) <> "#"))
     TreeNode "WordPrimL" [TreeInteger number]
       | number >= 0 -> Right (EInt number TWordHash (T.pack (show number) <> "##"))
     TreeNode "CharPrimL" [TreeChar char] -> Right (ECharHash char (T.pack (show char) <> "#"))
@@ -321,6 +328,14 @@ optional convert tree =
     _ -> unsupported "optional value" tree
 
 -- | The elements of a list tree.
+-- | A byte of a primitive string literal.
+byteCode :: Tree -> Either Text Int
+byteCode tree =
+  case tree of
+    TreeInteger number
+      | number >= 0 && number < 256 -> Right (fromInteger number)
+    _ -> unsupported "byte" tree
+
 list :: Tree -> Either Text [Tree]
 list tree =
   case tree of
