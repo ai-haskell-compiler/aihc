@@ -21,16 +21,16 @@ module Aihc.Tc.Solve.Dict
 where
 
 import Aihc.Parser.Syntax (pattern SourceSpan)
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldSelectorName)
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -51,7 +51,7 @@ import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (elemIndex, partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -144,12 +144,11 @@ solveNormalizedDict visited givens ct
                 ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
                 ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
                 ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
-                _ -> do
-                  instances <- getClassInstances className
-                  result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
-                  case result of
-                    DictSolved -> pure DictSolved
-                    DictStuck _ -> solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
+                ("HasField", _)
+                  | isHasFieldClass className -> do
+                      solved <- solveHasField ct className args'
+                      if solved then pure DictSolved else solveFromInstances className args' givens'
+                _ -> solveFromInstances className args' givens'
         IrredPred constraint -> do
           -- A stuck constraint says nothing until its families reduce. Once
           -- they do it is an ordinary constraint -- a class, an equality, or
@@ -653,6 +652,13 @@ solveNormalizedDict visited givens ct
 
     -- A literal argument builds the dictionary. Otherwise a given
     -- equality can still rewrite the argument to one a given names.
+    solveFromInstances className args' givens' = do
+      instances <- getClassInstances className
+      result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
+      case result of
+        DictSolved -> pure DictSolved
+        DictStuck _ -> solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
+
     tryTypeLitOrGivens visited' zonkedGivens className args classNameText matchesSort ty = do
       result <- tryTypeLit classNameText matchesSort ty
       case result of
@@ -911,6 +917,7 @@ mentionsGiven predicate evidence =
     EvCoercible {} -> False
     EvCoercion {} -> False
     EvTypeLit {} -> False
+    EvHasField {} -> False
     EvWithDict {} -> False
     EvCallStackEmpty {} -> False
     EvExceptionContextEmpty {} -> False
@@ -1255,6 +1262,89 @@ isCharLiteral :: TyLit -> Bool
 isCharLiteral literal = case literal of
   TyLitChar {} -> True
   _ -> False
+
+-- | True for the class @HasField@ of @GHC.Records@.
+--
+-- A core class outside the primitive package has no known package
+-- identity, so its module, name, namespace, and arity identify it. This is
+-- the same rule that the deriving wiring uses for such a class. A user
+-- class with the name @HasField@ in a different module is not this class.
+isHasFieldClass :: TyCon -> Bool
+isHasFieldClass tyCon =
+  tyConName tyCon == "HasField"
+    && tyConModuleName tyCon == "GHC.Records"
+    && tyConNamespace tyCon == ResolutionNamespaceType
+    && tyConArity tyCon == 3
+
+-- | Solve @HasField x r a@ for a field of a record type, as GHC does.
+--
+-- The label @x@ must be a symbol literal, and @r@ must be a data type with
+-- a field of that label. The field type must not mention an existential
+-- variable or a @forall@, and the constructors must not have a context.
+-- The selector of the field must be in scope at the use site. The resolver
+-- gives the terms that the module can see, and the solver reads them.
+-- The dictionary selects the field, and @a@ becomes the field type.
+solveHasField :: Ct -> TyCon -> [TcType] -> TcM Bool
+solveHasField ct className args =
+  case reverse args of
+    fieldTy : recordTy : TcTyLit (TyLitSymbol label) : _ -> do
+      recordTy' <- zonkType recordTy
+      field <-
+        case collectTypeApplications recordTy' of
+          (TcTyCon recordTyCon _, _) -> (>>= recordField label recordTy') <$> lookupDataType recordTyCon
+          _ -> pure Nothing
+      visible <- case field of
+        Just (_, _, selectors) -> or <$> mapM isTermVisible selectors
+        Nothing -> pure False
+      case field of
+        Just (fieldType, constructors, _)
+          | visible -> do
+              deferred <- unifyDeferring (ctLoc ct) (ctOrigin ct) fieldTy fieldType
+              if null deferred
+                then do
+                  bindEvidence (ctEvVar ct) (EvHasField className args recordTy' fieldType label constructors)
+                  pure True
+                else pure False
+        _ -> pure False
+    _ -> pure False
+
+-- | The type of a record field at a record type, the data constructors
+-- that have the field, and the possible global keys of the field selector.
+--
+-- The selector has the name of the label. When DuplicateRecordFields
+-- gives the label to more than one declaration of the module, the resolver
+-- gives the selector the name from 'fieldSelectorName' and the first
+-- constructor of the declaration. Only one of the two keys can exist.
+recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)], [Entity])
+recordField label recordTy dataType = do
+  let candidates =
+        [ (constructor, field)
+        | constructor <- dtiConstructors dataType,
+          field <- dciFields constructor,
+          dcfiLabel field == Just label
+        ]
+  (constructor, field) <- listToMaybe candidates
+  guard (all (\(candidate, _) -> null (dciExTyVars candidate) && null (dciTheta candidate)) candidates)
+  substitution <- matchTypes [dciResTy constructor] [recordTy]
+  let fieldType = applySubst substitution (dcfiType field)
+  guard (not (isForAll fieldType))
+  pure
+    ( fieldType,
+      [ (packageIdText package, moduleName', dciName candidate)
+      | (candidate, _) <- candidates,
+        let (package, moduleName') = dciOrigin candidate
+      ],
+      let (package, moduleName') = dciOrigin constructor
+       in [ GlobalTerm package moduleName' name
+          | name <- label : [fieldSelectorName label (dciName first) | first <- take 1 (dtiConstructors dataType)]
+          ]
+    )
+  where
+    isForAll ty =
+      case ty of
+        TcForAllTy {} -> True
+        TcQualTy {} -> True
+        _ -> False
 
 reportUnsolvedDict :: Ct -> TcM ()
 reportUnsolvedDict ct = do

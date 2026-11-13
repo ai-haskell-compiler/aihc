@@ -1,0 +1,38 @@
+extensions:
+  - DataKinds
+  - TypeApplications
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    {-# LANGUAGE TypeApplications #-}
+    module Test where
+
+    import Prelude
+    import GHC.Records (HasField (..))
+
+    data Node a = Node { node :: a, location :: Bool }
+
+    data Shape = Circle { name :: Bool } | Square { size :: Int, name :: Bool }
+
+    nameOf :: HasField "name" r Bool => r -> Bool
+    nameOf = getField @"name"
+
+    checks :: [Bool]
+    checks =
+      [ getField @"location" (Node 'x' True),
+        getField @"node" (Node False True) == False,
+        nameOf (Circle True),
+        nameOf (Square 3 False) == False,
+        getField @"size" (Square 3 True) == 3
+      ]
+
+    result :: Bool
+    result = and checks
+expression: |
+  result
+output: |
+  True
+status: pass
+reason: The solver gives HasField for a record field a dictionary that selects the field
