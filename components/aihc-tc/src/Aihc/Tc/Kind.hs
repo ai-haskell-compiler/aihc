@@ -1074,7 +1074,7 @@ inferBuiltinTypeConstructor builtin promotion =
           listKind <- listType elementKind
           let kind = KFun elementKind (KFun listKind listKind)
           tyCon <- wiredTyCon tcWiringConsDataCon kind
-          pure (TcTyCon tyCon [], kind)
+          pure (kindedTyCon tyCon [elementKind], kind)
       | otherwise -> do
           kinds <- getKinds
           let kind = KFun (typeKind kinds) (KFun (listTypeKind (typeKind kinds)) (listTypeKind (typeKind kinds)))
@@ -1092,7 +1092,7 @@ inferBuiltinTypeConstructor builtin promotion =
               kind = foldr KFun resultKind argKinds
           wiredData <- wiredTupleDataCon flavor arity
           tyCon <- mkWiredTyCon wiredData kind
-          pure (TcTyCon tyCon [], kind)
+          pure (kindedTyCon tyCon argKinds, kind)
       | otherwise -> do
           kinds <- getKinds
           wired <- wiredTupleTyCon flavor arity
