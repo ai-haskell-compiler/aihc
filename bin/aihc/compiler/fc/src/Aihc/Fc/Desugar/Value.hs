@@ -202,7 +202,11 @@ type MatchWork = (Syn.Match, MatchLocals)
 -- its lazy patterns need around the body.
 data MatchLocals = MatchLocals
   { matchLocalBinders :: [(Entity, (Binder, TcType))],
-    matchLocalSelectors :: [Bind]
+    -- | The selector thunks of lazy patterns. Each body is desugared only
+    -- where the bindings are placed, after the match has taken the earlier
+    -- columns apart: in @evalRP (RApp r) ~(f :< rest)@ of @yi-core@, the
+    -- lazy pattern needs the given equality of the match on @RApp@.
+    matchLocalSelectors :: [ValueM Bind]
   }
 
 instance Semigroup MatchLocals where
@@ -221,8 +225,9 @@ matchBinderLocals entries = MatchLocals entries []
 -- pattern selectors around the result.
 withMatchLocals :: MatchLocals -> ValueM Expr -> ValueM Expr
 withMatchLocals locals action = do
+  selectors <- sequence (matchLocalSelectors locals)
   body <- withLocals (matchLocalBinders locals) action
-  pure (foldr ExLet body (matchLocalSelectors locals))
+  pure (foldr ExLet body selectors)
 
 data ValueGroup
   = FunctionGroup !Entity !Text ![Syn.Match] !TcType
@@ -2407,10 +2412,10 @@ lazyPatternSelectors binder ty pattern' = do
   where
     selector (key, name, variableType) = do
       variable <- freshBinder name variableType
-      body <- desugarDoPattern variableType binder ty pattern' $ do
-        (field, _) <- lookupLocal key name
-        pure (ExVar (binderName field))
-      pure (MatchLocals [(key, (variable, variableType))] [Bind variable body])
+      let body = desugarDoPattern variableType binder ty pattern' $ do
+            (field, _) <- lookupLocal key name
+            pure (ExVar (binderName field))
+      pure (MatchLocals [(key, (variable, variableType))] [Bind variable <$> body])
 
 extendMatchWork :: Binder -> TcType -> MatchWork -> ValueM MatchWork
 extendMatchWork binder ty (match, locals) = do
