@@ -1,0 +1,23 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- The let statement generalizes g. The next statement of the same rec
+    -- statement uses g at two types. The knot takes one instance of g.
+    knot :: Maybe [Int]
+    knot = do
+      rec xs <- Just (1 : take 2 ys)
+          let g = const (head xs)
+          ys <- Just [g 'c', g True]
+      return xs
+output: |
+  True
+expression: |
+  knot == Just [1, 1, 1]
+status: pass
+reason: a let statement of a rec statement generalizes its variable, and a later statement of the group can use it at more than one type
