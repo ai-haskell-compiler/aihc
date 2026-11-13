@@ -21,7 +21,7 @@ module Aihc.Tc.Solve.Dict
 where
 
 import Aihc.Parser.Syntax (pattern SourceSpan)
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
@@ -30,7 +30,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -144,7 +144,7 @@ solveNormalizedDict visited givens ct
                 ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
                 ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
                 ("HasField", _)
-                  | tyConModuleName className == "GHC.Records" -> do
+                  | isHasFieldClass className -> do
                       solved <- solveHasField ct className args'
                       if solved then pure DictSolved else solveFromInstances className args' givens'
                 _ -> solveFromInstances className args' givens'
@@ -1185,11 +1185,26 @@ isCharLiteral literal = case literal of
   TyLitChar {} -> True
   _ -> False
 
+-- | True for the class @HasField@ of @GHC.Records@.
+--
+-- A core class outside the primitive package has no known package
+-- identity, so its module, name, namespace, and arity identify it. This is
+-- the same rule that the deriving wiring uses for such a class. A user
+-- class with the name @HasField@ in a different module is not this class.
+isHasFieldClass :: TyCon -> Bool
+isHasFieldClass tyCon =
+  tyConName tyCon == "HasField"
+    && tyConModuleName tyCon == "GHC.Records"
+    && tyConNamespace tyCon == ResolutionNamespaceType
+    && tyConArity tyCon == 3
+
 -- | Solve @HasField x r a@ for a field of a record type, as GHC does.
 --
 -- The label @x@ must be a symbol literal, and @r@ must be a data type with
 -- a field of that label. The field type must not mention an existential
 -- variable or a @forall@, and the constructors must not have a context.
+-- The selector of the field must be in scope at the use site. The resolver
+-- gives the terms that the module can see, and the solver reads them.
 -- The dictionary selects the field, and @a@ becomes the field type.
 solveHasField :: Ct -> TyCon -> [TcType] -> TcM Bool
 solveHasField ct className args =
@@ -1200,20 +1215,24 @@ solveHasField ct className args =
         case collectTypeApplications recordTy' of
           (TcTyCon recordTyCon _, _) -> (>>= recordField label recordTy') <$> lookupDataType recordTyCon
           _ -> pure Nothing
-      case field of
+      visible <- case field of
+        Just (_, _, selector) -> isTermVisible selector
         Nothing -> pure False
-        Just (fieldType, constructors) -> do
+      case field of
+        Just (fieldType, constructors, _)
+          | visible -> do
           deferred <- unifyDeferring (ctLoc ct) (ctOrigin ct) fieldTy fieldType
           if null deferred
             then do
               bindEvidence (ctEvVar ct) (EvHasField className args recordTy' fieldType label constructors)
               pure True
             else pure False
+        _ -> pure False
     _ -> pure False
 
--- | The type of a record field at a record type, and the data constructors
--- that have the field.
-recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)])
+-- | The type of a record field at a record type, the data constructors
+-- that have the field, and the global key of the field selector.
+recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)], Entity)
 recordField label recordTy dataType = do
   let candidates =
         [ (constructor, field)
@@ -1231,7 +1250,9 @@ recordField label recordTy dataType = do
       [ (packageIdText package, moduleName', dciName candidate)
       | (candidate, _) <- candidates,
         let (package, moduleName') = dciOrigin candidate
-      ]
+      ],
+      let (package, moduleName') = dciOrigin constructor
+       in GlobalTerm package moduleName' label
     )
   where
     isForAll ty =

@@ -1,0 +1,49 @@
+extensions:
+  - AllowAmbiguousTypes
+  - DataKinds
+  - FunctionalDependencies
+  - TypeApplications
+modules:
+  - |
+    {-# LANGUAGE AllowAmbiguousTypes, DataKinds, FunctionalDependencies, TypeApplications #-}
+    module Main where
+    import GHC.Types (Symbol)
+    data B = B
+    data W a = W a
+    data P = P { name :: B }
+    class HasField (x :: Symbol) r a | x r -> a where
+      hasField :: r -> W a
+    instance HasField "name" P B where
+      hasField (P n) = W n
+    use :: W B
+    use = hasField @"name" (P B)
+annotated:
+- |-
+  {-# LANGUAGE AllowAmbiguousTypes, DataKinds, FunctionalDependencies, TypeApplications #-}
+  module Main where
+  import GHC.Types (Symbol)
+  data B = B
+       │   └─ type: B
+       └─ type: Type
+  data W a = W a
+       │     └─ type: ∀ a. a → W a
+       └─ type: Type → Type
+  data P = P { name :: B }
+       │   └─ type: B → P
+       └─ type: Type
+  class HasField (x :: Symbol) r a | x r -> a where
+  └─ class methods: hasField ∷ ∀ x r a. (HasField x r a) ⇒ r → W a; fundeps: x r → a
+    hasField :: r -> W a
+  instance HasField "name" P B where
+  └─ $fHasFieldTPB ∷ () ⇒ HasField "name" P B
+    hasField (P n) = W n
+    │         │ │    └─ type: B → W B; type-args: B
+    │         │ └─ type: B
+    │         └─ type: P
+    └─ hasField ∷ P → W B
+  use :: W B
+  use = hasField @"name" (P B)
+  │     └─ type: P → W B; type-args: "name", P, B; evidence: $fHasFieldTPB
+  └─ type: W B
+status: pass
+reason: a user class with the name HasField uses its instances and not the built-in HasField solver of GHC.Records
