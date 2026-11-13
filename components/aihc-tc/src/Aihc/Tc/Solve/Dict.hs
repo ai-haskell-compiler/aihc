@@ -28,7 +28,7 @@ import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFiel
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
+import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
@@ -44,7 +44,7 @@ import Aihc.Tc.Unify (unifyDeferring)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, guard, when, zipWithM_, (<=<), (>=>))
+import Control.Monad (foldM, foldM_, guard, when, zipWithM, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, put)
@@ -711,9 +711,10 @@ solveNormalizedDict visited givens ct
                   pure DictSolved
                 _ -> pure (DictStuck ct)
         Nothing -> pure (DictStuck ct)
-        Just arguments -> do
+        Just rawArguments -> do
           classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
-          argumentEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) arguments
+          arguments <- kindedTypeableArguments ty rawArguments
+          argumentEvidence <- mapM (typeableArgumentEvidence typeableTyCon classOrigin) arguments
           case sequence argumentEvidence of
             Just evidence -> do
               (constructor, kindArguments) <- typeableConstructor ty
@@ -724,6 +725,18 @@ solveNormalizedDict visited givens ct
                   pure DictSolved
                 Nothing -> pure (DictStuck ct)
             Nothing -> pure (DictStuck ct)
+
+    -- An argument with explicit kind arguments gets its evidence here. A
+    -- new wanted would lose these kind arguments, because the zonker
+    -- rebuilds a saturated application without them.
+    typeableArgumentEvidence typeableTyCon classOrigin argument =
+      case collectTypeApplications argument of
+        (TcKindedTyCon {}, arguments@(_ : _)) -> do
+          (constructor, kindArguments) <- typeableConstructor argument
+          kindEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) kindArguments
+          argumentEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) arguments
+          pure (EvTypeable classOrigin argument constructor . zip kindArguments <$> sequence kindEvidence <*> sequence argumentEvidence)
+        _ -> solveSubPred [ctPred ct] (ClassPred typeableTyCon [argument])
 
     -- An inner pair of a @Coercible@ wanted can follow from a quantified
     -- given, such as the superclass @forall a b. Coercible a b =>
@@ -1320,6 +1333,62 @@ splitTypeable ct =
           evidence <- freshEvVar
           pure ct {ctPred = ClassPred className [argument], ctEvVar = evidence}
     _ -> pure Nothing
+
+-- | The arguments of a @Typeable@ wanted for a type constructor
+-- application, each with the kind arguments that its position fixes.
+--
+-- A saturated application keeps no kind argument, because its visible
+-- arguments usually fix the kinds. A kind that only the result kind
+-- mentions is not fixed by them: in @Dir (Tok "baseDir")@ with
+-- @data family Tok (arg :: Symbol) :: k@, only the position under @Dir@
+-- gives @k = Type@. The @Typeable@ wanted of the argument alone cannot find
+-- that kind, so the argument becomes an application of the constructor with
+-- its kind arguments.
+kindedTypeableArguments :: TcType -> [TcType] -> TcM [TcType]
+kindedTypeableArguments ty arguments =
+  case ty of
+    TcTyCon constructor _ -> do
+      info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable constructor has no checked kind") pure
+      instantiated <- instantiateWithArgs (tciKindScheme info)
+      formals <- argumentKinds (instType instantiated) arguments
+      zipWithM withKindArguments (map Just formals <> repeat Nothing) arguments
+    _ -> pure arguments
+  where
+    argumentKinds _ [] = pure []
+    argumentKinds kind (argument : rest) = do
+      kind' <- zonkKind kind
+      case kind' of
+        TcFunTy formal result -> do
+          actual <- tcTypeKind argument
+          unifyKinds formal actual
+          formal' <- zonkKind formal
+          (formal' :) <$> argumentKinds result rest
+        _ -> pure []
+    withKindArguments (Just formal) argument@(TcTyCon constructor constructorArguments@(_ : _))
+      | not (kindMentionsMeta formal) = do
+          info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable constructor has no checked kind") pure
+          instantiated <- instantiateWithArgs (tciKindScheme info)
+          result <- foldM applyKind (instType instantiated) constructorArguments
+          open <- any kindMentionsMeta <$> mapM zonkKind (instTypeArgs instantiated)
+          if open
+            then do
+              unifyKinds formal result
+              kindArguments <- mapM zonkKind (instTypeArgs instantiated)
+              pure
+                ( if any kindMentionsMeta kindArguments
+                    then argument
+                    else foldl TcAppTy (TcKindedTyCon constructor kindArguments) constructorArguments
+                )
+            else pure argument
+    withKindArguments _ argument = pure argument
+    applyKind kind argument = do
+      kind' <- zonkKind kind
+      case kind' of
+        TcFunTy formal result -> do
+          actual <- tcTypeKind argument
+          unifyKinds formal actual
+          pure result
+        _ -> abortTc "Typeable constructor has an invalid application"
 
 -- | Resolve the kind arguments before FC constructs a runtime representation.
 typeableConstructor :: TcType -> TcM (TypeableTyCon, [TcType])

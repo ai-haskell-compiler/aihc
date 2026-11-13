@@ -121,6 +121,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
     TcPatSynAnnotation (..),
+    TcSelectorType (..),
     annotateDecl,
     annotateRhsCast,
     renderTcType,
@@ -148,7 +149,7 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
-import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reclassifyIrreduciblePred)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
@@ -388,12 +389,34 @@ recordSelectorBindings origin declaration =
             let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
              in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
           selectorNames = recordSelectorNames [inner]
-       in [ TcBindingResult (originTermKey origin selector) selector (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
+          -- 'registerRecordSelectors' put the checked selector type on the
+          -- field name. It also covers a field whose existential variable
+          -- an equality of the context fixes, and it is the type that the
+          -- uses of the selector instantiate.
+          checkedTypes =
+            Map.fromList
+              [ (unqualifiedNameText name, ty)
+              | name <- recordFieldNamesOf inner,
+                TcSelectorType ty <- take 1 (mapMaybe fromAnnotation (unqualifiedNameAnns name))
+              ]
+          computedType fieldType
+            | all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType) = Just (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
+            | otherwise = Nothing
+       in [ TcBindingResult (originTermKey origin selector) selector selectorType
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
-            all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType),
             Just label <- [maybeLabel],
-            let selector = Map.findWithDefault label label selectorNames
+            let selector = Map.findWithDefault label label selectorNames,
+            Just selectorType <- [Map.lookup label checkedTypes <|> computedType fieldType]
           ]
+
+-- | The field names of a record constructor declaration.
+recordFieldNamesOf :: DataConDecl -> [UnqualifiedName]
+recordFieldNamesOf declaration =
+  case declaration of
+    DataConAnn _ inner -> recordFieldNamesOf inner
+    RecordCon _ _ _ fields -> concatMap fieldNames fields
+    GadtCon _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
+    _ -> []
 
 -- | The type that the type checker put on a binder, when it has one.
 binderCheckedType :: UnqualifiedName -> Maybe TcType
@@ -1668,8 +1691,33 @@ annotateDataConDeclTc parent dataConDecl = do
     [] -> pure dataConDecl
     key : _ -> do
       ty <- dataConBindingType key
-      selectors <- annotateRecordSelectorNames parent dataConDecl
+      selectors <- annotateRecordSelectorNames parent dataConDecl >>= recordSelectorTypes parent
       pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [] [])) selectors)
+
+-- | Put the checked selector type on each field name that has a selector.
+-- A field whose type has an existential variable has none.
+recordSelectorTypes :: TyCon -> DataConDecl -> TcM DataConDecl
+recordSelectorTypes parent declaration =
+  case declaration of
+    DataConAnn ann inner -> DataConAnn ann <$> recordSelectorTypes parent inner
+    RecordCon forallVars context constructor fields ->
+      RecordCon forallVars context constructor <$> mapM annotateField fields
+    GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
+      GadtCon forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
+    _ -> pure declaration
+  where
+    annotateField field = do
+      names <- mapM selectorTypeOn (fieldNames field)
+      pure field {fieldNames = names}
+    selectorTypeOn name = do
+      let label = unqualifiedNameText name
+          selector = Map.findWithDefault label label (recordSelectorNames [declaration])
+      binder <- lookupTermKey (tyConMemberTermKey parent selector)
+      case binder of
+        Just _ -> do
+          ty <- bindingType (tyConMemberTermKey parent selector)
+          pure name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (TcSelectorType ty)]}
+        Nothing -> pure name
 
 annotateRecordSelectorNames :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames parent declaration =
@@ -5891,34 +5939,86 @@ registerTypeLevelDataCon constructor = do
 -- selector name of a duplicate record field, and any other label is its
 -- own selector name.
 registerRecordSelectors :: (Text, Text) -> Map.Map Text Text -> [DataConInfo] -> TcM [TcBindingResult]
-registerRecordSelectors origin selectorNames constructors =
-  mapM registerSelector (Map.toList selectors)
+registerRecordSelectors origin selectorNames constructors = do
+  family <- isTypeFamilyTyCon
+  let -- The existential variables that the result type fixes after the
+      -- equalities of the context are applied. A variable is fixed when a
+      -- constructor argument or a type application reaches it, and no
+      -- occurrence of it is under a type family application: @F x@ does
+      -- not fix @x@, as in GHC. The System FC desugarer projects each
+      -- fixed variable out of the context equality along such a path.
+      determinedExistentials constructor =
+        filter (fixedBy family (selectorResultType constructor)) (dciExTyVars constructor)
+  mapM (registerSelector determinedExistentials) (Map.toList (selectors determinedExistentials))
   where
     -- A field whose type mentions an existential variable has no selector.
-    -- The constructor context does not reach the selector type.
-    selectors =
+    -- The constructor context does not reach the selector type. An
+    -- equality of the context that gives a universal variable its value
+    -- does reach it, as in GHC: @WithSetup :: { wsSetup :: ModelConc n x }
+    -- -> Program (WithSetup x) n a@ of @dejafu@ has the context @pty ~
+    -- WithSetup x@. The result type @Program (WithSetup x) n a@ then
+    -- names @x@, and the selector has the type @Program (WithSetup x) n a
+    -- -> ModelConc n x@.
+    selectors determinedExistentials =
       Map.fromListWith
         (++)
         [ (label, [(constructor, field)])
         | constructor <- constructors,
+          let determined = determinedExistentials constructor,
           field <- dciFields constructor,
-          not (any (`typeMentionsTyVar` dcfiType field) (dciExTyVars constructor)),
+          not (any (\tyVar -> typeMentionsTyVar tyVar (dcfiType field) && not (any (sameTyVar tyVar) determined)) (dciExTyVars constructor)),
           Just label <- [dcfiLabel field]
         ]
-    registerSelector (label, (constructor, field) : _) = do
-      let scheme =
+    -- The value that an equality of the context gives a universal variable.
+    universalValues constructor =
+      Map.fromList
+        [ (tvUnique variable, value)
+        | EqPred (TcTyVar variable) value <- dciTheta constructor,
+          any (sameTyVar variable) (dciUnivTyVars constructor)
+        ]
+    selectorResultType constructor = applySubst (universalValues constructor) (dciResTy constructor)
+    registerSelector determinedExistentials (label, (constructor, field) : _) = do
+      let values = universalValues constructor
+      -- The selector quantifies its own variable for each existential
+      -- variable that the result type names. The variable of the
+      -- constructor belongs to a match on it, and the desugared selector
+      -- relates the two by the equality of the context.
+      renamed <- forM (determinedExistentials constructor) $ \tyVar -> freshSkolemTvOfKind (tvName tyVar) (tvKind tyVar)
+      let renaming = Map.fromList (zip (map tvUnique (determinedExistentials constructor)) (map TcTyVar renamed))
+          scheme =
             specifiedScheme
-              (dciUnivTyVars constructor)
+              (filter (\tyVar -> Map.notMember (tvUnique tyVar) values) (dciUnivTyVars constructor) <> renamed)
               []
-              (TcFunTy (dciResTy constructor) (dcfiType field))
+              (applySubst renaming (TcFunTy (selectorResultType constructor) (dcfiType field)))
       let binder = TcIdBinder scheme Closed
           selector = Map.findWithDefault label label selectorNames
           selectorKey = originTermKey origin selector
       extendTermKeyEnvPermanent selectorKey binder
       zonkedType <- zonkType (schemeToType scheme)
       pure (TcBindingResult selectorKey selector zonkedType)
-    registerSelector (label, []) =
+    registerSelector _ (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
+
+-- | Whether a type fixes a variable: a constructor argument or a type
+-- application reaches it, and no occurrence of it is under a type family
+-- application. See 'registerRecordSelectors'.
+fixedBy :: (TyCon -> Bool) -> TcType -> TyVarId -> Bool
+fixedBy family ty variable = reached ty && not (underFamily ty)
+  where
+    reached current =
+      case current of
+        TcTyVar other -> sameTyVar variable other
+        TcTyCon tyCon arguments -> not (family tyCon) && any reached arguments
+        TcAppTy function argument -> reached function || reached argument
+        _ -> False
+    underFamily current =
+      case current of
+        TcTyCon tyCon arguments
+          | family tyCon -> typeMentionsTyVar variable current
+          | otherwise -> any underFamily arguments
+        TcAppTy function argument -> underFamily function || underFamily argument
+        TcFunTy argument result -> underFamily argument || underFamily result
+        _ -> False
 
 registerTypeSynonymHeader :: Maybe TypeScheme -> TypeSynDecl -> TcM ()
 registerTypeSynonymHeader maybeKindScheme typeSynDecl = do

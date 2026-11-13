@@ -1,0 +1,47 @@
+annotated:
+- |-
+  {-# LANGUAGE ExistentialQuantification, RecordWildCards #-}
+  module Test where
+  data Flag = On | Off
+       │      │    └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Box = forall a. MkBox { content :: a, label :: Flag }
+       │     └─ type: ∀ a. a → Flag → Box
+       └─ type: Type
+  make :: Box
+  make = MkBox { content = (), label = On }
+  │      │                 └─ type: ()
+  │      └─ type: () → Flag → Box; type-args: ()
+  └─ type: Box
+  open :: Box -> Flag
+  open MkBox { content = _, label = l } = l
+  │    │                 └─ type: a └─ type: Flag
+  │    └─ type: a → Flag → Box; type-args: a
+  └─ type: Box → Flag
+  wild :: Box -> Flag
+  wild MkBox {..} = label
+  │    └─ type: Flag
+  │    └─ type: a → Flag → Box; type-args: a
+  │    └─ type: a
+  └─ type: Box → Flag
+  bad :: Box -> ()
+  bad b = case content b of _ -> ()
+               └─ error: Cannot use record selector content as a function due to escaped type variables
+extensions: [ExistentialQuantification, RecordWildCards]
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, RecordWildCards #-}
+  module Test where
+  data Flag = On | Off
+  data Box = forall a. MkBox { content :: a, label :: Flag }
+  make :: Box
+  make = MkBox { content = (), label = On }
+  open :: Box -> Flag
+  open MkBox { content = _, label = l } = l
+  wild :: Box -> Flag
+  wild MkBox {..} = label
+  bad :: Box -> ()
+  bad b = case content b of _ -> ()
+reason: "a field whose type has an existential variable has no selector; construction, patterns, and wildcards with it are valid, and a use as a function gets the GHC diagnostic instead of an internal abort"
+status: pass

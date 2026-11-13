@@ -50,6 +50,8 @@ module GHC.Exts
     Multiplicity (..),
     TYPE,
     UnliftedType,
+    LiftedRep,
+    UnliftedRep,
     ZeroBitRep,
     ZeroBitType,
     Down (..),
@@ -152,7 +154,7 @@ import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim hiding (aihcAddWeakFinalizer#)
 import GHC.Prim qualified as Prim (aihcAddWeakFinalizer#)
 import GHC.Ptr (FunPtr (..), Ptr (..))
-import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), IO (..), Int (..), Levity (..), Multiplicity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
+import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), IO (..), Int (..), Levity (..), LiftedRep, Multiplicity (..), RuntimeRep (..), TYPE, UnliftedRep, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 import Prelude (Eq (..), Ord, all, errorWithoutStackTrace, otherwise)
 

@@ -779,6 +779,15 @@ instance Generic1 NonEmpty where
   to1 r = case unM1 (unM1 r) of
     a :*: as -> unPar1 (unM1 a) :| unRec1 (unM1 as)
 
+instance Generic1 (Const a :: k -> Type) where
+  type
+    Rep1 (Const a) =
+      D1
+        ('MetaData "Const" "GHC.Internal.Data.Functor.Const" "ghc-internal" 'True :: Meta)
+        (C1 ('MetaCons "Const" 'PrefixI 'True :: Meta) (S1 (MetaField "getConst") (Rec0 a)))
+  from1 (Const x) = M1 (M1 (M1 (K1 x)))
+  to1 r = Const (unK1 (unM1 (unM1 (unM1 r))))
+
 instance Generic1 Identity where
   type
     Rep1 Identity =

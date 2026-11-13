@@ -4,6 +4,7 @@ module Text.Read
     read,
     reads,
     readParen,
+    lex,
     readEither,
     readMaybe,
     Lexeme (..),
@@ -26,6 +27,8 @@ module Text.Read
     choice,
     readPrec_to_S,
     readS_to_Prec,
+    readP_to_Prec,
+    readPrec_to_P,
   )
 where
 
@@ -59,7 +62,7 @@ import Text.ParserCombinators.ReadPrec
     (+++),
     (<++),
   )
-import Prelude (Monad (..), String, null, otherwise, read, reads)
+import Prelude (Monad (..), String, lex, null, otherwise, read, reads)
 
 -- | Parse a value, and say why if the string does not hold exactly one.
 readEither :: (Read a) => String -> Either String a
