@@ -1,0 +1,14 @@
+extensions: [DataKinds, GADTs, KindSignatures]
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures #-}
+  module Test where
+  data Resolved = Resolved | Unresolved
+  data Flag = On | Off
+  data Block (a :: Resolved) where
+    BlockResolved :: Flag -> Block 'Resolved
+    BlockUnresolved :: Block 'Unresolved
+  f :: (Flag, Block 'Resolved) -> Flag
+  f (_, BlockResolved x) = x
+status: pass
+reason: A GADT constructor pattern inside a tuple pattern gets a zonked cast annotation, as in GHC.

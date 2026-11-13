@@ -41,6 +41,7 @@ module Aihc.Tc.Annotations
     TcDerivedInstance (..),
     TcSelectorType (..),
     TcDerivingClauseInstance (..),
+    TcRecKnotOccurrence (..),
     TcCoercedDeriving (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
@@ -74,7 +75,7 @@ import Aihc.Parser.Syntax
     SourceSpan,
     mkAnnotation,
   )
-import Aihc.Resolve (PackageId, ResolutionNamespace (..))
+import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
@@ -462,6 +463,13 @@ newtype TcSelectorType = TcSelectorType TcType
 -- condition, also without UndecidableInstances, because the user did not
 -- write its context.
 data TcDerivingClauseInstance = TcDerivingClauseInstance
+  deriving (Eq, Show)
+
+-- | A marker in a checked @rec@ statement: the next annotation is the
+-- occurrence annotation of this group variable at the knot of the group.
+-- A let statement of the group generalized the variable, and the knot
+-- takes one instance of it.
+newtype TcRecKnotOccurrence = TcRecKnotOccurrence Entity
   deriving (Eq, Show)
 
 -- | Checked evidence and casts for a derived instance that reuses another

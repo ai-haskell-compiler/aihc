@@ -25,6 +25,7 @@ module Aihc.Resolve.Types
     globalTerm,
     Resolution (..),
     ResolutionAnnotation (..),
+    RecKnotVariables (..),
     annotationResolution,
     resolutionOf,
     nameResolution,
@@ -59,6 +60,7 @@ import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
 import Data.List (find)
 import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -214,6 +216,15 @@ data ResolutionAnnotation = ResolutionAnnotation
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !Entity
   }
+  deriving (Eq, Show)
+
+-- | The variables that the knot of a @rec@ statement carries. The resolver
+-- gives this annotation to each segment of an @mdo@ block. A variable of
+-- the segment is in the knot when a statement uses it before the segment
+-- binds it, or when a statement after the segment uses it. This is the rule
+-- of GHC. A @rec@ statement without this annotation carries all of its
+-- variables in the knot, as an explicit @rec@ statement does in GHC.
+newtype RecKnotVariables = RecKnotVariables (Set.Set Entity)
   deriving (Eq, Show)
 
 -- | The resolution that one annotation carries, if it is one.

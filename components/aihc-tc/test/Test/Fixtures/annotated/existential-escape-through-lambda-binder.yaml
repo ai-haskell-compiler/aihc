@@ -1,0 +1,59 @@
+annotated:
+- |-
+  {-# LANGUAGE ExistentialQuantification, RankNTypes, GADTs #-}
+  module Test where
+  data Box = forall a. MkBox a
+       │     └─ type: ∀ a. a → Box
+       └─ type: Type
+  ignore :: x -> ()
+  ignore _ = ()
+  │      │   └─ type: ()
+  │      └─ type: x
+  └─ type: ∀ x. x → ()
+  leak :: Box -> ()
+  leak b = (\k -> case b of MkBox v -> k v) ignore
+                            └─ error: existential type variable escapes its pattern-match branch: a
+  data G a where
+       └─ type: Type → Type
+    G :: b -> G ()
+    └─ type: ∀ a b. (a ~ ()) ⇒ b → G a
+  leakG :: G () -> ()
+  leakG g = (\k -> case g of G v -> k v) ignore
+                             └─ error: existential type variable escapes its pattern-match branch: b
+  ok :: Box -> ()
+  ok b = case b of MkBox v -> ignore v
+  │  │   │         │     │    └─ type: a → (); type-args: a
+  │  │   │         │     └─ type: a
+  │  │   │         └─ type: a → Box; type-args: a
+  │  │   └─ type: ()
+  │  └─ type: Box
+  └─ type: Box → ()
+  ok2 :: (forall x. x -> ()) -> Box -> ()
+  ok2 k b = case b of MkBox v -> k v
+  │   │ │   │         │     │    └─ type: a → (); type-args: a
+  │   │ │   │         │     └─ type: a
+  │   │ │   │         └─ type: a → Box; type-args: a
+  │   │ │   └─ type: ()
+  │   │ └─ type: Box
+  │   └─ type: ∀ x. x → ()
+  └─ type: (∀ x. x → ()) → Box → ()
+extensions: [ExistentialQuantification, RankNTypes, GADTs]
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, RankNTypes, GADTs #-}
+  module Test where
+  data Box = forall a. MkBox a
+  ignore :: x -> ()
+  ignore _ = ()
+  leak :: Box -> ()
+  leak b = (\k -> case b of MkBox v -> k v) ignore
+  data G a where
+    G :: b -> G ()
+  leakG :: G () -> ()
+  leakG g = (\k -> case g of G v -> k v) ignore
+  ok :: Box -> ()
+  ok b = case b of MkBox v -> ignore v
+  ok2 :: (forall x. x -> ()) -> Box -> ()
+  ok2 k b = case b of MkBox v -> k v
+reason: "an existential type variable of a branch must not leave it through the type of an outer lambda binder that the branch fixes, as GHC rejects leak and leakG; ok and ok2 stay valid"
+status: pass

@@ -299,6 +299,8 @@ zonkEvTerm evTerm =
       EvTypeableApp origin <$> finalizeType function <*> finalizeType argument <*> zonkEvTerm functionEvidence <*> zonkEvTerm argumentEvidence
     EvTypeLit origin ty literal ->
       EvTypeLit origin <$> finalizeType ty <*> pure literal
+    EvHasField classTyCon arguments recordType fieldType label constructors ->
+      EvHasField classTyCon <$> mapM finalizeType arguments <*> finalizeType recordType <*> finalizeType fieldType <*> pure label <*> pure constructors
     EvTypeLam variable body ->
       EvTypeLam <$> defaultTyVarKinds variable <*> zonkEvTerm body
     EvDictLam predicate binderType body ->
@@ -659,6 +661,8 @@ firstMetaEvTerm evTerm =
       firstMetaType function <|> firstMetaType argument <|> firstMetaEvTerm functionEvidence <|> firstMetaEvTerm argumentEvidence
     EvTypeLit _ ty _ ->
       firstMetaType ty
+    EvHasField _ arguments recordType fieldType _ _ ->
+      firstJusts (map firstMetaType (recordType : fieldType : arguments))
     EvTypeLam variable body ->
       firstMetaType (tvKind variable) <|> firstMetaEvTerm body
     EvDictLam predicate binderType body ->

@@ -1,0 +1,99 @@
+extensions:
+  - DataKinds
+  - DuplicateRecordFields
+  - FunctionalDependencies
+  - PolyKinds
+  - TypeApplications
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies, PolyKinds #-}
+    module GHC.Records (HasField (..)) where
+    import GHC.Types (Type)
+    class HasField x r a | x r -> a where
+      getField :: r -> a
+  - |
+    module A (B (..), T, V (..), mkT, mkV) where
+    data B = B
+    data T = MkT { hidden :: B }
+    data V = MkV { shown :: B }
+    mkT :: T
+    mkT = MkT B
+    mkV :: V
+    mkV = MkV B
+  - |
+    {-# LANGUAGE DuplicateRecordFields #-}
+    module D (X (..), Y (..), mkX) where
+    import A (B (..))
+    data X = MkX { loc :: B }
+    data Y = MkY { loc :: B }
+    mkX :: X
+    mkX = MkX B
+  - |
+    {-# LANGUAGE DataKinds, TypeApplications #-}
+    module Main where
+    import A
+    import qualified D
+    import GHC.Records (HasField (..))
+    visible :: B
+    visible = getField @"shown" mkV
+    hiddenUse :: B
+    hiddenUse = getField @"hidden" mkT
+    duplicate :: B
+    duplicate = getField @"loc" D.mkX
+annotated:
+- |-
+  module A (B (..), T, V (..), mkT, mkV) where
+  data B = B
+       │   └─ type: B
+       └─ type: Type
+  data T = MkT { hidden :: B }
+       │   └─ type: B → T
+       └─ type: Type
+  data V = MkV { shown :: B }
+       │   └─ type: B → V
+       └─ type: Type
+  mkT :: T
+  mkT = MkT B
+  └─ type: T
+  mkV :: V
+  mkV = MkV B
+  └─ type: V
+- |-
+  {-# LANGUAGE DuplicateRecordFields #-}
+  module D (X (..), Y (..), mkX) where
+  import A (B (..))
+  data X = MkX { loc :: B }
+       │   └─ type: A.B → X
+       └─ type: Type
+  data Y = MkY { loc :: B }
+       │   └─ type: A.B → Y
+       └─ type: Type
+  mkX :: X
+  mkX = MkX B
+  └─ type: X
+- |-
+  {-# LANGUAGE FunctionalDependencies, PolyKinds #-}
+  module GHC.Records (HasField (..)) where
+  import GHC.Types (Type)
+  class HasField x r a | x r -> a where
+  └─ class methods: getField ∷ ∀ k0 x r a. (HasField x r a) ⇒ r → a; fundeps: x r → a
+    getField :: r -> a
+- |-
+  {-# LANGUAGE DataKinds, TypeApplications #-}
+  module Main where
+  import A
+  import qualified D
+  import GHC.Records (HasField (..))
+  visible :: B
+  visible = getField @"shown" mkV
+  │         └─ type: A.V → A.B; type-args: Symbol, "shown", V, B; evidence: hasfield shown @V
+  └─ type: A.B
+  hiddenUse :: B
+  hiddenUse = getField @"hidden" mkT
+              └─ error: unsolved constraint HasField "hidden" T B
+  duplicate :: B
+  duplicate = getField @"loc" D.mkX
+  │           └─ type: D.X → A.B; type-args: Symbol, "loc", X, B; evidence: hasfield loc @X
+  └─ type: A.B
+status: pass
+reason: the built-in HasField solver accepts a record field only when the field selector is in scope at the use site

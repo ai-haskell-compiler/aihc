@@ -20,10 +20,12 @@ module Aihc.Resolve
     GlobalName (..),
     LocalId (..),
     globalTerm,
+    fieldSelectorName,
     ResolutionNamespace (..),
 
     -- * Annotations
     ResolutionAnnotation (..),
+    RecKnotVariables (..),
     Identifier (..),
     displayIdentifier,
     annotationResolution,
@@ -1745,16 +1747,38 @@ resolveMdoStmts stmts =
       extendScope recScope $ do
         body' <- mapM (resolveRecGroupStmt targets) body
         (_, final') <- resolveDoStmt True final
-        segmented <- segmentMdoStmts fieldScope targets (zip body body')
+        segmented <- segmentMdoStmts fieldScope targets (fst (doStmtUses final')) (zip body body')
         pure (segmented <> [final'])
 
 -- | Put each recursive segment of the resolved statements of an @mdo@ block
 -- into a @rec@ statement. Each pair has the source statement and the
--- resolved statement.
-segmentMdoStmts :: Scope -> Map.Map Text Entity -> [(DoStmt Expr, DoStmt Expr)] -> ResolveM [DoStmt Expr]
-segmentMdoStmts fieldScope targets stmts = go indexed
+-- resolved statement. The set has the local variables that the last
+-- statement of the block uses. Each @rec@ statement gets a
+-- 'RecKnotVariables' annotation.
+segmentMdoStmts :: Scope -> Map.Map Text Entity -> Set.Set Entity -> [(DoStmt Expr, DoStmt Expr)] -> ResolveM [DoStmt Expr]
+segmentMdoStmts fieldScope targets finalUses stmts = go indexed
   where
     indexed = zip [0 :: Int ..] (map snd stmts)
+    stmtUses = Map.fromList [(index, doStmtUses stmt) | (index, stmt) <- indexed]
+    usesOf index = maybe Set.empty fst (Map.lookup index stmtUses)
+    -- The knot of the segment from the first index to the last index. It
+    -- has each variable of the segment that a statement uses before the
+    -- segment binds it, and each variable that a later statement uses.
+    knotVariables first end =
+      let segmentIndices = [first .. end]
+          laterUses = Set.unions (finalUses : map usesOf [end + 1 .. length stmts - 1])
+          earlyUse entity definer =
+            or
+              [ Set.member entity used && (index < definer || (selfUse && index == definer))
+              | index <- segmentIndices,
+                Just (used, selfUse) <- [Map.lookup index stmtUses]
+              ]
+       in Set.fromList
+            [ entity
+            | index <- segmentIndices,
+              entity <- definitions !! index,
+              Set.member entity laterUses || earlyUse entity index
+            ]
     definitions =
       [ mapMaybe (`Map.lookup` targets) (doStmtBinderKeys fieldScope source)
       | (source, _) <- stmts
@@ -1783,7 +1807,8 @@ segmentMdoStmts fieldScope targets stmts = go indexed
         Just firstEnd -> do
           let end = extend index firstEnd
               (segment, after) = splitAt (end - index + 1) remaining
-          recStmt <- annotateRecStmt (DoRecStmt (map snd segment))
+              knot = mkAnnotation (RecKnotVariables (knotVariables index end))
+          recStmt <- annotateRecStmt (DoAnn knot (DoRecStmt (map snd segment)))
           (recStmt :) <$> go after
     -- A statement inside the segment can reach further than the segment.
     extend index end =

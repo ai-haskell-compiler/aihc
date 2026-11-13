@@ -84,17 +84,27 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
     Just info -> do
       -- The parameters take the kinds that the declaration inferred, so a
       -- higher-kinded parameter is not defaulted to 'Type' here.
-      zipWithM_
-        (unifyKinds . paramKind)
-        rawParams
-        (takeVisibleArgumentKinds (length rawParams) (typeSchemeBody (tciKindScheme info)))
-      params <- mapM defaultParam rawParams
+      let argumentKinds = takeVisibleArgumentKinds maxBound (typeSchemeBody (tciKindScheme info))
+      zipWithM_ (unifyKinds . paramKind) rawParams argumentKinds
+      -- A declaration with a kind signature can have fewer binders than
+      -- visible arguments, as @data FieldInfo :: Type -> Type where@ of
+      -- generics-sop. The other arguments get a parameter of their own,
+      -- so the target of a class of kind @Type -> Constraint@ is
+      -- @FieldInfo p1@ and not the bare constructor.
+      signatureParams <- zipWithM signatureParam [length rawParams + 1 ..] (drop (length rawParams) argumentKinds)
+      params <- mapM defaultParam (rawParams <> signatureParams)
       dataType <- lookupDataType (tciTyCon info)
       concat <$> mapM (checkClause info dataType params) clauses
   where
     defaultParam param = do
       tyVar <- defaultTyVarKinds (paramTyVar param)
       pure param {paramTyVar = tyVar, paramKind = tvKind tyVar}
+
+    signatureParam :: Int -> TcType -> TcM ParamInfo
+    signatureParam index kind = do
+      let name = T.pack ("p" <> show index)
+      tyVar <- freshSkolemTvOfKind name kind
+      pure ParamInfo {paramName = name, paramTyVar = tyVar, paramKind = kind}
 
     checkClause targetInfo dataType params clause = do
       classHeads <- attachedDerivingClassHeads clause

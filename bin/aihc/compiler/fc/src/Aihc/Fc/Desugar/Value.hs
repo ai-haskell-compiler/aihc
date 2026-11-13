@@ -21,6 +21,7 @@ import Aihc.Resolve
     GlobalName (..),
     Identifier (..),
     PackageId (..),
+    RecKnotVariables (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
     displayIdentifier,
@@ -73,6 +74,7 @@ import Aihc.Tc.Annotations
     TcMatchArityCast (..),
     TcPatSynAnnotation (..),
     TcPatternInstantiation (..),
+    TcRecKnotOccurrence (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Generate.Pattern (compStmtBinderNames, recStmtBinderNames)
@@ -5308,7 +5310,7 @@ desugarDoPatternContinuation annotation pattern' failure rest = do
 -- statement, as in GHC.
 doBindFailure :: Syn.DoStmt Syn.Expr -> ValueM (Maybe Expr)
 doBindFailure statement =
-  case [(cast, annotation, resolution) | (cast, Just annotation, resolution) <- fst (recStmtAnnotations statement), resolutionIdentifier resolution == IdentifierNamed "fail"] of
+  case [(cast, annotation, resolution) | (cast, Just annotation, resolution) <- recStmtMethods statement, resolutionIdentifier resolution == IdentifierNamed "fail"] of
     [(cast, annotation, resolution)] -> do
       method <- desugarResolvedOccurrence annotation resolution
       method' <-
@@ -5346,13 +5348,17 @@ renderSourceSpan span' =
 --
 -- > mfix (\knot -> let vs = knot in do { stmts; return vs }) >>= \result -> let vs = result in rest
 --
--- where @vs@ are the group variables in the order of 'recStmtBinderNames'.
+-- where @vs@ are the knot variables in the order of 'recStmtBinderNames'.
+-- The knot variables are all the group variables, but a
+-- 'RecKnotVariables' annotation can give fewer.
 -- The type checker gives the checked methods and a tuple annotation, see
 -- 'inferRecStmt'. The variables come out of the tuple through lazy
--- bindings, so the knot is not forced before a variable is used.
+-- bindings, so the knot is not forced before a variable is used. A let
+-- statement can generalize a variable. Then @return vs@ applies it to the
+-- types and the evidence of its knot occurrence.
 desugarRecStmt :: Syn.DoStmt Syn.Expr -> [Syn.DoStmt Syn.Expr] -> ValueM Expr -> ValueM Expr
 desugarRecStmt statement inner rest = do
-  let (methods, maybeTuple) = recStmtAnnotations statement
+  let (methods, maybeTuple, knotOccurrences) = recStmtAnnotations statement
   tupleAnnotation <- maybe (failValue "rec statement has no checked tuple annotation") pure maybeTuple
   mfix <- recStmtMethod "mfix" methods
   returnMethod <- recStmtMethod "return" methods
@@ -5363,7 +5369,8 @@ desugarRecStmt statement inner rest = do
       _ -> failValue "rec statement tuple annotation has no block type"
   let tupleType = tcAnnType tupleAnnotation
       binderTypes = tcAnnTypeArgs tupleAnnotation
-  keys <- mapM requiredBinderKey (recStmtBinderNames inner)
+  groupKeys <- mapM requiredBinderKey (recStmtBinderNames inner)
+  let keys = maybe groupKeys (\knotKeys -> filter (`Set.member` knotKeys) groupKeys) (recStmtKnotVariables statement)
   unless (length keys == length binderTypes) $
     failValue ("rec statement has " <> show (length keys) <> " variables and " <> show (length binderTypes) <> " types")
   let variables = zip keys binderTypes
@@ -5372,7 +5379,12 @@ desugarRecStmt statement inner rest = do
         values <-
           mapM
             ( \(key, _) -> case Map.lookup key locals of
-                Just (binder, _) -> pure (ExVar (binderName binder))
+                Just (binder, _) -> case lookup key knotOccurrences of
+                  Nothing -> pure (ExVar (binderName binder))
+                  Just annotation -> do
+                    types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+                    evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+                    desugarTermReference (binderName binder) types evidence (seqTermArgumentTypes annotation)
                 Nothing -> failValue ("rec statement variable is not in scope: " <> show key)
             )
             variables
@@ -5388,22 +5400,46 @@ desugarRecStmt statement inner rest = do
       resultFunction = ExLam result (foldr ExLet continuation resultBinds)
   pure (ExApp (ExApp bind (ExApp mfix knotFunction)) resultFunction)
 
--- | The checked methods of a @rec@ statement, each with its cast, and the
--- tuple annotation that is next to the statements. Each resolution closes
--- one method: the type annotation and the cast before it belong to it.
-recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation)
+-- | The checked methods of a @rec@ statement, each with its cast, the
+-- tuple annotation that is next to the statements, and the knot occurrence
+-- of each generalized group variable. Each resolution closes one method:
+-- the type annotation and the cast before it belong to it. A
+-- 'TcRecKnotOccurrence' marker comes before the occurrence annotation of
+-- its variable.
+recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation, [(Entity, TcAnnotation)])
 recStmtAnnotations = go Nothing Nothing
   where
     go cast annotation statement =
       case statement of
         Syn.DoAnn ann inner
           | Just resolution <- Syn.fromAnnotation ann ->
-              let (methods, tuple) = go Nothing Nothing inner
-               in ((cast, annotation, resolution) : methods, tuple)
+              let (methods, tuple, occurrences) = go Nothing Nothing inner
+               in ((cast, annotation, resolution) : methods, tuple, occurrences)
+          | Just (TcRecKnotOccurrence key) <- Syn.fromAnnotation ann,
+            Syn.DoAnn occurrenceAnn rest <- inner,
+            Just occurrence <- Syn.fromAnnotation occurrenceAnn ->
+              let (methods, tuple, occurrences) = go cast annotation rest
+               in (methods, tuple, (key, occurrence) : occurrences)
           | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation ann -> go (Just proof) annotation inner
           | Just checked <- Syn.fromAnnotation ann -> go cast (Just checked) inner
           | otherwise -> go cast annotation inner
-        _ -> ([], annotation)
+        _ -> ([], annotation, [])
+
+-- | The knot variables that a 'RecKnotVariables' annotation of a @rec@
+-- statement gives.
+recStmtKnotVariables :: Syn.DoStmt Syn.Expr -> Maybe (Set.Set Entity)
+recStmtKnotVariables statement =
+  case statement of
+    Syn.DoAnn ann inner
+      | Just (RecKnotVariables variables) <- Syn.fromAnnotation ann -> Just variables
+      | otherwise -> recStmtKnotVariables inner
+    _ -> Nothing
+
+-- | The checked methods of a statement.
+recStmtMethods :: Syn.DoStmt Syn.Expr -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)]
+recStmtMethods statement =
+  let (methods, _, _) = recStmtAnnotations statement
+   in methods
 
 recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)] -> ValueM Expr
 recStmtMethod name methods =
@@ -6088,6 +6124,20 @@ desugarEvidence evidence =
     Ev.EvCallStackEmpty origin -> desugarCallStackEmpty origin
     Ev.EvExceptionContextEmpty (packageName, moduleName') ->
       pure (ExVar (Name "emptyExceptionContext" SortValue (OriginTop (PackageId packageName) moduleName')))
+    Ev.EvHasField classTyCon classArguments recordType fieldType label constructorKeys -> withoutEvidenceScope $ do
+      -- The dictionary of the one-method class holds a function that
+      -- selects the field from the record.
+      infos <- gets vsConstructorInfos
+      let constructors =
+            [ constructor
+            | (package, moduleName', name) <- constructorKeys,
+              constructor <- Map.findWithDefault [] name infos,
+              dciOrigin constructor == (PackageId package, moduleName')
+            ]
+      argument <- freshBinder "$record" recordType
+      selection <- desugarRecordSelection label recordType fieldType argument constructors
+      classTypes <- convertTyConApplicationArguments classTyCon classArguments
+      pure (ExApp (foldl ExTyApp (ExVar (classDictConName classTyCon)) classTypes) (ExLam argument selection))
     Ev.EvRecursive predicate dictionaryType body -> withoutEvidenceScope $ do
       -- The body names the dictionary as a given of its own predicate.
       binder <- freshEvidenceBinder dictionaryType
