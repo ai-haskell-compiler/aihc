@@ -1,0 +1,19 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE GADTs, TypeOperators #-}
+  module Test where
+  data a :< b = (:<) a b
+  infixr 5 :<
+  data RPolish input output where
+    RPush :: a -> RPolish (a :< rest) output -> RPolish rest output
+    RApp :: RPolish (b :< rest) output -> RPolish ((a -> b) :< a :< rest) output
+    RStop :: RPolish rest rest
+  evalRP :: RPolish input output -> input -> output
+  evalRP RStop acc = acc
+  evalRP (RPush v r) acc = evalRP r (v :< acc)
+  evalRP (RApp r) ~(f :< ~(a :< rest)) = evalRP r (f a :< rest)
+status: pass
+reason: The lazy pattern of the second argument needs the given equality of the match on RApp in the first argument. Its selector thunks are desugared where the match places them, inside that alternative.
