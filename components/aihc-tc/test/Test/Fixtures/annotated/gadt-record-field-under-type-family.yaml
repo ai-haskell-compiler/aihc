@@ -1,0 +1,27 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Int, Bool)
+  type family F x
+              └─ type: Type → Type
+  data T a where
+       └─ type: Type → Type
+    A :: { f :: x } -> T (F x)
+    └─ type: ∀ a x. (a ~ (F x)) ⇒ x → T a
+  cast :: Int -> Bool
+  cast i = f (A i)
+           └─ error: Cannot use record selector f as a function due to escaped type variables
+extensions: [GADTs, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE GADTs, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Int, Bool)
+  type family F x
+  data T a where
+    A :: { f :: x } -> T (F x)
+  cast :: Int -> Bool
+  cast i = f (A i)
+reason: "the result type T (F x) names x only under a type family application, thus x is a true existential and f has no selector; a use as a function gets the GHC diagnostic"
+status: pass

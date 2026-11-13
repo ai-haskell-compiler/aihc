@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
@@ -335,8 +335,37 @@ inferNameOccurrence ambient nameSyntax = do
       cts <- mapM (predToCt sp name) predicates
       let evidenceVars = map ctEvVar cts
       pure (occurrenceAnnotation instantiatedTy typeArgs 0 evidenceVars, instantiatedTy, cts)
-    Nothing ->
-      abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+    Nothing -> do
+      -- A record field whose type has an existential variable has no
+      -- selector function. Record construction, record patterns, and
+      -- record wildcards can still name it, but a use as a function is an
+      -- error, as in GHC.
+      existentialField <- isExistentialRecordField name target
+      if existentialField
+        then do
+          emitError sp (OtherError ("Cannot use record selector " <> T.unpack name <> " as a function due to escaped type variables"))
+          ty <- freshMetaTv
+          pure (Nothing, ty, [])
+        else abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+-- | Whether a term is a record field of a constructor of the same module
+-- that has no selector function, because its type has an existential
+-- variable.
+isExistentialRecordField :: Text -> Entity -> TcM Bool
+isExistentialRecordField name target =
+  case target of
+    EntityGlobal global -> do
+      dataTypes <- getDataTypes
+      pure $
+        or
+          [ True
+          | dataType <- dataTypes,
+            constructor <- dtiConstructors dataType,
+            snd (dciOrigin constructor) == globalNameModule global,
+            field <- dciFields constructor,
+            dcfiLabel field == Just name || dcfiLabel field == Just (globalNameText global)
+          ]
+    _ -> pure False
 
 -- | A unidirectional pattern synonym has no builder. An expression cannot
 -- use it.
