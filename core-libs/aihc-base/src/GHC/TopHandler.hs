@@ -81,11 +81,22 @@ reportError exception = do
           context -> "\n\n" ++ context ++ "\n"
     )
 
--- | The package, the module, and the name of the type of the exception.
+-- | The package, the module, and the name of the type of the exception. As
+-- GHC does for its own packages, the package has no version.
 exceptionTypeName :: SomeException -> String
 exceptionTypeName (SomeException inner) =
   let tyCon = typeRepTyCon (typeOf inner)
-   in tyConPackage tyCon ++ ":" ++ tyConModule tyCon ++ "." ++ tyConName tyCon
+   in packageWithoutVersion (tyConPackage tyCon) ++ ":" ++ tyConModule tyCon ++ "." ++ tyConName tyCon
+
+-- | Remove a final @-1.2.3@ version from a package name.
+packageWithoutVersion :: String -> String
+packageWithoutVersion package =
+  case break (== '-') (reverse package) of
+    (version@(_ : _), '-' : name@(_ : _))
+      | all isVersionCharacter version -> reverse name
+    _ -> package
+  where
+    isVersionCharacter character = character == '.' || (character >= '0' && character <= '9')
 
 -- | Flush the standard output handles. An error during the flush is
 -- dropped, because the program is about to exit.
