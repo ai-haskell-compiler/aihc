@@ -1,0 +1,55 @@
+annotated:
+- |-
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Char7 = Char7
+       │       └─ type: Char7
+       └─ type: Type
+  data Arr a = Arr
+       │       └─ type: ∀ a. Arr a
+       └─ type: Type → Type
+  type family Element c
+              └─ type: Type → Type
+  type instance Element (Arr a) = a
+  newtype Ascii = Ascii (Arr Char7)
+          │       └─ type: Arr Char7 → Ascii
+          └─ type: Type
+  type instance Element Ascii = Char7
+  class Collection c where
+  └─ class methods: elemE ∷ ∀ c a. (Collection c, a ~ (Element c)) ⇒ a → c → Bool
+    elemE :: forall a. (a ~ Element c) => a -> c -> Bool
+  instance Collection (Arr a) where
+  └─ $fCollectionArra ∷ ∀ a. () ⇒ Collection (Arr a)
+    elemE _ _ = True
+    │     │ └─ type: Arr a
+    │     └─ type: a
+    └─ elemE ∷ ∀ a. (a ~ (Element (Arr a))) ⇒ a → Arr a → Bool
+  deriving instance Collection Ascii
+  │                 └─ $fCollectionAscii ∷ () ⇒ Collection Ascii
+  └─ deriving plans: newtype Collection Ascii [context: ()] [methods: elemE]
+extensions:
+- TypeFamilies
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Test where
+  data Bool = True | False
+  data Char7 = Char7
+  data Arr a = Arr
+  type family Element c
+  type instance Element (Arr a) = a
+  newtype Ascii = Ascii (Arr Char7)
+  type instance Element Ascii = Char7
+  class Collection c where
+    elemE :: forall a. (a ~ Element c) => a -> c -> Bool
+  instance Collection (Arr a) where
+    elemE _ _ = True
+  deriving instance Collection Ascii
+reason: newtype deriving accepts a method context that is an equality with a type family application of the class parameter
+status: pass
