@@ -20,28 +20,17 @@ annotated:
           └─ type: Type
   type instance Element Ascii = Char7
   class Collection c where
-  └─ class methods: anyE ∷ ∀ c. (Collection c) ⇒ (Element c → Bool) → c → Bool, firstE ∷ ∀ c. (Collection c) ⇒ c → Element c, elemE ∷ ∀ c a. (Collection c, a ~ (Element c)) ⇒ a → c → Bool
-    anyE :: (Element c -> Bool) -> c -> Bool
-    firstE :: c -> Element c
+  └─ class methods: elemE ∷ ∀ c a. (Collection c, a ~ (Element c)) ⇒ a → c → Bool
     elemE :: forall a. (a ~ Element c) => a -> c -> Bool
   instance Collection (Arr a) where
   └─ $fCollectionArra ∷ ∀ a. () ⇒ Collection (Arr a)
-    anyE _ _ = False
-    │    │ └─ type: Arr a
-    │    └─ type: Element (Arr a) → Bool
-    └─ anyE ∷ (Element (Arr a) → Bool) → Arr a → Bool
-    firstE _ = firstE Arr
-    │      │   │      └─ type: Arr a; type-args: a
-    │      │   └─ type: Arr a → Element (Arr a); type-args: Arr a; evidence: $fCollectionArra @a
-    │      └─ type: Arr a
-    └─ firstE ∷ Arr a → Element (Arr a)
     elemE _ _ = True
     │     │ └─ type: Arr a
     │     └─ type: a
     └─ elemE ∷ ∀ a. (a ~ (Element (Arr a))) ⇒ a → Arr a → Bool
   deriving instance Collection Ascii
   │                 └─ $fCollectionAscii ∷ () ⇒ Collection Ascii
-  └─ deriving plans: newtype Collection Ascii [context: ()] [methods: anyE, firstE, elemE]
+  └─ deriving plans: newtype Collection Ascii [context: ()] [methods: elemE]
 extensions:
 - TypeFamilies
 - GeneralizedNewtypeDeriving
@@ -58,13 +47,9 @@ modules:
   newtype Ascii = Ascii (Arr Char7)
   type instance Element Ascii = Char7
   class Collection c where
-    anyE :: (Element c -> Bool) -> c -> Bool
-    firstE :: c -> Element c
     elemE :: forall a. (a ~ Element c) => a -> c -> Bool
   instance Collection (Arr a) where
-    anyE _ _ = False
-    firstE _ = firstE Arr
     elemE _ _ = True
   deriving instance Collection Ascii
-reason: newtype deriving coerces a method whose type has a type family application of the class parameter, and the two sides reduce to one type
+reason: newtype deriving accepts a method context that is an equality with a type family application of the class parameter
 status: pass
