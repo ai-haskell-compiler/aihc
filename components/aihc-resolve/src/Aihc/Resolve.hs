@@ -20,6 +20,7 @@ module Aihc.Resolve
     GlobalName (..),
     LocalId (..),
     globalTerm,
+    fieldSelectorName,
     ResolutionNamespace (..),
 
     -- * Annotations

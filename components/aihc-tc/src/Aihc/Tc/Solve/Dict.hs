@@ -21,7 +21,7 @@ module Aihc.Tc.Solve.Dict
 where
 
 import Aihc.Parser.Syntax (pattern SourceSpan)
-import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldSelectorName)
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
@@ -1236,7 +1236,7 @@ solveHasField ct className args =
           (TcTyCon recordTyCon _, _) -> (>>= recordField label recordTy') <$> lookupDataType recordTyCon
           _ -> pure Nothing
       visible <- case field of
-        Just (_, _, selector) -> isTermVisible selector
+        Just (_, _, selectors) -> or <$> mapM isTermVisible selectors
         Nothing -> pure False
       case field of
         Just (fieldType, constructors, _)
@@ -1251,8 +1251,13 @@ solveHasField ct className args =
     _ -> pure False
 
 -- | The type of a record field at a record type, the data constructors
--- that have the field, and the global key of the field selector.
-recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)], Entity)
+-- that have the field, and the possible global keys of the field selector.
+--
+-- The selector has the name of the label. When DuplicateRecordFields
+-- gives the label to more than one declaration of the module, the resolver
+-- gives the selector the name from 'fieldSelectorName' and the first
+-- constructor of the declaration. Only one of the two keys can exist.
+recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)], [Entity])
 recordField label recordTy dataType = do
   let candidates =
         [ (constructor, field)
@@ -1272,7 +1277,9 @@ recordField label recordTy dataType = do
         let (package, moduleName') = dciOrigin candidate
       ],
       let (package, moduleName') = dciOrigin constructor
-       in GlobalTerm package moduleName' label
+       in [ GlobalTerm package moduleName' name
+          | name <- label : [fieldSelectorName label (dciName first) | first <- take 1 (dtiConstructors dataType)]
+          ]
     )
   where
     isForAll ty =
