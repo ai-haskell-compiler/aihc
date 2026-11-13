@@ -1733,8 +1733,8 @@ segmentMdoStmts :: Scope -> Map.Map Text Entity -> Set.Set Entity -> [(DoStmt Ex
 segmentMdoStmts fieldScope targets finalUses stmts = go indexed
   where
     indexed = zip [0 :: Int ..] (map snd stmts)
-    uses = Map.fromList [(index, doStmtUses stmt) | (index, stmt) <- indexed]
-    usesOf index = maybe Set.empty fst (Map.lookup index uses)
+    stmtUses = Map.fromList [(index, doStmtUses stmt) | (index, stmt) <- indexed]
+    usesOf index = maybe Set.empty fst (Map.lookup index stmtUses)
     -- The knot of the segment from the first index to the last index. It
     -- has each variable of the segment that a statement uses before the
     -- segment binds it, and each variable that a later statement uses.
@@ -1745,7 +1745,7 @@ segmentMdoStmts fieldScope targets finalUses stmts = go indexed
             or
               [ Set.member entity used && (index < definer || (selfUse && index == definer))
               | index <- segmentIndices,
-                Just (used, selfUse) <- [Map.lookup index uses]
+                Just (used, selfUse) <- [Map.lookup index stmtUses]
               ]
        in Set.fromList
             [ entity
