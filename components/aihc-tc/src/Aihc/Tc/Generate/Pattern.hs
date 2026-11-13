@@ -65,7 +65,7 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, when, zipWithM)
+import Control.Monad (foldM, when)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
@@ -564,23 +564,21 @@ checkTuplePattern sp flavor items scrutTy = do
   tupleTyCon <- registeredWiredTyCon wired
   -- A constructor pattern of a GADT reads the type indices from its
   -- scrutinee type. With a fresh meta variable, an index is a new meta
-  -- variable that nothing solves. Thus, a known tuple type gives its
-  -- element type to an item that contains a constructor pattern. Another
-  -- item gets a fresh meta variable, and the tuple equality relates the
-  -- two types later.
+  -- variable that nothing solves. Thus, when an item contains a
+  -- constructor pattern, a known tuple type gives its element types to
+  -- all items. The tuple equality is then reflexive. If another item got
+  -- a fresh meta variable, the tuple equality could need a given of the
+  -- constructor pattern, but the cast of the tuple pattern is outside the
+  -- scope of that given. A tuple without a constructor pattern keeps
+  -- fresh meta variables.
   knownScrutTy <- zonkType scrutTy
-  let knownElemTys = case knownScrutTy of
-        TcTyCon scrutTyCon arguments
-          | scrutTyCon == tupleTyCon && length arguments == arity -> map Just arguments
-        _ -> map (const Nothing) items
-  elemTys <-
-    zipWithM
-      ( \item known -> case known of
-          Just elemTy | containsConstructorPattern item -> pure elemTy
-          _ -> freshMetaTv
-      )
-      items
-      knownElemTys
+  elemTys <- case knownScrutTy of
+    TcTyCon scrutTyCon arguments
+      | scrutTyCon == tupleTyCon,
+        length arguments == arity,
+        any containsConstructorPattern items ->
+          pure arguments
+    _ -> mapM (const freshMetaTv) items
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
