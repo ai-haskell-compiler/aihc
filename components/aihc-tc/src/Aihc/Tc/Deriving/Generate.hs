@@ -289,7 +289,7 @@ openKindBinders plan context = do
       binder name kind = TyVarBinder [] name kind TyVarBSpecified TyVarBVisible
       parameterKind kind
         | null (kindMetas kind) = Nothing
-        | otherwise = surfaceKind kindNames kind
+        | otherwise = openSurfaceKind kindNames kind
   pure $
     if null typeableParameters
       then ([], [])
@@ -316,15 +316,15 @@ kindMetas kind =
     _ -> []
 
 -- | A kind as source syntax, with a name for each of its meta variables.
-surfaceKind :: [(Unique, Text)] -> TcType -> Maybe Type
-surfaceKind names kind =
+openSurfaceKind :: [(Unique, Text)] -> TcType -> Maybe Type
+openSurfaceKind names kind =
   case kind of
     TcMetaTv unique -> TVar . mkUnqualifiedName NameVarId <$> lookup unique names
-    TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceKind names argument <*> surfaceKind names result
-    TcAppTy function argument -> TApp <$> surfaceKind names function <*> surfaceKind names argument
+    TcFunTy argument result -> TFun ArrowUnrestricted <$> openSurfaceKind names argument <*> openSurfaceKind names result
+    TcAppTy function argument -> TApp <$> openSurfaceKind names function <*> openSurfaceKind names argument
     TcTyCon tyCon arguments
       | not (all (null . kindMetas) arguments) ->
-          foldl TApp (TCon (tyConNameSyntax Nothing tyCon) Unpromoted) <$> mapM (surfaceKind names) arguments
+          foldl TApp (TCon (tyConNameSyntax Nothing tyCon) Unpromoted) <$> mapM (openSurfaceKind names) arguments
     _ -> surfaceType Nothing kind
 
 -- | The method equations of a plan, or 'Nothing' after reporting why the
