@@ -1,7 +1,11 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Main (main) where
 
+import qualified Data.Kind as Kind
+import Data.Proxy (Proxy)
 import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
 import Language.Haskell.TH
 import Lower (Mode (..))
@@ -32,6 +36,23 @@ nested = [|\y -> $([|y|])|]
 -- forall binds. The names of the tree are the names of the program.
 forallQuote :: Q Type
 forallQuote = [t|forall a. Show a => Maybe a -> [a]|]
+
+-- | A type quote with a kind signature. The program does not run it, but
+-- the module must compile.
+kindQuote :: Q Type
+kindQuote = [t|Maybe (Int :: Kind.Type)|]
+
+-- | A type quote with a data constructor with no tick. With DataKinds, the
+-- constructor is promoted.
+promotedQuote :: Q Type
+promotedQuote = [t|Proxy True|]
+
+-- | Whether the tree of 'promotedQuote' has the expected form.
+promotedQuoteForm :: Type -> Bool
+promotedQuoteForm ty =
+  case ty of
+    AppT (ConT proxy) (PromotedT true) -> proxy == ''Proxy && true == 'True
+    _ -> False
 
 -- | Whether the tree of 'forallQuote' has the expected form.
 forallQuoteForm :: Type -> Bool
@@ -198,3 +219,4 @@ main = do
   -- A type quote in a splice gives the type of a signature.
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
+  runQ promotedQuote >>= print . promotedQuoteForm

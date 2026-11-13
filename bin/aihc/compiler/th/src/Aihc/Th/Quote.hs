@@ -235,9 +235,12 @@ quotedTypeName ty =
 
 -- | The expression that builds the syntax tree of a resolved type quote
 -- body. A type constructor becomes a name that is bound to its package and
--- its module. A type variable becomes a name with no module. A binder of a
+-- its module, and a data constructor becomes a promoted name. A type
+-- variable becomes a name with no module. A kind signature, a binder of a
 -- forall with a kind, a splice, and other constructs are outside the
--- subset: the quote stays as it is.
+-- subset: the quote stays as it is. The library function @sigT@ takes the
+-- kind as a value and not as a computation, so a kind signature needs a
+-- different form of the result.
 quotedType :: Type -> Maybe Expr
 quotedType = go
   where
@@ -245,10 +248,13 @@ quotedType = go
       case ty of
         TAnn _ inner -> go inner
         TParen inner -> go inner
-        TCon name promotion ->
-          case (nameEntity name, promotion) of
-            (Just (EntityGlobal global), Unpromoted) -> Just (call "conT" [call "mkNameG_tc" (globalNameParts global)])
-            (Just (EntityGlobal global), Promoted) -> Just (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
+        -- The namespace of the resolution decides the form, not the tick: with
+        -- DataKinds, a data constructor with no tick is also promoted.
+        TCon name _ ->
+          case nameEntity name of
+            Just (EntityGlobal global)
+              | globalNameNamespace global == ResolutionNamespaceTerm -> Just (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
+              | globalNameNamespace global == ResolutionNamespaceType -> Just (call "conT" [call "mkNameG_tc" (globalNameParts global)])
             _ -> Nothing
         TVar name -> Just (call "varT" [dynamicName (unqualifiedNameText name)])
         TApp function argument -> applied <$> go function <*> go argument
@@ -257,7 +263,6 @@ quotedType = go
         TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
         TTypeLit (TypeLitInteger number _) -> Just (call "litT" [call "numTyLit" [integer number]])
         TTypeLit (TypeLitSymbol string _) -> Just (call "litT" [call "strTyLit" [stringLiteral string]])
-        TKindSig inner kind -> (\inner' kind' -> call "sigT" [inner', kind']) <$> go inner <*> go kind
         TContext constraints inner -> quantified [] constraints inner
         TForall (ForallTelescope ForallInvisible binders) inner ->
           case withoutTypeAnnotations inner of
