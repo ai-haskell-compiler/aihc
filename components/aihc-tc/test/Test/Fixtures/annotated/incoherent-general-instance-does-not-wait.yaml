@@ -1,0 +1,18 @@
+extensions: [FlexibleInstances]
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances #-}
+  module Test where
+  data B = B
+  class C a where
+    c :: a -> B
+  instance {-# INCOHERENT #-} C a where
+    c _ = B
+  instance C B where
+    c _ = B
+  u :: a
+  u = u
+  x :: B
+  x = c u
+status: pass
+reason: The wanted C t0 can match C B later. One of the two instances is INCOHERENT, so the solver selects C a immediately, as in GHC.

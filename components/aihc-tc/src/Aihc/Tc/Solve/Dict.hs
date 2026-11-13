@@ -48,7 +48,7 @@ import Control.Monad (foldM, foldM_, guard, when, zipWithM, zipWithM_, (<=<), (>
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, put)
-import Data.List (elemIndex, sortOn)
+import Data.List (elemIndex, partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing)
@@ -919,14 +919,72 @@ mentionsGiven predicate evidence =
 -- a more specific match overlaps. For @MonadState s (StateT s m)@ the
 -- instance for @StateT s m@ wins over an overlappable instance for @t m@,
 -- although the context of the overlappable instance can also be solvable.
+--
+-- A more specific instance that does not match yet can match when the meta
+-- variables of the wanted get a type. Then no candidate that it overlaps
+-- is correct yet, as in GHC. For example, the wanted @Wrap b0 A@ must wait
+-- for @b0@ when the instances are @Wrap a A@ and @Wrap A A@. If the solver
+-- uses @Wrap a A@ immediately, its context can make the same wanted again
+-- with a new meta variable, and the solver does not stop.
+--
+-- As in GHC, an incoherent instance does not cause a wait. An incoherent
+-- candidate is correct immediately, and an incoherent instance that can
+-- match later does not stop another candidate.
 mostSpecificInstances :: [TcType] -> [InstanceInfo] -> [InstanceInfo]
 mostSpecificInstances args instances =
-  [candidate | candidate <- candidates, not (any (`moreSpecificThan` candidate) candidates)]
+  [ candidate
+  | candidate <- candidates,
+    not (any (`moreSpecificThan` candidate) candidates),
+    iiIncoherent candidate
+      || not (any (\other -> not (iiIncoherent other) && other `moreSpecificThan` candidate && couldMatchLater (iiHead other) args) others)
+  ]
   where
-    candidates = [instanceInfo | instanceInfo <- instances, isJust (matchTypes (iiHead instanceInfo) args)]
+    (candidates, others) = partition (\instanceInfo -> isJust (matchTypes (iiHead instanceInfo) args)) instances
     moreSpecificThan specific general =
       isJust (matchTypes (iiHead general) (iiHead specific))
         && isNothing (matchTypes (iiHead specific) (iiHead general))
+
+-- | Whether instance head types can match the wanted types after the meta
+-- variables of the wanted types get types. A rigid type variable of the
+-- wanted types does not change. A pattern variable that occurs two times
+-- must bind types that can become equal.
+couldMatchLater :: [TcType] -> [TcType] -> Bool
+couldMatchLater patterns targets
+  | length patterns /= length targets = False
+  | otherwise =
+      case concat <$> zipWithM bindings patterns targets of
+        Nothing -> False
+        Just bound ->
+          and
+            [ canBecomeEqual left right
+            | values <- Map.elems (Map.fromListWith (<>) [(tvUnique variable, [target]) | (variable, target) <- bound]),
+              (left, right) <- zip values (drop 1 values)
+            ]
+  where
+    bindings patternType target =
+      case (patternType, target) of
+        (TcTyVar variable, _) -> Just [(variable, target)]
+        (_, TcMetaTv _) -> Just []
+        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+          | tyCon == targetTyCon && length arguments == length targetArguments -> concat <$> zipWithM bindings arguments targetArguments
+        (TcFunTy argument result, TcFunTy targetArgument targetResult) -> (<>) <$> bindings argument targetArgument <*> bindings result targetResult
+        (TcAppTy function argument, TcAppTy targetFunction targetArgument) -> (<>) <$> bindings function targetFunction <*> bindings argument targetArgument
+        (TcAppTy function argument, TcTyCon targetTyCon targetArguments@(_ : _)) ->
+          (<>) <$> bindings function (TcTyCon targetTyCon (init targetArguments)) <*> bindings argument (last targetArguments)
+        (TcTyCon tyCon arguments@(_ : _), TcAppTy targetFunction targetArgument) ->
+          (<>) <$> bindings (TcTyCon tyCon (init arguments)) targetFunction <*> bindings (last arguments) targetArgument
+        _
+          | isJust (matchTypes [patternType] [target]) -> Just []
+          | otherwise -> Nothing
+    canBecomeEqual left right =
+      case (left, right) of
+        (TcMetaTv _, _) -> True
+        (_, TcMetaTv _) -> True
+        (TcTyCon tyCon arguments, TcTyCon tyCon' arguments') ->
+          tyCon == tyCon' && length arguments == length arguments' && and (zipWith canBecomeEqual arguments arguments')
+        (TcFunTy argument result, TcFunTy argument' result') -> canBecomeEqual argument argument' && canBecomeEqual result result'
+        (TcAppTy function argument, TcAppTy function' argument') -> canBecomeEqual function function' && canBecomeEqual argument argument'
+        _ -> left == right
 
 typeableArguments :: TcType -> Maybe [TcType]
 typeableArguments ty =
