@@ -50,10 +50,11 @@ import Data.Proxy (Proxy (..))
 import Data.Ratio (denominator, numerator, (%))
 import Data.Typeable (TypeRep, Typeable, typeRep)
 import Data.Word (Word8)
+import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
-import Foreign.Ptr (Ptr)
-import Language.Haskell.TH.Syntax (Dec, Exp, Info, Name, Q, Quasi (..), Role, Type, runQ)
+import Foreign.Ptr (Ptr, plusPtr)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, Exp, Info, Name, Q, Quasi (..), Role, Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -343,15 +344,26 @@ encodeTree :: (Data a) => a -> [Word8] -> [Word8]
 encodeTree value =
   case cast value of
     Just string -> (3 :) . encodeText string
-    Nothing ->
+    Nothing -> maybe encodeConstructor encodeBytes (cast value)
+  where
+    constructor = toConstr value
+    fields = gmapQ encodeTree value
+    encodeConstructor =
       case constrRep constructor of
         AlgConstr _ -> (0 :) . encodeText (showConstr constructor) . encodeCount (length fields) . foldr (.) id fields
         IntConstr number -> (1 :) . encodeText (show number)
         CharConstr char -> (2 :) . encodeCount (ord char)
         FloatConstr ratio -> (4 :) . encodeText (show (numerator ratio)) . encodeText (show (denominator ratio))
+
+-- | The bytes of a primitive bytes literal. 'Bytes' holds a foreign
+-- pointer, which has no constructors for 'Data'. The tree is a @Bytes@
+-- node with one string, which has one character for each byte.
+encodeBytes :: Bytes -> [Word8] -> [Word8]
+encodeBytes (Bytes pointer offset size) =
+  (0 :) . encodeText "Bytes" . encodeCount 1 . (3 :) . encodeText (map (chr . fromIntegral) contents)
   where
-    constructor = toConstr value
-    fields = gmapQ encodeTree value
+    contents :: [Word8]
+    contents = unsafePerformIO (withForeignPtr pointer (\start -> peekArray (fromIntegral size) (start `plusPtr` fromIntegral offset)))
 
 encodeText :: String -> [Word8] -> [Word8]
 encodeText string rest = encodeCount (length bytes) (bytes ++ rest)

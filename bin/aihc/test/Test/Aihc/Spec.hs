@@ -723,6 +723,10 @@ test_engineSplice getStore =
     -- A splice can name a file that the module depends on.
     dependentFile <- splice "dependentFile"
     assertEqual "the result after addDependentFile" (Right (Syntax.EInt 2 Syntax.TInteger "2")) dependentFile
+    -- A bytes literal gives a primitive string literal with one character
+    -- for each byte, also for a byte above 127.
+    bytesLiteral <- splice "bytes"
+    assertEqual "a bytes literal" (Right (Syntax.EStringHash "ab\233" "\"ab\\233\"#")) bytesLiteral
 
 -- | The answer to a closure that must not send a request.
 noRequest :: BS.ByteString -> IO BS.ByteString
