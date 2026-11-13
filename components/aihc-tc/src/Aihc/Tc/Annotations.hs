@@ -39,6 +39,7 @@ module Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcDerivedInstance (..),
+    TcSelectorType (..),
     TcDerivingClauseInstance (..),
     TcCoercedDeriving (..),
     TcCoercedInstance (..),
@@ -446,6 +447,13 @@ newtype TcCoercedDeriving = TcCoercedDeriving TcDerivingPlan
 -- | An instance that @deriving@ generated rather than the source. Such an
 -- instance may leave methods to the desugarer without a warning.
 data TcDerivedInstance = TcDerivedInstance
+  deriving (Eq, Show)
+
+-- | The checked type of the selector of a record field, on the field name
+-- of the constructor declaration. 'Aihc.Tc.Generate.Decl.moduleBindings'
+-- gives the System FC desugarer this type, so that the desugared selector
+-- has the type that each use of the selector instantiates.
+newtype TcSelectorType = TcSelectorType TcType
   deriving (Eq, Show)
 
 -- | An instance that a @deriving@ clause of a data declaration generated.

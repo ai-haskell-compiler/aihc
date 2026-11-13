@@ -105,6 +105,7 @@ import Aihc.Tc.Annotations
     TcClassMethodAnnotation (..),
     TcCoercedDeriving (..),
     TcDerivedInstance (..),
+    TcSelectorType (..),
     TcDerivingClauseInstance (..),
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
@@ -388,12 +389,34 @@ recordSelectorBindings origin declaration =
             let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
              in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
           selectorNames = recordSelectorNames [inner]
-       in [ TcBindingResult (originTermKey origin selector) selector (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
+          -- 'registerRecordSelectors' put the checked selector type on the
+          -- field name. It also covers a field whose existential variable
+          -- an equality of the context fixes, and it is the type that the
+          -- uses of the selector instantiate.
+          checkedTypes =
+            Map.fromList
+              [ (unqualifiedNameText name, ty)
+              | name <- recordFieldNamesOf inner,
+                TcSelectorType ty <- take 1 (mapMaybe fromAnnotation (unqualifiedNameAnns name))
+              ]
+          computedType fieldType
+            | all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType) = Just (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
+            | otherwise = Nothing
+       in [ TcBindingResult (originTermKey origin selector) selector selectorType
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
-            all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType),
             Just label <- [maybeLabel],
+            Just selectorType <- [Map.lookup label checkedTypes <|> computedType fieldType],
             let selector = Map.findWithDefault label label selectorNames
           ]
+
+-- | The field names of a record constructor declaration.
+recordFieldNamesOf :: DataConDecl -> [UnqualifiedName]
+recordFieldNamesOf declaration =
+  case declaration of
+    DataConAnn _ inner -> recordFieldNamesOf inner
+    RecordCon _ _ _ fields -> concatMap fieldNames fields
+    GadtCon _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
+    _ -> []
 
 -- | The type that the type checker put on a binder, when it has one.
 binderCheckedType :: UnqualifiedName -> Maybe TcType
@@ -1668,8 +1691,33 @@ annotateDataConDeclTc parent dataConDecl = do
     [] -> pure dataConDecl
     key : _ -> do
       ty <- dataConBindingType key
-      selectors <- annotateRecordSelectorNames parent dataConDecl
+      selectors <- annotateRecordSelectorNames parent dataConDecl >>= recordSelectorTypes parent
       pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [] [])) selectors)
+
+-- | Put the checked selector type on each field name that has a selector.
+-- A field whose type has an existential variable has none.
+recordSelectorTypes :: TyCon -> DataConDecl -> TcM DataConDecl
+recordSelectorTypes parent declaration =
+  case declaration of
+    DataConAnn ann inner -> DataConAnn ann <$> recordSelectorTypes parent inner
+    RecordCon forallVars context constructor fields ->
+      RecordCon forallVars context constructor <$> mapM annotateField fields
+    GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
+      GadtCon forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
+    _ -> pure declaration
+  where
+    annotateField field = do
+      names <- mapM annotateName (fieldNames field)
+      pure field {fieldNames = names}
+    annotateName name = do
+      let label = unqualifiedNameText name
+          selector = Map.findWithDefault label label (recordSelectorNames [declaration])
+      binder <- lookupTermKey (tyConMemberTermKey parent selector)
+      case binder of
+        Just _ -> do
+          ty <- bindingType (tyConMemberTermKey parent selector)
+          pure name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (TcSelectorType ty)]}
+        Nothing -> pure name
 
 annotateRecordSelectorNames :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames parent declaration =

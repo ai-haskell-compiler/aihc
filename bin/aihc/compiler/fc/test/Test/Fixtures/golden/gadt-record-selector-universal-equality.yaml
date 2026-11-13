@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE GADTs, RankNTypes, NoPolyKinds #-}
+  module Test where
+  data Action n = AStop (n ())
+  type ModelConc = Program Basic
+  data Program pty n a where
+    ModelConc :: { runModelConc :: (a -> Action n) -> Action n } -> Program Basic n a
+    WithSetup :: { wsSetup :: ModelConc n x } -> Program (WithSetup x) n a
+  data Basic
+  data WithSetup x
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+  instance (pty ~ Basic) => Functor (Program pty n) where
+    fmap f m = ModelConc (\c -> runModelConc m (\x -> c (f x)))
+status: pass
+reason: The selector of runModelConc does not quantify pty, because the context equality pty ~ Basic fixes it. The desugared selector must have the same type that its use in the instance method instantiates.
