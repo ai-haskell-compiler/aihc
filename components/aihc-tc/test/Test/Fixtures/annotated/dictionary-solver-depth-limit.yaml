@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleInstances, UndecidableInstances, DefaultSignatures #-}
+  module Test where
+  data T = T
+       │   └─ type: T
+       └─ type: Type
+  data Flag = On
+       │      └─ type: Flag
+       └─ type: Type
+  class Loop a where
+  └─ class methods: loop ∷ ∀ a. (Loop a) ⇒ a → Flag
+    loop :: a -> Flag
+  instance Loop [a] => Loop a where
+  └─ $fLoopa ∷ ∀ a. (Loop [a]) ⇒ Loop a
+    loop _ = On
+    │    └─ type: a
+    └─ loop ∷ a → Flag
+  use :: Flag
+  use = loop T
+        └─ error: Reduction stack overflow; size = 200 when simplifying the constraint Loop T
+  class FromJ a where
+  └─ class methods: parse ∷ ∀ a. (FromJ a) ⇒ a → Flag
+    parse :: a -> Flag
+    default parse :: Loop a => a -> Flag
+    parse _ = On
+    │     └─ type: a
+    └─ parse ∷ ∀ a. (FromJ a, Loop a) ⇒ a → Flag
+  instance FromJ T
+  └─ $fFromJT ∷ () ⇒ FromJ T
+  └─ error: Reduction stack overflow; size = 200 when simplifying the constraint Loop T
+extensions: [FlexibleInstances, UndecidableInstances, DefaultSignatures]
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances, UndecidableInstances, DefaultSignatures #-}
+  module Test where
+  data T = T
+  data Flag = On
+  class Loop a where
+    loop :: a -> Flag
+  instance Loop [a] => Loop a where
+    loop _ = On
+  use :: Flag
+  use = loop T
+  class FromJ a where
+    parse :: a -> Flag
+    default parse :: Loop a => a -> Flag
+    parse _ = On
+  instance FromJ T
+reason: "the instance Loop [a] => Loop a makes a larger wanted at each step; the reduction depth limit stops the solver with a diagnostic, as GHC reports a reduction stack overflow"
+status: pass

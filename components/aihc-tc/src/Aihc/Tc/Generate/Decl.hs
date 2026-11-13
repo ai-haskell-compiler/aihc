@@ -2466,7 +2466,7 @@ solveInstanceDefaultSignature className givens predicates = do
               reported <-
                 mapM
                   ( \(index, _, (constraint, evidenceVariable)) -> do
-                      emitError (ctLoc constraint) (UnsolvedWanted (ctPred constraint) (ctOrigin constraint))
+                      reportUnsolvedDict constraint
                       pure (index, EvVarTerm evidenceVariable)
                   )
                   stuck
@@ -2478,7 +2478,7 @@ solveInstanceSuperClass className givens predicate = do
   case result of
     Right term -> pure term
     Left (stuck, evidenceVariable) -> do
-      emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+      reportUnsolvedDict stuck
       pure (EvVarTerm evidenceVariable)
 
 -- | Try to solve one instance constraint. A stuck constraint gives no error.

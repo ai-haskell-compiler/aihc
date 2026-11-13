@@ -110,6 +110,8 @@ module Aihc.Tc.Monad
     getUndecidableInstances,
     useFunDepFuel,
     resetFunDepFuel,
+    recordReductionOverflow,
+    takeReductionOverflow,
     withUndecidableInstances,
     deferKindMeta,
     takeDeferredKindMetas,
@@ -515,6 +517,10 @@ data TcState = TcState
     -- | The functional dependency improvements with fresh variables that
     -- the current declaration can still make. See 'useFunDepFuel'.
     tcsFunDepFuel :: !Int,
+    -- | The constraint at which the dictionary solver reached its
+    -- reduction depth limit, until the unsolved wanted is reported. A
+    -- failed instance candidate restores the state, but keeps this field.
+    tcsReductionOverflow :: !(Maybe Pred),
     -- | Solutions for meta (unification) variables.
     tcsMetaSolutions :: !(IntMap TcType),
     -- | Meta-variables that can default to 'Type' at a kind boundary.
@@ -587,6 +593,7 @@ initTcState =
   TcState
     { tcsNextUnique = 0,
       tcsFunDepFuel = funDepFuel,
+      tcsReductionOverflow = Nothing,
       tcsMetaSolutions = IntMap.empty,
       tcsTrackedKindMetas = IntSet.empty,
       tcsMetaKinds = IntMap.empty,
@@ -683,10 +690,24 @@ useFunDepFuel = lift $ do
       modify' (\s -> s {tcsFunDepFuel = fuel - 1})
       pure True
 
+-- | Record that the dictionary solver reached its reduction depth limit
+-- at a constraint. The first record stays until it is taken.
+recordReductionOverflow :: Pred -> TcM ()
+recordReductionOverflow predicate =
+  lift $ modify' $ \s -> s {tcsReductionOverflow = tcsReductionOverflow s <|> Just predicate}
+
+-- | Take the constraint at which the reduction depth limit was reached.
+takeReductionOverflow :: TcM (Maybe Pred)
+takeReductionOverflow = lift $ do
+  overflow <- gets tcsReductionOverflow
+  modify' (\s -> s {tcsReductionOverflow = Nothing})
+  pure overflow
+
 -- | Give the next declaration the full fuel of functional dependency
--- improvements.
+-- improvements, and forget a reduction overflow of an earlier
+-- declaration.
 resetFunDepFuel :: TcM ()
-resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel})
+resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel, tcsReductionOverflow = Nothing})
 
 -- | Look up the current solution for a meta-variable.
 readMetaTv :: Unique -> TcM (Maybe TcType)
