@@ -1707,9 +1707,9 @@ recordSelectorTypes parent declaration =
     _ -> pure declaration
   where
     annotateField field = do
-      names <- mapM annotateName (fieldNames field)
+      names <- mapM selectorTypeOn (fieldNames field)
       pure field {fieldNames = names}
-    annotateName name = do
+    selectorTypeOn name = do
       let label = unqualifiedNameText name
           selector = Map.findWithDefault label label (recordSelectorNames [declaration])
       binder <- lookupTermKey (tyConMemberTermKey parent selector)
