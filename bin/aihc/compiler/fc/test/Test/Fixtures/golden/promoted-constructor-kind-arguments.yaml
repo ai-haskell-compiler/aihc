@@ -1,0 +1,51 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Type)
+    type Exp a = a -> Type
+    type family Eval (e :: Exp a) :: a
+    data Pure2 :: (a -> b -> c) -> a -> b -> Exp c
+    -- No visible argument gives the kind arguments of '(,) and '(:).
+    type Pair = Pure2 '(,)
+    type Cons = Pure2 '(:)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.sExp (a : sType) :: sType =
+    a → sType
+
+  pub type 1.tEval (a : sType) (e : a → sType) :: a @N @N {}
+
+  pub type 1.tPure2 (a : sType) (b : sType) (c : sType) ($parameter : a → b → c) ($parameter{1} : a) ($parameter{2} : b) ($parameter{3} : c) :: sType {}
+
+  pub type 1.sPair (k0 : sType) (k1 : sType) :: ∀(eta0 : k0) (eta1 : k1) (eta2 : tTuple2 k0 k1). sType =
+    tPure2 k0 k1 (tTuple2 k0 k1) (c(,) k0 k1)
+
+  pub type 1.sCons (k0 : sType) :: ∀(eta0 : k0) (eta1 : t[] k0) (eta2 : t[] k0). sType =
+    tPure2 k0 (t[] k0) (t[] k0) (c: k0)
+status: pass
+reason: 'An unapplied promoted constructor such as ''(,) or ''(:) has no visible argument that gives its kind arguments. The type checker must keep them, as it already does for ''[]. Before the fix, the FC conversion could not infer them. This stopped first-class-families in Fcf.Data.List, at Pure2 ''(,).'
