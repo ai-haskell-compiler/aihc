@@ -15,7 +15,8 @@ module GHC.TopHandler
   )
 where
 
-import Control.Exception (SomeException, catch, displayException, fromException)
+import Control.Exception (SomeException, catch, displayException, fromException, someExceptionContext)
+import Control.Exception.Context (displayExceptionContext)
 import Data.Maybe (Maybe (..))
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
@@ -61,8 +62,15 @@ handleException exit exception = do
 reportStackOverflow :: IO ()
 reportStackOverflow = writeStderrLine "stack overflow"
 
+-- | Write the exception and its context, as the GHC top handler does. The
+-- context holds, for example, the call stack of an 'error' call.
 reportError :: SomeException -> IO ()
-reportError = writeStderrLine . displayException
+reportError exception =
+  writeStderrLine
+    ( case displayExceptionContext (someExceptionContext exception) of
+        [] -> displayException exception
+        context -> displayException exception ++ "\n" ++ context
+    )
 
 -- | Flush the standard output handles. An error during the flush is
 -- dropped, because the program is about to exit.
