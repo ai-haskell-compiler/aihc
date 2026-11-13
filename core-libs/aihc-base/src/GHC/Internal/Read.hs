@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | The helpers of the 'Read' class and the instances of the types that the
 -- primitive package and this module define.
 --
@@ -13,28 +15,32 @@ module GHC.Internal.Read
     readNumber,
     readFieldHash,
     numberToRational,
+    numberToRangedRational,
   )
 where
 
 import Data.Either (Either (..))
 import Data.Proxy (Proxy (..))
-import GHC.Float (Double, Float)
+import GHC.Err (undefined)
+import GHC.Float (Double, Float, RealFloat (..))
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
-import GHC.Internal.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
+import GHC.Internal.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, otherwise)
+import GHC.Internal.Classes (Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Internal.Integer (Integer)
 import GHC.Num (Num (..))
 import GHC.Prim.Read
-  ( Lexeme (..),
+  ( Digits,
+    Lexeme (..),
     Number (..),
     Read (..),
     ReadPrec,
     ReadS,
-    digitsToInteger,
     expectP,
     lexP,
     list,
     minPrec,
+    numberDigitsValue,
     paren,
     parens,
     parseSignedInteger,
@@ -47,7 +53,7 @@ import GHC.Prim.Read
     stringEqual,
     (+++),
   )
-import GHC.Real (Fractional (..), Integral, Ratio, Rational, (%), (^), (^^))
+import GHC.Real (Fractional (..), Integral (..), Ratio, Rational, (%), (^))
 import GHC.Types (Bool (..), Char, Ordering (..))
 import GHC.Word (Word, Word16, Word32, Word64, Word8)
 
@@ -104,27 +110,39 @@ convertIntegralResults [] = []
 convertIntegralResults ((value, rest) : results) =
   (fromInteger value, rest) : convertIntegralResults results
 
--- | The exact value of a literal. A decimal literal keeps its digits until
--- here, so that it only loses precision once, when it is converted to the
--- type that is read.
+-- | The exact value of a literal, as in GHC. A decimal literal keeps its
+-- digits until here, so that it only loses precision once, when it is
+-- converted to the type that is read.
 numberToRational :: Number -> Rational
-numberToRational (NumberToken value) = fromInteger value
-numberToRational (DecimalToken whole fraction exponentValue) =
-  scaled * (10 ^^ exponentValue)
-  where
-    fractionLength = lengthOfDigits fraction
-    mantissa = whole * (10 ^ fractionLength) + digitsToInteger 10 fraction
-    scaled = mantissa % (10 ^ fractionLength)
+numberToRational (MkNumber base iPart) = numberDigitsValue (toInteger base) iPart % 1
+numberToRational (MkDecimal iPart mFPart mExp) =
+  let i = numberDigitsValue 10 iPart
+   in case (mFPart, mExp) of
+        (Nothing, Nothing) -> i % 1
+        (Nothing, Just exponentValue)
+          | exponentValue >= 0 -> (i * (10 ^ exponentValue)) % 1
+          | otherwise -> i % (10 ^ negate exponentValue)
+        (Just fPart, Nothing) -> fracExp 0 i fPart
+        (Just fPart, Just exponentValue) -> fracExp exponentValue i fPart
 
-lengthOfDigits :: String -> Integer
-lengthOfDigits [] = 0
-lengthOfDigits (_ : rest) = 1 + lengthOfDigits rest
+-- | Add the fraction digits to the mantissa and the exponent, as in GHC.
+fracExp :: Integer -> Integer -> Digits -> Rational
+fracExp exponentValue mantissa []
+  | exponentValue < 0 = mantissa % (10 ^ negate exponentValue)
+  | otherwise = fromInteger (mantissa * 10 ^ exponentValue)
+fracExp exponentValue mantissa (digit : digits) =
+  fracExp (exponentValue - 1) (mantissa * 10 + toInteger digit) digits
 
-readFractionalPrec :: (Fractional a) => ReadPrec a
+readFractionalPrec :: (RealFloat a) => ReadPrec a
 readFractionalPrec = readNumber convertFractional
 
-convertFractional :: (Fractional a) => Lexeme -> ReadPrec a
-convertFractional (Number token) = return (fromRational (numberToRational token))
+-- | The value of a literal, as in GHC. A literal with an exponent beyond the
+-- range of the type gives infinity at once, and does not compute the power.
+convertFractional :: forall a. (RealFloat a) => Lexeme -> ReadPrec a
+convertFractional (Number token) =
+  case numberToRangedRational (floatRange (undefined :: a)) token of
+    Nothing -> return (1 / 0)
+    Just rational -> return (fromRational rational)
 convertFractional (Ident name) =
   case stringEqual name "NaN" of
     True -> return (0 / 0)
@@ -133,6 +151,39 @@ convertFractional (Ident name) =
         True -> return (1 / 0)
         False -> pfail
 convertFractional _ = pfail
+
+-- | The value of a literal, or 'Nothing' if the literal is too large for the
+-- range of exponents, as in GHC. A literal that is too small gives zero.
+numberToRangedRational :: (Int, Int) -> Number -> Maybe Rational
+numberToRangedRational (neg, pos) n@(MkDecimal iPart mFPart (Just exponentValue)) =
+  let mFirstDigit = case dropZeroDigits iPart of
+        iPart'@(_ : _) -> Just (digitCount iPart')
+        [] -> case mFPart of
+          Nothing -> Nothing
+          Just fPart ->
+            case dropZeroDigits fPart of
+              [] -> Nothing
+              rest -> Just (negate (digitCount fPart - digitCount rest))
+   in case mFirstDigit of
+        Nothing -> Just 0
+        Just firstDigit ->
+          let firstDigit' = toInteger firstDigit + exponentValue
+           in case firstDigit' > toInteger (pos + 3) of
+                True -> Nothing
+                False ->
+                  case firstDigit' < toInteger (neg - 3) of
+                    True -> Just 0
+                    False -> Just (numberToRational n)
+numberToRangedRational _ n = Just (numberToRational n)
+
+-- | The digits after the leading zeros.
+dropZeroDigits :: Digits -> Digits
+dropZeroDigits (0 : rest) = dropZeroDigits rest
+dropZeroDigits digits = digits
+
+digitCount :: Digits -> Int
+digitCount [] = 0
+digitCount (_ : rest) = 1 + digitCount rest
 
 instance Read Double where
   readPrec = readFractionalPrec

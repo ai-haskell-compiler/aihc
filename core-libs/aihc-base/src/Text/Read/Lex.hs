@@ -1,12 +1,14 @@
 module Text.Read.Lex
   ( Lexeme (..),
     Number,
+    lex,
     expect,
     hsLex,
     lexChar,
     numberToInteger,
     numberToFixed,
     numberToRational,
+    numberToRangedRational,
     readIntP,
     readBinP,
     readOctP,
@@ -17,10 +19,14 @@ module Text.Read.Lex
 where
 
 import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isDigit, isHexDigit, isOctDigit)
-import GHC.Read.Lex (Lexeme (..), Number, expectP, lexP, numberToFixed, numberToInteger, numberToRational, readLitChar)
+import GHC.Read.Lex (Lexeme (..), Number, expectP, lexP, numberToFixed, numberToInteger, numberToRangedRational, numberToRational, readLitChar)
 import Text.ParserCombinators.ReadP (ReadP, gather, look, munch1, readS_to_P, skipSpaces, string)
 import Text.ParserCombinators.ReadPrec (minPrec, readPrec_to_P)
-import Prelude
+import Prelude hiding (lex)
+
+-- | Skip white space and read one lexeme.
+lex :: ReadP Lexeme
+lex = readPrec_to_P lexP minPrec
 
 -- | Skip white space and read the given lexeme. Fail on a different lexeme.
 expect :: Lexeme -> ReadP ()

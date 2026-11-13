@@ -541,7 +541,10 @@ data InstanceInfo = InstanceInfo
     -- | Instance context (prerequisites).
     iiContext :: [Pred],
     -- | Instance head types.
-    iiHead :: [TcType]
+    iiHead :: [TcType],
+    -- | Whether the instance has the @INCOHERENT@ pragma. An incoherent
+    -- instance does not stop the selection of another instance.
+    iiIncoherent :: !Bool
   }
   deriving (Eq, Show, Read, Generic)
 

@@ -1,0 +1,47 @@
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    {-# LANGUAGE UnboxedTuples #-}
+    module Test where
+
+    import GHC.Exts
+    import GHC.IO (IO (..))
+    import GHC.Word (Word64 (..))
+    import GHC.Int (Int64 (..))
+
+    int :: Int64# -> Integer
+    int x = toInteger (I64# x)
+
+    word :: Word64# -> Integer
+    word x = toInteger (W64# x)
+
+    flag :: Int# -> Bool
+    flag x = isTrue# x
+
+    main :: IO ()
+    main = do
+      let big = intToInt64# 9223372036854775807#
+          neg = intToInt64# (-7#)
+          three = intToInt64# 3#
+      print [int (plusInt64# big (intToInt64# 1#)), int (subInt64# neg three), int (timesInt64# neg three), int (quotInt64# neg three), int (remInt64# neg three), int (negateInt64# neg)]
+      print [int (uncheckedIShiftL64# three 62#), int (uncheckedIShiftRA64# neg 1#), int (uncheckedIShiftRL64# neg 60#)]
+      print [flag (eqInt64# neg neg), flag (neInt64# neg three), flag (ltInt64# neg three), flag (leInt64# three three), flag (gtInt64# neg three), flag (geInt64# big neg)]
+      let w = wordToWord64# 18446744073709551615##
+      print [word (quotWord64# w (wordToWord64# 10##)), word (remWord64# w (wordToWord64# 10##)), word (bitReverse64# (wordToWord64# 1##))]
+      r <- IO (\s0 -> case newByteArray# 16# s0 of
+        (# s1, arr #) -> case writeWord8ArrayAsInt64# arr 3# neg s1 of
+          s2 -> case readWord8ArrayAsInt64# arr 3# s2 of
+            (# s3, v #) -> case unsafeFreezeByteArray# arr s3 of
+              (# s4, frozen #) -> (# s4, (int v, int (indexWord8ArrayAsInt64# frozen 3#)) #))
+      print r
+stdout: |
+  [-9223372036854775808,-10,-21,-2,-1,7]
+  [-4611686018427387904,-4,15]
+  [True,True,True,True,False,True]
+  [1844674407370955161,5,9223372036854775808]
+  (-7,-7)
+output: |
+  ()
+expression: main
+status: pass
+reason: the Int64# arithmetic, shift, and comparison primops, quotWord64#, remWord64#, bitReverse64#, and the unaligned Int64# byte array access give the GHC results

@@ -1,0 +1,26 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ErrorCall (..), evaluate, try)
+    import Data.Fixed (Centi)
+    import Text.Read (readMaybe)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      -- A literal with an exponent is not a fixed-point literal.
+      print (readMaybe "1.5e0" :: Maybe Centi, readMaybe "1.5" :: Maybe Centi)
+      -- The message of an error call has no call stack.
+      result <- try (evaluate (error "boom" :: Int))
+      either (\exception -> putStrLn (show (exception :: ErrorCall))) print result
+      print (ErrorCall "a" == ErrorCall "a", compare (ErrorCall "a") (ErrorCall "b"))
+stdout: |
+  (Nothing,Just 1.50)
+  boom
+  (True,LT)
+output: |
+  ()
+expression: main
+status: pass
+reason: numberToFixed refuses a literal with an exponent, and ErrorCall is the GHC 9.12 type with Eq and Ord and a message without a call stack

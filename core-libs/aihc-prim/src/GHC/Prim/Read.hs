@@ -6,6 +6,7 @@
 {- HLINT ignore "Avoid lambda" -}
 {- HLINT ignore "Use foldr" -}
 {- HLINT ignore "Use foldl" -}
+{- HLINT ignore "Use map" -}
 
 -- | The reader that a derived @Read@ instance is built from.
 --
@@ -46,6 +47,8 @@ module GHC.Prim.Read
     -- * Lexemes
     Lexeme (..),
     Number (..),
+    Digits,
+    numberDigitsValue,
     lexP,
     expectP,
     lexDigits,
@@ -192,8 +195,14 @@ choice (parser : parsers) = parser +++ choice parsers
 -- literal with a fraction or an exponent keeps its whole part, its fraction
 -- digits and its exponent, because its value depends on the type read.
 data Number
-  = NumberToken Integer
-  | DecimalToken Integer String Integer
+  = -- | A number in a base: the base and the digits.
+    MkNumber Int Digits
+  | -- | A decimal number: the digits of the whole part, the digits of the
+    -- fraction, and the exponent.
+    MkDecimal Digits (Maybe Digits) (Maybe Integer)
+
+-- | The values of the digits of a number, the most significant first.
+type Digits = [Int]
 
 data Lexeme
   = Char Char
@@ -329,16 +338,34 @@ lexZeroNumber input =
     'B' : rest -> lexBasedNumber 2 isBinaryDigit rest "0B"
     _ -> lexDecimalNumber ('0' : input)
 
-lexBasedNumber :: Integer -> (Char -> Bool) -> String -> String -> [(String, Lexeme, String)]
+-- | A hexadecimal, octal, or binary number. As in GHC, a prefix without digits is
+-- the decimal number zero, and the prefix letter belongs to the next lexeme.
+lexBasedNumber :: Int -> (Char -> Bool) -> String -> String -> [(String, Lexeme, String)]
 lexBasedNumber base predicate chars prefix =
   case takeWhileRead predicate chars of
-    ([], _) -> []
+    ([], _) -> lexDecimalNumber ('0' : tailRead prefix chars)
     (digits, rest) ->
       let spelling = appendList prefix digits
-       in [(spelling, Number (NumberToken (digitsToInteger base digits)), rest)]
+       in [(spelling, Number (MkNumber base (digitValues digits)), rest)]
+
+-- | The input after the leading zero of a based prefix.
+tailRead :: String -> String -> String
+tailRead (_ : marker : _) chars = marker : chars
+tailRead _ chars = chars
+
+digitValues :: String -> Digits
+digitValues [] = []
+digitValues (digit : digits) = digitValue digit : digitValues digits
+
+-- | The value of the digits in the base.
+numberDigitsValue :: Integer -> Digits -> Integer
+numberDigitsValue base = go 0
+  where
+    go value [] = value
+    go value (digit : digits) = go (value * base + intToInteger digit) digits
 
 -- | A decimal literal: digits, then an optional fraction and an optional
--- exponent. Without either it is an integer token.
+-- exponent. As in GHC, a literal without either is also a decimal number.
 lexDecimalNumber :: String -> [(String, Lexeme, String)]
 lexDecimalNumber input =
   case takeDigits input of
@@ -348,15 +375,14 @@ lexDecimalNumber input =
         (fraction, afterFraction) ->
           case lexExponent afterFraction of
             (exponentSpelling, exponentValue, rest) ->
-              let whole = digitsToInteger 10 digits
-                  spelling = appendList digits (appendList (fractionSpelling fraction) exponentSpelling)
-                  decimal = [(spelling, Number (DecimalToken whole fraction exponentValue), rest)]
-               in case fraction of
-                    [] ->
-                      case exponentSpelling of
-                        [] -> [(digits, Number (NumberToken whole), afterDigits)]
-                        _ -> decimal
-                    _ -> decimal
+              let spelling = appendList digits (appendList (fractionSpelling fraction) exponentSpelling)
+                  fractionDigits = case fraction of
+                    [] -> Nothing
+                    _ -> Just (digitValues fraction)
+                  exponentPart = case exponentSpelling of
+                    [] -> Nothing
+                    _ -> Just exponentValue
+               in [(spelling, Number (MkDecimal (digitValues digits) fractionDigits exponentPart), rest)]
 
 fractionSpelling :: String -> String
 fractionSpelling [] = []
@@ -669,15 +695,38 @@ reverseRead :: [a] -> [a]
 reverseRead values = reverseAppend values []
 
 sameNumber :: Number -> Number -> Bool
-sameNumber (NumberToken left) (NumberToken right) = integerEqual left right
-sameNumber (DecimalToken leftWhole leftFraction leftExponent) (DecimalToken rightWhole rightFraction rightExponent) =
-  case integerEqual leftWhole rightWhole of
-    False -> False
-    True ->
-      case stringEqual leftFraction rightFraction of
-        False -> False
-        True -> integerEqual leftExponent rightExponent
+sameNumber (MkNumber leftBase leftDigits) (MkNumber rightBase rightDigits) =
+  andBool (intEqual leftBase rightBase) (sameDigits leftDigits rightDigits)
+sameNumber (MkDecimal leftWhole leftFraction leftExponent) (MkDecimal rightWhole rightFraction rightExponent) =
+  andBool
+    (sameDigits leftWhole rightWhole)
+    (andBool (sameFraction leftFraction rightFraction) (sameExponent leftExponent rightExponent))
 sameNumber _ _ = False
+
+sameDigits :: Digits -> Digits -> Bool
+sameDigits [] [] = True
+sameDigits (left : lefts) (right : rights) = andBool (intEqual left right) (sameDigits lefts rights)
+sameDigits _ _ = False
+
+sameFraction :: Maybe Digits -> Maybe Digits -> Bool
+sameFraction Nothing Nothing = True
+sameFraction (Just left) (Just right) = sameDigits left right
+sameFraction _ _ = False
+
+sameExponent :: Maybe Integer -> Maybe Integer -> Bool
+sameExponent Nothing Nothing = True
+sameExponent (Just left) (Just right) = integerEqual left right
+sameExponent _ _ = False
+
+intEqual :: Int -> Int -> Bool
+intEqual (I# left) (I# right) =
+  case left ==# right of
+    0# -> False
+    _ -> True
+
+andBool :: Bool -> Bool -> Bool
+andBool True value = value
+andBool False _ = False
 
 reverseAppend :: [a] -> [a] -> [a]
 reverseAppend [] suffix = suffix
@@ -699,7 +748,8 @@ parseSignedInteger input =
 parseUnsignedInteger :: ReadS Integer
 parseUnsignedInteger input =
   case lexLexeme input of
-    (Number (NumberToken value), rest) : _ -> [(value, rest)]
+    (Number (MkNumber base digits), rest) : _ -> [(numberDigitsValue (intToInteger base) digits, rest)]
+    (Number (MkDecimal digits Nothing Nothing), rest) : _ -> [(numberDigitsValue 10 digits, rest)]
     _ -> []
 
 negateIntegerResults :: [(Integer, String)] -> [(Integer, String)]

@@ -696,9 +696,8 @@ enumIntegerFromThenTo first second last = go first
             True -> value : go (value + step)
             False -> []
 
--- | GHC derives 'Enum' for 'VecCount' from a declaration that lists the
--- constructors in width order, so the tags below follow that order rather than
--- the alphabetical order 'GHC.Types' declares them in.
+-- | The tags follow the GHC declaration order of 'VecCount', which is also
+-- the order of the declaration in 'GHC.Types'.
 instance Enum VecCount where
   toEnum (I# index) =
     case index of
