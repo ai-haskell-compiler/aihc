@@ -36,6 +36,7 @@ modules:
         && bump (Right 1 :: Either Char Int) == Right 2
         && bump (1 :| [2]) == (2 :| [3])
         && runIdentity (bump (Identity 1)) == 2
+        && getConst (bump (Const 'k' :: Const Char Int)) == 'k'
         && getDown (bump (Down 1)) == 2
         && getDual (bump (Dual 1)) == 2
         && getMax (bump (Max 1)) == 2

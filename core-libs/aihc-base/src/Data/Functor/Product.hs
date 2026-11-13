@@ -8,6 +8,7 @@ where
 import Control.Applicative (Alternative (..))
 import Control.Monad (MonadPlus (..))
 import Control.Monad.Fix (MonadFix (..))
+import Control.Monad.Zip (MonadZip (..))
 import Data.Foldable (Foldable (..))
 import Data.Functor.Classes (Eq1 (..), Ord1 (..), Read1 (..), Show1 (..))
 import Data.Kind (Type)
@@ -74,8 +75,6 @@ instance (Alternative f, Alternative g) => Alternative (Product f g) where
 
 instance (Monad f, Monad g) => Monad (Product f g) where
   Pair first second >>= next = Pair (first >>= firstProduct . next) (second >>= secondProduct . next)
-  Pair first second >> Pair nextFirst nextSecond = Pair (first >> nextFirst) (second >> nextSecond)
-  return value = Pair (return value) (return value)
 
 instance (Semigroup (f a), Semigroup (g a)) => Semigroup (Product f g a) where
   Pair leftFirst leftSecond <> Pair rightFirst rightSecond =
@@ -156,3 +155,7 @@ instance (Show1 f, Show1 g) => Show1 (Product f g) where
 instance (Read1 f, Read1 g) => Read1 (Product f g) where
   liftReadsPrec rp rl precedence = readParen (precedence > 10) $ \input ->
     [(Pair first second, rest) | (name, afterName) <- lex input, name == "Pair", (first, afterFirst) <- liftReadsPrec rp rl 11 afterName, (second, rest) <- liftReadsPrec rp rl 11 afterFirst]
+
+instance (MonadZip f, MonadZip g) => MonadZip (Product f g) where
+  mzipWith f (Pair leftFirst leftSecond) (Pair rightFirst rightSecond) =
+    Pair (mzipWith f leftFirst rightFirst) (mzipWith f leftSecond rightSecond)

@@ -1,0 +1,23 @@
+extensions:
+  - DeriveDataTypeable
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+
+    import Data.Data (Data, showConstr, toConstr)
+
+    -- The kind of g is k1 -> Type and the kind of f is k2 -> k1. The derived
+    -- instance asks Typeable of k1 and k2, as in GHC.
+    newtype Flip g a f = Flip (g (f a))
+      deriving (Data)
+
+    result :: Bool
+    result = showConstr (toConstr (Flip [Just 'x'] :: Flip [] Char Maybe)) == "Flip"
+expression: result
+output: |
+  True
+status: pass
+reason: a derived Data instance asks Typeable of each open kind in the kinds of its parameters

@@ -45,7 +45,7 @@ module GHC.Prim.Read
 
     -- * Lexemes
     Lexeme (..),
-    NumberToken (..),
+    Number (..),
     lexP,
     expectP,
     lexDigits,
@@ -191,7 +191,7 @@ choice (parser : parsers) = parser +++ choice parsers
 -- | A numeric literal. An integer literal keeps its value. A decimal
 -- literal with a fraction or an exponent keeps its whole part, its fraction
 -- digits and its exponent, because its value depends on the type read.
-data NumberToken
+data Number
   = NumberToken Integer
   | DecimalToken Integer String Integer
 
@@ -201,7 +201,7 @@ data Lexeme
   | Punc String
   | Ident String
   | Symbol String
-  | Number NumberToken
+  | Number Number
   | EOF
 
 lexDigits :: ReadS String
@@ -668,7 +668,7 @@ digitsToInt base = go 0
 reverseRead :: [a] -> [a]
 reverseRead values = reverseAppend values []
 
-sameNumber :: NumberToken -> NumberToken -> Bool
+sameNumber :: Number -> Number -> Bool
 sameNumber (NumberToken left) (NumberToken right) = integerEqual left right
 sameNumber (DecimalToken leftWhole leftFraction leftExponent) (DecimalToken rightWhole rightFraction rightExponent) =
   case integerEqual leftWhole rightWhole of

@@ -1,0 +1,81 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, RankNTypes #-}
+  module Test where
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  data Accum w a where
+       └─ type: Type → Type → Type
+    Add :: w -> Accum w ()
+    └─ type: ∀ w a. (a ~ ()) ⇒ w → Accum w a
+    Look :: Accum w w
+    └─ type: ∀ w a. (a ~ w) ⇒ Accum w a
+  class Functor f where
+  └─ class methods: fmap ∷ ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+    fmap :: (a -> b) -> f a -> f b
+  instance Functor Box where
+  └─ $fFunctorBox ∷ () ⇒ Functor Box
+    fmap f (Box a) = Box (f a)
+    │    │  │   │    └─ type: b → Box b; type-args: b
+    │    │  │   └─ type: a
+    │    │  └─ type: Box a
+    │    └─ type: a → b
+    └─ fmap ∷ ∀ a b. (a → b) → Box a → Box b
+  (<$>) :: Functor f => (a -> b) -> f a -> f b
+  (<$>) = fmap
+  │       └─ type: (a → b) → f a → f b; type-args: f, a, b; evidence: given Functor f
+  └─ type: ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+  infixl 4 <$>
+  (<$) :: Functor f => a -> f b -> f a
+  (<$) a = fmap (\_ -> a)
+  │    │   │     │└─ type: b
+  │    │   │     │└─ type: b
+  │    │   │     └─ type: b → a
+  │    │   └─ type: (b → a) → f b → f a; type-args: f, b, a; evidence: given Functor f
+  │    └─ type: a
+  └─ type: ∀ f a b. (Functor f) ⇒ a → f b → f a
+  infixl 4 <$
+  run :: Functor ctx => w -> Accum w a -> ctx () -> Box (ctx a)
+  run e accum ctx = (<$ ctx) <$> case accum of
+  │   │ │     │     ││       │   └─ type: Box a
+  │   │ │     │     ││       └─ type: (a → ctx a) → Box a → Box (ctx a); type-args: Box, a, ctx a; evidence: $fFunctorBox
+  │   │ │     │     │└─ type: a → ctx () → ctx a; type-args: ctx, a, (); evidence: given Functor ctx
+  │   │ │     │     └─ type: a → ctx a; term-args: a
+  │   │ │     └─ type: ctx ()
+  │   │ └─ type: Accum w a
+  │   └─ type: w
+  └─ type: ∀ ctx w a. (Functor ctx) ⇒ w → Accum w a → ctx () → Box (ctx a)
+    Add _ -> Box ()
+    │   │    │   └─ type: ()
+    │   │    └─ type: () → Box (); type-args: ()
+    │   └─ type: w
+    └─ type: w → Accum w a; type-args: w, a; evidence: given a ~ ()
+    Look -> Box e
+    │       └─ type: w → Box w; type-args: w
+    └─ type: Accum w a; type-args: w, a; evidence: given a ~ w
+extensions: [GADTs, RankNTypes]
+modules:
+- |
+  {-# LANGUAGE GADTs, RankNTypes #-}
+  module Test where
+  data Box a = Box a
+  data Accum w a where
+    Add :: w -> Accum w ()
+    Look :: Accum w w
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+  instance Functor Box where
+    fmap f (Box a) = Box (f a)
+  (<$>) :: Functor f => (a -> b) -> f a -> f b
+  (<$>) = fmap
+  infixl 4 <$>
+  (<$) :: Functor f => a -> f b -> f a
+  (<$) a = fmap (\_ -> a)
+  infixl 4 <$
+  run :: Functor ctx => w -> Accum w a -> ctx () -> Box (ctx a)
+  run e accum ctx = (<$ ctx) <$> case accum of
+    Add _ -> Box ()
+    Look -> Box e
+reason: "the section (<$ ctx) fixes the element type of <$> at the result type a before the GADT branches of the case are checked under their givens; reduced from fused-effects Control.Carrier.Accum.IORef"
+status: pass

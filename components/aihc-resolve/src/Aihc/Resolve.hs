@@ -72,6 +72,7 @@ module Aihc.Resolve
 
     -- * Names in the scope of a module
     moduleTopLevelName,
+    resolveSpliceBodies,
   )
 where
 
@@ -241,6 +242,28 @@ moduleTopLevelName (Builtins builtinScope) exports unit =
       case namespace of
         ResolutionNamespaceType -> resolveTypeName
         _ -> resolveTermName
+
+-- | Resolve the body of each splice of a module as an expression in the
+-- scope of the module. A quote in a splice body names the declarations of
+-- the module, also when the module does not export them. The compiler runs
+-- the splices before it resolves the module, so it resolves the bodies
+-- here, and changes their quotes with these resolutions. A name that does
+-- not resolve has no resolution: the errors are not reported here, because
+-- the splice module reports them.
+resolveSpliceBodies :: Builtins -> ModuleExports -> ModuleUnit -> [Expr] -> [Expr]
+resolveSpliceBodies (Builtins builtinScope) exports unit bodies =
+  let (_, _, resolved) =
+        runResolveM
+          scope
+          (moduleInfo builtinScope (moduleUnitExtensions unit) modu {moduleImports = imports})
+          0
+          (mapM (withResetLocalSupply . resolveExpr) bodies)
+   in resolved
+  where
+    package = moduleUnitPackage unit
+    modu = moduleUnitAst unit
+    (imports, _) = resolveModuleImports package exports (moduleImports modu)
+    scope = moduleScope builtinScope package exports (moduleUnitExtensions unit) modu {moduleImports = imports}
 
 resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, ([ResolveError], [GlobalName], Module))
 resolveModule builtinScope package exports extensions nextLocal modu =
@@ -905,7 +928,7 @@ resolveInstanceDeclItem headClass instanceDeclItem =
     InstanceItemTypeFamilyInst familyInst -> do
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (typeFamilyInstLhs familyInst)
-      InstanceItemTypeFamilyInst <$> extendScope familyScope (resolveTypeFamilyInst familyInst)
+      InstanceItemTypeFamilyInst <$> resolveTypeFamilyInstWithLhsScope familyScope familyInst
     InstanceItemDataFamilyInst familyInst -> do
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (dataFamilyInstHead familyInst)
@@ -1149,13 +1172,15 @@ resolveExpr expr =
     ETHExpQuote inner ->
       ETHExpQuote <$> resolveExpr inner
     ETHTypedQuote {} -> pure expr
-    -- The body of a declaration, type, or pattern quote stays unresolved.
-    -- But each splice in the body is an expression at the level of the
-    -- quote, and the type checker examines it.
+    -- The body of a declaration or pattern quote stays unresolved. But
+    -- each splice in the body is an expression at the level of the quote,
+    -- and the type checker examines it.
     ETHDeclQuote decls ->
       ETHDeclQuote <$> mapM resolveQuoteSplices decls
+    -- The names of a type quote have the scope of the quote, as the names
+    -- of an expression quote. The change of the quote reads them.
     ETHTypeQuote ty ->
-      ETHTypeQuote <$> resolveQuoteSplices ty
+      ETHTypeQuote <$> resolveType ty
     ETHPatQuote pat ->
       ETHPatQuote <$> resolveQuoteSplices pat
     -- A name quote gives the name of a term or of a type. The change of
@@ -1491,9 +1516,22 @@ resolveRecordFields :: [RecordField Expr] -> ResolveM [RecordField Expr]
 resolveRecordFields =
   mapM
     ( \field -> do
-        value' <- resolveExpr (recordFieldValue field)
+        value' <- resolveExpr (recordFieldPunValue field)
         pure field {recordFieldValue = value'}
     )
+
+-- | The value of a record field. A pun @{ M.x }@ uses the variable @x@, as
+-- in GHC. The qualifier selects only the field.
+recordFieldPunValue :: RecordField Expr -> Expr
+recordFieldPunValue field
+  | recordFieldPun field = unqualify (recordFieldValue field)
+  | otherwise = recordFieldValue field
+  where
+    unqualify expr =
+      case expr of
+        EAnn annotation inner -> EAnn annotation (unqualify inner)
+        EVar name -> EVar name {nameQualifier = Nothing}
+        _ -> expr
 
 -- | A record update names the field selectors that it writes, and the
 -- selector must be in scope. The resolution of each label tells the type
@@ -1504,7 +1542,7 @@ resolveRecordUpdateFields =
   mapM
     ( \field -> do
         name' <- resolveTermUseAtName (recordFieldName field)
-        value' <- resolveExpr (recordFieldValue field)
+        value' <- resolveExpr (recordFieldPunValue field)
         pure field {recordFieldName = name', recordFieldValue = value'}
     )
 
@@ -2250,12 +2288,22 @@ resolveTypeFamilyEq equation = do
       }
 
 resolveTypeFamilyInst :: TypeFamilyInst -> ResolveM TypeFamilyInst
-resolveTypeFamilyInst familyInst = do
+resolveTypeFamilyInst = resolveTypeFamilyInstWithLhsScope emptyScope
+
+-- | Resolve a type family equation. The extra scope applies to the left
+-- side only. An associated type instance names its family there without
+-- the qualifier of the class. The right side resolves in the scope of the
+-- module: in @instance C.MonadConc (Program pty n) where type ThreadId
+-- (Program pty n) = ThreadId@ of @dejafu@, the right side is the data type
+-- @ThreadId@ that the module imports, and the family is only in scope as
+-- @C.ThreadId@.
+resolveTypeFamilyInstWithLhsScope :: Scope -> TypeFamilyInst -> ResolveM TypeFamilyInst
+resolveTypeFamilyInstWithLhsScope lhsScope familyInst = do
   (forallScope, forallBinders') <- bindTyVarBinders (typeFamilyInstForall familyInst)
   (lhs', rhs') <-
     extendScope forallScope $
       (,)
-        <$> resolveType (typeFamilyInstLhs familyInst)
+        <$> extendScope lhsScope (resolveType (typeFamilyInstLhs familyInst))
         <*> resolveType (typeFamilyInstRhs familyInst)
   pure
     familyInst

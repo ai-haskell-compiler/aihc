@@ -50,6 +50,10 @@ module GHC.Exts
     Multiplicity (..),
     TYPE,
     UnliftedType,
+    LiftedRep,
+    UnliftedRep,
+    ZeroBitRep,
+    ZeroBitType,
     Down (..),
     Ptr (..),
     Int (..),
@@ -150,7 +154,7 @@ import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim hiding (aihcAddWeakFinalizer#)
 import GHC.Prim qualified as Prim (aihcAddWeakFinalizer#)
 import GHC.Ptr (FunPtr (..), Ptr (..))
-import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), IO (..), Int (..), Levity (..), Multiplicity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
+import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), IO (..), Int (..), Levity (..), LiftedRep, Multiplicity (..), RuntimeRep (..), TYPE, UnliftedRep, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 import Prelude (Eq (..), Ord, all, errorWithoutStackTrace, otherwise)
 
@@ -225,3 +229,14 @@ foreign import ccall "dynamic" callCFinalizerEnvironment :: FunPtr (Ptr () -> Pt
 dataToTag# :: forall a. a -> Int#
 dataToTag# = dataToTagLarge#
 {-# INLINE dataToTag# #-}
+
+-- | The runtime representation of a value that has no bits, for example
+-- @(# #)@.
+--
+-- GHC defines this synonym in "GHC.Types". The aihc type checker cannot
+-- check the promoted '[]' in the module that declares 'List', thus the
+-- synonym is here.
+type ZeroBitRep = 'TupleRep '[]
+
+-- | The kind of a type whose values have no bits.
+type ZeroBitType = TYPE ZeroBitRep

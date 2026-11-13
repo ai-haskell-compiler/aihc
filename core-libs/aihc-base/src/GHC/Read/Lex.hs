@@ -4,7 +4,7 @@
 -- instance needs the primitive package only.
 module GHC.Read.Lex
   ( Lexeme (..),
-    NumberToken (..),
+    Number (..),
     lex,
     lexDigits,
     lexLitChar,
@@ -22,7 +22,7 @@ where
 import GHC.Internal.Read (numberToRational)
 import GHC.Prim.Read
   ( Lexeme (..),
-    NumberToken (..),
+    Number (..),
     digitsToInteger,
     expectP,
     lexDigits,
@@ -36,13 +36,13 @@ import Prelude
 
 -- | The value of an integer literal; a literal with a fraction or an
 -- exponent has none.
-numberToInteger :: NumberToken -> Maybe Integer
+numberToInteger :: Number -> Maybe Integer
 numberToInteger (NumberToken value) = Just value
 numberToInteger DecimalToken {} = Nothing
 
 -- | The whole part and the first @digits@ fraction digits of a literal, as
 -- a fixed-point reader needs them. A literal with an exponent is refused.
-numberToFixed :: Integer -> NumberToken -> Maybe (Integer, Integer)
+numberToFixed :: Integer -> Number -> Maybe (Integer, Integer)
 numberToFixed _ (NumberToken value) = Just (value, 0)
 numberToFixed digits (DecimalToken whole fraction 0) =
   Just (whole, digitsToInteger 10 (take (fromInteger digits) (fraction ++ repeat '0')))

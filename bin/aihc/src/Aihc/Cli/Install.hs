@@ -217,6 +217,7 @@ import Aihc.Resolve
     moduleExportsWithOrigins,
     moduleTopLevelName,
     modulesInPackage,
+    resolveSpliceBodies,
     resolveUnit,
   )
 import Aihc.Resolve.Types (exactTerm, exactType)
@@ -252,17 +253,16 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote, quoteImports)
-import Aihc.Th.Reify (reifyInfo)
-import Aihc.Th.Splices (RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice)
+import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, renameQuotedPackage)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
-import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (SomeException, bracket_, evaluate, finally, throwIO, try)
+import Control.Exception (SomeException, bracket_, evaluate, finally, throwIO, try, tryJust)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -294,8 +294,8 @@ import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMis
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, stderr, stdout, withFile)
-import System.IO.Error (modifyIOError)
+import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, openFile, stderr, stdout)
+import System.IO.Error (isAlreadyInUseError, modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -1964,31 +1964,36 @@ moduleSpliceRequest shared build file source =
             Just
               SpliceRequest
                 { spliceRequestPackage = ownName,
+                  spliceRequestPackageId = packageIdText (packageId (moduleBuildPackage build)),
                   spliceRequestModule = sourceModuleName source,
                   spliceRequestStoreRoot = takeDirectory (locationStoreRoot locations),
                   spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
-                  spliceRequestDependencies =
-                    [ (name, version)
-                    | name <- nub (HackageCabal.fileInfoDependencies file),
-                      name /= ownName,
-                      Just version <- [Map.lookup name (moduleBuildVersions build)]
-                    ],
+                  spliceRequestDependencies = packageFileDependencies (packageFile file),
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
-                  spliceRequestImports = filter (not . isOwnModule . importDeclModule) (Syntax.moduleImports modu),
+                  spliceRequestImports = Syntax.moduleImports modu,
+                  spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
+                  spliceRequestOwnModules = [],
+                  spliceRequestUnavailableImports = [],
                   spliceRequestSplices = []
                 }
     _ -> pure Nothing
   where
     locations = sharedLocations shared
     ownName = packageName (moduleBuildPackage build)
-    -- A module of the package is a file whose path ends with the path of
-    -- the module name. The splice package cannot import such a module.
-    isOwnModule name =
-      any
-        (\other -> splitDirectories (T.unpack (T.replace "." "/" name)) `isSuffixOf` splitDirectories (dropExtension (HackageCabal.fileInfoPath other)))
-        (moduleBuildFiles build)
+    packageFile other =
+      PackageFile
+        { packageFileExtensions = HackageCabal.fileInfoExtensions other,
+          packageFileCppOptions = HackageCabal.fileInfoCppOptions other,
+          packageFileIncludeDirs = HackageCabal.fileInfoIncludeDirs other,
+          packageFileDependencies =
+            [ (name, version)
+            | name <- nub (HackageCabal.fileInfoDependencies other),
+              name /= ownName,
+              Just version <- [Map.lookup name (moduleBuildVersions build)]
+            ]
+        }
 
 -- | Give a module with an expression quote the imports of "Aihc.Th.Quote".
 -- Name resolution changes the quote into an expression that uses them. The
@@ -2943,18 +2948,67 @@ expandUnitSplices context runtimes unit availableExports sources modules =
     config = taskModuleCompileConfig context
     resolvePackage = taskResolvePackage context
     ownPackage = packageId resolvePackage
+    -- The modules of the units below the unit. The splice package compiles
+    -- them again, so a splice can use them. A different module of the
+    -- package, such as a module of the same unit, is not available.
+    belowSources = concatMap (sourceUnitSources . runtimeUnit) (unitsBelow Set.empty (sourceUnitDependencies unit))
+    unitsBelow _ [] = []
+    unitsBelow seen (identity : rest)
+      | identity `Set.member` seen = unitsBelow seen rest
+      | otherwise =
+          case Map.lookup identity runtimes of
+            Just runtime -> runtime : unitsBelow (Set.insert identity seen) (sourceUnitDependencies (runtimeUnit runtime) <> rest)
+            Nothing -> unitsBelow (Set.insert identity seen) rest
+    unavailableModules =
+      Set.fromList [sourceModuleName other | runtime <- Map.elems runtimes, other <- sourceUnitSources (runtimeUnit runtime)]
+        `Set.difference` Set.fromList (map sourceModuleName belowSources)
     expand run importedTypes source moduleUnit =
       case sourceModuleSpliceRequest source of
         Nothing -> pure moduleUnit
         Just template -> do
           let original = moduleUnitAst moduleUnit
               -- A name quote in a splice body gets its package and its
-              -- module from the scope of this module.
-              bound = bindSpliceNameQuotes (moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit) original
+              -- module from the scope of this module. A name of this
+              -- package gets the package id of the splice package, the same
+              -- id as the names of the copied modules and of the facts that
+              -- @reify@ gives in the splice.
+              inSplicePackage global
+                | globalNamePackage global == ownPackage = global {globalNamePackage = PackageId (splicePackageId template)}
+                | otherwise = global
+              localNames = localBinderNames original
+              bound = bindSpliceNameQuotes localNames (\namespace -> fmap inSplicePackage . moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit namespace) original
               splices = moduleSplices bound
-              request = template {spliceRequestSplices = splices}
+              -- A quote in a splice body names what it names at the splice:
+              -- the compiler resolves the bodies in the scope of this module,
+              -- and changes their quotes before the splice module gets them.
+              -- A name of this package gets the package id of the splice
+              -- package.
+              spliceBody splice =
+                case splice of
+                  ExpressionSplice body -> body
+                  DeclarationSplice body -> body
+                  TypeSplice body -> body
+              withBody splice body =
+                case splice of
+                  ExpressionSplice _ -> ExpressionSplice body
+                  DeclarationSplice _ -> DeclarationSplice body
+                  TypeSplice _ -> TypeSplice body
+              resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
+              desugaredSplices =
+                zipWith
+                  (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))
+                  splices
+                  resolvedBodies
+              request =
+                template
+                  { spliceRequestSplices = desugaredSplices,
+                    spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
+                    spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
+                    spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
+                    spliceRequestDependencies = nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- belowSources, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]])
+                  }
           prefixFacts <- newIORef Map.empty
-          let facts prefix global
+          let facts prefix answer global
                 | globalNamePackage global == ownPackage && globalNameModule global == sourceModuleName source = do
                     known <- Map.lookup (length prefix) <$> readIORef prefixFacts
                     checked <- case known of
@@ -2965,9 +3019,9 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                         result <- evaluate (checkPrefix types moduleUnit bound prefix)
                         modifyIORef' prefixFacts (Map.insert (length prefix) result)
                         pure result
-                    pure (Just (checked >>= \interface -> reifyInfo interface global))
+                    pure (Just (checked >>= \interface -> answer interface global))
                 | otherwise =
-                    pure $ case reifyInfo importedTypes global of
+                    pure $ case answer importedTypes global of
                       Right info -> Just (Right info)
                       Left message
                         | globalNamePackage global == ownPackage -> Just (Left message)
@@ -4254,10 +4308,19 @@ runConfigureScript config cacheRoot inputs =
 
 -- | Run an action while this process holds the lock file. Another process
 -- that asks for the same lock waits until the action ends.
+--
+-- A different thread of this process can also hold the lock, for example
+-- in a nested build of a splice. GHC then refuses to open the file, and
+-- does not wait. Thus, the function tries to open the file again after a
+-- short time, until the other thread closes it.
 withFileLock :: FilePath -> IO a -> IO a
-withFileLock path action =
-  withFile path ReadWriteMode $ \handle ->
-    bracket_ (HandleLock.hLock handle HandleLock.ExclusiveLock) (HandleLock.hUnlock handle) action
+withFileLock path action = do
+  opened <- tryJust (\failure -> if isAlreadyInUseError failure then Just () else Nothing) (openFile path ReadWriteMode)
+  case opened of
+    Left () -> threadDelay 100000 >> withFileLock path action
+    Right handle ->
+      (`finally` hClose handle) $
+        bracket_ (HandleLock.hLock handle HandleLock.ExclusiveLock) (HandleLock.hUnlock handle) action
 
 -- | Return the sources and C inputs of a package with the outputs of its
 -- configure script in their include paths.

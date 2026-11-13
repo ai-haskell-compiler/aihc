@@ -1,8 +1,14 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Main (main) where
 
+import qualified Data.Kind as Kind
+import Data.Proxy (Proxy)
+import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
 import Language.Haskell.TH
+import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
 -- A quote in a module that also has a do block in an operand of an infix
@@ -25,6 +31,36 @@ showTriple =
 -- outer quote binds.
 nested :: Q Exp
 nested = [|\y -> $([|y|])|]
+
+-- | A type quote with a forall, a context, and a type variable that the
+-- forall binds. The names of the tree are the names of the program.
+forallQuote :: Q Type
+forallQuote = [t|forall a. Show a => Maybe a -> [a]|]
+
+-- | A type quote with a kind signature. The program does not run it, but
+-- the module must compile.
+kindQuote :: Q Type
+kindQuote = [t|Maybe (Int :: Kind.Type)|]
+
+-- | A type quote with a data constructor with no tick. With DataKinds, the
+-- constructor is promoted.
+promotedQuote :: Q Type
+promotedQuote = [t|Proxy True|]
+
+-- | Whether the tree of 'promotedQuote' has the expected form.
+promotedQuoteForm :: Type -> Bool
+promotedQuoteForm ty =
+  case ty of
+    AppT (ConT proxy) (PromotedT true) -> proxy == ''Proxy && true == 'True
+    _ -> False
+
+-- | Whether the tree of 'forallQuote' has the expected form.
+forallQuoteForm :: Type -> Bool
+forallQuoteForm ty =
+  case ty of
+    ForallT [PlainTV binder SpecifiedSpec] [AppT (ConT showClass) (VarT inContext)] (AppT (AppT ArrowT (AppT (ConT maybeType) (VarT argument))) (AppT ListT (VarT element))) ->
+      showClass == ''Show && maybeType == ''Maybe && all (== binder) [inContext, argument, element]
+    _ -> False
 
 -- A declaration splice gives a signature and a function. The function has
 -- a local declaration.
@@ -59,6 +95,19 @@ answer = 42
 -- A type of this module, above a declaration splice.
 data Shape = Circle Int | Square Int Int
   deriving (Show)
+
+-- | A value of this module that the module does not export.
+secret :: Int
+secret = 41
+
+-- | A quote in a splice names the argument, which has the name of a
+-- top-level value. The name keeps the meaning that it has at the splice.
+localSecret :: Int -> Int
+localSecret secret = $([|secret|])
+
+-- | The same for an argument with the name of an imported function.
+localId :: Int -> Int
+localId id = $([|id|])
 
 -- A declaration splice reads the facts of a type of its own module with
 -- reify, and makes declarations that use the type and its constructors.
@@ -113,6 +162,23 @@ $( do
        ]
  )
 
+-- A function of a different module of the program derives instances for
+-- a type of this module and for a type of a different module.
+-- | A data type with a phantom parameter and a representational one.
+data Tagged tag value = Tagged value
+
+$(deriveDescribe ''Shape)
+
+$(deriveDescribe ''Mode)
+
+$( do
+     signature <- [t|Int -> (Int, String)|]
+     pure
+       [ SigD (mkName "pairWithText") signature,
+         FunD (mkName "pairWithText") [Clause [VarP (mkName "n")] (NormalB (TupE [Just (VarE (mkName "n")), Just (AppE (VarE 'show) (VarE (mkName "n")))])) []]
+       ]
+ )
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -124,7 +190,8 @@ main = do
   -- The quote lifts the value of a variable from outside the quote.
   print ($(let n = 5 :: Int in [|n * 2|]) :: Int)
   print ($([|\x -> x + 1|]) (41 :: Int))
-  -- The name in the quote keeps its meaning where a local name hides it.
+  -- A local binder around the splice binds the name of the quote, as in
+  -- GHC.
   let length = const (0 :: Int) in print ($([|length "abcd"|]) :: Int)
   print $([|(if True then 'a' else 'b', [length "x", 2])|])
   print (twice 21)
@@ -158,3 +225,30 @@ main = do
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
   runQ nested >>= print
+  -- A splice uses a function of a different module of the program.
+  print $(plusHelper 1)
+  putStrLn (describe (Circle 1))
+  putStrLn (describe Fast)
+  -- A name from reify and a name quote of the same type are equal, in a
+  -- splice of this module and in a function of a different module.
+  print $(do TyConI (DataD _ name _ _ _ _) <- reify ''Shape; if name == ''Shape then [|True|] else [|False|])
+  print $(isMode ''Mode)
+  -- A splice reads the roles of a type of this module and of an
+  -- imported type.
+  putStrLn $(do local <- reifyRoles ''Tagged; imported <- reifyRoles ''Maybe; litE (stringL (show (local, imported))))
+  -- A type quote in a splice gives the type of a signature.
+  print (pairWithText 4)
+  runQ forallQuote >>= print . forallQuoteForm
+  runQ promotedQuote >>= print . promotedQuoteForm
+  -- A quote in a splice body names a value and a constructor of this
+  -- module that the module does not export, and a constructor in a
+  -- pattern.
+  print ($([|secret + 1|]) :: Int)
+  print $([|Circle 7|])
+  print ($([|\(Circle radius) -> radius|]) (Circle 9))
+  -- A variable that the splice body binds stays local in the quote: the
+  -- quote lifts its value, and the top-level value with the same name is
+  -- not used.
+  print ($(let secret = 1 :: Int in [|secret|]) :: Int)
+  print (localSecret 1)
+  print (localId 2)

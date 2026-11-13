@@ -3047,6 +3047,12 @@ materialize ctx env value =
         GrinLitAddr bytes -> do
           symbol <- addrLiteralSymbol (ctxEnv ctx) bytes
           pure (Typed (OperandLiteral (LitSymbol symbol)) Ptr)
+        -- The filler of an unused pointer slot of an unboxed sum. It has
+        -- the pointer type: on wasm32 a pointer is narrower than an
+        -- integer, and the type of a call or a continuation must match the
+        -- type that the receiver expects.
+        GrinLitInt runtimeRep 0
+          | isPointerRuntimeRep runtimeRep -> pure (Typed (OperandLiteral LitNull) Ptr)
         _ -> case normalizedLiteralInteger literal of
           Just integer -> pure (Typed (OperandLiteral (LitInt integer)) I64)
           Nothing -> failWith (LowerUnsupportedValue "string literal")

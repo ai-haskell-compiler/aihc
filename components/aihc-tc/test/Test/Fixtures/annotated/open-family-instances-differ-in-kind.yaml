@@ -1,0 +1,31 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, PolyKinds, DataKinds #-}
+  module A where
+  data Ordering = LT | EQ | GT
+       │          │    │    └─ type: Ordering
+       │          │    └─ type: Ordering
+       │          └─ type: Ordering
+       └─ type: Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  type family MEmpty :: a
+              └─ type: a
+  type instance MEmpty = 'EQ
+  type instance MEmpty = 'Nothing
+  type instance MEmpty = '(MEmpty, MEmpty)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, PolyKinds, DataKinds #-}
+  module A where
+  data Ordering = LT | EQ | GT
+  data Maybe a = Nothing | Just a
+  type family MEmpty :: a
+  type instance MEmpty = 'EQ
+  type instance MEmpty = 'Nothing
+  type instance MEmpty = '(MEmpty, MEmpty)
+reason: Open family instances that differ only in an invisible kind argument have the same left side in the source. Each instance gets its own axiom.
+status: pass

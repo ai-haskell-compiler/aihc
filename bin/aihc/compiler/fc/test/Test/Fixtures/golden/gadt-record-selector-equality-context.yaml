@@ -1,0 +1,21 @@
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Common where
+  data Basic
+  data WithSetup x
+  data Program pty a where
+    Model :: { runModel :: a } -> Program Basic a
+    WithSetup :: { wsSetup :: Program Basic x, wsProgram :: x -> Program Basic a } -> Program (WithSetup x) a
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  import Common
+  withSetup :: Program Basic x -> (x -> Program Basic a) -> Program (WithSetup x) a
+  withSetup setup p = WithSetup { wsSetup = setup, wsProgram = p }
+  getSetup :: Program (WithSetup x) a -> Program Basic x
+  getSetup = wsSetup
+status: pass
+reason: The selector of wsSetup selects from Program (WithSetup x) a. The existential x of the constructor is cast to the x of the selector by a projection of the context equality.
