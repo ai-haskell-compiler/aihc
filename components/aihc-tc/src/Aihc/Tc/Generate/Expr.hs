@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
     peelExprAnn,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecKnotOccurrence (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -2206,15 +2206,21 @@ recStmtParts stmt =
 -- where @vs@ is the tuple of the group variables in the order of
 -- 'recStmtBinderNames'. A group with one variable uses the variable and not
 -- a tuple. The variables have monomorphic types in the group and after it.
+-- A let statement of the group can generalize a variable. Then the
+-- statements after the let statement can use it at more than one type,
+-- and the knot takes one instance of it, as in GHC.
 --
 -- The statement keeps the checked methods as annotations, from the outside
--- in: the @mfix@ method, the @return@ method, the @>>=@ method, and last a
+-- in: the @mfix@ method, the @return@ method, the @>>=@ method, and a
 -- tuple annotation. The tuple annotation has the tuple type, the types of
 -- the variables as type arguments, and the type of the statement block as
--- its only term argument type.
+-- its only term argument type. Last, each generalized variable has a
+-- 'TcRecKnotOccurrence' marker, and after it the occurrence annotation of
+-- the variable at the knot.
 inferRecStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> RecStmtParts -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferRecStmt end expected ambient parts rest = do
-  keys <- mapM resolvedUnqualifiedTermKey (recStmtBinderNames (recStmts parts))
+  let names = recStmtBinderNames (recStmts parts)
+  keys <- mapM resolvedUnqualifiedTermKey names
   binderTys <- mapM (const freshMetaTv) keys
   monadTy <- freshMetaTv
   tupleTy <- recTupleType binderTys
@@ -2229,7 +2235,8 @@ inferRecStmt end expected ambient parts rest = do
   prepareScrutinee (mfixCts <> returnCts)
   (stmts', _, innerCts) <-
     withRecBinders (zip keys binderTys) $
-      inferDoStmtsEnd (DoEndRec (finishRecGroup ambient innerTy (zip keys binderTys))) (Just innerTy) ambient (recStmts parts)
+      inferDoStmtsEnd (DoEndRec (finishRecGroup ambient innerTy (zip3 names keys binderTys))) (Just innerTy) ambient (recStmts parts)
+  knotOccurrences <- takeRecKnotOccurrences keys
   restExpected <- freshMetaTv
   blockTy <- maybe freshMetaTv pure expected
   let bindTy = TcFunTy innerTy (TcFunTy (TcFunTy tupleTy restExpected) blockTy)
@@ -2245,7 +2252,8 @@ inferRecStmt end expected ambient parts rest = do
         methodAnns mfixTy mfixEv mfixPending mfixAnn $
           methodAnns knotTy returnEv returnPending returnAnn $
             methodAnns bindTy bindEv bindPending bindAnn $
-              DoAnn (mkAnnotation tuplePending) (DoRecStmt stmts')
+              DoAnn (mkAnnotation tuplePending) $
+                foldr knotOccurrence (DoRecStmt stmts') knotOccurrences
   pure
     ( stmt' : rest',
       blockTy,
@@ -2253,6 +2261,8 @@ inferRecStmt end expected ambient parts rest = do
     )
   where
     withLocalKeys binders action = foldr (uncurry extendTermEnv) action binders
+    knotOccurrence (key, annotation) inner =
+      DoAnn (mkAnnotation (TcRecKnotOccurrence key)) (DoAnn annotation inner)
 
 -- | The type of the knot of a recursive group: the unit type for no
 -- variable, the type of the variable for one variable, and a tuple type for
@@ -2268,20 +2278,26 @@ recTupleType tys =
       pure (TcTyCon tc tys)
 
 -- | After the last statement of a recursive group, equate the type of each
--- group variable that the statements bound with its knot type.
-finishRecGroup :: Maybe SourceSpan -> TcType -> [(Entity, TcType)] -> TcM (TcType, [Ct])
+-- group variable that the statements bound with its knot type. A let
+-- statement can generalize a variable. Then the knot takes one instance of
+-- the variable, and 'inferRecStmt' keeps the occurrence annotation of that
+-- instance.
+finishRecGroup :: Maybe SourceSpan -> TcType -> [(UnqualifiedName, Entity, TcType)] -> TcM (TcType, [Ct])
 finishRecGroup sp innerTy binders = do
   cts <- mapM equate binders
   pure (innerTy, concat cts)
   where
-    equate (key, knotTy) = do
+    equate (name, key, knotTy) = do
       binder <- lookupTermKey key
       case binder of
         Just (TcMonoIdBinder boundTy) -> pure <$> wantedDoEq sp boundTy knotTy
         Just (TcIdBinder (ForAll [] [] boundTy) _) -> pure <$> wantedDoEq sp boundTy knotTy
-        _ -> do
-          emitError sp (OtherError "a variable of a rec group must have a monomorphic type")
-          pure []
+        Just TcIdBinder {} -> do
+          (pending, boundTy, cts) <- inferNameOccurrence sp (Name Nothing (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name))
+          mapM_ (recordRecKnotOccurrence key . mkAnnotation) pending
+          equality <- wantedDoEq sp boundTy knotTy
+          pure (cts <> [equality])
+        Nothing -> abortTc ("rec group variable missing from type environment: " <> show key)
 
 inferResolvedDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =

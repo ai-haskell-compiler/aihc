@@ -72,7 +72,8 @@ module Aihc.Tc.Monad
     resolvedLocalTermKey,
     extendTermEnv,
     withRecBinders,
-    isRecBinder,
+    recordRecKnotOccurrence,
+    takeRecKnotOccurrences,
     rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
@@ -571,7 +572,11 @@ data TcState = TcState
     -- uses it is checked, and that use is what fixes the kind. The kinds
     -- are therefore settled once the component is checked rather than at
     -- the point of generalization.
-    tcsDeferredKindMetas :: !IntSet
+    tcsDeferredKindMetas :: !IntSet,
+    -- | The occurrence annotation of each generalized variable of a
+    -- recursive @do@ group at the knot of the group. 'inferRecStmt'
+    -- takes them after the statements of the group.
+    tcsRecKnotOccurrences :: !(Map Entity Annotation)
   }
   deriving (Show)
 
@@ -597,7 +602,8 @@ initTcState =
       tcsTypeFamilyInstances = Map.empty,
       tcsFamilyEquations = Map.empty,
       tcsForeignImports = Map.empty,
-      tcsDeferredKindMetas = IntSet.empty
+      tcsDeferredKindMetas = IntSet.empty,
+      tcsRecKnotOccurrences = Map.empty
     }
 
 -- | Allocate a fresh 'Unique'.
@@ -788,10 +794,18 @@ withRecBinders binders action = do
     )
     action
 
--- | Whether a variable is a variable of an enclosing recursive @do@ group
--- that no statement of the group bound again yet.
-isRecBinder :: Entity -> TcM Bool
-isRecBinder key = asks (Set.member key . tcEnvRecBinders)
+-- | Record the occurrence annotation of a generalized group variable at
+-- the knot of its recursive @do@ group.
+recordRecKnotOccurrence :: Entity -> Annotation -> TcM ()
+recordRecKnotOccurrence key annotation =
+  lift (modify' (\s -> s {tcsRecKnotOccurrences = Map.insert key annotation (tcsRecKnotOccurrences s)}))
+
+-- | Take the knot occurrence annotations of the given group variables.
+takeRecKnotOccurrences :: [Entity] -> TcM [(Entity, Annotation)]
+takeRecKnotOccurrences keys = do
+  occurrences <- lift (gets tcsRecKnotOccurrences)
+  lift (modify' (\s -> s {tcsRecKnotOccurrences = foldr Map.delete (tcsRecKnotOccurrences s) keys}))
+  pure [(key, annotation) | key <- keys, Just annotation <- [Map.lookup key occurrences]]
 
 rebindTermEnv :: Entity -> TcBinder -> TcM a -> TcM a
 rebindTermEnv key binder =

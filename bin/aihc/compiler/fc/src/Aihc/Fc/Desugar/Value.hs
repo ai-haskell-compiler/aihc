@@ -5228,7 +5228,7 @@ desugarDoPatternContinuation annotation pattern' failure rest = do
 -- statement, as in GHC.
 doBindFailure :: Syn.DoStmt Syn.Expr -> ValueM (Maybe Expr)
 doBindFailure statement =
-  case [(cast, annotation, resolution) | (cast, Just annotation, resolution) <- fst (recStmtAnnotations statement), resolutionIdentifier resolution == IdentifierNamed "fail"] of
+  case [(cast, annotation, resolution) | (cast, Just annotation, resolution) <- recStmtMethods statement, resolutionIdentifier resolution == IdentifierNamed "fail"] of
     [(cast, annotation, resolution)] -> do
       method <- desugarResolvedOccurrence annotation resolution
       method' <-
@@ -5269,10 +5269,12 @@ renderSourceSpan span' =
 -- where @vs@ are the group variables in the order of 'recStmtBinderNames'.
 -- The type checker gives the checked methods and a tuple annotation, see
 -- 'inferRecStmt'. The variables come out of the tuple through lazy
--- bindings, so the knot is not forced before a variable is used.
+-- bindings, so the knot is not forced before a variable is used. A let
+-- statement can generalize a variable. Then @return vs@ applies it to the
+-- types and the evidence of its knot occurrence.
 desugarRecStmt :: Syn.DoStmt Syn.Expr -> [Syn.DoStmt Syn.Expr] -> ValueM Expr -> ValueM Expr
 desugarRecStmt statement inner rest = do
-  let (methods, maybeTuple) = recStmtAnnotations statement
+  let (methods, maybeTuple, knotOccurrences) = recStmtAnnotations statement
   tupleAnnotation <- maybe (failValue "rec statement has no checked tuple annotation") pure maybeTuple
   mfix <- recStmtMethod "mfix" methods
   returnMethod <- recStmtMethod "return" methods
@@ -5292,7 +5294,12 @@ desugarRecStmt statement inner rest = do
         values <-
           mapM
             ( \(key, _) -> case Map.lookup key locals of
-                Just (binder, _) -> pure (ExVar (binderName binder))
+                Just (binder, _) -> case lookup key knotOccurrences of
+                  Nothing -> pure (ExVar (binderName binder))
+                  Just annotation -> do
+                    types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+                    evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+                    desugarTermReference (binderName binder) types evidence (seqTermArgumentTypes annotation)
                 Nothing -> failValue ("rec statement variable is not in scope: " <> show key)
             )
             variables
@@ -5308,22 +5315,36 @@ desugarRecStmt statement inner rest = do
       resultFunction = ExLam result (foldr ExLet continuation resultBinds)
   pure (ExApp (ExApp bind (ExApp mfix knotFunction)) resultFunction)
 
--- | The checked methods of a @rec@ statement, each with its cast, and the
--- tuple annotation that is next to the statements. Each resolution closes
--- one method: the type annotation and the cast before it belong to it.
-recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation)
+-- | The checked methods of a @rec@ statement, each with its cast, the
+-- tuple annotation that is next to the statements, and the knot occurrence
+-- of each generalized group variable. Each resolution closes one method:
+-- the type annotation and the cast before it belong to it. A
+-- 'TcRecKnotOccurrence' marker comes before the occurrence annotation of
+-- its variable.
+recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation, [(Entity, TcAnnotation)])
 recStmtAnnotations = go Nothing Nothing
   where
     go cast annotation statement =
       case statement of
         Syn.DoAnn ann inner
           | Just resolution <- Syn.fromAnnotation ann ->
-              let (methods, tuple) = go Nothing Nothing inner
-               in ((cast, annotation, resolution) : methods, tuple)
+              let (methods, tuple, occurrences) = go Nothing Nothing inner
+               in ((cast, annotation, resolution) : methods, tuple, occurrences)
+          | Just (TcRecKnotOccurrence key) <- Syn.fromAnnotation ann,
+            Syn.DoAnn occurrenceAnn rest <- inner,
+            Just occurrence <- Syn.fromAnnotation occurrenceAnn ->
+              let (methods, tuple, occurrences) = go cast annotation rest
+               in (methods, tuple, (key, occurrence) : occurrences)
           | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation ann -> go (Just proof) annotation inner
           | Just checked <- Syn.fromAnnotation ann -> go cast (Just checked) inner
           | otherwise -> go cast annotation inner
-        _ -> ([], annotation)
+        _ -> ([], annotation, [])
+
+-- | The checked methods of a statement.
+recStmtMethods :: Syn.DoStmt Syn.Expr -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)]
+recStmtMethods statement =
+  let (methods, _, _) = recStmtAnnotations statement
+   in methods
 
 recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)] -> ValueM Expr
 recStmtMethod name methods =
