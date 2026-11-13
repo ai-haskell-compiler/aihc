@@ -73,6 +73,7 @@ import Aihc.Tc.Annotations
     TcMatchArityCast (..),
     TcPatSynAnnotation (..),
     TcPatternInstantiation (..),
+    TcRecKnotOccurrence (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Generate.Pattern (compStmtBinderNames, recStmtBinderNames)
