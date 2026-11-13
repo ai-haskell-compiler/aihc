@@ -926,12 +926,17 @@ mentionsGiven predicate evidence =
 -- for @b0@ when the instances are @Wrap a A@ and @Wrap A A@. If the solver
 -- uses @Wrap a A@ immediately, its context can make the same wanted again
 -- with a new meta variable, and the solver does not stop.
+--
+-- As in GHC, an incoherent instance does not cause a wait. An incoherent
+-- candidate is correct immediately, and an incoherent instance that can
+-- match later does not stop another candidate.
 mostSpecificInstances :: [TcType] -> [InstanceInfo] -> [InstanceInfo]
 mostSpecificInstances args instances =
   [ candidate
   | candidate <- candidates,
     not (any (`moreSpecificThan` candidate) candidates),
-    not (any (\other -> other `moreSpecificThan` candidate && couldMatchLater (iiHead other) args) others)
+    iiIncoherent candidate
+      || not (any (\other -> not (iiIncoherent other) && other `moreSpecificThan` candidate && couldMatchLater (iiHead other) args) others)
   ]
   where
     (candidates, others) = partition (\instanceInfo -> isJust (matchTypes (iiHead instanceInfo) args)) instances
